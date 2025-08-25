@@ -22,11 +22,11 @@ use crate::{
     store::{self, columns::*},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Anchor, Ballot, BallotId, CertificatePointer,
-    ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, Point,
-    PoolId, PoolParams, Proposal, ProposalPointer, StakeCredential, TransactionInput,
+    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration,
+    Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalPointer,
+    StakeCredential, TransactionInput, protocol_parameters::ProtocolParameters,
 };
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use tracing::error;
 

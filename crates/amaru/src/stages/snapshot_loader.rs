@@ -1,4 +1,4 @@
-use amaru_kernel::{network::NetworkName, Point};
+use amaru_kernel::{Point, network::NetworkName};
 use amaru_ledger::store::{Snapshot, Store};
 use amaru_stores::in_memory::MemoryStore;
 use std::{
@@ -53,7 +53,7 @@ pub fn load_snapshots_into_store(
             &bytes,
             &point,
             network,
-            &progress_bar::new_terminal_progress_bar,
+            &amaru_progress_bar::new_terminal_progress_bar,
         )?;
 
         let epoch = store.epoch();

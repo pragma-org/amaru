@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use crate::{
+    ExUnitPrices, ExUnits, PROTOCOL_VERSION_9, RationalNumber, Slot,
     protocol_parameters::{
         DRepVotingThresholds, GlobalParameters, PoolVotingThresholds, ProtocolParameters,
     },
-    ExUnitPrices, ExUnits, RationalNumber, Slot, PROTOCOL_VERSION_9,
 };
 use pallas_primitives::conway::CostModels;
 use std::sync::LazyLock;

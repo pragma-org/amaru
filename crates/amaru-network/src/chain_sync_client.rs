@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use crate::{point::to_network_point, session::PeerSession};
-use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
+use amaru_consensus::{RawHeader, consensus::ChainSyncEvent};
 use amaru_kernel::Point;
 use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
 use std::sync::{Arc, RwLock};
-use tracing::{instrument, Level, Span};
+use tracing::{Level, Span, instrument};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChainSyncClientError {

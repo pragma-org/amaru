@@ -71,11 +71,11 @@ mod tests {
 
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
     use amaru_kernel::{
-        include_cbor, include_json, json, KeepRaw, MintedTransactionBody, OriginalHash, Slot,
-        TransactionPointer,
+        KeepRaw, MintedTransactionBody, OriginalHash, Slot, TransactionPointer, include_cbor,
+        include_json, json,
     };
+    use amaru_tracing_json::assert_trace;
     use test_case::test_case;
-    use tracing_json::assert_trace;
 
     macro_rules! fixture {
         ($hash:literal, $pointer:expr) => {

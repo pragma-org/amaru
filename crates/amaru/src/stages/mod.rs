@@ -14,31 +14,30 @@
 
 use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
+    ConsensusError, IsHeader,
     consensus::{
-        build_stage_graph,
+        ChainSyncEvent, build_stage_graph,
         headers_tree::HeadersTree,
         select_chain::SelectChain,
         store::ChainStore,
         store_block::StoreBlock,
         store_header::StoreHeader,
         validate_header::{self, ValidateHeader},
-        ChainSyncEvent,
     },
-    ConsensusError, IsHeader,
 };
 use amaru_kernel::{
+    EraHistory, Hash, Header, Point,
     block::{BlockValidationResult, ValidateBlockEvent},
     network::NetworkName,
     peer::Peer,
     protocol_parameters::GlobalParameters,
-    EraHistory, Hash, Header, Point,
 };
 use amaru_network::session::PeerSession;
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{
-        consensus::{InMemConsensusStore, RocksDBStore},
         RocksDB, RocksDBHistoricalStores,
+        consensus::{InMemConsensusStore, RocksDBStore},
     },
 };
 use anyhow::Context;
@@ -48,12 +47,12 @@ use consensus::{
     store_block::StoreBlockStage, store_header::StoreHeaderStage,
 };
 use gasket::{
-    messaging::{tokio::funnel_ports, OutputPort},
-    runtime::{self, spawn_stage, Tether},
+    messaging::{OutputPort, tokio::funnel_ports},
+    runtime::{self, Tether, spawn_stage},
 };
 use ledger::ValidateBlockStage;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::Tip};
-use pure_stage::{tokio::TokioBuilder, StageGraph};
+use pure_stage::{StageGraph, tokio::TokioBuilder};
 use std::{
     error::Error,
     fmt::Display,
@@ -157,12 +156,12 @@ pub fn bootstrap(
         global_parameters.consensus_security_param,
     )?;
 
-    let consensus = match ledger_stage {
-        LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(Arc::new(
+    let consensus = match &ledger_stage {
+        LedgerStage::InMemLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
             validate_block_stage.state.view_stake_distribution(),
         )),
 
-        LedgerStage::OnDiskLedgerStage(ref validate_block_stage) => ValidateHeader::new(Arc::new(
+        LedgerStage::OnDiskLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
             validate_block_stage.state.view_stake_distribution(),
         )),
     };
@@ -368,7 +367,7 @@ fn make_ledger(
             )?;
             Ok((LedgerStage::InMemLedgerStage(Box::new(ledger)), tip))
         }
-        StorePath::OnDisk(ref ledger_dir) => {
+        StorePath::OnDisk(ledger_dir) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
                 RocksDB::new(ledger_dir)?,
                 RocksDBHistoricalStores::new(ledger_dir),
@@ -449,14 +448,14 @@ impl AsTip for Header {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS, EraHistory,
+        EraHistory, network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
     };
-    use amaru_ledger::store::{Store, TransactionalContext};
+    use amaru_ledger::store::{GovernanceActivity, Store, TransactionalContext};
     use amaru_stores::in_memory::MemoryStore;
     use std::path::PathBuf;
     use tokio_util::sync::CancellationToken;
 
-    use super::{bootstrap, Config, StorePath, StorePath::*};
+    use super::{Config, StorePath, StorePath::*, bootstrap};
 
     #[test]
     fn bootstrap_all_stages() {
@@ -464,17 +463,22 @@ mod tests {
         let era_history: &EraHistory = network.into();
         let ledger_store = MemoryStore::new(era_history.clone());
 
-        // Add 3 empty snapshots to the memory store
-        ledger_store.next_snapshot(0.into()).unwrap();
-        ledger_store.next_snapshot(1.into()).unwrap();
-        ledger_store.next_snapshot(2.into()).unwrap();
-
         // Add initial protocol parameters to the database; needed by the ledger.
         let transaction = ledger_store.create_transaction();
         transaction
             .set_protocol_parameters(&PREPROD_INITIAL_PROTOCOL_PARAMETERS)
             .unwrap();
+        transaction
+            .set_governance_activity(&GovernanceActivity {
+                consecutive_dormant_epochs: 0,
+            })
+            .unwrap();
         transaction.commit().unwrap();
+
+        // Add 3 empty snapshots to the memory store
+        ledger_store.next_snapshot(0.into()).unwrap();
+        ledger_store.next_snapshot(1.into()).unwrap();
+        ledger_store.next_snapshot(2.into()).unwrap();
 
         let config = Config {
             ledger_store: InMem(ledger_store),

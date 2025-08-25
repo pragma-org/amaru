@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, Anchor, Epoch, Lovelace, Set, StakeCredential, StrictMaybe};
+use crate::{Anchor, Epoch, Lovelace, Set, StakeCredential, StrictMaybe, cbor};
 
 #[derive(Debug)]
 pub struct DRepState {

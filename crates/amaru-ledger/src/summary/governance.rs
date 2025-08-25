@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::store::{columns::dreps, GovernanceActivity, Snapshot, StoreError};
+use crate::store::{GovernanceActivity, Snapshot, StoreError, columns::dreps};
 use amaru_kernel::{
-    expect_stake_credential, network::EraHistory, Anchor, CertificatePointer, DRep, Lovelace, Slot,
-    StakeCredential, TransactionPointer,
+    Anchor, CertificatePointer, DRep, Lovelace, Slot, StakeCredential, TransactionPointer,
+    expect_stake_credential, network::EraHistory,
 };
-use slot_arithmetic::{Epoch, EraHistoryError};
+use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug)]
@@ -27,6 +27,7 @@ pub struct GovernanceSummary {
 }
 
 #[derive(Debug, serde::Serialize)]
+#[cfg_attr(test, derive(Clone))]
 pub struct DRepState {
     #[serde(rename(serialize = "mandate"))]
     pub valid_until: Option<Epoch>,
@@ -36,6 +37,12 @@ pub struct DRepState {
     pub registered_at: CertificatePointer,
     #[serde(skip)]
     pub previous_deregistration: Option<CertificatePointer>,
+}
+
+impl DRepState {
+    pub fn is_active(&self, epoch: Epoch) -> bool {
+        self.valid_until.is_none() || self.valid_until > Some(epoch)
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]

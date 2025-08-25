@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::ConsensusError;
-use amaru_kernel::{cbor, Hash, Header, MintedHeader, Point};
-use tracing::{error, instrument, Level};
+use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
+use tracing::{Level, error, instrument};
 
 use super::{ChainSyncEvent, DecodedChainSyncEvent};
 

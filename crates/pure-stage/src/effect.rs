@@ -14,15 +14,15 @@
 // limitations under the License.
 
 use crate::{
-    serde::{never, to_cbor, SendDataValue},
-    simulation::{airlock_effect, EffectBox},
-    time::Clock,
     BoxFuture, CallId, CallRef, Instant, Name, Resources, SendData, Sender, StageRef,
+    serde::{SendDataValue, never, to_cbor},
+    simulation::{EffectBox, airlock_effect},
+    time::Clock,
 };
 use cbor4ii::{core::Value, serde::from_slice};
 use serde::de::DeserializeOwned;
 use std::{
-    any::{type_name, Any},
+    any::{Any, type_name},
     fmt::Debug,
     marker::PhantomData,
     sync::Arc,
@@ -577,7 +577,9 @@ impl Effect {
                 target: _,
                 id: i,
                 msg: m,
-            } if a == &at_stage.name && *i == cr.id && &**m as &dyn SendData == &msg as &dyn SendData => {}
+            } if a == &at_stage.name
+                && *i == cr.id
+                && &**m as &dyn SendData == &msg as &dyn SendData => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Respond at `{}` with id {cr:?} and msg {msg:?}",
                 at_stage.name

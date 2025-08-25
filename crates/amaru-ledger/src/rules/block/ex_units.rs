@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits};
+use amaru_kernel::{ExUnits, protocol_parameters::ProtocolParameters, sum_ex_units};
 
 use super::InvalidBlockDetails;
 
@@ -44,7 +44,7 @@ pub fn block_ex_units_valid(
 mod tests {
     use crate::rules::block::InvalidBlockDetails;
     use amaru_kernel::{
-        include_cbor, protocol_parameters::ProtocolParameters, ExUnits, HasExUnits, MintedBlock,
+        ExUnits, HasExUnits, MintedBlock, include_cbor, protocol_parameters::ProtocolParameters,
     };
     use test_case::test_case;
 

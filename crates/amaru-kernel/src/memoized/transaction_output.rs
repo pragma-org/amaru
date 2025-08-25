@@ -13,14 +13,13 @@
 // limitations under the License.
 
 use crate::{
-    cbor,
-    script::{encode_script, serialize_memoized_script, PlaceholderScript},
     Address, AlonzoValue, AssetName, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedNativeScript,
     MemoizedPlutusData, MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs,
-    PseudoScript, ScriptHash, Value,
+    PseudoScript, ScriptHash, Value, cbor,
+    script::{PlaceholderScript, encode_script, serialize_memoized_script},
 };
 
-use pallas_primitives::{conway::NativeScript, KeepRaw, PlutusData};
+use pallas_primitives::{KeepRaw, PlutusData, conway::NativeScript};
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
 pub struct MemoizedTransactionOutput {

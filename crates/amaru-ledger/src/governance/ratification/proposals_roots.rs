@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, ComparableProposalId};
+use amaru_kernel::{ComparableProposalId, cbor};
 use std::rc::Rc;
 
 pub type ProposalsRoots = GenericProposalsRoots<ComparableProposalId>;

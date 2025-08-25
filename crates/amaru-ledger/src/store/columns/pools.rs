@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, expect_stake_credential, PoolId, PoolParams, StakeCredential};
-use iter_borrow::IterBorrow;
-use slot_arithmetic::Epoch;
+use amaru_iter_borrow::IterBorrow;
+use amaru_kernel::{PoolId, PoolParams, StakeCredential, cbor, expect_stake_credential};
+use amaru_slot_arithmetic::Epoch;
 use tracing::{debug, trace};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
@@ -72,52 +72,52 @@ impl Row {
             // If the most recent retirement is effective as per the current epoch, we simply drop the
             // entry. Note that, any re-registration happening after that retirement would cancel it,
             // which is taken care of in the fold above (returning 'None').
-            if let Some(epoch) = retirement {
-                if epoch <= current_epoch {
-                    let retiring = &pool
-                        .as_ref()
-                        .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
-                        .current_params;
+            if let Some(epoch) = retirement
+                && epoch <= current_epoch
+            {
+                let retiring = &pool
+                    .as_ref()
+                    .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
+                    .current_params;
 
-                    let refund = expect_stake_credential(&retiring.reward_account);
+                let refund = expect_stake_credential(&retiring.reward_account);
 
-                    debug!(
-                        target: EVENT_TARGET,
-                        pool = %retiring.id,
-                        "tick.retiring"
-                    );
+                debug!(
+                    target: EVENT_TARGET,
+                    pool = %retiring.id,
+                    "tick.retiring"
+                );
 
-                    // NOTE:
-                    // Callee shall ensure that all pools are ticked on epoch-boundaries.
-                    //
-                    // Hence, since:
-                    //
-                    // 1. Re-registrations can only be scheduled for next epoch;
-                    // 2. Re-registrations cancel out any retirement for the same epoch;
-                    // 3. Retirements cancel out any retirement scheduled and not yet enacted.
-                    //
-                    // Then we cannot find a case where a pool retires and still have a
-                    // re-registration or another retirement still scheduled. Note that the reason
-                    // we enforce this invariant here is because the next action will erase the
-                    // pool -- and any remaining updates with it. This would have dramatic
-                    // consequences should we still have updates stashed for the future.
-                    let last = pool
-                        .as_ref()
-                        .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
-                        .future_params
-                        .last();
+                // NOTE:
+                // Callee shall ensure that all pools are ticked on epoch-boundaries.
+                //
+                // Hence, since:
+                //
+                // 1. Re-registrations can only be scheduled for next epoch;
+                // 2. Re-registrations cancel out any retirement for the same epoch;
+                // 3. Retirements cancel out any retirement scheduled and not yet enacted.
+                //
+                // Then we cannot find a case where a pool retires and still have a
+                // re-registration or another retirement still scheduled. Note that the reason
+                // we enforce this invariant here is because the next action will erase the
+                // pool -- and any remaining updates with it. This would have dramatic
+                // consequences should we still have updates stashed for the future.
+                let last = pool
+                    .as_ref()
+                    .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
+                    .future_params
+                    .last();
 
-                    assert_eq!(
-                        last,
-                        Some(&(None, current_epoch)),
-                        "invariant violation: most recent retirement is not last certificate: {:?}",
-                        last,
-                    );
+                assert_eq!(
+                    last,
+                    Some(&(None, current_epoch)),
+                    "invariant violation: most recent retirement is not last certificate: {:?}",
+                    last,
+                );
 
-                    *pool = None;
+                *pool = None;
 
-                    return Some(refund);
-                }
+                return Some(refund);
             }
 
             // Unwrap is safe here because we know the entry exists. Otherwise we wouldn't have got an
@@ -312,10 +312,10 @@ pub mod tests {
             for (current_epoch, updates) in updates.into_iter().enumerate() {
                 let current_epoch = Epoch::from(current_epoch as u64);
                 // Apply model's changes at the epoch boundary
-                if let Some(retirement) = model.retiring {
-                    if retirement <= current_epoch {
-                        model.current = None;
-                    }
+                if let Some(retirement) = model.retiring
+                    && retirement <= current_epoch
+                {
+                    model.current = None;
                 }
                 if let Some(future) = model.future.take() {
                     model.current = Some(future);

@@ -15,8 +15,8 @@
 use crate::in_memory::MemoryStore;
 use amaru_kernel::StakeCredential;
 use amaru_ledger::store::{
-    columns::accounts::{Key, Row, Value},
     StoreError,
+    columns::accounts::{Key, Row, Value},
 };
 use tracing::error;
 

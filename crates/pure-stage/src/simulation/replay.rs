@@ -14,17 +14,17 @@
 // limitations under the License.
 
 use crate::{
+    Effect, Instant, Name, SendData,
     serde::to_cbor,
     simulation::{
+        EffectBox,
         running::poll_stage,
         state::{StageData, StageState},
-        EffectBox,
     },
     time::EPOCH,
     trace_buffer::{TraceBuffer, TraceEntry},
-    Effect, Instant, Name, SendData,
 };
-use anyhow::{ensure, Context as _};
+use anyhow::{Context as _, ensure};
 use cbor4ii::serde::from_slice;
 use std::{collections::HashMap, mem::replace};
 

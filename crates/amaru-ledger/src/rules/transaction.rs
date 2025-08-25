@@ -14,9 +14,8 @@
 
 use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, EraHistory, KeepRaw,
-    MintedTransactionBody, MintedWitnessSet, Network, OriginalHash, TransactionInput,
-    TransactionPointer,
+    AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, Network,
+    OriginalHash, TransactionInput, TransactionPointer, protocol_parameters::ProtocolParameters,
 };
 use core::mem;
 use std::{fmt, ops::Deref};
@@ -175,7 +174,10 @@ where
         },
     )?;
 
-    withdrawals::execute(context, transaction_body.withdrawals.as_deref())?;
+    withdrawals::execute(
+        context,
+        mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()),
+    )?;
 
     proposals::execute(
         context,

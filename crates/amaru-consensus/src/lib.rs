@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{peer::Peer, Point, HEADER_HASH_SIZE};
+use amaru_kernel::{HEADER_HASH_SIZE, Point, peer::Peer};
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use pallas_crypto::hash::Hash;
 use std::fmt;

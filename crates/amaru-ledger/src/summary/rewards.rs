@@ -108,27 +108,25 @@ certain mutations are applied to the system.
 */
 
 use crate::{
-    store::{columns::*, Snapshot, StoreError},
+    store::{Snapshot, StoreError, columns::*},
     summary::{
-        safe_ratio,
+        AccountState, PoolState, Pots, SafeRatio, safe_ratio,
         serde::{encode_pool_id, serialize_map},
         serialize_safe_ratio,
         stake_distribution::StakeDistribution,
-        AccountState, PoolState, Pots, SafeRatio,
     },
 };
+use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
 use amaru_kernel::{
-    expect_stake_credential,
+    Hash, Lovelace, PoolId, StakeCredential, expect_stake_credential,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    Hash, Lovelace, PoolId, StakeCredential,
 };
-use iter_borrow::borrowable_proxy::BorrowableProxy;
+use amaru_slot_arithmetic::Epoch;
 use num::{
-    traits::{One, Zero},
     BigUint,
+    traits::{One, Zero},
 };
 use serde::ser::SerializeStruct;
-use slot_arithmetic::Epoch;
 use std::collections::BTreeMap;
 use tracing::info;
 
@@ -547,10 +545,9 @@ impl RewardsSummary {
             if let Some(account) = pools::Row::tick(
                 Box::new(BorrowableProxy::new(Some(row), |_| {})),
                 self.epoch + 3,
-            ) {
-                if db.account(&account)?.is_none() {
-                    return Ok::<_, StoreError>(leftovers + protocol_parameters.stake_pool_deposit);
-                }
+            ) && db.account(&account)?.is_none()
+            {
+                return Ok::<_, StoreError>(leftovers + protocol_parameters.stake_pool_deposit);
             }
 
             Ok(leftovers)

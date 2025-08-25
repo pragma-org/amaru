@@ -47,14 +47,14 @@ jobs:
           - runner: ubuntu-latest
             target: wasm32-unknown-unknown
             title: wasm32
-            packages: -p amaru-consensus -p amaru-ledger -p amaru-ouroboros -p slot-arithmetic
+            packages: -p amaru-consensus -p amaru-ledger -p pure-stage
             command: build
             setup: rustup target add wasm32-unknown-unknown
 
           - runner: ubuntu-latest
             target: riscv32im-risc0-zkvm-elf
             title: riscv32
-            packages: -p amaru-ledger -p slot-arithmetic
+            packages: -p amaru-ledger -p amaru-slot-arithmetic -p pure-stage
             extra-args: +nightly -Zbuild-std=std,panic_abort
             command: build
             setup: |

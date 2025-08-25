@@ -13,7 +13,7 @@
 // limitations under the License.
 
 /// This modules captures protocol-wide value pots such as treasury and reserves accounts.
-use amaru_kernel::{cbor, Lovelace};
+use amaru_kernel::{Lovelace, cbor};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Row {

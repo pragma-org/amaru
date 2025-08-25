@@ -14,43 +14,43 @@
 
 use super::echo::Envelope;
 use amaru_consensus::{
+    IsHeader,
     consensus::{
-        build_stage_graph,
+        ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent, build_stage_graph,
         headers_tree::HeadersTree,
         receive_header::handle_chain_sync,
-        select_chain::{SelectChain, DEFAULT_MAXIMUM_FRAGMENT_LENGTH},
+        select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
         store::ChainStore,
         store_header::StoreHeader,
         validate_header::{
             ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
         },
-        ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
     },
-    IsHeader,
 };
 use amaru_kernel::{
+    Hash, Header,
+    Point::{self, *},
+    Slot,
     network::NetworkName,
     peer::Peer,
     protocol_parameters::GlobalParameters,
-    to_cbor, Hash, Header,
-    Point::{self, *},
-    Slot,
+    to_cbor,
 };
 use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 use bytes::Bytes;
 use clap::Parser;
 use generate::{generate_entries, parse_json, read_chain_json};
-use ledger::{populate_chain_store, FakeStakeDistribution};
+use ledger::{FakeStakeDistribution, populate_chain_store};
 use pure_stage::{
-    simulation::SimulationBuilder, trace_buffer::TraceBuffer, Instant, Receiver, StageGraph,
-    StageRef, Void,
+    Instant, Receiver, StageGraph, StageRef, Void, simulation::SimulationBuilder,
+    trace_buffer::TraceBuffer,
 };
 use rand::Rng;
-use simulate::{pure_stage_node_handle, simulate, History, SimulateConfig};
+use simulate::{History, SimulateConfig, pure_stage_node_handle, simulate};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 pub use sync::*;
 use tokio::sync::Mutex;
-use tracing::{info, Span};
+use tracing::{Span, info};
 
 mod bytes;
 pub mod generate;

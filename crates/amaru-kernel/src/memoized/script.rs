@@ -13,9 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    cbor,
+    Bytes, MemoizedNativeScript, PlutusScript, PseudoScript, cbor,
     cbor::{bytes::ByteSlice, data::IanaTag},
-    Bytes, MemoizedNativeScript, PlutusScript, PseudoScript,
 };
 use serde::ser::SerializeStruct;
 

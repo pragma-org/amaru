@@ -175,7 +175,7 @@ mod tests {
     use crate::{
         cbor, decode_chunk, from_cbor, from_cbor_no_leftovers, heterogeneous_array,
         heterogeneous_map, missing_field,
-        tests::{foo::Foo, AsDefinite, AsIndefinite, AsMap},
+        tests::{AsDefinite, AsIndefinite, AsMap, foo::Foo},
         to_cbor, unexpected_field, with_default_value,
     };
     use std::fmt::Debug;
@@ -419,7 +419,7 @@ mod tests {
                 ) -> Result<(), cbor::encode::Error<W::Error>> {
                     e.map(1)?;
                     e.encode_with(0_u8, ctx)?;
-                    e.encode_with(self.0 .0.field0, ctx)?;
+                    e.encode_with(self.0.0.field0, ctx)?;
                     Ok(())
                 }
             }
@@ -432,7 +432,7 @@ mod tests {
                 ) -> Result<(), cbor::encode::Error<W::Error>> {
                     e.begin_map()?;
                     e.encode_with(1_u8, ctx)?;
-                    e.encode_with(self.0 .0.field1, ctx)?;
+                    e.encode_with(self.0.0.field1, ctx)?;
                     e.end()?;
                     Ok(())
                 }

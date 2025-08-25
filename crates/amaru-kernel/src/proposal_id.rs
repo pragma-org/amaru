@@ -105,7 +105,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ComparableProposalId {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::{ComparableProposalId, ProposalId};
-    use crate::{prop_cbor_roundtrip, Hash};
+    use crate::{Hash, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(ComparableProposalId, any_comparable_proposal_id());

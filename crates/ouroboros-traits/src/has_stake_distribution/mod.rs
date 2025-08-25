@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Lovelace, PoolId, VrfKeyhash};
-use slot_arithmetic::Slot;
+use amaru_slot_arithmetic::Slot;
 
 pub mod mock;
 

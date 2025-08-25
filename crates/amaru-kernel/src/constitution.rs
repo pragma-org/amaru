@@ -15,8 +15,8 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use crate::{
-        tests::{any_anchor, any_nullable, any_script_hash},
         Constitution,
+        tests::{any_anchor, any_nullable, any_script_hash},
     };
     use proptest::prelude::*;
 

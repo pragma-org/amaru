@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{MemoizedTransactionOutput, TransactionInput};
-use iter_borrow::IterBorrow;
 
 pub type Key = TransactionInput;
 
@@ -45,8 +45,8 @@ pub mod tests {
         }
     }
 
-    pub fn any_pseudo_transaction_output(
-    ) -> impl Strategy<Value = PseudoTransactionOutput<PostAlonzoTransactionOutput>> {
+    pub fn any_pseudo_transaction_output()
+    -> impl Strategy<Value = PseudoTransactionOutput<PostAlonzoTransactionOutput>> {
         any::<u64>().prop_map(|amount| {
             let inner = PostAlonzoTransactionOutput {
                 address: Bytes::from(vec![0u8; 32]),

@@ -15,19 +15,19 @@
 use crate::{
     governance::ratification::proposals_forest::ProposalsForestCompass,
     state::StakeDistributionView,
-    store::{columns::proposals, StoreError, TransactionalContext},
-    summary::{stake_distribution::StakeDistribution, SafeRatio},
+    store::{StoreError, TransactionalContext, columns::proposals},
+    summary::{SafeRatio, stake_distribution::StakeDistribution},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, DRep, Epoch, EraHistory,
-    Lovelace, PoolId, StakeCredential, UnitInterval, Vote, Voter,
+    Ballot, ComparableProposalId, DRep, Epoch, EraHistory, Lovelace, PoolId, StakeCredential,
+    UnitInterval, Vote, Voter, protocol_parameters::ProtocolParameters,
 };
 use num::Zero;
 use std::{
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
 };
-use tracing::{debug_span, field, info, info_span, trace_span, Span};
+use tracing::{Span, debug_span, field, info, info_span, trace_span};
 
 mod constitutional_committee;
 pub use constitutional_committee::ConstitutionalCommittee;
@@ -47,11 +47,6 @@ pub use proposals_roots::{ProposalsRoots, ProposalsRootsRc};
 
 mod proposals_tree;
 
-#[cfg(any(test, feature = "test-utils"))]
-pub mod tests {
-    pub use super::proposal_enum::tests::*;
-}
-
 /// All informations needed to ratify votes.
 pub struct RatificationContext<'distr> {
     /// The epoch that just ended.
@@ -59,10 +54,6 @@ pub struct RatificationContext<'distr> {
 
     /// The *current* (live! not from the stake distr snapshot) value of the treasury
     pub treasury: Lovelace,
-
-    /// The total amount of Lovelace withdrawn during this ratification. This is used to track the
-    /// amount in-between withdrawals and ensures we do not underflow the treasury.
-    pub total_withdrawn: Lovelace,
 
     /// The computed stake distribution for the epoch
     pub stake_distribution: StakeDistributionView<'distr>,
@@ -109,7 +100,8 @@ impl<'distr> RatificationContext<'distr> {
         // in what order and what are the relationships between proposals; such that, when a
         // proposal is enacted, conflicting proposals (those pointing at the same parent) are
         // pruned.
-        let mut forest = ProposalsForest::new(self.epoch, &roots).drain(era_history, proposals)?;
+        let mut forest = ProposalsForest::new(self.epoch, &roots, self.treasury)
+            .drain(era_history, proposals)?;
 
         // A mutable compass to navigate the forest. This compass holds the tiny bit of mutable
         // state we need to iterate over the forest; but without introducing a mutable borrow on
@@ -132,14 +124,13 @@ impl<'distr> RatificationContext<'distr> {
             // The inner block limits the lifetime of the immutable borrow(s) on forest; so that we
             // can then borrow the forest as immutable when a proposal gets ratified.
             let ratified: Option<(Rc<ComparableProposalId>, ProposalEnum)> = {
-                let Some((id, (proposal, _))) = compass.next(&forest) else {
+                let Some((id, (proposal, _))) = compass.next(&forest, &self.protocol_parameters)
+                else {
                     break;
                 };
 
                 Self::new_ratify_span(&id, proposal).in_scope(|| {
-                    if self.is_accepted_by_everyone(&id, proposal, &self.stake_distribution)
-                        && self.is_still_valid(proposal)
-                    {
+                    if self.is_accepted_by_everyone(&id, proposal, &self.stake_distribution) {
                         // NOTE: The .clone() on the proposal is necessary so we can drop the
                         // immutable borrow on the forest. It only happens when a proposal is
                         // ratified, though.
@@ -165,10 +156,11 @@ impl<'distr> RatificationContext<'distr> {
         }
 
         // Ensures that the treasury is properly depleted, if necessary.
-        if self.total_withdrawn > 0 {
+        let total_withdrawn = self.treasury - forest.treasury();
+        if total_withdrawn > 0 {
             store_updates.push(Box::new(move |db, _ctx| {
                 db.with_pots(|mut pots| {
-                    pots.borrow_mut().treasury -= self.total_withdrawn;
+                    pots.borrow_mut().treasury -= total_withdrawn;
                 })
             }));
         }
@@ -281,10 +273,6 @@ impl<'distr> RatificationContext<'distr> {
                         .push(Box::new(move |db, _ctx| db.set_constitution(&constitution))),
 
                     ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => {
-                        withdrawals.iter().for_each(|(_, magic_internet_money)| {
-                            self.total_withdrawn += magic_internet_money;
-                        });
-
                         store_updates.push(Box::new(move |db, _ctx| {
                             let leftovers = withdrawals
                                 .into_iter()
@@ -369,40 +357,6 @@ impl<'distr> RatificationContext<'distr> {
         }
     }
 
-    /// There are additional checks we should perform at the moment of ratification
-    ///
-    /// - On treasury withdrawals, we must ensure there's still enough money in the treasury.
-    ///   This is necessary since there can be an arbitrary number of withdrawals that have been
-    ///   ratified and enacted just before; possibly depleting the treasury.
-    ///
-    /// - On constitutional committee updates, we should ensure that any term limit is still
-    ///   valid. This can happen if a protocol parameter change that changes the max term limit
-    ///   is ratified *before* a committee update, possibly rendering it invalid.
-    ///
-    /// Note that either way, it doesn't *invalidate* proposals, since time and subsequent
-    /// proposals may turn the tide again. They should simply be skipped, and revisited at the
-    /// next epoch boundary.
-    fn is_still_valid(&self, proposal: &ProposalEnum) -> bool {
-        match proposal {
-            ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _)
-            | ProposalEnum::HardFork(..)
-            | ProposalEnum::Constitution(..)
-            | ProposalEnum::ProtocolParameters(..)
-            | ProposalEnum::Orphan(OrphanProposal::NicePoll) => true,
-
-            ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => {
-                self.total_withdrawn + withdrawals.values().sum::<Lovelace>() <= self.treasury
-            }
-
-            ProposalEnum::ConstitutionalCommittee(
-                CommitteeUpdate::ChangeMembers { added, .. },
-                _,
-            ) => added.values().all(|valid_until| {
-                valid_until <= &(self.epoch + self.protocol_parameters.max_committee_term_length)
-            }),
-        }
-    }
-
     fn is_accepted_by_everyone(
         &self,
         id: &ComparableProposalId,
@@ -412,22 +366,40 @@ impl<'distr> RatificationContext<'distr> {
         let span = tracing::Span::current();
 
         let empty = BTreeMap::new();
-
         let (dreps_votes, cc_votes, pool_votes) =
             partition_votes(self.votes.get(id).unwrap_or(&empty));
 
+        // NOTE: because ratification is an expensive operation, and something that we *may* have
+        // to replay due to rollbacks, it's important to do the least amount of work possible.
+        //
+        // If the CC doesn't approve, then the majority of actions can be considered invalid and
+        // there's no need to check for DReps nor SPO votes. The following code is thus written in
+        // a way that the next governance body is only consulted should the previous one be "no".
+
         let cc_approved = self.is_accepted_by_constitutional_committee(proposal, cc_votes);
+
         span.record("approved.committee", cc_approved);
 
-        let spos_approved =
-            self.is_accepted_by_stake_pool_operators(proposal, pool_votes, stake_distribution);
-        span.record("approved.pools", spos_approved);
+        if cc_approved {
+            let spos_approved =
+                self.is_accepted_by_stake_pool_operators(proposal, pool_votes, stake_distribution);
 
-        let dreps_approved =
-            self.is_accepted_by_delegate_representatives(proposal, dreps_votes, stake_distribution);
-        span.record("approved.dreps", dreps_approved);
+            span.record("approved.pools", spos_approved);
 
-        cc_approved && spos_approved && dreps_approved
+            if spos_approved {
+                let dreps_approved = self.is_accepted_by_delegate_representatives(
+                    proposal,
+                    dreps_votes,
+                    stake_distribution,
+                );
+
+                span.record("approved.dreps", dreps_approved);
+
+                return dreps_approved;
+            }
+        }
+
+        false
     }
 
     fn is_accepted_by_constitutional_committee(
@@ -562,4 +534,77 @@ fn info_roots(roots: &ProposalsRootsRc) {
         "roots.constitutional_committee" = opt_root(roots.constitutional_committee.as_deref()),
         "roots.constitution" = opt_root(roots.constitution.as_deref()),
     );
+}
+
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(any(all(test, not(target_os = "windows")), feature = "test-utils"))]
+pub mod tests {
+    use amaru_kernel::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
+    use std::sync::LazyLock;
+
+    pub use super::proposal_enum::tests::*;
+
+    // Technically higher than the actual gap we may see in 'real life', but, why not.
+    pub const MAX_ARBITRARY_EPOCH: u64 = 10;
+    pub const MIN_ARBITRARY_EPOCH: u64 = 0;
+
+    pub static ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
+        EraHistory::new(
+            &[Summary {
+                start: Bound {
+                    time_ms: 0,
+                    slot: Slot::from(0),
+                    epoch: Epoch::from(0),
+                },
+                end: None,
+                params: EraParams {
+                    // Pick an epoch length such that epochs falls within the min and max bounds;
+                    // knowing that slots ranges across all u64.
+                    epoch_size_slots: u64::MAX / (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH + 1),
+                    slot_length: 1,
+                },
+            }],
+            Slot::from(0),
+        )
+    });
+
+    #[cfg(all(test, not(target_os = "windows")))]
+    mod internal {
+        use super::*;
+        use amaru_kernel::tests::any_proposal_pointer;
+        use proptest::{prelude::*, test_runner::RngSeed};
+
+        proptest! {
+            #[test]
+            fn prop_era_history_yields_within_epoch_bounds(pointer in any_proposal_pointer(u64::MAX)) {
+                let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+                prop_assert!(
+                    epoch >= Epoch::from(MIN_ARBITRARY_EPOCH) && epoch <= Epoch::from(MAX_ARBITRARY_EPOCH),
+                    "generated a pointer outside of the configured epoch range; epoch = {epoch}"
+                );
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
+            #[test]
+            #[should_panic]
+            fn prop_proposal_pointer_sometimes_min_epoch(pointer in any_proposal_pointer(u64::MAX)) {
+                let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+                prop_assert!(epoch != Epoch::from(MIN_ARBITRARY_EPOCH));
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
+            #[test]
+            #[should_panic]
+            fn prop_proposal_pointer_sometimes_max_epoch(pointer in any_proposal_pointer(u64::MAX)) {
+                let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+                prop_assert!(epoch != Epoch::from(MAX_ARBITRARY_EPOCH));
+            }
+        }
+    }
 }

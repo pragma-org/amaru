@@ -15,11 +15,11 @@
 use super::{OrphanProposal, ProposalEnum};
 use crate::{
     governance::ratification::CommitteeUpdate,
-    summary::{into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution, SafeRatio},
+    summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution},
 };
 use amaru_kernel::{
-    DRep, DRepVotingThresholds, Epoch, ProtocolParamUpdate, ProtocolVersion, Vote,
-    PROTOCOL_VERSION_9,
+    DRep, DRepVotingThresholds, Epoch, PROTOCOL_VERSION_9, ProtocolParamUpdate, ProtocolVersion,
+    Vote,
 };
 use num::Zero;
 use std::collections::BTreeMap;
@@ -185,7 +185,7 @@ pub fn tally(
             .dreps
             .iter()
             .fold((0, 0), |(yes, denominator), (drep, st)| {
-                if st.valid_until.is_none() || Some(epoch) <= st.valid_until {
+                if st.is_active(epoch) {
                     match drep {
                         DRep::Abstain => (yes, denominator),
                         DRep::NoConfidence if proposal.is_no_confidence() => {
@@ -216,5 +216,149 @@ pub fn tally(
         SafeRatio::zero()
     } else {
         safe_ratio(yes, denominator)
+    }
+}
+
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(all(test, not(target_os = "windows")))]
+mod tests {
+    use super::{tally, voting_threshold};
+    use crate::{
+        governance::ratification::{
+            ProposalEnum,
+            tests::{MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH, any_proposal_enum},
+        },
+        summary::{
+            SafeRatio,
+            stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_pools},
+        },
+    };
+    use amaru_kernel::{
+        DRep, Epoch, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, Vote,
+        tests::{any_drep_voting_thresholds, any_vote_ref},
+    };
+    use num::{One, Zero};
+    use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
+    use std::{collections::BTreeMap, rc::Rc};
+
+    proptest! {
+        #[test]
+        fn prop_vote_disabled_in_v9(
+            is_state_of_no_confidence in any::<bool>(),
+            drep_voting_thresholds in any_drep_voting_thresholds(),
+            proposal in any_proposal_enum(),
+        ) {
+            let threshold = voting_threshold(
+                PROTOCOL_VERSION_9,
+                is_state_of_no_confidence,
+                &drep_voting_thresholds,
+                &proposal,
+            );
+
+            prop_assert!(
+                threshold.is_none() && proposal.is_nice_poll()
+                || threshold == Some(SafeRatio::zero())
+            )
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_state_of_no_confidence_only_influence_cc(
+            drep_voting_thresholds in any_drep_voting_thresholds(),
+            proposal in any_proposal_enum(),
+        ) {
+            let threshold_normal = voting_threshold(
+                PROTOCOL_VERSION_10,
+                false,
+                &drep_voting_thresholds,
+                &proposal,
+            );
+
+            let threshold_no_confidence = voting_threshold(
+                PROTOCOL_VERSION_10,
+                true,
+                &drep_voting_thresholds,
+                &proposal,
+            );
+
+            if proposal.is_committee_member_update() {
+                prop_assert!(threshold_normal != threshold_no_confidence)
+            } else {
+                prop_assert!(threshold_normal == threshold_no_confidence)
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_tally_is_never_greater_than_1((epoch, proposal, votes, stake_distribution) in any_tally()) {
+            let result = tally(epoch, &proposal, votes, &stake_distribution);
+            prop_assert!(result <= SafeRatio::one())
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_expired_dreps_do_not_influence_tally((epoch, proposal, votes, stake_distribution) in any_tally()) {
+            let result = tally(epoch, &proposal, votes.clone(), &stake_distribution);
+            let mut stake_distribution: StakeDistribution = stake_distribution.as_ref().clone();
+            stake_distribution.dreps.retain(|_, drep| drep.is_active(epoch));
+            let result_no_expired = tally(epoch, &proposal, votes, &stake_distribution);
+            prop_assert_eq!(result, result_no_expired)
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
+        #[test]
+        #[should_panic]
+        fn prop_generated_dreps_are_sometimes_expired((epoch, _, _, stake_distribution) in any_tally()) {
+            let n = stake_distribution.dreps.values().filter(|drep| !drep.is_active(epoch)).count();
+            prop_assert_eq!(n, 0, "no expired dreps")
+        }
+    }
+
+    pub fn any_tally() -> impl Strategy<
+        Value = (
+            Epoch,
+            ProposalEnum,
+            BTreeMap<DRep, &'static Vote>,
+            Rc<StakeDistribution>,
+        ),
+    > {
+        any_stake_distribution_no_pools(MIN_ARBITRARY_EPOCH, MAX_ARBITRARY_EPOCH).prop_flat_map(
+            |stake_distribution| {
+                (
+                    any_epoch(),
+                    any_proposal_enum(),
+                    any_votes(&stake_distribution),
+                    Just(Rc::new(stake_distribution)),
+                )
+            },
+        )
+    }
+
+    pub fn any_votes(
+        stake_distribution: &StakeDistribution,
+    ) -> impl Strategy<Value = BTreeMap<DRep, &'static Vote>> + use<> {
+        let dreps: Vec<DRep> = stake_distribution.dreps.keys().cloned().collect();
+
+        let upper_bound = dreps.len() - 1;
+
+        let voters = sample::subsequence(dreps, 0..=upper_bound).boxed();
+
+        voters
+            .prop_flat_map(|voters| {
+                collection::vec(any_vote_ref(), voters.len())
+                    .prop_map(move |votes| voters.clone().into_iter().zip(votes))
+            })
+            .prop_map(|kvs| kvs.into_iter().collect())
+    }
+
+    pub fn any_epoch() -> impl Strategy<Value = Epoch> {
+        (MIN_ARBITRARY_EPOCH..=MAX_ARBITRARY_EPOCH).prop_map(Epoch::from)
     }
 }

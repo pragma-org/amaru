@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+
+# Call this script to publish placeholder crates for all not-yet published workspace members
+# CARGO_REGISTRY_TOKEN=MY_TOKEN ./scripts/park-crates
+
+set -euo pipefail
+
+# ===== Functions =====
+crate_exists() {
+    local name="$1"
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$name")
+    [[ "$http_code" == "200" ]]
+}
+
+publish_placeholder() {
+    local name="$1"
+    local dir=$(mktemp -d)
+    mkdir -p "$dir/src"
+
+    cat > "$dir/Cargo.toml" <<EOF
+[package]
+name = "$name"
+version = "0.0.1"
+edition = "2024"
+description = "Reserved for future use."
+license = "Apache-2.0"
+readme = "README.md"
+
+[dependencies]
+[workspace]
+EOF
+
+    echo "# $name" > "$dir/README.md"
+    echo "" >> "$dir/README.md"
+    echo "Reserved for future use." >> "$dir/README.md"
+
+    cat > "$dir/src/lib.rs" <<EOF
+//! This crate is reserved for future use.
+pub fn is_placeholder() -> bool { true }
+EOF
+
+    (cd "$dir" && cargo publish --allow-dirty)
+    rm -rf "$dir"
+}
+
+# Extract members from root Cargo.toml
+workspace_members=$(cargo metadata --no-deps --format-version 1 \
+    | jq -r '.packages[].manifest_path' \
+    | xargs -n1 dirname)
+
+for member in $workspace_members; do
+    member_cargo="$member/Cargo.toml"
+    if [ ! -f "$member_cargo" ]; then
+        echo "⚠️  Skipping $member (no Cargo.toml found)"
+        continue
+    fi
+
+    crate_name=$(cargo metadata --no-deps --format-version 1 \
+        | jq -r --arg path "$member_cargo" \
+        '.packages[] | select(.manifest_path == $path) | .name')
+
+    if [ -z "$crate_name" ]; then
+        echo "⚠️  Could not determine crate name for $member"
+        continue
+    fi
+
+    if crate_exists "$crate_name"; then
+    echo $?
+        echo "✅ $crate_name already exists on crates.io"
+        continue
+    fi
+
+    echo "🚀 Publishing placeholder for $crate_name"
+    publish_placeholder "$crate_name"
+done
+
+echo "✅ Done."

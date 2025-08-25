@@ -19,7 +19,9 @@ use amaru_kernel::{HasLovelace, Lovelace, MintedTransactionOutput, TransactionIn
 pub enum InvalidFees {
     #[error("unknown collateral input at position {position}")]
     UnknownCollateralInput { position: usize },
-    #[error("collateral return value {{total_collateral_return}} is greater than total collateral input {{total_collateral_input}}")]
+    #[error(
+        "collateral return value {{total_collateral_return}} is greater than total collateral input {{total_collateral_input}}"
+    )]
     CollateralReturnOverflow {
         total_collateral_input: u64,
         total_collateral_return: u64,
@@ -73,9 +75,9 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
     };
-    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_tracing_json::assert_trace;
     use test_case::test_case;
-    use tracing_json::assert_trace;
 
     use super::InvalidFees;
 

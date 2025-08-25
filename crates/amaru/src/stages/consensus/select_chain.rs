@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::{
-    select_chain::SelectChain, DecodedChainSyncEvent, ValidateHeaderEvent,
+    DecodedChainSyncEvent, ValidateHeaderEvent, select_chain::SelectChain,
 };
 use gasket::framework::*;
-use tracing::{error, instrument, Level};
+use tracing::{Level, error, instrument};
 
 use crate::{schedule, send, stages::common::adopt_current_span};
 

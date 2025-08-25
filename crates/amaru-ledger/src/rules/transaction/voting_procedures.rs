@@ -58,9 +58,9 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
-    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_tracing_json::assert_trace;
     use test_case::test_case;
-    use tracing_json::assert_trace;
 
     macro_rules! fixture {
         ($hash:literal, $variant:literal) => {

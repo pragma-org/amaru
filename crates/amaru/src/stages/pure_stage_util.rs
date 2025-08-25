@@ -17,7 +17,7 @@ use gasket::{
     framework::{Stage, WorkSchedule, WorkerError},
     messaging,
 };
-use pure_stage::{tokio::TokioRunning, BoxFuture, Receiver, SendData, Sender, StageGraphRunning};
+use pure_stage::{BoxFuture, Receiver, SendData, Sender, StageGraphRunning, tokio::TokioRunning};
 use std::time::Duration;
 use tokio::{runtime::Runtime, select, time::sleep};
 use tokio_util::sync::CancellationToken;

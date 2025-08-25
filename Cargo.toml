@@ -1,13 +1,13 @@
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "A Cardano blockchain node implementation"
 license = "Apache-2.0"
 authors = ["Amaru Maintainers <amaru@pragma.builders>"]
 repository = "https://github.com/pragma-org/amaru"
 homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
-rust-version = "1.88"                                    # ⚠️ Also change in .cargo/rust-toolchain.toml
+rust-version = "1.91"                                    # ⚠️ Also change in .cargo/rust-toolchain.toml
 
 [workspace]
 members = ["crates/*", "simulation/*"]
@@ -16,10 +16,11 @@ resolver = "2"
 
 [workspace.dependencies]
 # External dependencies
-acto = { version = "0.7.4", features = ["tokio"] }
+acto = { version = "0.8.0", features = ["tokio"] }
 anyhow = "1.0.95"
 async-compression = { version = "0.4.25", features = ["tokio", "gzip"] }
 async-trait = "0.1.83"
+assert-json-diff = "2.0.2"
 bech32 = "0.11.0"
 cbor4ii = { version = "1.0.0", features = ["serde1", "use_std"] }
 clap = { version = "4.5.38", features = ["derive", "env"] }
@@ -28,7 +29,7 @@ futures-util = "0.3.31"
 gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
 hex = "0.4.3"
 indextree = "4.7.4"
-indicatif = "0.17.9"
+indicatif = "0.18.0"
 indoc = "2.0"
 minicbor = { version = "0.25.1", features = ["std", "half", "derive"] } # Must match the version used by pallas
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
@@ -49,7 +50,7 @@ pallas-primitives = "0.33.0"
 pallas-traverse = "0.33.0"
 parking_lot = "0.12.3"
 rayon = "1.10"
-rocksdb = { version = "0.23.0", default-features = false, features = [
+rocksdb = { version = "0.24.0", default-features = false, features = [
   "bindgen-runtime",
   "snappy",
   "multi-threaded-cf"
@@ -57,8 +58,8 @@ rocksdb = { version = "0.23.0", default-features = false, features = [
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0.128", default-features = false }
 sha3 = "0.10.8"
-sysinfo = "0.35.1"
-thiserror = "2.0.12"
+sysinfo = "0.37.0"
+thiserror = "2.0.16"
 tokio = { version = "1.45.0", features = ["sync"] }
 tokio-util = "0.7.12"
 tokio-stream = "0.1.17"
@@ -82,25 +83,25 @@ amaru-ouroboros = { path = "crates/ouroboros" }
 amaru-ouroboros-traits = { path = "crates/ouroboros-traits" }
 amaru-sim = { path = "crates/amaru-sim" }
 amaru-stores = { path = "crates/amaru-stores" }
-iter-borrow = { path = "crates/iter-borrow" }
-minicbor-extra = { path = "crates/minicbor-extra" }
-progress-bar = { path = "crates/progress-bar" }
+amaru-iter-borrow = { path = "crates/iter-borrow" }
+amaru-minicbor-extra = { path = "crates/minicbor-extra" }
+amaru-progress-bar = { path = "crates/progress-bar" }
 pure-stage = { path = "crates/pure-stage" }
-slot-arithmetic = { path = "crates/slot-arithmetic" }
-tracing-json = { path = "crates/tracing-json" }
+amaru-slot-arithmetic = { path = "crates/slot-arithmetic" }
+amaru-tracing-json = { path = "crates/tracing-json" }
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
 vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c2471fc5c4d441f13086676" }
 kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46f6a18925543d785850059569d7e78" }
 
 # dev-dependencies
-criterion = "0.6.0"
-ctor = "0.4.1"
+criterion = "0.7.0"
+ctor = "0.5.0"
 insta = "1.41.1"
 once_cell = "1.21.3"
 pretty_assertions = "1.4.1"
 proptest = { version = "1.5.0", default-features = false, features = ["std"] }
-rand = "0.9.1"
+rand = "0.9.2"
 rand_distr = "0.5.1"
 tempfile = "3.20.0"
 test-case = "3.3.1"

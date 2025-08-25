@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{hash_point, ClientOp};
+use super::{ClientOp, hash_point};
 use crate::stages::AsTip;
-use amaru_consensus::{consensus::store::ChainStore, IsHeader};
+use amaru_consensus::{IsHeader, consensus::store::ChainStore};
 use amaru_kernel::Header;
-use pallas_network::miniprotocols::{chainsync::Tip, Point};
+use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
 
 /// The state we track for one client.

@@ -29,10 +29,11 @@ amaru-consensus.workspace = true
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
+amaru-slot-arithmetic.workspace = true
 pure-stage.workspace = true
-slot-arithmetic.workspace = true
 
 [dev-dependencies]
+amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
 hex.workspace = true
 insta.workspace = true
 minicbor.workspace = true
@@ -43,4 +44,3 @@ serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing-subscriber.workspace = true
-slot-arithmetic = { workspace = true, features = ["test-utils"] }

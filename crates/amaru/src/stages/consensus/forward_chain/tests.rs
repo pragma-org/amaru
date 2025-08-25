@@ -15,12 +15,12 @@
 use super::{
     client_state::find_headers_between,
     test_infra::{
-        hash, mk_store, ClientMsg, Setup, BRANCH_47, CHAIN_47, LOST_47, TIP_47, WINNER_47,
+        BRANCH_47, CHAIN_47, ClientMsg, LOST_47, Setup, TIP_47, WINNER_47, hash, mk_store,
     },
 };
 use crate::stages::{AsTip, PallasPoint};
 use amaru_consensus::IsHeader;
-use pallas_network::miniprotocols::{chainsync::Tip, Point};
+use pallas_network::miniprotocols::{Point, chainsync::Tip};
 
 #[test]
 fn test_mk_store() {
@@ -98,8 +98,8 @@ fn find_headers_between_tip_and_lost() {
 
     let result = find_headers_between(&store, &tip, &points).unwrap();
     assert_eq!(result.0.len() as u64, store.get_height(TIP_47));
-    assert_eq!(result.1 .0, Point::Origin);
-    assert_eq!(result.1 .1, 0);
+    assert_eq!(result.1.0, Point::Origin);
+    assert_eq!(result.1.1, 0);
 }
 
 #[test]

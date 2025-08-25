@@ -14,7 +14,7 @@
 
 use super::InvalidOutput;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, to_cbor, HasLovelace, MintedTransactionOutput,
+    HasLovelace, MintedTransactionOutput, protocol_parameters::ProtocolParameters, to_cbor,
 };
 
 pub fn execute(

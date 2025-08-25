@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{from_cbor, memoized::blanket_try_from_hex_bytes, Bytes, KeepRaw, NativeScript};
+use crate::{Bytes, KeepRaw, NativeScript, from_cbor, memoized::blanket_try_from_hex_bytes};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(try_from = "&str")]
@@ -81,7 +81,7 @@ impl TryFrom<String> for MemoizedNativeScript {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{cbor, to_cbor, Hash, MaybeIndefArray};
+    use crate::{Hash, MaybeIndefArray, cbor, to_cbor};
     use pallas_primitives::conway as pallas;
     use proptest::prelude::*;
 

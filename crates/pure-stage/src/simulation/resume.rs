@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use crate::{
+    CallId, Instant, Name, SendData, StageResponse,
     effect::StageEffect,
     simulation::state::{StageData, StageState},
     trace_buffer::TraceBuffer,
-    CallId, Instant, Name, SendData, StageResponse,
 };
 use std::{mem::replace, time::Duration};
 use tokio::sync::oneshot::{Receiver, Sender};

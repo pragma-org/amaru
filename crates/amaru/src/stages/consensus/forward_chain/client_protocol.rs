@@ -15,18 +15,19 @@
 use crate::point::from_network_point;
 
 use super::{
-    client_state::{find_headers_between, ClientState},
     ClientOp,
+    client_state::{ClientState, find_headers_between},
 };
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_consensus::consensus::store::ChainStore;
-use amaru_kernel::{to_cbor, Hash, Header};
+use amaru_kernel::{Hash, Header, to_cbor};
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{
+        Point,
         blockfetch::{self, BlockRequest},
         chainsync::{self, ClientRequest, HeaderContent, Tip},
-        keepalive, txsubmission, Point,
+        keepalive, txsubmission,
     },
 };
 use std::sync::Arc;
@@ -128,12 +129,10 @@ async fn chain_sync(
                 tracing::debug!("got op {op:?}");
                 our_tip = op.tip();
                 state.add_op(op);
-                if waiting {
-                    if let Some(op) = state.next_op() {
-                        tracing::debug!("sending op {op:?} to waiting handler");
-                        waiting = false;
-                        handler.send(Some((op, our_tip.clone())));
-                    }
+                if waiting && let Some(op) = state.next_op() {
+                    tracing::debug!("sending op {op:?} to waiting handler");
+                    waiting = false;
+                    handler.send(Some((op, our_tip.clone())));
                 }
             }
             ActoInput::Message(ChainSyncMsg::ReqNext) => {

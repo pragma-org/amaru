@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use super::{OrphanProposal, ProposalEnum};
-use crate::summary::{safe_ratio, SafeRatio};
-use amaru_kernel::{Epoch, ProtocolVersion, StakeCredential, Vote, PROTOCOL_VERSION_9};
+use crate::summary::{SafeRatio, safe_ratio};
+use amaru_kernel::{Epoch, PROTOCOL_VERSION_9, ProtocolVersion, StakeCredential, Vote};
 use num::Zero;
 use std::{
     cell::RefCell,
@@ -94,10 +94,10 @@ impl ConstitutionalCommittee {
         &self,
         current_epoch: Epoch,
     ) -> Rc<BTreeMap<StakeCredential, StakeCredential>> {
-        if let Some((memoized_epoch, active_members)) = self.active_members.borrow().as_ref() {
-            if memoized_epoch == &current_epoch {
-                return active_members.clone();
-            }
+        if let Some((memoized_epoch, active_members)) = self.active_members.borrow().as_ref()
+            && memoized_epoch == &current_epoch
+        {
+            return active_members.clone();
         }
 
         let active_members = Rc::new(
@@ -197,22 +197,18 @@ mod tests {
     use super::ConstitutionalCommittee;
     use crate::{
         governance::ratification::tests::any_proposal_enum,
-        summary::{into_safe_ratio, SafeRatio},
+        summary::{SafeRatio, into_safe_ratio},
     };
     use amaru_kernel::{
-        tests::{any_rational_number, any_stake_credential},
-        Epoch, Hash, StakeCredential, Vote, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+        Epoch, Hash, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, StakeCredential, Vote,
+        tests::{VOTE_NO, VOTE_YES, any_rational_number, any_stake_credential, any_vote_ref},
     };
     use num::{One, Zero};
-    use proptest::{collection, prelude::*, sample};
+    use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
     use std::{
         collections::{BTreeMap, BTreeSet},
         rc::Rc,
     };
-
-    static VOTE_YES: Vote = Vote::Yes;
-    static VOTE_NO: Vote = Vote::No;
-    static VOTE_ABSTAIN: Vote = Vote::Abstain;
 
     const MIN_ARBITRARY_EPOCH: u64 = 10;
     const MAX_COMMITTEE_SIZE: usize = 10;
@@ -307,6 +303,7 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
         #[test]
         #[should_panic]
         fn prop_tally_is_sometimes_greater_than_0((epoch, votes, committee) in any_tally()) {
@@ -381,6 +378,7 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
         #[test]
         #[should_panic]
         fn prop_tally_sometimes_see_inactive_members((epoch, _, committee) in any_tally()) {
@@ -464,13 +462,9 @@ mod tests {
         }
     }
 
-    pub fn any_vote() -> impl Strategy<Value = &'static Vote> {
-        prop_oneof![Just(&VOTE_YES), Just(&VOTE_NO), Just(&VOTE_ABSTAIN)]
-    }
-
     pub fn any_votes(
         committee: &ConstitutionalCommittee,
-    ) -> impl Strategy<Value = BTreeMap<StakeCredential, &'static Vote>> {
+    ) -> impl Strategy<Value = BTreeMap<StakeCredential, &'static Vote>> + use<> {
         let potential_voters = committee.voters().into_iter().cloned().collect::<Vec<_>>();
 
         let upper_bound = potential_voters.len();
@@ -483,7 +477,7 @@ mod tests {
 
         actual_voters
             .prop_flat_map(|voters| {
-                collection::vec(any_vote(), voters.len())
+                collection::vec(any_vote_ref(), voters.len())
                     .prop_map(move |votes| voters.clone().into_iter().zip(votes))
             })
             .prop_map(|kvs| kvs.into_iter().collect())

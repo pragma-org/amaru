@@ -13,15 +13,16 @@
 // limitations under the License.
 
 use super::{
+    CommitteeUpdate, OrphanProposal, ProposalEnum,
     proposals_roots::ProposalsRootsRc,
     proposals_tree::{ProposalsTree, Sibling},
-    CommitteeUpdate, OrphanProposal, ProposalEnum,
 };
 use crate::{store::columns::proposals, summary::into_safe_ratio};
 use amaru_kernel::{
-    display_protocol_parameters_update, expect_stake_credential, ComparableProposalId,
-    Constitution, Epoch, EraHistory, GovAction, Nullable, ProposalId, ProposalPointer,
-    ProtocolParamUpdate, ProtocolVersion,
+    ComparableProposalId, Constitution, Epoch, EraHistory, GovAction, Lovelace, Nullable,
+    ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolVersion,
+    display_protocol_parameters_update, expect_stake_credential,
+    protocol_parameters::ProtocolParameters,
 };
 use std::{
     cmp::Ordering,
@@ -49,6 +50,11 @@ pub struct ProposalsForest {
     /// constitution) having been ratified.
     is_interrupted: bool,
 
+    /// The leftover treasury value, which is tracked in order to ensure that concurrent
+    /// withdrawals do not underflow the Cardano treasury (which would result in creating money out
+    /// of thin air).
+    treasury: Lovelace,
+
     /// The current epoch, a.k.a minimal epoch proposals must have been submitted after to be
     /// considered for ratification. This allows skipping the ratification of *just* submitted
     /// proposals, since it should happens with an epoch of delay.
@@ -63,8 +69,9 @@ pub struct ProposalsForest {
 }
 
 impl ProposalsForest {
-    pub fn new(current_epoch: Epoch, roots: &ProposalsRootsRc) -> Self {
+    pub fn new(current_epoch: Epoch, roots: &ProposalsRootsRc, treasury: Lovelace) -> Self {
         ProposalsForest {
+            treasury,
             current_epoch,
             is_interrupted: false,
 
@@ -82,6 +89,11 @@ impl ProposalsForest {
     /// Returns an iterator over the forest's proposal.
     pub fn new_compass(&self) -> ProposalsForestCompass {
         ProposalsForestCompass::new(self)
+    }
+
+    /// Returns what's left from the initial treasury
+    pub fn treasury(&self) -> Lovelace {
+        self.treasury
     }
 
     /// Insert many proposals at once, consuming them.
@@ -291,8 +303,16 @@ impl ProposalsForest {
                 self.constitution.enact(id)
             }
             ProposalEnum::ProtocolParameters(..) => self.protocol_parameters.enact(id),
-            ProposalEnum::Orphan(..) =>
-            {
+            ProposalEnum::Orphan(orphan) => {
+                match orphan {
+                    OrphanProposal::NicePoll => (),
+                    OrphanProposal::TreasuryWithdrawal(withdrawals) => {
+                        withdrawals.iter().for_each(|(_, magic_internet_money)| {
+                            self.treasury = self.treasury.saturating_sub(*magic_internet_money);
+                        });
+                    }
+                }
+
                 #[allow(clippy::map_entry)]
                 if self.proposals.contains_key(&id) {
                     Ok((id, BTreeSet::new()))
@@ -370,10 +390,15 @@ impl ProposalsForestCompass {
     pub fn next<'forest>(
         &mut self,
         forest: &'forest ProposalsForest,
+        protocol_parameters: &'_ ProtocolParameters,
     ) -> Option<(
         Rc<ComparableProposalId>,
         (&'forest ProposalEnum, &'forest ProposalPointer),
     )> {
+        use CommitteeUpdate::*;
+        use OrphanProposal::*;
+        use ProposalEnum::*;
+
         assert!(
             forest.sequence.len() == self.original_len,
             "compass re-used on a forest that has changed; you should have created a new compass."
@@ -430,6 +455,31 @@ impl ProposalsForestCompass {
                 // skip it.
                 if proposed_in >= &forest.current_epoch {
                     return None;
+                }
+
+                // On treasury withdrawals, we must ensure there's still enough money in the
+                // treasury. This is necessary since there can be an arbitrary number of
+                // withdrawals that have been ratified and enacted just before; possibly depleting
+                // the treasury.
+                if let Orphan(TreasuryWithdrawal(withdrawals)) = proposal {
+                    let total_withdrawn = withdrawals
+                        .values()
+                        .fold(0_u64, |total, n| total.saturating_add(*n));
+                    if total_withdrawn > forest.treasury() {
+                        return None;
+                    }
+                }
+
+                // On constitutional committee updates, we should ensure that any term limit is still
+                // valid. This can happen if a protocol parameter change that changes the max term limit
+                // is ratified *before* a committee update, possibly rendering it invalid.
+                if let ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
+                    let max_term_length = protocol_parameters.max_committee_term_length;
+                    let is_now_invalid =
+                        |valid_until| valid_until > &(forest.current_epoch + max_term_length);
+                    if added.values().any(is_now_invalid) {
+                        return None;
+                    }
                 }
 
                 // Ensures that the next proposal points to an active root. Not being the case isn't
@@ -750,45 +800,31 @@ fn priority_insert(
 mod tests {
     use super::ProposalsForest;
     use crate::governance::ratification::{
-        tests::{any_committee_update, any_proposal_enum},
-        CommitteeUpdate, ProposalEnum, ProposalsRootsRc,
+        CommitteeUpdate, OrphanProposal, ProposalEnum, ProposalsRootsRc,
+        tests::{
+            ERA_HISTORY, MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH, any_committee_update,
+            any_proposal_enum,
+        },
     };
     use amaru_kernel::{
+        ComparableProposalId, Epoch, GovAction, KeyValuePairs, Lovelace, Nullable, ProposalId,
+        ProposalPointer, RationalNumber, Set,
+        protocol_parameters::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters},
         tests::{
             any_comparable_proposal_id, any_constitution, any_gov_action, any_proposal_pointer,
-            any_protocol_params_update, any_protocol_version,
+            any_protocol_params_update, any_protocol_version, any_reward_account,
         },
-        Bound, ComparableProposalId, Epoch, EraHistory, EraParams, GovAction, KeyValuePairs,
-        Nullable, ProposalId, ProposalPointer, RationalNumber, Set, Slot, Summary,
     };
-    use proptest::{collection, prelude::*};
+    use proptest::{collection, prelude::*, test_runner::RngSeed};
     use std::{cmp::Ordering, collections::BTreeSet, rc::Rc, sync::LazyLock};
 
     const MAX_TREE_SIZE: usize = 8;
 
-    // Technically higher than the actual gap we may see in 'real life', but, why not.
-    const MAX_ARBITRARY_EPOCH: u64 = 10;
-    const MIN_ARBITRARY_EPOCH: u64 = 0;
-
-    static ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
-        EraHistory::new(
-            &[Summary {
-                start: Bound {
-                    time_ms: 0,
-                    slot: Slot::from(0),
-                    epoch: Epoch::from(0),
-                },
-                end: None,
-                params: EraParams {
-                    // Pick an epoch length such that epochs falls within the min and max bounds;
-                    // knowing that slots ranges across all u64.
-                    epoch_size_slots: u64::MAX / (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH + 1),
-                    slot_length: 1,
-                },
-            }],
-            Slot::from(0),
-        )
-    });
+    static PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
+        LazyLock::new(|| ProtocolParameters {
+            max_committee_term_length: (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH) / 2,
+            ..(*PREPROD_INITIAL_PROTOCOL_PARAMETERS).clone()
+        });
 
     fn check_invariants(forest: &ProposalsForest) -> usize {
         let size = forest.sequence.len();
@@ -817,35 +853,6 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_era_history_yields_within_epoch_bounds(pointer in any_proposal_pointer(u64::MAX)) {
-            let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
-            prop_assert!(
-                epoch >= Epoch::from(MIN_ARBITRARY_EPOCH) && epoch <= Epoch::from(MAX_ARBITRARY_EPOCH),
-                "generated a pointer outside of the configured epoch range; epoch = {epoch}"
-            );
-        }
-    }
-
-    proptest! {
-        #[test]
-        #[should_panic]
-        fn prop_proposal_pointer_sometimes_min_epoch(pointer in any_proposal_pointer(u64::MAX)) {
-            let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
-            prop_assert!(epoch != Epoch::from(MIN_ARBITRARY_EPOCH));
-        }
-    }
-
-    proptest! {
-        #[test]
-        #[should_panic]
-        fn prop_proposal_pointer_sometimes_max_epoch(pointer in any_proposal_pointer(u64::MAX)) {
-            let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
-            prop_assert!(epoch != Epoch::from(MAX_ARBITRARY_EPOCH));
-        }
-    }
-
-    proptest! {
-        #[test]
         fn prop_insert_increase_sizes_by_one(
             DebugAsDisplay(mut forest) in any_proposals_forest(),
             id in any_comparable_proposal_id(),
@@ -869,6 +876,89 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(14), ..ProptestConfig::default() })]
+        #[test]
+        #[should_panic]
+        fn prop_compass_sometimes_yield_constitutional_committee(
+            DebugAsDisplay(forest) in any_proposals_forest(),
+        ) {
+            let mut compass = forest.new_compass();
+            while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+                prop_assert!(!proposal.is_committee_member_update())
+            }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
+        #[test]
+        #[should_panic]
+        fn prop_compass_sometimes_yield_treasury_withdrawals(
+            DebugAsDisplay(forest) in any_proposals_forest(),
+        ) {
+            use super::ProposalEnum::*;
+
+            let mut compass = forest.new_compass();
+            while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+                prop_assert!(!matches!(proposal, Orphan(OrphanProposal::TreasuryWithdrawal(..))));
+            }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
+        #[test]
+        #[should_panic]
+        fn prop_compass_sometimes_yield_parameter_changes(
+            DebugAsDisplay(forest) in any_proposals_forest(),
+        ) {
+            use super::ProposalEnum::*;
+
+            let mut compass = forest.new_compass();
+            while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+                prop_assert!(!matches!(proposal, ProtocolParameters(..)));
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_max_cc_term_length_influence_compass_next(
+            DebugAsDisplay(mut forest) in any_proposals_forest(),
+        ) {
+            let mut compass = forest.new_compass();
+            let mut cc_update = None;
+            while let Some((id, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+                if let ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::ChangeMembers { added, .. }, _) = proposal {
+                    let min_valid_until = added.values().min();
+                    if min_valid_until >= Some(&Epoch::from(1)) {
+                        cc_update = Some((id, *min_valid_until.unwrap()));
+                    }
+                }
+            }
+
+            if let Some((previous_id, min_valid_until)) = cc_update {
+                forest.current_epoch = min_valid_until - 1;
+                compass = forest.new_compass();
+
+                let protocol_parameters = ProtocolParameters {
+                    max_committee_term_length: 0,
+                    ..(*PROTOCOL_PARAMETERS).clone()
+                };
+
+                while let Some((id, (_, _))) = compass.next(&forest, &protocol_parameters) {
+                    prop_assert!(
+                        id != previous_id,
+                        "yielded constitutional committee update ({id}) despite now-invalid committee"
+                    );
+                }
+            } else {
+                prop_assert!(true)
+            }
+        }
+    }
+
+    proptest! {
         #[test]
         fn prop_compass_traverse_whole_forest_and_eventually_yield_none(
             DebugAsDisplay(forest) in any_proposals_forest(),
@@ -878,7 +968,7 @@ mod tests {
             let mut previous_proposal = None;
             let mut compass = forest.new_compass();
 
-            while let Some((id, (proposal, pointer))) = compass.next(&forest) {
+            while let Some((id, (proposal, pointer))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
                 // Controls that the yielded proposal always has a matching root.
                 let roots = forest.roots();
                 match proposal {
@@ -892,15 +982,28 @@ mod tests {
                         roots.hard_fork.as_ref(),
                         "yielded proposal has a different root than latest enacted one",
                     ),
-                    ConstitutionalCommittee(_, parent) => prop_assert_eq!(
+                    ConstitutionalCommittee(committee, parent) => {
+                        prop_assert_eq!(
                         parent.as_ref(),
                         roots.constitutional_committee.as_ref(),
                         "yielded proposal has a different root than latest enacted one",
-                    ),
+                    );
+                        if let CommitteeUpdate::ChangeMembers { added, .. } = committee {
+                            prop_assert!(
+                                added
+                                    .values()
+                                    .all(|valid_until| *valid_until <= forest.current_epoch + PROTOCOL_PARAMETERS.max_committee_term_length)
+                            );
+                        }
+                    },
                     Constitution(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
                         roots.constitution.as_ref(),
                         "yielded proposal has a different root than latest enacted one",
+                    ),
+                    Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => prop_assert!(
+                        withdrawals.values().fold(0_u64, |total, n| total.saturating_add(*n)) <= forest.treasury(),
+                        "yielded proposal is a treasury withdrawal larger than treasury"
                     ),
                     Orphan(..) => ()
                 }
@@ -965,7 +1068,7 @@ mod tests {
         ) {
             let mut compass = forest.new_compass();
             let mut to_enact = Vec::new();
-            while let Some((id, (proposal, _))) = compass.next(&forest) {
+            while let Some((id, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
                 to_enact.push((id, proposal.clone()));
             }
 
@@ -983,7 +1086,7 @@ mod tests {
                 // (2) we never yield a pruned proposal;
                 // (3) no proposal are yielded after enacting a high-impact one;
                 let mut yielded_another = false;
-                while let Some((id, _)) = compass.next(&forest) {
+                while let Some((id, _)) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
                     yielded_another = true;
                     prop_assert!(
                         !pruned.contains(&id),
@@ -1004,13 +1107,15 @@ mod tests {
                 );
 
                 // Control that the enacted proposal is one of the new root.
-                prop_assert!(
-                    forest.roots().protocol_parameters.as_deref() == Some(id.as_ref()) ||
-                    forest.roots().hard_fork.as_deref() == Some(id.as_ref()) ||
-                    forest.roots().constitutional_committee.as_deref() == Some(id.as_ref()) ||
-                    forest.roots().constitution.as_deref() == Some(id.as_ref()),
-                    "none of the roots match the just enacted proposal",
-                );
+                if !proposal.is_orphan() {
+                    prop_assert!(
+                        forest.roots().protocol_parameters.as_deref() == Some(id.as_ref()) ||
+                        forest.roots().hard_fork.as_deref() == Some(id.as_ref()) ||
+                        forest.roots().constitutional_committee.as_deref() == Some(id.as_ref()) ||
+                        forest.roots().constitution.as_deref() == Some(id.as_ref()),
+                        "none of the roots match the just enacted proposal",
+                    );
+                }
             }
         }
     }
@@ -1019,13 +1124,16 @@ mod tests {
     // proposals but don't yield them won't be generated by this.
     fn any_non_empty_proposals_forest() -> impl Strategy<Value = DebugAsDisplay<ProposalsForest>> {
         any_proposals_forest().prop_filter("forest is not empty", |DebugAsDisplay(forest)| {
-            forest.new_compass().next(forest).is_some()
+            forest
+                .new_compass()
+                .next(forest, &PROTOCOL_PARAMETERS)
+                .is_some()
         })
     }
 
     // Generate an arbitrary forest, that has at least one Some(..) root.
-    fn any_grown_proposals_forest(
-    ) -> impl Strategy<Value = (DebugAsDisplay<ProposalsForest>, ComparableProposalId)> {
+    fn any_grown_proposals_forest()
+    -> impl Strategy<Value = (DebugAsDisplay<ProposalsForest>, ComparableProposalId)> {
         (any::<u8>(), any_proposals_forest()).prop_filter_map(
             "forest is immaculate",
             |(ix, DebugAsDisplay(forest))| {
@@ -1060,7 +1168,7 @@ mod tests {
     fn any_proposals_forest() -> impl Strategy<Value = DebugAsDisplay<ProposalsForest>> {
         let any_ids = collection::btree_set(
             any_comparable_proposal_id().prop_map(Rc::new),
-            4 * (MAX_TREE_SIZE + 2),
+            5 * (MAX_TREE_SIZE + 2),
         )
         .prop_map(|ids| ids.into_iter().collect::<Vec<_>>());
 
@@ -1118,14 +1226,39 @@ mod tests {
                 },
             );
 
+            let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
+            let any_orphans = (
+                Just(ids[lo..hi].into()),
+                collection::vec(any_proposal_pointer(u64::MAX), MAX_TREE_SIZE),
+                collection::vec(any_orphan_action(), 0..MAX_TREE_SIZE),
+            )
+                .prop_map(
+                    |(ids, pointers, orphans): (Vec<Rc<ComparableProposalId>>, _, _)| {
+                        ids.into_iter()
+                            .zip(pointers)
+                            .zip(orphans)
+                            .map(|((id, pointer), action)| (id.as_ref().clone(), pointer, action))
+                            .collect::<Vec<(ComparableProposalId, ProposalPointer, GovAction)>>()
+                    },
+                );
+
             (
                 any_protocol_parameters_tree,
                 any_hard_fork_tree,
                 any_constitutional_committee_tree,
                 any_constitution_tree,
+                any_orphans,
+                any::<u8>(),
             )
                 .prop_map(
-                    |(protocol_parameters, hard_fork, constitutional_committee, constitution)| {
+                    |(
+                        protocol_parameters,
+                        hard_fork,
+                        constitutional_committee,
+                        constitution,
+                        orphan,
+                        dice_roll,
+                    )| {
                         let mut forest = ProposalsForest::new(
                             // Leave one epoch for proposals that are fresh but not ready for ratification
                             // yet.
@@ -1136,19 +1269,36 @@ mod tests {
                                 constitutional_committee: constitutional_committee.0,
                                 constitution: constitution.0,
                             },
+                            Lovelace::MAX,
                         );
 
-                        std::iter::empty()
-                            .chain(protocol_parameters.1)
-                            .chain(hard_fork.1)
-                            .chain(constitutional_committee.1)
-                            .chain(constitution.1)
-                            .for_each(|(id, pointer, action)| {
-                                #[allow(clippy::unwrap_used)]
-                                forest
-                                    .insert(&ERA_HISTORY, id.clone(), pointer, action.clone())
-                                    .unwrap();
-                            });
+                        // Sometimes (~25% of the time), generate forest with only withdrawals and
+                        // protocol params, so that we can test enacting multiple proposals in a
+                        // single bound.
+                        if dice_roll % 4 > 0 {
+                            std::iter::empty()
+                                .chain(protocol_parameters.1)
+                                .chain(orphan)
+                                .for_each(|(id, pointer, action)| {
+                                    #[allow(clippy::unwrap_used)]
+                                    forest
+                                        .insert(&ERA_HISTORY, id.clone(), pointer, action.clone())
+                                        .unwrap();
+                                });
+                        } else {
+                            std::iter::empty()
+                                .chain(protocol_parameters.1)
+                                .chain(hard_fork.1)
+                                .chain(constitutional_committee.1)
+                                .chain(constitution.1)
+                                .chain(orphan)
+                                .for_each(|(id, pointer, action)| {
+                                    #[allow(clippy::unwrap_used)]
+                                    forest
+                                        .insert(&ERA_HISTORY, id.clone(), pointer, action.clone())
+                                        .unwrap();
+                                });
+                        }
 
                         DebugAsDisplay(forest)
                     },
@@ -1215,6 +1365,19 @@ mod tests {
 
                 (root.clone(), sequence)
             })
+    }
+
+    fn any_orphan_action() -> impl Strategy<Value = GovAction> {
+        prop_oneof![
+            1 => Just(GovAction::Information),
+            4 =>
+                collection::vec(
+                    (any_reward_account(), any::<Lovelace>()),
+                    1..3
+                ).prop_map(|kvs|
+                    GovAction::TreasuryWithdrawals(KeyValuePairs::from(kvs), Nullable::Null)
+                ),
+        ]
     }
 
     // Test Helpers

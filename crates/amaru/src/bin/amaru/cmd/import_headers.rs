@@ -14,14 +14,14 @@
 
 use crate::cmd::connect_to_peer;
 use amaru::stages::pull;
-use amaru_consensus::{consensus::store::ChainStore, IsHeader};
-use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, peer::Peer, Header, Point};
+use amaru_consensus::{IsHeader, consensus::store::ChainStore};
+use amaru_kernel::{Header, Point, default_chain_dir, from_cbor, network::NetworkName, peer::Peer};
 use amaru_network::session::PeerSession;
+use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{self, HeaderContent, NextResponse};
-use progress_bar::{new_terminal_progress_bar, ProgressBar};
 use std::{
     error::Error,
     path::PathBuf,
@@ -217,12 +217,10 @@ fn handle_response(
         NextResponse::RollBackward(point, tip) => {
             info!(?point, ?tip, "roll_backward");
             if progress.is_none() {
-                *progress = Some(
-                    new_terminal_progress_bar(
-                        max,
-                        " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)"
-                    )
-                );
+                *progress = Some(new_terminal_progress_bar(
+                    max,
+                    " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)",
+                ));
             }
             Ok(Continue)
         }

@@ -12,26 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::{common::adopt_current_span, PallasPoint};
+use crate::stages::{PallasPoint, common::adopt_current_span};
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
-use amaru_consensus::{consensus::store::ChainStore, IsHeader};
-use amaru_kernel::{block::BlockValidationResult, Hash, Header};
-use client_protocol::{client_protocols, ClientProtocolMsg};
+use amaru_consensus::{IsHeader, consensus::store::ChainStore};
+use amaru_kernel::{Hash, Header, block::BlockValidationResult};
+use client_protocol::{ClientProtocolMsg, client_protocols};
 use gasket::framework::*;
 use pallas_network::{
     facades::PeerServer,
-    miniprotocols::{chainsync::Tip, Point},
+    miniprotocols::{Point, chainsync::Tip},
 };
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 use tokio::{
     net::TcpListener,
     sync::{
-        mpsc::{self, Receiver},
         Mutex,
+        mpsc::{self, Receiver},
     },
     task::JoinHandle,
 };
-use tracing::{error, info, instrument, trace, Level};
+use tracing::{Level, error, info, instrument, trace};
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 

@@ -27,7 +27,7 @@ use amaru_kernel::{
     ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
     UnitInterval, Vote, Voter,
 };
-use progress_bar::ProgressBar;
+use amaru_progress_bar::ProgressBar;
 use std::{collections::BTreeMap, fs, iter, path::PathBuf, rc::Rc, sync::LazyLock};
 use tracing::info;
 
@@ -463,14 +463,14 @@ fn import_utxo(
     Ok(())
 }
 
-fn import_dreps(
-    db: &impl Store,
+fn import_dreps<S: Store>(
+    db: &S,
     point: &Point,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     epoch: Epoch,
     dreps: BTreeMap<StakeCredential, DRepState>,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), impl std::error::Error + use<S>> {
     let mut known_dreps = BTreeMap::new();
 
     let era_first_epoch = era_history
@@ -596,8 +596,8 @@ fn import_proposals(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn import_stake_pools(
-    db: &impl Store,
+fn import_stake_pools<S: Store>(
+    db: &S,
     point: &Point,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
@@ -605,7 +605,7 @@ fn import_stake_pools(
     pools: BTreeMap<PoolId, PoolParams>,
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), impl std::error::Error + use<S>> {
     let mut state = DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
         state.register(pool, params);

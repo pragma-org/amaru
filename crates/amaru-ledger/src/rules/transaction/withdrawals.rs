@@ -19,6 +19,7 @@ use crate::{
 use amaru_kernel::{
     Address, HasOwnership, Lovelace, MemoizedDatum, RequiredScript, RewardAccount, ScriptPurpose,
 };
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -33,27 +34,32 @@ pub enum InvalidWithdrawals {
 
 pub(crate) fn execute<C>(
     context: &mut C,
-    withdrawals: Option<&Vec<(RewardAccount, Lovelace)>>,
+    withdrawals: Option<Vec<(RewardAccount, Lovelace)>>,
 ) -> Result<(), InvalidWithdrawals>
 where
     C: WitnessSlice + AccountsSlice,
 {
     if let Some(withdrawals) = withdrawals {
         withdrawals
-            .iter()
+            .into_iter()
             .enumerate()
-            .try_for_each(|(position, (raw_account, _))| {
-                // TODO: This parsing should happen when we first deserialise the block, and
-                // not in the middle of rules validations.
-                let credential = Address::from_bytes(raw_account)
+            .map(|(position, (bytes, st))| {
+                let credential = Address::from_bytes(&bytes)
                     .ok()
                     .and_then(|account| account.credential())
                     .ok_or_else(|| InvalidWithdrawals::MalformedRewardAccount {
-                        bytes: raw_account.to_vec(),
+                        bytes: bytes.to_vec(),
                         context: TransactionField::Withdrawals,
                         position,
                     })?;
 
+                Ok((credential, st))
+            })
+            // NOTE: Force withdrawals to be sorted by stake credentials
+            .collect::<Result<BTreeMap<_, _>, _>>()?
+            .into_iter()
+            .enumerate()
+            .for_each(|(position, (credential, _))| {
                 match credential {
                     amaru_kernel::StakeCredential::ScriptHash(hash) => context
                         .require_script_witness(RequiredScript {
@@ -68,9 +74,7 @@ where
                 };
 
                 context.withdraw_from(credential);
-
-                Ok(())
-            })?;
+            });
     }
 
     Ok(())
@@ -82,9 +86,9 @@ mod test {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::TransactionField,
     };
-    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_tracing_json::assert_trace;
     use test_case::test_case;
-    use tracing_json::assert_trace;
 
     use super::InvalidWithdrawals;
 
@@ -117,6 +121,10 @@ mod test {
 
     #[test_case(fixture!("f861e92f12e12a744e1392a29fee5c49b987eae5e75c805f14e6ecff4ef13ff7"))]
     #[test_case(fixture!("a81147b58650b80f08986b29dad7f5efedd53ff215c17659f9dd0596e9a3d227"))]
+    #[test_case(
+        fixture!("6913ffb3588cad067c518fa1020c0f1f86adcc58abd7851bc380db058941c43b");
+        "script declared after verification key but processed before"
+    )]
     #[test_case(fixture!("f861e92f12e12a744e1392a29fee5c49b987eae5e75c805f14e6ecff4ef13ff7", "malformed-account") =>
         matches Err(InvalidWithdrawals::MalformedRewardAccount {  position, bytes, context })
             if  position == 0 && bytes == vec![0x00, 0x00] && matches!(context, TransactionField::Withdrawals);
@@ -130,7 +138,7 @@ mod test {
                     utxo: Default::default(),
                 });
 
-                super::execute(&mut context, tx.withdrawals.as_deref())
+                super::execute(&mut context, tx.withdrawals.clone().map(|xs| xs.to_vec()))
             },
             expected_traces,
         )

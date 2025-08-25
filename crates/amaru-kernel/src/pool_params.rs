@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    cbor, AddrKeyhash, Coin, Nullable, PoolId, PoolMetadata, Relay, RewardAccount, Set,
-    UnitInterval, VrfKeyhash,
+    AddrKeyhash, Coin, Nullable, PoolId, PoolMetadata, Relay, RewardAccount, Set, UnitInterval,
+    VrfKeyhash, cbor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,7 +172,7 @@ impl serde::Serialize for PoolParams {
 pub mod tests {
     use super::*;
     use crate::{
-        prop_cbor_roundtrip, Hash, IPv4, IPv6, Nullable, PoolId, Port, RationalNumber, Relay,
+        Hash, IPv4, IPv6, Nullable, PoolId, Port, RationalNumber, Relay, prop_cbor_roundtrip,
     };
     use proptest::{prelude::*, prop_compose};
 

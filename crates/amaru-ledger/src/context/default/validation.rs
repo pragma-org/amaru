@@ -14,9 +14,9 @@
 
 use crate::{
     context::{
-        blanket_known_datums, blanket_known_scripts, AccountState, AccountsSlice, CCMember,
-        CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice, ProposalsSlice,
-        RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
+        PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
+        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
     state::volatile_db::VolatileState,
 };
@@ -26,8 +26,8 @@ use amaru_kernel::{
     PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash,
     StakeCredential, TransactionInput, Vote, Voter,
 };
+use amaru_slot_arithmetic::Epoch;
 use core::mem;
-use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::trace;
 

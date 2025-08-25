@@ -13,21 +13,21 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, ComparableProposalId, Constitution,
-    ConstitutionalCommittee, Point, PoolId, Slot, StakeCredential, TransactionInput,
+    ComparableProposalId, Constitution, ConstitutionalCommittee, Point, PoolId, Slot,
+    StakeCredential, TransactionInput, protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     governance::ratification::ProposalsRoots,
     store::{
+        GovernanceActivity, ReadStore, Snapshot, StoreError,
         columns::{
             accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
             pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
             votes as votes_column,
         },
-        GovernanceActivity, ReadStore, Snapshot, StoreError,
     },
 };
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use std::collections::BTreeMap;
 
 use crate::in_memory::MemoryStore;

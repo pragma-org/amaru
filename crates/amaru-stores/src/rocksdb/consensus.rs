@@ -13,15 +13,15 @@
 // limitations under the License.
 
 use amaru_consensus::{
-    consensus::store::{ChainStore, ReadOnlyChainStore, StoreError},
     Nonces,
+    consensus::store::{ChainStore, ReadOnlyChainStore, StoreError},
 };
-use amaru_kernel::{cbor, from_cbor, network::NetworkName, to_cbor, Hash, RawBlock};
+use amaru_kernel::{Hash, RawBlock, cbor, from_cbor, network::NetworkName, to_cbor};
 use amaru_ouroboros_traits::is_header::IsHeader;
-use rocksdb::{OptimisticTransactionDB, Options, DB};
-use slot_arithmetic::EraHistory;
+use amaru_slot_arithmetic::EraHistory;
+use rocksdb::{DB, OptimisticTransactionDB, Options};
 use std::{collections::BTreeMap, path::PathBuf};
-use tracing::{error, instrument, Level};
+use tracing::{Level, error, instrument};
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
@@ -192,9 +192,9 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
 #[cfg(test)]
 mod test {
     use super::*;
-    use amaru_kernel::{network::NetworkName, EraHistory};
+    use amaru_kernel::{EraHistory, network::NetworkName};
     use amaru_ouroboros_traits::is_header::fake::FakeHeader;
-    use rand::{rngs::StdRng, RngCore, SeedableRng};
+    use rand::{RngCore, SeedableRng, rngs::StdRng};
     use std::{fs::create_dir_all, path::PathBuf};
     use tempfile::TempDir;
 

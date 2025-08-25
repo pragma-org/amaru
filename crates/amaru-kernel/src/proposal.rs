@@ -15,8 +15,8 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use crate::{
-        tests::{any_anchor, any_gov_action, any_reward_account},
         Lovelace, Proposal,
+        tests::{any_anchor, any_gov_action, any_reward_account},
     };
     use proptest::{prelude::*, prop_compose};
 

@@ -19,11 +19,6 @@ use crate::{
     summary::Pots,
 };
 use amaru_kernel::{
-    // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
-    // instances for some types, and the macro rule handling that seems to be explicitly looking
-    // for 'minicbor' in scope, and not an alias of any sort...
-    cbor as minicbor,
-    protocol_parameters::ProtocolParameters,
     CertificatePointer,
     EraHistory,
     Lovelace,
@@ -31,6 +26,11 @@ use amaru_kernel::{
     PoolId,
     StakeCredential,
     TransactionInput,
+    // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
+    // instances for some types, and the macro rule handling that seems to be explicitly looking
+    // for 'minicbor' in scope, and not an alias of any sort...
+    cbor as minicbor,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_kernel::{
     ComparableProposalId, Constitution, ConstitutionalCommittee, Epoch, MemoizedTransactionOutput,

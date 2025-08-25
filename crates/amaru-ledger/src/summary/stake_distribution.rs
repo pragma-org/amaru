@@ -13,21 +13,21 @@
 // limitations under the License.
 
 use crate::{
-    store::{columns::*, Snapshot, StoreError},
+    store::{Snapshot, StoreError, columns::*},
     summary::{
+        AccountState, PoolState,
         governance::{DRepState, GovernanceSummary},
         safe_ratio,
         serde::{encode_drep, encode_pool_id, encode_stake_credential, serialize_map},
-        AccountState, PoolState,
     },
 };
+use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
 use amaru_kernel::{
+    DRep, HasLovelace, Lovelace, Network, PROTOCOL_VERSION_9, PoolId, StakeCredential,
     expect_stake_credential, output_stake_credential, protocol_parameters::ProtocolParameters,
-    DRep, HasLovelace, Lovelace, Network, PoolId, StakeCredential, PROTOCOL_VERSION_9,
 };
-use iter_borrow::borrowable_proxy::BorrowableProxy;
+use amaru_slot_arithmetic::Epoch;
 use serde::ser::SerializeStruct;
-use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::info;
 
@@ -41,6 +41,7 @@ const EVENT_TARGET: &str = "amaru::ledger::state::stake_distribution";
 /// Note that the `accounts` field only contains _active_ accounts; that is, accounts
 /// delegated to a registered stake pool.
 #[derive(Debug)]
+#[cfg_attr(test, derive(Clone))]
 pub struct StakeDistribution {
     /// Epoch number for this snapshot (taken at the end of the epoch)
     pub epoch: Epoch,
@@ -215,11 +216,11 @@ impl StakeDistribution {
                 let refund = refunds.get(credential).copied().unwrap_or_default();
 
                 // NOTE: Only accounts delegated to active dreps counts towards the voting stake.
-                if let Some(drep) = &account.drep {
-                    if let Some(st) = dreps.get_mut(drep) {
-                        dreps_voting_stake += account.lovelace + drep_deposits + refund;
-                        st.stake += account.lovelace + drep_deposits + refund;
-                    }
+                if let Some(drep) = &account.drep
+                    && let Some(st) = dreps.get_mut(drep)
+                {
+                    dreps_voting_stake += account.lovelace + drep_deposits + refund;
+                    st.stake += account.lovelace + drep_deposits + refund;
                 }
 
                 // NOTE: Only accounts delegated to active pools counts towards the active stake.
@@ -308,14 +309,46 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::StakeDistribution;
-    use crate::summary::{safe_ratio, AccountState, PoolState};
+    use crate::summary::{AccountState, PoolState, safe_ratio, stake_distribution::DRepState};
     use amaru_kernel::{
-        expect_stake_credential,
-        tests::{any_drep, any_pool_id, any_pool_params, any_stake_credential},
-        Epoch, Lovelace,
+        Epoch, Lovelace, expect_stake_credential,
+        tests::{
+            any_anchor, any_certificate_pointer, any_drep, any_pool_id, any_pool_params,
+            any_stake_credential,
+        },
     };
     use proptest::{collection, option, prelude::*, prop_compose};
     use std::collections::BTreeMap;
+
+    prop_compose! {
+        pub fn any_stake_distribution_no_pools(
+            min_epoch: u64,
+            max_epoch: u64,
+        )(
+            epoch in any::<u64>(),
+            active_stake_delta in any::<Lovelace>(),
+            dreps in collection::btree_map(any_drep(), any_drep_state(min_epoch, max_epoch), 1..10),
+            accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
+        ) -> StakeDistribution {
+            let dreps_voting_stake = dreps.values().fold(0, |total, st| total + st.stake);
+
+            let active_stake = if Lovelace::MAX - dreps_voting_stake >= active_stake_delta {
+                Lovelace::MAX
+            } else {
+                dreps_voting_stake + active_stake_delta
+            };
+
+            StakeDistribution {
+                epoch: Epoch::from(epoch),
+                active_stake,
+                dreps,
+                dreps_voting_stake,
+                accounts,
+                pools: BTreeMap::new(),
+                pools_voting_stake: 0,
+            }
+        }
+    }
 
     prop_compose! {
         pub fn any_stake_distribution_no_dreps()(
@@ -394,6 +427,39 @@ pub mod tests {
                 voting_stake: stake.max(voting_stake),
                 margin,
                 parameters,
+            }
+        }
+    }
+
+    prop_compose! {
+        pub fn any_drep_state(
+            min_epoch: u64,
+            max_epoch: u64,
+        )(
+            valid_until in min_epoch..=max_epoch,
+            metadata in option::of(any_anchor()),
+            stake in 0_u64..1_000_000_000_000,
+            registered_at in any_certificate_pointer(u64::MAX),
+            previous_deregistration in option::of(any_certificate_pointer(u64::MAX)),
+        ) -> DRepState {
+            // Ensure registered at is always strictly after previous de-registrations.
+            let (registered_at, previous_deregistration) = if previous_deregistration > Some(registered_at) {
+                #[allow(clippy::unwrap_used)]
+                // NOTE: .unwrap can't fail because of the 'if' guard.
+                (previous_deregistration.unwrap(), Some(registered_at))
+            } else if previous_deregistration == Some(registered_at) {
+                (registered_at, None)
+            } else {
+                (registered_at, previous_deregistration)
+            };
+
+
+            DRepState {
+                valid_until: Some(Epoch::from(valid_until)),
+                metadata,
+                stake,
+                registered_at,
+                previous_deregistration
             }
         }
     }

@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{protocol_parameters::GlobalParameters, EraHistory, Hasher, Nonce};
+use amaru_kernel::{EraHistory, Hasher, Nonce, protocol_parameters::GlobalParameters};
 use amaru_ouroboros_traits::IsHeader;
-use slot_arithmetic::{Epoch, EraHistoryError, Slot};
+use amaru_slot_arithmetic::{Epoch, EraHistoryError, Slot};
 
 /// Obtain the final nonce at an epoch boundary for the epoch from the stable candidate and the
 /// last block (header) of the previous epoch.

@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::store::{ChainStore, StoreError};
-use amaru_kernel::{protocol_parameters::GlobalParameters, Header, RationalNumber};
+use amaru_kernel::{Header, RationalNumber, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{HasStakeDistribution, Nonces, PoolSummary};
+use amaru_slot_arithmetic::{Epoch, Slot};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
-use slot_arithmetic::{Epoch, Slot};
 use std::{fs::File, io::BufReader, path::Path};
 
 /// Stake data for a single pool.
@@ -171,9 +171,9 @@ pub struct ConsensusContext {
 #[cfg(test)]
 mod test {
     use amaru_consensus::consensus::store::ReadOnlyChainStore;
-    use amaru_kernel::network::NetworkName;
     use amaru_kernel::Header;
     use amaru_kernel::Slot;
+    use amaru_kernel::network::NetworkName;
     use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 
     use super::populate_chain_store;
@@ -181,7 +181,7 @@ mod test {
     use super::FakeStakeDistribution;
     use amaru_ouroboros::HasStakeDistribution;
     use pallas_crypto::hash::Hash;
-    use rand::{rngs::StdRng, RngCore, SeedableRng};
+    use rand::{RngCore, SeedableRng, rngs::StdRng};
     use std::path::PathBuf;
 
     /// FIXME: already exists in chain_selection test module
@@ -206,9 +206,11 @@ mod test {
                 .as_slice(),
         );
 
-        assert!(stake_distribution
-            .get_pool(Slot::from(42), &pool_id)
-            .is_some())
+        assert!(
+            stake_distribution
+                .get_pool(Slot::from(42), &pool_id)
+                .is_some()
+        )
     }
 
     #[test]

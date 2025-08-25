@@ -20,13 +20,13 @@ tracing.workspace = true
 rand = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
+amaru-consensus.workspace = true
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
-amaru-consensus.workspace = true
+amaru-iter-borrow.workspace = true
 amaru-ouroboros-traits.workspace = true
-iter-borrow.workspace = true
-slot-arithmetic.workspace = true
-progress-bar.workspace = true
+amaru-slot-arithmetic.workspace = true
+amaru-progress-bar.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

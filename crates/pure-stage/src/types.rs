@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::serde::{to_cbor, SendDataValue};
+use crate::serde::{SendDataValue, to_cbor};
 use anyhow::Context;
 use cbor4ii::serde::from_slice;
 use std::{
-    any::{type_name, Any},
+    any::{Any, type_name},
     borrow::Borrow,
     fmt,
     future::Future,
@@ -222,12 +222,14 @@ impl<T> DerefMut for MpscSender<T> {
     }
 }
 
+#[allow(dead_code)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MpscReceiver<T> {
     #[serde(skip, default = "dummy_receiver")]
     pub receiver: mpsc::Receiver<T>,
 }
 
+#[allow(dead_code)]
 fn dummy_receiver<T>() -> mpsc::Receiver<T> {
     mpsc::channel(1).1
 }

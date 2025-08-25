@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::Slot;
-use slot_arithmetic::EraHistoryError;
+use amaru_slot_arithmetic::EraHistoryError;
 use std::{collections::BTreeSet, rc::Rc};
 
 // ProposalsTree

@@ -1,7 +1,7 @@
 lints.workspace = true
 
 [package]
-name = "slot-arithmetic"
+name = "amaru-slot-arithmetic"
 version.workspace = true
 edition.workspace = true
 description.workspace = true

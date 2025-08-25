@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, memoized::blanket_try_from_hex_bytes, Bytes, Hash, Hasher, KeepRaw, PlutusData};
+use crate::{Bytes, Hash, Hasher, KeepRaw, PlutusData, cbor, memoized::blanket_try_from_hex_bytes};
 use pallas_codec::minicbor;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -101,7 +101,7 @@ impl TryFrom<Vec<u8>> for MemoizedPlutusData {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::{to_cbor, Constr, KeyValuePairs, MaybeIndefArray};
+    use crate::{Constr, KeyValuePairs, MaybeIndefArray, to_cbor};
     use pallas_primitives::{self as pallas, BigInt, BoundedBytes};
     use proptest::{prelude::*, strategy::Just};
 

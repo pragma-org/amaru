@@ -33,7 +33,6 @@ pallas-network.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-slot-arithmetic.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [
@@ -53,7 +52,8 @@ amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-network.workspace = true
 amaru-stores.workspace = true
-progress-bar = { workspace = true, features = ["terminal"] }
+amaru-progress-bar = { workspace = true, features = ["terminal"] }
+amaru-slot-arithmetic.workspace = true
 pure-stage.workspace = true
 
 [dev-dependencies]
@@ -67,7 +67,7 @@ rocksdb.workspace = true
 once_cell.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-iter-borrow.workspace = true
+amaru-iter-borrow.workspace = true
 
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }

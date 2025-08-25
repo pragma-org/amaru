@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_iter_borrow::IterBorrow;
 /// This modules captures blocks made by slot leaders throughout epochs.
 use amaru_kernel::{
     cbor, {PoolId, Slot},
 };
-use iter_borrow::IterBorrow;
 
 pub type Key = Slot;
 
@@ -57,7 +57,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use amaru_kernel::{prop_cbor_roundtrip, PoolId, Slot};
+    use amaru_kernel::{PoolId, Slot, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
 
     prop_compose! {

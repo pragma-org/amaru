@@ -53,12 +53,4 @@ AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-trace
       break
     fi
   fi
-
-  LEVEL=$(jq -r '.level' <<< "$line" 2>/dev/null)
-  if [ "$LEVEL" = "ERROR" ]; then
-    # Sometimes the process doesn't fully properly exits
-    echo "Got an error, force-stopping the process."
-    pkill -INT -P $$
-    break
-  fi
 done

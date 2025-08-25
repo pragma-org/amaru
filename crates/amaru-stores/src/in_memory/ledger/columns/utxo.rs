@@ -15,8 +15,8 @@
 use crate::in_memory::MemoryStore;
 use amaru_kernel::TransactionInput;
 use amaru_ledger::store::{
-    columns::utxo::{Key, Value},
     StoreError,
+    columns::utxo::{Key, Value},
 };
 
 pub fn add(

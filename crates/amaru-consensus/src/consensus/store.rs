@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, protocol_parameters::GlobalParameters, EraHistory, Header, Nonce, Point,
-    RawBlock,
+    EraHistory, Header, Nonce, Point, RawBlock, network::NetworkName,
+    protocol_parameters::GlobalParameters,
 };
-use amaru_ouroboros::{praos::nonce, Nonces};
+use amaru_ouroboros::{Nonces, praos::nonce};
 use amaru_ouroboros_traits::{IsHeader, Praos};
+use amaru_slot_arithmetic::EraHistoryError;
 use pallas_crypto::hash::Hash;
-use slot_arithmetic::EraHistoryError;
 use std::{collections::BTreeMap, fmt::Display};
 use thiserror::Error;
 
@@ -242,10 +242,10 @@ impl ChainStore<Header> for FakeStore {
 mod test {
     use super::*;
     use crate::test::include_header;
-    use amaru_kernel::{from_cbor, hash, network::NetworkName, to_cbor, Header};
+    use amaru_kernel::{Header, from_cbor, hash, network::NetworkName, to_cbor};
     use amaru_ouroboros_traits::{IsHeader, Praos};
+    use amaru_slot_arithmetic::Epoch;
     use proptest::{prelude::*, prop_compose, proptest};
-    use slot_arithmetic::Epoch;
     use std::sync::LazyLock;
 
     // Epoch 164's last header

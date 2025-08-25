@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, heterogeneous_array, Slot, TransactionPointer};
+use crate::{Slot, TransactionPointer, cbor, heterogeneous_array};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProposalPointer {
