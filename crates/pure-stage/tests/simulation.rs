@@ -14,15 +14,15 @@
 // limitations under the License.
 
 use pure_stage::{
-    simulation::{OverrideResult, SimulationBuilder},
-    trace_buffer::TraceBuffer,
     CallRef, Effect, ExternalEffect, Instant, OutputEffect, Receiver, Resources, SendData,
     StageGraph, StageGraphRunning, StageRef, Void,
+    simulation::{OverrideResult, SimulationBuilder},
+    trace_buffer::TraceBuffer,
 };
 use std::{
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     task::{Context, Poll, Waker},
     time::Duration,

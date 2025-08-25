@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, ConsensusError};
-use amaru_kernel::{block::ValidateBlockEvent, Header, Point, RawBlock};
+use crate::{ConsensusError, consensus::store::ChainStore};
+use amaru_kernel::{Header, Point, RawBlock, block::ValidateBlockEvent};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -39,11 +39,7 @@ impl StoreBlock {
         event: &ValidateBlockEvent,
     ) -> Result<ValidateBlockEvent, ConsensusError> {
         match event {
-            ValidateBlockEvent::Validated {
-                ref point,
-                ref block,
-                ..
-            } => {
+            ValidateBlockEvent::Validated { point, block, .. } => {
                 self.store(point, block).await?;
                 Ok(event.clone())
             }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Hash, Hasher, Header, MintedHeader, Point, HEADER_HASH_SIZE};
+use amaru_kernel::{HEADER_HASH_SIZE, Hash, Hasher, Header, MintedHeader, Point, cbor};
 
 pub mod fake;
 

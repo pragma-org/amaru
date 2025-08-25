@@ -12,38 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
-use amaru_iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
+use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
+use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, ComparableProposalId,
-    Constitution, ConstitutionalCommittee, EraHistory, Lovelace, MemoizedTransactionOutput, Point,
-    PoolId, StakeCredential, TransactionInput,
+    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommittee, EraHistory,
+    Lovelace, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput, cbor,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
     store::{
-        columns as scolumns, Columns, EpochTransitionProgress, GovernanceActivity,
-        HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
-        TransactionalContext,
+        Columns, EpochTransitionProgress, GovernanceActivity, HistoricalStores, OpenErrorKind,
+        ReadStore, Snapshot, Store, StoreError, TransactionalContext, columns as scolumns,
     },
     summary::Pots,
 };
 use amaru_slot_arithmetic::Epoch;
 use rocksdb::{
-    DBAccess, DBIteratorWithThreadMode, Direction, IteratorMode, ReadOptions, Transaction, DB,
+    DB, DBAccess, DBIteratorWithThreadMode, Direction, IteratorMode, ReadOptions, Transaction,
 };
 use std::{
     fmt, fs,
     ops::Deref,
     path::{Path, PathBuf},
 };
-use tracing::{info, instrument, trace, warn, Level};
+use tracing::{Level, info, instrument, trace, warn};
 
 pub mod ledger;
 use ledger::columns::*;
 
 pub mod common;
-use common::{as_value, PREFIX_LEN};
+use common::{PREFIX_LEN, as_value};
 
 pub mod consensus;
 
@@ -931,16 +930,17 @@ fn with_prefix_iterator<
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{network::NetworkName, EraHistory};
+    use amaru_kernel::{EraHistory, network::NetworkName};
     use proptest::test_runner::TestRunner;
     use tempfile::TempDir;
 
     use crate::{
-        rocksdb::{pretty_print_snapshot_ranges, split_continuous, ReadOnlyRocksDB, RocksDB},
+        rocksdb::{ReadOnlyRocksDB, RocksDB, pretty_print_snapshot_ranges, split_continuous},
         tests::{
-            add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
-            test_read_pool, test_read_utxo, test_refund_account, test_remove_account,
-            test_remove_drep, test_remove_pool, test_remove_utxo, test_slot_updated, Fixture,
+            Fixture, add_test_data_to_store, test_epoch_transition, test_read_account,
+            test_read_drep, test_read_pool, test_read_utxo, test_refund_account,
+            test_remove_account, test_remove_drep, test_remove_pool, test_remove_utxo,
+            test_slot_updated,
         },
     };
     use amaru_ledger::store::StoreError;

@@ -15,8 +15,8 @@
 use crate::in_memory::MemoryStore;
 use amaru_kernel::{StakeCredential, Voter};
 use amaru_ledger::store::{
-    columns::votes::{Key, Value},
     StoreError,
+    columns::votes::{Key, Value},
 };
 use std::collections::BTreeSet;
 

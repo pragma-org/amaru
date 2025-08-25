@@ -14,11 +14,11 @@
 
 use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
 use crate::summary::{
-    into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution, SafeRatio,
+    SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution,
 };
 use amaru_kernel::{
-    expect_stake_credential, protocol_parameters::PoolVotingThresholds, DRep, PoolId,
-    ProtocolParamUpdate, ProtocolVersion, Vote, PROTOCOL_VERSION_9,
+    DRep, PROTOCOL_VERSION_9, PoolId, ProtocolParamUpdate, ProtocolVersion, Vote,
+    expect_stake_credential, protocol_parameters::PoolVotingThresholds,
 };
 use num::Zero;
 use std::collections::BTreeMap;
@@ -167,21 +167,19 @@ pub fn tally(
 mod tests {
     use super::{tally, voting_threshold};
     use crate::{
-        governance::ratification::{tests::any_proposal_enum, ProposalEnum},
+        governance::ratification::{ProposalEnum, tests::any_proposal_enum},
         summary::{
-            stake_distribution::{tests::any_stake_distribution_no_dreps, StakeDistribution},
             SafeRatio,
+            stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_dreps},
         },
     };
     use amaru_kernel::{
-        expect_stake_credential,
+        DRep, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, PoolId, ProtocolParamUpdate,
+        ProtocolVersion, Vote, expect_stake_credential,
         tests::{
-            any_comparable_proposal_id, any_ex_units, any_pool_voting_thresholds,
+            VOTE_YES, any_comparable_proposal_id, any_ex_units, any_pool_voting_thresholds,
             any_protocol_params_update, any_protocol_version, any_rational_number, any_vote_ref,
-            VOTE_YES,
         },
-        DRep, PoolId, ProtocolParamUpdate, ProtocolVersion, Vote, PROTOCOL_VERSION_10,
-        PROTOCOL_VERSION_9,
     };
     use num::{One, ToPrimitive, Zero};
     use proptest::{collection, option, prelude::*, sample};
@@ -249,13 +247,11 @@ mod tests {
                         .all(|(_pool, st)| {
                             let reward_account = expect_stake_credential(&st.parameters.reward_account);
 
-                            let is_delegated_to_abstain = stake_distribution
+                            stake_distribution
                                     .accounts
                                     .get(&reward_account)
                                     .map(|st| st.drep.as_ref() == Some(&DRep::Abstain))
-                                    .unwrap_or(false);
-
-                            is_delegated_to_abstain
+                                    .unwrap_or(false)
                         });
 
             if none_voted_yes {
@@ -458,8 +454,8 @@ mod tests {
     }
 
     pub fn any_votes(
-        stake_distribution: &'_ StakeDistribution,
-    ) -> impl Strategy<Value = BTreeMap<PoolId, &'static Vote>> {
+        stake_distribution: &StakeDistribution,
+    ) -> impl Strategy<Value = BTreeMap<PoolId, &'static Vote>> + use<> {
         let pools: Vec<PoolId> = stake_distribution.pools.keys().cloned().collect();
 
         let upper_bound = pools.len() - 1;

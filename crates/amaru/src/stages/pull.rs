@@ -21,7 +21,7 @@ use amaru_network::{
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
 use std::sync::{Arc, RwLock};
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 

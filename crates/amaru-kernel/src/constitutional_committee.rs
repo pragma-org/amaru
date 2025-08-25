@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, heterogeneous_array, RationalNumber};
+use crate::{RationalNumber, cbor, heterogeneous_array};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstitutionalCommittee {

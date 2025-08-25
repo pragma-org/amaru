@@ -216,11 +216,11 @@ pub mod tests {
     use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
     use crate::summary::SafeRatio;
     use amaru_kernel::{
+        Epoch,
         tests::{
             any_comparable_proposal_id, any_constitution, any_epoch, any_protocol_params_update,
             any_protocol_version, any_stake_credential,
         },
-        Epoch,
     };
     use num::{BigUint, One};
     use proptest::{collection, option, prelude::*};

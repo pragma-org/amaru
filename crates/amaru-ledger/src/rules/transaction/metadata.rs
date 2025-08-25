@@ -63,7 +63,7 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use super::InvalidTransactionMetadata;
-    use amaru_kernel::{include_cbor, AuxiliaryData, Hasher, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{AuxiliaryData, Hasher, KeepRaw, MintedTransactionBody, include_cbor};
     use test_case::test_case;
 
     macro_rules! fixture_tx {

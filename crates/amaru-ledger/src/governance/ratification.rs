@@ -15,19 +15,19 @@
 use crate::{
     governance::ratification::proposals_forest::ProposalsForestCompass,
     state::StakeDistributionView,
-    store::{columns::proposals, StoreError, TransactionalContext},
-    summary::{stake_distribution::StakeDistribution, SafeRatio},
+    store::{StoreError, TransactionalContext, columns::proposals},
+    summary::{SafeRatio, stake_distribution::StakeDistribution},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, DRep, Epoch, EraHistory,
-    Lovelace, PoolId, StakeCredential, UnitInterval, Vote, Voter,
+    Ballot, ComparableProposalId, DRep, Epoch, EraHistory, Lovelace, PoolId, StakeCredential,
+    UnitInterval, Vote, Voter, protocol_parameters::ProtocolParameters,
 };
 use num::Zero;
 use std::{
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
 };
-use tracing::{debug_span, field, info, info_span, trace_span, Span};
+use tracing::{Span, debug_span, field, info, info_span, trace_span};
 
 mod constitutional_committee;
 pub use constitutional_committee::ConstitutionalCommittee;

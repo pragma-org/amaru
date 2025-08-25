@@ -14,9 +14,9 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    display_collection, get_provided_scripts, script_purpose_to_string, DatumHash, HasRedeemers,
-    MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemerKey, RequiredScript, ScriptHash,
-    ScriptKind, ScriptPurpose,
+    DatumHash, HasRedeemers, MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemerKey,
+    RequiredScript, ScriptHash, ScriptKind, ScriptPurpose, display_collection,
+    get_provided_scripts, script_purpose_to_string,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -355,7 +355,7 @@ fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> 
 #[cfg(test)]
 mod tests {
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-    use amaru_kernel::{include_cbor, include_json, MintedWitnessSet};
+    use amaru_kernel::{MintedWitnessSet, include_cbor, include_json};
     use test_case::test_case;
 
     use super::InvalidScripts;

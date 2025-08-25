@@ -18,12 +18,12 @@
 //! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
 
 use crate::{
+    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
     effect::{StageEffect, StageResponse},
     resources::Resources,
     simulation::EffectBox,
     stagegraph::StageGraphRunning,
     time::Clock,
-    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
 };
 use either::Either::{Left, Right};
 use parking_lot::Mutex;
@@ -231,15 +231,14 @@ fn mk_sender<Msg: SendData>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg
         .get(stage_name)
         .expect("stage ref contained unknown name")
         .clone();
-    let sender = Sender::new(Arc::new(move |msg: Msg| {
+    Sender::new(Arc::new(move |msg: Msg| {
         let tx = tx.clone();
         Box::pin(async move {
             tx.send(Box::new(msg))
                 .await
                 .map_err(|msg| *msg.0.cast::<Msg>().expect("message was just boxed"))
         })
-    }));
-    sender
+    }))
 }
 
 async fn interpreter<St>(

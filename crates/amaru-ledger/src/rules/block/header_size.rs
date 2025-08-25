@@ -43,7 +43,7 @@ pub fn block_header_size_valid(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru_kernel::{cbor, MintedBlock};
+    use amaru_kernel::{MintedBlock, cbor};
 
     #[test]
     fn test_block_header_size_valid() {

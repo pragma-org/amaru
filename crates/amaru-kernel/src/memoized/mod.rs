@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, from_cbor, Bytes};
+use crate::{Bytes, cbor, from_cbor};
 
 pub mod datum;
 pub use datum::*;

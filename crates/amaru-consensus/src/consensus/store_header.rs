@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, ConsensusError};
+use crate::{ConsensusError, consensus::store::ChainStore};
 use amaru_kernel::{Header, Point};
 use amaru_ouroboros_traits::IsHeader;
 use std::{fmt, sync::Arc};

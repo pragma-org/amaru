@@ -13,16 +13,16 @@
 // limitations under the License.
 
 use super::{
+    CommitteeUpdate, OrphanProposal, ProposalEnum,
     proposals_roots::ProposalsRootsRc,
     proposals_tree::{ProposalsTree, Sibling},
-    CommitteeUpdate, OrphanProposal, ProposalEnum,
 };
 use crate::{store::columns::proposals, summary::into_safe_ratio};
 use amaru_kernel::{
+    ComparableProposalId, Constitution, Epoch, EraHistory, GovAction, Lovelace, Nullable,
+    ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolVersion,
     display_protocol_parameters_update, expect_stake_credential,
-    protocol_parameters::ProtocolParameters, ComparableProposalId, Constitution, Epoch, EraHistory,
-    GovAction, Lovelace, Nullable, ProposalId, ProposalPointer, ProtocolParamUpdate,
-    ProtocolVersion,
+    protocol_parameters::ProtocolParameters,
 };
 use std::{
     cmp::Ordering,
@@ -800,20 +800,20 @@ fn priority_insert(
 mod tests {
     use super::ProposalsForest;
     use crate::governance::ratification::{
-        tests::{
-            any_committee_update, any_proposal_enum, ERA_HISTORY, MAX_ARBITRARY_EPOCH,
-            MIN_ARBITRARY_EPOCH,
-        },
         CommitteeUpdate, OrphanProposal, ProposalEnum, ProposalsRootsRc,
+        tests::{
+            ERA_HISTORY, MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH, any_committee_update,
+            any_proposal_enum,
+        },
     };
     use amaru_kernel::{
-        protocol_parameters::{ProtocolParameters, PREPROD_INITIAL_PROTOCOL_PARAMETERS},
+        ComparableProposalId, Epoch, GovAction, KeyValuePairs, Lovelace, Nullable, ProposalId,
+        ProposalPointer, RationalNumber, Set,
+        protocol_parameters::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters},
         tests::{
             any_comparable_proposal_id, any_constitution, any_gov_action, any_proposal_pointer,
             any_protocol_params_update, any_protocol_version, any_reward_account,
         },
-        ComparableProposalId, Epoch, GovAction, KeyValuePairs, Lovelace, Nullable, ProposalId,
-        ProposalPointer, RationalNumber, Set,
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
     use std::{cmp::Ordering, collections::BTreeSet, rc::Rc, sync::LazyLock};
@@ -1132,8 +1132,8 @@ mod tests {
     }
 
     // Generate an arbitrary forest, that has at least one Some(..) root.
-    fn any_grown_proposals_forest(
-    ) -> impl Strategy<Value = (DebugAsDisplay<ProposalsForest>, ComparableProposalId)> {
+    fn any_grown_proposals_forest()
+    -> impl Strategy<Value = (DebugAsDisplay<ProposalsForest>, ComparableProposalId)> {
         (any::<u8>(), any_proposals_forest()).prop_filter_map(
             "forest is immaculate",
             |(ix, DebugAsDisplay(forest))| {

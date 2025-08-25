@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{protocol_parameters::GlobalParameters, EraHistory, Hasher, Nonce};
+use amaru_kernel::{EraHistory, Hasher, Nonce, protocol_parameters::GlobalParameters};
 use amaru_ouroboros_traits::IsHeader;
 use amaru_slot_arithmetic::{Epoch, EraHistoryError, Slot};
 

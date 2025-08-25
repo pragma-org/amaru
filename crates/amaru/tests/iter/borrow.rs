@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_iter_borrow::{new, IterBorrow, KeyValueIterator};
+use amaru_iter_borrow::{IterBorrow, KeyValueIterator, new};
 use amaru_kernel::cbor;
 use amaru_stores::rocksdb::common::as_key;
 use rocksdb::OptimisticTransactionDB;

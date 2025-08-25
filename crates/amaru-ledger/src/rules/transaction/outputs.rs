@@ -14,11 +14,12 @@
 
 use crate::{
     context::{UtxoSlice, WitnessSlice},
-    rules::{format_vec, WithPosition},
+    rules::{WithPosition, format_vec},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, to_network_id, HasAddress, HasNetwork, Lovelace,
-    MemoizedDatum, MemoizedTransactionOutput, MintedTransactionOutput, Network, TransactionInput,
+    HasAddress, HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput,
+    MintedTransactionOutput, Network, TransactionInput, protocol_parameters::ProtocolParameters,
+    to_network_id,
 };
 use thiserror::Error;
 
@@ -130,13 +131,13 @@ mod tests {
     use std::collections::BTreeMap;
 
     use amaru_kernel::{
-        include_cbor, protocol_parameters::ProtocolParameters, MintedTransactionBody, Network,
+        MintedTransactionBody, Network, include_cbor, protocol_parameters::ProtocolParameters,
     };
     use test_case::test_case;
 
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules::{transaction::outputs::InvalidOutput, WithPosition},
+        rules::{WithPosition, transaction::outputs::InvalidOutput},
     };
 
     use super::InvalidOutputs;

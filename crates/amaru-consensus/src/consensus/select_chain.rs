@@ -14,14 +14,14 @@
 
 use super::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::headers_tree::HeadersTree;
-use crate::{consensus::EVENT_TARGET, ConsensusError};
-use amaru_kernel::{peer::Peer, Header, Point};
+use crate::{ConsensusError, consensus::EVENT_TARGET};
+use amaru_kernel::{Header, Point, peer::Peer};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{trace, Span};
+use tracing::{Span, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 

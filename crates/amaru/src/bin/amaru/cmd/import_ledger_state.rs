@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{default_ledger_dir, network::NetworkName, Point};
+use amaru_kernel::{Point, default_ledger_dir, network::NetworkName};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -63,7 +63,9 @@ pub struct Args {
 enum Error {
     #[error("malformed date: {}", .0)]
     MalformedDate(String),
-    #[error("You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)")]
+    #[error(
+        "You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)"
+    )]
     IncorrectUsage,
 }
 

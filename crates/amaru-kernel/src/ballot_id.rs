@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, heterogeneous_array, ComparableProposalId, Voter};
+use crate::{ComparableProposalId, Voter, cbor, heterogeneous_array};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BallotId {
@@ -48,7 +48,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for BallotId {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::BallotId;
-    use crate::{prop_cbor_roundtrip, tests::any_comparable_proposal_id, Hash, Voter};
+    use crate::{Hash, Voter, prop_cbor_roundtrip, tests::any_comparable_proposal_id};
     use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(BallotId, any_ballot_id());

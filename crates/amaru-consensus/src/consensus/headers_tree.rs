@@ -16,7 +16,7 @@ use crate::consensus::select_chain::RollbackChainSelection::RollbackBeyondLimit;
 use crate::consensus::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
 use crate::consensus::tip::Tip;
 use crate::{ConsensusError, InvalidHeaderParentData};
-use amaru_kernel::{peer::Peer, Point, HEADER_HASH_SIZE};
+use amaru_kernel::{HEADER_HASH_SIZE, Point, peer::Peer};
 use amaru_ouroboros_traits::IsHeader;
 use indextree::{Arena, Node, NodeId};
 use pallas_crypto::hash::Hash;
@@ -145,14 +145,14 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         hash: &Hash<HEADER_HASH_SIZE>,
     ) -> Result<(), ConsensusError> {
         for node in self.get_active_nodes() {
-            if &node.get().hash() == hash {
-                if let Some(node_id) = self.arena.get_node_id(node) {
-                    self.peers.insert(peer.clone(), node_id);
-                    if self.best_peer.is_none() {
-                        self.best_peer = Some(peer.clone())
-                    }
-                    return Ok(());
+            if &node.get().hash() == hash
+                && let Some(node_id) = self.arena.get_node_id(node)
+            {
+                self.peers.insert(peer.clone(), node_id);
+                if self.best_peer.is_none() {
+                    self.best_peer = Some(peer.clone())
                 }
+                return Ok(());
             }
         }
         Err(ConsensusError::UnknownPoint(*hash))
@@ -586,7 +586,10 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
                     root.remove(&mut self.arena);
                     self.remove_dangling_peers();
                 }
-                _ => panic!("This chain selection tree is configured with a maximum chain length lower than 2 ({}), which does not make sense", self.max_length),
+                _ => panic!(
+                    "This chain selection tree is configured with a maximum chain length lower than 2 ({}), which does not make sense",
+                    self.max_length
+                ),
             }
         }
     }
@@ -729,12 +732,12 @@ fn find_best_tip<T>(arena: &Arena<T>) -> Option<NodeId> {
 mod tests {
     use super::*;
     use crate::consensus::select_chain::RollbackChainSelection::RollbackTo;
-    use amaru_kernel::{from_cbor, to_cbor, HEADER_HASH_SIZE};
+    use amaru_kernel::{HEADER_HASH_SIZE, from_cbor, to_cbor};
     use amaru_ouroboros_traits::fake::FakeHeader;
     use proptest::arbitrary::any;
     use proptest::{prop_compose, proptest};
-    use rand::prelude::{RngCore, SeedableRng, StdRng};
     use rand::Rng;
+    use rand::prelude::{RngCore, SeedableRng, StdRng};
     use rand_distr::{Distribution, Exp};
 
     #[test]

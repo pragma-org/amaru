@@ -13,18 +13,18 @@
 // limitations under the License.
 
 use crate::{
-    store::{columns::*, Snapshot, StoreError},
+    store::{Snapshot, StoreError, columns::*},
     summary::{
+        AccountState, PoolState,
         governance::{DRepState, GovernanceSummary},
         safe_ratio,
         serde::{encode_drep, encode_pool_id, encode_stake_credential, serialize_map},
-        AccountState, PoolState,
     },
 };
 use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
 use amaru_kernel::{
+    DRep, HasLovelace, Lovelace, Network, PROTOCOL_VERSION_9, PoolId, StakeCredential,
     expect_stake_credential, output_stake_credential, protocol_parameters::ProtocolParameters,
-    DRep, HasLovelace, Lovelace, Network, PoolId, StakeCredential, PROTOCOL_VERSION_9,
 };
 use amaru_slot_arithmetic::Epoch;
 use serde::ser::SerializeStruct;
@@ -216,11 +216,11 @@ impl StakeDistribution {
                 let refund = refunds.get(credential).copied().unwrap_or_default();
 
                 // NOTE: Only accounts delegated to active dreps counts towards the voting stake.
-                if let Some(drep) = &account.drep {
-                    if let Some(st) = dreps.get_mut(drep) {
-                        dreps_voting_stake += account.lovelace + drep_deposits + refund;
-                        st.stake += account.lovelace + drep_deposits + refund;
-                    }
+                if let Some(drep) = &account.drep
+                    && let Some(st) = dreps.get_mut(drep)
+                {
+                    dreps_voting_stake += account.lovelace + drep_deposits + refund;
+                    st.stake += account.lovelace + drep_deposits + refund;
                 }
 
                 // NOTE: Only accounts delegated to active pools counts towards the active stake.
@@ -309,14 +309,13 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::StakeDistribution;
-    use crate::summary::{safe_ratio, stake_distribution::DRepState, AccountState, PoolState};
+    use crate::summary::{AccountState, PoolState, safe_ratio, stake_distribution::DRepState};
     use amaru_kernel::{
-        expect_stake_credential,
+        Epoch, Lovelace, expect_stake_credential,
         tests::{
             any_anchor, any_certificate_pointer, any_drep, any_pool_id, any_pool_params,
             any_stake_credential,
         },
-        Epoch, Lovelace,
     };
     use proptest::{collection, option, prelude::*, prop_compose};
     use std::collections::BTreeMap;

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{to_cbor, MintedBlock};
+use amaru_kernel::{MintedBlock, to_cbor};
 
 use super::InvalidBlockDetails;
 
@@ -44,7 +44,7 @@ fn calculate_block_body_size(block: &MintedBlock<'_>) -> usize {
 #[cfg(test)]
 mod tests {
     use crate::rules::block::InvalidBlockDetails;
-    use amaru_kernel::{include_cbor, MintedBlock};
+    use amaru_kernel::{MintedBlock, include_cbor};
     use test_case::test_case;
 
     macro_rules! fixture {

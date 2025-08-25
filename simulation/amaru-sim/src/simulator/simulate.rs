@@ -28,10 +28,10 @@ use crate::echo::{EchoMessage, Envelope};
 use crate::simulator::shrink::shrink;
 use anyhow::anyhow;
 use parking_lot::Mutex;
-use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::StageRef;
-use pure_stage::{simulation::SimulationRunning, Instant, Receiver};
-use rand::{rngs::StdRng, SeedableRng};
+use pure_stage::trace_buffer::TraceBuffer;
+use pure_stage::{Instant, Receiver, simulation::SimulationRunning};
+use rand::{SeedableRng, rngs::StdRng};
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::fs::File;
@@ -425,7 +425,7 @@ mod tests {
     };
 
     use super::*;
-    use pure_stage::{simulation::SimulationBuilder, StageGraph, Void};
+    use pure_stage::{StageGraph, Void, simulation::SimulationBuilder};
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
@@ -501,7 +501,7 @@ mod tests {
     fn echo_generator(rng: &mut StdRng) -> Vec<Reverse<Entry<EchoMessage>>> {
         let now = Instant::at_offset(Duration::from_secs(0));
         let size = 20;
-        let messages = generate_zip_with(
+        generate_zip_with(
             size,
             generate_vec(generate_u8(0, 128)),
             generate_arrival_times(now, 200.0),
@@ -518,8 +518,7 @@ mod tests {
                     },
                 })
             },
-        )(rng);
-        messages
+        )(rng)
     }
 
     // TODO: Take response time into account.

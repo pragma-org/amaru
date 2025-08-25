@@ -17,7 +17,7 @@ use parking_lot::{
 };
 #[allow(clippy::disallowed_types)]
 use std::{
-    any::{type_name, Any, TypeId},
+    any::{Any, TypeId, type_name},
     collections::HashMap,
     sync::Arc,
 };

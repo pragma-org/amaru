@@ -13,21 +13,21 @@
 // limitations under the License.
 
 use super::{
-    inputs::Inputs, EffectBox, Instant, StageData, StageEffect, StageResponse, StageState,
+    EffectBox, Instant, StageData, StageEffect, StageResponse, StageState, inputs::Inputs,
 };
 use crate::{
+    BoxFuture, CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
     simulation::{
+        Blocked,
         resume::{
             post_message, resume_call_internal, resume_clock_internal, resume_external_internal,
             resume_receive_internal, resume_respond_internal, resume_send_internal,
             resume_wait_internal,
         },
-        Blocked,
     },
     stagegraph::{CallRef, StageGraphRunning},
     time::Clock,
     trace_buffer::TraceBuffer,
-    BoxFuture, CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
 };
 use either::Either::{Left, Right};
 use parking_lot::Mutex;
@@ -145,8 +145,8 @@ impl SimulationRunning {
         &mut self,
         remaining: usize,
         mut transform: impl FnMut(Box<T>) -> OverrideResult<Box<T>, Box<dyn ExternalEffect>>
-            + Send
-            + 'static,
+        + Send
+        + 'static,
     ) {
         self.overrides.push(OverrideExternalEffect {
             remaining,
@@ -973,7 +973,7 @@ pub fn poll_stage(
 
 #[test]
 fn simulation_invariants() {
-    use crate::{stagegraph::CallRef, StageGraph};
+    use crate::{StageGraph, stagegraph::CallRef};
 
     tracing_subscriber::fmt()
         .with_test_writer()

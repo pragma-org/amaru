@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use pure_stage::Instant;
-use rand::rngs::StdRng;
 use rand::Rng;
+use rand::rngs::StdRng;
 use rand_distr::{Distribution, Exp};
 use serde::Deserialize;
 use serde_json::Result;
@@ -392,8 +392,8 @@ pub fn generate_zip_with<A: Copy, B: Copy, C>(
 
 #[cfg(test)]
 mod test {
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use std::path::Path;
 
     use crate::simulator::generate::*;

@@ -15,10 +15,10 @@
 use crate::{schedule, send, stages::common::adopt_current_span};
 use amaru_consensus::IsHeader;
 use amaru_kernel::{
+    EraHistory, Hash, Hasher, MintedBlock, Network, Point, RawBlock,
     block::{BlockValidationResult, ValidateBlockEvent},
     network::NetworkName,
     protocol_parameters::GlobalParameters,
-    EraHistory, Hash, Hasher, MintedBlock, Network, Point, RawBlock,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -33,7 +33,7 @@ use amaru_ledger::{
 use anyhow::Context;
 use gasket::framework::{WorkSchedule, WorkerError};
 use std::sync::{Arc, RwLock};
-use tracing::{error, info, instrument, trace, Level, Span};
+use tracing::{Level, Span, error, info, instrument, trace};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;

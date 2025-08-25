@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, heterogeneous_array, Slot};
+use crate::{Slot, cbor, heterogeneous_array};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
 pub struct TransactionPointer {
@@ -48,7 +48,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for TransactionPointer {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use crate::{prop_cbor_roundtrip, Slot};
+    use crate::{Slot, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(TransactionPointer, any_transaction_pointer(u64::MAX));

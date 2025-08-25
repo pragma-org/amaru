@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use crate::context::PreparationContext;
-use amaru_kernel::{cbor, ed25519, into_sized_array, Bytes, MintedBlock};
+use amaru_kernel::{Bytes, MintedBlock, cbor, ed25519, into_sized_array};
 use std::{array::TryFromSliceError, fmt, fmt::Display};
 use thiserror::Error;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 pub use block::execute as validate_block;
 
@@ -136,8 +136,8 @@ pub(crate) mod tests {
         tests::{fake_input, fake_output},
     };
     use amaru_kernel::{
-        network::NetworkName, protocol_parameters, protocol_parameters::ProtocolParameters,
-        EraHistory, Network,
+        EraHistory, Network, network::NetworkName, protocol_parameters,
+        protocol_parameters::ProtocolParameters,
     };
     use std::{collections::BTreeMap, sync::LazyLock};
 

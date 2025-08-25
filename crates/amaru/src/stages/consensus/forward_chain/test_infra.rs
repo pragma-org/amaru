@@ -17,19 +17,19 @@ use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
 use amaru_consensus::{
-    consensus::store::{ChainStore, ReadOnlyChainStore, StoreError},
     IsHeader, Nonces,
+    consensus::store::{ChainStore, ReadOnlyChainStore, StoreError},
 };
-use amaru_kernel::{block::BlockValidationResult, from_cbor, Hash, Header, RawBlock, EMPTY_BLOCK};
+use amaru_kernel::{EMPTY_BLOCK, Hash, Header, RawBlock, block::BlockValidationResult, from_cbor};
 use gasket::{
     messaging::tokio::ChannelRecvAdapter,
-    runtime::{spawn_stage, Tether},
+    runtime::{Tether, spawn_stage},
 };
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::{
-        chainsync::{NextResponse, Tip},
         Point,
+        chainsync::{NextResponse, Tip},
     },
 };
 use std::{
@@ -37,7 +37,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{mpsc, Mutex},
+    sync::{Mutex, mpsc},
     time::timeout,
 };
 use tracing_subscriber::EnvFilter;

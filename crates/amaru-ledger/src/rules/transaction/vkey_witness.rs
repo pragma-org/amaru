@@ -15,11 +15,11 @@
 use crate::{
     context::WitnessSlice,
     rules::{
-        format_vec, verify_ed25519_signature, InvalidEd25519Signature, TransactionField,
-        WithPosition,
+        InvalidEd25519Signature, TransactionField, WithPosition, format_vec,
+        verify_ed25519_signature,
     },
 };
-use amaru_kernel::{to_root, BootstrapWitness, Hash, Hasher, TransactionId, VKeyWitness};
+use amaru_kernel::{BootstrapWitness, Hash, Hasher, TransactionId, VKeyWitness, to_root};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
@@ -124,11 +124,11 @@ mod tests {
     use super::*;
     use crate::{
         context::assert::AssertValidationContext,
-        rules::{tests::fixture_context, InvalidEd25519Signature, WithPosition},
+        rules::{InvalidEd25519Signature, WithPosition, tests::fixture_context},
     };
     use amaru_kernel::{
-        hash, include_cbor, include_json, json, KeepRaw, MintedTransactionBody, MintedWitnessSet,
-        OriginalHash, WitnessSet,
+        KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash, WitnessSet, hash,
+        include_cbor, include_json, json,
     };
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::cbor;
 use amaru_kernel::Header;
+use amaru_kernel::cbor;
 use amaru_ouroboros::{kes, praos};
 use amaru_ouroboros_traits::mock::MockLedgerState;
 use ctor::ctor;

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{message::Envelope, service::EchoService, EchoMessage};
+use super::{EchoMessage, message::Envelope, service::EchoService};
 /// This module contains the streams, stages and workers to encapsulate the echo service.
 /// This could probably be made more generic as it's pretty much boilerplate adapter
 /// between maelstrom protocol, gasket framework, and the underlying service receiving

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, cbor::data::IanaTag, DatumHash, MemoizedPlutusData, MintedDatumOption};
+use crate::{DatumHash, MemoizedPlutusData, MintedDatumOption, cbor, cbor::data::IanaTag};
 use serde::ser::SerializeStruct;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

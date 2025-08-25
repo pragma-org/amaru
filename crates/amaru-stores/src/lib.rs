@@ -19,16 +19,17 @@ pub mod rocksdb;
 #[cfg(test)]
 pub mod tests {
     use amaru_kernel::{
-        network::NetworkName,
-        protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
-        tests::{any_pool_id, any_pool_params, any_proposal_id, any_stake_credential},
         Anchor, ComparableProposalId, DRepRegistration, EraHistory, Hash,
         MemoizedTransactionOutput, Point, PoolId, PoolParams, Slot, StakeCredential,
         TransactionInput,
+        network::NetworkName,
+        protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+        tests::{any_pool_id, any_pool_params, any_proposal_id, any_stake_credential},
     };
     use amaru_ledger::{
         state::diff_bind,
         store::{
+            Columns, GovernanceActivity, ReadStore, Store, StoreError, TransactionalContext,
             columns::{
                 accounts::{self},
                 cc_members, dreps,
@@ -36,7 +37,6 @@ pub mod tests {
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
             },
-            Columns, GovernanceActivity, ReadStore, Store, StoreError, TransactionalContext,
         },
     };
     use amaru_slot_arithmetic::Epoch;

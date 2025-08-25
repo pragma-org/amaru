@@ -15,7 +15,7 @@
 use amaru_consensus::consensus::store_block::StoreBlock;
 use amaru_kernel::block::ValidateBlockEvent;
 use gasket::framework::*;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 use crate::{schedule, send, stages::common::adopt_current_span};
 

@@ -14,7 +14,7 @@
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use crate::{new_stake_address, tests::any_network, Bytes, Hash, RewardAccount, StakePayload};
+    use crate::{Bytes, Hash, RewardAccount, StakePayload, new_stake_address, tests::any_network};
     use proptest::{prelude::*, prop_compose};
 
     prop_compose! {

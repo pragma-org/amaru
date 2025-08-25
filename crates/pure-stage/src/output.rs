@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{types::MpscSender, ExternalEffect, ExternalEffectAPI, Name, Resources, SendData};
+use crate::{ExternalEffect, ExternalEffectAPI, Name, Resources, SendData, types::MpscSender};
 use std::fmt;
 use tokio::sync::mpsc;
 

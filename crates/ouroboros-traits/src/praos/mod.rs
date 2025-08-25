@@ -45,7 +45,7 @@ Summarizing:
 */
 
 use crate::is_header::IsHeader;
-use amaru_kernel::{cbor, protocol_parameters::GlobalParameters, Hash, Nonce};
+use amaru_kernel::{Hash, Nonce, cbor, protocol_parameters::GlobalParameters};
 use amaru_slot_arithmetic::Epoch;
 
 #[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]

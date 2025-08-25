@@ -17,15 +17,15 @@ use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
 use std::io::{self, IsTerminal};
 use tracing_subscriber::{
+    EnvFilter, Registry,
     filter::Filtered,
     fmt::{
-        format::{FmtSpan, Format, Json, JsonFields},
         Layer,
+        format::{FmtSpan, Format, Json, JsonFields},
     },
     layer::{Layered, SubscriberExt},
     prelude::*,
     util::SubscriberInitExt,
-    EnvFilter, Registry,
 };
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
@@ -213,7 +213,7 @@ pub fn setup_open_telemetry(
     subscriber: &mut TracingSubscriber<Registry>,
 ) -> OpenTelemetryHandle {
     use opentelemetry::KeyValue;
-    use opentelemetry_sdk::{metrics::Temporality, Resource};
+    use opentelemetry_sdk::{Resource, metrics::Temporality};
 
     let resource = Resource::builder()
         .with_attribute(KeyValue::new("service.name", config.service_name.clone()))

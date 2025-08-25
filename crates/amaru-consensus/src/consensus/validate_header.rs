@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, ConsensusError};
+use crate::{ConsensusError, consensus::store::ChainStore};
 use amaru_kernel::{
-    peer::Peer, protocol_parameters::GlobalParameters, to_cbor, Hash, Header, Nonce, Point,
+    Hash, Header, Nonce, Point, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
-use amaru_ouroboros::{praos, Nonces};
+use amaru_ouroboros::{Nonces, praos};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
 use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources, StageRef, Void};
 use std::{fmt, sync::Arc};
 use tokio::sync::Mutex;
-use tracing::{instrument, Level, Span};
+use tracing::{Level, Span, instrument};
 
-use super::{store::NoncesError, DecodedChainSyncEvent};
+use super::{DecodedChainSyncEvent, store::NoncesError};
 
 #[instrument(
     level = Level::TRACE,

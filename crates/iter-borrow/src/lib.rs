@@ -59,11 +59,11 @@ impl<const PREFIX: usize, K: Clone, V: Clone> KeyValueIterator<'_, PREFIX, K, V>
 }
 
 impl<
-        'a,
-        const PREFIX: usize,
-        K: Clone + for<'d> cbor::Decode<'d, ()>,
-        V: Clone + for<'d> cbor::Decode<'d, ()>,
-    > KeyValueIterator<'a, PREFIX, K, V>
+    'a,
+    const PREFIX: usize,
+    K: Clone + for<'d> cbor::Decode<'d, ()>,
+    V: Clone + for<'d> cbor::Decode<'d, ()>,
+> KeyValueIterator<'a, PREFIX, K, V>
 where
     Self: 'a,
 {
@@ -73,11 +73,11 @@ where
 }
 
 impl<
-        'a,
-        const PREFIX: usize,
-        K: Clone + for<'d> cbor::Decode<'d, ()>,
-        V: Clone + for<'d> cbor::Decode<'d, ()>,
-    > Iterator for KeyValueIterator<'a, PREFIX, K, V>
+    'a,
+    const PREFIX: usize,
+    K: Clone + for<'d> cbor::Decode<'d, ()>,
+    V: Clone + for<'d> cbor::Decode<'d, ()>,
+> Iterator for KeyValueIterator<'a, PREFIX, K, V>
 where
     Self: 'a,
 {
@@ -164,10 +164,10 @@ pub mod borrowable_proxy {
         F: FnOnce(T),
     {
         fn drop(&mut self) {
-            if self.borrowed {
-                if let (Some(item), Some(hook)) = (self.item.take(), self.hook.take()) {
-                    hook(item);
-                }
+            if self.borrowed
+                && let (Some(item), Some(hook)) = (self.item.take(), self.hook.take())
+            {
+                hook(item);
             }
         }
     }

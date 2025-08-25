@@ -23,7 +23,7 @@ use crate::{
 };
 use ::serde::ser::SerializeStruct;
 use amaru_kernel::{DRep, Lovelace, PoolId, PoolParams, RationalNumber};
-use num::{rational::Ratio, BigUint};
+use num::{BigUint, rational::Ratio};
 
 // ---------------------------------------------------------------- AccountState
 

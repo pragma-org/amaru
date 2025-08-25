@@ -15,13 +15,13 @@
 use super::{
     import_headers::import_headers,
     import_ledger_state::import_all_from_directory,
-    import_nonces::{import_nonces, InitialNonces},
+    import_nonces::{InitialNonces, import_nonces},
 };
 use crate::cmd::DEFAULT_NETWORK;
 use amaru::snapshots_dir;
-use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName, Point};
+use amaru_kernel::{Point, default_chain_dir, default_ledger_dir, network::NetworkName};
 use async_compression::tokio::bufread::GzipDecoder;
-use clap::{arg, Parser};
+use clap::{Parser, arg};
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 use std::{
