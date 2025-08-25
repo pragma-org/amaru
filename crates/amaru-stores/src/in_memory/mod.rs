@@ -16,9 +16,9 @@ use crate::in_memory::ledger::columns::{
     accounts, cc_members, dreps, pools, proposals, utxo, votes,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, ComparableProposalId, Constitution,
-    ConstitutionalCommittee, EraHistory, Lovelace, Point, PoolId, Slot, StakeCredential,
-    TransactionInput,
+    network::NetworkName, protocol_parameters::ProtocolParameters, ComparableProposalId,
+    Constitution, ConstitutionalCommittee, EraHistory, Lovelace, Point, PoolId, Slot,
+    StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
@@ -33,6 +33,7 @@ use amaru_ledger::{
     },
 };
 use iter_borrow::IterBorrow;
+use progress_bar::ProgressBar;
 use slot_arithmetic::Epoch;
 use std::{
     borrow::{Borrow, BorrowMut},
@@ -40,19 +41,17 @@ use std::{
     collections::BTreeMap,
     ops::{Deref, DerefMut},
 };
-
 pub mod ledger;
+mod memory_snapshot;
+use memory_snapshot::MemorySnapshot;
 
-// TODO: Add a field to MemoryStore for storing per-epoch snapshots as nested MemoryStores
 #[derive(Clone)]
 pub struct MemoryStore {
-    tip: RefCell<Option<Point>>,
+    tip: RefCell<Point>,
     epoch_progress: RefCell<Option<EpochTransitionProgress>>,
-    utxos: RefCell<BTreeMap<TransactionInput, utxo_column::Value>>,
-    accounts: RefCell<BTreeMap<StakeCredential, accounts_column::Row>>,
-    pools: RefCell<BTreeMap<PoolId, pools_column::Row>>,
-    pots: RefCell<pots::Row>,
-    slots: RefCell<BTreeMap<Slot, slots::Row>>,
+    constitution: RefCell<Option<Constitution>>,
+    proposals_roots: RefCell<Option<ProposalsRoots>>,
+    governance_activity: RefCell<Option<GovernanceActivity>>,
     dreps: RefCell<BTreeMap<StakeCredential, dreps_column::Row>>,
     proposals: RefCell<BTreeMap<ComparableProposalId, proposals_column::Row>>,
     cc_members: RefCell<BTreeMap<StakeCredential, cc_members_column::Row>>,
@@ -60,13 +59,24 @@ pub struct MemoryStore {
     protocol_parameters: RefCell<Option<ProtocolParameters>>,
     constitutional_committee: RefCell<ConstitutionalCommittee>,
     era_history: EraHistory,
+    utxos: RefCell<BTreeMap<TransactionInput, utxo_column::Value>>,
+    accounts: RefCell<BTreeMap<StakeCredential, accounts_column::Row>>,
+    pools: RefCell<BTreeMap<PoolId, pools_column::Row>>,
+    pots: RefCell<pots::Row>,
+    slots: RefCell<BTreeMap<Slot, slots::Row>>,
+
+    // TODO: optimize snapshot storage using OrdMap to avoid duplicating unchanged entries
+    snapshots: RefCell<BTreeMap<Epoch, MemorySnapshot>>,
 }
 
 impl MemoryStore {
     pub fn new(era_history: EraHistory) -> Self {
         MemoryStore {
-            tip: RefCell::new(Some(Point::Origin)),
+            tip: RefCell::new(Point::Origin),
             epoch_progress: RefCell::new(None),
+            constitution: RefCell::new(None),
+            proposals_roots: RefCell::new(None),
+            governance_activity: RefCell::new(None),
             utxos: RefCell::new(BTreeMap::new()),
             accounts: RefCell::new(BTreeMap::new()),
             pools: RefCell::new(BTreeMap::new()),
@@ -79,23 +89,53 @@ impl MemoryStore {
             protocol_parameters: RefCell::new(None),
             constitutional_committee: RefCell::new(ConstitutionalCommittee::NoConfidence),
             era_history,
+            snapshots: RefCell::new(BTreeMap::new()),
         }
+    }
+
+    pub fn apply_snapshot_bytes(
+        &mut self,
+        bytes: &[u8],
+        point: &amaru_kernel::Point,
+        network: NetworkName,
+        with_progress: &dyn Fn(usize, &str) -> Box<dyn ProgressBar>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        amaru_ledger::bootstrap::import_initial_snapshot(
+            self,
+            bytes,
+            point,
+            network,
+            with_progress,
+            None,
+            true,
+        )?;
+
+        let epoch = self.epoch();
+        tracing::info!(
+            ?epoch,
+            utxo_count = self.utxos.borrow().len(),
+            account_count = self.accounts.borrow().len(),
+            pool_count = self.pools.borrow().len(),
+            drep_count = self.dreps.borrow().len(),
+            "Applied snapshot"
+        );
+        Ok(())
     }
 }
 
-// TODO: Implement Snapshot on MemoryStore (Currently returns hard-coded epoch 10)
 impl Snapshot for MemoryStore {
     fn epoch(&self) -> Epoch {
-        Epoch::from(10)
+        let point = self.tip.borrow();
+        let slot = point.slot_or_default();
+        self.era_history
+            .slot_to_epoch(slot, slot)
+            .unwrap_or_else(|_| Epoch::from(0))
     }
 }
 
 impl ReadStore for MemoryStore {
     fn tip(&self) -> Result<Point, StoreError> {
-        self.tip
-            .borrow()
-            .clone()
-            .ok_or_else(|| StoreError::Internal("tip not yet set".into()))
+        Ok(self.tip.borrow().clone())
     }
 
     fn protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
@@ -110,12 +150,10 @@ impl ReadStore for MemoryStore {
     /// Get the latest governance roots; which corresponds to the id of the latest governance
     /// actions enacted for specific categories.
     fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
-        Ok(ProposalsRoots {
-            protocol_parameters: None,
-            hard_fork: None,
-            constitutional_committee: None,
-            constitution: None,
-        })
+        self.proposals_roots
+            .borrow()
+            .clone()
+            .ok_or_else(|| StoreError::missing::<ProposalsRoots>("proposals_roots"))
     }
 
     fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
@@ -123,13 +161,19 @@ impl ReadStore for MemoryStore {
     }
 
     fn constitution(&self) -> Result<Constitution, StoreError> {
-        unimplemented!(".constitution")
+        self.constitution
+            .borrow()
+            .clone()
+            .ok_or(StoreError::missing::<Constitution>("constitution"))
     }
 
     fn governance_activity(&self) -> Result<GovernanceActivity, StoreError> {
-        Ok(GovernanceActivity {
-            consecutive_dormant_epochs: 0,
-        })
+        self.governance_activity
+            .borrow()
+            .clone()
+            .ok_or(StoreError::missing::<GovernanceActivity>(
+                "governance_activity",
+            ))
     }
 
     fn account(
@@ -325,7 +369,14 @@ impl ReadStore for MemoryStore {
         >,
         StoreError,
     > {
-        Ok(std::iter::empty())
+        let votes_vec: Vec<_> = self
+            .votes
+            .borrow()
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+
+        Ok(votes_vec.into_iter())
     }
 }
 
@@ -340,17 +391,18 @@ impl<'a> MemoryTransactionalContext<'a> {
 }
 
 impl<'a> MemoryTransactionalContext<'a> {
-    pub fn with_column<K, V, F>(
+    pub fn with_column<K, V, M, F>(
         &self,
-        column: &RefCell<BTreeMap<K, V>>,
+        column: &RefCell<M>,
         mut with: F,
     ) -> Result<(), StoreError>
     where
         K: Clone + Ord + 'a,
         V: Clone + 'a,
+        M: IntoIterator<Item = (K, V)> + FromIterator<(K, V)> + Default,
         F: for<'iter> FnMut(IterBorrow<'iter, 'iter, K, Option<V>>),
     {
-        let original = column.take();
+        let original: M = column.take();
         let mut values: Vec<(K, Option<V>)> =
             original.into_iter().map(|(k, v)| (k, Some(v))).collect();
 
@@ -362,7 +414,7 @@ impl<'a> MemoryTransactionalContext<'a> {
 
         with(Box::new(iter));
 
-        let rebuilt: BTreeMap<K, V> = values
+        let rebuilt: M = values
             .into_iter()
             .flat_map(|(k, v)| v.map(|v| (k, v)))
             .collect();
@@ -600,29 +652,47 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         Ok(())
     }
 
-    fn set_proposals_roots(&self, _roots: &ProposalsRootsRc) -> Result<(), StoreError> {
-        unimplemented!(".set_proposals_roots");
+    fn set_proposals_roots(&self, roots: &ProposalsRootsRc) -> Result<(), StoreError> {
+        let plain = ProposalsRoots {
+            protocol_parameters: roots.protocol_parameters.as_ref().map(|id| (**id).clone()),
+            hard_fork: roots.hard_fork.as_ref().map(|id| (**id).clone()),
+            constitutional_committee: roots
+                .constitutional_committee
+                .as_ref()
+                .map(|id| (**id).clone()),
+            constitution: roots.constitution.as_ref().map(|id| (**id).clone()),
+        };
+        *self.store.proposals_roots.borrow_mut() = Some(plain);
+        Ok(())
     }
 
-    fn set_constitution(&self, _constitution: &Constitution) -> Result<(), StoreError> {
-        unimplemented!(".set_constitution");
+    fn set_constitution(&self, constitution: &Constitution) -> Result<(), StoreError> {
+        *self.store.constitution.borrow_mut() = Some(constitution.clone());
+        Ok(())
     }
 
     fn set_governance_activity(
         &self,
-        _governance_activity: &GovernanceActivity,
+        governance_activity: &GovernanceActivity,
     ) -> Result<(), StoreError> {
-        unimplemented!(".set_governance_activity");
+        *self.store.governance_activity.borrow_mut() = Some(governance_activity.clone());
+        Ok(())
     }
 
     fn remove_proposals<'iter, Id>(
         &self,
-        _proposals: impl IntoIterator<Item = Id>,
+        proposals: impl IntoIterator<Item = Id>,
     ) -> Result<(), StoreError>
     where
         Id: Deref<Target = ComparableProposalId> + 'iter,
     {
-        unimplemented!("remove_proposals");
+        let mut proposals_map = self.store.proposals.borrow_mut();
+
+        for id in proposals {
+            proposals_map.remove(id.deref());
+        }
+
+        Ok(())
     }
 
     fn save(
@@ -690,13 +760,13 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         let current_tip = self.store.tip.borrow().clone();
 
         match (point, current_tip) {
-            (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
+            (Point::Specific(new, _), Point::Specific(current, _)) if *new < current => {
                 tracing::trace!(target: "event.store.memory", ?point, "save.point_already_known");
                 return Ok(());
             }
             _ => {
                 // Update tip
-                *self.store.tip.borrow_mut() = Some(point.clone());
+                *self.store.tip.borrow_mut() = point.clone();
 
                 // Add issuer to new slot row
                 if let Point::Specific(slot, _) = point {
@@ -726,6 +796,34 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         dreps::remove(self.store, remove.dreps)?;
         cc_members::remove(self.store, remove.cc_members)?;
 
+        Ok(())
+    }
+
+    fn clear_pools(&self) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    fn clear_accounts(&self) -> amaru_ledger::store::Result<()> {
+        Ok(())
+    }
+
+    fn clear_utxos(&self) -> amaru_ledger::store::Result<()> {
+        Ok(())
+    }
+
+    fn clear_cc_members(&self) -> amaru_ledger::store::Result<()> {
+        Ok(())
+    }
+
+    fn clear_dreps(&self) -> amaru_ledger::store::Result<()> {
+        Ok(())
+    }
+
+    fn clear_proposals(&self) -> amaru_ledger::store::Result<()> {
+        Ok(())
+    }
+
+    fn clear_block_issuers(&self) -> amaru_ledger::store::Result<()> {
         Ok(())
     }
 
@@ -788,11 +886,10 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
 impl Store for MemoryStore {
     type Transaction<'a> = MemoryTransactionalContext<'a>;
 
-    // TODO: Implement next_snapshot on MemoryStore
-    fn next_snapshot(&self, _epoch: Epoch) -> Result<(), StoreError> {
-        Err(StoreError::Internal(
-            "next_snapshot not yet implemented on MemoryStore".into(),
-        ))
+    fn next_snapshot(&self, epoch: Epoch) -> Result<(), StoreError> {
+        let snapshot = MemorySnapshot::new(epoch, self);
+        self.snapshots.borrow_mut().insert(epoch, snapshot);
+        Ok(())
     }
 
     fn create_transaction(&self) -> Self::Transaction<'_> {
@@ -800,14 +897,17 @@ impl Store for MemoryStore {
     }
 }
 
-// TODO: Implement HistoricalStores on MemoryStore (currently returns a new empty MemoryStore)
 impl HistoricalStores for MemoryStore {
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        Ok(vec![Epoch::from(3)])
+        Ok(self.snapshots.borrow().keys().cloned().collect())
     }
 
-    fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
-        Ok(MemoryStore::new(self.era_history.clone()))
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
+        self.snapshots
+            .borrow()
+            .get(&epoch)
+            .cloned()
+            .ok_or_else(|| StoreError::missing::<MemorySnapshot>("snapshot"))
     }
 }
 

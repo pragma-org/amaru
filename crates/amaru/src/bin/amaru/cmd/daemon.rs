@@ -58,6 +58,10 @@ pub struct Args {
     /// The maximum number of downstream peers to connect to.
     #[arg(long, value_name = "MAX_DOWNSTREAM_PEERS", default_value_t = 10)]
     max_downstream_peers: usize,
+
+    /// Provide snapshot directory path to use in-memory storage for ledger
+    #[arg(long, value_name = "DIR")]
+    snapshot_dir: Option<PathBuf>,
 }
 
 pub async fn run(
@@ -109,14 +113,21 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
 
 fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     let network = args.network;
-    let ledger_dir = args
-        .ledger_dir
-        .unwrap_or_else(|| default_ledger_dir(network).into());
+    let ledger_store = if let Some(snapshot_dir) = args.snapshot_dir.clone() {
+        // Use MemoryStore bootstrapped from the given snapshot directory
+        StorePath::InMemWithSnapshots(snapshot_dir)
+    } else {
+        // Default: RocksDB on-disk
+        let ledger_dir = args
+            .ledger_dir
+            .unwrap_or_else(|| default_ledger_dir(network).into());
+        StorePath::OnDisk(ledger_dir)
+    };
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(network).into());
     Ok(Config {
-        ledger_store: StorePath::OnDisk(ledger_dir),
+        ledger_store,
         chain_store: StorePath::OnDisk(chain_dir),
         upstream_peers: args.peer_address,
         network: args.network,

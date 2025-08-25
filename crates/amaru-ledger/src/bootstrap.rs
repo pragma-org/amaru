@@ -382,11 +382,7 @@ fn import_block_issuers(
     blocks: BTreeMap<PoolId, u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
-    transaction.with_block_issuers(|iterator| {
-        for (_, mut handle) in iterator {
-            *handle.borrow_mut() = None;
-        }
-    })?;
+    transaction.clear_block_issuers()?;
     transaction.commit()?;
 
     let transaction = db.create_transaction();
@@ -430,18 +426,15 @@ fn import_utxo(
     info!(size = utxo.len(), "utxo");
 
     let transaction = db.create_transaction();
-    transaction.with_utxo(|iterator| {
-        for (_, mut handle) in iterator {
-            *handle.borrow_mut() = None;
-        }
-    })?;
-
+    transaction.clear_utxos()?;
+    transaction.commit()?;
     let progress = with_progress(utxo.len(), "  UTxO entries {bar:70} {pos:>7}/{len:7}");
 
     while !utxo.is_empty() {
         let n = std::cmp::min(BATCH_SIZE, utxo.len());
         let chunk = utxo.drain(0..n);
 
+        let transaction = db.create_transaction();
         transaction.save(
             era_history,
             protocol_parameters,
@@ -460,11 +453,11 @@ fn import_utxo(
             Default::default(),
             iter::empty(),
         )?;
+        transaction.commit()?;
 
         progress.tick(n);
     }
 
-    transaction.commit()?;
     progress.clear();
 
     Ok(())
@@ -484,21 +477,19 @@ fn import_dreps(
         .era_first_epoch(epoch)
         .map_err(|e| StoreError::Internal(Box::new(e)))?;
 
-    let transaction = db.create_transaction();
-
-    transaction.with_dreps(|iterator| {
-        for (drep, mut handle) in iterator {
-            if epoch > era_first_epoch {
-                if let Some(row) = handle.borrow() {
-                    known_dreps.insert(drep, row.registered_at);
-                }
-            }
-            *handle.borrow_mut() = None;
+    if epoch > era_first_epoch {
+        for (drep, row) in db.iter_dreps()? {
+            known_dreps.insert(drep, row.registered_at);
         }
-    })?;
+    }
+
+    let transaction = db.create_transaction();
+    transaction.clear_dreps()?;
+    transaction.commit()?;
 
     info!(size = dreps.len(), "dreps");
 
+    let transaction = db.create_transaction();
     transaction.save(
         era_history,
         protocol_parameters,
@@ -554,14 +545,12 @@ fn import_proposals(
     proposals: Vec<ProposalState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
-    transaction.with_proposals(|iterator| {
-        for (_, mut handle) in iterator {
-            *handle.borrow_mut() = None;
-        }
-    })?;
+    transaction.clear_proposals()?;
+    transaction.commit()?;
 
     info!(size = proposals.len(), "proposals");
 
+    let transaction = db.create_transaction();
     transaction.save(
         era_history,
         protocol_parameters,
@@ -636,11 +625,7 @@ fn import_stake_pools(
         "stake_pools",
     );
     let transaction = db.create_transaction();
-    transaction.with_pools(|iterator| {
-        for (_, mut handle) in iterator {
-            *handle.borrow_mut() = None;
-        }
-    })?;
+    transaction.clear_pools()?;
     transaction.commit()?;
 
     let transaction = db.create_transaction();
@@ -656,10 +641,8 @@ fn import_stake_pools(
                 .registered
                 .into_iter()
                 .flat_map(move |(_, registrations)| {
-                    registrations
-                        .into_iter()
-                        .map(|r| (r, epoch))
-                        .collect::<Vec<_>>()
+                    let epoch = epoch;
+                    registrations.into_iter().map(move |r| (r, epoch))
                 }),
             accounts: iter::empty(),
             dreps: iter::empty(),
@@ -709,11 +692,8 @@ fn import_accounts(
     rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
-    transaction.with_accounts(|iterator| {
-        for (_, mut handle) in iterator {
-            *handle.borrow_mut() = None;
-        }
-    })?;
+    transaction.clear_accounts()?;
+    transaction.commit()?;
 
     let mut credentials = accounts
         .into_iter()
@@ -760,6 +740,7 @@ fn import_accounts(
         let n = std::cmp::min(BATCH_SIZE, credentials.len());
         let chunk = credentials.drain(0..n);
 
+        let transaction = db.create_transaction();
         transaction.save(
             era_history,
             protocol_parameters,
@@ -778,11 +759,10 @@ fn import_accounts(
             Default::default(),
             iter::empty(),
         )?;
-
+        transaction.commit()?;
         progress.tick(n);
     }
 
-    transaction.commit()?;
     progress.clear();
 
     Ok(())
@@ -848,12 +828,8 @@ fn import_constitutional_committee(
     mut hot_cold_delegations: BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
-
-    transaction.with_cc_members(|iterator| {
-        for (_, mut handle) in iterator {
-            *handle.borrow_mut() = None;
-        }
-    })?;
+    transaction.clear_cc_members()?;
+    transaction.commit()?;
 
     let mut cc_members = BTreeMap::new();
 
@@ -876,6 +852,7 @@ fn import_constitutional_committee(
         }
     };
 
+    let transaction = db.create_transaction();
     transaction.set_constitutional_committee(&cc)?;
 
     transaction.save(

@@ -26,6 +26,7 @@ amaru-consensus.workspace = true
 amaru-ouroboros-traits.workspace = true
 iter-borrow.workspace = true
 slot-arithmetic.workspace = true
+progress-bar.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

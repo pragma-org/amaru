@@ -68,6 +68,7 @@ pub mod consensus;
 pub mod ledger;
 pub mod pull;
 mod pure_stage_util;
+mod snapshot_loader;
 
 pub type BlockHash = pallas_crypto::hash::Hash<32>;
 
@@ -75,6 +76,7 @@ pub type BlockHash = pallas_crypto::hash::Hash<32>;
 #[derive(Clone)]
 pub enum StorePath<S> {
     InMem(S),
+    InMemWithSnapshots(PathBuf),
     OnDisk(PathBuf),
 }
 
@@ -83,6 +85,7 @@ impl<S> Display for StorePath<S> {
         match self {
             StorePath::InMem(..) => write!(f, "<mem>"),
             StorePath::OnDisk(path) => write!(f, "{}", path.display()),
+            StorePath::InMemWithSnapshots(path) => write!(f, "{}", path.display()),
         }
     }
 }
@@ -270,7 +273,9 @@ fn make_chain_store(
     tip: amaru_kernel::Point,
 ) -> Result<ChainStoreResult, Box<dyn Error>> {
     let chain_store: Box<dyn ChainStore<Header>> = match config.chain_store {
-        StorePath::InMem(()) => Box::new(InMemConsensusStore::new()),
+        StorePath::InMem(()) | StorePath::InMemWithSnapshots(_) => {
+            Box::new(InMemConsensusStore::new())
+        }
         StorePath::OnDisk(ref chain_dir) => Box::new(RocksDBStore::new(chain_dir, era_history)?),
     };
 
@@ -339,6 +344,20 @@ fn make_ledger(
 ) -> Result<(LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
     match &config.ledger_store {
         StorePath::InMem(store) => {
+            let (ledger, tip) = ledger::ValidateBlockStage::new(
+                store.clone(),
+                store.clone(),
+                network,
+                era_history,
+                global_parameters,
+                is_catching_up,
+            )?;
+            Ok((LedgerStage::InMemLedgerStage(Box::new(ledger)), tip))
+        }
+        StorePath::InMemWithSnapshots(dir) => {
+            let mut store = MemoryStore::new(era_history.clone());
+            snapshot_loader::load_snapshots_into_store(dir, &mut store, config.network)?;
+
             let (ledger, tip) = ledger::ValidateBlockStage::new(
                 store.clone(),
                 store.clone(),
@@ -444,6 +463,11 @@ mod tests {
         let network = NetworkName::Preprod;
         let era_history: &EraHistory = network.into();
         let ledger_store = MemoryStore::new(era_history.clone());
+
+        // Add 3 empty snapshots to the memory store
+        ledger_store.next_snapshot(0.into()).unwrap();
+        ledger_store.next_snapshot(1.into()).unwrap();
+        ledger_store.next_snapshot(2.into()).unwrap();
 
         // Add initial protocol parameters to the database; needed by the ledger.
         let transaction = ledger_store.create_transaction();

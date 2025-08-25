@@ -19,7 +19,7 @@ pub type ProposalsRoots = GenericProposalsRoots<ComparableProposalId>;
 
 pub type ProposalsRootsRc = GenericProposalsRoots<Rc<ComparableProposalId>>;
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct GenericProposalsRoots<T> {
     pub protocol_parameters: Option<T>,
     pub hard_fork: Option<T>,

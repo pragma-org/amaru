@@ -336,6 +336,27 @@ pub trait TransactionalContext<'a>: ReadStore {
 
     /// Provide an access to iterate over cc members, similar to 'with_pools'.
     fn with_cc_members(&self, with: impl FnMut(cc_members::Iter<'_, '_>)) -> Result<()>;
+
+    /// Clear all pools, used for db backed stores
+    fn clear_pools(&self) -> Result<()>;
+
+    /// Clear all accounts, used for db backed stores
+    fn clear_accounts(&self) -> Result<()>;
+
+    /// Clear all cc members, used for db backed stores
+    fn clear_cc_members(&self) -> Result<()>;
+
+    /// Clear all dreps, used for db backed stores
+    fn clear_dreps(&self) -> Result<()>;
+
+    // Clear all proposals, used for db backed stores
+    fn clear_proposals(&self) -> Result<()>;
+
+    /// Clear all utxos, used for db backed stores
+    fn clear_utxos(&self) -> Result<()>;
+
+    // clear block issuers, used for db backed stores
+    fn clear_block_issuers(&self) -> Result<()>;
 }
 
 // Columns

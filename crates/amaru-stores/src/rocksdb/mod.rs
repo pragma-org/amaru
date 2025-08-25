@@ -743,6 +743,62 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         with_prefix_iterator(&self.db, pools::PREFIX, with)
     }
 
+    fn clear_pools(&self) -> Result<(), StoreError> {
+        self.with_pools(|iterator| {
+            for (_, mut handle) in iterator {
+                *handle.borrow_mut() = None;
+            }
+        })
+    }
+
+    fn clear_accounts(&self) -> amaru_ledger::store::Result<()> {
+        self.with_accounts(|iterator| {
+            for (_, mut handle) in iterator {
+                *handle.borrow_mut() = None;
+            }
+        })
+    }
+
+    fn clear_utxos(&self) -> amaru_ledger::store::Result<()> {
+        self.with_utxo(|iterator| {
+            for (_, mut handle) in iterator {
+                *handle.borrow_mut() = None;
+            }
+        })
+    }
+
+    fn clear_cc_members(&self) -> amaru_ledger::store::Result<()> {
+        self.with_cc_members(|iterator| {
+            for (_, mut handle) in iterator {
+                *handle.borrow_mut() = None;
+            }
+        })
+    }
+
+    fn clear_dreps(&self) -> amaru_ledger::store::Result<()> {
+        self.with_dreps(|iterator| {
+            for (_, mut handle) in iterator {
+                *handle.borrow_mut() = None;
+            }
+        })
+    }
+
+    fn clear_proposals(&self) -> amaru_ledger::store::Result<()> {
+        self.with_proposals(|iterator| {
+            for (_, mut handle) in iterator {
+                *handle.borrow_mut() = None;
+            }
+        })
+    }
+
+    fn clear_block_issuers(&self) -> amaru_ledger::store::Result<()> {
+        self.with_block_issuers(|iterator| {
+            for (_, mut handle) in iterator {
+                *handle.borrow_mut() = None;
+            }
+        })
+    }
+
     fn with_accounts(
         &self,
         with: impl FnMut(scolumns::accounts::Iter<'_, '_>),

@@ -279,6 +279,7 @@ dependencies = [
  "amaru-ouroboros-traits",
  "hex",
  "iter-borrow",
+ "progress-bar",
  "proptest",
  "rand 0.9.1",
  "rocksdb",
