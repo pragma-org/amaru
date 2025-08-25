@@ -23,7 +23,8 @@
 use crate::consensus::headers_tree::data_generation::SelectionResult::{Back, Forward};
 use crate::consensus::headers_tree::data_generation::{any_tree_of_headers, TestHeader};
 use crate::consensus::headers_tree::tree::Tree;
-use crate::consensus::headers_tree::{HeadersTree, ListToString};
+use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
+use crate::consensus::headers_tree::{HeadersTree, ListToString, Tracker};
 use crate::consensus::select_chain::RollbackChainSelection::{RollbackBeyondLimit, RollbackTo};
 use crate::consensus::select_chain::{ForwardChainSelection, RollbackChainSelection};
 use crate::ConsensusError;
@@ -291,17 +292,21 @@ pub fn execute_json_actions(
     execute_actions(max_length, &actions)
 }
 
+type Chain = Vec<TestHeader>;
+
 /// This function computes the chains sent by each peer from a list of actions.
 /// Once all the actions have been executed it returns the chains that are the longest.
 ///
-pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Vec<TestHeader>>> {
-    let mut all_best_chains: Vec<Vec<Vec<TestHeader>>> = vec![];
-    let mut current_chains: BTreeMap<Peer, Vec<TestHeader>> = BTreeMap::new();
+pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Chain>> {
+    let mut all_best_chains: Vec<Vec<Chain>> = vec![];
+    let mut current_chains: BTreeMap<Tracker, Chain> = BTreeMap::new();
+    current_chains.insert(Me, vec![]);
     for action in actions {
-        if !current_chains.contains_key(action.peer()) {
-            current_chains.insert(action.peer().clone(), vec![]);
+        let tracker = SomePeer(action.peer().clone());
+        if !current_chains.contains_key(&tracker) {
+            current_chains.insert(tracker.clone(), vec![]);
         }
-        let chain: &mut Vec<TestHeader> = current_chains.get_mut(action.peer()).unwrap();
+        let chain: &mut Chain = current_chains.get_mut(&tracker).unwrap();
         match action {
             Action::RollForward { header, .. } => {
                 chain.push(*header);
@@ -319,7 +324,8 @@ pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Vec<TestH
             .clone()
             .into_values()
             .filter(|c| c.len() == best_length)
-            .collect::<Vec<Vec<TestHeader>>>();
+            .collect::<Vec<Chain>>();
+        current_chains.insert(Me, best_chains[0].clone());
 
         all_best_chains.push(best_chains);
     }
@@ -330,8 +336,8 @@ pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Vec<TestH
 /// It simply executes the results as if they were instructions for building a single chain: add a new tip,
 /// rollback to a previous header, do nothing..
 ///
-pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Vec<TestHeader>> {
-    let mut best_chains: Vec<Vec<TestHeader>> = vec![];
+pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Chain> {
+    let mut best_chains: Vec<Chain> = vec![];
     let mut current_best_chain = vec![];
     for (i, event) in results.iter().enumerate() {
         match event {

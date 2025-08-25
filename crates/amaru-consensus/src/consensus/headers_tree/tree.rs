@@ -65,22 +65,6 @@ impl<H> Tree<H> {
         }
     }
 
-    /// Return the depth of a `Tree`
-    pub fn depth(&self) -> usize {
-        1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
-    }
-
-    /// Return the size of a `Tree`
-    pub fn size(&self) -> usize {
-        1 + self.children.iter().map(|c| c.size()).sum::<usize>()
-    }
-
-    /// Get the last child of a `Tree` to modify it (if there is one).
-    pub fn get_last_child_mut(&mut self) -> Option<&mut Tree<H>> {
-        let l = self.children.len();
-        self.children.get_mut(l - 1)
-    }
-
     /// Pretty print the tree using a custom formatting function for the node values
     pub fn pretty_print_with(&self, format: fn(&H) -> String) -> String {
         let mut out = String::new();
@@ -176,6 +160,25 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Default> Tree<H> {
             .collect::<Vec<_>>();
         tree.children = children;
         tree
+    }
+}
+
+#[cfg(test)]
+impl<H> Tree<H> {
+    /// Return the depth of a `Tree`
+    pub fn depth(&self) -> usize {
+        1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
+    }
+
+    /// Return the size of a `Tree`
+    pub fn size(&self) -> usize {
+        1 + self.children.iter().map(|c| c.size()).sum::<usize>()
+    }
+
+    /// Get the last child of a `Tree` to modify it (if there is one).
+    pub fn get_last_child_mut(&mut self) -> Option<&mut Tree<H>> {
+        let l = self.children.len();
+        self.children.get_mut(l - 1)
     }
 }
 

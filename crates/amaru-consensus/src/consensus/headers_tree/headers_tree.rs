@@ -50,7 +50,7 @@ pub struct HeadersTree<H> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
-enum Tracker {
+pub enum Tracker {
     #[default]
     Me,
     SomePeer(Peer),
@@ -132,7 +132,6 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         if self.headers.contains_key(hash) {
             let mut peer_chain = self.ancestors_hashes(hash);
             peer_chain.reverse();
-            self.peers.remove(&Me);
             self.peers.insert(SomePeer(peer.clone()), peer_chain);
             Ok(())
         } else {
@@ -168,6 +167,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         let result = if self.is_empty_tree() {
             self.insert_header(&tip)?;
             self.best_chain = tip.hash();
+            self.peers.insert(Me, vec![tip.hash()]);
             Ok(ForwardChainSelection::NewTip {
                 peer: peer.clone(),
                 tip: tip.clone(),
@@ -191,6 +191,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
                     Ok(ForwardChainSelection::SwitchToFork(fork))
                 };
                 self.best_chain = tip.hash();
+                self.peers.insert(Me, self.best_chain_fragment_hashes());
                 result
             } else {
                 Ok(ForwardChainSelection::NoChange)
@@ -246,15 +247,20 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
                 }
             }
         }
+        best_chains.sort_by_key(|h| self.unsafe_get_header(h).slot());
         best_chains
     }
 
     fn best_tracker(&self) -> &Tracker {
         self.peers
             .iter()
-            .find(|(_p, chain)| chain.last() == Some(&self.best_chain))
+            .find(|(p, chain)| p != &&Me && chain.last() == Some(&self.best_chain))
             .map(|pc| pc.0)
             .unwrap_or(&Me)
+    }
+
+    fn best_peer(&self) -> Option<Peer> {
+        self.best_tracker().to_peer()
     }
 
     /// Return true if the tree is empty, i.e. it only contains the origin header.
@@ -303,21 +309,18 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
                 // If we keep the same best chain -> Rollback
                 if best_chains.contains(&rollback_hash) {
                     self.best_chain = *rollback_hash;
+                    self.peers.insert(Me, self.best_chain_fragment_hashes());
                     Ok(RollbackChainSelection::RollbackTo(*rollback_hash))
                 } else {
                     // Otherwise we switch to a better chain -> Switch to fork
-                    // We choose the first chain arbitrarily
-                    // TODO: make this choice fully deterministic
                     self.best_chain = **best_chains.first().unwrap_or(&&self.best_chain);
-                    let fork = self.make_fork(
-                        &self
-                            .best_tracker()
-                            .to_peer()
-                            .unwrap_or_else(|| peer.clone()),
-                        rollback_hash,
-                        &self.best_chain,
-                    );
-                    Ok(RollbackChainSelection::SwitchToFork(fork))
+                    self.peers.insert(Me, self.best_chain_fragment_hashes());
+                    if let Some(best_peer) = self.best_peer() {
+                        let fork = self.make_fork(&best_peer, rollback_hash, &self.best_chain);
+                        Ok(RollbackChainSelection::SwitchToFork(fork))
+                    } else {
+                        Ok(RollbackChainSelection::NoChange)
+                    }
                 }
             } else {
                 // Otherwise the change did not affect the best chain -> NoChange
@@ -1131,13 +1134,13 @@ mod tests {
     }
 
     #[test]
-    fn rollback_just_rolls_back_if_there_was_only_one_best_chain() {
+    fn rollback_is_no_change_even_if_the_rolled_back_chain_stays_the_best() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
 
         // alice has the best chain with 5 headers
         let mut tree = initialize_with_peer(5, &alice);
-        let mut headers = tree.best_chain_fragment();
+        let headers = tree.best_chain_fragment();
 
         // bob branches off on headers[1] and has now the best chain with 6 headers
         let header1 = headers[1];
@@ -1146,37 +1149,31 @@ mod tests {
 
         // Now we have
         // 0 - 1 - 2 - 3 - 4 (alice)
-        //     + - 5 - 6 - 7 - 6 - 9 (*bob)
+        //     + - 5 - 6 - 7 - 6 - 9 (*bob, me)
 
         // sanity check: bob chain is the longest
         assert_eq!(tree.best_chain_tip(), added_headers.last().unwrap());
 
         // Now bob is rolled back 2 headers. The best chain stays at 9
         // but bob is rolled backed to 7
-        // 0 - 1 - 2 - 3 - 4 (*alice)
-        //     + - 5 - 6 - 7 (bob)
+        // 0 - 1 - 2 - 3 - 4 (alice)
+        //     + - 5 - 6 - 7 - 6 - 9 (*me)
+        //               (bob)
         let result = tree
             .select_rollback(&bob, &added_headers[1].hash())
             .unwrap();
 
-        // This switches the fork back to alice at the intersection point of their chains
-        let forked: Vec<TestHeader> = headers.split_off(2);
-        let fork = Fork {
-            peer: alice,
-            rollback_point: headers[1].point(),
-            fork: forked,
-        };
-        assert_eq!(result, RollbackChainSelection::SwitchToFork(fork));
+        assert_eq!(result, RollbackChainSelection::NoChange);
     }
 
     #[test]
-    fn rollback_switches_if_there_is_more_than_one_best_chain() {
+    fn rollback_is_no_change_until_we_have_a_better_chain_with_2_peers() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
 
         // alice has the best chain with 5 headers
         let mut tree = initialize_with_peer(5, &alice);
-        let mut headers = tree.best_chain_fragment();
+        let headers = tree.best_chain_fragment();
 
         // bob branches off on headers[1] and has now the best chain with 6 headers
         let header1 = headers[1];
@@ -1185,7 +1182,7 @@ mod tests {
 
         // Now we have
         // 0 - 1 - 2 - 3 - 4 (alice)
-        //     + - 5 - 6 - 7 - 8 - 9 (*bob)
+        //     + - 5 - 6 - 7 - 8 (*bob, me)
 
         // sanity check: bob chain is the longest
         assert_eq!(tree.best_chain_tip(), added_headers.last().unwrap());
@@ -1194,39 +1191,31 @@ mod tests {
         // and both bob and alice are in the best chains list
         //
         // 0 - 1 - 2 - 3 - 4 - 10 (alice)
-        //     + - 5 - 6 - 7 - 8 - 9 (*bob)
-        let alice_added_headers = rollforward_from(&mut tree, &headers[4], &alice, 1);
+        //     + - 5 - 6 - 7 - 8 (*bob, me)
+        let _ = rollforward_from(&mut tree, &headers[4], &alice, 1);
 
         // Now bob is rolled back 2 headers.
         // We internally switch to alice's chain as the best
         // 0 - 1 - 2 - 3 - 4 - 10 (*alice)
-        //     + - 5 - 6 - 7 (bob)
+        //     + - 5 - 6 - 7 - 8 (*me)
+        //           (bob)
         let result = tree
             .select_rollback(&bob, &added_headers[1].hash())
             .unwrap();
-
-        // This switches the fork back to alice at the intersection point of their chains
-        let mut forked: Vec<TestHeader> = headers.split_off(2);
-        forked.push(alice_added_headers[0]);
-        let fork = Fork {
-            peer: alice,
-            rollback_point: header1.point(),
-            fork: forked,
-        };
-        assert_eq!(result, RollbackChainSelection::SwitchToFork(fork));
+        assert_eq!(result, RollbackChainSelection::NoChange);
     }
 
     #[test]
-    fn rollback_is_a_switch_even_if_we_roll_forward_again_on_previous_best_chain() {
+    fn rollback_is_no_change_until_we_have_a_better_chain_with_3_peers() {
         // In the case we end-up in this situation:
         //  alice has the best chain and charlie is about to roll to 3
-        //  0 - 1 - 2 - 3  used to be bob's best chain
+        //  0 - 1 - 2 - 3  used to be bob's best chain, it's now `me`'s best chain
         //
         // 0 (bob)
         // + - 1
         //     + - 2  (charlie)
-        //     |   + - 3
-        //     + - 4 (*alice)
+        //     |   + - 3 (*me)
+        //     + - 4
         //         + - 5
 
         let actions = [
@@ -1250,7 +1239,10 @@ mod tests {
         ];
 
         let results = execute_json_actions(10, &actions).unwrap();
-        assert_matches!(results.last(), Some(Forward(SwitchToFork(_))));
+        assert_matches!(
+            results.last(),
+            Some(Forward(ForwardChainSelection::NoChange))
+        );
     }
 
     #[test]
@@ -1274,7 +1266,7 @@ mod tests {
             let expected_chains = make_best_chains_from_actions(&actions);
             for (i, (actual, expected)) in actual_chains.iter().zip(expected_chains).enumerate() {
                 assert!(expected.contains(actual), "\nFor action {}, the actual chain\n{}\n\nis not contained in the best chains\n\n{}\n\n", i+1,
-                    actual.list_to_string(", "), expected.lists_to_string(", ", "\n "));
+                    actual.list_to_string(",\n "), expected.lists_to_string(",\n ", "\n "));
             }
         }
     }
