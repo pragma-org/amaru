@@ -16,16 +16,16 @@ use crate::{
     governance::ratification::ProposalsRootsRc,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{
-        self, columns::proposals, GovernanceActivity, Store, StoreError, TransactionalContext,
+        self, GovernanceActivity, Store, StoreError, TransactionalContext, columns::proposals,
     },
 };
 use amaru_kernel::{
-    cbor, heterogeneous_array, network::NetworkName, protocol_parameters::ProtocolParameters,
     Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution,
     DRep, DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
     Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, Reward,
     ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
-    UnitInterval, Vote, Voter,
+    UnitInterval, Vote, Voter, cbor, heterogeneous_array, network::NetworkName,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_progress_bar::ProgressBar;
 use std::{collections::BTreeMap, fs, iter, path::PathBuf, rc::Rc, sync::LazyLock};
