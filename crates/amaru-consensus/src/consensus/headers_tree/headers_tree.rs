@@ -26,6 +26,7 @@ use itertools::Itertools;
 use pallas_crypto::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
+use crate::consensus::headers_tree::headers_tree::Tracker::{Me, SomePeer};
 
 type HeaderHash = Hash<HEADER_HASH_SIZE>;
 
@@ -45,9 +46,34 @@ pub struct HeadersTree<H> {
     /// Maximum size allowed for a given chain
     max_length: usize,
     /// This map maintains the tip of each peer chain.
-    peers: BTreeMap<Peer, Vec<HeaderHash>>,
+    peers: BTreeMap<Tracker, Vec<HeaderHash>>,
     /// One chain is always designated as the best chain.
     best_chain: HeaderHash,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+enum Tracker {
+    #[default]
+    Me,
+    SomePeer(Peer),
+}
+
+impl Tracker {
+    fn to_peer(&self) -> Option<Peer> {
+        match self {
+            Me => None,
+            SomePeer(p) => Some(p.clone()),
+        }
+    }
+}
+
+impl Display for Tracker {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Tracker::Me => f.write_str("Me"),
+            Tracker::SomePeer(p) => f.write_str(&p.to_string()),
+        }
+    }
 }
 
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Debug for HeadersTree<H> {
@@ -85,12 +111,14 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
             "Cannot create a headers tree with maximum chain length lower than 2"
         );
         let mut headers = BTreeMap::new();
+        let mut peers = BTreeMap::new();
+        peers.insert(Me, vec![header.hash()]);
         headers.insert(header.hash(), header.clone());
         HeadersTree {
             tree: Tree::make_leaf(&header),
             headers,
             max_length,
-            peers: BTreeMap::new(),
+            peers,
             best_chain: header.hash(),
         }
     }
@@ -106,7 +134,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         if self.headers.contains_key(hash) {
             let mut peer_chain = self.ancestors_hashes(hash);
             peer_chain.reverse();
-            self.peers.insert(peer.clone(), peer_chain);
+            self.peers.insert(Tracker::SomePeer(peer.clone()), peer_chain);
             Ok(())
         } else {
             Err(ConsensusError::UnknownPoint(*hash))
@@ -195,7 +223,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         }
     }
 
-    fn best_peer(&self) -> Option<&Peer> {
+    fn best_peer(&self) -> &Tracker {
         let best_length = self.best_length();
         self.peers
             .iter()
@@ -203,7 +231,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
             .sorted_by_key(|(_peer, chain)| chain.last())
             .collect::<Vec<_>>()
             .first()
-            .map(|(peer, _chain)| *peer)
+            .map(|(peer, _chain)| *peer).unwrap_or(&Me)
     }
 
     /// Return true if the tree is empty, i.e. it only contains the origin header.
@@ -305,9 +333,10 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         if peer_tip == rollback_hash {
             return Ok(RollbackChainSelection::NoChange);
         }
+        let some_peer = SomePeer(peer.clone());
 
         // Remove invalid headers for that peer
-        if let Some(chain) = self.peers.get_mut(peer) {
+        if let Some(chain) = self.peers.get_mut(&some_peer) {
             if let Some(rollback_index) = chain.iter().position(|h| h == rollback_hash) {
                 // keep everything up to and including the rollback hash
                 chain.truncate(rollback_index + 1);
@@ -328,7 +357,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
                 // Otherwise we switch to a better chain -> Rollback
                 let new_best_chain = *best_chains.first().expect("there must be a best chain");
                 let fork = self.make_fork(
-                    self.best_peer().unwrap_or(peer),
+                    &self.best_peer().to_peer().unwrap_or_else(|| peer.clone()),
                     self.unsafe_get_header(rollback_hash),
                     self.unsafe_get_header(new_best_chain),
                 );
@@ -367,10 +396,11 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     }
 
     fn update_peer(&mut self, peer: &Peer, tip: &H) {
-        if let Some(chain) = self.peers.get_mut(peer) {
+        let tracker = SomePeer(peer.clone());
+        if let Some(chain) = self.peers.get_mut(&tracker) {
             chain.push(tip.hash());
         } else {
-            self.peers.insert(peer.clone(), vec![tip.hash()]);
+            self.peers.insert(tracker, vec![tip.hash()]);
         }
     }
 
@@ -458,7 +488,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     }
 
     fn get_peer_tip(&self, peer: &Peer) -> Option<&HeaderHash> {
-        self.peers.get(peer).and_then(|hs| hs.last())
+        self.peers.get(&SomePeer(peer.clone())).and_then(|hs| hs.last())
     }
 
     /// Return true if the header has already been added to the arena (and not rolled-back)
@@ -600,7 +630,7 @@ pub type SelectionEvent<H> = Either<ForwardChainSelection<H>, RollbackChainSelec
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// Return true if the peer is known
     pub fn has_peer(&self, peer: &Peer) -> bool {
-        self.peers.contains_key(peer)
+        self.peers.contains_key(&SomePeer(peer.clone()))
     }
 
     /// Return the best chain fragment currently known as a list of headers.
