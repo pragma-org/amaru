@@ -16,16 +16,18 @@ use crate::send;
 use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::Point;
 use amaru_network::{
-    chain_sync_client::ChainSyncClient, point::from_network_point, session::PeerSession,
+    chain_sync_client::{new_with_session, ChainSyncClient, PullResult},
+    point::from_network_point,
+    session::PeerSession,
 };
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
-use std::sync::{Arc, RwLock};
 use tracing::{instrument, Level};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
 pub enum WorkUnit {
+    Intersect,
     Pull,
     Await,
 }
@@ -33,60 +35,57 @@ pub enum WorkUnit {
 #[derive(Stage)]
 #[stage(name = "stage.chain_sync_client", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
-    pub client: ChainSyncClient,
+    pub client: ChainSyncClient<HeaderContent>,
     pub downstream: DownstreamPort,
 }
 
 impl Stage {
-    pub fn new(
-        peer_session: PeerSession,
-        intersection: Vec<Point>,
-        is_catching_up: Arc<RwLock<bool>>,
-    ) -> Self {
+    pub fn new(peer_session: PeerSession, intersection: Vec<Point>) -> Self {
         Self {
-            client: ChainSyncClient::new(peer_session, intersection, is_catching_up),
+            client: new_with_session(peer_session, &intersection),
             downstream: Default::default(),
         }
     }
 
-    pub async fn find_intersection(&self) -> Result<(), WorkerError> {
+    pub async fn find_intersection(&mut self) -> Result<(), WorkerError> {
         self.client.find_intersection().await.or_panic()
     }
 
-    pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
-        let event = self.client.roll_forward(header).await.or_panic()?;
-        send!(&mut self.downstream, event)
+    pub async fn roll_forward(&mut self, headers: &Vec<HeaderContent>) -> Result<(), WorkerError> {
+        for header in headers {
+            let event = self.client.roll_forward(header).or_panic()?;
+            send!(&mut self.downstream, event)?;
+        }
+        Ok(())
     }
 
     pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
-        let event = self
-            .client
-            .roll_back(rollback_point, tip)
-            .await
-            .or_panic()?;
+        let event = self.client.roll_back(rollback_point, tip).or_panic()?;
         self.downstream.send(event.into()).await.or_panic()
     }
 }
 
-pub struct Worker {}
+pub struct Worker {
+    initialised: bool,
+}
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
-    async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        stage.find_intersection().await?;
-
-        let worker = Self {};
+    async fn bootstrap(_stage: &Stage) -> Result<Self, WorkerError> {
+        let worker = Self { initialised: false };
 
         Ok(worker)
     }
 
     async fn schedule(&mut self, stage: &mut Stage) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
-        if stage.client.has_agency().await {
-            // should request next block
-            Ok(WorkSchedule::Unit(WorkUnit::Pull))
+        if self.initialised {
+            if stage.client.has_agency().await {
+                Ok(WorkSchedule::Unit(WorkUnit::Pull))
+            } else {
+                Ok(WorkSchedule::Unit(WorkUnit::Await))
+            }
         } else {
-            // should await for next block
-            Ok(WorkSchedule::Unit(WorkUnit::Await))
+            Ok(WorkSchedule::Unit(WorkUnit::Intersect))
         }
     }
 
@@ -96,19 +95,30 @@ impl gasket::framework::Worker<Stage> for Worker {
         skip_all,
     )]
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
-        let next = match unit {
-            WorkUnit::Pull => stage.client.request_next().await.or_panic()?,
-            WorkUnit::Await => stage.client.await_next().await.or_panic()?,
-        };
-
-        match next {
-            NextResponse::RollForward(header, _tip) => {
-                stage.roll_forward(&header).await?;
+        match unit {
+            WorkUnit::Intersect => {
+                stage.find_intersection().await?;
+                self.initialised = true;
             }
-            NextResponse::RollBackward(point, tip) => {
-                stage.roll_back(from_network_point(&point), tip).await?;
+            WorkUnit::Pull => {
+                let result = stage.client.pull_batch().await.or_restart()?;
+                match result {
+                    PullResult::ForwardBatch(header_contents) => {
+                        stage.roll_forward(&header_contents).await?
+                    }
+                    PullResult::RollBack(point, tip) => stage.roll_back(point, tip).await?,
+                    PullResult::Nothing => (),
+                }
             }
-            NextResponse::Await => {}
+            WorkUnit::Await => match stage.client.await_next().await.or_restart()? {
+                NextResponse::RollForward(header_content, _tip) => {
+                    stage.roll_forward(&vec![header_content]).await?
+                }
+                NextResponse::RollBackward(point, tip) => {
+                    stage.roll_back(from_network_point(&point), tip).await?
+                }
+                NextResponse::Await => (),
+            },
         };
 
         Ok(())
