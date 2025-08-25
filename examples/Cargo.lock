@@ -34,7 +34,6 @@ dependencies = [
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
- "amaru-slot-arithmetic",
  "anyhow",
  "hex",
  "indextree",
