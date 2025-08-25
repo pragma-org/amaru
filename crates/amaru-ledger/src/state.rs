@@ -944,10 +944,13 @@ impl HasStakeDistribution for StakeDistributionObserver {
             .slot_to_epoch_unchecked_horizon(slot)
             .ok()?
             - 2;
+
         view.iter().find(|s| s.epoch == epoch).and_then(|s| {
             s.pools.get(pool).map(|st| PoolSummary {
                 vrf: st.parameters.vrf,
-                stake: st.stake,
+                // NOTE: The leader-election somehow uses the voting stake distribution that
+                // contains the proposal's deposit whose return addresses are delegated to pools.
+                stake: st.voting_stake,
                 active_stake: s.active_stake,
             })
         })
