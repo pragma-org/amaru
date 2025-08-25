@@ -31,6 +31,7 @@ use crate::ConsensusError;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::Point;
 use amaru_ouroboros_traits::IsHeader;
+use itertools::Itertools;
 use proptest::prelude::Strategy;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
@@ -148,23 +149,54 @@ pub fn random_walk(
     tree: &Tree<TestHeader>,
     peer: &Peer,
     max_length: usize,
+    rollback_ratio: RollbackRatio,
     result: &mut Vec<Action>,
 ) {
     result.push(Action::RollForward {
         peer: peer.clone(),
         header: tree.value,
     });
-    for child in tree.children.iter() {
-        random_walk(rng, child, peer, max_length, result);
-        if rng.random() && child.depth() < max_length {
+    for child in tree
+        .children
+        .iter()
+        .sorted_by_key(|c| 0 - c.depth() as isize)
+    {
+        random_walk(rng, child, peer, max_length, rollback_ratio, result);
+        if rng.random_ratio(rollback_ratio.0, rollback_ratio.1) && child.depth() < max_length {
             result.push(Action::RollBack {
                 peer: peer.clone(),
-                rollback_point: Point::Specific(0, tree.value.hash().to_vec()),
+                rollback_point: Point::Specific(tree.value.slot, tree.value.hash().to_vec()),
             });
         } else {
             break;
         }
     }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct RollbackRatio(pub u32, pub u32);
+
+pub fn generate_random_walk(
+    tree: &Tree<TestHeader>,
+    peers_nb: usize,
+    max_length: usize,
+    rollback_ratio: RollbackRatio,
+    seed: u64,
+) -> Vec<Action> {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut result = vec![];
+    for i in 0..peers_nb {
+        let peer = Peer::new(&format!("{}", i + 1));
+        random_walk(
+            &mut rng,
+            tree,
+            &peer,
+            max_length,
+            rollback_ratio,
+            &mut result,
+        );
+    }
+    result
 }
 
 /// Generate a random list of actions, for a fixed number of peers, with:
@@ -179,34 +211,39 @@ pub fn random_walk(
 /// using a `StdRng` generator. This makes the generator reproducible, because the `StdGenerator`
 /// is given a seed controlled by `proptest` but this makes the resulting list of actions non-shrinkable.
 ///
-pub fn any_select_chains(depth: usize, max_length: usize) -> impl Strategy<Value = Vec<Action>> {
-    any_tree_of_headers(depth).prop_flat_map(move |tree| {
-        (1..u64::MAX).prop_map(move |seed| {
-            let mut rng = StdRng::seed_from_u64(seed);
-            let peers_nb = 4;
-            let mut result = vec![];
-            for i in 0..peers_nb {
-                let peer = Peer::new(&format!("{}", i + 1));
-                random_walk(&mut rng, &tree, &peer, max_length, &mut result);
-            }
-            result
-        })
+pub fn any_select_chains(
+    depth: usize,
+    max_length: usize,
+    rollback_ratio: RollbackRatio,
+) -> impl Strategy<Value = Vec<Action>> {
+    any_tree_of_headers(depth, 2).prop_flat_map(move |tree| {
+        (1..u64::MAX)
+            .prop_map(move |seed| generate_random_walk(&tree, 4, max_length, rollback_ratio, seed))
     })
 }
 
 /// Create an empty `HeadersTree` handling chains of maximum length `max_length` and
 /// execute a list of actions against that tree.
 ///
-/// We return a list of results from running the selection algorithm.
-///
-/// Inside the code the `let print = false` variable can be switched to `true` to trace
-/// the execution with before / after state when debugging.
-///
 pub fn execute_actions(
     max_length: usize,
     actions: &[Action],
 ) -> Result<Vec<SelectionResult>, ConsensusError> {
     let mut tree = HeadersTree::new(max_length, &None);
+    execute_actions_on_tree(&mut tree, actions)
+}
+
+/// Execute a list of actions against a given HeadersTree.
+///
+/// We return a list of results from running the selection algorithm.
+///
+/// Inside the code the `let print = false` variable can be switched to `true` to trace
+/// the execution with before / after state when debugging.
+///
+pub fn execute_actions_on_tree(
+    tree: &mut HeadersTree<TestHeader>,
+    actions: &[Action],
+) -> Result<Vec<SelectionResult>, ConsensusError> {
     let mut results: Vec<SelectionResult> = vec![];
     let mut diagnostics = BTreeMap::new();
     let print = false;

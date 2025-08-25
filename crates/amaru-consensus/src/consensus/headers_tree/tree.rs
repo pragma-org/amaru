@@ -175,6 +175,18 @@ impl<H> Tree<H> {
         1 + self.children.iter().map(|c| c.size()).sum::<usize>()
     }
 
+    /// Return the leaves of a `Tree`
+    pub fn leaves(&self) -> Vec<H>
+    where
+        H: Clone,
+    {
+        if self.children.is_empty() {
+            vec![self.value.clone()]
+        } else {
+            self.children.iter().flat_map(|c| c.leaves()).collect()
+        }
+    }
+
     /// Get the last child of a `Tree` to modify it (if there is one).
     pub fn get_last_child_mut(&mut self) -> Option<&mut Tree<H>> {
         let l = self.children.len();
@@ -209,7 +221,7 @@ mod tests {
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(1).with_seed(42).end())]
         #[test]
-        fn test_creation_from_map(tree in any_tree_of_headers(7)) {
+        fn test_creation_from_map(tree in any_tree_of_headers(7, 5)) {
             let as_map = tree.to_map();
             let actual = Tree::from(&as_map);
 
@@ -233,19 +245,18 @@ mod tests {
 
     #[test]
     fn test_pretty_print() {
-        let tree = generate_test_header_tree(4, 42);
+        let tree = generate_test_header_tree(4, 42, 10);
         let expected = r#"
 TestHeader { hash: "a22427226377cc867d51ad3f130af08ad13451de7160efa2b23076fd782de967", slot: "1", parent: "None" }
     └── TestHeader { hash: "a8810f9ea39c3a6afb780859e8d8c7bc37b78e2f9b8d68d95e831ca1477e9b21", slot: "2", parent: "a22427226377cc867d51ad3f130af08ad13451de7160efa2b23076fd782de967" }
         └── TestHeader { hash: "1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164", slot: "3", parent: "a8810f9ea39c3a6afb780859e8d8c7bc37b78e2f9b8d68d95e831ca1477e9b21" }
-            ├── TestHeader { hash: "1f5583a9c9c77da5bff5c542d0b985d832a8af76ab056b7fc34f9afa1bc08781", slot: "4", parent: "1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164" }
-            └── TestHeader { hash: "da3fc7b517b61024fcad5acd80e4e585902180d1eb16fd37ca2f07a37c4b3903", slot: "5", parent: "1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164" }
+            └── TestHeader { hash: "da3fc7b517b61024fcad5acd80e4e585902180d1eb16fd37ca2f07a37c4b3903", slot: "4", parent: "1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164" }
 "#;
         assert_eq!(
             format!("\n{tree:?}"),
             expected,
             "\n{}{}",
-            &tree.pretty_print(),
+            &tree.pretty_print_debug(),
             expected
         );
     }

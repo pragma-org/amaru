@@ -1246,6 +1246,40 @@ mod tests {
     }
 
     #[test]
+    fn test_performance() {
+        let max_length = 2000;
+        let depth = 2000;
+        let rollback_ratio = RollbackRatio(1, 200);
+        let peers_nb = 4;
+        let seed = 42;
+        let print = false;
+        let tree = generate_test_header_tree(depth, seed, 10);
+        let actions = generate_random_walk(&tree, peers_nb, max_length, rollback_ratio, seed);
+
+        let mut headers_tree = HeadersTree::new(max_length, &None);
+        let start = std::time::Instant::now();
+        println!("start executing the actions");
+        let results = execute_actions_on_tree(&mut headers_tree, &actions).unwrap();
+
+        let elapsed = start.elapsed();
+        let time_per_action = elapsed / (actions.len() as u32);
+        assert!(time_per_action.as_millis() < 50);
+        if print {
+            println!("tree size: {}", tree.size());
+            println!("tree leaves: {}", tree.leaves().len());
+            println!("number of actions: {}", actions.len());
+            println!("time after executing actions: {:?}", elapsed);
+            println!("time per action: {:?}", time_per_action);
+
+            println!(
+                "headers best chain size after executing actions: {}",
+                headers_tree.best_length()
+            );
+            println!("number of results: {}", results.len());
+        }
+    }
+
+    #[test]
     #[should_panic(
         expected = "Cannot create a headers tree with maximum chain length lower than 2"
     )]
@@ -1256,11 +1290,12 @@ mod tests {
     const DEPTH: usize = 10;
     const MAX_LENGTH: usize = 5;
     const TEST_CASES_NB: u32 = 1000;
+    const ROLLBACK_RATIO: RollbackRatio = RollbackRatio(1, 2);
 
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(TEST_CASES_NB).with_seed(42).end())]
         #[test]
-        fn run_chain_selection(actions in any_select_chains(DEPTH, MAX_LENGTH)) {
+        fn run_chain_selection(actions in any_select_chains(DEPTH, MAX_LENGTH, ROLLBACK_RATIO)) {
             let results = execute_actions(DEPTH, &actions).unwrap();
             let actual_chains = make_best_chains_from_results(&results);
             let expected_chains = make_best_chains_from_actions(&actions);

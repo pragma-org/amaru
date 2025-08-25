@@ -45,20 +45,45 @@ impl Tree<TestHeader> {
 }
 
 /// Return a `proptest` Strategy producing a random `Tree<TestHeader>` of a given depth
-pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value = Tree<TestHeader>> {
-    (0..u64::MAX).prop_map(move |seed| generate_test_header_tree(depth, seed))
+pub fn any_tree_of_headers(
+    depth: usize,
+    branching_factor: usize,
+) -> impl Strategy<Value = Tree<TestHeader>> {
+    (0..u64::MAX).prop_map(move |seed| generate_test_header_tree(depth, seed, branching_factor))
 }
 
 /// Generate a tree of headers of a given depth.
 /// A seed is used to control the random generation of subtrees on top of a spine of length `depth`.
-pub fn generate_test_header_tree(depth: usize, seed: u64) -> Tree<TestHeader> {
+pub fn generate_test_header_tree(
+    depth: usize,
+    seed: u64,
+    branching_factor: usize,
+) -> Tree<TestHeader> {
+    generate_test_header_tree_with_spine(depth, seed, branching_factor).0
+}
+
+/// Generate a tree of headers of a given depth.
+/// A seed is used to control the random generation of subtrees on top of a spine of length `depth`.
+pub fn generate_test_header_tree_with_spine(
+    depth: usize,
+    seed: u64,
+    branching_factor: usize,
+) -> (Tree<TestHeader>, Vec<TestHeader>) {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let root = generate_test_header(&mut rng);
     let mut root_tree = Tree::make_leaf(&root);
-    generate_test_header_subtree(&mut rng, &mut root_tree, depth - 1);
+    let mut spine =
+        generate_test_header_subtree(&mut rng, &mut root_tree, depth - 1, branching_factor);
+    spine.insert(0, root);
+    // renumber slots to make debugging easier
+    let mut i = 1;
+    for h in spine.iter_mut() {
+        h.slot = i;
+        i += 1;
+    }
     root_tree.renumber_slots(1);
-    root_tree
+    (root_tree, spine)
 }
 
 /// Given a random generator and a tree:
@@ -70,7 +95,12 @@ pub fn generate_test_header_tree(depth: usize, seed: u64) -> Tree<TestHeader> {
 /// The depth is used so that the subtrees added to the spine don't have a
 /// higher depth than the spine.
 ///
-fn generate_test_header_subtree(rng: &mut StdRng, tree: &mut Tree<TestHeader>, depth: usize) {
+fn generate_test_header_subtree(
+    rng: &mut StdRng,
+    tree: &mut Tree<TestHeader>,
+    depth: usize,
+    branching_factor: usize,
+) -> Vec<TestHeader> {
     let mut spine = generate_headers(depth, rng);
     let mut current = tree;
     let mut current_size = 0;
@@ -79,11 +109,14 @@ fn generate_test_header_subtree(rng: &mut StdRng, tree: &mut Tree<TestHeader>, d
         n.parent = Some(current.value.hash());
         current = current.get_last_child_mut().unwrap();
         current_size += 1;
-        let other_branch_depth = rng.random_range(0..(depth - current_size + 1));
+        let other_branch_depth =
+            rng.random_range(0..((depth - current_size) / branching_factor + 1));
+        // let other_branch_depth = rng.random_range(0..(depth - current_size + 1));
         if other_branch_depth > 0 {
-            generate_test_header_subtree(rng, current, other_branch_depth);
+            generate_test_header_subtree(rng, current, other_branch_depth, branching_factor);
         }
     }
+    spine
 }
 
 /// Generate a chain of headers anchored at a given header.
@@ -182,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_generate_test_headers_tree() {
-        let tree = generate_test_header_tree(5, 42);
+        let tree = generate_test_header_tree(5, 42, 2);
         assert_eq!(tree.depth(), 5);
     }
 }
