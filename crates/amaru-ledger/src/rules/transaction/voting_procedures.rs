@@ -17,6 +17,7 @@ use amaru_kernel::{
     HasStakeCredential, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript,
     ScriptPurpose, StakeCredential, Voter, VotingProcedure,
 };
+use std::collections::BTreeMap;
 
 pub(crate) fn execute<C>(
     context: &mut C,
@@ -26,6 +27,8 @@ pub(crate) fn execute<C>(
 {
     if let Some(voting_procedures) = voting_procedures {
         voting_procedures
+            .into_iter()
+            .collect::<BTreeMap<_, _>>()
             .into_iter()
             .enumerate()
             .for_each(|(index, (voter, votes))| {
@@ -88,6 +91,7 @@ mod tests {
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "drep-key"); "DRep Key")]
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "drep-script"); "DRep Script")]
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "spo-key"); "SPO Key")]
+    #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "mix"); "mix of roles, unsorted")]
     fn voting_procedures(
         (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
     ) {
