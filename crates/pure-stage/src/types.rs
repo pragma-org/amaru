@@ -222,12 +222,14 @@ impl<T> DerefMut for MpscSender<T> {
     }
 }
 
+#[allow(dead_code)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MpscReceiver<T> {
     #[serde(skip, default = "dummy_receiver")]
     pub receiver: mpsc::Receiver<T>,
 }
 
+#[allow(dead_code)]
 fn dummy_receiver<T>() -> mpsc::Receiver<T> {
     mpsc::channel(1).1
 }

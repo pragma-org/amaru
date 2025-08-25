@@ -454,7 +454,7 @@ mod tests {
                     if let EchoMessage::Echo { msg_id, echo } = &msg.body {
                         state.0 += 1;
                         // Insert a bug every 5 messages.
-                        let echo_response = if state.0 % 5 == 0 {
+                        let echo_response = if state.0.is_multiple_of(5) {
                             echo.to_string().to_uppercase()
                         } else {
                             echo.to_string()

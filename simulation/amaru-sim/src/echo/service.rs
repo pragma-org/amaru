@@ -72,7 +72,7 @@ impl EchoService {
 
     fn echo(&mut self, msg_id: u64, echo: String) -> EchoMessage {
         self.count += 1;
-        if self.count % 5 == 0 {
+        if self.count.is_multiple_of(5) {
             EchoOk {
                 msg_id: self.count,
                 in_reply_to: msg_id,
