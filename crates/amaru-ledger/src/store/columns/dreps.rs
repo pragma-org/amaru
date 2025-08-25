@@ -13,20 +13,17 @@
 // limitations under the License.
 
 use crate::state::diff_bind::Resettable;
-use amaru_kernel::{cbor, Anchor, CertificatePointer, Lovelace, StakeCredential};
-use iter_borrow::IterBorrow;
-use slot_arithmetic::Epoch;
+use amaru_iter_borrow::IterBorrow;
+use amaru_kernel::{
+    cbor, Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential,
+};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
 
 /// Iterator used to browse rows from the DRep column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (
-    Resettable<Anchor>,
-    Option<(Lovelace, CertificatePointer)>,
-    Epoch,
-);
+pub type Value = (Resettable<Anchor>, Option<DRepRegistration>);
 
 pub type Key = StakeCredential;
 
@@ -35,7 +32,8 @@ pub struct Row {
     pub deposit: Lovelace,
     pub anchor: Option<Anchor>,
     pub registered_at: CertificatePointer,
-    pub last_interaction: Option<Epoch>,
+    pub valid_until: Epoch,
+
     /// This field is *temporary* and only necessary to re-implement a bug present in the Cardano
     /// ledger in the protocol version 9.
     ///
@@ -54,7 +52,7 @@ impl<C> cbor::encode::Encode<C> for Row {
         e.encode_with(self.deposit, ctx)?;
         e.encode_with(self.anchor.clone(), ctx)?;
         e.encode_with(self.registered_at, ctx)?;
-        e.encode_with(self.last_interaction, ctx)?;
+        e.encode_with(self.valid_until, ctx)?;
         e.encode_with(self.previous_deregistration, ctx)?;
         Ok(())
     }
@@ -62,17 +60,13 @@ impl<C> cbor::encode::Encode<C> for Row {
 
 impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let len = d.array()?;
+        d.array()?;
         Ok(Row {
             deposit: d.decode_with(ctx)?,
             anchor: d.decode_with(ctx)?,
             registered_at: d.decode_with(ctx)?,
-            last_interaction: d.decode_with(ctx)?,
-            previous_deregistration: if len > Some(4) {
-                d.decode_with(ctx)?
-            } else {
-                None
-            },
+            valid_until: d.decode_with(ctx)?,
+            previous_deregistration: d.decode_with(ctx)?,
         })
     }
 }
@@ -86,23 +80,23 @@ pub mod tests {
     };
     use proptest::{option, prelude::*, prop_compose};
 
+    prop_cbor_roundtrip!(Row, any_row(u64::MAX));
+
     prop_compose! {
-        pub fn any_row()(
+        pub fn any_row(max_slot: u64)(
             deposit in any::<Lovelace>(),
             anchor in option::of(any_anchor()),
-            registered_at in any_certificate_pointer(),
-            last_interaction in option::of(any::<Epoch>()),
-            previous_deregistration in option::of(any_certificate_pointer()),
+            registered_at in any_certificate_pointer(max_slot),
+            valid_until in any::<Epoch>(),
+            previous_deregistration in option::of(any_certificate_pointer(max_slot)),
         ) -> Row {
             Row {
                 deposit,
                 anchor,
                 registered_at,
-                last_interaction,
+                valid_until,
                 previous_deregistration,
             }
         }
     }
-
-    prop_cbor_roundtrip!(Row, any_row());
 }

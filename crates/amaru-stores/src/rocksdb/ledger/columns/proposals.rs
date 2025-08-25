@@ -14,6 +14,7 @@
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
 use rocksdb::Transaction;
+use std::ops::Deref;
 
 pub use amaru_ledger::store::{
     columns::proposals::{Key, Row, Value},
@@ -28,22 +29,28 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x72, 0x6F, 0x70];
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<(), StoreError> {
+) -> Result<usize, StoreError> {
+    let mut n = 0;
+
     for (key, value) in rows {
+        n += 1;
         db.put(as_key(&PREFIX, key), as_value(value))
             .map_err(|err| StoreError::Internal(err.into()))?;
     }
 
-    Ok(())
+    Ok(n)
 }
 
 /// Remove an expired or enacted proposal.
-pub fn remove<DB>(
+pub fn remove<'iter, DB, K>(
     db: &Transaction<'_, DB>,
-    rows: impl Iterator<Item = Key>,
-) -> Result<(), StoreError> {
+    rows: impl Iterator<Item = K>,
+) -> Result<(), StoreError>
+where
+    K: Deref<Target = Key> + 'iter,
+{
     for key in rows {
-        db.delete(as_key(&PREFIX, key))
+        db.delete(as_key(&PREFIX, key.deref()))
             .map_err(|err| StoreError::Internal(err.into()))?;
     }
 

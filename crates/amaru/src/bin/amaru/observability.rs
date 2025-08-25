@@ -15,10 +15,7 @@
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
-use std::{
-    env,
-    io::{self, IsTerminal},
-};
+use std::io::{self, IsTerminal};
 use tracing_subscriber::{
     filter::Filtered,
     fmt::{
@@ -33,7 +30,7 @@ use tracing_subscriber::{
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
-const DEFAULT_AMARU_LOG_FILTER: &str = "amaru=debug";
+const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=debug";
 
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
@@ -284,14 +281,17 @@ fn teardown_open_telemetry(
 // -----------------------------------------------------------------------------
 // ENV FILTER
 // -----------------------------------------------------------------------------
-#[allow(clippy::panic)]
+#[allow(clippy::expect_used)]
 fn default_filter(var: &str, default: &str) -> EnvFilter {
-    // NOTE: We filter all logs using 'none' to avoid dependencies polluting our traces & logs,
-    // which is a not so nice side-effects of the tracing library.
-    EnvFilter::builder()
-        .parse(format!(
-            "none,pure_stage=info,gasket=error,{}",
-            env::var(var).ok().as_deref().unwrap_or(default)
-        ))
-        .unwrap_or_else(|e| panic!("invalid {var} filters: {e}"))
+    match EnvFilter::try_from_env(var) {
+        Ok(filter) => filter,
+        Err(e) => {
+            // Early stderr notice since tracing isn't up yet
+            eprintln!(
+                "AMARU: invalid {} value ({}), falling back to '{}'",
+                var, e, default
+            );
+            EnvFilter::try_new(default).expect("invalid default filter")
+        }
+    }
 }

@@ -63,7 +63,7 @@ thiserror = "2.0.16"
 tokio = { version = "1.45.0", features = ["sync"] }
 tokio-util = "0.7.12"
 tokio-stream = "0.1.17"
-tracing = "0.1.40"
+tracing = { version = "0.1.40", features = ["valuable"] }
 tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3.18", features = [
   "env-filter",
@@ -83,12 +83,12 @@ amaru-ouroboros = { path = "crates/ouroboros" }
 amaru-ouroboros-traits = { path = "crates/ouroboros-traits" }
 amaru-sim = { path = "crates/amaru-sim" }
 amaru-stores = { path = "crates/amaru-stores" }
-iter-borrow = { path = "crates/iter-borrow" }
-minicbor-extra = { path = "crates/minicbor-extra" }
-progress-bar = { path = "crates/progress-bar" }
+amaru-iter-borrow = { path = "crates/iter-borrow" }
+amaru-minicbor-extra = { path = "crates/minicbor-extra" }
+amaru-progress-bar = { path = "crates/progress-bar" }
 pure-stage = { path = "crates/pure-stage" }
-slot-arithmetic = { path = "crates/slot-arithmetic" }
-tracing-json = { path = "crates/tracing-json" }
+amaru-slot-arithmetic = { path = "crates/slot-arithmetic" }
+amaru-tracing-json = { path = "crates/tracing-json" }
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
 vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c2471fc5c4d441f13086676" }

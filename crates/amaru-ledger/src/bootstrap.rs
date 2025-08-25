@@ -13,17 +13,22 @@
 // limitations under the License.
 
 use crate::{
+    governance::ratification::ProposalsRootsRc,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
-    store::{self, columns::proposals, Store, StoreError, TransactionalContext},
+    store::{
+        self, columns::proposals, GovernanceActivity, Store, StoreError, TransactionalContext,
+    },
 };
 use amaru_kernel::{
-    cbor, network::NetworkName, protocol_parameters::ProtocolParameters, Account,
-    CertificatePointer, DRep, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
-    Point, PoolId, PoolParams, ProposalPointer, ProposalState, ProtocolVersion, Reward, Set, Slot,
-    StakeCredential, TransactionInput, TransactionPointer,
+    cbor, heterogeneous_array, network::NetworkName, protocol_parameters::ProtocolParameters,
+    Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution,
+    DRep, DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
+    Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, Reward,
+    ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
+    UnitInterval, Vote, Voter,
 };
-use progress_bar::ProgressBar;
-use std::{collections::BTreeMap, fs, iter, path::PathBuf, sync::LazyLock};
+use amaru_progress_bar::ProgressBar;
+use std::{collections::BTreeMap, fs, iter, path::PathBuf, rc::Rc, sync::LazyLock};
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
@@ -82,7 +87,7 @@ pub fn import_initial_snapshot(
     // the last block of the epoch. We have no intrinsic ways to check that this is the case since
     // we do not know what the last block of an epoch is, and we can't reliably look at the number
     // of blocks either.
-    import_block_issuers(db, d.decode()?, era_history)?;
+    let block_issuers = d.decode()?;
 
     // Epoch State
     d.array()?;
@@ -103,26 +108,26 @@ pub fn import_initial_snapshot(
 
     let dreps = d.decode()?;
 
-    // Committee
-    d.skip()?;
+    // Committee cold -> hot delegations
+    let cc_members = d.decode()?;
 
     // Dormant Epoch
-    d.skip()?;
+    let dormant_epoch: Epoch = d.decode()?;
+    let governance_activity = GovernanceActivity {
+        consecutive_dormant_epochs: u64::from(dormant_epoch) as u32,
+    };
+    info!(
+        dormant_epochs = governance_activity.consecutive_dormant_epochs,
+        "governance activity"
+    );
 
     // Epoch State / Ledger State / Cert State / Pool State
     d.array()?;
-    import_stake_pools(
-        db,
-        point,
-        epoch,
-        // Pools
-        d.decode()?,
-        // Updates
-        d.decode()?,
-        // Retirements
-        d.decode()?,
-        era_history,
-    )?;
+
+    let pools = d.decode()?;
+    let pools_updates = d.decode()?;
+    let pools_retirements = d.decode()?;
+
     // Deposits
     d.skip()?;
 
@@ -150,15 +155,10 @@ pub fn import_initial_snapshot(
     // Epoch State / Ledger State / UTxO State
     d.array()?;
 
-    import_utxo(
-        db,
-        &with_progress,
-        point,
-        d.decode::<BTreeMap<TransactionInput, MemoizedTransactionOutput>>()?
-            .into_iter()
-            .collect::<Vec<(TransactionInput, MemoizedTransactionOutput)>>(),
-        era_history,
-    )?;
+    let utxo = d
+        .decode::<BTreeMap<TransactionInput, MemoizedTransactionOutput>>()?
+        .into_iter()
+        .collect::<Vec<(TransactionInput, MemoizedTransactionOutput)>>();
 
     let _deposited: u64 = d.decode()?;
 
@@ -169,14 +169,20 @@ pub fn import_initial_snapshot(
 
     // Proposals
     d.array()?;
-    // Proposals roots
-    d.skip()?;
+    d.array()?;
+    let root_params = d.decode()?;
+    let root_hard_fork = d.decode()?;
+    let root_cc = d.decode()?;
+    let root_constitution = d.decode()?;
+
     let proposals: Vec<ProposalState> = d.decode()?;
 
     // Constitutional committee
-    d.skip()?;
+    let cc_state = d.decode()?;
+
     // Constitution
-    d.skip()?;
+    let constitution = d.decode()?;
+
     // Current Protocol Params
     let pparams = if let Some(dir) = protocol_parameters_dir {
         decode_seggregated_parameters(dir, d.decode()?)?
@@ -184,15 +190,46 @@ pub fn import_initial_snapshot(
         d.decode()?
     };
     let protocol_parameters = import_protocol_parameters(db, pparams)?;
-    import_dreps(db, era_history, point, epoch, dreps, &protocol_parameters)?;
-    import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
 
     // Previous Protocol Params
     d.skip()?;
+
     // Future Protocol Params
     d.skip()?;
+
     // DRep Pulsing State
-    d.skip()?;
+    d.array()?;
+
+    d.array()?; // Pulsing Snapshot
+
+    let votes = d.decode()?;
+
+    d.skip()?; // DRep distr
+    d.skip()?; // DRep state
+    d.skip()?; // Pool distr
+
+    d.array()?; // Ratify State
+
+    d.skip()?; // Enact State
+
+    let enacted: Vec<GovActionState> = d.decode()?;
+    assert!(
+        enacted.is_empty(),
+        "unimplemented import scenario: snapshot contains expired governance action: {enacted:?}"
+    );
+
+    d.tag()?;
+    let expired: Vec<ProposalId> = d.decode()?;
+    assert!(
+        expired.is_empty(),
+        "unimplemented import scenario: snapshot contains expired governance action: {expired:?}"
+    );
+
+    let delayed: bool = d.decode()?;
+    assert!(
+        !delayed,
+        "unimplemented import scenario: snapshot contains a ratified delaying governance action"
+    );
 
     // Epoch State / Ledger State / UTxO State / utxosStakeDistr
     d.skip()?;
@@ -202,6 +239,7 @@ pub fn import_initial_snapshot(
 
     // Epoch State / Snapshots
     d.skip()?;
+
     // Epoch State / NonMyopic
     d.skip()?;
 
@@ -226,10 +264,10 @@ pub fn import_initial_snapshot(
             db,
             &with_progress,
             point,
+            era_history,
+            &protocol_parameters,
             accounts,
             &mut rewards,
-            &protocol_parameters,
-            era_history,
         )?;
 
         let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
@@ -248,7 +286,54 @@ pub fn import_initial_snapshot(
         d.skip()?;
     }
 
-    save_point(db, point, network.protocol_version(epoch), era_history)?;
+    import_block_issuers(db, era_history, &protocol_parameters, block_issuers)?;
+
+    import_stake_pools(
+        db,
+        point,
+        era_history,
+        &protocol_parameters,
+        epoch,
+        pools,
+        pools_updates,
+        pools_retirements,
+    )?;
+
+    import_constitution(db, constitution)?;
+
+    import_proposals_roots(db, root_params, root_hard_fork, root_cc, root_constitution)?;
+
+    import_constitutional_committee(
+        db,
+        point,
+        era_history,
+        &protocol_parameters,
+        cc_state,
+        cc_members,
+    )?;
+
+    import_dreps(db, point, era_history, &protocol_parameters, epoch, dreps)?;
+
+    import_proposals(db, point, era_history, &protocol_parameters, proposals)?;
+
+    import_votes(db, point, era_history, &protocol_parameters, votes)?;
+
+    import_utxo(
+        db,
+        &with_progress,
+        point,
+        era_history,
+        &protocol_parameters,
+        utxo,
+    )?;
+
+    save_point(
+        db,
+        point,
+        era_history,
+        &protocol_parameters,
+        governance_activity,
+    )?;
 
     Ok(epoch)
 }
@@ -256,21 +341,24 @@ pub fn import_initial_snapshot(
 fn save_point(
     db: &impl Store,
     point: &Point,
-    protocol_version: &ProtocolVersion,
     era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+    mut governance_activity: GovernanceActivity,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
 
     transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut governance_activity,
         point,
         None,
         Default::default(),
         Default::default(),
         iter::empty(),
-        era_history,
     )?;
 
-    transaction.set_protocol_version(protocol_version)?;
+    transaction.set_governance_activity(&governance_activity)?;
 
     transaction.commit()?;
 
@@ -289,8 +377,9 @@ fn import_protocol_parameters(
 
 fn import_block_issuers(
     db: &impl Store,
-    blocks: BTreeMap<PoolId, u64>,
     era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+    blocks: BTreeMap<PoolId, u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_block_issuers(|iterator| {
@@ -305,6 +394,9 @@ fn import_block_issuers(
     for (pool, mut count) in blocks.into_iter() {
         while count > 0 {
             transaction.save(
+                era_history,
+                protocol_parameters,
+                &mut default_governance_activity(),
                 &Point::Specific(fake_slot, vec![]),
                 Some(&pool),
                 store::Columns {
@@ -318,7 +410,6 @@ fn import_block_issuers(
                 },
                 Default::default(),
                 iter::empty(),
-                era_history,
             )?;
             count -= 1;
             fake_slot += 1;
@@ -332,8 +423,9 @@ fn import_utxo(
     db: &impl Store,
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
     point: &Point,
-    mut utxo: Vec<(TransactionInput, MemoizedTransactionOutput)>,
     era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+    mut utxo: Vec<(TransactionInput, MemoizedTransactionOutput)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(size = utxo.len(), "utxo");
 
@@ -351,6 +443,9 @@ fn import_utxo(
         let chunk = utxo.drain(0..n);
 
         transaction.save(
+            era_history,
+            protocol_parameters,
+            &mut default_governance_activity(),
             point,
             None,
             store::Columns {
@@ -364,7 +459,6 @@ fn import_utxo(
             },
             Default::default(),
             iter::empty(),
-            era_history,
         )?;
 
         progress.tick(n);
@@ -378,11 +472,11 @@ fn import_utxo(
 
 fn import_dreps(
     db: &impl Store,
-    era_history: &EraHistory,
     point: &Point,
+    era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
     epoch: Epoch,
     dreps: BTreeMap<StakeCredential, DRepState>,
-    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), impl std::error::Error> {
     let mut known_dreps = BTreeMap::new();
 
@@ -405,9 +499,10 @@ fn import_dreps(
 
     info!(size = dreps.len(), "dreps");
 
-    let mut active_dreps = BTreeMap::new();
-
     transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut default_governance_activity(),
         point,
         None,
         store::Columns {
@@ -415,82 +510,28 @@ fn import_dreps(
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: dreps.into_iter().map(|(credential, state)| {
-                // 1. First DRep registrations in Conway are *sometimes* granted an extra epoch of
-                //    expiry; because the first Conway epoch is deemed as "dormant" (no proposals
-                //    in the epoch prior), and a bug in version 9 is causing new DRep registrations
-                //    to benefits from this extra epoch.
-                //
-                // 2. We have no idea when exactly was the drep registered; but we
-                //    need to pick a valid slot so that mandate calculations falls
-                //    back on the correct value.
-                //
-                //    There are two scenarios:
-                //
-                //    A) Either the drep has registered before the first proposal in
-                //       the epoch. In which case it would enjoy an extra epoch of
-                //       expiry.
-                //
-                //    B) Or it has registered strictly after, such that the number of
-                //       dormant epoch was already reset. In which case, no bonus
-                //       applies.
-                //
-                //    We can assign dreps to (A) or (B) by artificially chosing the
-                //    first and last slot of the epoch respectively. To know whether
-                //    we shall assign them to (A) or (B), we can simply look at their
-                //    mandate in the snapshot which would be one greater for dreps in
-                //    group (A).
-                //
-                // 3. We make a strong assumption that there are proposals submitted during the
-                //    very first epoch of the Conway era on this network. This is true of Preview,
-                //    Preprod and Mainnet. Any custom network for which this wouldn't be true is
-                //    expected to use a protocol version > 9, where this assumption doesn't matter.
-                let (registration_slot, last_interaction) = if epoch == era_first_epoch {
-                    let last_interaction = era_first_epoch;
-                    #[allow(clippy::unwrap_used)]
-                    let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
-                    if state.expiry > epoch + protocol_parameters.drep_expiry as u64 {
-                        (epoch_bound.start, last_interaction)
-                    } else {
-                        (point.slot_or_default(), last_interaction)
-                    }
-                } else {
-                    let last_interaction = state.expiry - protocol_parameters.drep_expiry as u64;
-                    #[allow(clippy::unwrap_used)]
-                    let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
-                    // start or end doesn't matter here.
-                    (epoch_bound.start, last_interaction)
-                };
-
-                let registration =
+                let registered_at =
                     known_dreps
                         .remove(&credential)
                         .unwrap_or_else(|| CertificatePointer {
                             transaction: TransactionPointer {
-                                slot: registration_slot,
+                                slot: point.slot_or_default(),
                                 ..TransactionPointer::default()
                             },
                             ..CertificatePointer::default()
                         });
 
-                #[allow(clippy::unwrap_used)]
-                #[allow(clippy::disallowed_methods)]
-                let registration_epoch = era_history
-                    .slot_to_epoch_unchecked_horizon(registration.slot())
-                    .unwrap();
-
-                // NOTE: The 'save' method will not consider the last interaction when registering
-                // or re-registering a DRep. So when needed, we must retain the 'last_interaction'
-                // and set it manually afterwards.
-                if last_interaction > registration_epoch {
-                    active_dreps.insert(credential.clone(), last_interaction);
-                }
+                let registration = DRepRegistration {
+                    deposit: state.deposit,
+                    valid_until: state.expiry,
+                    registered_at,
+                };
 
                 (
                     credential,
                     (
                         Resettable::from(Option::from(state.anchor)),
-                        Some((state.deposit, registration)),
-                        last_interaction,
+                        Some(registration),
                     ),
                 )
             }),
@@ -500,22 +541,7 @@ fn import_dreps(
         },
         Default::default(),
         iter::empty(),
-        era_history,
     )?;
-
-    transaction.commit()?;
-
-    let transaction = db.create_transaction();
-
-    transaction.with_dreps(|iterator| {
-        for (credential, mut row) in iterator {
-            if let Some(last_interaction) = active_dreps.get(&credential) {
-                if let Some(drep) = row.borrow_mut() {
-                    drep.last_interaction = Some(*last_interaction);
-                }
-            }
-        }
-    })?;
 
     transaction.commit()
 }
@@ -524,8 +550,8 @@ fn import_proposals(
     db: &impl Store,
     point: &Point,
     era_history: &EraHistory,
-    proposals: Vec<ProposalState>,
     protocol_parameters: &ProtocolParameters,
+    proposals: Vec<ProposalState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_proposals(|iterator| {
@@ -537,6 +563,9 @@ fn import_proposals(
     info!(size = proposals.len(), "proposals");
 
     transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut default_governance_activity(),
         point,
         None,
         store::Columns {
@@ -550,7 +579,7 @@ fn import_proposals(
                 .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
                     let proposal_index = proposal.id.action_index as usize;
                     Ok((
-                        proposal.id,
+                        ComparableProposalId::from(proposal.id),
                         proposals::Value {
                             proposed_in: ProposalPointer {
                                 transaction: TransactionPointer {
@@ -560,7 +589,7 @@ fn import_proposals(
                                 proposal_index,
                             },
                             valid_until: proposal.proposed_in
-                                + protocol_parameters.gov_action_lifetime as u64,
+                                + protocol_parameters.gov_action_lifetime,
                             proposal: proposal.procedure,
                         },
                     ))
@@ -571,21 +600,22 @@ fn import_proposals(
         },
         Default::default(),
         iter::empty(),
-        era_history,
     )?;
     transaction.commit()?;
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn import_stake_pools(
     db: &impl Store,
     point: &Point,
+    era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
     epoch: Epoch,
     pools: BTreeMap<PoolId, PoolParams>,
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
-    era_history: &EraHistory,
 ) -> Result<(), impl std::error::Error> {
     let mut state = DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
@@ -615,6 +645,9 @@ fn import_stake_pools(
 
     let transaction = db.create_transaction();
     transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut default_governance_activity(),
         point,
         None,
         store::Columns {
@@ -644,7 +677,6 @@ fn import_stake_pools(
             votes: iter::empty(),
         },
         iter::empty(),
-        era_history,
     )?;
     transaction.commit()
 }
@@ -671,10 +703,10 @@ fn import_accounts(
     db: &impl Store,
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
     point: &Point,
+    era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
     accounts: BTreeMap<StakeCredential, Account>,
     rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
-    protocol_parameters: &ProtocolParameters,
-    era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_accounts(|iterator| {
@@ -729,6 +761,9 @@ fn import_accounts(
         let chunk = credentials.drain(0..n);
 
         transaction.save(
+            era_history,
+            protocol_parameters,
+            &mut default_governance_activity(),
             point,
             None,
             store::Columns {
@@ -742,7 +777,6 @@ fn import_accounts(
             },
             Default::default(),
             iter::empty(),
-            era_history,
         )?;
 
         progress.tick(n);
@@ -750,6 +784,210 @@ fn import_accounts(
 
     transaction.commit()?;
     progress.clear();
+
+    Ok(())
+}
+
+fn import_proposals_roots(
+    db: &impl Store,
+    protocol_parameters: StrictMaybe<ComparableProposalId>,
+    hard_fork: StrictMaybe<ComparableProposalId>,
+    constitutional_committee: StrictMaybe<ComparableProposalId>,
+    constitution: StrictMaybe<ComparableProposalId>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+
+    let roots = ProposalsRootsRc {
+        protocol_parameters: Option::from(protocol_parameters).map(Rc::new),
+        hard_fork: Option::from(hard_fork).map(Rc::new),
+        constitutional_committee: Option::from(constitutional_committee).map(Rc::new),
+        constitution: Option::from(constitution).map(Rc::new),
+    };
+
+    info!(
+        protocol_parameters = ?roots.protocol_parameters,
+        hard_fork = ?roots.hard_fork,
+        constitutional_committee = ?roots.constitutional_committee,
+        constitution = ?roots.constitution,
+        "proposal roots"
+    );
+
+    transaction.set_proposals_roots(&roots)?;
+    transaction.commit()?;
+
+    Ok(())
+}
+
+fn import_constitution(
+    db: &impl Store,
+    constitution: Constitution,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+
+    info!(
+        anchor = constitution.anchor.url,
+        guardrails = Option::from(constitution.guardrail_script.clone())
+            .map(|s: ScriptHash| s.to_string().chars().take(8).collect())
+            .unwrap_or_else(|| "none".to_string()),
+        "constitution"
+    );
+
+    transaction.set_constitution(&constitution)?;
+
+    transaction.commit()?;
+
+    Ok(())
+}
+
+fn import_constitutional_committee(
+    db: &impl Store,
+    point: &Point,
+    era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+    cc: StrictMaybe<ConstitutionalCommittee>,
+    mut hot_cold_delegations: BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+
+    transaction.with_cc_members(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })?;
+
+    let mut cc_members = BTreeMap::new();
+
+    let cc = match cc {
+        StrictMaybe::Nothing => {
+            info!(state = "no confidence", "constitutional committee");
+            amaru_kernel::ConstitutionalCommittee::NoConfidence
+        }
+        StrictMaybe::Just(ConstitutionalCommittee { threshold, members }) => {
+            info!(
+                state = "trusted",
+                threshold = format!("{}/{}", threshold.numerator, threshold.denominator),
+                members = members.len(),
+                "constitutional committee"
+            );
+
+            cc_members = members;
+
+            amaru_kernel::ConstitutionalCommittee::Trusted { threshold }
+        }
+    };
+
+    transaction.set_constitutional_committee(&cc)?;
+
+    transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut default_governance_activity(),
+        point,
+        None,
+        store::Columns {
+            utxo: iter::empty(),
+            pools: iter::empty(),
+            accounts: iter::empty(),
+            dreps: iter::empty(),
+            proposals: iter::empty(),
+            votes: iter::empty(),
+            cc_members: cc_members.into_iter().map(|(cold_cred, valid_until)| {
+                let hot_cred = match hot_cold_delegations.remove(&cold_cred) {
+                    Some(ConstitutionalCommitteeAuthorization::DelegatedToHotCredential(
+                        hot_cred,
+                    )) => Resettable::Set(hot_cred),
+                    None | Some(ConstitutionalCommitteeAuthorization::Resigned(..)) => {
+                        Resettable::Reset
+                    }
+                };
+
+                (cold_cred, (hot_cred, Resettable::Set(valid_until)))
+            }),
+        },
+        Default::default(),
+        iter::empty(),
+    )?;
+
+    transaction.commit()?;
+
+    Ok(())
+}
+
+fn import_votes(
+    db: &impl Store,
+    point: &Point,
+    era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+    actions: Vec<GovActionState>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let votes = actions
+        .into_iter()
+        .flat_map(|st| {
+            let new_ballot_id = |voter| BallotId {
+                proposal: ComparableProposalId::from(st.id.clone()),
+                voter,
+            };
+
+            let mut votes = Vec::new();
+
+            for (committee, vote) in st.committee_votes.into_iter() {
+                let voter = match committee {
+                    StakeCredential::AddrKeyhash(hash) => Voter::ConstitutionalCommitteeKey(hash),
+                    StakeCredential::ScriptHash(hash) => Voter::ConstitutionalCommitteeScript(hash),
+                };
+
+                let ballot = Ballot { vote, anchor: None };
+
+                votes.push((new_ballot_id(voter), ballot));
+            }
+
+            for (drep, vote) in st.dreps_votes.into_iter() {
+                let voter = match drep {
+                    StakeCredential::AddrKeyhash(hash) => Voter::DRepKey(hash),
+                    StakeCredential::ScriptHash(hash) => Voter::DRepScript(hash),
+                };
+
+                let ballot = Ballot { vote, anchor: None };
+
+                votes.push((new_ballot_id(voter), ballot));
+            }
+
+            for (pool_id, vote) in st.pools_votes.into_iter() {
+                let voter = Voter::StakePoolKey(pool_id);
+
+                let ballot = Ballot { vote, anchor: None };
+
+                votes.push((new_ballot_id(voter), ballot));
+            }
+
+            votes
+        })
+        .collect::<Vec<_>>();
+
+    info!(size = votes.len(), "votes");
+
+    let transaction = db.create_transaction();
+
+    transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut default_governance_activity(),
+        point,
+        None,
+        store::Columns {
+            utxo: iter::empty(),
+            pools: iter::empty(),
+            accounts: iter::empty(),
+            dreps: iter::empty(),
+            proposals: iter::empty(),
+            cc_members: iter::empty(),
+            votes: votes.into_iter(),
+        },
+        Default::default(),
+        iter::empty(),
+    )?;
+
+    transaction.commit()?;
 
     Ok(())
 }
@@ -772,4 +1010,84 @@ fn decode_seggregated_parameters(
     let pparams = cbor::Decoder::new(&pparams_file).decode()?;
 
     Ok(pparams)
+}
+
+// TODO: Move to Pallas
+#[derive(Debug)]
+#[allow(dead_code)]
+struct GovActionState {
+    id: ProposalId,
+    committee_votes: BTreeMap<StakeCredential, Vote>,
+    dreps_votes: BTreeMap<StakeCredential, Vote>,
+    pools_votes: BTreeMap<PoolId, Vote>,
+    proposal: Proposal,
+    proposed_in: Epoch,
+    expires_after: Epoch,
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for GovActionState {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(7)?;
+            Ok(GovActionState {
+                id: d.decode_with(ctx)?,
+                committee_votes: d.decode_with(ctx)?,
+                dreps_votes: d.decode_with(ctx)?,
+                pools_votes: d.decode_with(ctx)?,
+                proposal: d.decode_with(ctx)?,
+                proposed_in: d.decode_with(ctx)?,
+                expires_after: d.decode_with(ctx)?,
+            })
+        })
+    }
+}
+
+// TODO: Move to Pallas
+#[derive(Debug)]
+enum ConstitutionalCommitteeAuthorization {
+    DelegatedToHotCredential(StakeCredential),
+    Resigned(#[allow(dead_code)] StrictMaybe<Anchor>),
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        heterogeneous_array(d, |d, assert_len| match d.u8()? {
+            0 => {
+                assert_len(1)?;
+                Ok(Self::DelegatedToHotCredential(d.decode_with(ctx)?))
+            }
+            1 => {
+                assert_len(1)?;
+                Ok(Self::Resigned(d.decode_with(ctx)?))
+            }
+            t => Err(cbor::decode::Error::message(format!(
+                "unexpected ConstitutionalCommitteeAuthorization kind: {t}; expected 0 or 1."
+            ))),
+        })
+    }
+}
+
+// TODO: Move to Pallas
+#[derive(Debug)]
+struct ConstitutionalCommittee {
+    members: BTreeMap<StakeCredential, Epoch>,
+    threshold: UnitInterval,
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            Ok(ConstitutionalCommittee {
+                members: d.decode_with(ctx)?,
+                threshold: d.decode_with(ctx)?,
+            })
+        })
+    }
+}
+
+fn default_governance_activity() -> GovernanceActivity {
+    GovernanceActivity {
+        consecutive_dormant_epochs: 0,
+    }
 }

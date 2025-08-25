@@ -20,25 +20,27 @@ pub mod rocksdb;
 pub mod tests {
     use amaru_kernel::{
         network::NetworkName,
-        tests::{any_pool_id, any_pool_params, any_proposal_id},
-        Anchor, EraHistory, Hash, MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId,
-        Slot, StakeCredential, TransactionInput,
+        protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+        tests::{any_pool_id, any_pool_params, any_proposal_id, any_stake_credential},
+        Anchor, ComparableProposalId, DRepRegistration, EraHistory, Hash,
+        MemoizedTransactionOutput, Point, PoolId, PoolParams, Slot, StakeCredential,
+        TransactionInput,
     };
     use amaru_ledger::{
         state::diff_bind,
         store::{
             columns::{
-                accounts::{self, tests::any_stake_credential},
+                accounts::{self},
                 cc_members, dreps,
                 proposals::{self},
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
             },
-            Columns, ReadStore, Store, StoreError, TransactionalContext,
+            Columns, GovernanceActivity, ReadStore, Store, StoreError, TransactionalContext,
         },
     };
+    use amaru_slot_arithmetic::Epoch;
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
-    use slot_arithmetic::Epoch;
 
     #[cfg(not(target_os = "windows"))]
     #[derive(Debug, Clone)]
@@ -51,7 +53,7 @@ pub mod tests {
         pub pool_epoch: Epoch,
         pub drep_key: StakeCredential,
         pub drep_row: dreps::Row,
-        pub proposal_key: ProposalId,
+        pub proposal_key: proposals::Key,
         pub proposal_row: proposals::Row,
         pub cc_member_key: StakeCredential,
         pub cc_member_row: cc_members::Row,
@@ -78,7 +80,7 @@ pub mod tests {
 
     pub fn add_test_data_to_store(
         store: &impl Store,
-        era_history: &EraHistory,
+        _era_history: &EraHistory,
         runner: &mut TestRunner,
     ) -> Result<Fixture, StoreError> {
         use diff_bind::Resettable;
@@ -95,7 +97,7 @@ pub mod tests {
         let account_key = any_stake_credential().new_tree(runner).unwrap().current();
         let account_key_clone = account_key.clone();
 
-        let account_row = amaru_ledger::store::columns::accounts::tests::any_row()
+        let account_row = amaru_ledger::store::columns::accounts::tests::any_row(10_000_000)
             .new_tree(runner)
             .unwrap()
             .current();
@@ -124,7 +126,7 @@ pub mod tests {
 
         // dreps
         let drep_key = any_stake_credential().new_tree(runner).unwrap().current();
-        let mut drep_row = amaru_ledger::store::columns::dreps::tests::any_row()
+        let mut drep_row = amaru_ledger::store::columns::dreps::tests::any_row(10_000_000)
             .new_tree(runner)
             .unwrap()
             .current();
@@ -136,33 +138,29 @@ pub mod tests {
             });
         }
         drep_row.previous_deregistration = None;
-        drep_row.last_interaction = None;
 
         let anchor = drep_row.anchor.clone().expect("Expected anchor to be Some");
         let deposit = drep_row.deposit;
         let registered_at = drep_row.registered_at;
 
-        let drep_epoch = era_history
-            .slot_to_epoch(
-                registered_at.transaction.slot,
-                registered_at.transaction.slot,
-            )
-            .expect("Failed to convert slot to epoch");
-
         let drep_iter = std::iter::once((
             drep_key.clone(),
             (
                 Resettable::Set(anchor),
-                Some((deposit, registered_at)),
-                drep_epoch,
+                Some(DRepRegistration {
+                    deposit,
+                    registered_at,
+                    valid_until: drep_row.valid_until,
+                }),
             ),
         ));
 
         // proposals (Does not generate proposal row on Windows due to stack overflow)
         #[cfg(not(target_os = "windows"))]
         let (proposal_iter, proposal_key, proposal_row) = {
-            let proposal_key = any_proposal_id().new_tree(runner).unwrap().current();
-            let proposal_row = amaru_ledger::store::columns::proposals::tests::any_row()
+            let proposal_key =
+                ComparableProposalId::from(any_proposal_id().new_tree(runner).unwrap().current());
+            let proposal_row = amaru_ledger::store::columns::proposals::tests::any_row(10_000_000)
                 .new_tree(runner)
                 .unwrap()
                 .current();
@@ -192,19 +190,27 @@ pub mod tests {
 
         let hot_credential = cc_member_row.hot_credential.clone().unwrap();
 
-        let cc_members_iter =
-            std::iter::once((cc_member_key.clone(), Resettable::Set(hot_credential)));
+        let cc_members_iter = std::iter::once((
+            cc_member_key.clone(),
+            (Resettable::Set(hot_credential), Resettable::Unchanged),
+        ));
 
         let slot = any_slot().new_tree(runner).unwrap().current();
         let point = Point::Specific(slot.into(), Hash::from([0u8; 32]).to_vec());
         let slot_leader = any_pool_id().new_tree(runner).unwrap().current();
 
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let mut governance_activity = GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        };
 
         {
             let context = store.create_transaction();
 
             context.save(
+                &era_history,
+                &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+                &mut governance_activity,
                 &point,
                 Some(&slot_leader),
                 Columns {
@@ -218,7 +224,6 @@ pub mod tests {
                 },
                 Columns::empty(),
                 std::iter::empty(),
-                &era_history,
             )?;
 
             context.commit()?;
@@ -337,17 +342,15 @@ pub mod tests {
             stored_drep.anchor, fixture.drep_row.anchor,
             "drep anchor mismatch"
         );
+
         assert_eq!(
             stored_drep.deposit, fixture.drep_row.deposit,
             "drep deposit mismatch"
         );
+
         assert_eq!(
             stored_drep.registered_at, fixture.drep_row.registered_at,
             "drep registration time mismatch"
-        );
-        assert_eq!(
-            stored_drep.last_interaction, fixture.drep_row.last_interaction,
-            "drep last interaction mismatch"
         );
 
         match (
@@ -405,14 +408,19 @@ pub mod tests {
             votes: std::iter::empty(),
         };
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let mut governance_activity = GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        };
         let context = store.create_transaction();
         context.save(
+            &era_history,
+            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &mut governance_activity,
             &point,
             None,
             Columns::empty(),
             remove,
             std::iter::empty(),
-            &era_history,
         )?;
         context.commit()?;
 
@@ -439,14 +447,19 @@ pub mod tests {
         };
 
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let mut governance_activity = GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        };
         let context = store.create_transaction();
         context.save(
+            &era_history,
+            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &mut governance_activity,
             &point,
             None,
             Columns::empty(),
             remove,
             std::iter::empty(),
-            &era_history,
         )?;
         context.commit()?;
 
@@ -468,14 +481,19 @@ pub mod tests {
             votes: std::iter::empty(),
         };
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let mut governance_activity = GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        };
         let context = store.create_transaction();
         context.save(
+            &era_history,
+            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &mut governance_activity,
             &point,
             None,
             Columns::empty(),
             remove,
             std::iter::empty(),
-            &era_history,
         )?;
         context.commit()?;
 
@@ -517,14 +535,19 @@ pub mod tests {
         );
 
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let mut governance_activity = GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        };
         let context = store.create_transaction();
         context.save(
+            &era_history,
+            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &mut governance_activity,
             &point,
             None,
             Columns::empty(),
             remove,
             std::iter::empty(),
-            &era_history,
         )?;
         context.commit()?;
 

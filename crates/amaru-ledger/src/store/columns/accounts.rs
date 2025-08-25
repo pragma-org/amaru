@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::state::diff_bind::Resettable;
+use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{cbor, CertificatePointer, DRep, Lovelace, PoolId, StakeCredential};
-use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 
@@ -74,40 +74,17 @@ pub mod tests {
     use super::Row;
     use amaru_kernel::{
         prop_cbor_roundtrip,
-        tests::{any_certificate_pointer, any_pool_id},
-        DRep, Hash, Lovelace, StakeCredential,
+        tests::{any_certificate_pointer, any_drep, any_pool_id},
+        Lovelace,
     };
     use proptest::{option, prelude::*, prop_compose};
 
-    pub fn any_stake_credential() -> impl Strategy<Value = StakeCredential> {
-        prop_oneof![
-            any::<[u8; 28]>().prop_map(|hash| StakeCredential::AddrKeyhash(Hash::new(hash))),
-            any::<[u8; 28]>().prop_map(|hash| StakeCredential::ScriptHash(Hash::new(hash))),
-        ]
-    }
-
     prop_compose! {
-        pub fn any_drep()(
-            credential in any::<[u8; 28]>(),
-            kind in any::<u8>(),
-        ) -> DRep {
-            let kind = kind % 4;
-            match kind {
-                0 => DRep::Key(Hash::from(credential)),
-                1 => DRep::Script(Hash::from(credential)),
-                2 => DRep::Abstain,
-                3 => DRep::NoConfidence,
-                _ => unreachable!("% 4")
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_row()(
+        pub fn any_row(max_slot: u64)(
             delegatee in option::of(any_pool_id()),
             deposit in any::<Lovelace>(),
             drep in option::of(any_drep()),
-            drep_registered_at in any_certificate_pointer(),
+            drep_registered_at in any_certificate_pointer(max_slot),
             rewards in any::<Lovelace>(),
         ) -> Row {
             Row {
@@ -119,5 +96,5 @@ pub mod tests {
         }
     }
 
-    prop_cbor_roundtrip!(Row, any_row());
+    prop_cbor_roundtrip!(Row, any_row(u64::MAX));
 }

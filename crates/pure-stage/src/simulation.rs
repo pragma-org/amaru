@@ -36,7 +36,6 @@ use crate::{
 use either::Either;
 use parking_lot::Mutex;
 use std::{
-    any::Any,
     collections::{BTreeMap, VecDeque},
     future::{poll_fn, Future},
     marker::PhantomData,
@@ -114,7 +113,7 @@ pub(crate) fn airlock_effect<Out>(
 /// let stage = network.stage("basic", async |(mut state, out), msg: u32, eff| {
 ///     state += msg;
 ///     eff.send(&out, state).await;
-///     Ok((state, out))
+///     (state, out)
 /// });
 /// let (output, mut rx) = network.output("output", 10);
 /// let stage = network.wire_up(stage, (1u32, output.without_state()));
@@ -215,7 +214,7 @@ impl super::StageGraph for SimulationBuilder {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
-        Fut: Future<Output = anyhow::Result<St>> + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
@@ -229,12 +228,12 @@ impl super::StageGraph for SimulationBuilder {
         let effects = Effects::new(me, self.effect.clone(), self.clock.clone(), self_sender);
         let transition: Transition =
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
-                let state = (state as Box<dyn Any>).downcast::<St>().unwrap();
+                let state = state.cast::<St>().expect("internal state type error");
                 let msg = msg
                     .cast_deserialize::<Msg>()
                     .expect("internal message type error");
                 let state = f(*state, msg, effects.clone());
-                Box::pin(async move { Ok(Box::new(state.await?) as Box<dyn SendData>) })
+                Box::pin(async move { Box::new(state.await) as Box<dyn SendData> })
             });
 
         if let Some(old) = self.stages.insert(

@@ -15,10 +15,10 @@
 use amaru_consensus::consensus::store::{ChainStore, StoreError};
 use amaru_kernel::{protocol_parameters::GlobalParameters, Header, RationalNumber};
 use amaru_ouroboros::{HasStakeDistribution, Nonces, PoolSummary};
+use amaru_slot_arithmetic::{Epoch, Slot};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
-use slot_arithmetic::{Epoch, Slot};
 use std::{fs::File, io::BufReader, path::Path};
 
 /// Stake data for a single pool.

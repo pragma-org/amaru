@@ -1,7 +1,7 @@
 lints.workspace = true
 
 [package]
-name = "minicbor-extra"
+name = "amaru-minicbor-extra"
 version.workspace = true
 edition.workspace = true
 description.workspace = true

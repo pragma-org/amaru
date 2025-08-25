@@ -18,15 +18,15 @@ use super::{
     diff_set::DiffSet,
 };
 use crate::{
-    state::diff_epoch_reg::Registrations,
+    state::{diff_bind::Resettable, diff_epoch_reg::Registrations},
     store::{self, columns::*},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Anchor, Ballot, CertificatePointer,
-    ComparableProposalId, DRep, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams,
-    Proposal, ProposalId, ProposalPointer, StakeCredential, TransactionInput, Voter,
+    protocol_parameters::ProtocolParameters, Anchor, Ballot, BallotId, CertificatePointer,
+    ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, Point,
+    PoolId, PoolParams, Proposal, ProposalPointer, StakeCredential, TransactionInput,
 };
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use tracing::error;
 
@@ -139,12 +139,12 @@ pub struct VolatileState {
     pub utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
+    pub dreps: DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub proposals: DiffBind<ComparableProposalId, Empty, Empty, (Proposal, ProposalPointer)>,
-    pub votes: DiffSet<Voter, Ballot>,
+    pub votes: DiffSet<BallotId, Ballot>,
     pub fees: Lovelace,
 }
 
@@ -205,7 +205,7 @@ impl AnchoredVolatileState {
             impl Iterator<Item = ()>,
         >,
     > {
-        let gov_action_lifetime = protocol_parameters.gov_action_lifetime as u64;
+        let gov_action_lifetime = protocol_parameters.gov_action_lifetime;
 
         StoreUpdate {
             point: self.anchor.0,
@@ -216,7 +216,7 @@ impl AnchoredVolatileState {
                 utxo: self.state.utxo.produced.into_iter(),
                 pools: add_pools(self.state.pools.registered.into_iter(), epoch),
                 accounts: add_accounts(self.state.accounts.registered.into_iter()),
-                dreps: add_dreps(self.state.dreps.registered.into_iter(), epoch),
+                dreps: add_dreps(self.state.dreps.registered.into_iter()),
                 cc_members: add_committee(self.state.committee.registered.into_iter()),
                 proposals: add_proposals(
                     self.state.proposals.registered.into_iter(),
@@ -296,13 +296,7 @@ fn add_accounts(
 // --------------------------------------------------------------------------
 
 fn add_dreps(
-    iterator: impl Iterator<
-        Item = (
-            StakeCredential,
-            Bind<Anchor, Empty, (Lovelace, CertificatePointer)>,
-        ),
-    >,
-    epoch: Epoch,
+    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, DRepRegistration>)>,
 ) -> impl Iterator<Item = (dreps::Key, dreps::Value)> {
     iterator.map(
         move |(
@@ -312,7 +306,7 @@ fn add_dreps(
                 right: _,
                 value: registration,
             },
-        ): (_, Bind<_, Empty, _>)| { (credential, (anchor, registration, epoch)) },
+        ): (_, Bind<_, Empty, _>)| { (credential, (anchor, registration)) },
     )
 }
 
@@ -344,7 +338,7 @@ fn add_committee(
                 right: _,
                 value: _,
             },
-        )| { (credential, hot_credential) },
+        )| { (credential, (hot_credential, Resettable::Unchanged)) },
     )
 }
 
@@ -374,7 +368,7 @@ fn add_proposals(
         ): (usize, (_, Bind<_, Empty, _>))| {
             match value {
                 Some((proposal, proposed_in)) => Some((
-                    ProposalId::from(proposal_id),
+                    proposal_id,
                     proposals::Value {
                         proposed_in,
                         valid_until: expiration,

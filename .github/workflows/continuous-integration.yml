@@ -47,14 +47,14 @@ jobs:
           - runner: ubuntu-latest
             target: wasm32-unknown-unknown
             title: wasm32
-            packages: -p amaru-consensus -p amaru-ledger -p amaru-ouroboros -p slot-arithmetic
+            packages: -p amaru-consensus -p amaru-ledger -p pure-stage
             command: build
             setup: rustup target add wasm32-unknown-unknown
 
           - runner: ubuntu-latest
             target: riscv32im-risc0-zkvm-elf
             title: riscv32
-            packages: -p amaru-ledger -p slot-arithmetic
+            packages: -p amaru-ledger -p amaru-slot-arithmetic -p pure-stage
             extra-args: +nightly -Zbuild-std=std,panic_abort
             command: build
             setup: |
@@ -91,7 +91,7 @@ jobs:
             cargo-${{ matrix.environments.target }}
       - name: Run build
         run: |
-          set +e
+          set -e
           EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
           SCOPE="${{ matrix.environments.packages || '' }}"
           COMMAND="${{ matrix.environments.command  || 'test-amaru' }}"
@@ -100,7 +100,7 @@ jobs:
             ${{ matrix.environments.setup }}
           fi
           if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
-            cargo install cross --git https://github.com/cross-rs/cross
+            cargo install --force cross --git https://github.com/cross-rs/cross
             # cross doesn't load .cargo/config.toml, see https://github.com/cross-rs/cross/issues/562
             $HOME/.cargo/bin/cross $COMMAND --locked --all-features $SCOPE --target ${{ matrix.environments.target }}
           else
@@ -111,15 +111,6 @@ jobs:
             fi
             # Run doc tests separately as --doc can't be used with --all-targets
             cargo test --doc
-          fi
-          exitcode="$?"
-          if [[ "${{ matrix.environments.optional }}" == "true" && "$exitcode" != "0" ]] ; then
-            # Propagate failure as a warning
-            # but do not fail the job
-            echo "::warning::Tests failed with exit code $exitcode"
-            exit 0
-          else
-            exit "$exitcode"
           fi
         shell: bash
 
@@ -223,9 +214,9 @@ jobs:
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
           # (i.e. Full bootstrap below)
-          key: ${{ runner.OS }}-ledger-cache-v8-${{ steps.timestamp.outputs.value }}
+          key: ${{ runner.OS }}-ledger-cache-v9-${{ steps.timestamp.outputs.value }}
           restore-keys: |
-            ${{ runner.OS }}-ledger-cache-v8
+            ${{ runner.OS }}-ledger-cache-v9
 
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''
@@ -242,11 +233,11 @@ jobs:
         if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
         with:
           path: ./ledger.${{ matrix.network.name }}.db
-          key: ${{ runner.OS }}-ledger-cache-v8-${{ steps.timestamp.outputs.value }}
+          key: ${{ runner.OS }}-ledger-cache-v9-${{ steps.timestamp.outputs.value }}
 
       - name: Run node
         if: github.event_name == 'pull_request'
-        timeout-minutes: 30
+        timeout-minutes: 45
         shell: bash
         run: make BUILD_PROFILE=test demo
 

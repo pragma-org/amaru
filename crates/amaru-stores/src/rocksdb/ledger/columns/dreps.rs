@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_kernel::{CertificatePointer, StakeCredential};
+use amaru_kernel::{CertificatePointer, DRepRegistration, Epoch, StakeCredential};
 use amaru_ledger::store::{
     columns::{
         dreps::{Key, Row, Value, EVENT_TARGET},
@@ -22,7 +22,6 @@ use amaru_ledger::store::{
     StoreError,
 };
 use rocksdb::Transaction;
-use slot_arithmetic::Epoch;
 use std::collections::BTreeSet;
 use tracing::error;
 
@@ -33,9 +32,10 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
 #[allow(clippy::unwrap_used)]
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
+    valid_until_on_update: Epoch,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (credential, (anchor, register, epoch)) in rows {
+    for (credential, (anchor, registration)) in rows {
         let key = as_key(&PREFIX, &credential);
 
         // Registration already exists. Which can represents one of two cases:
@@ -52,36 +52,45 @@ pub fn add<DB>(
             .map(unsafe_decode::<Row>)
         {
             // Re-registration
-            if let Some((deposit, registered_at)) = register {
-                row.registered_at = registered_at;
-                row.deposit = deposit;
-                row.last_interaction = None;
-            // Only an anchor update; this counts as a last interaction, though.
-            } else {
-                row.last_interaction = Some(epoch);
-            }
-            anchor.set_or_reset(&mut row.anchor);
-            Some(row)
-
-        // Brand new registration.
-        } else if let Some((deposit, registered_at)) = register {
-            let mut row = Row {
-                anchor: None,
+            if let Some(DRepRegistration {
                 deposit,
                 registered_at,
-                last_interaction: None,
-                previous_deregistration: None,
-            };
-            anchor.set_or_reset(&mut row.anchor);
-            Some(row)
+                valid_until,
+                ..
+            }) = registration
+            {
+                row.deposit = deposit;
+                row.registered_at = registered_at;
+                row.valid_until = valid_until;
+            } else {
+                row.valid_until = valid_until_on_update;
+            }
 
-        // Technically impossible, sign of a logic error.
+            Some(row)
+        } else if let Some(DRepRegistration {
+            deposit,
+            registered_at,
+            valid_until,
+            ..
+        }) = registration
+        {
+            // Brand new registration.
+            Some(Row {
+                deposit,
+                registered_at,
+                valid_until,
+                anchor: None,
+                previous_deregistration: None,
+            })
         } else {
+            // Technically impossible, sign of a logic error.
             None
         };
 
         match row {
-            Some(row) => {
+            Some(mut row) => {
+                anchor.set_or_reset(&mut row.anchor);
+
                 db.put(key, as_value(row))
                     .map_err(|err| StoreError::Internal(err.into()))?;
             }
@@ -98,29 +107,29 @@ pub fn add<DB>(
     Ok(())
 }
 
-pub fn tick<DB>(
+/// Re-calculate drep expiry based the current epoch. This happens each time a drep vote on an
+/// active governance proposal.
+pub fn set_valid_until<DB>(
     db: &Transaction<'_, DB>,
     credentials: BTreeSet<StakeCredential>,
-    epoch: Epoch,
+    valid_until: Epoch,
 ) -> Result<(), StoreError> {
     for credential in credentials {
         let key = as_key(&PREFIX, &credential);
 
-        // In case where a registration already exists, then we must only update the underlying
-        // entry.
         if let Some(mut row) = db
             .get(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(unsafe_decode::<Row>)
         {
-            row.last_interaction = Some(epoch);
+            row.valid_until = valid_until;
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else {
             error!(
                 target: EVENT_TARGET,
                 ?credential,
-                "tick.unknown_drep",
+                "set_valid_until.unknown_drep",
             )
         };
     }

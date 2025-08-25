@@ -13,25 +13,28 @@
 // limitations under the License.
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
+use amaru_iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, ProtocolVersion, StakeCredential, TransactionInput,
+    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, ComparableProposalId,
+    Constitution, ConstitutionalCommittee, EraHistory, Lovelace, MemoizedTransactionOutput, Point,
+    PoolId, StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
+    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
     store::{
-        columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
-        ProtocolParametersErrorKind, ProtocolVersionErrorKind, ReadStore, Snapshot, Store,
-        StoreError, TipErrorKind, TransactionalContext,
+        columns as scolumns, Columns, EpochTransitionProgress, GovernanceActivity,
+        HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
+        TransactionalContext,
     },
     summary::Pots,
 };
-use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
+use amaru_slot_arithmetic::Epoch;
 use rocksdb::{
     DBAccess, DBIteratorWithThreadMode, Direction, IteratorMode, ReadOptions, Transaction, DB,
 };
-use slot_arithmetic::Epoch;
 use std::{
     fmt, fs,
+    ops::Deref,
     path::{Path, PathBuf},
 };
 use tracing::{info, instrument, trace, warn, Level};
@@ -47,42 +50,69 @@ pub mod consensus;
 mod transaction;
 use transaction::OngoingTransaction;
 
+// Constants
+// ----------------------------------------------------------------------------
+
 const EVENT_TARGET: &str = "amaru::ledger::store";
 
-/// Special key where we store the tip of the database (most recently applied delta)
-const KEY_TIP: &str = "tip";
+/// Key where is stored the tip of the database (most recently applied delta)
+const KEY_TIP: &str = "@tip";
 
-/// Special key where we store the progress of the database
-const KEY_PROGRESS: &str = "progress";
+/// key where is stored the progress of the database
+const KEY_PROGRESS: &str = "@progress";
 
-// Special key where we store the current protocol parameters
-const KEY_PROTOCOL_PARAMETERS: &str = "protocol-parameters";
+/// Key where is stored the current protocol parameters
+const KEY_PROTOCOL_PARAMETERS: &str = "@protocol-parameters";
 
-// Special key where we store the current protocol version
-const KEY_PROTOCOL_VERSION: &str = "protocol-version";
+/// key where is stored the constitutional committee information;
+const KEY_CONSTITUTIONAL_COMMITTEE: &str = "@constitutional-committee";
+
+/// key where is stored the constitution
+const KEY_CONSTITUTION: &str = "@constitution";
+
+/// key where are stored the proposals roots;
+const KEY_PROPOSALS_ROOTS: &str = "@proposals-roots";
+
+/// key where is stored the governance activity (e.g. number of dormant epochs).
+const KEY_GOVERNANCE_ACTIVITY: &str = "@governance-activity";
 
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
 
-// -------------------------------------------------------------------- RocksDB
+// RocksDB
 // ----------------------------------------------------------------------------
 
-/// An opaque handle for a store implementation of top of RocksDB. The database has the
-/// following structure:
-///
-/// * ========================*=============================================== *
-/// * key                     * value                                          *
-/// * ========================*=============================================== *
-/// * 'tip'                   * Point                                          *
-/// * 'progress'              * EpochTransitionProgress                        *
-/// * 'pots'                  * (Lovelace, Lovelace, Lovelace)                 *
-/// * 'utxo:'TransactionInput * TransactionOutput                              *
-/// * 'pool:'PoolId           * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
-/// * 'acct:'StakeCredential  * (Option<PoolId>, Lovelace, Lovelace)           *
-/// * 'slot':slot             * PoolId                                         *
-/// * ========================*=============================================== *
-///
-/// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
+// An opaque handle for a store implementation of top of RocksDB. The database has the
+// following structure:
+//
+// * ===========================*================================================ *
+// * key                        * value                                           *
+// * ===========================*================================================ *
+// * '@tip'                      * Point                                          *
+// * '@progress'                 * EpochTransitionProgress                        *
+// * '@pots'                     * (Lovelace, Lovelace, Lovelace)                 *
+// * '@protocol-version'         * ProtocolVersion                                *
+// * '@protocol-parameters'      * ProtocolParameters                             *
+// * '@governance-activity'      * GovernanceActivity                             *
+// * '@constitutional-committee' * ConstitutionalCommittee                        *
+// * '@constitutional'           * Constitution                                   *
+// * 'utxo:'TransactionInput     * TransactionOutput                              *
+// * 'pool:'PoolId               * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
+// * 'acct:'StakeCredential      * (Option<PoolId>, Lovelace, Lovelace)           *
+// * 'drep:'StakeCredential      * (                                              *
+// *                             *   Lovelace,                                    *
+// *                             *   Option<Anchor>,                              *
+// *                             *   CertificatePointer,                          *
+// *                             *   Option<Epoch>,                               *
+// *                             *   Option<CertificatePointer>,                  *
+// *                             * )                                              *
+// * 'comm:'StakeCredential      * (Option<StakeCredential>)                      *
+// * 'prop:'ProposalId           * (ProposalPointer, Epoch, Proposal)             *
+// * 'vote:'Voter                * Ballot                                         *
+// * 'slot':slot                 * PoolId                                         *
+// * ===========================*================================================ *
+//
+// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
 pub struct RocksDB {
     /// The working directory where we store the various key/value stores.
     dir: PathBuf,
@@ -160,7 +190,7 @@ impl RocksDB {
     }
 }
 
-// ------------------------------------------------------------ RocksDBReadOnly
+// RocksDBReadOnly
 // ----------------------------------------------------------------------------
 
 /// A version of the RocksDB implementation that holds a read-only connection. Useful for
@@ -179,334 +209,22 @@ impl ReadOnlyRocksDB {
     }
 }
 
-// ----------------------------------------------------------- ReadOnlyStore(s)
+// Snapshot
 // ----------------------------------------------------------------------------
 
-macro_rules! impl_ReadStore {
-    (for $($s:ty),+) => {
-        $(impl ReadStore for $s {
-            fn protocol_version(
-                &self,
-            ) -> Result<ProtocolVersion, StoreError> {
-                get(|key| self.db.get(key), &KEY_PROTOCOL_VERSION)?
-                    .ok_or(StoreError::ProtocolVersion(ProtocolVersionErrorKind::Missing))
-            }
+pub struct RocksDBSnapshot {
+    epoch: Epoch,
+    db: OptimisticTransactionDB,
+}
 
-            fn protocol_parameters(
-                &self,
-            ) -> Result<ProtocolParameters, StoreError> {
-                get(|key| self.db.get(key), &KEY_PROTOCOL_PARAMETERS)?
-                    .ok_or(StoreError::ProtocolParameters(ProtocolParametersErrorKind::Missing))
-            }
-
-            fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
-                pools::get(|key| self.db.get(key), pool)
-            }
-
-            fn account(
-                &self,
-                credential: &StakeCredential,
-            ) -> Result<Option<scolumns::accounts::Row>, StoreError> {
-                accounts::get(|key| self.db.get(key), credential)
-            }
-
-            fn utxo(&self, input: &TransactionInput) -> Result<Option<MemoizedTransactionOutput>, StoreError> {
-                utxo::get(|key| self.db.get(key), input)
-            }
-
-            fn iter_utxos(
-                &self,
-            ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
-            {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), utxo::PREFIX, Direction::Forward)
-            }
-
-            fn pots(&self) -> Result<Pots, StoreError> {
-                pots::get(|key| self.db.get(key)).map(|row| Pots::from(&row))
-            }
-
-            fn iter_accounts(
-                &self,
-            ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
-            {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), accounts::PREFIX, Direction::Forward)
-            }
-
-            fn iter_block_issuers(
-                &self,
-            ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
-            {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), slots::PREFIX, Direction::Forward)
-            }
-
-            fn iter_pools(
-                &self,
-            ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
-            {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), pools::PREFIX, Direction::Forward)
-            }
-
-            fn iter_dreps(
-                &self,
-            ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
-            {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), dreps::PREFIX, Direction::Forward)
-            }
-
-            fn iter_proposals(
-                &self,
-            ) -> Result<
-                impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
-                StoreError,
-            > {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), proposals::PREFIX, Direction::Forward)
-            }
-        })*
+impl Snapshot for RocksDBSnapshot {
+    fn epoch(&'_ self) -> Epoch {
+        self.epoch
     }
 }
 
-// For now RocksDB and RocksDBSnapshot share their implementation of ReadOnlyStore
-impl_ReadStore!(for RocksDB, RocksDBSnapshot, ReadOnlyRocksDB, ReadOnlyRocksDBSnapshot);
-
-/// An generic column iterator, provided that rows from the column are (de)serialisable.
-#[allow(clippy::panic)]
-fn with_prefix_iterator<
-    K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
-    V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
-    DB,
->(
-    db: &rocksdb::Transaction<'_, DB>,
-    prefix: [u8; PREFIX_LEN],
-    mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
-) -> Result<(), StoreError> {
-    let mut iterator =
-        iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
-            // FIXME: clarify what kind of errors can come from the database at this point.
-            // We are merely iterating over a collection.
-            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
-        }));
-
-    with(iterator.as_iter_borrow());
-
-    for (k, v) in iterator.into_iter_updates() {
-        match v {
-            Some(v) => db.put(k, as_value(v)),
-            None => db.delete(k),
-        }
-        .map_err(|err| StoreError::Internal(err.into()))?;
-    }
-    Ok(())
-}
-
-pub struct RocksDBTransactionalContext<'a> {
-    db: &'a RocksDB,
-    transaction: Transaction<'a, OptimisticTransactionDB>,
-}
-
-impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
-    fn commit(self) -> Result<(), StoreError> {
-        let res = self
-            .transaction
-            .commit()
-            .map_err(|err| StoreError::Internal(err.into()));
-        self.db.transaction_ended();
-        res
-    }
-
-    fn rollback(mut self) -> Result<(), StoreError> {
-        let transaction = std::mem::replace(&mut self.transaction, self.db.db.transaction());
-        let res = transaction
-            .rollback()
-            .map_err(|err| StoreError::Internal(err.into()));
-        self.db.transaction_ended();
-        res
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-    )]
-    fn try_epoch_transition(
-        &self,
-        from: Option<EpochTransitionProgress>,
-        to: Option<EpochTransitionProgress>,
-    ) -> Result<bool, StoreError> {
-        let previous_progress = self
-            .transaction
-            .get(KEY_PROGRESS)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|bytes| cbor::decode(&bytes))
-            .transpose()
-            .map_err(StoreError::Undecodable)?;
-
-        if previous_progress != from {
-            return Ok(false);
-        }
-
-        match to {
-            None => self.transaction.delete(KEY_PROGRESS),
-            Some(to) => self.transaction.put(KEY_PROGRESS, as_value(to)),
-        }
-        .map_err(|err| StoreError::Internal(err.into()))?;
-
-        Ok(true)
-    }
-
-    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
-    /// deposit.
-    fn refund(
-        &self,
-        credential: &scolumns::accounts::Key,
-        deposit: Lovelace,
-    ) -> Result<Lovelace, StoreError> {
-        accounts::set(&self.transaction, credential, |balance| balance + deposit)
-    }
-
-    fn set_protocol_parameters(
-        &self,
-        protocol_parameters: &ProtocolParameters,
-    ) -> Result<(), StoreError> {
-        self.transaction
-            .put(KEY_PROTOCOL_PARAMETERS, as_value(protocol_parameters))
-            .map_err(|err| StoreError::Internal(err.into()))?;
-        Ok(())
-    }
-
-    fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<(), StoreError> {
-        self.transaction
-            .put(KEY_PROTOCOL_VERSION, as_value(protocol_version))
-            .map_err(|err| StoreError::Internal(err.into()))?;
-        Ok(())
-    }
-
-    fn save(
-        &self,
-        point: &Point,
-        issuer: Option<&scolumns::pools::Key>,
-        add: Columns<
-            impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
-            impl Iterator<Item = scolumns::pools::Value>,
-            impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
-            impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
-            impl Iterator<Item = (scolumns::cc_members::Key, scolumns::cc_members::Value)>,
-            impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Value)>,
-            impl Iterator<Item = (scolumns::votes::Key, scolumns::votes::Value)>,
-        >,
-        remove: Columns<
-            impl Iterator<Item = scolumns::utxo::Key>,
-            impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
-            impl Iterator<Item = scolumns::accounts::Key>,
-            impl Iterator<Item = (scolumns::dreps::Key, CertificatePointer)>,
-            impl Iterator<Item = scolumns::cc_members::Key>,
-            impl Iterator<Item = ()>,
-            impl Iterator<Item = ()>,
-        >,
-        withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
-        era_history: &EraHistory,
-    ) -> Result<(), StoreError> {
-        match (point, self.db.tip().ok()) {
-            (Point::Specific(new, _), Some(Point::Specific(current, _)))
-                if *new <= current && !self.db.incremental_save =>
-            {
-                trace!(target: EVENT_TARGET, ?point, "save.point_already_known");
-            }
-            _ => {
-                let tip = point.slot_or_default();
-                self.transaction
-                    .put(KEY_TIP, as_value(point))
-                    .map_err(|err| StoreError::Internal(err.into()))?;
-
-                if let Some(issuer) = issuer {
-                    slots::put(&self.transaction, &tip, scolumns::slots::Row::new(*issuer))?;
-                }
-
-                utxo::add(&self.transaction, add.utxo)?;
-                pools::add(&self.transaction, add.pools)?;
-                dreps::add(&self.transaction, add.dreps)?;
-                accounts::add(&self.transaction, add.accounts)?;
-                cc_members::add(&self.transaction, add.cc_members)?;
-                proposals::add(&self.transaction, add.proposals)?;
-                let voting_dreps = votes::add(&self.transaction, add.votes)?;
-
-                accounts::reset_many(&self.transaction, withdrawals)?;
-
-                dreps::tick(&self.transaction, voting_dreps, {
-                    era_history
-                        .slot_to_epoch(tip, tip)
-                        .map_err(|err| StoreError::Internal(err.into()))?
-                })?;
-
-                utxo::remove(&self.transaction, remove.utxo)?;
-                pools::remove(&self.transaction, remove.pools)?;
-                accounts::remove(&self.transaction, remove.accounts)?;
-                dreps::remove(&self.transaction, remove.dreps)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn with_pots<'db>(
-        &self,
-        mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>),
-    ) -> Result<(), StoreError> {
-        let mut err = None;
-        let proxy = Box::new(BorrowableProxy::new(
-            pots::get(|key| self.transaction.get(key))?,
-            |pots| {
-                let put = pots::put(&self.transaction, pots);
-                if let Err(e) = put {
-                    err = Some(e);
-                }
-            },
-        ));
-
-        with(proxy);
-
-        match err {
-            Some(e) => Err(e),
-            None => Ok(()),
-        }
-    }
-
-    fn with_utxo(&self, with: impl FnMut(scolumns::utxo::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, utxo::PREFIX, with)
-    }
-
-    fn with_pools(
-        &self,
-        with: impl FnMut(scolumns::pools::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, pools::PREFIX, with)
-    }
-
-    fn with_accounts(
-        &self,
-        with: impl FnMut(scolumns::accounts::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, accounts::PREFIX, with)
-    }
-
-    fn with_block_issuers(
-        &self,
-        with: impl FnMut(scolumns::slots::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, slots::PREFIX, with)
-    }
-
-    fn with_dreps(
-        &self,
-        with: impl FnMut(scolumns::dreps::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, dreps::PREFIX, with)
-    }
-
-    fn with_proposals(
-        &self,
-        with: impl FnMut(scolumns::proposals::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, proposals::PREFIX, with)
-    }
-}
+// Store
+// ----------------------------------------------------------------------------
 
 impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
@@ -539,15 +257,14 @@ impl Store for RocksDB {
         let transaction = self.db.transaction();
         self.ongoing_transaction.set(true);
         RocksDBTransactionalContext {
-            transaction,
-            db: self,
+            host: self,
+            db: transaction,
         }
     }
-
-    fn tip(&self) -> Result<Point, StoreError> {
-        get(|key| self.db.get(key), KEY_TIP)?.ok_or(StoreError::Tip(TipErrorKind::Missing))
-    }
 }
+
+// HistoricalStores
+// ----------------------------------------------------------------------------
 
 pub struct RocksDBHistoricalStores {
     dir: PathBuf,
@@ -603,37 +320,466 @@ impl HistoricalStores for RocksDBHistoricalStores {
     }
 }
 
-// ------------------------------------------------------------ RocksDBSnapshot
+// ReadStore(s)
 // ----------------------------------------------------------------------------
 
-pub struct RocksDBSnapshot {
-    epoch: Epoch,
-    db: OptimisticTransactionDB,
+macro_rules! impl_ReadStore {
+    // with lifetimes/generics: e.g., for<'a> Foo<'a>
+    (for<$($gen:tt),*> $t:ty) => {
+        impl_ReadStore_body!{ impl<$($gen,)*> ReadStore for $t }
+    };
+
+    // plain type: e.g., Foo
+    ($t:ty) => {
+        impl_ReadStore_body!{ impl ReadStore for $t }
+    };
 }
 
-impl Snapshot for RocksDBSnapshot {
-    fn epoch(&'_ self) -> Epoch {
-        self.epoch
+macro_rules! impl_ReadStore_body {
+    ($($header:tt)*) => {
+        $($header)* {
+            fn tip(&self) -> Result<Point, StoreError> {
+                get_or_bail(|key| self.db.get(key), KEY_TIP)
+            }
+
+            fn protocol_parameters(
+                &self,
+            ) -> Result<ProtocolParameters, StoreError> {
+                get_or_bail(|key| self.db.get(key), &KEY_PROTOCOL_PARAMETERS)
+            }
+
+            fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
+                get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTIONAL_COMMITTEE)
+            }
+
+            fn constitution(&self) -> Result<Constitution, StoreError> {
+                get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTION)
+            }
+
+            fn governance_activity(&self) -> Result<GovernanceActivity, StoreError> {
+                Ok(get(|key| self.db.get(key), &KEY_GOVERNANCE_ACTIVITY)?
+                    .unwrap_or_else(|| GovernanceActivity { consecutive_dormant_epochs: 0 })
+                )
+            }
+
+            fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
+                get_or_bail(|key| self.db.get(key), &KEY_PROPOSALS_ROOTS)
+            }
+
+            fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
+                pools::get(|key| self.db.get(key), pool)
+            }
+
+            fn account(
+                &self,
+                credential: &StakeCredential,
+            ) -> Result<Option<scolumns::accounts::Row>, StoreError> {
+                accounts::get(|key| self.db.get(key), credential)
+            }
+
+            fn utxo(
+                &self,
+                input: &TransactionInput,
+            ) -> Result<Option<MemoizedTransactionOutput>, StoreError> {
+                utxo::get(|key| self.db.get(key), input)
+            }
+
+            fn iter_utxos(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
+            {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    utxo::PREFIX,
+                    Direction::Forward,
+                )
+            }
+
+            fn pots(&self) -> Result<Pots, StoreError> {
+                pots::get(|key| self.db.get(key)).map(|row| Pots::from(&row))
+            }
+
+            fn iter_accounts(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
+            {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    accounts::PREFIX,
+                    Direction::Forward,
+                )
+            }
+
+            fn iter_block_issuers(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
+            {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    slots::PREFIX,
+                    Direction::Forward,
+                )
+            }
+
+            fn iter_pools(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
+            {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    pools::PREFIX,
+                    Direction::Forward,
+                )
+            }
+
+            fn iter_dreps(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
+            {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    dreps::PREFIX,
+                    Direction::Forward,
+                )
+            }
+
+            fn iter_proposals(
+                &self,
+            ) -> Result<
+                impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
+                StoreError,
+            > {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    proposals::PREFIX,
+                    Direction::Forward,
+                )
+            }
+
+            fn iter_cc_members(
+                &self,
+            ) -> Result<
+                impl Iterator<Item = (scolumns::cc_members::Key, scolumns::cc_members::Row)>,
+                StoreError,
+            > {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    cc_members::PREFIX,
+                    Direction::Forward,
+                )
+            }
+
+            fn iter_votes(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::votes::Key, scolumns::votes::Row)>, StoreError>
+            {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    votes::PREFIX,
+                    Direction::Forward,
+                )
+            }
+        }
     }
 }
 
-// ---------------------------------------------------- ReadOnlyRocksDBSnapshot
+impl_ReadStore!(RocksDB);
+impl_ReadStore!(RocksDBSnapshot);
+impl_ReadStore!(ReadOnlyRocksDB);
+impl_ReadStore!(for<'a> RocksDBTransactionalContext<'a>);
+
+// TransactionalContext
 // ----------------------------------------------------------------------------
 
-pub struct ReadOnlyRocksDBSnapshot {
-    db: DB,
+pub struct RocksDBTransactionalContext<'a> {
+    host: &'a RocksDB,
+    db: Transaction<'a, OptimisticTransactionDB>,
 }
 
-impl ReadOnlyRocksDBSnapshot {
-    pub fn new(dir: &Path) -> Result<Self, StoreError> {
-        let opts = default_opts_with_prefix();
-        rocksdb::DB::open_for_read_only(&opts, dir.join("live"), false)
-            .map(|db| Self { db })
-            .map_err(|err| StoreError::Internal(err.into()))
+impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
+    fn commit(self) -> Result<(), StoreError> {
+        let res = self
+            .db
+            .commit()
+            .map_err(|err| StoreError::Internal(err.into()));
+        self.host.transaction_ended();
+        res
+    }
+
+    fn rollback(mut self) -> Result<(), StoreError> {
+        let transaction = std::mem::replace(&mut self.db, self.host.db.transaction());
+        let res = transaction
+            .rollback()
+            .map_err(|err| StoreError::Internal(err.into()));
+        self.host.transaction_ended();
+        res
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+    )]
+    fn try_epoch_transition(
+        &self,
+        from: Option<EpochTransitionProgress>,
+        to: Option<EpochTransitionProgress>,
+    ) -> Result<bool, StoreError> {
+        let previous_progress = self
+            .db
+            .get(KEY_PROGRESS)
+            .map_err(|err| StoreError::Internal(err.into()))?
+            .map(|bytes| cbor::decode(&bytes))
+            .transpose()
+            .map_err(StoreError::Undecodable)?;
+
+        if previous_progress != from {
+            return Ok(false);
+        }
+
+        match to {
+            None => self.db.delete(KEY_PROGRESS),
+            Some(to) => self.db.put(KEY_PROGRESS, as_value(to)),
+        }
+        .map_err(|err| StoreError::Internal(err.into()))?;
+
+        Ok(true)
+    }
+
+    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
+    /// deposit.
+    fn refund(
+        &self,
+        credential: &scolumns::accounts::Key,
+        deposit: Lovelace,
+    ) -> Result<Lovelace, StoreError> {
+        accounts::set(&self.db, credential, |balance| balance + deposit)
+    }
+
+    fn set_protocol_parameters(
+        &self,
+        protocol_parameters: &ProtocolParameters,
+    ) -> Result<(), StoreError> {
+        self.db
+            .put(KEY_PROTOCOL_PARAMETERS, as_value(protocol_parameters))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        Ok(())
+    }
+
+    fn set_constitutional_committee(
+        &self,
+        constitutional_committee: &ConstitutionalCommittee,
+    ) -> Result<(), StoreError> {
+        self.db
+            .put(
+                KEY_CONSTITUTIONAL_COMMITTEE,
+                as_value(constitutional_committee),
+            )
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        Ok(())
+    }
+
+    fn set_proposals_roots(&self, roots: &ProposalsRootsRc) -> Result<(), StoreError> {
+        self.db
+            .put(KEY_PROPOSALS_ROOTS, as_value(roots))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        Ok(())
+    }
+
+    fn set_constitution(&self, constitution: &Constitution) -> Result<(), StoreError> {
+        self.db
+            .put(KEY_CONSTITUTION, as_value(constitution))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        Ok(())
+    }
+
+    fn set_governance_activity(
+        &self,
+        governance_activity: &GovernanceActivity,
+    ) -> Result<(), StoreError> {
+        self.db
+            .put(KEY_GOVERNANCE_ACTIVITY, as_value(governance_activity))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        Ok(())
+    }
+
+    /// Remove a list of proposals from the database. This is done when enacting proposals that
+    /// cause other proposals to become obsolete.
+    fn remove_proposals<'iter, Id>(
+        &self,
+        proposals: impl IntoIterator<Item = Id>,
+    ) -> Result<(), StoreError>
+    where
+        Id: Deref<Target = ComparableProposalId> + 'iter,
+    {
+        proposals::remove(&self.db, proposals.into_iter())
+    }
+
+    fn save(
+        &self,
+        era_history: &EraHistory,
+        protocol_parameters: &ProtocolParameters,
+        governance_activity: &mut GovernanceActivity,
+        point: &Point,
+        issuer: Option<&scolumns::pools::Key>,
+        add: Columns<
+            impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
+            impl Iterator<Item = scolumns::pools::Value>,
+            impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
+            impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
+            impl Iterator<Item = (scolumns::cc_members::Key, scolumns::cc_members::Value)>,
+            impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Value)>,
+            impl Iterator<Item = (scolumns::votes::Key, scolumns::votes::Value)>,
+        >,
+        remove: Columns<
+            impl Iterator<Item = scolumns::utxo::Key>,
+            impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
+            impl Iterator<Item = scolumns::accounts::Key>,
+            impl Iterator<Item = (scolumns::dreps::Key, CertificatePointer)>,
+            impl Iterator<Item = scolumns::cc_members::Key>,
+            impl Iterator<Item = ()>,
+            impl Iterator<Item = ()>,
+        >,
+        withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
+    ) -> Result<(), StoreError> {
+        match (point, self.tip().ok()) {
+            (Point::Specific(new, _), Some(Point::Specific(current, _)))
+                if *new <= current && !self.host.incremental_save =>
+            {
+                trace!(target: EVENT_TARGET, ?point, "save.point_already_known");
+            }
+            _ => {
+                let tip = point.slot_or_default();
+                self.db
+                    .put(KEY_TIP, as_value(point))
+                    .map_err(|err| StoreError::Internal(err.into()))?;
+
+                let current_epoch = era_history
+                    .slot_to_epoch(tip, tip)
+                    .map_err(|err| StoreError::Internal(err.into()))?;
+
+                if let Some(issuer) = issuer {
+                    slots::put(&self.db, &tip, scolumns::slots::Row::new(*issuer))?;
+                }
+
+                let drep_validity = current_epoch + protocol_parameters.drep_expiry
+                    - governance_activity.consecutive_dormant_epochs as u64;
+
+                utxo::add(&self.db, add.utxo)?;
+                pools::add(&self.db, add.pools)?;
+                dreps::add(&self.db, drep_validity, add.dreps)?;
+                accounts::add(&self.db, add.accounts)?;
+                cc_members::add(&self.db, add.cc_members)?;
+
+                let proposals_count = proposals::add(&self.db, add.proposals)?;
+                let voting_dreps = votes::add(&self.db, add.votes)?;
+
+                // Reset validity period of voting dreps.
+                if !voting_dreps.is_empty() {
+                    dreps::set_valid_until(&self.db, voting_dreps, drep_validity)?;
+                }
+
+                accounts::reset_many(&self.db, withdrawals)?;
+
+                utxo::remove(&self.db, remove.utxo)?;
+                pools::remove(&self.db, remove.pools)?;
+                accounts::remove(&self.db, remove.accounts)?;
+                dreps::remove(&self.db, remove.dreps)?;
+
+                // When a proposal is seen during a dormant period, we flush the current dormant
+                // epochs counter on each drep.
+                if governance_activity.consecutive_dormant_epochs > 0 && proposals_count > 0 {
+                    self.with_dreps(|iterator| {
+                        for (_, mut entry) in iterator {
+                            if let Some(row) = entry.borrow_mut() {
+                                let actual_expiry = row.valid_until
+                                    + governance_activity.consecutive_dormant_epochs as u64;
+                                if actual_expiry >= current_epoch {
+                                    row.valid_until = actual_expiry;
+                                }
+                            }
+                        }
+                    })?;
+
+                    governance_activity.consecutive_dormant_epochs = 0;
+
+                    self.set_governance_activity(governance_activity)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn with_pots<'db>(
+        &self,
+        mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>),
+    ) -> Result<(), StoreError> {
+        let mut err = None;
+        let proxy = Box::new(BorrowableProxy::new(
+            pots::get(|key| self.db.get(key))?,
+            |pots| {
+                let put = pots::put(&self.db, pots);
+                if let Err(e) = put {
+                    err = Some(e);
+                }
+            },
+        ));
+
+        with(proxy);
+
+        match err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
+    fn with_utxo(&self, with: impl FnMut(scolumns::utxo::Iter<'_, '_>)) -> Result<(), StoreError> {
+        with_prefix_iterator(&self.db, utxo::PREFIX, with)
+    }
+
+    fn with_pools(
+        &self,
+        with: impl FnMut(scolumns::pools::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(&self.db, pools::PREFIX, with)
+    }
+
+    fn with_accounts(
+        &self,
+        with: impl FnMut(scolumns::accounts::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(&self.db, accounts::PREFIX, with)
+    }
+
+    fn with_block_issuers(
+        &self,
+        with: impl FnMut(scolumns::slots::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(&self.db, slots::PREFIX, with)
+    }
+
+    fn with_dreps(
+        &self,
+        with: impl FnMut(scolumns::dreps::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(&self.db, dreps::PREFIX, with)
+    }
+
+    fn with_proposals(
+        &self,
+        with: impl FnMut(scolumns::proposals::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(&self.db, proposals::PREFIX, with)
+    }
+
+    fn with_cc_members(
+        &self,
+        with: impl FnMut(scolumns::cc_members::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(&self.db, cc_members::PREFIX, with)
     }
 }
 
-// -------------------------------------------------------------------- Helpers
+// Helpers
 // ----------------------------------------------------------------------------
 
 /// Splits a vector of numbers into groups of continuous numbers.
@@ -685,10 +831,23 @@ fn default_opts_with_prefix() -> Options {
     opts
 }
 
-fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
+fn get_or_bail<T>(
     db_get: impl Fn(&str) -> Result<Option<Vec<u8>>, rocksdb::Error>,
     key: &str,
-) -> Result<Option<T>, StoreError> {
+) -> Result<T, StoreError>
+where
+    T: std::fmt::Debug + for<'d> cbor::decode::Decode<'d, ()> + 'static,
+{
+    get(db_get, key)?.ok_or(StoreError::missing::<T>(key))
+}
+
+fn get<T>(
+    db_get: impl Fn(&str) -> Result<Option<Vec<u8>>, rocksdb::Error>,
+    key: &str,
+) -> Result<Option<T>, StoreError>
+where
+    T: std::fmt::Debug + for<'d> cbor::decode::Decode<'d, ()> + 'static,
+{
     (db_get)(key)
         .map_err(|err| StoreError::Internal(err.into()))?
         .map(|b| cbor::decode(b.as_ref()))
@@ -715,13 +874,21 @@ where
     let it = (db_iter_opt)(IteratorMode::From(prefix.as_ref(), direction), opts);
     let decoded_it = it.map(|e| {
         let (key, value) = e.unwrap();
-        let k = cbor::decode(&key[PREFIX_LEN..])
-            .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
+        let k = cbor::decode(&key[PREFIX_LEN..]).unwrap_or_else(|e| {
+            panic!(
+                "unable to decode key {}::<{}> for type {}: {e:?}",
+                hex::encode(&key),
+                std::any::type_name::<K>(),
+                std::any::type_name::<V>()
+            )
+        });
         let v = cbor::decode(&value).unwrap_or_else(|e| {
             panic!(
-                "unable to decode value ({}) for key ({}): {e:?}",
+                "unable to decode value {}::<{}> for key {}::<{}>: {e:?}",
                 hex::encode(&value),
-                hex::encode(&key)
+                std::any::type_name::<V>(),
+                hex::encode(&key),
+                std::any::type_name::<K>(),
             )
         });
         (k, v)
@@ -729,7 +896,37 @@ where
     Ok(decoded_it)
 }
 
-// ---------------------------------------------------------------------- Tests
+/// An generic column iterator, provided that rows from the column are (de)serialisable.
+#[allow(clippy::panic)]
+fn with_prefix_iterator<
+    K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
+    V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
+    DB,
+>(
+    db: &rocksdb::Transaction<'_, DB>,
+    prefix: [u8; PREFIX_LEN],
+    mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
+) -> Result<(), StoreError> {
+    let mut iterator =
+        amaru_iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
+            // FIXME: clarify what kind of errors can come from the database at this point.
+            // We are merely iterating over a collection.
+            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
+        }));
+
+    with(iterator.as_iter_borrow());
+
+    for (k, v) in iterator.into_iter_updates() {
+        match v {
+            Some(v) => db.put(k, as_value(v)),
+            None => db.delete(k),
+        }
+        .map_err(|err| StoreError::Internal(err.into()))?;
+    }
+    Ok(())
+}
+
+// Tests
 // ----------------------------------------------------------------------------
 
 #[cfg(test)]

@@ -470,7 +470,7 @@ mod tests {
                         };
                         // println!(" ==> {:?}", reply);
                         eff.send(&state.1, reply).await;
-                        Ok(state)
+                        state
                     } else {
                         panic!("Got a message that wasn't an echo: {:?}", msg.body)
                     }

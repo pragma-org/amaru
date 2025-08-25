@@ -74,8 +74,8 @@ mod tests {
         include_cbor, include_json, json, KeepRaw, MintedTransactionBody, OriginalHash, Slot,
         TransactionPointer,
     };
+    use amaru_tracing_json::assert_trace;
     use test_case::test_case;
-    use tracing_json::assert_trace;
 
     macro_rules! fixture {
         ($hash:literal, $pointer:expr) => {

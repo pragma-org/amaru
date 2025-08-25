@@ -1,7 +1,7 @@
 lints.workspace = true
 
 [package]
-name = "iter-borrow"
+name = "amaru-iter-borrow"
 version.workspace = true
 edition.workspace = true
 description.workspace = true

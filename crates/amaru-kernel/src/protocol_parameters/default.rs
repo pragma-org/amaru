@@ -14,10 +14,9 @@
 
 use crate::{
     protocol_parameters::{
-        DrepThresholds, GlobalParameters, PoolThresholds, Prices, ProtocolParameters,
-        ProtocolParametersThresholds,
+        DRepVotingThresholds, GlobalParameters, PoolVotingThresholds, ProtocolParameters,
     },
-    ExUnits, RationalNumber, Slot,
+    ExUnitPrices, ExUnits, RationalNumber, Slot, PROTOCOL_VERSION_9,
 };
 use pallas_primitives::conway::CostModels;
 use std::sync::LazyLock;
@@ -70,11 +69,12 @@ pub static PREPROD_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new
 pub static PREPROD_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
     LazyLock::new(|| {
         ProtocolParameters {
+            protocol_version: PROTOCOL_VERSION_9,
             min_fee_a: 44,
             min_fee_b: 155381,
             max_block_body_size: 90112,
-            max_tx_size: 16384,
-            max_header_size: 1100,
+            max_transaction_size: 16384,
+            max_block_header_size: 1100,
             max_tx_ex_units: ExUnits {
                 mem: 14_000_000,
                 steps: 10_000_000_000,
@@ -83,22 +83,22 @@ pub static PREPROD_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                 mem: 62_000_000,
                 steps: 20_000_000_000,
             },
-            max_val_size: 5000,
+            max_value_size: 5000,
             max_collateral_inputs: 3,
             stake_credential_deposit: 2_000_000,
             stake_pool_deposit: 500_000_000,
-            coins_per_utxo_byte: 4310,
-            prices: Prices {
-                mem: RationalNumber {
+            lovelace_per_utxo_byte: 4310,
+            prices: ExUnitPrices {
+                mem_price: RationalNumber {
                     numerator: 577,
                     denominator: 10_000,
                 },
-                step: RationalNumber {
+                step_price: RationalNumber {
                     numerator: 721,
                     denominator: 10_000_000,
                 },
             },
-            min_fee_ref_script_coins_per_byte: RationalNumber {
+            min_fee_ref_script_lovelace_per_byte: RationalNumber {
                 numerator: 15,
                 denominator: 1,
             },
@@ -134,6 +134,7 @@ pub static PREPROD_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                 numerator: 3,
                 denominator: 1_000,
             },
+            min_pool_cost: 340000000,
             collateral_percentage: 150,
             cost_models: CostModels {
                 plutus_v1: Some(vec![
@@ -188,74 +189,72 @@ pub static PREPROD_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                     107490, 3298, 1, 106057, 655, 1, 1964219, 24520, 3,
                 ]),
             },
-            pool_thresholds: PoolThresholds {
-                no_confidence: RationalNumber {
+            pool_voting_thresholds: PoolVotingThresholds {
+                motion_no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                committee: RationalNumber {
+                committee_normal: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                committee_under_no_confidence: RationalNumber {
+                committee_no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                hard_fork: RationalNumber {
+                hard_fork_initiation: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                security_group: RationalNumber {
+                security_voting_threshold: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
             },
-            drep_thresholds: DrepThresholds {
-                no_confidence: RationalNumber {
+            drep_voting_thresholds: DRepVotingThresholds {
+                motion_no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                committee: RationalNumber {
+                committee_normal: RationalNumber {
                     numerator: 67,
                     denominator: 100,
                 },
-                committee_under_no_confidence: RationalNumber {
+                committee_no_confidence: RationalNumber {
                     numerator: 67,
                     denominator: 100,
                 },
-                constitution: RationalNumber {
+                update_constitution: RationalNumber {
                     numerator: 6,
                     denominator: 10,
                 },
-                hard_fork: RationalNumber {
+                hard_fork_initiation: RationalNumber {
                     numerator: 75,
                     denominator: 100,
                 },
-                protocol_parameters: ProtocolParametersThresholds {
-                    network_group: RationalNumber {
-                        numerator: 6,
-                        denominator: 10,
-                    },
-                    economic_group: RationalNumber {
-                        numerator: 67,
-                        denominator: 100,
-                    },
-                    technical_group: RationalNumber {
-                        numerator: 67,
-                        denominator: 100,
-                    },
-                    governance_group: RationalNumber {
-                        numerator: 75,
-                        denominator: 100,
-                    },
+                pp_network_group: RationalNumber {
+                    numerator: 6,
+                    denominator: 10,
+                },
+                pp_economic_group: RationalNumber {
+                    numerator: 67,
+                    denominator: 100,
+                },
+                pp_technical_group: RationalNumber {
+                    numerator: 67,
+                    denominator: 100,
+                },
+                pp_governance_group: RationalNumber {
+                    numerator: 75,
+                    denominator: 100,
                 },
                 treasury_withdrawal: RationalNumber {
                     numerator: 67,
                     denominator: 100,
                 },
             },
-            cc_min_size: 7,
-            cc_max_term_length: 146,
+            min_committee_size: 7,
+            max_committee_term_length: 146,
             gov_action_lifetime: 6,
             gov_action_deposit: 100_000_000_000,
             drep_deposit: 500_000_000,
@@ -291,11 +290,12 @@ pub static PREVIEW_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new
 pub static PREVIEW_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
     LazyLock::new(|| {
         ProtocolParameters {
+            protocol_version: PROTOCOL_VERSION_9,
             min_fee_a: 44,
             min_fee_b: 155381,
             max_block_body_size: 65536,
-            max_tx_size: 16384,
-            max_header_size: 1100,
+            max_transaction_size: 16384,
+            max_block_header_size: 1100,
             max_tx_ex_units: ExUnits {
                 mem: 10_000_000,
                 steps: 10_000_000_000,
@@ -304,22 +304,22 @@ pub static PREVIEW_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                 mem: 50_000_000,
                 steps: 40_000_000_000,
             },
-            max_val_size: 5000,
+            max_value_size: 5000,
             max_collateral_inputs: 3,
             stake_credential_deposit: 2_000_000,
             stake_pool_deposit: 500_000_000,
-            coins_per_utxo_byte: 4310,
-            prices: Prices {
-                mem: RationalNumber {
+            lovelace_per_utxo_byte: 4310,
+            prices: ExUnitPrices {
+                mem_price: RationalNumber {
                     numerator: 577,
                     denominator: 10_000,
                 },
-                step: RationalNumber {
+                step_price: RationalNumber {
                     numerator: 721,
                     denominator: 10_000_000,
                 },
             },
-            min_fee_ref_script_coins_per_byte: RationalNumber {
+            min_fee_ref_script_lovelace_per_byte: RationalNumber {
                 numerator: 15,
                 denominator: 1,
             },
@@ -355,6 +355,7 @@ pub static PREVIEW_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                 numerator: 3,
                 denominator: 1_000,
             },
+            min_pool_cost: 340000000,
             collateral_percentage: 150,
             cost_models: CostModels {
                 plutus_v1: Some(vec![
@@ -406,74 +407,72 @@ pub static PREVIEW_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                     4, 1293828, 28716, 63, 0, 1, 1006041, 43623, 251, 0, 1,
                 ]),
             },
-            pool_thresholds: PoolThresholds {
-                no_confidence: RationalNumber {
+            pool_voting_thresholds: PoolVotingThresholds {
+                motion_no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                committee: RationalNumber {
+                committee_normal: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                committee_under_no_confidence: RationalNumber {
+                committee_no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                hard_fork: RationalNumber {
+                hard_fork_initiation: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                security_group: RationalNumber {
+                security_voting_threshold: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
             },
-            drep_thresholds: DrepThresholds {
-                no_confidence: RationalNumber {
+            drep_voting_thresholds: DRepVotingThresholds {
+                motion_no_confidence: RationalNumber {
                     numerator: 67,
                     denominator: 100,
                 },
-                committee: RationalNumber {
+                committee_normal: RationalNumber {
                     numerator: 67,
                     denominator: 100,
                 },
-                committee_under_no_confidence: RationalNumber {
+                committee_no_confidence: RationalNumber {
                     numerator: 67,
                     denominator: 100,
                 },
-                constitution: RationalNumber {
+                update_constitution: RationalNumber {
                     numerator: 75,
                     denominator: 100,
                 },
-                hard_fork: RationalNumber {
+                hard_fork_initiation: RationalNumber {
                     numerator: 75,
                     denominator: 100,
                 },
-                protocol_parameters: ProtocolParametersThresholds {
-                    network_group: RationalNumber {
-                        numerator: 67,
-                        denominator: 100,
-                    },
-                    economic_group: RationalNumber {
-                        numerator: 67,
-                        denominator: 100,
-                    },
-                    technical_group: RationalNumber {
-                        numerator: 67,
-                        denominator: 100,
-                    },
-                    governance_group: RationalNumber {
-                        numerator: 75,
-                        denominator: 100,
-                    },
+                pp_network_group: RationalNumber {
+                    numerator: 67,
+                    denominator: 100,
+                },
+                pp_economic_group: RationalNumber {
+                    numerator: 67,
+                    denominator: 100,
+                },
+                pp_technical_group: RationalNumber {
+                    numerator: 67,
+                    denominator: 100,
+                },
+                pp_governance_group: RationalNumber {
+                    numerator: 75,
+                    denominator: 100,
                 },
                 treasury_withdrawal: RationalNumber {
                     numerator: 67,
                     denominator: 100,
                 },
             },
-            cc_min_size: 0,
-            cc_max_term_length: 365,
+            min_committee_size: 0,
+            max_committee_term_length: 365,
             gov_action_lifetime: 30,
             gov_action_deposit: 100_000_000_000,
             drep_deposit: 500_000_000,

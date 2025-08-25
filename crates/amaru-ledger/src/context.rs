@@ -17,12 +17,12 @@ mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    AddrKeyhash, Anchor, CertificatePointer, DRep, DatumHash, Hash, Lovelace, MemoizedDatum,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
-    ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput,
-    Vote, Voter,
+    AddrKeyhash, Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Hash, Lovelace,
+    MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId,
+    PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential,
+    TransactionInput, Vote, Voter,
 };
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
@@ -195,22 +195,16 @@ pub trait PrepareAccountsSlice<'a> {
 // DRep
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
-pub struct DRepState {
-    pub deposit: Lovelace,
-    pub anchor: Option<Anchor>,
-    pub registered_at: CertificatePointer,
-}
-
 /// An interface for interacting with a subset of the DReps state.
 pub trait DRepsSlice {
-    fn lookup(&self, credential: &StakeCredential) -> Option<&DRepState>;
+    fn lookup(&self, credential: &StakeCredential) -> Option<&DRepRegistration>;
 
     fn register(
         &mut self,
         drep: StakeCredential,
-        state: DRepState,
-    ) -> Result<(), RegisterError<DRepState, StakeCredential>>;
+        registration: DRepRegistration,
+        anchor: Option<Anchor>,
+    ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>>;
 
     fn update(
         &mut self,

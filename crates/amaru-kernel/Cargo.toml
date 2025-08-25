@@ -33,8 +33,8 @@ tracing.workspace = true
 proptest = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-slot-arithmetic.workspace = true
-minicbor-extra.workspace = true
+amaru-slot-arithmetic.workspace = true
+amaru-minicbor-extra.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -42,4 +42,4 @@ proptest.workspace = true
 test-case.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-slot-arithmetic = { workspace = true, features = [ "test-utils" ] }
+amaru-slot-arithmetic = { workspace = true, features = [ "test-utils" ] }

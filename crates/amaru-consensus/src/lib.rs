@@ -28,7 +28,7 @@ pub mod consensus;
 
 pub type RawHeader = Vec<u8>;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum ConsensusError {
     #[error("cannot build a chain selector without a tip")]
     MissingTip,
@@ -63,7 +63,7 @@ pub enum ConsensusError {
     InvalidHeaderParent(Box<InvalidHeaderParentData>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InvalidHeaderParentData {
     peer: Peer,
     forwarded: Point,

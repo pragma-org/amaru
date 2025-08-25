@@ -24,8 +24,8 @@ use amaru_ledger::{
         stake_distribution::StakeDistribution,
     },
 };
+use amaru_slot_arithmetic::Epoch;
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot};
-use slot_arithmetic::Epoch;
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -93,23 +93,10 @@ fn compare_snapshot(epoch: Epoch) {
         NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
     };
 
-    let protocol_version = *network.protocol_version(epoch);
+    let dreps = GovernanceSummary::new(snapshot.as_ref(), network.into()).unwrap();
 
-    let dreps = GovernanceSummary::new(
-        snapshot.as_ref(),
-        protocol_version,
-        network.into(),
-        protocol_parameters,
-    )
-    .unwrap();
-
-    let stake_distr = StakeDistribution::new(
-        snapshot.as_ref(),
-        protocol_version,
-        dreps,
-        protocol_parameters,
-    )
-    .unwrap();
+    let stake_distr =
+        StakeDistribution::new(snapshot.as_ref(), protocol_parameters, dreps).unwrap();
 
     insta::with_settings!({
         snapshot_path => format!("snapshots/{}", network)

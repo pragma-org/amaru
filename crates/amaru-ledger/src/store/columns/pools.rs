@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{cbor, expect_stake_credential, PoolId, PoolParams, StakeCredential};
-use iter_borrow::IterBorrow;
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use tracing::{debug, trace};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";

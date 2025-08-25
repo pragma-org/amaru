@@ -17,14 +17,13 @@ use amaru_kernel::{
     network::NetworkName,
     protocol_parameters::{self, GlobalParameters},
     to_cbor, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock, Network,
-    Point, PostAlonzoTransactionOutput, ProtocolVersion, TransactionInput, TransactionOutput,
-    Value, PROTOCOL_VERSION_9,
+    Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
 };
 use amaru_ledger::{
     context,
     rules::{self, block::BlockValidation},
     state::{State, VolatileState},
-    store::{Store, TransactionalContext},
+    store::{GovernanceActivity, Store, TransactionalContext},
 };
 use amaru_stores::in_memory::MemoryStore;
 use std::collections::BTreeMap;
@@ -43,12 +42,11 @@ pub fn forward_ledger(raw_block: &str) {
     let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
 
     let global_parameters: &GlobalParameters = network.into();
-    let protocol_version = &PROTOCOL_VERSION_9;
 
-    let store = MemoryStore::new(era_history.clone(), *protocol_version);
-    let historical_store = MemoryStore::new(era_history.clone(), *protocol_version);
+    let store = MemoryStore::new(era_history.clone());
+    let historical_store = MemoryStore::new(era_history.clone());
 
-    hydrate_initial_protocol_parameters(&store, &network, protocol_version);
+    hydrate_initial_protocol_parameters(&store, &network);
 
     let mut state = State::new(
         store,
@@ -106,6 +104,10 @@ pub fn forward_ledger(raw_block: &str) {
         &mut context,
         &Network::from(network),
         state.protocol_parameters(),
+        &era_history,
+        &GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        },
         &block,
     ) {
         panic!("Failed to validate block")
@@ -118,11 +120,7 @@ pub fn forward_ledger(raw_block: &str) {
         .unwrap()
 }
 
-pub fn hydrate_initial_protocol_parameters(
-    store: &impl Store,
-    network: &NetworkName,
-    protocol_version: &ProtocolVersion,
-) {
+pub fn hydrate_initial_protocol_parameters(store: &impl Store, network: &NetworkName) {
     let transaction = store.create_transaction();
 
     let params = match network {
@@ -134,10 +132,6 @@ pub fn hydrate_initial_protocol_parameters(
     transaction
         .set_protocol_parameters(params)
         .unwrap_or_else(|e| panic!("unable to set initial protocol parameters: {e}"));
-
-    transaction
-        .set_protocol_version(protocol_version)
-        .unwrap_or_else(|e| panic!("unable to set initial protocol version: {e}"));
 
     transaction
         .commit()

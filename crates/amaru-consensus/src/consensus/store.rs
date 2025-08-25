@@ -18,8 +18,8 @@ use amaru_kernel::{
 };
 use amaru_ouroboros::{praos::nonce, Nonces};
 use amaru_ouroboros_traits::{IsHeader, Praos};
+use amaru_slot_arithmetic::EraHistoryError;
 use pallas_crypto::hash::Hash;
-use slot_arithmetic::EraHistoryError;
 use std::{collections::BTreeMap, fmt::Display};
 use thiserror::Error;
 
@@ -244,8 +244,8 @@ mod test {
     use crate::test::include_header;
     use amaru_kernel::{from_cbor, hash, network::NetworkName, to_cbor, Header};
     use amaru_ouroboros_traits::{IsHeader, Praos};
+    use amaru_slot_arithmetic::Epoch;
     use proptest::{prelude::*, prop_compose, proptest};
-    use slot_arithmetic::Epoch;
     use std::sync::LazyLock;
 
     // Epoch 164's last header
