@@ -359,18 +359,6 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
         self.client.has_agency().await
     }
 
-    pub fn new1(
-        client: Box<dyn ChainSync<C> + Sync + Send>,
-        intersection: &[Point],
-        max_batch_size: usize,
-    ) -> Self {
-        ChainSyncClient {
-            client,
-            peer: Peer::new("alice"),
-            intersection: intersection.to_vec(),
-            max_batch_size,
-        }
-    }
 }
 
 pub fn new_with_peer(peer: PeerClient, intersection: &[Point]) -> ChainSyncClient<HeaderContent> {
@@ -406,21 +394,32 @@ mod tests {
         point::to_network_point,
     };
     use amaru_consensus::consensus::generators::generate_headers_anchored_at;
-    use amaru_kernel::{Point, to_cbor};
+    use amaru_kernel::{peer::Peer, to_cbor, Point};
     use amaru_ouroboros::fake::FakeHeader;
     use amaru_ouroboros_traits::IsHeader;
-    use async_trait::async_trait;
     use pallas_network::miniprotocols::Point as NetworkPoint;
     use pallas_network::miniprotocols::chainsync::{
         ClientError, HeaderContent, IntersectResponse, NextResponse, Tip,
     };
-    use tokio::sync::Mutex;
+
+    fn new_from_box<C>(
+        client: Box<dyn ChainSync<C> + Sync + Send>,
+        intersection: &[Point],
+        max_batch_size: usize,
+    ) -> ChainSyncClient<C> {
+        ChainSyncClient {
+            client,
+            peer: Peer::new("alice"),
+            intersection: intersection.to_vec(),
+            max_batch_size,
+        }
+    }
 
     #[tokio::test]
     async fn batch_returns_all_available_forwards_until_await() {
         let mock_client = NetworkClientBuilder::new().forward_headers(3).build();
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &[Point::Origin], MAX_BATCH_SIZE);
+            new_from_box(Box::new(mock_client), &[Point::Origin], MAX_BATCH_SIZE);
 
         let result = chain_sync_client.pull_batch().await.unwrap();
 
@@ -436,7 +435,7 @@ mod tests {
             .rollback_to(1)
             .build();
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &[Point::Origin], MAX_BATCH_SIZE);
+            new_from_box(Box::new(mock_client), &[Point::Origin], MAX_BATCH_SIZE);
 
         let result = chain_sync_client.pull_batch().await.unwrap();
 
@@ -453,7 +452,7 @@ mod tests {
             .build();
         let rollback_point = mock_client.point_at(1);
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &[Point::Origin], 4);
+            new_from_box(Box::new(mock_client), &[Point::Origin], 4);
 
         // first batch is ignored
         let _ = chain_sync_client.pull_batch().await.unwrap();
@@ -473,7 +472,7 @@ mod tests {
         let mock_client = MockNetworkClient::new(vec![], Some(expected_intersection));
 
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &[Point::Origin], MAX_BATCH_SIZE);
+            new_from_box(Box::new(mock_client), &[Point::Origin], MAX_BATCH_SIZE);
 
         chain_sync_client.find_intersection().await.unwrap();
     }
@@ -624,7 +623,7 @@ mod tests {
     fn tip_of(responses: &[NextResponse<FakeContent>]) -> Tip {
         let origin_tip = Tip(NetworkPoint::Origin, 0);
         responses.last().map_or(origin_tip.clone(), |r| match r {
-            NextResponse::RollForward(FakeContent(ref point, _header), _tip) => {
+            NextResponse::RollForward(FakeContent(point, _header), _tip) => {
                 Tip(point.clone(), responses.len() as u64)
             }
             NextResponse::RollBackward(..) | NextResponse::Await => origin_tip,
