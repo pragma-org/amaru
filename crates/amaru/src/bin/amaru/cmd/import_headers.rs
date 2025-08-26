@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::{consensus::store::ChainStore, IsHeader};
-use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, Header, Point};
+use amaru_consensus::{IsHeader, consensus::store::ChainStore};
+use amaru_kernel::{Header, Point, default_chain_dir, from_cbor, network::NetworkName};
 use amaru_network::{
-    chain_sync_client::{new_with_peer, PullResult},
+    chain_sync_client::{PullResult, new_with_peer},
     connect_to_peer,
 };
-use amaru_progress_bar::{new_terminal_progress_bar, ProgressBar};
+use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
@@ -112,12 +112,10 @@ pub(crate) async fn import_headers(
             PullResult::RollBack(point, tip) => {
                 info!(?point, ?tip, "roll_backward");
                 if progress.is_none() {
-                    progress = Some(
-                    new_terminal_progress_bar(
+                    progress = Some(new_terminal_progress_bar(
                         max,
-                        " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)"
-                    )
-                );
+                        " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)",
+                    ));
                 }
             }
             PullResult::Nothing => break,

@@ -230,7 +230,7 @@ pub enum ValidateHeaderEvent {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod generators {
     use amaru_ouroboros::fake::FakeHeader;
-    use rand::{rngs::StdRng, RngCore, SeedableRng};
+    use rand::{RngCore, SeedableRng, rngs::StdRng};
     use rand_distr::{Distribution, Exp};
 
     use super::*;
