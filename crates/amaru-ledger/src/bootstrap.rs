@@ -1054,11 +1054,11 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         heterogeneous_array(d, |d, assert_len| match d.u8()? {
             0 => {
-                assert_len(1)?;
+                assert_len(2)?;
                 Ok(Self::DelegatedToHotCredential(d.decode_with(ctx)?))
             }
             1 => {
-                assert_len(1)?;
+                assert_len(2)?;
                 Ok(Self::Resigned(d.decode_with(ctx)?))
             }
             t => Err(cbor::decode::Error::message(format!(
