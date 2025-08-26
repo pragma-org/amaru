@@ -28,7 +28,7 @@ pub type Key = StakeCredential;
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Row {
     pub hot_credential: Option<StakeCredential>,
-    pub valid_until: Epoch,
+    pub valid_until: Option<Epoch>,
 }
 
 impl<C> cbor::encode::Encode<C> for Row {
@@ -63,11 +63,11 @@ pub mod tests {
     prop_compose! {
         pub fn any_row()(
             hot_credential in option::of(any_stake_credential()),
-            valid_until in any::<u64>(),
+            valid_until in option::of(any::<u64>()),
         ) -> Row {
             Row {
                 hot_credential,
-                valid_until: Epoch::from(valid_until),
+                valid_until: valid_until.map(Epoch::from),
             }
         }
     }

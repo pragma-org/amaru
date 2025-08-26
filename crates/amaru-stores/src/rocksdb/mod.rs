@@ -15,12 +15,13 @@
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommittee, EraHistory,
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput, cbor,
-    protocol_parameters::ProtocolParameters,
+    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus,
+    EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId, StakeCredential,
+    TransactionInput, cbor, protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
+    state::diff_bind::Resettable,
     store::{
         Columns, EpochTransitionProgress, GovernanceActivity, HistoricalStores, OpenErrorKind,
         ReadStore, Snapshot, Store, StoreError, TransactionalContext, columns as scolumns,
@@ -32,6 +33,7 @@ use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, Direction, IteratorMode, ReadOptions, Transaction,
 };
 use std::{
+    collections::{BTreeMap, BTreeSet},
     fmt, fs,
     ops::Deref,
     path::{Path, PathBuf},
@@ -347,7 +349,7 @@ macro_rules! impl_ReadStore_body {
                 get_or_bail(|key| self.db.get(key), &KEY_PROTOCOL_PARAMETERS)
             }
 
-            fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
+            fn constitutional_committee(&self) -> Result<ConstitutionalCommitteeStatus, StoreError> {
                 get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTIONAL_COMMITTEE)
             }
 
@@ -564,16 +566,33 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         Ok(())
     }
 
-    fn set_constitutional_committee(
+    fn update_constitutional_committee(
         &self,
-        constitutional_committee: &ConstitutionalCommittee,
+        status: &ConstitutionalCommitteeStatus,
+        added: BTreeMap<StakeCredential, Epoch>,
+        removed: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError> {
         self.db
-            .put(
-                KEY_CONSTITUTIONAL_COMMITTEE,
-                as_value(constitutional_committee),
-            )
+            .put(KEY_CONSTITUTIONAL_COMMITTEE, as_value(status))
             .map_err(|err| StoreError::Internal(err.into()))?;
+
+        cc_members::upsert(
+            &self.db,
+            removed.into_iter().map(|cold_credential| {
+                (cold_credential, (Resettable::Unchanged, Resettable::Reset))
+            }),
+        )?;
+
+        cc_members::upsert(
+            &self.db,
+            added.into_iter().map(|(cold_credential, valid_until)| {
+                (
+                    cold_credential,
+                    (Resettable::Unchanged, Resettable::Set(valid_until)),
+                )
+            }),
+        )?;
+
         Ok(())
     }
 
@@ -667,7 +686,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 pools::add(&self.db, add.pools)?;
                 dreps::add(&self.db, drep_validity, add.dreps)?;
                 accounts::add(&self.db, add.accounts)?;
-                cc_members::add(&self.db, add.cc_members)?;
+                cc_members::upsert(&self.db, add.cc_members)?;
 
                 let proposals_count = proposals::add(&self.db, add.proposals)?;
                 let voting_dreps = votes::add(&self.db, add.votes)?;

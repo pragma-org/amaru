@@ -31,7 +31,7 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    ComparableProposalId, ConstitutionalCommittee, EraHistory, Hash, Lovelace,
+    ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hash, Lovelace,
     MemoizedTransactionOutput, MintedBlock, Point, PoolId, Slot, StakeCredential,
     StakeCredentialType, TransactionInput, expect_stake_credential,
     network::NetworkName,
@@ -47,7 +47,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 use thiserror::Error;
-use tracing::{Level, debug, info, instrument, trace};
+use tracing::{Level, debug, info, instrument, trace, warn};
 use volatile_db::AnchoredVolatileState;
 
 pub use volatile_db::VolatileState;
@@ -831,12 +831,13 @@ fn new_ratification_context<'distr>(
     treasury: Lovelace,
 ) -> Result<RatificationContext<'distr>, StoreError> {
     let constitutional_committee = match snapshot.constitutional_committee()? {
-        ConstitutionalCommittee::NoConfidence => None,
-        ConstitutionalCommittee::Trusted { threshold } => {
+        ConstitutionalCommitteeStatus::NoConfidence => None,
+        ConstitutionalCommitteeStatus::Trusted { threshold } => {
             let members = snapshot
                 .iter_cc_members()?
-                .map(|(cold_credential, row)| {
-                    (cold_credential, (row.hot_credential, row.valid_until))
+                .filter_map(|(cold_credential, row)| {
+                    row.valid_until
+                        .map(|valid_until| (cold_credential, (row.hot_credential, valid_until)))
                 })
                 .collect();
 
@@ -943,11 +944,10 @@ impl HasStakeDistribution for StakeDistributionObserver {
             .slot_to_epoch_unchecked_horizon(slot)
             .ok()?
             - 2;
-
         view.iter().find(|s| s.epoch == epoch).and_then(|s| {
             s.pools.get(pool).map(|st| PoolSummary {
                 vrf: st.parameters.vrf,
-                stake: st.consensus_stake,
+                stake: st.stake,
                 active_stake: s.active_stake,
             })
         })

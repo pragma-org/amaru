@@ -22,6 +22,7 @@ use std::{
     rc::Rc,
     sync::LazyLock,
 };
+use tracing::warn;
 
 static ZERO: LazyLock<SafeRatio> = LazyLock::new(SafeRatio::zero);
 
@@ -69,7 +70,7 @@ impl ConstitutionalCommittee {
         &mut self,
         threshold: SafeRatio,
         added: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
-        removed: BTreeSet<StakeCredential>,
+        removed: BTreeSet<&StakeCredential>,
     ) {
         self.threshold = threshold;
 
@@ -139,6 +140,11 @@ impl ConstitutionalCommittee {
                 if self.active_members(current_epoch).len() < (min_committee_size as usize)
                     && protocol_version > PROTOCOL_VERSION_9
                 {
+                    warn!(
+                        members.active = self.active_members(current_epoch).len(),
+                        min_committee_size = min_committee_size,
+                        "no voting threshold because committee is too small"
+                    );
                     return None;
                 }
 
@@ -247,7 +253,7 @@ mod tests {
                 committee.update(
                     committee.threshold().clone(),
                     BTreeMap::new(),
-                    BTreeSet::from([any_active_member.clone()]),
+                    BTreeSet::from([any_active_member]),
                 );
             }
 
@@ -279,7 +285,7 @@ mod tests {
                         any_active_member.clone(),
                         any_member_state.clone(),
                     )]),
-                    BTreeSet::from([any_active_member.clone()]),
+                    BTreeSet::from([any_active_member]),
                 );
 
 

@@ -31,7 +31,7 @@ pub fn add(
         let row = cc_members.get(&key).cloned().or(match valid_until {
             Resettable::Set(valid_until) => Some(Row {
                 hot_credential: None,
-                valid_until,
+                valid_until: Some(valid_until),
             }),
             Resettable::Unchanged | Resettable::Reset => None,
         });

@@ -19,8 +19,8 @@ use crate::{
     summary::{SafeRatio, stake_distribution::StakeDistribution},
 };
 use amaru_kernel::{
-    Ballot, ComparableProposalId, DRep, Epoch, EraHistory, Lovelace, PoolId, StakeCredential,
-    UnitInterval, Vote, Voter, protocol_parameters::ProtocolParameters,
+    Ballot, ComparableProposalId, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
+    PoolId, StakeCredential, UnitInterval, Vote, Voter, protocol_parameters::ProtocolParameters,
 };
 use num::Zero;
 use std::{
@@ -227,9 +227,25 @@ impl<'distr> RatificationContext<'distr> {
                     ) => {
                         self.constitutional_committee = None;
                         store_updates.push(Box::new(|db, _ctx| {
-                            db.set_constitutional_committee(
-                                &amaru_kernel::ConstitutionalCommittee::NoConfidence,
-                            )
+                            db.update_constitutional_committee(
+                                &ConstitutionalCommitteeStatus::NoConfidence,
+                                BTreeMap::new(),
+                                BTreeSet::new(),
+                            )?;
+
+                            db.with_cc_members(|iterator| {
+                                // NOTE: CC members are not deleted when entering no confidence
+                                // mode. They are simply marked as inactive.
+                                //
+                                // In particular, their hot<->cold bindings are preserved.
+                                for (_, mut row) in iterator {
+                                    if let Some(cc_member) = row.borrow_mut() {
+                                        cc_member.valid_until = None;
+                                    }
+                                }
+                            })?;
+
+                            Ok(())
                         }))
                     }
 
@@ -241,7 +257,7 @@ impl<'distr> RatificationContext<'distr> {
                         },
                         _parent,
                     ) => {
-                        let committee = amaru_kernel::ConstitutionalCommittee::Trusted {
+                        let committee_status = ConstitutionalCommitteeStatus::Trusted {
                             threshold: UnitInterval {
                                 numerator: threshold.numer().try_into().unwrap_or_else(|e| {
                                     unreachable!("threshold numerator larger than u64?!: {e}")
@@ -253,19 +269,25 @@ impl<'distr> RatificationContext<'distr> {
                         };
 
                         let added_as_inactive = added
-                            .into_iter()
-                            .map(|(cold_cred, valid_until)| (cold_cred, (None, valid_until)))
+                            .iter()
+                            .map(|(cold_cred, valid_until)| {
+                                (cold_cred.clone(), (None, *valid_until))
+                            })
                             .collect();
 
                         if let Some(committee) = &mut self.constitutional_committee {
-                            committee.update(threshold, added_as_inactive, removed);
+                            committee.update(
+                                threshold,
+                                added_as_inactive,
+                                removed.iter().collect(),
+                            );
                         } else {
                             self.constitutional_committee =
                                 Some(ConstitutionalCommittee::new(threshold, added_as_inactive));
                         }
 
                         store_updates.push(Box::new(move |db, _ctx| {
-                            db.set_constitutional_committee(&committee)
+                            db.update_constitutional_committee(&committee_status, added, removed)
                         }))
                     }
 
