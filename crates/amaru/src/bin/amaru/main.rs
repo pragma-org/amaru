@@ -13,13 +13,11 @@
 // limitations under the License.
 
 use clap::{Parser, Subcommand};
-use observability::OpenTelemetryConfig;
-use panic::panic_handler;
+
+use amaru::observability::{self, OpenTelemetryConfig};
+use amaru::panic::panic_handler;
 
 mod cmd;
-mod metrics;
-mod observability;
-mod panic;
 
 #[derive(Debug, Subcommand)]
 enum Command {
