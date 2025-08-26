@@ -343,9 +343,13 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
             }
         }
 
-        Ok(PullResult::ForwardBatch(
-            batch.buffer.into_iter().map(|h| h.content()).collect(),
-        ))
+        if batch.buffer.is_empty() {
+            Ok(PullResult::Nothing)
+        } else {
+            Ok(PullResult::ForwardBatch(
+                batch.buffer.into_iter().map(|h| h.content()).collect(),
+            ))
+        }
     }
 
     pub async fn await_next(&mut self) -> Result<NextResponse<C>, ChainSyncClientError> {
@@ -358,7 +362,6 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
     pub async fn has_agency(&mut self) -> bool {
         self.client.has_agency().await
     }
-
 }
 
 pub fn new_with_peer(peer: PeerClient, intersection: &[Point]) -> ChainSyncClient<HeaderContent> {
@@ -394,7 +397,7 @@ mod tests {
         point::to_network_point,
     };
     use amaru_consensus::consensus::generators::generate_headers_anchored_at;
-    use amaru_kernel::{peer::Peer, to_cbor, Point};
+    use amaru_kernel::{Point, peer::Peer, to_cbor};
     use amaru_ouroboros::fake::FakeHeader;
     use amaru_ouroboros_traits::IsHeader;
     use pallas_network::miniprotocols::Point as NetworkPoint;
@@ -451,8 +454,7 @@ mod tests {
             .rollback_to(1)
             .build();
         let rollback_point = mock_client.point_at(1);
-        let mut chain_sync_client =
-            new_from_box(Box::new(mock_client), &[Point::Origin], 4);
+        let mut chain_sync_client = new_from_box(Box::new(mock_client), &[Point::Origin], 4);
 
         // first batch is ignored
         let _ = chain_sync_client.pull_batch().await.unwrap();
@@ -461,6 +463,16 @@ mod tests {
         assert!(
             matches!(result, PullResult::RollBack(point, _) if rollback_point == to_network_point(&point))
         );
+    }
+
+    #[tokio::test]
+    async fn batch_returns_nothing_given_client_returns_no_header() {
+        let mock_client = NetworkClientBuilder::new().build();
+        let mut chain_sync_client = new_from_box(Box::new(mock_client), &[Point::Origin], 4);
+
+        let result = chain_sync_client.pull_batch().await.unwrap();
+
+        assert!(matches!(result, PullResult::Nothing));
     }
 
     #[tokio::test]
