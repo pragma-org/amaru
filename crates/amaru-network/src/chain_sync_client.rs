@@ -354,7 +354,7 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
 
     pub async fn await_next(&mut self) -> Result<NextResponse<C>, ChainSyncClientError> {
         self.client
-            .recv_while_can_await()
+            .recv_while_must_reply()
             .await
             .map_err(ChainSyncClientError::NetworkError)
     }
@@ -476,6 +476,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn await_next_returns_next_available_message() {
+        let mock_client = NetworkClientBuilder::new().forward_headers(1).build();
+        let mut chain_sync_client = new_from_box(Box::new(mock_client), &[Point::Origin], 4);
+
+        let result = chain_sync_client.await_next().await.unwrap();
+
+        assert!(matches!(result, NextResponse::RollForward(_, _)));
+    }
+
+    #[tokio::test]
     async fn intersect_succeeds_given_underlying_client_succeeds() {
         let expected_intersection = (
             Some(to_network_point(&Point::Origin)),
@@ -590,7 +600,7 @@ mod tests {
             }
         }
 
-        fn forward_headers(&mut self, num: u32) -> &mut Self {
+        fn forward_headers(&mut self, num: usize) -> &mut Self {
             let mut responses = generate_forwards(num);
             self.responses.append(&mut responses);
             self
@@ -614,9 +624,9 @@ mod tests {
         }
     }
 
-    fn generate_forwards(length: u32) -> Vec<NextResponse<FakeContent>> {
+    fn generate_forwards(length: usize) -> Vec<NextResponse<FakeContent>> {
         let headers = generate_headers_anchored_at(None, length);
-        let tip_header = headers[2];
+        let tip_header = headers[length.checked_sub(1).unwrap()];
         headers
             .into_iter()
             .map(|h| FakeContent(to_network_point(&h.point()), h))

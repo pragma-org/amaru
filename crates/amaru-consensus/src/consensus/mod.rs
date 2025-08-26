@@ -250,7 +250,7 @@ pub mod generators {
     #[allow(clippy::unwrap_used)]
     pub fn generate_headers_anchored_at(
         anchor: Option<FakeHeader>,
-        length: u32,
+        length: usize,
     ) -> Vec<FakeHeader> {
         let mut headers: Vec<FakeHeader> = Vec::new();
         let mut parent = anchor;
@@ -258,7 +258,7 @@ pub mod generators {
         // parameter λ = 1/20
         let poi = Exp::new(0.05).unwrap();
         let mut rng = rand::rng();
-        for _ in 0..u64::from(length) {
+        for _ in 0..length {
             let next_slot: f32 = poi.sample(&mut rng);
             let header = FakeHeader {
                 block_number: parent.map_or(0, |h| h.block_height()) + 1,
