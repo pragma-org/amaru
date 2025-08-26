@@ -15,12 +15,12 @@
 use crate::{RationalNumber, cbor, heterogeneous_array};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConstitutionalCommittee {
+pub enum ConstitutionalCommitteeStatus {
     NoConfidence,
     Trusted { threshold: RationalNumber },
 }
 
-impl<C> cbor::encode::Encode<C> for ConstitutionalCommittee {
+impl<C> cbor::encode::Encode<C> for ConstitutionalCommitteeStatus {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -41,7 +41,7 @@ impl<C> cbor::encode::Encode<C> for ConstitutionalCommittee {
     }
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
+impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeStatus {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         heterogeneous_array(d, |d, assert_len| match d.u8()? {
             0 => {
@@ -62,13 +62,17 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use super::ConstitutionalCommittee::{self, *};
+    use super::ConstitutionalCommitteeStatus::{self, *};
     use crate::{prop_cbor_roundtrip, tests::any_rational_number};
     use proptest::prelude::*;
 
-    prop_cbor_roundtrip!(ConstitutionalCommittee, any_constitutional_committee());
+    prop_cbor_roundtrip!(
+        ConstitutionalCommitteeStatus,
+        any_constitutional_committee_status()
+    );
 
-    pub fn any_constitutional_committee() -> impl Strategy<Value = ConstitutionalCommittee> {
+    pub fn any_constitutional_committee_status()
+    -> impl Strategy<Value = ConstitutionalCommitteeStatus> {
         prop_oneof![
             Just(NoConfidence),
             any_rational_number().prop_map(|threshold| Trusted { threshold }),

@@ -861,7 +861,7 @@ fn import_constitutional_committee(
     let cc = match cc {
         StrictMaybe::Nothing => {
             info!(state = "no confidence", "constitutional committee");
-            amaru_kernel::ConstitutionalCommittee::NoConfidence
+            amaru_kernel::ConstitutionalCommitteeStatus::NoConfidence
         }
         StrictMaybe::Just(ConstitutionalCommittee { threshold, members }) => {
             info!(
@@ -873,7 +873,7 @@ fn import_constitutional_committee(
 
             cc_members = members;
 
-            amaru_kernel::ConstitutionalCommittee::Trusted { threshold }
+            amaru_kernel::ConstitutionalCommitteeStatus::Trusted { threshold }
         }
     };
 

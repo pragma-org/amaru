@@ -19,8 +19,8 @@ use crate::{
     summary::{SafeRatio, stake_distribution::StakeDistribution},
 };
 use amaru_kernel::{
-    Ballot, ComparableProposalId, DRep, Epoch, EraHistory, Lovelace, PoolId, StakeCredential,
-    UnitInterval, Vote, Voter, protocol_parameters::ProtocolParameters,
+    Ballot, ComparableProposalId, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
+    PoolId, StakeCredential, UnitInterval, Vote, Voter, protocol_parameters::ProtocolParameters,
 };
 use num::Zero;
 use std::{
@@ -228,7 +228,7 @@ impl<'distr> RatificationContext<'distr> {
                         self.constitutional_committee = None;
                         store_updates.push(Box::new(|db, _ctx| {
                             db.set_constitutional_committee(
-                                &amaru_kernel::ConstitutionalCommittee::NoConfidence,
+                                &ConstitutionalCommitteeStatus::NoConfidence,
                             )
                         }))
                     }
@@ -241,7 +241,7 @@ impl<'distr> RatificationContext<'distr> {
                         },
                         _parent,
                     ) => {
-                        let committee = amaru_kernel::ConstitutionalCommittee::Trusted {
+                        let committee = ConstitutionalCommitteeStatus::Trusted {
                             threshold: UnitInterval {
                                 numerator: threshold.numer().try_into().unwrap_or_else(|e| {
                                     unreachable!("threshold numerator larger than u64?!: {e}")

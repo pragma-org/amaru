@@ -17,7 +17,7 @@ use crate::in_memory::ledger::columns::{
 };
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{
-    ComparableProposalId, Constitution, ConstitutionalCommittee, EraHistory, Lovelace, Point,
+    ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, EraHistory, Lovelace, Point,
     PoolId, Slot, StakeCredential, TransactionInput, protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
@@ -57,7 +57,7 @@ pub struct MemoryStore {
     cc_members: RefCell<BTreeMap<StakeCredential, cc_members_column::Row>>,
     votes: RefCell<BTreeMap<votes_column::Key, votes_column::Value>>,
     protocol_parameters: RefCell<Option<ProtocolParameters>>,
-    constitutional_committee: RefCell<ConstitutionalCommittee>,
+    constitutional_committee: RefCell<ConstitutionalCommitteeStatus>,
     era_history: EraHistory,
 }
 
@@ -76,7 +76,7 @@ impl MemoryStore {
             cc_members: RefCell::new(BTreeMap::new()),
             votes: RefCell::new(BTreeMap::new()),
             protocol_parameters: RefCell::new(None),
-            constitutional_committee: RefCell::new(ConstitutionalCommittee::NoConfidence),
+            constitutional_committee: RefCell::new(ConstitutionalCommitteeStatus::NoConfidence),
             era_history,
         }
     }
@@ -117,7 +117,7 @@ impl ReadStore for MemoryStore {
         })
     }
 
-    fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
+    fn constitutional_committee(&self) -> Result<ConstitutionalCommitteeStatus, StoreError> {
         Ok(self.constitutional_committee.borrow().clone())
     }
 
@@ -384,7 +384,7 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
         self.store.proposals_roots()
     }
 
-    fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
+    fn constitutional_committee(&self) -> Result<ConstitutionalCommitteeStatus, StoreError> {
         self.store.constitutional_committee()
     }
 
@@ -593,7 +593,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
 
     fn set_constitutional_committee(
         &self,
-        constitutional_committee: &ConstitutionalCommittee,
+        constitutional_committee: &ConstitutionalCommitteeStatus,
     ) -> Result<(), StoreError> {
         *self.store.constitutional_committee.borrow_mut() = constitutional_committee.clone();
         Ok(())

@@ -31,7 +31,7 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    ComparableProposalId, ConstitutionalCommittee, EraHistory, Hash, Lovelace,
+    ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hash, Lovelace,
     MemoizedTransactionOutput, MintedBlock, Point, PoolId, Slot, StakeCredential,
     StakeCredentialType, TransactionInput, expect_stake_credential,
     network::NetworkName,
@@ -831,8 +831,8 @@ fn new_ratification_context<'distr>(
     treasury: Lovelace,
 ) -> Result<RatificationContext<'distr>, StoreError> {
     let constitutional_committee = match snapshot.constitutional_committee()? {
-        ConstitutionalCommittee::NoConfidence => None,
-        ConstitutionalCommittee::Trusted { threshold } => {
+        ConstitutionalCommitteeStatus::NoConfidence => None,
+        ConstitutionalCommitteeStatus::Trusted { threshold } => {
             let members = snapshot
                 .iter_cc_members()?
                 .map(|(cold_credential, row)| {

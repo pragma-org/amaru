@@ -15,9 +15,9 @@
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommittee, EraHistory,
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput, cbor,
-    protocol_parameters::ProtocolParameters,
+    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus,
+    EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId, StakeCredential,
+    TransactionInput, cbor, protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
@@ -347,7 +347,7 @@ macro_rules! impl_ReadStore_body {
                 get_or_bail(|key| self.db.get(key), &KEY_PROTOCOL_PARAMETERS)
             }
 
-            fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
+            fn constitutional_committee(&self) -> Result<ConstitutionalCommitteeStatus, StoreError> {
                 get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTIONAL_COMMITTEE)
             }
 
@@ -566,7 +566,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     fn set_constitutional_committee(
         &self,
-        constitutional_committee: &ConstitutionalCommittee,
+        constitutional_committee: &ConstitutionalCommitteeStatus,
     ) -> Result<(), StoreError> {
         self.db
             .put(
