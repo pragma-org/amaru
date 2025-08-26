@@ -16,13 +16,13 @@ use crate::send;
 use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::Point;
 use amaru_network::{
-    chain_sync_client::{new_with_session, ChainSyncClient, PullResult},
+    chain_sync_client::{ChainSyncClient, PullResult, new_with_session},
     point::from_network_point,
     session::PeerSession,
 };
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
