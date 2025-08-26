@@ -22,6 +22,7 @@ use std::{
     rc::Rc,
     sync::LazyLock,
 };
+use tracing::warn;
 
 static ZERO: LazyLock<SafeRatio> = LazyLock::new(SafeRatio::zero);
 
@@ -139,6 +140,11 @@ impl ConstitutionalCommittee {
                 if self.active_members(current_epoch).len() < (min_committee_size as usize)
                     && protocol_version > PROTOCOL_VERSION_9
                 {
+                    warn!(
+                        members.active = self.active_members(current_epoch).len(),
+                        min_committee_size = min_committee_size,
+                        "no voting threshold because committee is too small"
+                    );
                     return None;
                 }
 

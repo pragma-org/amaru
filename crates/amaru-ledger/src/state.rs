@@ -47,7 +47,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 use thiserror::Error;
-use tracing::{Level, debug, info, instrument, trace};
+use tracing::{Level, debug, info, instrument, trace, warn};
 use volatile_db::AnchoredVolatileState;
 
 pub use volatile_db::VolatileState;
@@ -835,8 +835,9 @@ fn new_ratification_context<'distr>(
         ConstitutionalCommitteeStatus::Trusted { threshold } => {
             let members = snapshot
                 .iter_cc_members()?
-                .map(|(cold_credential, row)| {
-                    (cold_credential, (row.hot_credential, row.valid_until))
+                .filter_map(|(cold_credential, row)| {
+                    row.valid_until
+                        .map(|valid_until| (cold_credential, (row.hot_credential, valid_until)))
                 })
                 .collect();
 

@@ -13,13 +13,8 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
-use amaru_kernel::{StakeCredentialType, stake_credential_hash};
-use amaru_ledger::{
-    state::diff_bind::Resettable,
-    store::{StoreError, columns::unsafe_decode},
-};
+use amaru_ledger::store::{StoreError, columns::unsafe_decode};
 use rocksdb::Transaction;
-use tracing::error;
 
 use amaru_ledger::store::columns::cc_members::{Key, Row, Value};
 
@@ -27,43 +22,34 @@ use amaru_ledger::store::columns::cc_members::{Key, Row, Value};
 pub const PREFIX: [u8; PREFIX_LEN] = [0x43, 0x4F, 0x4D, 0x4D];
 
 /// Register a new CC Member.
-pub fn add<DB>(
+pub fn upsert<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
     for (cold_credential, (hot_credential, valid_until)) in rows {
         let key = as_key(&PREFIX, &cold_credential);
 
-        let row = db
+        let mut row = db
             .get(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(unsafe_decode::<Row>)
-            // If the registration doesn't exists, but a new cc member is being added,
+            // NOTE:
+            // (1) If the registration doesn't exists, but a new cc member is being added,
             // then we can initialize a default value.
-            .or(match valid_until {
-                Resettable::Set(valid_until) => Some(Row {
-                    hot_credential: None,
-                    valid_until,
-                }),
-                Resettable::Unchanged | Resettable::Reset => None,
+            //
+            // (2) unelected-but-potential (i.e. present in ongoing proposals) CC members are *allowed*
+            // to declare their hot/cold delegation. Unelected CC are conserved as being valid
+            // until epoch 0.
+            .unwrap_or_else(|| Row {
+                hot_credential: None,
+                valid_until: None,
             });
 
-        // Either the cc member exists, or it's a completely new value. Either way, at this point,
-        // we do expect a row.
-        if let Some(mut row) = row {
-            hot_credential.set_or_reset(&mut row.hot_credential);
-            db.put(key, as_value(row))
-                .map_err(|err| StoreError::Internal(err.into()))?;
-        } else {
-            // We don't expect modification of cc members to be possible if they don't exists.
-            // CC members are added through the ratification of specific governance actions.
-            error!(
-                target: "store::cc_members::add",
-                name = "add.unknown",
-                cold_credential.type = %StakeCredentialType::from(&cold_credential),
-                cold_credential.hash = %stake_credential_hash(&cold_credential),
-            );
-        }
+        valid_until.set_or_reset(&mut row.valid_until);
+        hot_credential.set_or_reset(&mut row.hot_credential);
+
+        db.put(key, as_value(row))
+            .map_err(|err| StoreError::Internal(err.into()))?;
     }
 
     Ok(())

@@ -231,7 +231,21 @@ impl<'distr> RatificationContext<'distr> {
                                 &ConstitutionalCommitteeStatus::NoConfidence,
                                 BTreeMap::new(),
                                 BTreeSet::new(),
-                            )
+                            )?;
+
+                            db.with_cc_members(|iterator| {
+                                // NOTE: CC members are not deleted when entering no confidence
+                                // mode. They are simply marked as inactive.
+                                //
+                                // In particular, their hot<->cold bindings are preserved.
+                                for (_, mut row) in iterator {
+                                    if let Some(cc_member) = row.borrow_mut() {
+                                        cc_member.valid_until = None;
+                                    }
+                                }
+                            })?;
+
+                            Ok(())
                         }))
                     }
 
