@@ -205,10 +205,10 @@ impl<C: NetworkHeader + Debug> PullBuffer<C> {
     fn rollback(&mut self, point: &NetworkPoint) -> RollbackHandling {
         let find_index = || {
             for (i, h) in self.buffer.iter().enumerate() {
-                if let Ok(header_point) = h.point() {
-                    if header_point == *point {
-                        return Some(i);
-                    }
+                if let Ok(header_point) = h.point()
+                    && header_point == *point
+                {
+                    return Some(i);
                 }
             }
             None
