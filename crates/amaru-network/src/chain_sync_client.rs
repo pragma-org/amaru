@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::point::from_network_point;
 use crate::{point::to_network_point, session::PeerSession};
 use amaru_consensus::{RawHeader, consensus::ChainSyncEvent};
 use amaru_kernel::Point;
@@ -26,10 +25,8 @@ use pallas_network::miniprotocols::chainsync::{
 };
 use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::fmt::{self, Display};
-use std::future::Future;
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 use tracing::{Level, Span, instrument};
@@ -201,7 +198,7 @@ impl Display for PullResult {
     }
 }
 
-trait NetworkHeader {
+pub trait NetworkHeader {
     fn content(self) -> HeaderContent;
     fn point(&self) -> NetworkPoint;
 }
@@ -355,10 +352,8 @@ pub fn new_with_peer(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use amaru_consensus::consensus::chain_selection::generators::generate_headers_anchored_at;
-    use amaru_kernel::Point;
+    use amaru_kernel::{to_cbor, Point};
     use amaru_ouroboros::fake::FakeHeader;
     use amaru_ouroboros_traits::IsHeader;
     use async_trait::async_trait;
@@ -371,7 +366,6 @@ mod tests {
     use crate::{
         chain_sync_client::{ChainSyncClient, PullResult},
         point::to_network_point,
-        session::PeerSession,
     };
 
     use super::{ChainSync, NetworkHeader, MAX_BATCH_SIZE};
@@ -384,7 +378,7 @@ mod tests {
             HeaderContent {
                 variant: 6,
                 byron_prefix: None,
-                cbor: vec![],
+                cbor: to_cbor(&self.1),
             }
         }
 
@@ -420,7 +414,7 @@ mod tests {
 
         async fn find_intersect(
             &mut self,
-            points: Vec<NetworkPoint>,
+            _points: Vec<NetworkPoint>,
         ) -> Result<IntersectResponse, ClientError> {
             self.intersection
                 .clone()
