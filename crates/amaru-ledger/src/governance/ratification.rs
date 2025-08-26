@@ -227,8 +227,10 @@ impl<'distr> RatificationContext<'distr> {
                     ) => {
                         self.constitutional_committee = None;
                         store_updates.push(Box::new(|db, _ctx| {
-                            db.set_constitutional_committee(
+                            db.update_constitutional_committee(
                                 &ConstitutionalCommitteeStatus::NoConfidence,
+                                BTreeMap::new(),
+                                BTreeSet::new(),
                             )
                         }))
                     }
@@ -241,7 +243,7 @@ impl<'distr> RatificationContext<'distr> {
                         },
                         _parent,
                     ) => {
-                        let committee = ConstitutionalCommitteeStatus::Trusted {
+                        let committee_status = ConstitutionalCommitteeStatus::Trusted {
                             threshold: UnitInterval {
                                 numerator: threshold.numer().try_into().unwrap_or_else(|e| {
                                     unreachable!("threshold numerator larger than u64?!: {e}")
@@ -253,19 +255,25 @@ impl<'distr> RatificationContext<'distr> {
                         };
 
                         let added_as_inactive = added
-                            .into_iter()
-                            .map(|(cold_cred, valid_until)| (cold_cred, (None, valid_until)))
+                            .iter()
+                            .map(|(cold_cred, valid_until)| {
+                                (cold_cred.clone(), (None, *valid_until))
+                            })
                             .collect();
 
                         if let Some(committee) = &mut self.constitutional_committee {
-                            committee.update(threshold, added_as_inactive, removed);
+                            committee.update(
+                                threshold,
+                                added_as_inactive,
+                                removed.iter().collect(),
+                            );
                         } else {
                             self.constitutional_committee =
                                 Some(ConstitutionalCommittee::new(threshold, added_as_inactive));
                         }
 
                         store_updates.push(Box::new(move |db, _ctx| {
-                            db.set_constitutional_committee(&committee)
+                            db.update_constitutional_committee(&committee_status, added, removed)
                         }))
                     }
 

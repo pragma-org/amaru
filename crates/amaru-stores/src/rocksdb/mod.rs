@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::rocksdb::common::as_key;
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
@@ -32,6 +33,7 @@ use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, Direction, IteratorMode, ReadOptions, Transaction,
 };
 use std::{
+    collections::{BTreeMap, BTreeSet},
     fmt, fs,
     ops::Deref,
     path::{Path, PathBuf},
@@ -564,16 +566,36 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         Ok(())
     }
 
-    fn set_constitutional_committee(
+    fn update_constitutional_committee(
         &self,
-        constitutional_committee: &ConstitutionalCommitteeStatus,
+        status: &ConstitutionalCommitteeStatus,
+        added: BTreeMap<StakeCredential, Epoch>,
+        removed: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError> {
         self.db
-            .put(
-                KEY_CONSTITUTIONAL_COMMITTEE,
-                as_value(constitutional_committee),
-            )
+            .put(KEY_CONSTITUTIONAL_COMMITTEE, as_value(status))
             .map_err(|err| StoreError::Internal(err.into()))?;
+
+        for cold_cred in removed {
+            let key = as_key(&cc_members::PREFIX, cold_cred);
+            self.db
+                .delete(key)
+                .map_err(|err| StoreError::Internal(err.into()))?;
+        }
+
+        for (cold_cred, valid_until) in added.into_iter() {
+            let key = as_key(&cc_members::PREFIX, &cold_cred);
+            self.db
+                .put(
+                    key,
+                    as_value(scolumns::cc_members::Row {
+                        hot_credential: None,
+                        valid_until,
+                    }),
+                )
+                .map_err(|err| StoreError::Internal(err.into()))?;
+        }
+
         Ok(())
     }
 

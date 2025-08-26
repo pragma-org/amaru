@@ -28,7 +28,13 @@ use amaru_kernel::{
     protocol_parameters::ProtocolParameters,
 };
 use amaru_progress_bar::ProgressBar;
-use std::{collections::BTreeMap, fs, iter, path::PathBuf, rc::Rc, sync::LazyLock};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs, iter,
+    path::PathBuf,
+    rc::Rc,
+    sync::LazyLock,
+};
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
@@ -877,7 +883,7 @@ fn import_constitutional_committee(
         }
     };
 
-    transaction.set_constitutional_committee(&cc)?;
+    transaction.update_constitutional_committee(&cc, BTreeMap::new(), BTreeSet::new())?;
 
     transaction.save(
         era_history,

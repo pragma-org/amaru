@@ -69,7 +69,7 @@ impl ConstitutionalCommittee {
         &mut self,
         threshold: SafeRatio,
         added: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
-        removed: BTreeSet<StakeCredential>,
+        removed: BTreeSet<&StakeCredential>,
     ) {
         self.threshold = threshold;
 
@@ -247,7 +247,7 @@ mod tests {
                 committee.update(
                     committee.threshold().clone(),
                     BTreeMap::new(),
-                    BTreeSet::from([any_active_member.clone()]),
+                    BTreeSet::from([any_active_member]),
                 );
             }
 
@@ -279,7 +279,7 @@ mod tests {
                         any_active_member.clone(),
                         any_member_state.clone(),
                     )]),
-                    BTreeSet::from([any_active_member.clone()]),
+                    BTreeSet::from([any_active_member]),
                 );
 
 

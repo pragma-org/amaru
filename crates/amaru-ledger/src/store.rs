@@ -37,7 +37,12 @@ use amaru_kernel::{
     MemoizedTransactionOutput,
 };
 use columns::*;
-use std::{borrow::BorrowMut, io, iter, ops::Deref};
+use std::{
+    borrow::BorrowMut,
+    collections::{BTreeMap, BTreeSet},
+    io, iter,
+    ops::Deref,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -290,8 +295,12 @@ pub trait TransactionalContext<'a>: ReadStore {
     fn set_protocol_parameters(&self, protocol_parameters: &ProtocolParameters) -> Result<()>;
 
     /// Persist the constitutional committee state for the ongoing epoch.
-    fn set_constitutional_committee(&self, committee: &ConstitutionalCommitteeStatus)
-    -> Result<()>;
+    fn update_constitutional_committee(
+        &self,
+        status: &ConstitutionalCommitteeStatus,
+        added: BTreeMap<StakeCredential, Epoch>,
+        removed: BTreeSet<StakeCredential>,
+    ) -> Result<()>;
 
     /// Persist the latest proposal roots for the ongoing epoch.
     fn set_proposals_roots(&self, roots: &ProposalsRootsRc) -> Result<()>;

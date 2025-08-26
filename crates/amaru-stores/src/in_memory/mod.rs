@@ -36,7 +36,7 @@ use amaru_slot_arithmetic::Epoch;
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::{RefCell, RefMut},
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ops::{Deref, DerefMut},
 };
 
@@ -591,11 +591,13 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         Ok(())
     }
 
-    fn set_constitutional_committee(
+    fn update_constitutional_committee(
         &self,
-        constitutional_committee: &ConstitutionalCommitteeStatus,
+        status: &ConstitutionalCommitteeStatus,
+        _added: BTreeMap<StakeCredential, Epoch>,
+        _removed: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError> {
-        *self.store.constitutional_committee.borrow_mut() = constitutional_committee.clone();
+        *self.store.constitutional_committee.borrow_mut() = status.clone();
         Ok(())
     }
 
