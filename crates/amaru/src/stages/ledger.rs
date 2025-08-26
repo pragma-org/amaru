@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{schedule, send};
-use amaru_consensus::{span::adopt_current_span, IsHeader};
+use amaru_consensus::{IsHeader, span::adopt_current_span};
 use amaru_kernel::{
     EraHistory, Hash, Hasher, MintedBlock, Network, Point, RawBlock,
     block::{BlockValidationResult, ValidateBlockEvent},

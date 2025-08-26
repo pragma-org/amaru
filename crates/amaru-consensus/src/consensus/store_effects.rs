@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::ConsensusError;
-use amaru_kernel::{protocol_parameters::GlobalParameters, Header, Point};
+use amaru_kernel::{Header, Point, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{IsHeader, Praos};
 use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
