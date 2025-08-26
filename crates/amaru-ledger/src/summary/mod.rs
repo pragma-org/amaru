@@ -22,7 +22,7 @@ use crate::{
     summary::serde::{encode_drep, encode_pool_id},
 };
 use ::serde::ser::SerializeStruct;
-use amaru_kernel::{DRep, Lovelace, PoolId, PoolParams, RationalNumber};
+use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber};
 use num::{BigUint, rational::Ratio};
 
 // ---------------------------------------------------------------- AccountState
@@ -50,6 +50,10 @@ impl ::serde::Serialize for AccountState {
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone))]
 pub struct PoolState {
+    /// Date since the pool last registered. Pool updates do not influence this pointer; but pool
+    /// de-registration would cause it to reset on the next registration.
+    pub registered_at: CertificatePointer,
+
     /// Number of blocks produced during an epoch by the underlying pool.
     pub blocks_count: u64,
 

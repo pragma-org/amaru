@@ -24,7 +24,10 @@ pub mod tests {
         TransactionInput,
         network::NetworkName,
         protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
-        tests::{any_pool_id, any_pool_params, any_proposal_id, any_stake_credential},
+        tests::{
+            any_certificate_pointer, any_pool_id, any_pool_params, any_proposal_id,
+            any_stake_credential,
+        },
     };
     use amaru_ledger::{
         state::diff_bind,
@@ -102,8 +105,8 @@ pub mod tests {
             .unwrap()
             .current();
 
-        let delegatee = match &account_row.delegatee {
-            Some(pool_id) => Resettable::Set(*pool_id),
+        let delegatee = match &account_row.pool {
+            Some(pool_pair) => Resettable::Set(*pool_pair),
             None => Resettable::Reset,
         };
 
@@ -120,9 +123,13 @@ pub mod tests {
 
         // pools
         let pool_params = any_pool_params().new_tree(runner).unwrap().current();
+        let registered_at = any_certificate_pointer(u64::MAX)
+            .new_tree(runner)
+            .unwrap()
+            .current();
         let pool_epoch = Epoch::from(0u64);
 
-        let pools_iter = std::iter::once((pool_params.clone(), pool_epoch));
+        let pools_iter = std::iter::once((pool_params.clone(), registered_at, pool_epoch));
 
         // dreps
         let drep_key = any_stake_credential().new_tree(runner).unwrap().current();
@@ -289,7 +296,7 @@ pub mod tests {
         let stored_account = stored_account.unwrap();
 
         assert_eq!(
-            stored_account.delegatee, fixture.account_row.delegatee,
+            stored_account.pool, fixture.account_row.pool,
             "delegatee mismatch"
         );
         assert_eq!(

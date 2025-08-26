@@ -32,7 +32,7 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (credential, (delegatee, drep, deposit, rewards)) in rows {
+    for (credential, (pool, drep, deposit, rewards)) in rows {
         let key = as_key(&PREFIX, &credential);
 
         // In case where a registration already exists, then we must only update the underlying
@@ -42,7 +42,7 @@ pub fn add<DB>(
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(unsafe_decode::<Row>)
         {
-            delegatee.set_or_reset(&mut row.delegatee);
+            pool.set_or_reset(&mut row.pool);
             drep.set_or_reset(&mut row.drep);
 
             if let Some(deposit) = deposit {
@@ -54,12 +54,12 @@ pub fn add<DB>(
         } else if let Some(deposit) = deposit {
             let mut row = Row {
                 deposit,
-                delegatee: None,
+                pool: None,
                 drep: None,
                 rewards,
             };
 
-            delegatee.set_or_reset(&mut row.delegatee);
+            pool.set_or_reset(&mut row.pool);
             drep.set_or_reset(&mut row.drep);
 
             db.put(key, as_value(row))

@@ -137,7 +137,7 @@ pub trait PrepareUtxoSlice<'a> {
 pub trait PoolsSlice {
     fn lookup(&self, pool: &PoolId) -> Option<&PoolParams>;
 
-    fn register(&mut self, params: PoolParams);
+    fn register(&mut self, params: PoolParams, pointer: CertificatePointer);
 
     // FIXME: Should yield an error when pool doesn't exists.
     fn retire(&mut self, pool: PoolId, epoch: Epoch);
@@ -154,7 +154,7 @@ pub trait PreparePoolsSlice<'a> {
 #[derive(Debug)]
 pub struct AccountState {
     pub deposit: Lovelace,
-    pub pool: Option<PoolId>,
+    pub pool: Option<(PoolId, CertificatePointer)>,
     pub drep: Option<(DRep, CertificatePointer)>,
 }
 
@@ -172,6 +172,7 @@ pub trait AccountsSlice {
         &mut self,
         credential: StakeCredential,
         pool: PoolId,
+        pointer: CertificatePointer,
     ) -> Result<(), DelegateError<StakeCredential, PoolId>>;
 
     fn delegate_vote(

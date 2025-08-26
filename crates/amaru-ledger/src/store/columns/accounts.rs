@@ -22,7 +22,7 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Value = (
-    Resettable<PoolId>,
+    Resettable<(PoolId, CertificatePointer)>,
     Resettable<(DRep, CertificatePointer)>,
     Option<Lovelace>,
     Lovelace,
@@ -32,7 +32,7 @@ pub type Key = StakeCredential;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Row {
-    pub delegatee: Option<PoolId>,
+    pub pool: Option<(PoolId, CertificatePointer)>,
     pub deposit: Lovelace,
     pub drep: Option<(DRep, CertificatePointer)>,
     // FIXME: We probably want to use an arbitrarily-sized for rewards; Going
@@ -49,7 +49,7 @@ impl<C> cbor::encode::Encode<C> for Row {
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(4)?;
-        e.encode_with(self.delegatee, ctx)?;
+        e.encode_with(self.pool.as_ref(), ctx)?;
         e.encode_with(self.deposit, ctx)?;
         e.encode_with(self.drep.as_ref(), ctx)?;
         e.encode_with(self.rewards, ctx)?;
@@ -61,7 +61,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         Ok(Row {
-            delegatee: d.decode_with(ctx)?,
+            pool: d.decode_with(ctx)?,
             deposit: d.decode_with(ctx)?,
             drep: d.decode_with(ctx)?,
             rewards: d.decode_with(ctx)?,
@@ -80,16 +80,17 @@ pub mod tests {
 
     prop_compose! {
         pub fn any_row(max_slot: u64)(
-            delegatee in option::of(any_pool_id()),
+            pool in option::of(any_pool_id()),
+            pool_delegation_at in any_certificate_pointer(max_slot),
             deposit in any::<Lovelace>(),
             drep in option::of(any_drep()),
-            drep_registered_at in any_certificate_pointer(max_slot),
+            drep_delegation_at in any_certificate_pointer(max_slot),
             rewards in any::<Lovelace>(),
         ) -> Row {
             Row {
-                delegatee,
+                pool: pool.map(|pool| (pool, pool_delegation_at)),
                 deposit,
-                drep: drep.map(|drep| (drep, drep_registered_at)),
+                drep: drep.map(|drep| (drep, drep_delegation_at)),
                 rewards,
             }
         }

@@ -132,7 +132,7 @@ where
                 relays,
                 metadata,
             };
-            PoolsSlice::register(context, params);
+            PoolsSlice::register(context, params, pointer);
             Ok(())
         }
 
@@ -200,7 +200,7 @@ where
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            context.delegate_pool(credential, pool)?;
+            context.delegate_pool(credential, pool, pointer)?;
             Ok(())
         }
 

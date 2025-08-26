@@ -143,7 +143,7 @@ impl PoolsSlice for AssertValidationContext {
     fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
         unimplemented!()
     }
-    fn register(&mut self, _params: PoolParams) {
+    fn register(&mut self, _params: PoolParams, _pointer: CertificatePointer) {
         unimplemented!()
     }
     fn retire(&mut self, _pool: PoolId, _epoch: Epoch) {
@@ -168,6 +168,7 @@ impl AccountsSlice for AssertValidationContext {
         &mut self,
         _credential: StakeCredential,
         _pool: PoolId,
+        _pointer: CertificatePointer,
     ) -> Result<(), DelegateError<StakeCredential, PoolId>> {
         unimplemented!()
     }

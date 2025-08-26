@@ -28,13 +28,13 @@ pub fn add(
 
     for (key, (delegatee, drep, rewards, deposit)) in rows {
         let mut row = accounts.get(&key).cloned().unwrap_or(Row {
-            delegatee: None,
+            pool: None,
             drep: None,
             rewards: 0,
             deposit: 0,
         });
 
-        delegatee.set_or_reset(&mut row.delegatee);
+        delegatee.set_or_reset(&mut row.pool);
         drep.set_or_reset(&mut row.drep);
 
         if let Some(r) = rewards {
