@@ -943,11 +943,10 @@ impl HasStakeDistribution for StakeDistributionObserver {
             .slot_to_epoch_unchecked_horizon(slot)
             .ok()?
             - 2;
-
         view.iter().find(|s| s.epoch == epoch).and_then(|s| {
             s.pools.get(pool).map(|st| PoolSummary {
                 vrf: st.parameters.vrf,
-                stake: st.consensus_stake,
+                stake: st.stake,
                 active_stake: s.active_stake,
             })
         })

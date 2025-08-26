@@ -49,9 +49,8 @@ pub struct StakeDistribution {
     /// Total stake, in Lovelace, delegated to registered pools
     pub active_stake: Lovelace,
 
-    /// Active stake plus deposits of ongoing proposals whose refund accounts are delegated to
-    /// active stake pools. This stake also omits the stake of pools that are unregistering in the
-    /// following epoch, and deposits of proposals in their last epoch of validity.
+    /// Active stake plus deposits of ongoing proposals whose reward accounts are delegated to
+    /// active stake pools.
     pub pools_voting_stake: Lovelace,
 
     /// Total voting stake, in Lovelace, corresponding to the total stake assigned to registered
@@ -163,9 +162,8 @@ impl StakeDistribution {
                 (
                     pool,
                     PoolState {
-                        rewards_stake: 0,
+                        stake: 0,
                         voting_stake: 0,
-                        consensus_stake: 0,
                         blocks_count: 0,
                         // NOTE: pre-compute margin here (1 - m), which gets used for all
                         // member and leader rewards calculation.
@@ -186,14 +184,14 @@ impl StakeDistribution {
         let accounts = accounts
             .into_iter()
             .filter(|(credential, account)| {
-                let (deposits, deposits_following_expiry) = deposits
+                let (drep_deposits, pool_deposits) = deposits
                     .get(credential)
                     .map(|proposals| {
-                        proposals.iter().fold(
-                            (0, 0),
-                            |(deposits, deposits_following_expiry), proposal| {
+                        proposals
+                            .iter()
+                            .fold((0, 0), |(drep_deposits, pool_deposits), proposal| {
                                 (
-                                    deposits + proposal.deposit,
+                                    drep_deposits + proposal.deposit,
                                     // NOTE: This is subtle, but the pool distribution used for
                                     // computing voting power is determined BEFORE refunds or
                                     // withdrawal are processed.
@@ -206,13 +204,12 @@ impl StakeDistribution {
                                     // epoch so the deposit is effectively missing from the pools'
                                     // voting stake for an entire epoch.
                                     if epoch <= proposal.valid_until {
-                                        deposits_following_expiry + proposal.deposit
+                                        pool_deposits + proposal.deposit
                                     } else {
-                                        deposits_following_expiry
+                                        pool_deposits
                                     },
                                 )
-                            },
-                        )
+                            })
                     })
                     .unwrap_or((0, 0));
 
@@ -222,8 +219,8 @@ impl StakeDistribution {
                 if let Some(drep) = &account.drep
                     && let Some(st) = dreps.get_mut(drep)
                 {
-                    dreps_voting_stake += account.lovelace + deposits + refund;
-                    st.stake += account.lovelace + deposits + refund;
+                    dreps_voting_stake += account.lovelace + drep_deposits + refund;
+                    st.stake += account.lovelace + drep_deposits + refund;
                 }
 
                 // NOTE: Only accounts delegated to active pools counts towards the active stake.
@@ -231,37 +228,20 @@ impl StakeDistribution {
                     return match pools.get_mut(&pool_id) {
                         None => false,
                         Some(pool) => {
-                            // NOTE: Governance deposits do not count towards the pools' active
-                            // stake used in rewards calculation. They are only counted as part of
-                            // the voting power & for consensus leader election.
+                            // NOTE: Governance deposits do not count towards the pools' stake.
+                            // They are only counted as part of the voting power.
                             active_stake += &account.lovelace;
-                            pool.rewards_stake += &account.lovelace;
-
-                            // NOTE: An astute reader might wonder why there's no total
-                            // 'pools_consensus_stake' which would correspond to the sum of all
-                            // pool's consensus stake (like there's an 'active_stake' and a
-                            // 'pools_voting_stake').
-                            //
-                            // *Why* is hard to answer here, but *how* we ended up here is because
-                            // of how the proposal deposits are added after the facts in the
-                            // Haskell implementation, on top of the so-called 'mark' (epoch - 2)
-                            // snapshots.
-                            //
-                            // Yet, the total (denominator), is still computed from the initial
-                            // mark snapshot (without the refunded deposits). Which creates a
-                            // "funny" divergence.
-                            pool.consensus_stake += account.lovelace + deposits;
+                            pool.stake += &account.lovelace;
 
                             // NOTE: Because votes are ratified with an epoch delay and using the
                             // stake distribution _at the beginning of an epoch_ (so, after pool
                             // reap), any pool retiring in the next epoch is considered having no
                             // voting power whatsoever.
                             if !retiring_pools.contains(&pool_id) {
-                                let delta_voting = account.lovelace + deposits_following_expiry;
-                                pool.voting_stake += delta_voting;
-                                pools_voting_stake += delta_voting;
+                                let delta = account.lovelace + pool_deposits;
+                                pool.voting_stake += delta;
+                                pools_voting_stake += delta;
                             }
-
                             true
                         }
                     };
@@ -376,7 +356,7 @@ pub mod tests {
             pools in collection::btree_map(any_pool_id(), any_pool_state(), 1..10),
             accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
         ) -> StakeDistribution {
-            let active_stake = pools.values().fold(0, |total, st| total + st.rewards_stake);
+            let active_stake = pools.values().fold(0, |total, st| total + st.stake);
             let pools_voting_stake = pools.values().fold(0, |total, st| total + st.voting_stake);
 
             let pools_len = pools.len();
@@ -432,9 +412,8 @@ pub mod tests {
     prop_compose! {
         pub fn any_pool_state()(
             blocks_count in any::<u64>(),
-            rewards_stake in 0_u64..1_000_000_000_000,
+            stake in 0_u64..1_000_000_000_000,
             voting_stake in 0_u64..1_000_000_000_000,
-            consensus_stake in 0_u64..1_000_000_000_000,
             parameters in any_pool_params(),
         ) -> PoolState {
             let margin = safe_ratio(
@@ -444,9 +423,8 @@ pub mod tests {
 
             PoolState {
                 blocks_count,
-                rewards_stake,
-                voting_stake: rewards_stake.max(voting_stake),
-                consensus_stake: rewards_stake.max(voting_stake).max(consensus_stake),
+                stake,
+                voting_stake: stake.max(voting_stake),
                 margin,
                 parameters,
             }
