@@ -209,8 +209,13 @@ impl SelectChain {
                 rollback_point,
                 span,
             } => self.select_rollback(peer, rollback_point, span).await,
-            DecodedChainSyncEvent::CaughtUp { .. } => Ok(vec![]),
+            DecodedChainSyncEvent::CaughtUp { peer, .. } => self.caught_up(&peer),
         }
+    }
+
+    fn caught_up(&mut self, peer: &Peer) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
+        self.sync_tracker.caught_up(peer);
+        Ok(vec![])
     }
 }
 
@@ -316,5 +321,17 @@ mod tests {
         tracker.caught_up(&bob);
 
         assert!(tracker.is_caught_up());
+    }
+
+    #[tokio::test]
+    async fn is_not_caught_up_given_some_peer_is_not() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let peers = vec![&alice, &bob];
+        let mut tracker = SyncTracker::new(&peers);
+
+        tracker.caught_up(&alice);
+
+        assert!(!tracker.is_caught_up());
     }
 }
