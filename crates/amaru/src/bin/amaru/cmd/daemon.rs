@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use crate::cmd::connect_to_peer;
-use amaru::{metrics::track_system_metrics, stages::{bootstrap, Config, MaxExtraLedgerSnapshots, StoreType}};
+use amaru::{
+    metrics::track_system_metrics,
+    stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap},
+};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
