@@ -125,6 +125,9 @@ where
     /// Which network are we connected to. This is mostly helpful for distinguishing between
     /// behavious that are network specifics (e.g. address discriminant).
     network: NetworkName,
+
+    /// The maximum number of past snapshots to preserve on disk. Panics if smaller than 3.
+    max_archived_snapshots: u64,
 }
 
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
@@ -194,6 +197,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             governance_activity,
 
             network,
+
+            // TODO: Make it configurable via the command-line.
+            max_archived_snapshots: 3,
         }
     }
 
@@ -374,6 +380,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
         }?;
         batch.commit()?;
+        snapshots.prune(next_epoch.saturating_sub(self.max_archived_snapshots))?;
 
         // -------------------------------------------------------------------------- Start of epoch
         let batch = db.create_transaction();

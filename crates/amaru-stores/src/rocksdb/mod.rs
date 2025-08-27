@@ -288,29 +288,23 @@ impl RocksDBHistoricalStores {
 }
 
 impl HistoricalStores for RocksDBHistoricalStores {
+    #[instrument(level = Level::INFO, skip_all, fields(minimum_epoch))]
+    fn prune(&self, minimum_epoch: Epoch) -> Result<(), StoreError> {
+        with_snapshots(&self.dir, |path, epoch| {
+            if epoch < minimum_epoch {
+                fs::remove_dir_all(path).map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
+            }
+            Ok(())
+        })
+    }
+
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
 
-        for entry in fs::read_dir(&self.dir)
-            .map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?
-            .by_ref()
-        {
-            let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
-            if let Ok(epoch) = entry
-                .file_name()
-                .to_str()
-                .unwrap_or_default()
-                .parse::<Epoch>()
-            {
-                snapshots.push(epoch);
-            } else if entry.file_name() != DIR_LIVE_DB {
-                warn!(
-                    target: EVENT_TARGET,
-                    filename = entry.file_name().to_str().unwrap_or_default(),
-                    "new.unexpected_file"
-                );
-            }
-        }
+        with_snapshots(&self.dir, |_, epoch| {
+            snapshots.push(epoch);
+            Ok(())
+        })?;
 
         snapshots.sort();
 
@@ -319,6 +313,34 @@ impl HistoricalStores for RocksDBHistoricalStores {
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
         RocksDBHistoricalStores::for_epoch_with(&self.dir, epoch)
     }
+}
+
+fn with_snapshots(
+    dirname: &Path,
+    mut with: impl FnMut(PathBuf, Epoch) -> Result<(), StoreError>,
+) -> Result<(), StoreError> {
+    let mut dir = fs::read_dir(dirname).map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
+
+    for entry in dir.by_ref() {
+        let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
+        let path = entry.path();
+        if let Ok(epoch) = entry
+            .file_name()
+            .to_str()
+            .unwrap_or_default()
+            .parse::<Epoch>()
+        {
+            with(path, epoch)?;
+        } else if entry.file_name() != DIR_LIVE_DB {
+            warn!(
+                target: EVENT_TARGET,
+                filename = entry.file_name().to_str().unwrap_or_default(),
+                "with_snapshots.unexpected_file"
+            );
+        }
+    }
+
+    Ok(())
 }
 
 // ReadStore(s)

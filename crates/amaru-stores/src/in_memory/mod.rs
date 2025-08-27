@@ -808,6 +808,10 @@ impl HistoricalStores for MemoryStore {
             self.protocol_parameters.borrow().clone(),
         ))
     }
+
+    fn prune(&self, _minimum_epoch: Epoch) -> Result<(), StoreError> {
+        Ok(())
+    }
 }
 
 pub struct RefMutAdapter<'a, T> {

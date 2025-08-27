@@ -155,6 +155,12 @@ impl Sub<u64> for Epoch {
     }
 }
 
+impl Epoch {
+    pub fn saturating_sub(self, rhs: u64) -> Self {
+        Self(self.0.saturating_sub(rhs))
+    }
+}
+
 impl Sub<Epoch> for Epoch {
     type Output = u64;
 
