@@ -111,7 +111,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                 self.initialised = true;
             }
             WorkUnit::Pull => {
-                let result = stage.client.pull_batch().await.or_restart()?;
+                let result = stage.client.pull_batch().await.or_retry()?;
                 match result {
                     PullResult::ForwardBatch(header_contents) => {
                         stage.roll_forward(&header_contents).await?
