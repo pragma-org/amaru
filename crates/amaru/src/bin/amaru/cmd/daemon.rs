@@ -67,6 +67,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "MAX_EXTRA_LEDGER_SNAPSHOTS",
+        env("AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS"),
         default_value_t = MaxExtraLedgerSnapshots::default(),
     )]
     max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
