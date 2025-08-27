@@ -200,6 +200,7 @@ fn spawn_node(
                     )
                     .await
                 }
+                DecodedChainSyncEvent::CaughtUp { .. } => (),
             }
             (downstream, output)
         },

@@ -109,6 +109,104 @@ impl ValidateHeader {
     pub fn new(ledger: Arc<dyn HasStakeDistribution>) -> Self {
         Self { ledger }
     }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "consensus.roll_forward",
+        fields(
+            point.slot = %point.slot_or_default(),
+            point.hash = %Hash::<32>::from(&point),
+        )
+    )]
+    pub async fn handle_roll_forward<M, S>(
+        &mut self,
+        eff: &Effects<M, S>,
+        peer: Peer,
+        point: Point,
+        header: Header,
+        global_parameters: &GlobalParameters,
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+        let nonces = eff.external(EvolveNonceEffect::new(header.clone())).await?;
+        let epoch_nonce = &nonces.active;
+
+        header_is_valid(
+            &point,
+            &header,
+            to_cbor(&header.header_body).as_slice(),
+            epoch_nonce,
+            self.ledger.as_ref(),
+            global_parameters,
+        )?;
+
+        Ok(DecodedChainSyncEvent::RollForward {
+            peer,
+            point,
+            header,
+            span: Span::current(),
+        })
+    }
+
+    pub async fn validate_header<M, S>(
+        &mut self,
+        eff: &Effects<M, S>,
+        chain_sync: DecodedChainSyncEvent,
+        global_parameters: &GlobalParameters,
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+        match chain_sync {
+            DecodedChainSyncEvent::RollForward {
+                peer,
+                point,
+                header,
+                ..
+            } => {
+                self.handle_roll_forward(eff, peer, point, header, global_parameters)
+                    .await
+            }
+            DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
+            DecodedChainSyncEvent::CaughtUp { .. } => Ok(chain_sync),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ValidationFailed {
+    pub peer: Peer,
+    pub error: String,
+    pub action: UpstreamAction,
+}
+
+impl ValidationFailed {
+    pub fn kick_peer(peer: Peer, error: String) -> Self {
+        Self {
+            peer,
+            error,
+            action: UpstreamAction::KickPeer,
+        }
+    }
+
+    pub fn ban_peer(peer: Peer, error: String) -> Self {
+        Self {
+            peer,
+            error,
+            action: UpstreamAction::BanPeer,
+        }
+    }
+
+    pub fn only_logging(peer: Peer, error: String) -> Self {
+        Self {
+            peer,
+            error,
+            action: UpstreamAction::OnlyLogging,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum UpstreamAction {
+    KickPeer,
+    BanPeer,
+    OnlyLogging,
 }
 
 type State = (
@@ -139,6 +237,10 @@ pub async fn stage(
             ..
         } => (peer, point, header),
         DecodedChainSyncEvent::Rollback { .. } => {
+            eff.send(&downstream, msg).await;
+            return (state, global, downstream, errors);
+        }
+        DecodedChainSyncEvent::CaughtUp { .. } => {
             eff.send(&downstream, msg).await;
             return (state, global, downstream, errors);
         }

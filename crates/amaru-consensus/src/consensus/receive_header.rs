@@ -54,7 +54,7 @@ pub async fn stage(
     msg: ChainSyncEvent,
     eff: Effects<ChainSyncEvent, State>,
 ) -> State {
-    adopt_current_span(&msg);
+    let span = adopt_current_span(&msg);
     match msg {
         ChainSyncEvent::RollForward {
             peer,
@@ -97,7 +97,16 @@ pub async fn stage(
             )
             .await
         }
-        ChainSyncEvent::CaughtUp { peer, span } => todo!(),
+        ChainSyncEvent::CaughtUp { peer, span } => {
+            eff.send(
+                &downstream,
+                DecodedChainSyncEvent::CaughtUp {
+                    peer,
+                    span,
+                },
+            )
+            .await
+        }
     }
     (downstream, errors)
 }

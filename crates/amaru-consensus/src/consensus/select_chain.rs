@@ -148,6 +148,7 @@ impl SelectChain {
                 rollback_point,
                 span,
             } => self.select_rollback(peer, rollback_point, span).await,
+            DecodedChainSyncEvent::CaughtUp { .. } => Ok(vec![]),
         }
     }
 }
