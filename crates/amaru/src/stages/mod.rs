@@ -94,6 +94,7 @@ pub struct Config {
     pub network_magic: u32,
     pub listen_address: String,
     pub max_downstream_peers: usize,
+    pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
 }
 
 impl Default for Config {
@@ -106,6 +107,53 @@ impl Default for Config {
             network_magic: 1,
             listen_address: "0.0.0.0:3000".to_string(),
             max_downstream_peers: 10,
+            max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MaxExtraLedgerSnapshots {
+    All,
+    UpTo(u64),
+}
+
+impl Default for MaxExtraLedgerSnapshots {
+    fn default() -> Self {
+        Self::UpTo(0)
+    }
+}
+
+impl std::fmt::Display for MaxExtraLedgerSnapshots {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::All => f.write_str("all"),
+            Self::UpTo(n) => write!(f, "{n}"),
+        }
+    }
+}
+
+impl std::str::FromStr for MaxExtraLedgerSnapshots {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "all" => Ok(Self::All),
+            _ => match s.parse() {
+                Ok(e) => Ok(Self::UpTo(e)),
+                Err(e) => Err(format!(
+                    "invalid max ledger snapshot, cannot parse value: {e}"
+                )),
+            },
+        }
+    }
+}
+
+impl From<MaxExtraLedgerSnapshots> for u64 {
+    fn from(max_extra_ledger_snapshots: MaxExtraLedgerSnapshots) -> Self {
+        match max_extra_ledger_snapshots {
+            MaxExtraLedgerSnapshots::All => u64::MAX,
+            MaxExtraLedgerSnapshots::UpTo(n) => n,
         }
     }
 }
@@ -351,7 +399,10 @@ fn make_ledger(
         StorePath::OnDisk(ledger_dir) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
                 RocksDB::new(ledger_dir)?,
-                RocksDBHistoricalStores::new(ledger_dir),
+                RocksDBHistoricalStores::new(
+                    ledger_dir,
+                    u64::from(config.max_extra_ledger_snapshots),
+                ),
                 network,
                 era_history,
                 global_parameters,

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
-use amaru::stages::{Config, StorePath, bootstrap};
+use amaru::stages::{Config, MaxExtraLedgerSnapshots, StorePath, bootstrap};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -58,6 +58,18 @@ pub struct Args {
     /// The maximum number of downstream peers to connect to.
     #[arg(long, value_name = "MAX_DOWNSTREAM_PEERS", default_value_t = 10)]
     max_downstream_peers: usize,
+
+    /// The maximum number of additional ledger snapshots to keep around. By default, Amaru only
+    /// keeps the strict minimum of what's needed to operate.
+    ///
+    /// Should be a whole number >=0 or the string 'all' to keep all historical ledger snapshots
+    /// (~2GB per epoch on Mainnet).
+    #[arg(
+        long,
+        value_name = "MAX_EXTRA_LEDGER_SNAPSHOTS",
+        default_value_t = MaxExtraLedgerSnapshots::default(),
+    )]
+    max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
 }
 
 pub async fn run(
@@ -123,5 +135,6 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         network_magic: args.network.to_network_magic(),
         listen_address: args.listen_address,
         max_downstream_peers: args.max_downstream_peers,
+        max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
     })
 }

@@ -269,6 +269,7 @@ impl Store for RocksDB {
 
 pub struct RocksDBHistoricalStores {
     dir: PathBuf,
+    max_extra_ledger_snapshots: u64,
 }
 
 impl RocksDBHistoricalStores {
@@ -280,18 +281,20 @@ impl RocksDBHistoricalStores {
             .map(|db| RocksDBSnapshot { epoch, db })
     }
 
-    pub fn new(dir: &Path) -> Self {
+    pub fn new(dir: &Path, max_extra_ledger_snapshots: u64) -> Self {
         RocksDBHistoricalStores {
             dir: dir.to_path_buf(),
+            max_extra_ledger_snapshots,
         }
     }
 }
 
 impl HistoricalStores for RocksDBHistoricalStores {
     #[instrument(level = Level::INFO, skip_all, fields(minimum_epoch))]
-    fn prune(&self, minimum_epoch: Epoch) -> Result<(), StoreError> {
+    fn prune(&self, functional_minimum: Epoch) -> Result<(), StoreError> {
+        let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
         with_snapshots(&self.dir, |path, epoch| {
-            if epoch < minimum_epoch {
+            if epoch < desired_minimum {
                 fs::remove_dir_all(path).map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
             }
             Ok(())
