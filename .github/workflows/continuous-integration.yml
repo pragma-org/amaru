@@ -237,7 +237,7 @@ jobs:
 
       - name: Run node
         if: github.event_name == 'pull_request'
-        timeout-minutes: 45
+        timeout-minutes: 10
         shell: bash
         run: make BUILD_PROFILE=test demo
 
@@ -259,7 +259,7 @@ jobs:
 
       - name: Run node until latest epoch (main branch only)
         if: github.event_name != 'pull_request'
-        timeout-minutes: 30
+        timeout-minutes: 60
         shell: bash
         run: |
           set -eux
