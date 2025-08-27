@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![deny(clippy::future_not_send)]
+
 use amaru_kernel::{HEADER_HASH_SIZE, Point, peer::Peer};
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use pallas_crypto::hash::Hash;
@@ -25,10 +27,11 @@ pub use amaru_ouroboros_traits::*;
 ///
 /// The consensus interface is responsible for validating block headers.
 pub mod consensus;
+pub mod span;
 
 pub type RawHeader = Vec<u8>;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConsensusError {
     #[error("cannot build a chain selector without a tip")]
     MissingTip,
@@ -40,8 +43,17 @@ pub enum ConsensusError {
     StoreHeaderFailed(Point, consensus::store::StoreError),
     #[error("Failed to store block body at {0}: {1}")]
     StoreBlockFailed(Point, consensus::store::StoreError),
-    #[error("Failed to decode header at {}: {}", point, hex::encode(header))]
-    CannotDecodeHeader { point: Point, header: Vec<u8> },
+    #[error(
+        "Failed to decode header at {}: {} ({})",
+        point,
+        hex::encode(header),
+        reason
+    )]
+    CannotDecodeHeader {
+        point: Point,
+        header: Vec<u8>,
+        reason: String,
+    },
     #[error("Unknown peer {0}, bailing out")]
     UnknownPeer(Peer),
     #[error("Unknown point {0}, bailing out")]
@@ -63,7 +75,7 @@ pub enum ConsensusError {
     InvalidHeaderParent(Box<InvalidHeaderParentData>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InvalidHeaderParentData {
     peer: Peer,
     forwarded: Point,

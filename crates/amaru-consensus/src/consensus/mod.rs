@@ -14,10 +14,9 @@
 
 use std::fmt;
 
-use crate::{consensus::validate_header::ValidationFailed, is_header::IsHeader};
+use crate::{ConsensusError, consensus::select_chain::SelectChain, is_header::IsHeader};
 use amaru_kernel::{Header, Point, peer::Peer, protocol_parameters::GlobalParameters};
 use pure_stage::{StageGraph, StageRef, Void};
-use serde::{Deserialize, Serialize};
 use tracing::Span;
 
 pub mod headers_tree;
@@ -25,6 +24,7 @@ pub mod receive_header;
 pub mod select_chain;
 pub mod store;
 pub mod store_block;
+pub mod store_effects;
 pub mod store_header;
 pub mod tip;
 pub mod validate_header;
@@ -34,18 +34,19 @@ pub const EVENT_TARGET: &str = "amaru::consensus";
 pub fn build_stage_graph(
     global_parameters: &GlobalParameters,
     consensus: validate_header::ValidateHeader,
+    chain_selector: SelectChain,
     network: &mut impl StageGraph,
-    validation_outputs: StageRef<DecodedChainSyncEvent, Void>,
-) -> StageRef<DecodedChainSyncEvent, Void> {
+    outputs: StageRef<ValidateHeaderEvent, Void>,
+) -> StageRef<ChainSyncEvent, Void> {
+    let receive_header_stage = network.stage("receive_header", receive_header::stage);
+    let store_header_stage = network.stage("store_header", store_header::stage);
     let validate_header_stage = network.stage("validate_header", validate_header::stage);
+    let select_chain_stage = network.stage("select_chain", select_chain::stage);
 
-    let errors_stage = network.stage("errors", async |_, msg, eff| {
-        let ValidationFailed {
-            peer,
-            error,
-            action,
-        } = msg;
-        tracing::error!(%peer, %error, ?action, "invalid header");
+    // TODO: currently only validate_header errors, will need to grow into all error handling
+    let upstream_errors_stage = network.stage("upstream_errors", async |_, msg, eff| {
+        let ValidationFailed { peer, point, error } = msg;
+        tracing::error!(%peer, %point, %error, "invalid header");
 
         // TODO: implement specific actions once we have an upstream network
 
@@ -53,32 +54,67 @@ pub fn build_stage_graph(
         eff.terminate().await
     });
 
-    let errors_stage = network.wire_up(errors_stage, ());
+    let upstream_errors_stage = network.wire_up(upstream_errors_stage, ());
+
+    let select_chain_stage = network.wire_up(
+        select_chain_stage,
+        (
+            chain_selector,
+            outputs.without_state(),
+            upstream_errors_stage.without_state(),
+        ),
+    );
 
     let validate_header_stage = network.wire_up(
         validate_header_stage,
         (
             consensus,
             global_parameters.clone(),
-            validation_outputs,
-            errors_stage.without_state(),
+            select_chain_stage.without_state(),
+            upstream_errors_stage.without_state(),
         ),
     );
 
-    validate_header_stage.without_state()
+    let store_header_stage =
+        network.wire_up(store_header_stage, validate_header_stage.without_state());
+
+    let receive_header_stage = network.wire_up(
+        receive_header_stage,
+        (
+            store_header_stage.without_state(),
+            upstream_errors_stage.without_state(),
+        ),
+    );
+
+    receive_header_stage.without_state()
 }
 
-#[derive(Clone)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ValidationFailed {
+    pub peer: Peer,
+    pub point: Point,
+    pub error: ConsensusError,
+}
+
+impl ValidationFailed {
+    pub fn new(peer: Peer, point: Point, error: ConsensusError) -> Self {
+        Self { peer, point, error }
+    }
+}
+
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ChainSyncEvent {
     RollForward {
         peer: Peer,
         point: Point,
         raw_header: Vec<u8>,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
     Rollback {
         peer: Peer,
         rollback_point: Point,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
 }
@@ -138,6 +174,13 @@ impl DecodedChainSyncEvent {
             DecodedChainSyncEvent::Rollback { peer, .. } => peer.clone(),
         }
     }
+
+    pub fn point(&self) -> Point {
+        match self {
+            DecodedChainSyncEvent::RollForward { point, .. } => point.clone(),
+            DecodedChainSyncEvent::Rollback { rollback_point, .. } => rollback_point.clone(),
+        }
+    }
 }
 
 impl fmt::Debug for DecodedChainSyncEvent {
@@ -167,7 +210,7 @@ impl fmt::Debug for DecodedChainSyncEvent {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum ValidateHeaderEvent {
     Validated {

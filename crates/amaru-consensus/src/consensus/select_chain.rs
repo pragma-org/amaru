@@ -13,41 +13,26 @@
 // limitations under the License.
 
 use super::{DecodedChainSyncEvent, ValidateHeaderEvent};
+use crate::consensus::ValidationFailed;
 use crate::consensus::headers_tree::HeadersTree;
+use crate::span::adopt_current_span;
 use crate::{ConsensusError, consensus::EVENT_TARGET};
 use amaru_kernel::{Header, Point, peer::Peer};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
+use pure_stage::{Effects, StageRef, Void};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tracing::{Span, trace};
+use tracing::{Instrument, Span, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct SelectChain {
-    #[serde(skip, default = "default_chain_selector")]
-    chain_selector: Arc<Mutex<HeadersTree<Header>>>,
-}
-
-/// FIXME: a default chain selector will not work as it is since a headers tree needs to be
-/// initialized before being used.
-fn default_chain_selector() -> Arc<Mutex<HeadersTree<Header>>> {
-    Arc::new(Mutex::new(HeadersTree::new(
-        DEFAULT_MAXIMUM_FRAGMENT_LENGTH,
-        &None,
-    )))
-}
-
-impl PartialEq for SelectChain {
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
+    chain_selector: HeadersTree<Header>,
 }
 
 impl SelectChain {
-    pub fn new(chain_selector: Arc<Mutex<HeadersTree<Header>>>) -> Self {
+    pub fn new(chain_selector: HeadersTree<Header>) -> Self {
         SelectChain { chain_selector }
     }
 
@@ -84,11 +69,7 @@ impl SelectChain {
         header: Header,
         span: Span,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        let result = self
-            .chain_selector
-            .lock()
-            .await
-            .select_roll_forward(&peer, header)?;
+        let result = self.chain_selector.select_roll_forward(&peer, header)?;
 
         let events = match result {
             ForwardChainSelection::NewTip { peer, tip } => {
@@ -120,8 +101,6 @@ impl SelectChain {
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let result = self
             .chain_selector
-            .lock()
-            .await
             .select_rollback(&peer, &rollback_point.hash())?;
 
         match result {
@@ -217,4 +196,42 @@ pub enum RollbackChainSelection<H: IsHeader> {
 
     /// The current best chain as not changed
     NoChange,
+}
+
+type State = (
+    SelectChain,
+    StageRef<ValidateHeaderEvent, Void>,
+    StageRef<ValidationFailed, Void>,
+);
+
+pub async fn stage(
+    (mut select_chain, downstream, errors): State,
+    msg: DecodedChainSyncEvent,
+    eff: Effects<DecodedChainSyncEvent, State>,
+) -> State {
+    let span = adopt_current_span(&msg);
+    async move {
+        let peer = msg.peer();
+
+        let point = msg.point();
+        let events = match select_chain.handle_chain_sync(msg).await {
+            Ok(events) => events,
+            Err(e) => {
+                eff.send(&errors, ValidationFailed::new(peer, point, e))
+                    .await;
+                return (select_chain, downstream, errors);
+            }
+        };
+
+        if events.is_empty() {
+            tracing::info!(%peer, %point, "no events to send");
+        }
+        for event in events {
+            eff.send(&downstream, event).await;
+        }
+
+        (select_chain, downstream, errors)
+    }
+    .instrument(span)
+    .await
 }

@@ -39,7 +39,7 @@ static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
 
 // ------------------------------------------------------------------ assert_all
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AssertHeaderError {
     #[error("{0}")]
     KnownLeaderVrf(#[from] AssertKnownLeaderVrfError),
@@ -51,10 +51,16 @@ pub enum AssertHeaderError {
     KesSignature(#[from] AssertKesSignatureError),
     #[error("{0}")]
     OperationalCertificate(#[from] AssertOperationalCertificateError),
-    #[error("{0}")]
-    TryFromSliceError(#[from] TryFromSliceError),
+    #[error("could not convert slice to array")]
+    TryFromSliceError,
     #[error("Unknown pool: {}", hex::encode(&pool[0..7]))]
     UnknownPool { pool: PoolId },
+}
+
+impl From<TryFromSliceError> for AssertHeaderError {
+    fn from(_: TryFromSliceError) -> Self {
+        Self::TryFromSliceError
+    }
 }
 
 impl PartialEq for AssertHeaderError {
@@ -65,7 +71,7 @@ impl PartialEq for AssertHeaderError {
             (Self::LeaderStake(l0), Self::LeaderStake(r0)) => l0 == r0,
             (Self::KesSignature(l0), Self::KesSignature(r0)) => l0 == r0,
             (Self::OperationalCertificate(l0), Self::OperationalCertificate(r0)) => l0 == r0,
-            (Self::TryFromSliceError(_), Self::TryFromSliceError(_)) => true,
+            (Self::TryFromSliceError, Self::TryFromSliceError) => true,
             (Self::UnknownPool { pool: l_pool }, Self::UnknownPool { pool: r_pool }) => {
                 l_pool == r_pool
             }
@@ -157,7 +163,7 @@ pub fn assert_all<'a>(
 
 // ----------------------------------------------------- assert_known_leader_vrf
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[error(
     "declared leader's VRF credentials differs from those registered in the ledger (registered={} vs declared={})",
     hex::encode(&registered_vrf[0..7]),
@@ -189,7 +195,7 @@ impl AssertKnownLeaderVrfError {
 
 // ------------------------------------------------------------ assert_vrf_proof
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AssertVrfProofError {
     #[error("Malformed VRF proof: {0}")]
     MalformedProof(#[from] vrf::ProofFromBytesError),
@@ -197,8 +203,8 @@ pub enum AssertVrfProofError {
     #[error("Invalid VRF proof: {0}")]
     InvalidProof(#[from] vrf::ProofVerifyError),
 
-    #[error("{0}")]
-    TryFromSliceError(#[from] TryFromSliceError),
+    #[error("could not convert slice to array")]
+    TryFromSliceError,
 
     #[error(
         "Mismatch between the declared VRF proof hash in block ({}) and the computed one ({}).",
@@ -206,7 +212,9 @@ pub enum AssertVrfProofError {
         hex::encode(&.computed[0..7]),
     )]
     ProofMismatch {
+        #[serde(with = "crate::serde_util::bytes")]
         declared: Box<[u8; vrf::Proof::HASH_SIZE]>,
+        #[serde(with = "crate::serde_util::bytes")]
         computed: Box<Hash<{ vrf::Proof::HASH_SIZE }>>,
     },
 
@@ -221,12 +229,18 @@ pub enum AssertVrfProofError {
     },
 }
 
+impl From<TryFromSliceError> for AssertVrfProofError {
+    fn from(_: TryFromSliceError) -> Self {
+        Self::TryFromSliceError
+    }
+}
+
 impl PartialEq for AssertVrfProofError {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::MalformedProof(l0), Self::MalformedProof(r0)) => l0 == r0,
             (Self::InvalidProof(l0), Self::InvalidProof(r0)) => l0 == r0,
-            (Self::TryFromSliceError(_), Self::TryFromSliceError(_)) => true,
+            (Self::TryFromSliceError, Self::TryFromSliceError) => true,
             (
                 Self::ProofMismatch {
                     declared: l_declared,
@@ -301,7 +315,7 @@ impl AssertVrfProofError {
 
 // ------------------------------------------------------------ assert_leader_stake
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AssertLeaderStakeError {
     #[error("Insufficient leader stake.")]
     InsufficientLeaderStake,
@@ -328,7 +342,7 @@ impl AssertLeaderStakeError {
 
 // -------------------------------------------------------- assert_kes_signature
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AssertKesSignatureError {
     #[error(
         "Operational Certificate KES period ({opcert_kes_period}) is greater than the block slot KES period ({slot_kes_period})."
@@ -387,7 +401,7 @@ impl AssertKesSignatureError {
 
 // ---------------------------------------------- assert_operational_certificate
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AssertOperationalCertificateError {
     #[error("Malformed operational certificate signature: {reason}")]
     MalformedSignature { reason: String },
@@ -416,7 +430,10 @@ pub enum AssertOperationalCertificateError {
         "Invalid operational certificate signature from issuer ({})",
         hex::encode(&.issuer.as_ref()[0..7]),
     )]
-    InvalidSignature { issuer: ed25519::PublicKey },
+    InvalidSignature {
+        #[serde(with = "crate::serde_util::bytes")]
+        issuer: ed25519::PublicKey,
+    },
 }
 
 impl AssertOperationalCertificateError {
@@ -469,5 +486,174 @@ impl AssertOperationalCertificateError {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_assert_header_error_serialization_roundtrip() {
+        let errors = vec![
+            AssertHeaderError::TryFromSliceError,
+            AssertHeaderError::UnknownPool {
+                pool: PoolId::new([
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                    23, 24, 25, 26, 27, 28,
+                ]),
+            },
+        ];
+
+        for error in errors {
+            // Test JSON serialization
+            let json_serialized = serde_json::to_string(&error).unwrap();
+            let json_deserialized: AssertHeaderError =
+                serde_json::from_str(&json_serialized).unwrap();
+            assert_eq!(error, json_deserialized);
+        }
+    }
+
+    #[test]
+    fn test_assert_known_leader_vrf_error_serialization_roundtrip() {
+        let error = AssertKnownLeaderVrfError {
+            registered_vrf: Hash::new([1; 32]),
+            declared_vrf: Hash::new([2; 32]),
+        };
+
+        // Test JSON serialization
+        let json_serialized = serde_json::to_string(&error).unwrap();
+        let json_deserialized: AssertKnownLeaderVrfError =
+            serde_json::from_str(&json_serialized).unwrap();
+        assert_eq!(error, json_deserialized);
+    }
+
+    #[test]
+    fn test_assert_vrf_proof_error_serialization_roundtrip() {
+        let errors = vec![
+            AssertVrfProofError::TryFromSliceError,
+            AssertVrfProofError::ProofMismatch {
+                declared: Box::new([1; 64]), // Proof::HASH_SIZE is 64
+                computed: Box::new(Hash::new([2; 64])),
+            },
+            AssertVrfProofError::OutputMismatch {
+                declared: vec![1, 2, 3, 4],
+                computed: vec![5, 6, 7, 8],
+            },
+        ];
+
+        for error in errors {
+            // Test JSON serialization
+            let json_serialized = serde_json::to_string(&error).unwrap();
+            let json_deserialized: AssertVrfProofError =
+                serde_json::from_str(&json_serialized).unwrap();
+            assert_eq!(error, json_deserialized);
+        }
+    }
+
+    #[test]
+    fn test_assert_leader_stake_error_serialization_roundtrip() {
+        let error = AssertLeaderStakeError::InsufficientLeaderStake;
+
+        // Test JSON serialization
+        let json_serialized = serde_json::to_string(&error).unwrap();
+        let json_deserialized: AssertLeaderStakeError =
+            serde_json::from_str(&json_serialized).unwrap();
+        assert_eq!(error, json_deserialized);
+    }
+
+    #[test]
+    fn test_assert_kes_signature_error_serialization_roundtrip() {
+        let errors = vec![
+            AssertKesSignatureError::OpCertKesPeriodTooLarge {
+                opcert_kes_period: 100,
+                slot_kes_period: 50,
+            },
+            AssertKesSignatureError::OpCertKesPeriodTooOld {
+                opcert_kes_period: 50,
+                slot_kes_period: 200,
+                max_kes_evolutions: 100,
+            },
+            AssertKesSignatureError::InvalidKesSignature {
+                period: 42,
+                reason: "Invalid signature".to_string(),
+            },
+        ];
+
+        for error in errors {
+            // Test JSON serialization
+            let json_serialized = serde_json::to_string(&error).unwrap();
+            let json_deserialized: AssertKesSignatureError =
+                serde_json::from_str(&json_serialized).unwrap();
+            assert_eq!(error, json_deserialized);
+        }
+    }
+
+    #[test]
+    fn test_assert_operational_certificate_error_serialization_roundtrip() {
+        let errors = vec![
+            AssertOperationalCertificateError::MalformedSignature {
+                reason: "Invalid format".to_string(),
+            },
+            AssertOperationalCertificateError::SequenceNumberTooFarAhead {
+                declared_sequence_number: 100,
+                latest_sequence_number: 50,
+            },
+            AssertOperationalCertificateError::SequenceNumberTooSmall {
+                declared_sequence_number: 25,
+                latest_sequence_number: 50,
+            },
+            AssertOperationalCertificateError::InvalidSignature {
+                issuer: ed25519::PublicKey::from([1; 32]),
+            },
+        ];
+
+        for error in errors {
+            // Test JSON serialization
+            let json_serialized = serde_json::to_string(&error).unwrap();
+            let json_deserialized: AssertOperationalCertificateError =
+                serde_json::from_str(&json_serialized).unwrap();
+            assert_eq!(error, json_deserialized);
+        }
+    }
+
+    #[test]
+    fn test_serialization_edge_cases() {
+        // Test with empty strings and zero values
+        let error = AssertKesSignatureError::InvalidKesSignature {
+            period: 0,
+            reason: "".to_string(),
+        };
+
+        let json_serialized = serde_json::to_string(&error).unwrap();
+        let json_deserialized: AssertKesSignatureError =
+            serde_json::from_str(&json_serialized).unwrap();
+        assert_eq!(error, json_deserialized);
+
+        // Test with maximum values
+        let error = AssertKesSignatureError::OpCertKesPeriodTooLarge {
+            opcert_kes_period: u64::MAX,
+            slot_kes_period: u64::MAX - 1,
+        };
+
+        let json_serialized = serde_json::to_string(&error).unwrap();
+        let json_deserialized: AssertKesSignatureError =
+            serde_json::from_str(&json_serialized).unwrap();
+        assert_eq!(error, json_deserialized);
+    }
+
+    #[test]
+    fn test_serialization_consistency() {
+        // Test that the same error serializes to the same bytes consistently
+        let error = AssertVrfProofError::OutputMismatch {
+            declared: vec![1, 2, 3, 4, 5],
+            computed: vec![6, 7, 8, 9, 10],
+        };
+
+        // Test JSON consistency
+        let first_json = serde_json::to_string(&error).unwrap();
+        let second_json = serde_json::to_string(&error).unwrap();
+        assert_eq!(first_json, second_json);
     }
 }

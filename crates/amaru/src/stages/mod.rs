@@ -16,13 +16,8 @@ use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
     ConsensusError, IsHeader,
     consensus::{
-        ChainSyncEvent, build_stage_graph,
-        headers_tree::HeadersTree,
-        select_chain::SelectChain,
-        store::ChainStore,
-        store_block::StoreBlock,
-        store_header::StoreHeader,
-        validate_header::{self, ValidateHeader},
+        ChainSyncEvent, build_stage_graph, headers_tree::HeadersTree, select_chain::SelectChain,
+        store::ChainStore, store_block::StoreBlock, store_effects, validate_header::ValidateHeader,
     },
 };
 use amaru_kernel::{
@@ -42,12 +37,10 @@ use amaru_stores::{
 };
 use anyhow::Context;
 use consensus::{
-    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
-    receive_header::ReceiveHeaderStage, select_chain::SelectChainStage,
-    store_block::StoreBlockStage, store_header::StoreHeaderStage,
+    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage, store_block::StoreBlockStage,
 };
 use gasket::{
-    messaging::{OutputPort, tokio::funnel_ports},
+    messaging::OutputPort,
     runtime::{self, Tether, spawn_stage},
 };
 use ledger::ValidateBlockStage;
@@ -196,7 +189,7 @@ pub fn bootstrap(
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
 
     let chain_selector = make_chain_selector(
-        &header,
+        header,
         &peer_sessions,
         global_parameters.consensus_security_param,
     )?;
@@ -211,12 +204,6 @@ pub fn bootstrap(
         )),
     };
 
-    let mut receive_header_stage = ReceiveHeaderStage::default();
-
-    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
-
-    let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
-
     let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
 
     let mut forward_chain_stage = ForwardChainStage::new(
@@ -228,8 +215,6 @@ pub fn bootstrap(
         our_tip,
     );
 
-    let (to_store_header, from_receive_header) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_fetch_block, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
@@ -238,16 +223,21 @@ pub fn bootstrap(
     let mut network = TokioBuilder::default();
     let (output_ref, output_stage) = network.output("output", 50);
 
-    let validate_header_ref =
-        build_stage_graph(global_parameters, consensus, &mut network, output_ref);
-    let validate_header_input = SendAdapter(network.input(&validate_header_ref));
+    let graph_input = build_stage_graph(
+        global_parameters,
+        consensus,
+        chain_selector,
+        &mut network,
+        output_ref,
+    );
+    let graph_input = network.input(&graph_input);
 
     network
         .resources()
-        .put::<validate_header::ValidateHeaderResourceStore>(chain_store_ref);
+        .put::<store_effects::ResourceHeaderStore>(chain_store_ref);
     network
         .resources()
-        .put::<validate_header::ValidateHeaderResourceParameters>(global_parameters.clone());
+        .put::<store_effects::ResourceParameters>(global_parameters.clone());
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
@@ -257,18 +247,14 @@ pub fn bootstrap(
         .iter_mut()
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();
-    funnel_ports(outputs, &mut receive_header_stage.upstream, 50);
-    receive_header_stage.downstream.connect(to_store_header);
 
-    store_header_stage.upstream.connect(from_receive_header);
-    store_header_stage.downstream.connect(validate_header_input);
+    for output in outputs {
+        output.connect(SendAdapter(graph_input.clone()));
+    }
 
-    select_chain_stage
+    fetch_block_stage
         .upstream
         .connect(RecvAdapter(output_stage));
-    select_chain_stage.downstream.connect(to_fetch_block);
-
-    fetch_block_stage.upstream.connect(from_select_chain);
     fetch_block_stage.downstream.connect(to_store_block);
 
     store_block_stage.upstream.connect(from_fetch_block);
@@ -288,9 +274,6 @@ pub fn bootstrap(
 
     let pure_stages = gasket::runtime::spawn_stage(pure_stages, policy.clone());
 
-    let receive_header = gasket::runtime::spawn_stage(receive_header_stage, policy.clone());
-    let store_header = gasket::runtime::spawn_stage(store_header_stage, policy.clone());
-    let select_chain = gasket::runtime::spawn_stage(select_chain_stage, policy.clone());
     let fetch = gasket::runtime::spawn_stage(fetch_block_stage, policy.clone());
     let store_block = gasket::runtime::spawn_stage(store_block_stage, policy.clone());
     let ledger = ledger_stage.spawn(policy.clone());
@@ -298,9 +281,6 @@ pub fn bootstrap(
 
     stages.push(pure_stages);
 
-    stages.push(store_header);
-    stages.push(receive_header);
-    stages.push(select_chain);
     stages.push(store_block);
     stages.push(fetch);
     stages.push(ledger);
@@ -414,10 +394,10 @@ fn make_ledger(
 }
 
 fn make_chain_selector(
-    header: &Option<Header>,
+    header: Option<Header>,
     peers: &Vec<PeerSession>,
     _consensus_security_parameter: usize,
-) -> Result<Arc<Mutex<HeadersTree<Header>>>, ConsensusError> {
+) -> Result<SelectChain, ConsensusError> {
     // TODO: initialize the headers tree from the ChainDB store
     //
     // FIXME: Use the actual *consensus_security_param*; for now, this is artifically disabled
@@ -428,18 +408,18 @@ fn make_chain_selector(
     // In *practice* (and good network conditions), that tree can actually be pretty small.
     // Although in reality and to be "immune" to deep forks, it must be set to `k` (a.k.a the
     // consensus security param).
-    let mut tree = HeadersTree::new(100, header);
-
-    let root_hash = match header {
+    let root_hash = match &header {
         Some(h) => h.hash(),
         None => Point::Origin.hash(),
     };
+
+    let mut tree = HeadersTree::new(100, header);
 
     for peer in peers {
         tree.initialize_peer(&peer.peer, &root_hash)?;
     }
 
-    Ok(Arc::new(Mutex::new(tree)))
+    Ok(SelectChain::new(tree))
 }
 
 pub trait PallasPoint {
@@ -506,7 +486,7 @@ mod tests {
 
         let stages = bootstrap(config, vec![], CancellationToken::new()).unwrap();
 
-        assert_eq!(8, stages.len());
+        assert_eq!(5, stages.len());
     }
 
     #[test]
