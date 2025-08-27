@@ -14,7 +14,7 @@
 
 use crate::send;
 use amaru_consensus::consensus::ChainSyncEvent;
-use amaru_kernel::Point;
+use amaru_kernel::{Point, peer::Peer};
 use amaru_network::{
     chain_sync_client::{ChainSyncClient, PullResult, new_with_session},
     point::from_network_point,
@@ -22,7 +22,7 @@ use amaru_network::{
 };
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
-use tracing::{Level, instrument};
+use tracing::{instrument, Level, Span};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
@@ -35,6 +35,7 @@ pub enum WorkUnit {
 #[derive(Stage)]
 #[stage(name = "stage.chain_sync_client", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
+    pub peer: Peer,
     pub client: ChainSyncClient<HeaderContent>,
     pub downstream: DownstreamPort,
 }
@@ -42,6 +43,7 @@ pub struct Stage {
 impl Stage {
     pub fn new(peer_session: PeerSession, intersection: Vec<Point>) -> Self {
         Self {
+            peer: peer_session.peer.clone(),
             client: new_with_session(peer_session, &intersection),
             downstream: Default::default(),
         }
@@ -61,6 +63,14 @@ impl Stage {
 
     pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
         let event = self.client.roll_back(rollback_point, tip).or_panic()?;
+        self.downstream.send(event.into()).await.or_panic()
+    }
+
+    pub async fn caught_up(&mut self) -> Result<(), WorkerError> {
+        let event = ChainSyncEvent::CaughtUp {
+            peer: self.peer.clone(),
+            span: Span::current(),
+        };
         self.downstream.send(event.into()).await.or_panic()
     }
 }
@@ -107,7 +117,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                         stage.roll_forward(&header_contents).await?
                     }
                     PullResult::RollBack(point, tip) => stage.roll_back(point, tip).await?,
-                    PullResult::Nothing => (),
+                    PullResult::Nothing => stage.caught_up().await?,
                 }
             }
             WorkUnit::Await => match stage.client.await_next().await.or_restart()? {

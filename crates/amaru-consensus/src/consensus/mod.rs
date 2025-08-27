@@ -117,6 +117,10 @@ pub enum ChainSyncEvent {
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
+    CaughtUp {
+        peer: Peer,
+        span: Span,
+    },
 }
 
 impl fmt::Debug for ChainSyncEvent {
@@ -144,6 +148,10 @@ impl fmt::Debug for ChainSyncEvent {
                 .debug_struct("Rollback")
                 .field("peer", &peer.name)
                 .field("rollback_point", &rollback_point.to_string())
+                .finish(),
+            ChainSyncEvent::CaughtUp { peer, .. } => f
+                .debug_struct("CaughtUp")
+                .field("peer", &peer.name)
                 .finish(),
         }
     }

@@ -97,6 +97,7 @@ pub async fn stage(
             )
             .await
         }
+        ChainSyncEvent::CaughtUp { peer, span } => todo!(),
     }
     (downstream, errors)
 }
