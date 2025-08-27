@@ -57,6 +57,10 @@ pub mod diff_epoch_reg;
 pub mod diff_set;
 pub mod volatile_db;
 
+/// The minimum number of past (from the current epoch) snapshots required for the ledger to
+/// operate.
+pub const MIN_LEDGER_SNAPSHOTS: u64 = 3;
+
 const EVENT_TARGET: &str = "amaru::ledger::state";
 
 // State
@@ -139,7 +143,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let governance_activity = stable.governance_activity()?;
 
-        let stake_distributions = initial_stake_distributions(&stable, &snapshots, &era_history)?;
+        let stake_distributions = initial_stake_distributions(&snapshots, &era_history)?;
 
         Ok(Self::new_with(
             stable,
@@ -374,6 +378,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
         }?;
         batch.commit()?;
+        snapshots.prune(next_epoch - MIN_LEDGER_SNAPSHOTS)?;
 
         // -------------------------------------------------------------------------- Start of epoch
         let batch = db.create_transaction();
@@ -562,7 +567,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
 // the ongoing epoch, not yet finished (and so, not available as snapshot).
 pub fn initial_stake_distributions(
-    db: &impl Store,
     snapshots: &impl HistoricalStores,
     era_history: &EraHistory,
 ) -> Result<VecDeque<StakeDistribution>, StoreError> {
@@ -570,11 +574,10 @@ pub fn initial_stake_distributions(
 
     let mut stake_distributions = VecDeque::new();
     for epoch in latest_epoch - 2..=latest_epoch - 1 {
-        // FIXME: Retrieve the protocol parameters for the considered epoch; should come from the
-        // snapshot.
-        let protocol_parameters = db.protocol_parameters()?;
-
         let snapshot = snapshots.for_epoch(epoch)?;
+
+        let protocol_parameters = snapshot.protocol_parameters()?;
+
         stake_distributions.push_front(
             recover_stake_distribution(&snapshot, era_history, &protocol_parameters)
                 .map_err(|err| StoreError::Internal(err.into()))?,

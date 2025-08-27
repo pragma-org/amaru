@@ -208,6 +208,10 @@ pub trait HistoricalStores {
     /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
     fn snapshots(&self) -> Result<Vec<Epoch>>;
 
+    /// Prune snapshot older than the given epoch (excluded). This shall keep snapshots *at* the
+    /// provided epoch.
+    fn prune(&self, minimum_epoch: Epoch) -> Result<()>;
+
     /// The least recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
     #[allow(clippy::panic)]

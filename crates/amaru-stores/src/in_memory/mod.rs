@@ -56,13 +56,13 @@ pub struct MemoryStore {
     proposals: RefCell<BTreeMap<ComparableProposalId, proposals_column::Row>>,
     cc_members: RefCell<BTreeMap<StakeCredential, cc_members_column::Row>>,
     votes: RefCell<BTreeMap<votes_column::Key, votes_column::Value>>,
-    protocol_parameters: RefCell<Option<ProtocolParameters>>,
+    protocol_parameters: RefCell<ProtocolParameters>,
     constitutional_committee: RefCell<ConstitutionalCommitteeStatus>,
     era_history: EraHistory,
 }
 
 impl MemoryStore {
-    pub fn new(era_history: EraHistory) -> Self {
+    pub fn new(era_history: EraHistory, protocol_parameters: ProtocolParameters) -> Self {
         MemoryStore {
             tip: RefCell::new(Some(Point::Origin)),
             epoch_progress: RefCell::new(None),
@@ -75,7 +75,7 @@ impl MemoryStore {
             proposals: RefCell::new(BTreeMap::new()),
             cc_members: RefCell::new(BTreeMap::new()),
             votes: RefCell::new(BTreeMap::new()),
-            protocol_parameters: RefCell::new(None),
+            protocol_parameters: RefCell::new(protocol_parameters),
             constitutional_committee: RefCell::new(ConstitutionalCommitteeStatus::NoConfidence),
             era_history,
         }
@@ -98,12 +98,7 @@ impl ReadStore for MemoryStore {
     }
 
     fn protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
-        self.protocol_parameters
-            .borrow()
-            .clone()
-            .ok_or(StoreError::missing::<ProtocolParameters>(
-                "protocol-parameters",
-            ))
+        Ok(self.protocol_parameters.borrow().clone())
     }
 
     /// Get the latest governance roots; which corresponds to the id of the latest governance
@@ -587,7 +582,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         &self,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StoreError> {
-        *self.store.protocol_parameters.borrow_mut() = Some(protocol_parameters.clone());
+        *self.store.protocol_parameters.borrow_mut() = protocol_parameters.clone();
         Ok(())
     }
 
@@ -807,8 +802,15 @@ impl HistoricalStores for MemoryStore {
         Ok(vec![Epoch::from(3)])
     }
 
-    fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
-        Ok(MemoryStore::new(self.era_history.clone()))
+    fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, StoreError> {
+        Ok(MemoryStore::new(
+            self.era_history.clone(),
+            self.protocol_parameters.borrow().clone(),
+        ))
+    }
+
+    fn prune(&self, _minimum_epoch: Epoch) -> Result<(), StoreError> {
+        Ok(())
     }
 }
 
@@ -867,7 +869,9 @@ mod tests {
             test_slot_updated,
         },
     };
-    use amaru_kernel::{EraHistory, network::NetworkName};
+    use amaru_kernel::{
+        EraHistory, network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+    };
     use amaru_ledger::store::StoreError;
     use proptest::test_runner::TestRunner;
 
@@ -878,7 +882,10 @@ mod tests {
         runner: &mut TestRunner,
     ) -> Result<(MemoryStore, Fixture), StoreError> {
         let era_history: &EraHistory = NetworkName::Preprod.into();
-        let store = MemoryStore::new(era_history.clone());
+        let store = MemoryStore::new(
+            era_history.clone(),
+            PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+        );
         let fixture = add_test_data_to_store(&store, era_history, runner)?;
         Ok((store, fixture))
     }
