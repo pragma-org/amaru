@@ -137,8 +137,13 @@ impl VolatileCache {
 #[derive(Debug, Default)]
 pub struct VolatileState {
     pub utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>,
-    pub pools: DiffEpochReg<PoolId, PoolParams>,
-    pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
+    pub pools: DiffEpochReg<PoolId, (PoolParams, CertificatePointer)>,
+    pub accounts: DiffBind<
+        StakeCredential,
+        (PoolId, CertificatePointer),
+        (DRep, CertificatePointer),
+        Lovelace,
+    >,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
@@ -250,7 +255,7 @@ impl AnchoredVolatileState {
 // --------------------------------------------------------------------------
 
 fn add_pools(
-    iterator: impl Iterator<Item = (PoolId, Registrations<PoolParams>)>,
+    iterator: impl Iterator<Item = (PoolId, Registrations<(PoolParams, CertificatePointer)>)>,
     epoch: Epoch,
 ) -> impl Iterator<Item = pools::Value> {
     iterator.flat_map(move |(_, registrations)| {
@@ -264,7 +269,7 @@ fn add_pools(
             // but it is fully ignored. It's slightly ugly, but we cannot know if
             // an entry exists without querying the stable store -- and frankly, we
             // don't _have to_.
-            .map(|pool| (pool, epoch + 1))
+            .map(|registration| (registration.0, registration.1, epoch + 1))
             .collect::<Vec<_>>()
     })
 }
@@ -276,7 +281,7 @@ fn add_accounts(
     iterator: impl Iterator<
         Item = (
             StakeCredential,
-            Bind<PoolId, (DRep, CertificatePointer), Lovelace>,
+            Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
         ),
     >,
 ) -> impl Iterator<Item = (accounts::Key, accounts::Value)> {

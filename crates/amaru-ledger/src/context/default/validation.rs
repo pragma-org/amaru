@@ -94,9 +94,9 @@ impl PoolsSlice for DefaultValidationContext {
         unimplemented!()
     }
 
-    fn register(&mut self, params: PoolParams) {
+    fn register(&mut self, params: PoolParams, pointer: CertificatePointer) {
         trace!(?params, "certificate.pool.registration");
-        self.state.pools.register(params.id, params)
+        self.state.pools.register(params.id, (params, pointer))
     }
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) {
@@ -126,9 +126,12 @@ impl AccountsSlice for DefaultValidationContext {
         &mut self,
         credential: StakeCredential,
         pool: PoolId,
+        pointer: CertificatePointer,
     ) -> Result<(), DelegateError<StakeCredential, PoolId>> {
         trace!(?credential, %pool, "certificate.stake.delegation"); // TODO: Use Display for Credential
-        self.state.accounts.bind_left(credential, Some(pool))?;
+        self.state
+            .accounts
+            .bind_left(credential, Some((pool, pointer)))?;
         Ok(())
     }
 

@@ -22,17 +22,17 @@ use tracing::error;
 
 pub fn add(
     store: &MemoryStore,
-    rows: impl Iterator<Item = Value>, // Value = (PoolParams, Epoch)
+    rows: impl Iterator<Item = Value>, // Value = (PoolParams, CertificatePointer, Epoch)
 ) -> Result<(), StoreError> {
     let mut pools = store.pools.borrow_mut();
 
-    for (pool_params, epoch) in rows {
+    for (pool_params, registered_at, epoch) in rows {
         let key = pool_params.id;
 
         if let Some(row) = pools.get_mut(&key) {
             row.future_params.push((Some(pool_params), epoch));
         } else {
-            let row = Row::new(pool_params);
+            let row = Row::new(registered_at, pool_params);
             pools.insert(key, row);
         }
     }

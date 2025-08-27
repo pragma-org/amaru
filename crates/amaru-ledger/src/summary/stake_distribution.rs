@@ -84,15 +84,68 @@ impl StakeDistribution {
     ) -> Result<Self, StoreError> {
         let epoch = db.epoch();
 
+        let mut retiring_pools = BTreeSet::new();
+        let mut refunds = BTreeMap::new();
+        let mut pools = db
+            .iter_pools()?
+            .map(|(pool, row)| {
+                let reward_account = expect_stake_credential(&row.current_params.reward_account);
+
+                // NOTE: We need to tick pool as part of the stake distribution calculation, in
+                // order to know whether a pool will retire in the next epoch. This is because,
+                // votes ratification happens *after* pools reaping, and thus, nullify voting power
+                // of pools that are retiring.
+                pools::Row::tick(
+                    Box::new(BorrowableProxy::new(Some(row.clone()), |dropped| {
+                        if dropped.is_none() {
+                            retiring_pools.insert(pool);
+                            // FIXME: Store the deposit with the pool, and ensures the same deposit
+                            // it returned back.
+                            //
+                            // FIXME: Handle the case where there would be more than one refund (in
+                            // case where many pools with a same reward account retire all at
+                            // once).
+                            refunds.insert(reward_account, protocol_parameters.stake_pool_deposit);
+                        }
+                    })),
+                    epoch + 1,
+                );
+
+                (
+                    pool,
+                    PoolState {
+                        registered_at: row.registered_at,
+                        stake: 0,
+                        voting_stake: 0,
+                        blocks_count: 0,
+                        // NOTE: pre-compute margin here (1 - m), which gets used for all
+                        // member and leader rewards calculation.
+                        margin: safe_ratio(
+                            row.current_params.margin.numerator,
+                            row.current_params.margin.denominator,
+                        ),
+                        parameters: row.current_params,
+                    },
+                )
+            })
+            .collect::<BTreeMap<PoolId, PoolState>>();
+
         let mut accounts = db
             .iter_accounts()?
             .map(|(credential, account)| {
                 (
-                    credential.clone(),
+                    credential,
                     AccountState {
                         lovelace: account.rewards,
-                        pool: account.delegatee,
-                        drep: account.drep.clone().and_then(|(drep, since)| match drep {
+                        pool: account.pool.and_then(|(pool, since)| {
+                            let PoolState { registered_at, .. } = pools.get(&pool)?;
+                            if &since >= registered_at {
+                                Some(pool)
+                            } else {
+                                None
+                            }
+                        }),
+                        drep: account.drep.and_then(|(drep, since)| match drep {
                             DRep::Abstain | DRep::NoConfidence => Some(drep),
                             DRep::Key { .. } | DRep::Script { .. } => {
                                 let DRepState {
@@ -131,51 +184,6 @@ impl StakeDistribution {
                     .and_modify(|account| account.lovelace += value);
             }
         });
-
-        let mut retiring_pools = BTreeSet::new();
-        let mut refunds = BTreeMap::new();
-        let mut pools = db
-            .iter_pools()?
-            .map(|(pool, row)| {
-                let reward_account = expect_stake_credential(&row.current_params.reward_account);
-
-                // NOTE: We need to tick pool as part of the stake distribution calculation, in
-                // order to know whether a pool will retire in the next epoch. This is because,
-                // votes ratification happens *after* pools reaping, and thus, nullify voting power
-                // of pools that are retiring.
-                pools::Row::tick(
-                    Box::new(BorrowableProxy::new(Some(row.clone()), |dropped| {
-                        if dropped.is_none() {
-                            retiring_pools.insert(pool);
-                            // FIXME: Store the deposit with the pool, and ensures the same deposit
-                            // it returned back.
-                            //
-                            // FIXME: Handle the case where there would be more than one refund (in
-                            // case where many pools with a same reward account retire all at
-                            // once).
-                            refunds.insert(reward_account, protocol_parameters.stake_pool_deposit);
-                        }
-                    })),
-                    epoch + 1,
-                );
-
-                (
-                    pool,
-                    PoolState {
-                        stake: 0,
-                        voting_stake: 0,
-                        blocks_count: 0,
-                        // NOTE: pre-compute margin here (1 - m), which gets used for all
-                        // member and leader rewards calculation.
-                        margin: safe_ratio(
-                            row.current_params.margin.numerator,
-                            row.current_params.margin.denominator,
-                        ),
-                        parameters: row.current_params.clone(),
-                    },
-                )
-            })
-            .collect::<BTreeMap<PoolId, PoolState>>();
 
         let mut active_stake: Lovelace = 0;
         let mut pools_voting_stake: Lovelace = 0;
@@ -411,6 +419,7 @@ pub mod tests {
 
     prop_compose! {
         pub fn any_pool_state()(
+            registered_at in any_certificate_pointer(u64::MAX),
             blocks_count in any::<u64>(),
             stake in 0_u64..1_000_000_000_000,
             voting_stake in 0_u64..1_000_000_000_000,
@@ -422,6 +431,7 @@ pub mod tests {
             );
 
             PoolState {
+                registered_at,
                 blocks_count,
                 stake,
                 voting_stake: stake.max(voting_stake),

@@ -665,7 +665,7 @@ fn import_stake_pools<S: Store>(
                 .flat_map(move |(_, registrations)| {
                     registrations
                         .into_iter()
-                        .map(|r| (r, epoch))
+                        .map(|r| (r, *DEFAULT_CERTIFICATE_POINTER, epoch))
                         .collect::<Vec<_>>()
                 }),
             accounts: iter::empty(),
@@ -745,7 +745,10 @@ fn import_accounts(
                 (
                     credential,
                     (
-                        Resettable::from(Option::<PoolId>::from(pool)),
+                        Resettable::from(
+                            Option::<PoolId>::from(pool)
+                                .map(|pool| (pool, *DEFAULT_CERTIFICATE_POINTER)),
+                        ),
                         //No slot to retrieve. All registrations coming from snapshot are considered valid.
                         Resettable::from(
                             Option::<DRep>::from(drep)

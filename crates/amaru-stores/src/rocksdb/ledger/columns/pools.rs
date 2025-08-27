@@ -41,7 +41,7 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = Value>,
 ) -> Result<(), StoreError> {
-    for (params, epoch) in rows {
+    for (params, registered_at, epoch) in rows {
         let pool = params.id;
 
         // Pool parameters are stored in an epoch-aware fashion.
@@ -58,7 +58,7 @@ pub fn add<DB>(
             .get(as_key(&PREFIX, pool))
             .map_err(|err| StoreError::Internal(err.into()))?
         {
-            None => as_value(Row::new(params)),
+            None => as_value(Row::new(registered_at, params)),
             Some(existing_params) => Row::extend(existing_params, (Some(params), epoch)),
         };
 

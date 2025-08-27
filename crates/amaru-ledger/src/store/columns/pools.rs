@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{PoolId, PoolParams, StakeCredential, cbor, expect_stake_credential};
+use amaru_kernel::{
+    CertificatePointer, PoolId, PoolParams, StakeCredential, cbor, expect_stake_credential,
+};
 use amaru_slot_arithmetic::Epoch;
 use tracing::{debug, trace};
 
@@ -22,19 +24,21 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (PoolParams, Epoch);
+pub type Value = (PoolParams, CertificatePointer, Epoch);
 
 pub type Key = PoolId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
+    pub registered_at: CertificatePointer,
     pub current_params: PoolParams,
     pub future_params: Vec<(Option<PoolParams>, Epoch)>,
 }
 
 impl Row {
-    pub fn new(current_params: PoolParams) -> Self {
+    pub fn new(registered_at: CertificatePointer, current_params: PoolParams) -> Self {
         Self {
+            registered_at,
             current_params,
             future_params: Vec::new(),
         }
@@ -191,7 +195,8 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(2)?;
+        e.array(3)?;
+        e.encode_with(self.registered_at, ctx)?;
         e.encode_with(&self.current_params, ctx)?;
         // NOTE: We explicitly enforce the use of *indefinite* arrays here because it allows us
         // to extend the serialized data easily without having to deserialise it.
@@ -207,6 +212,8 @@ impl<C> cbor::encode::Encode<C> for Row {
 impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
+        let registered_at = d.decode_with(ctx)?;
+
         let current_params = d.decode_with(ctx)?;
 
         let mut iter = d.array_iter()?;
@@ -217,6 +224,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         }
 
         Ok(Row {
+            registered_at,
             current_params,
             future_params,
         })
@@ -226,7 +234,10 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use amaru_kernel::{prop_cbor_roundtrip, tests::any_pool_params};
+    use amaru_kernel::{
+        prop_cbor_roundtrip,
+        tests::{any_certificate_pointer, any_pool_params},
+    };
     use proptest::{collection, collection::vec, prelude::*};
 
     pub fn any_future_params(epoch: Epoch) -> impl Strategy<Value = (Option<PoolParams>, Epoch)> {
@@ -238,18 +249,22 @@ pub mod tests {
 
     // Generate arbitrary `Row`, good for serialization for not for logic.
     pub fn any_row() -> impl Strategy<Value = Row> {
-        collection::vec(0..3u64, 0..3)
-            .prop_flat_map(|epochs| {
-                epochs
-                    .into_iter()
-                    .map(|u| any_future_params(Epoch::from(u)))
-                    .collect::<Vec<_>>()
-            })
-            .prop_flat_map(|future_params| {
-                any_pool_params().prop_map(move |current_params| Row {
-                    current_params,
-                    future_params: future_params.clone(),
-                })
+        let any_future_params = collection::vec(0..3u64, 0..3).prop_flat_map(|epochs| {
+            epochs
+                .into_iter()
+                .map(|u| any_future_params(Epoch::from(u)))
+                .collect::<Vec<_>>()
+        });
+
+        (
+            any_future_params,
+            any_pool_params(),
+            any_certificate_pointer(u64::MAX),
+        )
+            .prop_map(|(future_params, current_params, registered_at)| Row {
+                current_params,
+                future_params,
+                registered_at,
             })
     }
 
@@ -294,7 +309,11 @@ pub mod tests {
         }
 
         #[test]
-        fn prop_tick_pool(initial_params in any_pool_params(), updates in any_row_seq_updates()) {
+        fn prop_tick_pool(
+            registered_at in any_certificate_pointer(u64::MAX),
+            initial_params in any_pool_params(),
+            updates in any_row_seq_updates(),
+        ) {
             #[derive(Debug)]
             struct Model {
                 current: Option<PoolParams>,
@@ -308,7 +327,7 @@ pub mod tests {
                 retiring: None,
             };
 
-            let mut row = Some(Row::new(initial_params));
+            let mut row = Some(Row::new(registered_at, initial_params));
             for (current_epoch, updates) in updates.into_iter().enumerate() {
                 let current_epoch = Epoch::from(current_epoch as u64);
                 // Apply model's changes at the epoch boundary
@@ -343,7 +362,7 @@ pub mod tests {
                 match row.as_mut() {
                     None => {
                         if let Some(params) = updates.iter().find(|(params, _)| params.is_some()).cloned() {
-                            let mut new = Row::new(params.0.unwrap());
+                            let mut new = Row::new(registered_at, params.0.unwrap());
                             new.future_params.extend(updates.clone());
                             row = Some(new);
                         }
