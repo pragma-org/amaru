@@ -188,11 +188,10 @@ pub fn bootstrap(
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
 
-    let chain_selector = make_chain_selector(
-        header,
-        &peer_sessions,
-        global_parameters.consensus_security_param,
-    )?;
+    let peers : Vec<&Peer> = peer_sessions.iter().map(|s| &s.peer).collect();
+
+    let chain_selector =
+        make_chain_selector(&header, &peers, global_parameters.consensus_security_param)?;
 
     let consensus = match &ledger_stage {
         LedgerStage::InMemLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
@@ -203,6 +202,12 @@ pub fn bootstrap(
             validate_block_stage.state.view_stake_distribution(),
         )),
     };
+
+    let mut receive_header_stage = ReceiveHeaderStage::default();
+
+    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
+
+    let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector, &peers));
 
     let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
 
@@ -394,8 +399,8 @@ fn make_ledger(
 }
 
 fn make_chain_selector(
-    header: Option<Header>,
-    peers: &Vec<PeerSession>,
+    header: &Option<Header>,
+    peers: &Vec<&Peer>,
     _consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
     // TODO: initialize the headers tree from the ChainDB store
@@ -416,7 +421,7 @@ fn make_chain_selector(
     let mut tree = HeadersTree::new(100, header);
 
     for peer in peers {
-        tree.initialize_peer(&peer.peer, &root_hash)?;
+        tree.initialize_peer(peer, &root_hash)?;
     }
 
     Ok(SelectChain::new(tree))
