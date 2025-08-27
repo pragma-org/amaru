@@ -431,7 +431,6 @@ mod tests {
     use amaru_kernel::{
         EraHistory, network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
     };
-    use amaru_ledger::store::{Store, TransactionalContext};
     use amaru_stores::in_memory::MemoryStore;
     use std::path::PathBuf;
     use tokio_util::sync::CancellationToken;
@@ -442,14 +441,10 @@ mod tests {
     fn bootstrap_all_stages() {
         let network = NetworkName::Preprod;
         let era_history: &EraHistory = network.into();
-        let ledger_store = MemoryStore::new(era_history.clone());
-
-        // Add initial protocol parameters to the database; needed by the ledger.
-        let transaction = ledger_store.create_transaction();
-        transaction
-            .set_protocol_parameters(&PREPROD_INITIAL_PROTOCOL_PARAMETERS)
-            .unwrap();
-        transaction.commit().unwrap();
+        let ledger_store = MemoryStore::new(
+            era_history.clone(),
+            PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+        );
 
         let config = Config {
             ledger_store: InMem(ledger_store),

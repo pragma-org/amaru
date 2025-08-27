@@ -23,7 +23,7 @@ use amaru_ledger::{
     context,
     rules::{self, block::BlockValidation},
     state::{State, VolatileState},
-    store::{GovernanceActivity, Store, TransactionalContext},
+    store::GovernanceActivity,
 };
 use amaru_stores::in_memory::MemoryStore;
 use std::collections::BTreeMap;
@@ -43,10 +43,15 @@ pub fn forward_ledger(raw_block: &str) {
 
     let global_parameters: &GlobalParameters = network.into();
 
-    let store = MemoryStore::new(era_history.clone());
-    let historical_store = MemoryStore::new(era_history.clone());
+    let protocol_parameters = match network {
+        NetworkName::Preprod => &*protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+        NetworkName::Preview => &*protocol_parameters::PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
+        NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
+    };
 
-    hydrate_initial_protocol_parameters(&store, &network);
+    let store = MemoryStore::new(era_history.clone(), protocol_parameters.clone());
+
+    let historical_store = MemoryStore::new(era_history.clone(), protocol_parameters.clone());
 
     let mut state = State::new(
         store,
@@ -118,22 +123,4 @@ pub fn forward_ledger(raw_block: &str) {
     state
         .forward(volatile_state.anchor(&point, issuer))
         .unwrap()
-}
-
-pub fn hydrate_initial_protocol_parameters(store: &impl Store, network: &NetworkName) {
-    let transaction = store.create_transaction();
-
-    let params = match network {
-        NetworkName::Preprod => &protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
-        NetworkName::Preview => &protocol_parameters::PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
-        NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
-    };
-
-    transaction
-        .set_protocol_parameters(params)
-        .unwrap_or_else(|e| panic!("unable to set initial protocol parameters: {e}"));
-
-    transaction
-        .commit()
-        .unwrap_or_else(|e| panic!("unable to set initial ledger state: {e}"));
 }
