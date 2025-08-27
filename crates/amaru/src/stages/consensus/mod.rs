@@ -13,4 +13,3 @@
 // limitations under the License.
 
 pub mod forward_chain;
-pub mod store_block;

@@ -1,0 +1,540 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--profile dev-debug",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru"
+                ],
+                "filter": {
+                    "name": "amaru",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'amaru'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=amaru",
+                    "--package=amaru"
+                ],
+                "filter": {
+                    "name": "amaru",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'amaru'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=amaru",
+                    "--package=amaru"
+                ],
+                "filter": {
+                    "name": "amaru",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'lib'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=lib",
+                    "--package=amaru"
+                ],
+                "filter": {
+                    "name": "lib",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'summary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=summary",
+                    "--package=amaru"
+                ],
+                "filter": {
+                    "name": "summary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_consensus'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--profile=dev-debug",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-consensus"
+                ],
+                "filter": {
+                    "name": "amaru_consensus",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_kernel'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-kernel"
+                ],
+                "filter": {
+                    "name": "amaru_kernel",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_minicbor_extra'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-minicbor-extra"
+                ],
+                "filter": {
+                    "name": "amaru_minicbor_extra",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_slot_arithmetic'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-slot-arithmetic"
+                ],
+                "filter": {
+                    "name": "amaru_slot_arithmetic",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_ouroboros'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-ouroboros"
+                ],
+                "filter": {
+                    "name": "amaru_ouroboros",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'validation'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=validation",
+                    "--package=amaru-ouroboros"
+                ],
+                "filter": {
+                    "name": "validation",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_ouroboros_traits'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-ouroboros-traits"
+                ],
+                "filter": {
+                    "name": "amaru_ouroboros_traits",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'pure_stage'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=pure-stage"
+                ],
+                "filter": {
+                    "name": "pure_stage",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'simulation'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=simulation",
+                    "--package=pure-stage"
+                ],
+                "filter": {
+                    "name": "simulation",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'tokio'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=tokio",
+                    "--package=pure-stage"
+                ],
+                "filter": {
+                    "name": "tokio",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_ledger'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-ledger"
+                ],
+                "filter": {
+                    "name": "amaru_ledger",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_iter_borrow'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-iter-borrow"
+                ],
+                "filter": {
+                    "name": "amaru_iter_borrow",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_progress_bar'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-progress-bar"
+                ],
+                "filter": {
+                    "name": "amaru_progress_bar",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_tracing_json'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-tracing-json"
+                ],
+                "filter": {
+                    "name": "amaru_tracing_json",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_network'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-network"
+                ],
+                "filter": {
+                    "name": "amaru_network",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_stores'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-stores"
+                ],
+                "filter": {
+                    "name": "amaru_stores",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_mempool'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-mempool"
+                ],
+                "filter": {
+                    "name": "amaru_mempool",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'amaru_sim'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=amaru-sim"
+                ],
+                "filter": {
+                    "name": "amaru_sim",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'echo'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=echo",
+                    "--package=amaru-sim"
+                ],
+                "filter": {
+                    "name": "echo",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'echo'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=echo",
+                    "--package=amaru-sim"
+                ],
+                "filter": {
+                    "name": "echo",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'simulator'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=simulator",
+                    "--package=amaru-sim"
+                ],
+                "filter": {
+                    "name": "simulator",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'simulator'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=simulator",
+                    "--package=amaru-sim"
+                ],
+                "filter": {
+                    "name": "simulator",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'simulation'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=simulation",
+                    "--package=amaru-sim"
+                ],
+                "filter": {
+                    "name": "simulation",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

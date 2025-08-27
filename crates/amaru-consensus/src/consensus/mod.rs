@@ -47,15 +47,21 @@ pub fn build_stage_graph(
     let validate_header_stage = network.stage("validate_header", validate_header::stage);
     let select_chain_stage = network.stage("select_chain", select_chain::stage);
     let fetch_block_stage = network.stage("fetch_block", fetch_block::stage);
+    let store_block_stage = network.stage("store_block", store_block::stage);
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
     let upstream_errors_stage = network.stage("upstream_errors", errors::stage);
 
     let upstream_errors_stage = network.wire_up(upstream_errors_stage, ());
 
+    let store_block_stage = network.wire_up(store_block_stage, outputs);
+
     let fetch_block_stage = network.wire_up(
         fetch_block_stage,
-        (outputs, upstream_errors_stage.without_state()),
+        (
+            store_block_stage.without_state(),
+            upstream_errors_stage.without_state(),
+        ),
     );
 
     let select_chain_stage = network.wire_up(

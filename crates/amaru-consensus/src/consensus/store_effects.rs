@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use crate::ConsensusError;
-use amaru_kernel::{Header, Point, protocol_parameters::GlobalParameters};
+use amaru_kernel::{Header, Point, RawBlock, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{IsHeader, Praos};
-use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
+use pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -36,10 +36,7 @@ impl StoreHeaderEffect {
 
 impl ExternalEffect for StoreHeaderEffect {
     #[allow(clippy::expect_used)]
-    fn run(
-        self: Box<Self>,
-        resources: Resources,
-    ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Box::pin(async move {
             let store = resources
                 .get::<ResourceHeaderStore>()
@@ -49,12 +46,45 @@ impl ExternalEffect for StoreHeaderEffect {
             let result: <Self as ExternalEffectAPI>::Response = store
                 .store_header(&self.header.hash(), &self.header)
                 .map_err(|e| ConsensusError::StoreHeaderFailed(self.point.clone(), e));
-            Box::new(result) as Box<dyn pure_stage::SendData>
+            Box::new(result) as Box<dyn SendData>
         })
     }
 }
 
 impl ExternalEffectAPI for StoreHeaderEffect {
+    type Response = Result<(), ConsensusError>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StoreBlockEffect {
+    block: RawBlock,
+    point: Point,
+}
+
+impl StoreBlockEffect {
+    pub fn new(block: RawBlock, point: Point) -> Self {
+        Self { block, point }
+    }
+}
+
+impl ExternalEffect for StoreBlockEffect {
+    #[allow(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Box::pin(async move {
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("StoreHeaderEffect requires a chain store")
+                .clone();
+            let mut store = store.lock().await;
+            let result: <Self as ExternalEffectAPI>::Response = store
+                .store_block(&self.point.hash(), &self.block)
+                .map_err(|e| ConsensusError::StoreBlockFailed(self.point.clone(), e));
+            Box::new(result) as Box<dyn SendData>
+        })
+    }
+}
+
+impl ExternalEffectAPI for StoreBlockEffect {
     type Response = Result<(), ConsensusError>;
 }
 
@@ -71,10 +101,7 @@ impl EvolveNonceEffect {
 
 impl ExternalEffect for EvolveNonceEffect {
     #[allow(clippy::expect_used)]
-    fn run(
-        self: Box<Self>,
-        resources: Resources,
-    ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Box::pin(async move {
             let store = resources
                 .get::<ResourceHeaderStore>()
@@ -86,7 +113,7 @@ impl ExternalEffect for EvolveNonceEffect {
                 .expect("EvolveNonceEffect requires global parameters");
             let result: <Self as ExternalEffectAPI>::Response =
                 store.evolve_nonce(&self.header, &global_parameters);
-            Box::new(result) as Box<dyn pure_stage::SendData>
+            Box::new(result) as Box<dyn SendData>
         })
     }
 }

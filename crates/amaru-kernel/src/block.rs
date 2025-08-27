@@ -15,7 +15,7 @@
 use crate::{Point, RawBlock};
 use tracing::Span;
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ValidateBlockEvent {
     Validated {
         point: Point,
@@ -28,6 +28,36 @@ pub enum ValidateBlockEvent {
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
+}
+
+impl PartialEq for ValidateBlockEvent {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Validated {
+                    point: l_point,
+                    block: l_block,
+                    ..
+                },
+                Self::Validated {
+                    point: r_point,
+                    block: r_block,
+                    ..
+                },
+            ) => l_point == r_point && l_block == r_block,
+            (
+                Self::Rollback {
+                    rollback_point: l_rollback_point,
+                    ..
+                },
+                Self::Rollback {
+                    rollback_point: r_rollback_point,
+                    ..
+                },
+            ) => l_rollback_point == r_rollback_point,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
