@@ -46,12 +46,7 @@ use gasket::{
 use ledger::ValidateBlockStage;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::Tip};
 use pure_stage::{StageGraph, tokio::TokioBuilder};
-use std::{
-    error::Error,
-    fmt::Display,
-    path::PathBuf,
-    sync::{Arc, RwLock},
-};
+use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -161,14 +156,11 @@ pub fn bootstrap(
 
     let global_parameters: &GlobalParameters = config.network.into();
 
-    let is_catching_up = Arc::new(RwLock::new(true));
-
     let (mut ledger_stage, tip) = make_ledger(
         &config,
         config.network,
         era_history.clone(),
         global_parameters.clone(),
-        is_catching_up.clone(),
     )?;
 
     let peer_sessions: Vec<PeerSession> = clients
@@ -188,7 +180,7 @@ pub fn bootstrap(
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
 
-    let peers : Vec<&Peer> = peer_sessions.iter().map(|s| &s.peer).collect();
+    let peers: Vec<&Peer> = peer_sessions.iter().map(|s| &s.peer).collect();
 
     let chain_selector =
         make_chain_selector(&header, &peers, global_parameters.consensus_security_param)?;
@@ -367,7 +359,6 @@ fn make_ledger(
     network: NetworkName,
     era_history: EraHistory,
     global_parameters: GlobalParameters,
-    is_catching_up: Arc<RwLock<bool>>,
 ) -> Result<(LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
     match &config.ledger_store {
         StorePath::InMem(store) => {
@@ -377,7 +368,6 @@ fn make_ledger(
                 network,
                 era_history,
                 global_parameters,
-                is_catching_up,
             )?;
             Ok((LedgerStage::InMemLedgerStage(Box::new(ledger)), tip))
         }
@@ -391,7 +381,6 @@ fn make_ledger(
                 network,
                 era_history,
                 global_parameters,
-                is_catching_up,
             )?;
             Ok((LedgerStage::OnDiskLedgerStage(ledger), tip))
         }

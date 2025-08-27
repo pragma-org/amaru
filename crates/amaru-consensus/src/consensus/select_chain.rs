@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{Level, Span, instrument, trace};
+use tracing::{Level, Span, debug, instrument, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -34,6 +34,7 @@ pub struct SelectChain {
     #[serde(skip, default = "default_chain_selector")]
     chain_selector: Arc<Mutex<HeadersTree<Header>>>,
     sync_tracker: SyncTracker,
+    is_caught_up: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -51,9 +52,9 @@ impl SyncTracker {
     }
 
     pub fn caught_up(&mut self, peer: &Peer) {
-        self.peers_state
-            .get_mut(peer)
-            .map(|s| *s = SyncState::CaughtUp);
+        if let Some(s) = self.peers_state.get_mut(peer) {
+            *s = SyncState::CaughtUp;
+        }
     }
 
     pub fn is_caught_up(&self) -> bool {
@@ -88,6 +89,7 @@ impl SelectChain {
         SelectChain {
             chain_selector,
             sync_tracker,
+            is_caught_up: false,
         }
     }
 
@@ -132,7 +134,8 @@ impl SelectChain {
 
         let events = match result {
             ForwardChainSelection::NewTip { peer, tip } => {
-                trace!(target: EVENT_TARGET, hash = %tip.hash(), "new_tip");
+                debug!(target: EVENT_TARGET, hash = %tip.hash(), slot = %tip.slot(), "new_tip");
+
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
@@ -140,7 +143,8 @@ impl SelectChain {
                 rollback_point,
                 fork,
             }) => {
-                trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
+                debug!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
+
                 SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
             ForwardChainSelection::NoChange => {
@@ -166,7 +170,7 @@ impl SelectChain {
 
         match result {
             RollbackChainSelection::RollbackTo(hash) => {
-                trace!(target: EVENT_TARGET, %hash, "rollback");
+                debug!(target: EVENT_TARGET, %hash, "rollback");
                 Ok(vec![ValidateHeaderEvent::Rollback {
                     rollback_point,
                     peer,
@@ -177,12 +181,16 @@ impl SelectChain {
                 peer,
                 rollback_point,
                 fork,
-            }) => Ok(SelectChain::switch_to_fork(
-                peer,
-                rollback_point,
-                fork,
-                span,
-            )),
+            }) => {
+                debug!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
+
+                Ok(SelectChain::switch_to_fork(
+                    peer,
+                    rollback_point,
+                    fork,
+                    span,
+                ))
+            }
             RollbackChainSelection::NoChange => Ok(vec![]),
             RollbackChainSelection::RollbackBeyondLimit {
                 peer,
@@ -215,6 +223,8 @@ impl SelectChain {
 
     fn caught_up(&mut self, peer: &Peer) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         self.sync_tracker.caught_up(peer);
+        self.is_caught_up = self.sync_tracker.is_caught_up();
+
         Ok(vec![])
     }
 }
