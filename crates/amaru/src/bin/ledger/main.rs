@@ -41,6 +41,11 @@ struct Cli {
     #[arg(long, value_name = "INGEST_UNTIL_SLOT")]
     ingest_until_slot: Option<u64>,
 
+    /// Ingest at most the given number of blocks.
+    /// If not provided, will ingest all available blocks.
+    #[arg(long, value_name = "INGEST_MAXIMUM_BLOCKS")]
+    ingest_maximum_blocks: Option<usize>,
+
     #[clap(long, action, env("AMARU_WITH_OPEN_TELEMETRY"))]
     with_open_telemetry: bool,
 
@@ -62,6 +67,34 @@ const DEFAULT_SERVICE_NAME: &str = "amaru-ledger";
 const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
 
 const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
+
+pub fn filter_points<'a>(
+    points: &'a [Point],
+    low: u64,
+    high: Option<u64>,
+    max_count: Option<usize>,
+) -> &'a [Point] {
+    // Lower bound: first element with slot > low
+    let start = points
+        .binary_search_by_key(&(low + 1), |p| p.slot_or_default().into())
+        .unwrap_or_else(|pos| pos);
+
+    // Upper bound: first element with slot > high
+    let mut end = if let Some(high) = high {
+        points
+            .binary_search_by_key(&high, |p| p.slot_or_default().into())
+            .map(|pos| pos + 1)
+            .unwrap_or_else(|pos| pos)
+    } else {
+        points.len()
+    };
+
+    if let Some(max) = max_count {
+        end = end.min(start.saturating_add(max));
+    }
+
+    points.get(start..end).unwrap_or(&[])
+}
 
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::panic)]
@@ -130,31 +163,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     // Sort them by slot number
+    // External sorting is required because `read_dir` does not guarantee any order
     points.sort_by_key(|point1| point1.slot_or_default());
 
     // Then filter them to only keep those with a slot number greater than the tip's slot number
-    let subset: &[Point] = match points
-        .iter()
-        .position(|x| x.slot_or_default() > tip.slot_or_default())
-    {
-        Some(pos) => &points[pos..],
-        None => &[],
-    };
-
-    info!(
-        "Processing {} blocks from slot {}",
-        subset.len(),
-        tip.slot_or_default()
+    // And considering CLI arguments
+    let subset: &[Point] = filter_points(
+        &points,
+        tip.slot_or_default().into(),
+        args.ingest_until_slot,
+        args.ingest_maximum_blocks,
     );
 
     for point in subset {
-        if let Some(ingest_until_slot) = args.ingest_until_slot {
-            if point.slot_or_default() > ingest_until_slot.into() {
-                info!("Reached slot {}, stopping.", ingest_until_slot);
-                break;
-            }
-        }
-
         let file_path = format!(
             "data/{}/blocks/{}.{}",
             network,
@@ -166,6 +187,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             panic!("Error processing block at point {:?}: {:?}", point, err);
         };
     }
+
+    info!(
+        "Processed {} blocks from slot {} to slot {}",
+        subset.len(),
+        subset.first().map(|point| point.slot_or_default()).unwrap_or_default(),
+        subset.last().map(|point| point.slot_or_default()).unwrap_or_default()
+    );
 
     if let Err(report) = teardown() {
         eprintln!("Failed to teardown tracing: {report}");
