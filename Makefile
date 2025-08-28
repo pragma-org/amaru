@@ -82,9 +82,14 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 clear-dbs: ## Clear the databases
 	@rm -rf $(LEDGER_DIR) $(CHAIN_DIR)
 
+fetch-chain-headers: $(CONFIG_FOLDER)/$(NETWORK)/ ## Fetch chain headers from the network
+	cargo run --profile $(BUILD_PROFILE) -- fetch-chain-headers \
+		--peer-address $(PEER_ADDRESS) \
+		--config-dir $(CONFIG_FOLDER) \
+		--network $(NETWORK)
+
 bootstrap: clear-dbs ## Bootstrap the node from scratch
 	cargo run --profile $(BUILD_PROFILE) -- bootstrap \
-		--peer-address $(PEER_ADDRESS) \
 		--config-dir $(CONFIG_FOLDER) \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \

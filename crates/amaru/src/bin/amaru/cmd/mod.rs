@@ -17,6 +17,7 @@ use pallas_network::facades::PeerClient;
 
 pub(crate) mod bootstrap;
 pub(crate) mod daemon;
+pub(crate) mod fetch_chain_headers;
 pub(crate) mod import_headers;
 pub(crate) mod import_ledger_state;
 pub(crate) mod import_nonces;
