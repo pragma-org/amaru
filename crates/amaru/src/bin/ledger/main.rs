@@ -134,7 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let era_history: &EraHistory = network.into();
     let global_parameters: &GlobalParameters = network.into();
-    let store = RocksDBHistoricalStores::new(&ledger_dir);
+    let store = RocksDBHistoricalStores::new(&ledger_dir, u64::MAX);
     let is_catching_up = Arc::new(RwLock::new(true));
     let (mut ledger, tip) = ValidateBlockStage::new(
         RocksDB::new(&ledger_dir)?,
