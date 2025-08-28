@@ -130,7 +130,6 @@ dependencies = [
  "pallas-math",
  "pallas-primitives",
  "serde",
- "slot-arithmetic",
  "thiserror 2.0.16",
  "vrf_dalek",
 ]
@@ -141,6 +140,7 @@ version = "0.1.0"
 dependencies = [
  "amaru-kernel",
  "amaru-slot-arithmetic",
+ "hex",
  "serde",
 ]
 

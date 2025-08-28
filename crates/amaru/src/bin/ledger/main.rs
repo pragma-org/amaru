@@ -12,7 +12,8 @@ use amaru::{
     panic::panic_handler,
 };
 use amaru_kernel::{
-    default_ledger_dir, network::NetworkName, protocol_parameters::GlobalParameters, EraHistory, Point
+    EraHistory, Point, default_ledger_dir, network::NetworkName,
+    protocol_parameters::GlobalParameters,
 };
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores};
 
@@ -68,12 +69,12 @@ const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
 
 const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
-pub fn filter_points<'a>(
-    points: &'a [Point],
+pub fn filter_points(
+    points: &[Point],
     low: u64,
     high: Option<u64>,
     max_count: Option<usize>,
-) -> &'a [Point] {
+) -> &[Point] {
     // Lower bound: first element with slot > low
     let start = points
         .binary_search_by_key(&(low + 1), |p| p.slot_or_default().into())
@@ -191,8 +192,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "Processed {} blocks from slot {} to slot {}",
         subset.len(),
-        subset.first().map(|point| point.slot_or_default()).unwrap_or_default(),
-        subset.last().map(|point| point.slot_or_default()).unwrap_or_default()
+        subset
+            .first()
+            .map(|point| point.slot_or_default())
+            .unwrap_or_default(),
+        subset
+            .last()
+            .map(|point| point.slot_or_default())
+            .unwrap_or_default()
     );
 
     if let Err(report) = teardown() {
