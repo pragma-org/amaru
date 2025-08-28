@@ -12,8 +12,7 @@ use amaru::{
     panic::panic_handler,
 };
 use amaru_kernel::{
-    EraHistory, Point, default_ledger_dir, network::NetworkName,
-    protocol_parameters::GlobalParameters,
+    default_ledger_dir, network::NetworkName, protocol_parameters::GlobalParameters, EraHistory, Point
 };
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores};
 
@@ -36,6 +35,11 @@ struct Cli {
     /// Path of the ledger on-disk storage.
     #[arg(long, value_name = "DIR")]
     ledger_dir: Option<PathBuf>,
+
+    /// Ingest blocks until (and including) the given slot.
+    /// If not provided, will ingest all available blocks.
+    #[arg(long, value_name = "INGEST_UNTIL_SLOT")]
+    ingest_until_slot: Option<u64>,
 
     #[clap(long, action, env("AMARU_WITH_OPEN_TELEMETRY"))]
     with_open_telemetry: bool,
@@ -144,8 +148,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     for point in subset {
+        if let Some(ingest_until_slot) = args.ingest_until_slot {
+            if point.slot_or_default() > ingest_until_slot.into() {
+                info!("Reached slot {}, stopping.", ingest_until_slot);
+                break;
+            }
+        }
+
         let file_path = format!(
-            "data/blocks/{}.{}",
+            "data/{}/blocks/{}.{}",
+            network,
             point.slot_or_default(),
             hex::encode(point.hash())
         );
