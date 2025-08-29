@@ -19,8 +19,7 @@ use amaru_network::connect_to_peer;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
-use std::{path::PathBuf, sync::Arc, time::Duration};
-use tokio::sync::Mutex;
+use std::{path::PathBuf, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
 
@@ -82,10 +81,10 @@ pub async fn run(
 
     let metrics = metrics.map(track_system_metrics).transpose()?;
 
-    let mut clients: Vec<(String, Arc<Mutex<PeerClient>>)> = vec![];
+    let mut clients: Vec<(String, PeerClient)> = vec![];
     for peer in &config.upstream_peers {
         let client = connect_to_peer(peer, &config.network).await?;
-        clients.push((peer.clone(), Arc::new(Mutex::new(client))));
+        clients.push((peer.clone(), client));
     }
 
     let exit = amaru::exit::hook_exit_token();

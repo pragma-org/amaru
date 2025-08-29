@@ -18,10 +18,9 @@ use amaru_kernel::{Point, peer::Peer};
 use amaru_network::{
     chain_sync_client::{ChainSyncClient, PullResult, new_with_session},
     point::from_network_point,
-    session::PeerSession,
 };
 use gasket::framework::*;
-use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
+use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse, Tip};
 use tracing::{Level, Span, instrument};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
@@ -41,9 +40,9 @@ pub struct Stage {
 }
 
 impl Stage {
-    pub fn new(peer_session: PeerSession, intersection: Vec<Point>) -> Self {
+    pub fn new(peer_session: (Peer, Client<HeaderContent>), intersection: Vec<Point>) -> Self {
         Self {
-            peer: peer_session.peer.clone(),
+            peer: peer_session.0.clone(),
             client: new_with_session(peer_session, &intersection),
             downstream: Default::default(),
         }

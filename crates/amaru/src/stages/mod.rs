@@ -27,7 +27,6 @@ use amaru_kernel::{
     peer::Peer,
     protocol_parameters::GlobalParameters,
 };
-use amaru_network::session::PeerSession;
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{
@@ -149,12 +148,14 @@ impl From<MaxExtraLedgerSnapshots> for u64 {
 #[allow(clippy::todo)]
 pub fn bootstrap(
     config: Config,
-    clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
+    clients: Vec<(String, PeerClient)>,
     exit: CancellationToken,
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     let era_history: &EraHistory = config.network.into();
 
     let global_parameters: &GlobalParameters = config.network.into();
+
+    let peers = clients.iter().map(|p| Peer::new(&p.0.to_string())).collect();
 
     let (mut ledger_stage, tip) = make_ledger(
         &config,
@@ -163,24 +164,29 @@ pub fn bootstrap(
         global_parameters.clone(),
     )?;
 
-    let peer_sessions: Vec<PeerSession> = clients
-        .iter()
-        .map(|(peer_name, client)| PeerSession {
-            peer: Peer::new(peer_name),
-            peer_client: client.clone(),
+    let (chain_syncs, block_fetches) = clients
+        .into_iter()
+        .map(|(name, client)| {
+            let PeerClient {
+                chainsync,
+                blockfetch,
+                ..
+            } = client;
+            (
+                (Peer::new(&name), chainsync),
+                (Peer::new(&name), blockfetch),
+            )
         })
-        .collect();
+        .collect::<(Vec<_>, Vec<_>)>();
 
-    let mut fetch_block_stage = BlockFetchStage::new(peer_sessions.as_slice());
+    let mut fetch_block_stage = BlockFetchStage::new(block_fetches);
 
-    let mut stages = peer_sessions
-        .iter()
-        .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
+    let mut stages = chain_syncs
+        .into_iter()
+        .map(|chain_sync| pull::Stage::new(chain_sync, vec![tip.clone()]))
         .collect::<Vec<_>>();
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
-
-    let peers: Vec<&Peer> = peer_sessions.iter().map(|s| &s.peer).collect();
 
     let chain_selector =
         make_chain_selector(header, &peers, global_parameters.consensus_security_param)?;
@@ -383,7 +389,7 @@ fn make_ledger(
 
 fn make_chain_selector(
     header: Option<Header>,
-    peers: &Vec<&Peer>,
+    peers: &Vec<Peer>,
     _consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
     // TODO: initialize the headers tree from the ChainDB store

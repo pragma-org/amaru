@@ -17,7 +17,6 @@ use pallas_network::facades::PeerClient;
 
 pub mod chain_sync_client;
 pub mod point;
-pub mod session;
 
 /// Establish a connection to another peer. The connection are discriminated by network types.
 pub async fn connect_to_peer(

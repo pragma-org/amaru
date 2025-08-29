@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{point::to_network_point, session::PeerSession};
+use crate::point::to_network_point;
 use amaru_consensus::{RawHeader, consensus::ChainSyncEvent};
 use amaru_kernel::Point;
 use amaru_kernel::peer::Peer;
@@ -375,13 +375,13 @@ pub fn new_with_peer(peer: PeerClient, intersection: &[Point]) -> ChainSyncClien
 }
 
 pub fn new_with_session(
-    peer: PeerSession,
+    peer: (Peer, Client<HeaderContent>),
     intersection: &[Point],
 ) -> ChainSyncClient<HeaderContent> {
-    let client = Box::new(peer.peer_client.clone());
+    let client = Box::new(peer.1);
     ChainSyncClient {
         client,
-        peer: peer.peer.clone(),
+        peer: peer.0,
         intersection: intersection.to_vec(),
         max_batch_size: MAX_BATCH_SIZE,
     }
