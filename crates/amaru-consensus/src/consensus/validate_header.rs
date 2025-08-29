@@ -17,13 +17,15 @@ use crate::{
     consensus::{ValidationFailed, store_effects::EvolveNonceEffect},
     span::adopt_current_span,
 };
-use amaru_kernel::{Hash, Header, Nonce, Point, protocol_parameters::GlobalParameters, to_cbor};
+use amaru_kernel::{
+    Hash, Header, Nonce, Point, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
+};
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
 use pallas_math::math::FixedDecimal;
 use pure_stage::{Effects, StageRef, Void};
 use std::{fmt, sync::Arc};
-use tracing::{Instrument, Level, instrument};
+use tracing::{Level, Span, instrument};
 
 use super::DecodedChainSyncEvent;
 
@@ -121,7 +123,7 @@ impl ValidateHeader {
     )]
     pub async fn handle_roll_forward<M, S>(
         &mut self,
-        eff: &Effects<M, S>,
+        eff: &mut Effects<M, S>,
         peer: Peer,
         point: Point,
         header: Header,
@@ -149,7 +151,7 @@ impl ValidateHeader {
 
     pub async fn validate_header<M, S>(
         &mut self,
-        eff: &Effects<M, S>,
+        eff: &mut Effects<M, S>,
         chain_sync: DecodedChainSyncEvent,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
@@ -167,46 +169,6 @@ impl ValidateHeader {
             DecodedChainSyncEvent::CaughtUp { .. } => Ok(chain_sync),
         }
     }
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ValidationFailed {
-    pub peer: Peer,
-    pub error: String,
-    pub action: UpstreamAction,
-}
-
-impl ValidationFailed {
-    pub fn kick_peer(peer: Peer, error: String) -> Self {
-        Self {
-            peer,
-            error,
-            action: UpstreamAction::KickPeer,
-        }
-    }
-
-    pub fn ban_peer(peer: Peer, error: String) -> Self {
-        Self {
-            peer,
-            error,
-            action: UpstreamAction::BanPeer,
-        }
-    }
-
-    pub fn only_logging(peer: Peer, error: String) -> Self {
-        Self {
-            peer,
-            error,
-            action: UpstreamAction::OnlyLogging,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum UpstreamAction {
-    KickPeer,
-    BanPeer,
-    OnlyLogging,
 }
 
 type State = (
@@ -246,22 +208,13 @@ pub async fn stage(
         }
     };
 
-    let span = tracing::trace_span!(
-        "consensus.roll_forward",
-        point.slot = %point.slot_or_default(),
-        point.hash = %Hash::<32>::from(point),
-    );
-
     let send_downstream = async {
         let nonces = match eff.external(EvolveNonceEffect::new(header.clone())).await {
             Ok(nonces) => nonces,
             Err(error) => {
-                tracing::error!(%peer, %error, "evolve nonce failed");
-                eff.send(
-                    &errors,
-                    ValidationFailed::new(peer.clone(), point.clone(), error.into()),
-                )
-                .await;
+                tracing::error!(%peer, %error, %point, "evolve nonce failed");
+                eff.send(&errors, ValidationFailed::new(peer.clone(), error.into()))
+                    .await;
                 return false;
             }
         };
@@ -275,18 +228,14 @@ pub async fn stage(
             state.ledger.as_ref(),
             &global,
         ) {
-            tracing::info!(%peer, %error, "invalid header");
-            eff.send(
-                &errors,
-                ValidationFailed::new(peer.clone(), point.clone(), error),
-            )
-            .await;
+            tracing::info!(%peer, %error, %point, "invalid header");
+            eff.send(&errors, ValidationFailed::new(peer.clone(), error))
+                .await;
             false
         } else {
             true
         }
     }
-    .instrument(span)
     .await;
 
     if send_downstream {

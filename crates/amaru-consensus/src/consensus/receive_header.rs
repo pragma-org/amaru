@@ -54,7 +54,7 @@ pub async fn stage(
     msg: ChainSyncEvent,
     eff: Effects<ChainSyncEvent, State>,
 ) -> State {
-    let span = adopt_current_span(&msg);
+    adopt_current_span(&msg);
     match msg {
         ChainSyncEvent::RollForward {
             peer,
@@ -66,8 +66,7 @@ pub async fn stage(
                 Ok(header) => header,
                 Err(error) => {
                     tracing::error!(%error, %point, %peer, "Failed to decode header");
-                    eff.send(&errors, ValidationFailed::new(peer, point.clone(), error))
-                        .await;
+                    eff.send(&errors, ValidationFailed::new(peer, error)).await;
                     return (downstream, errors);
                 }
             };
@@ -98,14 +97,8 @@ pub async fn stage(
             .await
         }
         ChainSyncEvent::CaughtUp { peer, span } => {
-            eff.send(
-                &downstream,
-                DecodedChainSyncEvent::CaughtUp {
-                    peer,
-                    span,
-                },
-            )
-            .await
+            eff.send(&downstream, DecodedChainSyncEvent::CaughtUp { peer, span })
+                .await
         }
     }
     (downstream, errors)

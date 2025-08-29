@@ -183,7 +183,7 @@ pub fn bootstrap(
     let peers: Vec<&Peer> = peer_sessions.iter().map(|s| &s.peer).collect();
 
     let chain_selector =
-        make_chain_selector(&header, &peers, global_parameters.consensus_security_param)?;
+        make_chain_selector(header, &peers, global_parameters.consensus_security_param)?;
 
     let consensus = match &ledger_stage {
         LedgerStage::InMemLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
@@ -194,12 +194,6 @@ pub fn bootstrap(
             validate_block_stage.state.view_stake_distribution(),
         )),
     };
-
-    let mut receive_header_stage = ReceiveHeaderStage::default();
-
-    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
-
-    let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector, &peers));
 
     let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
 
@@ -388,7 +382,7 @@ fn make_ledger(
 }
 
 fn make_chain_selector(
-    header: &Option<Header>,
+    header: Option<Header>,
     peers: &Vec<&Peer>,
     _consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
@@ -413,7 +407,7 @@ fn make_chain_selector(
         tree.initialize_peer(peer, &root_hash)?;
     }
 
-    Ok(SelectChain::new(tree))
+    Ok(SelectChain::new(Arc::new(Mutex::new(tree)), peers))
 }
 
 pub trait PallasPoint {

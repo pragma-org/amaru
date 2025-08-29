@@ -294,18 +294,16 @@ pub async fn stage(
     adopt_current_span(&msg);
     let peer = msg.peer();
 
-    let point = msg.point();
     let events = match select_chain.handle_chain_sync(msg).await {
         Ok(events) => events,
         Err(e) => {
-            eff.send(&errors, ValidationFailed::new(peer, point, e))
-                .await;
+            eff.send(&errors, ValidationFailed::new(peer, e)).await;
             return (select_chain, downstream, errors);
         }
     };
 
     if events.is_empty() {
-        tracing::info!(%peer, %point, "no events to send");
+        tracing::debug!(%peer, "no events to send");
     }
     for event in events {
         eff.send(&downstream, event).await;
