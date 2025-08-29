@@ -16,7 +16,8 @@ use crate::echo::{EchoMessage, Envelope};
 use crate::simulator::generate::{
     generate_arrival_times, generate_u8, generate_vec, generate_zip_with,
 };
-use crate::simulator::simulate::{Entry, History, NodeHandle, pure_stage_node_handle};
+use crate::simulator::simulate::pure_stage_node_handle;
+use crate::simulator::{Entry, History, NodeHandle};
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::{Instant, StageGraph, StageRef, Void};
 use rand::prelude::StdRng;
