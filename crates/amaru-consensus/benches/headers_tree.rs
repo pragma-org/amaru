@@ -17,6 +17,15 @@
 /// It then measures the average time taken to execute each action.
 ///
 /// Run with: `cargo bench --bench headers_tree --features="test-utils profiling"`
+///
+/// Note: profiling requires `pprof` to be installed and only works on Unix systems.
+/// If you run with profiling enabled, a flamegraph file named 'headers-tree-flamegraph.svg'
+/// will be generated in the current directory. You can open it with a web browser and check which
+/// functions are taking the most time.
+///
+/// This way of profiling was chosen to be able to isolate exactly the code we want to benchmark
+/// and not the generation of the tree and actions.
+///
 #[allow(clippy::unwrap_used)]
 #[cfg(all(unix, feature = "profiling", feature = "test-utils"))]
 fn main() {
