@@ -256,7 +256,7 @@ pub fn any_select_chains(
     depth: usize,
     max_length: usize,
     rollback_ratio: Ratio,
-) -> impl Strategy<Value = Vec<Action>> {
+) -> impl Strategy<Value=Vec<Action>> {
     any_tree_of_headers(depth, Ratio(1, 2)).prop_flat_map(move |tree| {
         (1..u64::MAX)
             .prop_map(move |seed| generate_random_walks(&tree, 5, max_length, rollback_ratio, seed))
@@ -342,7 +342,7 @@ fn print_diagnostics(
         );
         let all_lines: Vec<String> = actions
             .iter()
-            .map(|action| format!("#r\"{}\"#r", &serde_json::to_string(action).unwrap()))
+            .map(|action| format!("#r\"{}\"#", &serde_json::to_string(action).unwrap()))
             .collect();
         eprintln!("[\n{}\n]", all_lines.list_to_string(",\n"));
         eprintln!("\n----------------------------------------");
@@ -363,7 +363,7 @@ pub fn execute_json_actions(
             .collect::<Vec<_>>()
             .list_to_string(",")
     ))
-    .unwrap();
+        .unwrap();
     execute_actions(max_length, &actions, print)
 }
 
@@ -448,8 +448,8 @@ pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Chain> 
 /// Transpose a list of rows into a list of columns (even if the rows have different lengths).
 fn transpose<I, R, T>(rows: I) -> Vec<Vec<T>>
 where
-    I: IntoIterator<Item = R>,
-    R: IntoIterator<Item = T>,
+    I: IntoIterator<Item=R>,
+    R: IntoIterator<Item=T>,
 {
     let mut iterators: Vec<_> = rows.into_iter().map(|r| r.into_iter()).collect();
     let mut result: Vec<Vec<T>> = vec![];
