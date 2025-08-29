@@ -185,6 +185,7 @@ pub fn random_walk(
         {
             actions.push(Action::RollBack {
                 peer: peer.clone(),
+                // We don't have the parent slot here but this is not important for the tests.
                 rollback_point: Point::Specific(tree.value.slot, tree.value.hash().to_vec()),
             })
         }
