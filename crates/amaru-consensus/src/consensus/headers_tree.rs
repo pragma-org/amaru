@@ -798,12 +798,13 @@ fn find_best_tip<T>(arena: &Arena<T>) -> Option<NodeId> {
 mod tests {
     use super::*;
     use crate::consensus::select_chain::RollbackChainSelection::RollbackTo;
+    use amaru_kernel::tests::random_bytes;
     use amaru_kernel::{HEADER_HASH_SIZE, from_cbor, to_cbor};
     use amaru_ouroboros_traits::fake::FakeHeader;
     use proptest::arbitrary::any;
     use proptest::{prop_compose, proptest};
     use rand::Rng;
-    use rand::prelude::{RngCore, SeedableRng, StdRng};
+    use rand::prelude::{SeedableRng, StdRng};
     use rand_distr::{Distribution, Exp};
     use serde_json;
 
@@ -1552,14 +1553,6 @@ mod tests {
                 generate_blocktree_in_arena(arena, rng, other_branch_depth, tip);
             }
         }
-    }
-
-    /// Very simple function to generate random sequence of bytes of given length.
-    pub fn random_bytes(arg: usize) -> Vec<u8> {
-        let mut rng = StdRng::from_os_rng();
-        let mut buffer = vec![0; arg];
-        rng.fill_bytes(&mut buffer);
-        buffer
     }
 
     // Data generator for random FakeHeaders

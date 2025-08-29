@@ -133,7 +133,7 @@ pub(crate) fn populate_chain_store(
     use PopulateError::*;
 
     let file = File::open(consensus_context_file)
-            .unwrap_or_else(|_| panic!("cannot find consensus context file '{}', use --consensus-context-file <FILE> to set the file to load context from", consensus_context_file.display()));
+        .unwrap_or_else(|_| panic!("cannot find consensus context file '{}', use --consensus-context-file <FILE> to set the file to load context from", consensus_context_file.display()));
 
     let store: ConsensusContext =
         serde_json::from_reader(BufReader::new(file)).map_err(SerdeError)?;
@@ -179,18 +179,10 @@ mod test {
     use super::populate_chain_store;
 
     use super::FakeStakeDistribution;
+    use amaru_kernel::tests::random_bytes;
     use amaru_ouroboros::HasStakeDistribution;
     use pallas_crypto::hash::Hash;
-    use rand::{RngCore, SeedableRng, rngs::StdRng};
     use std::path::PathBuf;
-
-    /// FIXME: already exists in chain_selection test module
-    pub fn random_bytes(arg: u32) -> Vec<u8> {
-        let mut rng = StdRng::from_os_rng();
-        let mut buffer = vec![0; arg as usize];
-        rng.fill_bytes(&mut buffer);
-        buffer
-    }
 
     #[test]
     fn can_create_stake_distribution_from_file() {
