@@ -122,7 +122,7 @@ pub(crate) async fn import_headers(
     let mut progress: Option<Box<dyn ProgressBar>> = None;
 
     loop {
-        let what = if client.has_agency().await {
+        let what = if client.has_agency() {
             request_next_block(&mut client, &mut db, &mut count, &mut progress, max).await?
         } else {
             await_for_next_block(&mut client, &mut db, &mut count, &mut progress, max).await?

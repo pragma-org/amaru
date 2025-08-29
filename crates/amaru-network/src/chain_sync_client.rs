@@ -175,8 +175,7 @@ impl ChainSyncClient {
         }
     }
 
-    pub async fn has_agency(&self) -> bool {
-        let client = &self.chain_sync;
-        client.has_agency()
+    pub fn has_agency(&self) -> bool {
+        self.chain_sync.has_agency()
     }
 }

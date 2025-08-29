@@ -82,7 +82,7 @@ impl gasket::framework::Worker<Stage> for Worker {
 
     async fn schedule(&mut self, stage: &mut Stage) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
         if self.initialised {
-            if stage.client.has_agency().await {
+            if stage.client.has_agency() {
                 // should request next block
                 Ok(WorkSchedule::Unit(WorkUnit::Pull))
             } else {
