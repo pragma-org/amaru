@@ -57,7 +57,7 @@ Stages:
 ## Chain Selection
 
 The main job of the _consensus_ component is to participate in the _Ouroboros consensus_ process, contributing to the
-validation (and as a block producer to the extension) of _the_ chain with _peers_ in a strongly connected network.
+validation (and, as a block producer, to the extension) of _the_ chain with _peers_ in a strongly connected network.
 Being a _decentralized_ and _distributed_ system, there's no global information a peer can rely on, and therefore each
 has to decide on their own which chain to follow based on information provided by other peers. This is the _Chain
 Selection_ process:

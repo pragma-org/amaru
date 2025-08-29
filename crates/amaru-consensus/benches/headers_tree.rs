@@ -62,7 +62,7 @@ fn main() {
     let tree = generate_test_header_tree(depth, seed, branching_ratio);
     assert!(tree.leaves().len() > 10000);
 
-    let actions = generate_random_walks(&tree, peers_nb, max_length, rollback_ratio, seed);
+    let actions = generate_random_walks(&tree, peers_nb, rollback_ratio, seed);
     assert!(actions.len() > 5000);
 
     // Initialize an empty HeadersTree and execute the actions on it while measuring the time taken.

@@ -567,14 +567,13 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
         // If we have at least two headers, we can move the root up one level
         if let (Some(first), Some(second)) = (first, second) {
             // Now second becomes the new root and we need to delete all the subtrees that are not starting from it
-            let mut other_roots: Vec<_> = self
-                .parent_child_relationship
-                .get(&first)
-                .unwrap_or(&vec![])
-                .iter()
-                .filter(|t| **t != second)
-                .cloned()
-                .collect();
+            let mut other_roots: Vec<_> =
+                if let Some(children) = self.parent_child_relationship.get(&first) {
+                    children.iter().filter(|t| **t != second).cloned().collect()
+                } else {
+                    vec![]
+                };
+
             // The original root needs to be deleted as well but not its children.
             other_roots.push(first);
             self.parent_child_relationship.insert(first, vec![]);
@@ -1251,8 +1250,8 @@ mod tests {
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(TEST_CASES_NB).end())]
         #[test]
-        fn run_chain_selection(actions in any_select_chains(DEPTH, MAX_LENGTH, ROLLBACK_RATIO)) {
-            let results = execute_actions(DEPTH, &actions, false).unwrap();
+        fn run_chain_selection(actions in any_select_chains(DEPTH, ROLLBACK_RATIO)) {
+            let results = execute_actions(MAX_LENGTH, &actions, false).unwrap();
             let actual_chains = make_best_chains_from_results(&results);
             let expected_chains = make_best_chains_from_actions(&actions);
             for (i, (actual, expected)) in actual_chains.iter().zip(expected_chains).enumerate() {

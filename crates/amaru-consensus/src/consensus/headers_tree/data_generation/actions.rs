@@ -158,7 +158,6 @@ pub fn random_walk(
     rng: &mut StdRng,
     tree: &Tree<TestHeader>,
     peer: &Peer,
-    max_length: usize,
     rollback_ratio: Ratio,
     result: &mut BTreeMap<Peer, Vec<Action>>,
 ) {
@@ -175,12 +174,11 @@ pub fn random_walk(
 
     // Process the children in decreasing order of their depth
     for child in tree.children.iter().sorted_by_key(|c| Reverse(c.depth())) {
-        random_walk(rng, child, peer, max_length, rollback_ratio, result);
+        random_walk(rng, child, peer, rollback_ratio, result);
 
         // Depending on the desired rollback ratio, add a rollback from the current node to the next
-        // branch in the tree
+        // branch in the tree.
         if rng.random_ratio(rollback_ratio.0, rollback_ratio.1)
-            && child.depth() < max_length
             && let Some(actions) = result.get_mut(peer)
         {
             actions.push(Action::RollBack {
@@ -216,7 +214,6 @@ pub struct Ratio(pub u32, pub u32);
 pub fn generate_random_walks(
     tree: &Tree<TestHeader>,
     peers_nb: usize,
-    max_length: usize,
     rollback_ratio: Ratio,
     seed: u64,
 ) -> Vec<Action> {
@@ -224,14 +221,7 @@ pub fn generate_random_walks(
     let mut result = BTreeMap::new();
     for i in 0..peers_nb {
         let peer = Peer::new(&format!("{}", i + 1));
-        random_walk(
-            &mut rng,
-            tree,
-            &peer,
-            max_length,
-            rollback_ratio,
-            &mut result,
-        );
+        random_walk(&mut rng, tree, &peer, rollback_ratio, &mut result);
     }
 
     transpose(result.values())
@@ -255,12 +245,10 @@ pub fn generate_random_walks(
 ///
 pub fn any_select_chains(
     depth: usize,
-    max_length: usize,
     rollback_ratio: Ratio,
-) -> impl Strategy<Value=Vec<Action>> {
+) -> impl Strategy<Value = Vec<Action>> {
     any_tree_of_headers(depth, Ratio(1, 2)).prop_flat_map(move |tree| {
-        (1..u64::MAX)
-            .prop_map(move |seed| generate_random_walks(&tree, 5, max_length, rollback_ratio, seed))
+        (1..u64::MAX).prop_map(move |seed| generate_random_walks(&tree, 5, rollback_ratio, seed))
     })
 }
 
@@ -364,7 +352,7 @@ pub fn execute_json_actions(
             .collect::<Vec<_>>()
             .list_to_string(",")
     ))
-        .unwrap();
+    .unwrap();
     execute_actions(max_length, &actions, print)
 }
 
@@ -449,8 +437,8 @@ pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Chain> 
 /// Transpose a list of rows into a list of columns (even if the rows have different lengths).
 fn transpose<I, R, T>(rows: I) -> Vec<Vec<T>>
 where
-    I: IntoIterator<Item=R>,
-    R: IntoIterator<Item=T>,
+    I: IntoIterator<Item = R>,
+    R: IntoIterator<Item = T>,
 {
     let mut iterators: Vec<_> = rows.into_iter().map(|r| r.into_iter()).collect();
     let mut result: Vec<Vec<T>> = vec![];
