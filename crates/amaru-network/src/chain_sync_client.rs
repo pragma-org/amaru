@@ -43,7 +43,7 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, ChainSy
 
 /// Handles chain synchronization network operations
 pub struct ChainSyncClient {
-    peer: Peer,
+    pub peer: Peer,
     chain_sync: Client<HeaderContent>,
     intersection: Vec<Point>,
     is_catching_up: Arc<RwLock<bool>>,
@@ -156,7 +156,7 @@ impl ChainSyncClient {
         client
             .request_next()
             .await
-            .inspect_err(|err| tracing::error!(reason = %err, "request next failed; retrying"))
+            .inspect_err(|err| tracing::error!(reason = %err, "request next failed"))
             .map_err(ChainSyncClientError::NetworkError)
     }
 
@@ -168,9 +168,9 @@ impl ChainSyncClient {
 
         match client.recv_while_must_reply().await {
             Ok(result) => Ok(result),
-            Err(e) => {
-                tracing::error!(reason = %e, "failed while awaiting for next block");
-                Err(ChainSyncClientError::NetworkError(e))
+            Err(err) => {
+                tracing::error!(reason = %err, "failed while awaiting for next block");
+                Err(ChainSyncClientError::NetworkError(err))
             }
         }
     }

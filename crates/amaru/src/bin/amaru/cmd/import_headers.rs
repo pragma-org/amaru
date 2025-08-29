@@ -105,12 +105,9 @@ pub(crate) async fn import_headers(
     let mut db = RocksDBStore::new(chain_db_dir, era_history)?;
 
     let peer_client = connect_to_peer(peer_address, &network_name).await?;
-
-    let peer_session = (Peer::new(peer_address), peer_client.chainsync);
-
     let mut client = ChainSyncClient::new(
-        peer_session.0,
-        peer_session.1,
+        Peer::new(peer_address),
+        peer_client.chainsync,
         vec![point.clone()],
         Arc::new(RwLock::new(true)),
     );

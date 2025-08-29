@@ -19,7 +19,7 @@ use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_poin
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse, Tip};
 use std::sync::{Arc, RwLock};
-use tracing::{Level, instrument};
+use tracing::{Level, debug, instrument};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
@@ -105,6 +105,7 @@ impl gasket::framework::Worker<Stage> for Worker {
             WorkUnit::Await => stage.client.await_next().await.or_panic()?,
             WorkUnit::Intersect => {
                 stage.find_intersection().await?;
+                debug!("chain_sync {}: intersection found", stage.client.peer);
                 self.initialised = true;
                 return Ok(());
             }

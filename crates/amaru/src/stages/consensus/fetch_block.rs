@@ -29,19 +29,16 @@ pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
 #[derive(Stage)]
 #[stage(name = "stage.fetch", unit = "ValidateHeaderEvent", worker = "Worker")]
 pub struct BlockFetchStage {
-    pub peer_sessions: BTreeMap<Peer, Client>,
+    pub clients: BTreeMap<Peer, Client>,
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
 }
 
 impl BlockFetchStage {
-    pub fn new(sessions: Vec<(Peer, Client)>) -> Self {
-        let peer_sessions = sessions
-            .into_iter()
-            .map(|(peer, client)| (peer.clone(), client))
-            .collect::<BTreeMap<_, _>>();
+    pub fn new(clients: Vec<(Peer, Client)>) -> Self {
+        let clients = clients.into_iter().collect::<BTreeMap<_, _>>();
         Self {
-            peer_sessions,
+            clients,
             upstream: Default::default(),
             downstream: Default::default(),
         }
@@ -92,7 +89,7 @@ impl BlockFetchStage {
         // the block should be fetched from any other valid peer
         // which is known to have it
         let client = self
-            .peer_sessions
+            .clients
             .get_mut(peer)
             .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?;
         let new_point: pallas_network::miniprotocols::Point = match point.clone() {

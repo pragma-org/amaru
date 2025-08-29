@@ -166,10 +166,7 @@ pub fn bootstrap(
 
     let global_parameters: &GlobalParameters = config.network.into();
 
-    let peers: Vec<Peer> = clients
-        .iter()
-        .map(|c| Peer::new(&c.0.to_string()))
-        .collect();
+    let peers: Vec<Peer> = clients.iter().map(|c| Peer::new(&c.0)).collect();
 
     let is_catching_up = Arc::new(RwLock::new(true));
 
