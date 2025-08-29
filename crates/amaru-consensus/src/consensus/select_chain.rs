@@ -84,7 +84,7 @@ impl PartialEq for SelectChain {
 }
 
 impl SelectChain {
-    pub fn new(chain_selector: Arc<Mutex<HeadersTree<Header>>>, peers: &Vec<Peer>) -> Self {
+    pub fn new(chain_selector: Arc<Mutex<HeadersTree<Header>>>, peers: &[Peer]) -> Self {
         let sync_tracker = SyncTracker::new(peers);
         SelectChain {
             chain_selector,

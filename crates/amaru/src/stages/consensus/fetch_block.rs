@@ -36,9 +36,7 @@ pub struct BlockFetchStage {
 
 impl BlockFetchStage {
     pub fn new(sessions: Vec<(Peer, Client)>) -> Self {
-        let peer_sessions = sessions
-            .into_iter()
-            .collect::<BTreeMap<Peer, Client>>();
+        let peer_sessions = sessions.into_iter().collect::<BTreeMap<Peer, Client>>();
         Self {
             peer_sessions,
             upstream: Default::default(),

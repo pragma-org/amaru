@@ -155,7 +155,10 @@ pub fn bootstrap(
 
     let global_parameters: &GlobalParameters = config.network.into();
 
-    let peers = clients.iter().map(|p| Peer::new(&p.0.to_string())).collect();
+    let peers = clients
+        .iter()
+        .map(|p| Peer::new(&p.0.to_string()))
+        .collect();
 
     let (mut ledger_stage, tip) = make_ledger(
         &config,

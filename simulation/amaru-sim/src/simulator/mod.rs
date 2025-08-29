@@ -132,9 +132,7 @@ fn init_node(
         .map(|i| Peer::new(&format!("c{}", i)))
         .collect::<Vec<_>>();
 
-    let peers_ref = peers.iter().collect();
-
-    let select_chain = make_chain_selector(Origin, &chain_store, &peers_ref);
+    let select_chain = make_chain_selector(Origin, &chain_store, &peers);
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let validate_header = ValidateHeader::new(Arc::new(stake_distribution));
 
@@ -351,7 +349,7 @@ fn chain_property(
 fn make_chain_selector(
     tip: Point,
     chain_store: &impl ChainStore<Header>,
-    peers: &Vec<&Peer>,
+    peers: &Vec<Peer>,
 ) -> SelectChain {
     let root = match tip {
         Origin => None,
