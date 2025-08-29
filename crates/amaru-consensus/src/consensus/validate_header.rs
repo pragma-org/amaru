@@ -118,77 +118,78 @@ type State = (
     StageRef<ValidationFailed, Void>,
 );
 
+#[instrument(
+    level = Level::TRACE,
+    skip_all,
+    name = "stage.validate_header",
+)]
 pub async fn stage(
     state: State,
     msg: DecodedChainSyncEvent,
     eff: Effects<DecodedChainSyncEvent, State>,
 ) -> State {
-    let span = adopt_current_span(&msg);
-    async move {
-        let (state, global, downstream, errors) = state;
+    adopt_current_span(&msg);
+    let (state, global, downstream, errors) = state;
 
-        let (peer, point, header) = match &msg {
-            DecodedChainSyncEvent::RollForward {
-                peer,
-                point,
-                header,
-                ..
-            } => (peer, point, header),
-            DecodedChainSyncEvent::Rollback { .. } => {
-                eff.send(&downstream, msg).await;
-                return (state, global, downstream, errors);
-            }
-        };
+    let (peer, point, header) = match &msg {
+        DecodedChainSyncEvent::RollForward {
+            peer,
+            point,
+            header,
+            ..
+        } => (peer, point, header),
+        DecodedChainSyncEvent::Rollback { .. } => {
+            eff.send(&downstream, msg).await;
+            return (state, global, downstream, errors);
+        }
+    };
 
-        let span = tracing::trace_span!(
-            "consensus.roll_forward",
-            point.slot = %point.slot_or_default(),
-            point.hash = %Hash::<32>::from(point),
-        );
+    let span = tracing::trace_span!(
+        "consensus.roll_forward",
+        point.slot = %point.slot_or_default(),
+        point.hash = %Hash::<32>::from(point),
+    );
 
-        let send_downstream = async {
-            let nonces = match eff.external(EvolveNonceEffect::new(header.clone())).await {
-                Ok(nonces) => nonces,
-                Err(error) => {
-                    tracing::error!(%peer, %error, "evolve nonce failed");
-                    eff.send(
-                        &errors,
-                        ValidationFailed::new(peer.clone(), point.clone(), error.into()),
-                    )
-                    .await;
-                    return false;
-                }
-            };
-            let epoch_nonce = &nonces.active;
-
-            if let Err(error) = header_is_valid(
-                point,
-                header,
-                to_cbor(&header.header_body).as_slice(),
-                epoch_nonce,
-                state.ledger.as_ref(),
-                &global,
-            ) {
-                tracing::info!(%peer, %error, "invalid header");
+    let send_downstream = async {
+        let nonces = match eff.external(EvolveNonceEffect::new(header.clone())).await {
+            Ok(nonces) => nonces,
+            Err(error) => {
+                tracing::error!(%peer, %error, "evolve nonce failed");
                 eff.send(
                     &errors,
-                    ValidationFailed::new(peer.clone(), point.clone(), error),
+                    ValidationFailed::new(peer.clone(), point.clone(), error.into()),
                 )
                 .await;
-                false
-            } else {
-                true
+                return false;
             }
-        }
-        .instrument(span)
-        .await;
+        };
+        let epoch_nonce = &nonces.active;
 
-        if send_downstream {
-            eff.send(&downstream, msg).await;
+        if let Err(error) = header_is_valid(
+            point,
+            header,
+            to_cbor(&header.header_body).as_slice(),
+            epoch_nonce,
+            state.ledger.as_ref(),
+            &global,
+        ) {
+            tracing::info!(%peer, %error, "invalid header");
+            eff.send(
+                &errors,
+                ValidationFailed::new(peer.clone(), point.clone(), error),
+            )
+            .await;
+            false
+        } else {
+            true
         }
-
-        (state, global, downstream, errors)
     }
     .instrument(span)
-    .await
+    .await;
+
+    if send_downstream {
+        eff.send(&downstream, msg).await;
+    }
+
+    (state, global, downstream, errors)
 }

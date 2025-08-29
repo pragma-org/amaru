@@ -22,7 +22,7 @@ use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
 use pure_stage::{Effects, StageRef, Void};
 use serde::{Deserialize, Serialize};
-use tracing::{Instrument, Span, trace};
+use tracing::{Level, Span, instrument, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -204,34 +204,35 @@ type State = (
     StageRef<ValidationFailed, Void>,
 );
 
+#[instrument(
+    level = Level::TRACE,
+    skip_all,
+    name = "stage.select_chain",
+)]
 pub async fn stage(
     (mut select_chain, downstream, errors): State,
     msg: DecodedChainSyncEvent,
     eff: Effects<DecodedChainSyncEvent, State>,
 ) -> State {
-    let span = adopt_current_span(&msg);
-    async move {
-        let peer = msg.peer();
+    adopt_current_span(&msg);
+    let peer = msg.peer();
 
-        let point = msg.point();
-        let events = match select_chain.handle_chain_sync(msg).await {
-            Ok(events) => events,
-            Err(e) => {
-                eff.send(&errors, ValidationFailed::new(peer, point, e))
-                    .await;
-                return (select_chain, downstream, errors);
-            }
-        };
-
-        if events.is_empty() {
-            tracing::info!(%peer, %point, "no events to send");
+    let point = msg.point();
+    let events = match select_chain.handle_chain_sync(msg).await {
+        Ok(events) => events,
+        Err(e) => {
+            eff.send(&errors, ValidationFailed::new(peer, point, e))
+                .await;
+            return (select_chain, downstream, errors);
         }
-        for event in events {
-            eff.send(&downstream, event).await;
-        }
+    };
 
-        (select_chain, downstream, errors)
+    if events.is_empty() {
+        tracing::info!(%peer, %point, "no events to send");
     }
-    .instrument(span)
-    .await
+    for event in events {
+        eff.send(&downstream, event).await;
+    }
+
+    (select_chain, downstream, errors)
 }

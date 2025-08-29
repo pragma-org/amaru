@@ -16,36 +16,37 @@ use crate::{consensus::store_effects::StoreHeaderEffect, span::adopt_current_spa
 
 use super::DecodedChainSyncEvent;
 use pure_stage::{Effects, StageRef, Void};
-use tracing::Instrument;
+use tracing::{Level, instrument};
 
+#[instrument(
+    level = Level::TRACE,
+    skip_all,
+    name = "stage.store_header",
+)]
 pub async fn stage(
     downstream: StageRef<DecodedChainSyncEvent, Void>,
     msg: DecodedChainSyncEvent,
     eff: Effects<DecodedChainSyncEvent, StageRef<DecodedChainSyncEvent, Void>>,
 ) -> StageRef<DecodedChainSyncEvent, Void> {
-    let span = adopt_current_span(&msg);
-    async move {
-        match &msg {
-            DecodedChainSyncEvent::RollForward {
-                peer,
-                point,
-                header,
-                ..
-            } => {
-                if let Err(error) = eff
-                    .external(StoreHeaderEffect::new(header.clone(), point.clone()))
-                    .await
-                {
-                    tracing::error!(%error, %point, %peer, "Failed to store header");
-                    // FIXME what should be the consequence of this?
-                    return eff.terminate().await;
-                };
-                eff.send(&downstream, msg).await
-            }
-            DecodedChainSyncEvent::Rollback { .. } => eff.send(&downstream, msg).await,
+    adopt_current_span(&msg);
+    match &msg {
+        DecodedChainSyncEvent::RollForward {
+            peer,
+            point,
+            header,
+            ..
+        } => {
+            if let Err(error) = eff
+                .external(StoreHeaderEffect::new(header.clone(), point.clone()))
+                .await
+            {
+                tracing::error!(%error, %point, %peer, "Failed to store header");
+                // FIXME what should be the consequence of this?
+                return eff.terminate().await;
+            };
+            eff.send(&downstream, msg).await
         }
-        downstream
+        DecodedChainSyncEvent::Rollback { .. } => eff.send(&downstream, msg).await,
     }
-    .instrument(span)
-    .await
+    downstream
 }
