@@ -8,30 +8,30 @@ between the various steps.
 graph TD
     disc[disconnect peer]
     net@{ shape: delay, label: "Upstream peers" }
-upstream([upstream]) -.-> net
-upstream -- chain sync --> pull
-pull -- ChainSyncEvent --> rcv[receive header]
-rcv -- malformed header --> disc
-val_hdr[validate header]
-rcv -- DecodedChainSyncEvent --> sto_hdr
-sto_hdr -.-> store@{ shape: cyl, label: "Chain store" }
-sto_hdr -- storage failure --> crash?
-sto_hdr -- DecodedChainSyncEvent --> val_hdr[validate header]
-val_hdr -- invalid header --> disc
-val_hdr -- DecodedChainSyncEvent --> select[select chain]
-select -- invalid chain --> disc
-select -- ValidateHeaderEvent --> fetch[fetch block]
-fetch -.-> net
-fetch -- fetch error --> disc
-fetch -- ValidateBlockEvent --> sto_block[store block]
-sto_block -.-> store
-sto_block -- storage failure --> crash?
-sto_block -- ValidateBlockEvent --> val_block[validate block]
-val_block -.-> store
-val_block -- invalid block --> disc
-val_block -- BlockValidationResult --> fwd[forward chain]
-fwd --> down([downstream])
-down -.-> net
+    upstream([upstream]) -.-> net
+    upstream -- chain sync --> pull
+    pull -- ChainSyncEvent --> rcv[receive header]
+    rcv -- malformed header --> disc
+    val_hdr[validate header]
+    rcv -- DecodedChainSyncEvent --> sto_hdr
+    sto_hdr -.-> store@{ shape: cyl, label: "Chain store" }
+    sto_hdr -- storage failure --> crash?
+    sto_hdr -- DecodedChainSyncEvent --> val_hdr[validate header]
+    val_hdr -- invalid header --> disc
+    val_hdr -- DecodedChainSyncEvent --> select[select chain]
+    select -- invalid chain --> disc
+    select -- ValidateHeaderEvent --> fetch[fetch block]
+    fetch -.-> net
+    fetch -- fetch error --> disc
+    fetch -- ValidateBlockEvent --> sto_block[store block]
+    sto_block -.-> store
+    sto_block -- storage failure --> crash?
+    sto_block -- ValidateBlockEvent --> val_block[validate block]
+    val_block -.-> store
+    val_block -- invalid block --> disc
+    val_block -- BlockValidationResult --> fwd[forward chain]
+    fwd --> down([downstream])
+    down -.-> net
 ```
 
 Stages:
