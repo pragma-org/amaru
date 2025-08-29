@@ -26,6 +26,7 @@
 
 use crate::echo::Envelope;
 use crate::simulator::shrink::shrink;
+use crate::simulator::simulate_config::SimulateConfig;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use pure_stage::StageRef;
@@ -49,13 +50,6 @@ use std::{
     time::Duration,
 };
 use tracing::{info, warn};
-
-pub struct SimulateConfig {
-    pub number_of_tests: u32,
-    pub seed: u64,
-    pub number_of_nodes: u8,
-    pub disable_shrinking: bool,
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Entry<Msg> {
@@ -206,44 +200,44 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
     pub fn step_world(&mut self) -> Next {
         match self.heap.pop() {
             Some(Reverse(Entry {
-                             arrival_time,
-                             envelope,
-                         })) =>
+                arrival_time,
+                envelope,
+            })) =>
             // TODO: deal with time advance across all nodes
             // eg. run all nodes whose next action is ealier than msg's arrival time
             // and enqueue their output messages possibly bailing out and recursing
-                {
-                    info!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
-                    match self.nodes.get_mut(&envelope.dest) {
-                        Some(node) => match (node.handle)(envelope.clone()) {
-                            Ok(outgoing) => {
-                                info!(outgoing = ?outgoing, "outgoing");
-                                let (client_responses, outputs): (
-                                    Vec<Envelope<Msg>>,
-                                    Vec<Envelope<Msg>>,
-                                ) = outgoing
-                                    .into_iter()
-                                    .partition(|msg| msg.dest.starts_with("c"));
-                                outputs
-                                    .iter()
-                                    .map(|envelope| Entry {
-                                        arrival_time: arrival_time + Duration::from_millis(100),
-                                        envelope: envelope.clone(),
-                                    })
-                                    .for_each(|msg| self.heap.push(Reverse(msg)));
-                                if envelope.src.starts_with("c") {
-                                    self.history.0.push(envelope);
-                                }
-                                client_responses
-                                    .iter()
-                                    .for_each(|msg| self.history.0.push(msg.clone()));
-                                Next::Continue
+            {
+                info!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
+                match self.nodes.get_mut(&envelope.dest) {
+                    Some(node) => match (node.handle)(envelope.clone()) {
+                        Ok(outgoing) => {
+                            info!(outgoing = ?outgoing, "outgoing");
+                            let (client_responses, outputs): (
+                                Vec<Envelope<Msg>>,
+                                Vec<Envelope<Msg>>,
+                            ) = outgoing
+                                .into_iter()
+                                .partition(|msg| msg.dest.starts_with("c"));
+                            outputs
+                                .iter()
+                                .map(|envelope| Entry {
+                                    arrival_time: arrival_time + Duration::from_millis(100),
+                                    envelope: envelope.clone(),
+                                })
+                                .for_each(|msg| self.heap.push(Reverse(msg)));
+                            if envelope.src.starts_with("c") {
+                                self.history.0.push(envelope);
                             }
-                            Err(err) => Next::Panic(format!("{}", err)),
-                        },
-                        None => panic!("unknown destination node '{}'", envelope.dest),
-                    }
+                            client_responses
+                                .iter()
+                                .for_each(|msg| self.history.0.push(msg.clone()));
+                            Next::Continue
+                        }
+                        Err(err) => Next::Panic(format!("{}", err)),
+                    },
+                    None => panic!("unknown destination node '{}'", envelope.dest),
                 }
+            }
             None => Next::Done,
         }
     }
@@ -441,13 +435,9 @@ fn persist_schedule(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pure_stage::{StageGraph, Void, simulation::SimulationBuilder};
     use std::fs;
 
-    use crate::echo::EchoMessage;
-    use crate::simulator::generate::{
-        generate_arrival_times, generate_u8, generate_vec, generate_zip_with,
-    };
+    use crate::echo::{EchoMessage, echo_generator, echo_property, spawn_echo_node};
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
@@ -457,113 +447,22 @@ mod tests {
 
     #[test]
     fn simulate_pure_stage_echo() {
-        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-        struct State(u64, StageRef<Envelope<EchoMessage>, Void>);
-
-        let number_of_tests = 100;
-        let seed = 42;
-        let number_of_nodes = 1;
-
-        let spawn: fn() -> NodeHandle<EchoMessage> = || {
-            let mut network = SimulationBuilder::default();
-            let stage = network.stage(
-                "echo",
-                async |mut state: State, msg: Envelope<EchoMessage>, eff| {
-                    if let EchoMessage::Echo { msg_id, echo } = &msg.body {
-                        state.0 += 1;
-                        // Insert a bug every 5 messages.
-                        let echo_response = if state.0.is_multiple_of(5) {
-                            echo.to_string().to_uppercase()
-                        } else {
-                            echo.to_string()
-                        };
-                        let reply = Envelope {
-                            src: msg.dest,
-                            dest: msg.src,
-                            body: EchoMessage::EchoOk {
-                                msg_id: state.0,
-                                in_reply_to: *msg_id,
-                                echo: echo_response,
-                            },
-                        };
-                        eff.send(&state.1, reply).await;
-                        state
-                    } else {
-                        panic!("Got a message that wasn't an echo: {:?}", msg.body)
-                    }
-                },
-            );
-            let (output, rx) = network.output("output", 10);
-            let stage = network.wire_up(stage, State(0, output.without_state()));
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let running = network.run(rt.handle().clone());
-
-            pure_stage_node_handle(stage.without_state(), rx, running).unwrap()
-        };
+        let config = SimulateConfig::default()
+            .with_number_of_tests(100)
+            .with_seed(42)
+            .with_number_of_nodes(1)
+            .disable_shrinking();
 
         let failure = simulate(
-            SimulateConfig {
-                number_of_tests,
-                seed,
-                number_of_nodes,
-                disable_shrinking: false,
-            },
-            spawn,
+            config,
+            spawn_echo_node,
             echo_generator,
             echo_property,
             TraceBuffer::new_shared(0, 0),
             false,
         )
-            .err();
+        .err();
         assert!(failure.is_some());
-    }
-
-    fn echo_generator(rng: &mut StdRng) -> Vec<Reverse<Entry<EchoMessage>>> {
-        let now = Instant::at_offset(Duration::from_secs(0));
-        let size = 20;
-        generate_zip_with(
-            size,
-            generate_vec(generate_u8(0, 128)),
-            generate_arrival_times(now, 200.0),
-            |msg, arrival_time| {
-                Reverse(Entry {
-                    arrival_time,
-                    envelope: Envelope {
-                        src: "c1".to_string(),
-                        dest: "n1".to_string(),
-                        body: EchoMessage::Echo {
-                            msg_id: 0,
-                            echo: format!("Please echo {}", msg),
-                        },
-                    },
-                })
-            },
-        )(rng)
-    }
-
-    // TODO: Take response time into account.
-    fn echo_property(history: &History<EchoMessage>) -> Result<(), String> {
-        for (index, msg) in history
-            .0
-            .iter()
-            .enumerate()
-            .filter(|(_index, msg)| msg.src.starts_with("c"))
-        {
-            if let EchoMessage::Echo { msg_id, echo } = &msg.body {
-                let response = history.0.split_at(index + 1).1.iter().find(|resp| {
-                    resp.dest == msg.src
-                        && matches!(&resp.body, EchoMessage::EchoOk { in_reply_to, echo: resp_echo, .. }
-                                if in_reply_to == msg_id && resp_echo == echo)
-                });
-                if response.is_none() {
-                    return Err(format!(
-                        "No matching response found for echo request: {:?}",
-                        msg
-                    ));
-                }
-            }
-        }
-        Ok(())
     }
 
     // This shows how we can test external binaries. The test is disabled because building and
@@ -571,27 +470,24 @@ mod tests {
     #[allow(dead_code)]
     #[ignore]
     fn blackbox_test_echo() {
-        let number_of_tests = 100;
-        let seed = 42;
-        let number_of_nodes = 1;
+        let config = SimulateConfig::default()
+            .with_number_of_tests(100)
+            .with_seed(42)
+            .with_number_of_nodes(1)
+            .disable_shrinking();
 
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
             pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
         };
         let failure_message = simulate(
-            SimulateConfig {
-                number_of_tests,
-                seed,
-                number_of_nodes,
-                disable_shrinking: false,
-            },
+            config,
             spawn,
             echo_generator,
             echo_property,
             TraceBuffer::new_shared(0, 0),
             false,
         )
-            .err();
+        .err();
         assert!(failure_message.is_some());
     }
 

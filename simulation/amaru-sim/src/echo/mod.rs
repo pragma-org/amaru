@@ -21,7 +21,9 @@ mod io;
 mod message;
 mod run;
 mod service;
+mod simulate;
 
 pub use message::*;
 pub use run::*;
 pub use service::*;
+pub use simulate::*;
