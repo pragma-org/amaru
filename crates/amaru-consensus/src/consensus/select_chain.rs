@@ -176,19 +176,20 @@ impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ForwardChainSelection::NewTip { peer, tip } => {
-                f.write_str(&format!("NewTip[{}, {}]", peer, tip))
+                write!(f, "NewTip[{}, {}]", peer, tip)
             }
             ForwardChainSelection::NoChange => f.write_str("NoChange"),
             ForwardChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
                 fork,
-            }) => f.write_str(&format!(
+            }) => write!(
+                f,
                 "SwitchToFork[\n    peer: {},\n    rollback_point: {},\n    fork:\n        {}]",
                 peer,
                 rollback_point,
                 fork.list_to_string(",\n        ")
-            )),
+            ),
         }
     }
 }
@@ -206,7 +207,7 @@ pub enum RollbackChainSelection<H: IsHeader> {
         max_point: Hash<HEADER_HASH_SIZE>,
     },
 
-    /// The current best chain as not changed
+    /// The current best chain has not changed
     NoChange,
 }
 
@@ -218,20 +219,22 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
                 peer,
                 rollback_point,
                 fork,
-            }) => f.write_str(&format!(
+            }) => write!(
+                f,
                 "SwitchToFork[\n    peer: {},\n    rollback_point: {},\n    fork:\n        {}]",
                 peer,
                 rollback_point,
                 fork.list_to_string(",\n        ")
-            )),
+            ),
             RollbackChainSelection::RollbackBeyondLimit {
                 peer,
                 rollback_point,
                 max_point,
-            } => f.write_str(&format!(
+            } => write!(
+                f,
                 "RollbackBeyondLimit[{}, {}, {}]",
                 peer, rollback_point, max_point
-            )),
+            ),
         }
     }
 }

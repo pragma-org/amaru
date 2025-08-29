@@ -14,7 +14,8 @@ rust-version.workspace = true
 
 [features]
 default = []
-test-utils = ["proptest", "rand", "rand_distr", "serde_json", "pprof"]
+profiling = ["dep:pprof"]
+test-utils = ["proptest", "rand", "rand_distr", "serde_json"]
 telemetry = ["opentelemetry", "tracing-opentelemetry"]
 
 [dependencies]
@@ -24,6 +25,7 @@ itertools.workspace = true
 opentelemetry = { workspace = true, optional = true }
 pallas-crypto.workspace = true
 pallas-math.workspace = true
+
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 rand_distr = { workspace = true, optional = true }
@@ -41,9 +43,6 @@ amaru-ouroboros-traits.workspace = true
 amaru-slot-arithmetic.workspace = true
 pure-stage.workspace = true
 
-[target.'cfg(unix)'.dependencies]
-pprof = { version = "0.15", features = ["flamegraph"], optional = true }
-
 [dev-dependencies]
 either.workspace = true
 hex.workspace = true
@@ -57,6 +56,9 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing-subscriber.workspace = true
 amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
+
+[target.'cfg(unix)'.dependencies]
+pprof = { version = "0.15", features = ["flamegraph"], optional = true }
 
 [[bench]]
 name = "headers_tree"

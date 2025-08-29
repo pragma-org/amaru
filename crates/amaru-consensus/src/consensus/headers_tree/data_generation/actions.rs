@@ -165,6 +165,7 @@ pub fn random_walk(
     if !result.contains_key(peer) {
         result.insert(peer.clone(), vec![]);
     }
+
     if let Some(actions) = result.get_mut(peer) {
         actions.push(Action::RollForward {
             peer: peer.clone(),
@@ -178,16 +179,24 @@ pub fn random_walk(
 
         // Depending on the desired rollback ratio, add a rollback from the current node to the next
         // branch in the tree
-        if rng.random_ratio(rollback_ratio.0, rollback_ratio.1) && child.depth() < max_length {
-            if let Some(actions) = result.get_mut(peer) {
-                actions.push(Action::RollBack {
-                    peer: peer.clone(),
-                    rollback_point: Point::Specific(tree.value.slot, tree.value.hash().to_vec()),
-                })
-            }
-        } else {
-            break;
+        if rng.random_ratio(rollback_ratio.0, rollback_ratio.1)
+            && child.depth() < max_length
+            && let Some(actions) = result.get_mut(peer)
+        {
+            actions.push(Action::RollBack {
+                peer: peer.clone(),
+                rollback_point: Point::Specific(tree.value.slot, tree.value.hash().to_vec()),
+            })
         }
+    }
+
+    if let Some(parent) = tree.value.parent()
+        && let Some(actions) = result.get_mut(peer)
+    {
+        actions.push(Action::RollBack {
+            peer: peer.clone(),
+            rollback_point: Point::Specific(tree.value.slot, parent.to_vec()),
+        })
     }
 }
 
@@ -285,16 +294,9 @@ pub fn execute_actions_on_tree(
         let result = match action {
             Action::RollForward { peer, header } => match tree.select_roll_forward(peer, *header) {
                 Ok(result) => Forward(result.clone()),
-                Err(e) => {
-                    eprintln!(
-                        "Error while executing action {}: {} -> {:?}",
-                        action_nb + 1,
-                        action,
-                        e
-                    );
-                    eprintln!("\nHeadersTree {tree}");
-                    print_diagnostics(print, actions, &diagnostics);
-                    return Err(e);
+                Err(_) => {
+                    // Skip invalid actions like rolling forward a header that is not at the tip of a given peer
+                    Forward(ForwardChainSelection::NoChange)
                 }
             },
             Action::RollBack {
@@ -302,15 +304,9 @@ pub fn execute_actions_on_tree(
                 rollback_point,
             } => match tree.select_rollback(peer, &rollback_point.hash()) {
                 Ok(result) => Back(result.clone()),
-                Err(e) => {
-                    eprintln!(
-                        "Error while executing action {}: {} -> {:?}",
-                        action_nb + 1,
-                        action,
-                        e
-                    );
-                    print_diagnostics(print, actions, &diagnostics);
-                    return Err(e);
+                Err(_) => {
+                    // Skip invalid actions like rolling back to a point that is not in the tree.
+                    Back(RollbackChainSelection::NoChange)
                 }
             },
         };

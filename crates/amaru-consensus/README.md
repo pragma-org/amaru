@@ -127,10 +127,10 @@ This `HeadersTree` structure is:
 
 * A `headers` map storing volatile headers by their hash. Since `Header`s specify a parent-child relationship, this is
   sufficient to reconstruct a tree of headers where the root of the tree is the tip of the `immutable` chain.
+* A `parent_child_relationship` map of headers hashes to be able to traverse from root to leaves (for
+  performance reasons).
 * A `peers` map associating each `Peer` to the list of hashes forming the chain they are currently following.
 * A singled out `best_chain` which points at _the_ header hash which is our current best chain.
-* A `tree` of headers hashes: a tree representation of the headers to be able to traverse from root to leaves (for
-  performance reasons).
 * A `max_length` parameter, fixed at creation time, that bounds the maximum length of any branch of the `tree`.
 
 ```.idris

@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pprof::{ProfilerGuardBuilder, flamegraph::Options};
-use std::fs::File;
-
 /// This benchmark generates a large random header tree and a long sequence of actions
 /// (adding headers from random peers and rollbacks) to be executed on a `HeadersTree`.
 /// It then measures the average time taken to execute each action.
+///
+/// Run with: `cargo bench --bench headers_tree --features="test-utils profiling"`
 #[allow(clippy::unwrap_used)]
-#[cfg(unix)]
+#[cfg(all(unix, feature = "profiling", feature = "test-utils"))]
 fn main() {
+    use pprof::{ProfilerGuardBuilder, flamegraph::Options};
+    use std::fs::File;
+
     use amaru_consensus::consensus::headers_tree::HeadersTree;
     use amaru_consensus::consensus::headers_tree::data_generation::{
         Ratio, execute_actions_on_tree, generate_random_walks, generate_test_header_tree,
@@ -33,7 +35,7 @@ fn main() {
     let max_length = DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
     // We generate a tree with a larger depth in order to force the tree to be pruned when
     // the maximum length is reached for the best chain.
-    let depth = 2200;
+    let depth = max_length + 200;
 
     // This ratio controls how often we generate branches on top of the main chain.
     let branching_ratio = Ratio(1, 20);

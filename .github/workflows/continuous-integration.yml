@@ -318,4 +318,4 @@ jobs:
           restore-keys: |
             cargo-x86_64-unknown-linux-gnu
       - name: Run amaru-consensus benches
-        run: cargo bench -p amaru-consensus --features="test-utils"
+        run: cargo bench -p amaru-consensus --features="test-utils profiling"
