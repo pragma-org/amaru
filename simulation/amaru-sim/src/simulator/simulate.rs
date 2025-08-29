@@ -206,44 +206,44 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
     pub fn step_world(&mut self) -> Next {
         match self.heap.pop() {
             Some(Reverse(Entry {
-                arrival_time,
-                envelope,
-            })) =>
+                             arrival_time,
+                             envelope,
+                         })) =>
             // TODO: deal with time advance across all nodes
             // eg. run all nodes whose next action is ealier than msg's arrival time
             // and enqueue their output messages possibly bailing out and recursing
-            {
-                info!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
-                match self.nodes.get_mut(&envelope.dest) {
-                    Some(node) => match (node.handle)(envelope.clone()) {
-                        Ok(outgoing) => {
-                            info!(outgoing = ?outgoing, "outgoing");
-                            let (client_responses, outputs): (
-                                Vec<Envelope<Msg>>,
-                                Vec<Envelope<Msg>>,
-                            ) = outgoing
-                                .into_iter()
-                                .partition(|msg| msg.dest.starts_with("c"));
-                            outputs
-                                .iter()
-                                .map(|envelope| Entry {
-                                    arrival_time: arrival_time + Duration::from_millis(100),
-                                    envelope: envelope.clone(),
-                                })
-                                .for_each(|msg| self.heap.push(Reverse(msg)));
-                            if envelope.src.starts_with("c") {
-                                self.history.0.push(envelope);
+                {
+                    info!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
+                    match self.nodes.get_mut(&envelope.dest) {
+                        Some(node) => match (node.handle)(envelope.clone()) {
+                            Ok(outgoing) => {
+                                info!(outgoing = ?outgoing, "outgoing");
+                                let (client_responses, outputs): (
+                                    Vec<Envelope<Msg>>,
+                                    Vec<Envelope<Msg>>,
+                                ) = outgoing
+                                    .into_iter()
+                                    .partition(|msg| msg.dest.starts_with("c"));
+                                outputs
+                                    .iter()
+                                    .map(|envelope| Entry {
+                                        arrival_time: arrival_time + Duration::from_millis(100),
+                                        envelope: envelope.clone(),
+                                    })
+                                    .for_each(|msg| self.heap.push(Reverse(msg)));
+                                if envelope.src.starts_with("c") {
+                                    self.history.0.push(envelope);
+                                }
+                                client_responses
+                                    .iter()
+                                    .for_each(|msg| self.history.0.push(msg.clone()));
+                                Next::Continue
                             }
-                            client_responses
-                                .iter()
-                                .for_each(|msg| self.history.0.push(msg.clone()));
-                            Next::Continue
-                        }
-                        Err(err) => Next::Panic(format!("{}", err)),
-                    },
-                    None => panic!("unknown destination node '{}'", envelope.dest),
+                            Err(err) => Next::Panic(format!("{}", err)),
+                        },
+                        None => panic!("unknown destination node '{}'", envelope.dest),
+                    }
                 }
-            }
             None => Next::Done,
         }
     }
@@ -301,7 +301,8 @@ pub fn simulate<Msg, F>(
     property: impl Fn(&History<Msg>) -> Result<(), String>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
     persist_on_success: bool,
-) where
+) -> Result<(), String>
+where
     Msg: Debug + PartialEq + Clone + Serialize,
     F: Fn() -> NodeHandle<Msg>,
 {
@@ -313,9 +314,9 @@ pub fn simulate<Msg, F>(
         let test = run_test(config.number_of_nodes, &spawn, &property);
         match test(&entries) {
             (history, Err(reason)) => {
-                if config.disable_shrinking {
+                let failure_message = if config.disable_shrinking {
                     let number_of_shrinks = 0;
-                    display_failure(
+                    create_failure_message(
                         test_number,
                         config.seed,
                         entries,
@@ -323,12 +324,12 @@ pub fn simulate<Msg, F>(
                         history,
                         trace_buffer.clone(),
                         reason,
-                    );
+                    )
                 } else {
                     let (shrunk_entries, (shrunk_history, result), number_of_shrinks) =
                         shrink(test, entries, |result| result.1 == Err(reason.clone()));
                     assert_eq!(Err(reason.clone()), result);
-                    display_failure(
+                    create_failure_message(
                         test_number,
                         config.seed,
                         shrunk_entries,
@@ -336,9 +337,9 @@ pub fn simulate<Msg, F>(
                         shrunk_history,
                         trace_buffer.clone(),
                         reason,
-                    );
-                }
-                break;
+                    )
+                };
+                return Err(failure_message);
             }
             (_history, Ok(())) => continue,
         }
@@ -347,9 +348,10 @@ pub fn simulate<Msg, F>(
         persist_schedule_(Path::new("."), "success", trace_buffer)
     }
     info!("Success! ({} tests passed.)", config.number_of_tests);
+    Ok(())
 }
 
-fn display_failure<Msg: Debug>(
+fn create_failure_message<Msg: Debug>(
     test_number: u32,
     seed: u64,
     entries: Vec<Reverse<Entry<Msg>>>,
@@ -357,7 +359,7 @@ fn display_failure<Msg: Debug>(
     history: History<Msg>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
     reason: String,
-) {
+) -> String {
     let mut test_case = String::new();
     entries
         .into_iter()
@@ -374,7 +376,7 @@ fn display_failure<Msg: Debug>(
             )
         });
 
-    let panic_message = |mschedule_path| {
+    let failure_message = |mschedule_path| {
         format!(
             "\nFailed after {test_number} tests\n\n \
                 Minimised input ({number_of_shrinks} shrinks):\n\n{}\n \
@@ -396,10 +398,10 @@ fn display_failure<Msg: Debug>(
     match persist_schedule(Path::new("."), "failure", trace_buffer) {
         Err(err) => {
             warn!("persist_schedule, failed: {}", err);
-            panic!("{}", panic_message(None))
+            failure_message(None)
         }
-        Ok(schedule_path) => panic!("{}", panic_message(Some(schedule_path))),
-    };
+        Ok(schedule_path) => failure_message(Some(schedule_path)),
+    }
 }
 
 fn persist_schedule_(dir: &Path, prefix: &str, trace_buffer: Arc<Mutex<TraceBuffer>>) {
@@ -449,15 +451,11 @@ mod tests {
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
-        let mut world: World<EchoMessage> = World::new(Vec::new(), Vec::new());
-
-        let result: &[Envelope<EchoMessage>] = &Vec::new();
-
-        assert_eq!(world.run_world(), Ok(result));
+        let mut world: World<EchoMessage> = World::new(vec![], vec![]);
+        assert_eq!(world.run_world(), Ok(&[] as &[Envelope<EchoMessage>]));
     }
 
     #[test]
-    #[should_panic]
     fn simulate_pure_stage_echo() {
         #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
         struct State(u64, StageRef<Envelope<EchoMessage>, Void>);
@@ -488,7 +486,6 @@ mod tests {
                                 echo: echo_response,
                             },
                         };
-                        // println!(" ==> {:?}", reply);
                         eff.send(&state.1, reply).await;
                         state
                     } else {
@@ -503,7 +500,8 @@ mod tests {
 
             pure_stage_node_handle(stage.without_state(), rx, running).unwrap()
         };
-        simulate(
+
+        let failure = simulate(
             SimulateConfig {
                 number_of_tests,
                 seed,
@@ -516,6 +514,8 @@ mod tests {
             TraceBuffer::new_shared(0, 0),
             false,
         )
+            .err();
+        assert!(failure.is_some());
     }
 
     fn echo_generator(rng: &mut StdRng) -> Vec<Reverse<Entry<EchoMessage>>> {
@@ -578,7 +578,7 @@ mod tests {
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
             pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
         };
-        simulate(
+        let failure_message = simulate(
             SimulateConfig {
                 number_of_tests,
                 seed,
@@ -591,6 +591,8 @@ mod tests {
             TraceBuffer::new_shared(0, 0),
             false,
         )
+            .err();
+        assert!(failure_message.is_some());
     }
 
     #[test]

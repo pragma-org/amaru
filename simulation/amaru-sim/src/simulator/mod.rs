@@ -139,7 +139,7 @@ fn spawn_node(
                             },
                         },
                     )
-                    .await
+                        .await
                 }
                 ChainSyncMessage::InitOk { .. } => (),
                 ChainSyncMessage::Fwd {
@@ -154,7 +154,7 @@ fn spawn_node(
                             span: Span::current(),
                         },
                     )
-                    .await
+                        .await
                 }
                 ChainSyncMessage::Bck { slot, hash, .. } => {
                     eff.send(
@@ -165,7 +165,7 @@ fn spawn_node(
                             span: Span::current(),
                         },
                     )
-                    .await
+                        .await
                 }
             }
             (downstream, output)
@@ -214,7 +214,7 @@ fn spawn_node(
                     body: chain_sync_message,
                 },
             )
-            .await;
+                .await;
             (msg_id + 1, downstream)
         },
     );
@@ -257,7 +257,7 @@ fn init_node(
         &args.start_header,
         &args.consensus_context_file,
     )
-    .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
+        .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
 
     let select_chain = make_chain_selector(
         Origin,
@@ -310,12 +310,12 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
         chain_property(&args.block_tree_file),
         trace_buffer.clone(),
         args.persist_on_success,
-    );
+    ).unwrap_or_else(|e| panic!("{e}"));
 }
 
 fn chain_property(
     chain_data_path: &PathBuf,
-) -> impl Fn(&History<ChainSyncMessage>) -> Result<(), String> + use<'_> {
+) -> impl Fn(&History<ChainSyncMessage>) -> Result<(), String> + use < '_ > {
     move |history| {
         match history.0.last() {
             None => Err("impossible, no last entry in history".to_string()),
