@@ -24,7 +24,7 @@
 // Go to 3 and continue until heap is empty;
 // Make assertions on the history to ensure the execution was correct, if not, shrink and present minimal history that breaks the assertion together with the seed that allows us to reproduce the execution.
 
-use crate::echo::{EchoMessage, Envelope};
+use crate::echo::Envelope;
 use crate::simulator::shrink::shrink;
 use anyhow::anyhow;
 use parking_lot::Mutex;
@@ -32,7 +32,7 @@ use pure_stage::StageRef;
 use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::{Instant, Receiver, simulation::SimulationRunning};
 use rand::{SeedableRng, rngs::StdRng};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fs::File;
 use std::panic;
@@ -79,14 +79,26 @@ impl<Msg: PartialEq> Eq for Entry<Msg> {}
 
 type NodeId = String;
 
+/// A `NodeHandle` is:
+///
+///  - An async function that sends an Envelope<Msg> to a node and returns a list of Envelope<Msg>
+///    as the result of processing that message (Envelope holds source/destination values representing node ids).
+///  - An async function to shutdown the node gracefully.
+///
 pub struct NodeHandle<Msg> {
     handle: Box<dyn FnMut(Envelope<Msg>) -> Result<Vec<Envelope<Msg>>, anyhow::Error>>,
     close: Box<dyn FnMut()>,
 }
 
+/// Create a stateful function that can be used to send messages to node and receive messages from it.
+///
+///  * `input` is a handle used to send messages to the node.
+///  * `output` is a handle used to receive messages from the node.
+///  * `running` is the simulated node, waiting for messages to arrive.
+///
 pub fn pure_stage_node_handle<Msg, St>(
-    mut rx: Receiver<Envelope<Msg>>,
-    stage: StageRef<Envelope<Msg>, St>,
+    input: StageRef<Envelope<Msg>, St>,
+    mut output: Receiver<Envelope<Msg>>,
     mut running: SimulationRunning,
 ) -> anyhow::Result<NodeHandle<Msg>>
 where
@@ -95,9 +107,9 @@ where
 {
     let handle = Box::new(move |msg: Envelope<Msg>| {
         info!(msg = ?msg, "enqueuing");
-        running.enqueue_msg(&stage, [msg]);
+        running.enqueue_msg(&input, [msg]);
         running.run_until_blocked().assert_idle();
-        Ok(rx.drain().collect::<Vec<_>>())
+        Ok(output.drain().collect::<Vec<_>>())
     });
 
     let close = Box::new(move || ());
@@ -105,7 +117,15 @@ where
     Ok(NodeHandle { handle, close })
 }
 
-pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHandle<EchoMessage>> {
+/// Start a node executable and create a node handle that communicates with that node via stdin/stdout.
+///
+/// * `filepath` is the path to the executable.
+/// * `args` are the arguments to pass to the executable.
+///
+pub fn pipe_node_handle<M: Serialize + for<'a> Deserialize<'a>>(
+    filepath: &Path,
+    args: &[&str],
+) -> anyhow::Result<NodeHandle<M>> {
     let mut child = Command::new(filepath)
         .args(args)
         .stdin(Stdio::piped())
@@ -118,7 +138,7 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHa
         .take()
         .ok_or(anyhow!("Failed to take stdout"))?;
 
-    let handle = Box::new(move |msg: Envelope<EchoMessage>| {
+    let handle = Box::new(move |msg: Envelope<M>| {
         let json =
             serde_json::to_string(&msg).map_err(|e| anyhow!("Failed to encode JSON: {}", e))?;
         println!("About to write: {}", json);
@@ -139,7 +159,7 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHa
             // TODO: Read more than one message? Either make SUT send one message
             // per line and end by a termination token, or make write a JSON array
             // of messages?
-            .map(|msg: Envelope<EchoMessage>| vec![msg])
+            .map(|msg: Envelope<M>| vec![msg])
             .map_err(|e| anyhow!("Failed to decode JSON: {}", e))
     });
 
@@ -418,14 +438,14 @@ fn persist_schedule(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use pure_stage::{StageGraph, Void, simulation::SimulationBuilder};
     use std::fs;
 
+    use crate::echo::EchoMessage;
     use crate::simulator::generate::{
         generate_arrival_times, generate_u8, generate_vec, generate_zip_with,
     };
-
-    use super::*;
-    use pure_stage::{StageGraph, Void, simulation::SimulationBuilder};
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
@@ -481,7 +501,7 @@ mod tests {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let running = network.run(rt.handle().clone());
 
-            pure_stage_node_handle(rx, stage.without_state(), running).unwrap()
+            pure_stage_node_handle(stage.without_state(), rx, running).unwrap()
         };
         simulate(
             SimulateConfig {
@@ -531,10 +551,10 @@ mod tests {
         {
             if let EchoMessage::Echo { msg_id, echo } = &msg.body {
                 let response = history.0.split_at(index + 1).1.iter().find(|resp| {
-                        resp.dest == msg.src
-                            && matches!(&resp.body, EchoMessage::EchoOk { in_reply_to, echo: resp_echo, .. }
+                    resp.dest == msg.src
+                        && matches!(&resp.body, EchoMessage::EchoOk { in_reply_to, echo: resp_echo, .. }
                                 if in_reply_to == msg_id && resp_echo == echo)
-                    });
+                });
                 if response.is_none() {
                     return Err(format!(
                         "No matching response found for echo request: {:?}",

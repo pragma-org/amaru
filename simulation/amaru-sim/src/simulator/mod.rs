@@ -106,52 +106,19 @@ pub struct Args {
     pub persist_on_success: bool,
 }
 
-fn init_node(
-    args: &Args,
-) -> (
-    GlobalParameters,
-    SelectChain,
-    ValidateHeader,
-    store_effects::ResourceHeaderStore,
-) {
-    let network_name = NetworkName::Testnet(42);
-    let global_parameters: &GlobalParameters = network_name.into();
-    let stake_distribution: FakeStakeDistribution =
-        FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
-
-    let mut chain_store = InMemConsensusStore::new();
-
-    populate_chain_store(
-        &mut chain_store,
-        &args.start_header,
-        &args.consensus_context_file,
-    )
-    .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
-
-    let select_chain = make_chain_selector(
-        Origin,
-        &chain_store,
-        &(1..=args.number_of_upstream_peers.unwrap_or(2))
-            .map(|i| Peer::new(&format!("c{}", i)))
-            .collect::<Vec<_>>(),
-    );
-    let chain_ref = Arc::new(Mutex::new(chain_store));
-    let validate_header = ValidateHeader::new(Arc::new(stake_distribution));
-
-    (
-        global_parameters.clone(),
-        select_chain,
-        validate_header,
-        chain_ref,
-    )
-}
-
+/// Create and start a node
+/// Return:
+///
+///  * A handle to send messages to the node
+///  * A handle to receive messages from the node
+///
+///
 fn spawn_node(
     args: Args,
     network: &mut SimulationBuilder,
 ) -> (
-    Receiver<Envelope<ChainSyncMessage>>,
     StageRef<Envelope<ChainSyncMessage>, Void>,
+    Receiver<Envelope<ChainSyncMessage>>,
 ) {
     info!("Spawning node!");
 
@@ -261,19 +228,53 @@ fn spawn_node(
     );
 
     let (output, rx) = network.output("output", 10);
-
     let receiver = network.wire_up(receiver, (receive_header_ref, output.without_state()));
-
     network.wire_up(propagate_header_stage, (0, output.without_state()));
 
-    network
-        .resources()
-        .put::<store_effects::ResourceHeaderStore>(chain_ref);
-    network
-        .resources()
-        .put::<store_effects::ResourceParameters>(global_parameters);
+    network.resources().put(chain_ref);
+    network.resources().put(global_parameters);
 
-    (rx, receiver.without_state())
+    (receiver.without_state(), rx)
+}
+
+fn init_node(
+    args: &Args,
+) -> (
+    GlobalParameters,
+    SelectChain,
+    ValidateHeader,
+    store_effects::ResourceHeaderStore,
+) {
+    let network_name = NetworkName::Testnet(42);
+    let global_parameters: &GlobalParameters = network_name.into();
+    let stake_distribution: FakeStakeDistribution =
+        FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
+
+    let mut chain_store = InMemConsensusStore::new();
+
+    populate_chain_store(
+        &mut chain_store,
+        &args.start_header,
+        &args.consensus_context_file,
+    )
+    .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
+
+    let select_chain = make_chain_selector(
+        Origin,
+        &chain_store,
+        &(1..=args.number_of_upstream_peers.unwrap_or(2))
+            .map(|i| Peer::new(&format!("c{}", i)))
+            .collect::<Vec<_>>(),
+    );
+    let chain_ref = Arc::new(Mutex::new(chain_store));
+    let validate_header = ValidateHeader::new(Arc::new(stake_distribution));
+
+    (
+        global_parameters.clone(),
+        select_chain,
+        validate_header,
+        chain_ref,
+    )
 }
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {
@@ -285,15 +286,12 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
 
     let spawn = || {
         let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
-        let (rx, receive) = spawn_node(args.clone(), &mut network);
+        let (input, output) = spawn_node(args.clone(), &mut network);
         let running = network.run(rt.handle().clone());
-        pure_stage_node_handle(rx, receive, running).unwrap()
+        pure_stage_node_handle(input, output, running).unwrap()
     };
 
-    let seed = args.seed.unwrap_or({
-        let mut rng = rand::rng();
-        rng.random::<u64>()
-    });
+    let seed = args.seed.unwrap_or_else(|| rand::rng().random::<u64>());
 
     simulate(
         SimulateConfig {
