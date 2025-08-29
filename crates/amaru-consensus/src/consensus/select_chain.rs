@@ -302,9 +302,6 @@ pub async fn stage(
         }
     };
 
-    if events.is_empty() {
-        tracing::debug!(%peer, "no events to send");
-    }
     for event in events {
         eff.send(&downstream, event).await;
     }
