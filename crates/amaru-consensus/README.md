@@ -139,7 +139,7 @@ data HeadersTree = HeadersTree {
     parent_child_relationship :: Map HeaderHash [HeaderHash],
     peers: Map Peer [HeaderHash],
     best_chain: HeaderHash,
-    tree: Tree HeaderHash,
+    root: HeaderHash,
     max_length: Nat,
  }
 ```
