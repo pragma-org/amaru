@@ -136,6 +136,7 @@ This `HeadersTree` structure is:
 ```.idris
 data HeadersTree = HeadersTree {
     headers :: Map HeaderHash Header,
+    parent_child_relationship :: Map HeaderHash [HeaderHash],
     peers: Map Peer [HeaderHash],
     best_chain: HeaderHash,
     tree: Tree HeaderHash,
