@@ -13,22 +13,21 @@
 // limitations under the License.
 
 use crate::cmd::connect_to_peer;
-use amaru::stages::pull;
 use amaru_consensus::{IsHeader, consensus::store::ChainStore};
 use amaru_kernel::{Header, Point, default_chain_dir, from_cbor, network::NetworkName, peer::Peer};
-use amaru_network::session::PeerSession;
+use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
-use pallas_network::miniprotocols::chainsync::{self, HeaderContent, NextResponse};
+use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse};
 use std::{
     error::Error,
     path::PathBuf,
     sync::{Arc, RwLock},
     time::Duration,
 };
-use tokio::{sync::Mutex, time::timeout};
+use tokio::time::timeout;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -105,42 +104,28 @@ pub(crate) async fn import_headers(
     let era_history = network_name.into();
     let mut db = RocksDBStore::new(chain_db_dir, era_history)?;
 
-    let peer_client = Arc::new(Mutex::new(
-        connect_to_peer(peer_address, &network_name).await?,
-    ));
+    let peer_client = connect_to_peer(peer_address, &network_name).await?;
 
-    let peer_session = PeerSession {
-        peer: Peer::new(peer_address),
-        peer_client,
-    };
+    let peer_session = (Peer::new(peer_address), peer_client.chainsync);
 
-    let pull = pull::Stage::new(
-        peer_session.clone(),
+    let mut client = ChainSyncClient::new(
+        peer_session.0,
+        peer_session.1,
         vec![point.clone()],
         Arc::new(RwLock::new(true)),
     );
 
-    pull.find_intersection().await?;
+    client.find_intersection().await?;
 
-    let mut peer_client = peer_session.lock().await;
     let mut count = 0;
-
-    let client = (*peer_client).chainsync();
 
     let mut progress: Option<Box<dyn ProgressBar>> = None;
 
-    // TODO: implement a proper pipelined client because this one is super slow
-    // Pipelining in Haskell is single threaded which implies the code handles
-    // scheduling between sending burst of MsgRequest and collecting responses.
-    // Here we can do better thanks to gasket's workers: just spawn 2 workers,
-    // one for sending requests and the other for handling responses, along
-    // with a shared counter.
-    // Pipelining stops when we reach the tip of the peer's chain.
     loop {
-        let what = if client.has_agency() {
-            request_next_block(client, &mut db, &mut count, &mut progress, max).await?
+        let what = if client.has_agency().await {
+            request_next_block(&mut client, &mut db, &mut count, &mut progress, max).await?
         } else {
-            await_for_next_block(client, &mut db, &mut count, &mut progress, max).await?
+            await_for_next_block(&mut client, &mut db, &mut count, &mut progress, max).await?
         };
         match what {
             Continue => continue,
@@ -157,7 +142,7 @@ pub(crate) async fn import_headers(
 }
 
 async fn request_next_block(
-    client: &mut chainsync::Client<HeaderContent>,
+    client: &mut ChainSyncClient,
     db: &mut RocksDBStore,
     count: &mut usize,
     progress: &mut Option<Box<dyn ProgressBar>>,
@@ -168,13 +153,13 @@ async fn request_next_block(
 }
 
 async fn await_for_next_block(
-    client: &mut chainsync::Client<HeaderContent>,
+    client: &mut ChainSyncClient,
     db: &mut RocksDBStore,
     count: &mut usize,
     progress: &mut Option<Box<dyn ProgressBar>>,
     max: usize,
 ) -> Result<What, WorkerError> {
-    match timeout(Duration::from_secs(1), client.recv_while_must_reply()).await {
+    match timeout(Duration::from_secs(1), client.await_next()).await {
         Ok(result) => result
             .map_err(|_| WorkerError::Recv)
             .and_then(|next| handle_response(next, db, count, progress, max)),
