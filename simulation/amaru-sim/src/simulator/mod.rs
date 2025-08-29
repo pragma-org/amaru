@@ -128,7 +128,7 @@ fn init_node(
     )
     .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
 
-    let peers = (1..=args.number_of_upstream_peers.unwrap_or(2))
+    let peers = (1..=args.number_of_upstream_peers)
         .map(|i| Peer::new(&format!("c{}", i)))
         .collect::<Vec<_>>();
 
