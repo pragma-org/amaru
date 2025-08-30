@@ -305,3 +305,17 @@ jobs:
             cargo-wasm32-unknown-unknown
       - name: Run make
         run: make
+
+  benches:
+    name: Benches
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-x86_64-unknown-linux-gnu
+          restore-keys: |
+            cargo-x86_64-unknown-linux-gnu
+      - name: Run amaru-consensus benches
+        run: cargo bench -p amaru-consensus --features="test-utils profiling"

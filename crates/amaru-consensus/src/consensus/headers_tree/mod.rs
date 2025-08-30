@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod has_stake_distribution;
-pub use has_stake_distribution::*;
+#[cfg(any(test, feature = "test-utils"))]
+#[allow(clippy::module_inception, clippy::unwrap_used)]
+pub mod data_generation;
 
-pub mod praos;
-pub use praos::*;
+#[allow(clippy::module_inception)]
+pub mod headers_tree;
+mod tree;
 
-pub mod is_header;
-pub use is_header::*;
-
-#[cfg(test)]
-pub use is_header::fake::tests::*;
+pub use headers_tree::*;

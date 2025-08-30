@@ -362,7 +362,7 @@ fn make_chain_selector(
     };
 
     let root_hash = root.as_ref().map(|r| r.hash()).unwrap_or(Origin.hash());
-    let mut tree = HeadersTree::new(DEFAULT_MAXIMUM_FRAGMENT_LENGTH, root);
+    let mut tree = HeadersTree::new(DEFAULT_MAXIMUM_FRAGMENT_LENGTH, &root);
     for peer in peers {
         tree.initialize_peer(peer, &root_hash)
             .expect("the root node is guaranteed to already be in the tree")

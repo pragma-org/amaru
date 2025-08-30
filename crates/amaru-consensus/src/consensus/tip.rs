@@ -12,16 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HEADER_HASH_SIZE, Point, cbor};
+use amaru_kernel::{HEADER_HASH_SIZE, ORIGIN_HASH, Point, cbor};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
-#[derive(PartialEq, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
 pub enum Tip<H> {
+    #[default]
     Genesis,
     Hdr(H),
+}
+
+impl<H> From<H> for Tip<H> {
+    fn from(h: H) -> Self {
+        Tip::Hdr(h)
+    }
 }
 
 impl<H: IsHeader> Debug for Tip<H> {
@@ -29,7 +36,17 @@ impl<H: IsHeader> Debug for Tip<H> {
         f.debug_struct("Tip")
             .field("slot", &self.slot())
             .field("hash", &self.hash())
+            .field("parent_hash", &self.parent())
             .finish()
+    }
+}
+
+impl<H: IsHeader + Display> Display for Tip<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Tip::Genesis => f.write_str("Genesis"),
+            Tip::Hdr(h) => Display::fmt(h, f),
+        }
     }
 }
 
@@ -71,7 +88,7 @@ impl<H: IsHeader> Tip<H> {
 impl<H: IsHeader> IsHeader for Tip<H> {
     fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
         match self {
-            Tip::Genesis => Hash::from([0; HEADER_HASH_SIZE]),
+            Tip::Genesis => ORIGIN_HASH,
             Tip::Hdr(header) => header.hash(),
         }
     }
@@ -115,7 +132,7 @@ impl<H: IsHeader> IsHeader for Tip<H> {
 impl<H: IsHeader> From<Option<H>> for Tip<H> {
     fn from(tip: Option<H>) -> Tip<H> {
         match tip {
-            Some(header) => Tip::Hdr(header),
+            Some(header) => Tip::from(header),
             None => Tip::Genesis,
         }
     }

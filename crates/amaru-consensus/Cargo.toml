@@ -14,16 +14,23 @@ rust-version.workspace = true
 
 [features]
 default = []
+profiling = ["dep:pprof"]
+test-utils = ["proptest", "rand", "rand_distr", "serde_json"]
 telemetry = ["opentelemetry", "tracing-opentelemetry"]
 
 [dependencies]
 anyhow.workspace = true
 hex.workspace = true
-indextree.workspace = true
+itertools.workspace = true
 opentelemetry = { workspace = true, optional = true }
 pallas-crypto.workspace = true
 pallas-math.workspace = true
+
+proptest = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+rand_distr = { workspace = true, optional = true }
 rayon.workspace = true
+serde_json = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -37,6 +44,7 @@ amaru-slot-arithmetic.workspace = true
 pure-stage.workspace = true
 
 [dev-dependencies]
+either.workspace = true
 hex.workspace = true
 insta.workspace = true
 minicbor.workspace = true
@@ -48,3 +56,11 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing-subscriber.workspace = true
 amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
+
+[target.'cfg(unix)'.dependencies]
+pprof = { version = "0.15", features = ["flamegraph"], optional = true }
+
+[[bench]]
+name = "headers_tree"
+harness = false
+required-features = ["test-utils"]
