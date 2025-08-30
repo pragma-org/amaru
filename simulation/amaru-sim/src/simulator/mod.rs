@@ -84,15 +84,15 @@ pub struct Args {
 
     /// Number of tests to run in simulation
     #[arg(long, default_value = "50")]
-    pub number_of_tests: Option<u32>,
+    pub number_of_tests: u32,
 
     /// Number of nodes in simulation.
     #[arg(long, default_value = "1")]
-    pub number_of_nodes: Option<u8>,
+    pub number_of_nodes: u8,
 
     /// Number of upstream peers to simulate
     #[arg(long, default_value = "2")]
-    pub number_of_upstream_peers: Option<u8>,
+    pub number_of_upstream_peers: u8,
 
     #[arg(long)]
     pub disable_shrinking: bool,
@@ -131,7 +131,7 @@ fn init_node(
     let select_chain = make_chain_selector(
         Origin,
         &chain_store,
-        &(1..=args.number_of_upstream_peers.unwrap_or(2))
+        &(1..=args.number_of_upstream_peers)
             .map(|i| Peer::new(&format!("c{}", i)))
             .collect::<Vec<_>>(),
     );
@@ -277,9 +277,9 @@ fn spawn_node(
 }
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {
-    let number_of_tests = args.number_of_tests.unwrap_or(50);
-    let number_of_nodes = args.number_of_nodes.unwrap_or(1);
-    let number_of_upstream_peers = args.number_of_upstream_peers.unwrap_or(2);
+    let number_of_tests = args.number_of_tests;
+    let number_of_nodes = args.number_of_nodes;
+    let number_of_upstream_peers = args.number_of_upstream_peers;
     let disable_shrinking = args.disable_shrinking;
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
 

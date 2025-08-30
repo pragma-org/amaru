@@ -14,20 +14,19 @@
 
 use crate::send;
 use amaru_consensus::consensus::ChainSyncEvent;
-use amaru_kernel::Point;
-use amaru_network::{
-    chain_sync_client::ChainSyncClient, point::from_network_point, session::PeerSession,
-};
+use amaru_kernel::{Point, peer::Peer};
+use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
 use gasket::framework::*;
-use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
+use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse, Tip};
 use std::sync::{Arc, RwLock};
-use tracing::{Level, instrument};
+use tracing::{Level, debug, instrument};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
 pub enum WorkUnit {
     Pull,
     Await,
+    Intersect,
 }
 
 #[derive(Stage)]
@@ -39,17 +38,18 @@ pub struct Stage {
 
 impl Stage {
     pub fn new(
-        peer_session: PeerSession,
+        peer: Peer,
+        chain_sync: Client<HeaderContent>,
         intersection: Vec<Point>,
         is_catching_up: Arc<RwLock<bool>>,
     ) -> Self {
         Self {
-            client: ChainSyncClient::new(peer_session, intersection, is_catching_up),
+            client: ChainSyncClient::new(peer, chain_sync, intersection, is_catching_up),
             downstream: Default::default(),
         }
     }
 
-    pub async fn find_intersection(&self) -> Result<(), WorkerError> {
+    pub async fn find_intersection(&mut self) -> Result<(), WorkerError> {
         self.client.find_intersection().await.or_panic()
     }
 
@@ -68,25 +68,29 @@ impl Stage {
     }
 }
 
-pub struct Worker {}
+pub struct Worker {
+    initialised: bool,
+}
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
-    async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        stage.find_intersection().await?;
-
-        let worker = Self {};
+    async fn bootstrap(_stage: &Stage) -> Result<Self, WorkerError> {
+        let worker = Self { initialised: false };
 
         Ok(worker)
     }
 
     async fn schedule(&mut self, stage: &mut Stage) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
-        if stage.client.has_agency().await {
-            // should request next block
-            Ok(WorkSchedule::Unit(WorkUnit::Pull))
+        if self.initialised {
+            if stage.client.has_agency() {
+                // should request next block
+                Ok(WorkSchedule::Unit(WorkUnit::Pull))
+            } else {
+                // should await for next block
+                Ok(WorkSchedule::Unit(WorkUnit::Await))
+            }
         } else {
-            // should await for next block
-            Ok(WorkSchedule::Unit(WorkUnit::Await))
+            Ok(WorkSchedule::Unit(WorkUnit::Intersect))
         }
     }
 
@@ -99,6 +103,12 @@ impl gasket::framework::Worker<Stage> for Worker {
         let next = match unit {
             WorkUnit::Pull => stage.client.request_next().await.or_panic()?,
             WorkUnit::Await => stage.client.await_next().await.or_panic()?,
+            WorkUnit::Intersect => {
+                stage.find_intersection().await?;
+                debug!("chain_sync {}: intersection found", stage.client.peer);
+                self.initialised = true;
+                return Ok(());
+            }
         };
 
         match next {

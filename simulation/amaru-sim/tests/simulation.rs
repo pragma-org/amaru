@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::env;
-
 use amaru_kernel::Hash;
 use amaru_sim::simulator::{self, Args};
+use std::env;
+use std::str::FromStr;
 use tracing_subscriber::EnvFilter;
 
 #[test]
@@ -26,36 +26,20 @@ fn run_simulator() {
         chain_dir: "./chain.db".into(),
         block_tree_file: "tests/data/chain.json".into(),
         start_header: Hash::from([0; 32]),
-        number_of_tests: env::var("AMARU_NUMBER_OF_TESTS")
-            .ok()
-            .and_then(|v| v.parse::<u32>().ok())
-            .or(Some(50)),
-        number_of_nodes: env::var("AMARU_NUMBER_OF_NODES")
-            .ok()
-            .and_then(|v| v.parse::<u8>().ok())
-            .or(Some(1)),
-        number_of_upstream_peers: env::var("AMARU_NUMBER_OF_UPSTREAM_PEERS")
-            .ok()
-            .and_then(|v| v.parse::<u8>().ok())
-            .or(Some(2)),
-        disable_shrinking: std::env::var("AMARU_DISABLE_SHRINKING").is_ok_and(|v| v == "1"),
-        seed: std::env::var("AMARU_TEST_SEED")
-            .ok()
-            .and_then(|s| s.parse().ok()),
-        persist_on_success: std::env::var("AMARU_PERSIST_ON_SUCCESS").is_ok_and(|v| v == "1"),
+        number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", 50),
+        number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", 1),
+        number_of_upstream_peers: get_env_var("AMARU_NUMBER_OF_UPSTREAM_PEERS", 2),
+        disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
+        seed: get_optional_env_var("AMARU_TEST_SEED"),
+        persist_on_success: is_true("AMARU_PERSIST_ON_SUCCESS"),
     };
 
+    let amaru_logs = get_env_var::<String>("AMARU_SIMULATION_LOG", "".to_string());
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
             EnvFilter::builder()
-                .parse(format!(
-                    "none,{}",
-                    env::var("AMARU_SIMULATION_LOG")
-                        .ok()
-                        .as_deref()
-                        .unwrap_or("error")
-                ))
+                .parse(format!("none,{}", amaru_logs))
                 .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
         )
         .json()
@@ -63,4 +47,22 @@ fn run_simulator() {
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     simulator::run(rt, args);
+}
+
+// Parse the environment variable `var_name` as type T, or return `default` if not set or invalid.
+fn get_env_var<T: FromStr>(var_name: &str, default: T) -> T {
+    env::var(var_name)
+        .ok()
+        .and_then(|v| v.parse::<T>().ok())
+        .unwrap_or(default)
+}
+
+// Parse the environment variable `var_name` as Some(T), or return None if not set or invalid.
+fn get_optional_env_var<T: FromStr>(var_name: &str) -> Option<T> {
+    env::var(var_name).ok().and_then(|v| v.parse::<T>().ok())
+}
+
+/// Return true if the environment variable `var_name` is set to "1".
+fn is_true(var_name: &str) -> bool {
+    env::var(var_name).is_ok_and(|v| v == "1")
 }
