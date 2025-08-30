@@ -19,8 +19,8 @@ use amaru_consensus::{
     ConsensusError, IsHeader, consensus::ValidateHeaderEvent, span::adopt_current_span,
 };
 use amaru_kernel::{Point, block::ValidateBlockEvent, peer::Peer};
-use amaru_network::session::PeerSession;
 use gasket::framework::*;
+use pallas_network::miniprotocols::blockfetch::Client;
 use tracing::{error, instrument};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
@@ -29,19 +29,16 @@ pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
 #[derive(Stage)]
 #[stage(name = "stage.fetch", unit = "ValidateHeaderEvent", worker = "Worker")]
 pub struct BlockFetchStage {
-    pub peer_sessions: BTreeMap<Peer, PeerSession>,
+    pub clients: BTreeMap<Peer, Client>,
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
 }
 
 impl BlockFetchStage {
-    pub fn new(sessions: &[PeerSession]) -> Self {
-        let peer_sessions = sessions
-            .iter()
-            .map(|p| (p.peer.clone(), p.clone()))
-            .collect::<BTreeMap<_, _>>();
+    pub fn new(clients: Vec<(Peer, Client)>) -> Self {
+        let clients = clients.into_iter().collect::<BTreeMap<_, _>>();
         Self {
-            peer_sessions,
+            clients,
             upstream: Default::default(),
             downstream: Default::default(),
         }
@@ -87,16 +84,14 @@ impl BlockFetchStage {
         Ok(())
     }
 
-    async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
+    async fn fetch_block(&mut self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
         // FIXME: should not crash if the peer is not found
         // the block should be fetched from any other valid peer
         // which is known to have it
-        let peer_session = self
-            .peer_sessions
-            .get(peer)
+        let client = self
+            .clients
+            .get_mut(peer)
             .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?;
-        let mut session = peer_session.peer_client.lock().await;
-        let client = (*session).blockfetch();
         let new_point: pallas_network::miniprotocols::Point = match point.clone() {
             Point::Origin => pallas_network::miniprotocols::Point::Origin,
             Point::Specific(slot, hash) => {
