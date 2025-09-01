@@ -23,6 +23,8 @@ const network = (process.argv[2] ?? "").toLowerCase();
 
 const includeSnapshots = (process.argv[3] ?? "false").toLowerCase() == "true";
 
+const ogmiosUrl = process.env.OGMIOS_URL ?? "ws://127.0.0.1:1337"
+
 if (!["preview", "preprod", "mainnet", "custom"].includes(network)) {
   console.log(`Missing or invalid network.
 Usage:
@@ -156,7 +158,7 @@ async function fetchContinuously() {
       }
 
       done(true);
-    });
+    }, ogmiosUrl);
 
     if (exit === undefined) {
       process.stderr.cursorTo(0, 0);
