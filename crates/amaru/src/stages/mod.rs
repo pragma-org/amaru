@@ -413,7 +413,7 @@ fn make_chain_selector(
         tree.initialize_peer(peer, &root_hash)?;
     }
 
-    Ok(SelectChain::new(tree, &peers.iter().collect()))
+    Ok(SelectChain::new(tree, peers))
 }
 
 pub trait PallasPoint {

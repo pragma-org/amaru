@@ -25,7 +25,7 @@ use pure_stage::{Effects, StageRef, Void};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
-use tracing::{Level, Span, debug, instrument, trace};
+use tracing::{Level, Span, debug, error, instrument, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -33,7 +33,6 @@ pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 pub struct SelectChain {
     chain_selector: HeadersTree<Header>,
     sync_tracker: SyncTracker,
-    is_caught_up: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -42,7 +41,7 @@ pub struct SyncTracker {
 }
 
 impl SyncTracker {
-    pub fn new(peers: &[&Peer]) -> Self {
+    pub fn new(peers: &[Peer]) -> Self {
         let peers_state = peers
             .iter()
             .map(|p| ((*p).clone(), SyncState::Syncing))
@@ -53,6 +52,8 @@ impl SyncTracker {
     pub fn caught_up(&mut self, peer: &Peer) {
         if let Some(s) = self.peers_state.get_mut(peer) {
             *s = SyncState::CaughtUp;
+        } else {
+            error!("unknown caught-up peer {}", peer);
         }
     }
 
@@ -68,12 +69,11 @@ pub enum SyncState {
 }
 
 impl SelectChain {
-    pub fn new(chain_selector: HeadersTree<Header>, peers: &Vec<&Peer>) -> Self {
+    pub fn new(chain_selector: HeadersTree<Header>, peers: &[Peer]) -> Self {
         let sync_tracker = SyncTracker::new(peers);
         SelectChain {
             chain_selector,
             sync_tracker,
-            is_caught_up: false,
         }
     }
 
@@ -193,7 +193,6 @@ impl SelectChain {
 
     fn caught_up(&mut self, peer: &Peer) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         self.sync_tracker.caught_up(peer);
-        self.is_caught_up = self.sync_tracker.is_caught_up();
 
         Ok(vec![])
     }
@@ -336,7 +335,7 @@ mod tests {
     async fn is_caught_up_when_all_peers_are_caught_up() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
-        let peers = vec![&alice, &bob];
+        let peers = vec![alice.clone(), bob.clone()];
         let mut tracker = SyncTracker::new(&peers);
 
         tracker.caught_up(&alice);
@@ -349,7 +348,7 @@ mod tests {
     async fn is_not_caught_up_given_some_peer_is_not() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
-        let peers = vec![&alice, &bob];
+        let peers = vec![alice.clone(), bob.clone()];
         let mut tracker = SyncTracker::new(&peers);
 
         tracker.caught_up(&alice);
