@@ -15,7 +15,7 @@
 use crate::{consensus::store_effects::StoreHeaderEffect, span::adopt_current_span};
 
 use super::DecodedChainSyncEvent;
-use pure_stage::{Effects, StageRef, Void};
+use pure_stage::{Effects, StageRef};
 use tracing::{Level, instrument};
 
 #[instrument(
@@ -24,10 +24,10 @@ use tracing::{Level, instrument};
     name = "stage.store_header",
 )]
 pub async fn stage(
-    downstream: StageRef<DecodedChainSyncEvent, Void>,
+    downstream: StageRef<DecodedChainSyncEvent>,
     msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent, StageRef<DecodedChainSyncEvent, Void>>,
-) -> StageRef<DecodedChainSyncEvent, Void> {
+    eff: Effects<DecodedChainSyncEvent>,
+) -> StageRef<DecodedChainSyncEvent> {
     adopt_current_span(&msg);
     match &msg {
         DecodedChainSyncEvent::RollForward {

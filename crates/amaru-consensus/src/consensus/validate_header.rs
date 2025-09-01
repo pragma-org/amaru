@@ -23,7 +23,7 @@ use amaru_kernel::{
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
 use pallas_math::math::FixedDecimal;
-use pure_stage::{Effects, StageRef, Void};
+use pure_stage::{Effects, StageRef};
 use std::{fmt, sync::Arc};
 use tracing::{Instrument, Level, Span, instrument};
 
@@ -121,9 +121,9 @@ impl ValidateHeader {
             point.hash = %Hash::<32>::from(&point),
         )
     )]
-    pub async fn handle_roll_forward<M, S>(
+    pub async fn handle_roll_forward<M>(
         &mut self,
-        eff: &mut Effects<M, S>,
+        eff: &mut Effects<M>,
         peer: Peer,
         point: Point,
         header: Header,
@@ -149,9 +149,9 @@ impl ValidateHeader {
         })
     }
 
-    pub async fn validate_header<M, S>(
+    pub async fn validate_header<M>(
         &mut self,
-        eff: &mut Effects<M, S>,
+        eff: &mut Effects<M>,
         chain_sync: DecodedChainSyncEvent,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
@@ -181,8 +181,8 @@ pub enum UpstreamAction {
 type State = (
     ValidateHeader,
     GlobalParameters,
-    StageRef<DecodedChainSyncEvent, Void>,
-    StageRef<ValidationFailed, Void>,
+    StageRef<DecodedChainSyncEvent>,
+    StageRef<ValidationFailed>,
 );
 
 #[instrument(
@@ -193,7 +193,7 @@ type State = (
 pub async fn stage(
     state: State,
     msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent, State>,
+    eff: Effects<DecodedChainSyncEvent>,
 ) -> State {
     adopt_current_span(&msg);
     let (state, global, downstream, errors) = state;

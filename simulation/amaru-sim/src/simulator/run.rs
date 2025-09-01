@@ -38,7 +38,7 @@ use pallas_crypto::hash::Hash;
 use pallas_primitives::babbage::Header;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::trace_buffer::TraceBuffer;
-use pure_stage::{Instant, Receiver, StageGraph, StageRef, Void};
+use pure_stage::{Instant, Receiver, StageGraph, StageRef};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -87,7 +87,7 @@ fn spawn_node(
     args: Args,
     network: &mut SimulationBuilder,
 ) -> (
-    StageRef<Envelope<ChainSyncMessage>, Void>,
+    StageRef<Envelope<ChainSyncMessage>>,
     Receiver<Envelope<ChainSyncMessage>>,
 ) {
     info!("Spawning node!");

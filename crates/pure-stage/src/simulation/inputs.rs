@@ -45,7 +45,7 @@ impl Inputs {
         }
     }
 
-    pub fn sender<Msg: SendData, St>(&self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
+    pub fn sender<Msg: SendData>(&self, stage: &StageRef<Msg>) -> Sender<Msg> {
         let tx_main = self.tx.clone();
         let stage_name = stage.name();
         Sender::new(Arc::new(move |msg| {

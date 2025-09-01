@@ -47,6 +47,7 @@ pub use blocked::Blocked;
 pub use replay::Replay;
 pub use running::{OverrideResult, SimulationRunning};
 
+use crate::stage_ref::StageStateRef;
 use inputs::Inputs;
 use state::{InitStageData, InitStageState, StageData, StageState, Transition};
 
@@ -212,7 +213,7 @@ impl super::StageGraph for SimulationBuilder {
         mut f: F,
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
-        F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
+        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
@@ -261,7 +262,7 @@ impl super::StageGraph for SimulationBuilder {
         &mut self,
         stage: crate::StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         state: St,
-    ) -> StageRef<Msg, St> {
+    ) -> StageStateRef<Msg, St> {
         let StageBuildRef {
             name,
             network: (),
@@ -271,14 +272,17 @@ impl super::StageGraph for SimulationBuilder {
         let data = self.stages.get_mut(&name).unwrap();
         data.state = InitStageState::Idle(Box::new(state));
 
-        StageRef {
+        StageStateRef {
             name,
             _ph: PhantomData,
         }
     }
 
-    fn input<Msg: SendData, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
-        self.inputs.sender(stage)
+    fn input<Msg: SendData, S>(&mut self, stage: S) -> Sender<Msg>
+    where
+        S: Into<StageRef<Msg>>,
+    {
+        self.inputs.sender(&stage.into())
     }
 
     fn run(self, rt: Handle) -> Self::Running {
