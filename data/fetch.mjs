@@ -23,7 +23,7 @@ const network = (process.argv[2] ?? "").toLowerCase();
 
 const includeSnapshots = (process.argv[3] ?? "false").toLowerCase() == "true";
 
-const ogmiosUrl = process.env.OGMIOS_URL ?? "ws://127.0.0.1:1337"
+const ogmiosUrl = process.env.OGMIOS_URL ?? "ws://127.0.0.1:1337";
 
 if (!["preview", "preprod", "mainnet", "custom"].includes(network)) {
   console.log(`Missing or invalid network.
@@ -36,6 +36,15 @@ Arguments:
                           [default: false]`);
   process.exit(1);
 }
+
+// Check whether stderr is a tty before trying fancy stuff
+const tty = {
+  ok: process.stderr.isTTY && typeof process.stderr.cursorTo === "function",
+  cursorTo: (...args) => tty.ok && process.stderr.cursorTo(...args),
+  clearLine: (...args) => tty.ok && process.stderr.clearLine(...args),
+  clearScreenDown: () => tty.ok && process.stderr.clearScreenDown(),
+  write: (s) => tty.ok ? process.stderr.write(s) : console.error(s),
+};
 
 const queries = [
   {
@@ -80,16 +89,16 @@ let additionalStakeScripts = [];
 
 const configFile = path.join(import.meta.dirname, network, `config.json`);
 
-process.stderr.cursorTo(0, 0);
-process.stderr.clearScreenDown();
+tty.cursorTo(0, 0);
+tty.clearScreenDown();
 
 if (fs.existsSync(configFile)) {
   // Each point corresponds to the last point of the associated epoch.
   const { points: configPoints, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
-    if (!snapshots || !Array.isArray(snapshots)) {
-      console.error(`Invalid or missing snapshots in ${configFile}`);
-      process.exit(1);
-    }
+  if (!snapshots || !Array.isArray(snapshots)) {
+    console.error(`Invalid or missing snapshots in ${configFile}`);
+    process.exit(1);
+  }
 
   const existingPoints = filterExistingPoints(network);
 
@@ -110,16 +119,16 @@ async function fetchContinuously() {
       const eraSummaries = await ws.queryLedgerState("eraSummaries");
 
       const genesisParameters = await ws.queryNetwork("genesisConfiguration", {
-	"era": "shelley"
+	      "era": "shelley"
       });
 
       const networkEpoch = currentEpoch(eraSummaries, genesisParameters);
 
       let frame = 0;
       const spinnerId = setInterval(() => {
-        process.stderr.cursorTo(0, 0);
-        process.stderr.clearLine(0);
-        process.stderr.write(`${spinner[frame]} fetching data until epoch=${networkEpoch}`);
+        tty.cursorTo(0, 0);
+        tty.clearLine(0);
+        tty.write(`${spinner[frame]} fetching data until epoch=${networkEpoch}`);
         frame = (frame + 1) % spinner.length;
       }, 100);
 
@@ -136,18 +145,18 @@ async function fetchContinuously() {
         };
 
         if (previousTip != null) {
-          process.stderr.cursorTo(0, 1);
-          process.stderr.clearLine(0);
-	  const num = relativeSlot(eraSummaries, point.slot);
-	  const den = epochLength(eraSummaries, point.slot);
-          process.stderr.write(`awaiting end of epoch ${previousTip.epoch} (${num}/${den})`);
-	}
+          tty.cursorTo(0, 1);
+          tty.clearLine(0);
+	        const num = relativeSlot(eraSummaries, point.slot);
+	        const den = epochLength(eraSummaries, point.slot);
+          tty.write(`awaiting end of epoch ${previousTip.epoch} (${num}/${den})`);
+	      }
 
         if (previousTip != null && point.epoch > previousTip.epoch) {
-	  // Run the step through a different socket, so that messages don't conflict.
-	  await ogmios(async (ws, done) => {
+	        // Run the step through a different socket, so that messages don't conflict.
+	        await ogmios(async (ws, done) => {
             step(ws, [], 1, previousTip, done);
-	  });
+	        });
         }
 
         if (point.epoch >= networkEpoch) {
@@ -161,14 +170,14 @@ async function fetchContinuously() {
     }, ogmiosUrl);
 
     if (exit === undefined) {
-      process.stderr.cursorTo(0, 0);
-      process.stderr.clearLine(0);
-      process.stderr.write(`failed to connect; retrying...`);
+      tty.cursorTo(0, 0);
+      tty.clearLine(0);
+      tty.write(`failed to connect; retrying...`);
       await sleep(1000);
       return retry(retry);
     } else {
-      process.stderr.cursorTo(0, 0);
-      process.stderr.clearScreenDown();
+      tty.cursorTo(0, 0);
+      tty.clearScreenDown();
       clearInterval(spinnerId);
       return exit;
     }
@@ -183,7 +192,7 @@ async function fetchSpecificPoints(points, snapshots, additionalStakeKeys, addit
   function andThen(ws, done) {
     return (ok, i) => {
       if (ok && points[i + 10] !== undefined) {
-        return step(ws, snapshots, i + 10, points[i + 10], andThen(ws, done))
+        return step(ws, snapshots, i + 10, points[i + 10], andThen(ws, done));
       }
 
       return done(ok);
@@ -192,9 +201,9 @@ async function fetchSpecificPoints(points, snapshots, additionalStakeKeys, addit
 
   let frame = 0;
   const spinnerId = setInterval(() => {
-    process.stderr.cursorTo(0, Math.min(10, points.length));
-    process.stderr.clearLine(0);
-    process.stderr.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)" : ""}`);
+    tty.cursorTo(0, Math.min(10, points.length));
+    tty.clearLine(0);
+    tty.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)" : ""}`);
     frame = (frame + 1) % spinner.length;
   }, 100);
 
@@ -205,16 +214,16 @@ async function fetchSpecificPoints(points, snapshots, additionalStakeKeys, addit
   for (let i = 0; i < Math.min(10, points.length); i += 1) {
     const tryConnect = async (retry) => {
       const exit = await ogmios((ws, done) => {
-        process.stderr.cursorTo(0, i);
-        process.stderr.clearLine(0);
-        process.stderr.write(`${points[i].slot} => scheduling...`);
-        step(ws, snapshots, i, points[i], andThen(ws, done))
-      });
+        tty.cursorTo(0, i);
+        tty.clearLine(0);
+        tty.write(`${points[i].slot} => scheduling...`);
+        step(ws, snapshots, i, points[i], andThen(ws, done));
+      }, ogmiosUrl);
 
       if (exit === undefined) {
-        process.stderr.cursorTo(0, i);
-        process.stderr.clearLine(0);
-        process.stderr.write(`${points[i].slot} => failed to connect; retrying...`);
+        tty.cursorTo(0, i);
+        tty.clearLine(0);
+        tty.write(`${points[i].slot} => failed to connect; retrying...`);
         await sleep(1000);
         return retry(retry);
       } else {
@@ -228,8 +237,8 @@ async function fetchSpecificPoints(points, snapshots, additionalStakeKeys, addit
 
   const results = await Promise.all(tasks);
   clearInterval(spinnerId);
-  process.stderr.cursorTo(0, Math.min(10, points.length));
-  process.stderr.clearLine(0);
+  tty.cursorTo(0, Math.min(10, points.length));
+  tty.clearLine(0);
 
   if (!results.every(exit => exit)) {
     console.error(`exited with failures!`);
@@ -240,24 +249,24 @@ async function fetchSpecificPoints(points, snapshots, additionalStakeKeys, addit
 
 function step(ws, snapshots, i, point, done) {
   ws.once("message", async (data) => {
-    process.stderr.cursorTo(0, i % 10);
+    tty.cursorTo(0, i % 10);
 
     const { error } = Json.parse(data);
 
     if (error) {
       if (error.code !== 2000 || !/doesn't or no longer exist/.test(error.data)) {
-        process.stderr.clearLine(0);
-        process.stderr.write(`${point.slot} => [error ${error.code}] ${error.message} (${error.data})`);
+        tty.clearLine(0);
+        tty.write(`${point.slot} => [error ${error.code}] ${error.message} (${error.data})`);
         return done(false, i);
       }
 
-      process.stderr.write(`${point.slot} => not available yet...`);
-      process.stderr.cursorTo(0, i % 10);
+      tty.write(`${point.slot} => not available yet...`);
+      tty.cursorTo(0, i % 10);
       return setTimeout(() => step(ws, snapshots, i, point, done), 500);
     }
 
-    process.stderr.clearLine(0);
-    process.stderr.write(`${point.slot} => querying...`);
+    tty.clearLine(0);
+    tty.write(`${point.slot} => querying...`);
 
     if (includeSnapshots && snapshots.includes(point.epoch)) {
       const to = path.join(snapshotsDir, `${point.slot}.${point.id}.cbor`);
@@ -269,13 +278,13 @@ function step(ws, snapshots, i, point, done) {
       const { query, getFilename } = queries[q];
       const filename = getFilename(point);
       fs.mkdirSync(path.dirname(filename), { recursive: true });
-      result = await query(ws, result)
+      result = await query(ws, result);
       fs.writeFileSync(filename, Json.stringify(result, null, 2));
     }
 
-    process.stderr.cursorTo(0, i % 10);
-    process.stderr.clearLine(0);
-    process.stderr.write(`${point.slot} => ✓`);
+    tty.cursorTo(0, i % 10);
+    tty.clearLine(0);
+    tty.write(`${point.slot} => ✓`);
 
     done(true, i);
   });
@@ -317,7 +326,7 @@ function collectAddressType(addressType) {
     }
 
     return accum;
-  }
+  };
 }
 
 function outDir(prefix, point) {
@@ -325,7 +334,7 @@ function outDir(prefix, point) {
 }
 
 function fetchRewardsProvenance(ws) {
-  return ws.queryLedgerState("rewardsProvenance")
+  return ws.queryLedgerState("rewardsProvenance");
 }
 
 async function fetchDReps(ws, { stakePools }) {
@@ -456,7 +465,7 @@ function slotToEpoch(eraSummaries, slot) {
 };
 
 function fetchPots(ws) {
-  return ws.queryLedgerState("treasuryAndReserves")
+  return ws.queryLedgerState("treasuryAndReserves");
 }
 
 function fetchPools(ws) {
