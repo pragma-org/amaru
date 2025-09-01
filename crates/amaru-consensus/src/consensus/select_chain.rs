@@ -44,15 +44,20 @@ impl SyncTracker {
     pub fn new(peers: &[Peer]) -> Self {
         let peers_state = peers
             .iter()
-            .map(|p| ((*p).clone(), SyncState::Syncing))
+            .map(|p| (p.clone(), SyncState::Syncing))
             .collect();
         Self { peers_state }
     }
 
     pub fn caught_up(&mut self, peer: &Peer) {
         if let Some(s) = self.peers_state.get_mut(peer) {
-            *s = SyncState::CaughtUp;
-            info!(%peer, "caught-up");
+            match s {
+                SyncState::Syncing => {
+                    *s = SyncState::CaughtUp;
+                    info!(%peer, "caught-up");
+                }
+                SyncState::CaughtUp => (),
+            }
         } else {
             warn!("unknown caught-up peer {}", peer);
         }
