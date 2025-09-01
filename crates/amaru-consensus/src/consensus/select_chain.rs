@@ -25,7 +25,7 @@ use pure_stage::{Effects, StageRef, Void};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
-use tracing::{Level, Span, debug, error, instrument, trace};
+use tracing::{Level, Span, debug, info, instrument, trace, warn};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -52,8 +52,9 @@ impl SyncTracker {
     pub fn caught_up(&mut self, peer: &Peer) {
         if let Some(s) = self.peers_state.get_mut(peer) {
             *s = SyncState::CaughtUp;
+            info!(%peer, "caught-up");
         } else {
-            error!("unknown caught-up peer {}", peer);
+            warn!("unknown caught-up peer {}", peer);
         }
     }
 
