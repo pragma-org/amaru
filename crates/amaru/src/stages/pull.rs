@@ -18,8 +18,7 @@ use amaru_kernel::{Point, peer::Peer};
 use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse, Tip};
-use std::sync::{Arc, RwLock};
-use tracing::{Level, debug, instrument};
+use tracing::{Level, Span, debug, instrument};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
@@ -32,19 +31,17 @@ pub enum WorkUnit {
 #[derive(Stage)]
 #[stage(name = "stage.chain_sync_client", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
+    pub peer: Peer,
     pub client: ChainSyncClient,
     pub downstream: DownstreamPort,
 }
 
 impl Stage {
-    pub fn new(
-        peer: Peer,
-        chain_sync: Client<HeaderContent>,
-        intersection: Vec<Point>,
-        is_catching_up: Arc<RwLock<bool>>,
-    ) -> Self {
+    pub fn new(peer: Peer, chain_sync: Client<HeaderContent>, intersection: Vec<Point>) -> Self {
+        let client = ChainSyncClient::new(peer.clone(), chain_sync, intersection);
         Self {
-            client: ChainSyncClient::new(peer, chain_sync, intersection, is_catching_up),
+            peer,
+            client,
             downstream: Default::default(),
         }
     }
@@ -64,6 +61,14 @@ impl Stage {
             .roll_back(rollback_point, tip)
             .await
             .or_panic()?;
+        self.downstream.send(event.into()).await.or_panic()
+    }
+
+    pub async fn caught_up(&mut self) -> Result<(), WorkerError> {
+        let event = ChainSyncEvent::CaughtUp {
+            peer: self.peer.clone(),
+            span: Span::current(),
+        };
         self.downstream.send(event.into()).await.or_panic()
     }
 }
@@ -118,7 +123,7 @@ impl gasket::framework::Worker<Stage> for Worker {
             NextResponse::RollBackward(point, tip) => {
                 stage.roll_back(from_network_point(&point), tip).await?;
             }
-            NextResponse::Await => {}
+            NextResponse::Await => stage.caught_up().await?,
         };
 
         Ok(())

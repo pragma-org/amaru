@@ -15,7 +15,7 @@
 use crate::{schedule, send};
 use amaru_consensus::{IsHeader, span::adopt_current_span};
 use amaru_kernel::{
-    EraHistory, Hash, Hasher, MintedBlock, Network, Point, RawBlock,
+    EraHistory, Hasher, MintedBlock, Network, Point, RawBlock,
     block::{BlockValidationResult, ValidateBlockEvent},
     network::NetworkName,
     protocol_parameters::GlobalParameters,
@@ -32,8 +32,7 @@ use amaru_ledger::{
 };
 use anyhow::Context;
 use gasket::framework::{WorkSchedule, WorkerError};
-use std::sync::{Arc, RwLock};
-use tracing::{Level, Span, error, info, instrument, trace};
+use tracing::{Level, Span, error, instrument};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
@@ -46,7 +45,6 @@ where
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
     pub state: state::State<S, HS>,
-    is_catching_up: Arc<RwLock<bool>>,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
@@ -71,7 +69,6 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         network: NetworkName,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
-        is_catching_up: Arc<RwLock<bool>>,
     ) -> Result<(Self, Point), StoreError> {
         let state = state::State::new(store, snapshots, network, era_history, global_parameters)?;
 
@@ -82,7 +79,6 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
-                is_catching_up,
             },
             tip,
         ))
@@ -147,13 +143,6 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     ) -> anyhow::Result<Result<u64, InvalidBlockDetails>> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
         let mut context = self.create_validation_context(&block)?;
-
-        let is_catching_up = self.is_catching_up.read().map(|b| *b).unwrap_or(true);
-        if is_catching_up {
-            trace!(point.slot = %point.slot_or_default(), point.hash = %Hash::<32>::from(&point), "chain.extended");
-        } else {
-            info!(tip.slot = %point.slot_or_default(), tip.hash = %Hash::<32>::from(&point), "chain.extended");
-        }
 
         match rules::validate_block(
             &mut context,

@@ -367,5 +367,5 @@ fn make_chain_selector(
         tree.initialize_peer(peer, &root_hash)
             .expect("the root node is guaranteed to already be in the tree")
     }
-    SelectChain::new(tree)
+    SelectChain::new(tree, &peers.iter().collect())
 }

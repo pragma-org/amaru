@@ -23,19 +23,58 @@ use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
 use pure_stage::{Effects, StageRef, Void};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
-use tracing::{Level, Span, instrument, trace};
+use tracing::{Level, Span, debug, instrument, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct SelectChain {
     chain_selector: HeadersTree<Header>,
+    sync_tracker: SyncTracker,
+    is_caught_up: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct SyncTracker {
+    peers_state: BTreeMap<Peer, SyncState>,
+}
+
+impl SyncTracker {
+    pub fn new(peers: &[&Peer]) -> Self {
+        let peers_state = peers
+            .iter()
+            .map(|p| ((*p).clone(), SyncState::Syncing))
+            .collect();
+        Self { peers_state }
+    }
+
+    pub fn caught_up(&mut self, peer: &Peer) {
+        if let Some(s) = self.peers_state.get_mut(peer) {
+            *s = SyncState::CaughtUp;
+        }
+    }
+
+    pub fn is_caught_up(&self) -> bool {
+        self.peers_state.values().all(|s| *s == SyncState::CaughtUp)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub enum SyncState {
+    Syncing,
+    CaughtUp,
 }
 
 impl SelectChain {
-    pub fn new(chain_selector: HeadersTree<Header>) -> Self {
-        SelectChain { chain_selector }
+    pub fn new(chain_selector: HeadersTree<Header>, peers: &Vec<&Peer>) -> Self {
+        let sync_tracker = SyncTracker::new(peers);
+        SelectChain {
+            chain_selector,
+            sync_tracker,
+            is_caught_up: false,
+        }
     }
 
     fn forward_block(peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
@@ -75,7 +114,8 @@ impl SelectChain {
 
         let events = match result {
             ForwardChainSelection::NewTip { peer, tip } => {
-                trace!(target: EVENT_TARGET, hash = %tip.hash(), "new_tip");
+                debug!(target: EVENT_TARGET, hash = %tip.hash(), slot = %tip.slot(), "new_tip");
+
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
@@ -83,7 +123,8 @@ impl SelectChain {
                 rollback_point,
                 fork,
             }) => {
-                trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
+                debug!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
+
                 SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
             ForwardChainSelection::NoChange => {
@@ -110,12 +151,16 @@ impl SelectChain {
                 peer,
                 rollback_point,
                 fork,
-            }) => Ok(SelectChain::switch_to_fork(
-                peer,
-                rollback_point,
-                fork,
-                span,
-            )),
+            }) => {
+                debug!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
+
+                Ok(SelectChain::switch_to_fork(
+                    peer,
+                    rollback_point,
+                    fork,
+                    span,
+                ))
+            }
             RollbackChainSelection::NoChange => Ok(vec![]),
             RollbackChainSelection::RollbackBeyondLimit {
                 peer,
@@ -142,7 +187,15 @@ impl SelectChain {
                 rollback_point,
                 span,
             } => self.select_rollback(peer, rollback_point, span).await,
+            DecodedChainSyncEvent::CaughtUp { peer, .. } => self.caught_up(&peer),
         }
+    }
+
+    fn caught_up(&mut self, peer: &Peer) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
+        self.sync_tracker.caught_up(peer);
+        self.is_caught_up = self.sync_tracker.is_caught_up();
+
+        Ok(vec![])
     }
 }
 
@@ -276,4 +329,36 @@ pub async fn stage(
     }
 
     (select_chain, downstream, errors)
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::peer::Peer;
+
+    use crate::consensus::select_chain::SyncTracker;
+
+    #[tokio::test]
+    async fn is_caught_up_when_all_peers_are_caught_up() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let peers = vec![&alice, &bob];
+        let mut tracker = SyncTracker::new(&peers);
+
+        tracker.caught_up(&alice);
+        tracker.caught_up(&bob);
+
+        assert!(tracker.is_caught_up());
+    }
+
+    #[tokio::test]
+    async fn is_not_caught_up_given_some_peer_is_not() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let peers = vec![&alice, &bob];
+        let mut tracker = SyncTracker::new(&peers);
+
+        tracker.caught_up(&alice);
+
+        assert!(!tracker.is_caught_up());
+    }
 }

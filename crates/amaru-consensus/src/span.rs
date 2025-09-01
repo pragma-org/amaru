@@ -45,6 +45,7 @@ mod impls {
             match self {
                 ChainSyncEvent::RollForward { span, .. } => span.context(),
                 ChainSyncEvent::Rollback { span, .. } => span.context(),
+                ChainSyncEvent::CaughtUp { span, .. } => span.context(),
             }
         }
     }
@@ -54,6 +55,7 @@ mod impls {
             match self {
                 DecodedChainSyncEvent::RollForward { span, .. } => span.context(),
                 DecodedChainSyncEvent::Rollback { span, .. } => span.context(),
+                DecodedChainSyncEvent::CaughtUp { span, .. } => span.context(),
             }
         }
     }

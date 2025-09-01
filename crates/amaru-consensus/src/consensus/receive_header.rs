@@ -97,6 +97,10 @@ pub async fn stage(
             )
             .await
         }
+        ChainSyncEvent::CaughtUp { peer, span } => {
+            eff.send(&downstream, DecodedChainSyncEvent::CaughtUp { peer, span })
+                .await
+        }
     }
     (downstream, errors)
 }

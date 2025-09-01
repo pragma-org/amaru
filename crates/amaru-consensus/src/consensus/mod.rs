@@ -117,6 +117,11 @@ pub enum ChainSyncEvent {
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
+    CaughtUp {
+        peer: Peer,
+        #[serde(skip, default = "Span::none")]
+        span: Span,
+    },
 }
 
 impl fmt::Debug for ChainSyncEvent {
@@ -145,6 +150,10 @@ impl fmt::Debug for ChainSyncEvent {
                 .field("peer", &peer.name)
                 .field("rollback_point", &rollback_point.to_string())
                 .finish(),
+            ChainSyncEvent::CaughtUp { peer, .. } => f
+                .debug_struct("CaughtUp")
+                .field("peer", &peer.name)
+                .finish(),
         }
     }
 }
@@ -165,6 +174,11 @@ pub enum DecodedChainSyncEvent {
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
+    CaughtUp {
+        peer: Peer,
+        #[serde(skip, default = "Span::none")]
+        span: Span,
+    },
 }
 
 impl DecodedChainSyncEvent {
@@ -172,6 +186,7 @@ impl DecodedChainSyncEvent {
         match self {
             DecodedChainSyncEvent::RollForward { peer, .. } => peer.clone(),
             DecodedChainSyncEvent::Rollback { peer, .. } => peer.clone(),
+            DecodedChainSyncEvent::CaughtUp { peer, .. } => peer.clone(),
         }
     }
 
@@ -179,6 +194,7 @@ impl DecodedChainSyncEvent {
         match self {
             DecodedChainSyncEvent::RollForward { point, .. } => point.clone(),
             DecodedChainSyncEvent::Rollback { rollback_point, .. } => rollback_point.clone(),
+            DecodedChainSyncEvent::CaughtUp { .. } => todo!(),
         }
     }
 }
@@ -205,6 +221,10 @@ impl fmt::Debug for DecodedChainSyncEvent {
                 .debug_struct("Rollback")
                 .field("peer", &peer.name)
                 .field("rollback_point", &rollback_point.to_string())
+                .finish(),
+            DecodedChainSyncEvent::CaughtUp { peer, .. } => f
+                .debug_struct("CaughtUp")
+                .field("peer", &peer.name)
                 .finish(),
         }
     }

@@ -51,12 +51,7 @@ use pallas_network::{
     },
 };
 use pure_stage::{StageGraph, tokio::TokioBuilder};
-use std::{
-    error::Error,
-    fmt::Display,
-    path::PathBuf,
-    sync::{Arc, RwLock},
-};
+use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -168,14 +163,11 @@ pub fn bootstrap(
 
     let peers: Vec<Peer> = clients.iter().map(|c| Peer::new(&c.0)).collect();
 
-    let is_catching_up = Arc::new(RwLock::new(true));
-
     let (mut ledger_stage, tip) = make_ledger(
         &config,
         config.network,
         era_history.clone(),
         global_parameters.clone(),
-        is_catching_up.clone(),
     )?;
 
     let (chain_syncs, block_fetchs): (
@@ -200,14 +192,7 @@ pub fn bootstrap(
 
     let mut stages = chain_syncs
         .into_iter()
-        .map(|session| {
-            pull::Stage::new(
-                session.0,
-                session.1,
-                vec![tip.clone()],
-                is_catching_up.clone(),
-            )
-        })
+        .map(|session| pull::Stage::new(session.0, session.1, vec![tip.clone()]))
         .collect::<Vec<_>>();
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
@@ -383,7 +368,6 @@ fn make_ledger(
     network: NetworkName,
     era_history: EraHistory,
     global_parameters: GlobalParameters,
-    is_catching_up: Arc<RwLock<bool>>,
 ) -> Result<(LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
     match &config.ledger_store {
         StorePath::InMem(store) => {
@@ -393,7 +377,6 @@ fn make_ledger(
                 network,
                 era_history,
                 global_parameters,
-                is_catching_up,
             )?;
             Ok((LedgerStage::InMemLedgerStage(Box::new(ledger)), tip))
         }
@@ -407,7 +390,6 @@ fn make_ledger(
                 network,
                 era_history,
                 global_parameters,
-                is_catching_up,
             )?;
             Ok((LedgerStage::OnDiskLedgerStage(ledger), tip))
         }
@@ -431,7 +413,7 @@ fn make_chain_selector(
         tree.initialize_peer(peer, &root_hash)?;
     }
 
-    Ok(SelectChain::new(tree))
+    Ok(SelectChain::new(tree, &peers.iter().collect()))
 }
 
 pub trait PallasPoint {
