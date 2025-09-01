@@ -14,13 +14,15 @@
 
 use crate::echo::Envelope;
 use anyhow::anyhow;
-use pure_stage::simulation::SimulationRunning;
-use pure_stage::{Receiver, StageRef};
+use pure_stage::simulation::SimulationBuilder;
+use pure_stage::stage_ref::StageStateRef;
+use pure_stage::{MpscSender, StageGraph, StageRef};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use tokio::runtime::Handle;
 use tracing::info;
 
 /// A `NodeHandle` is an async function that sends an Envelope<Msg> to a node and returns a list of Envelope<Msg>.
@@ -58,18 +60,29 @@ impl<Msg> NodeHandle<Msg> {
     ///  * `running` is the simulated node, waiting for messages to arrive.
     ///
     pub fn from_pure_stage(
-        input: StageRef<Envelope<Msg>>,
-        mut output: Receiver<Envelope<Msg>>,
-        mut running: SimulationRunning,
+        rt: Handle,
+        network: SimulationBuilder,
+        input: impl AsRef<StageRef<Envelope<Msg>>>,
+        out: StageStateRef<Envelope<Msg>, MpscSender<Envelope<Msg>>>,
     ) -> anyhow::Result<NodeHandle<Msg>>
     where
-        Msg: PartialEq + Send + Debug + serde::Serialize + serde::de::DeserializeOwned + 'static,
+        Msg: PartialEq
+            + Clone
+            + Send
+            + Debug
+            + serde::Serialize
+            + serde::de::DeserializeOwned
+            + 'static,
     {
+        let mut network = network;
+        let mut rx = network.output(&out, 10);
+        let mut running = network.run(rt);
+        let input = input.as_ref().clone();
         let handle = Box::new(move |msg: Envelope<Msg>| {
             info!(msg = ?msg, "enqueuing");
             running.enqueue_msg(&input, [msg]);
             running.run_until_blocked().assert_idle();
-            Ok(output.drain().collect::<Vec<_>>())
+            Ok(rx.drain().collect::<Vec<_>>())
         });
 
         let close = Box::new(move || ());

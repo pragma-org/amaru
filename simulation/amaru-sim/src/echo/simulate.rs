@@ -22,15 +22,24 @@ use pure_stage::{Instant, StageGraph, StageRef};
 use rand::prelude::StdRng;
 use std::cmp::Reverse;
 use std::time::Duration;
+use tokio::runtime::Runtime;
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct State(u64, StageRef<Envelope<EchoMessage>>);
+
+impl State {
+    fn new(counter: u64, output: impl AsRef<StageRef<Envelope<EchoMessage>>>) -> Self {
+        Self(counter, output.as_ref().clone())
+    }
+}
 
 /// Start a node that has just one "echo" stage.
 /// The regular echo behavior is to respond with the same message that was sent.
 /// However we simulate a bug here where every 5th message is uppercased.
 pub fn spawn_echo_node() -> NodeHandle<EchoMessage> {
     let mut network = SimulationBuilder::default();
+    let output = network.make_stage("output");
+
     let stage = network.stage(
         "echo",
         async |mut state: State, msg: Envelope<EchoMessage>, eff| {
@@ -57,13 +66,15 @@ pub fn spawn_echo_node() -> NodeHandle<EchoMessage> {
                 panic!("Got a message that wasn't an echo: {:?}", msg.body)
             }
         },
+        State::new(0, &output),
     );
-    let (output, rx) = network.output("output", 10);
-    let stage = network.wire_up(stage, State(0, output));
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let running = network.run(rt.handle().clone());
-
-    NodeHandle::from_pure_stage(stage.without_state(), rx, running).unwrap()
+    NodeHandle::from_pure_stage(
+        Runtime::new().unwrap().handle().clone(),
+        network,
+        stage,
+        output,
+    )
+    .unwrap()
 }
 
 /// Generate some input echo messages at different arrival times.

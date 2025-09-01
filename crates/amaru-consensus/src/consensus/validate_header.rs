@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::DecodedChainSyncEvent;
 use crate::{
     ConsensusError,
     consensus::{ValidationFailed, store_effects::EvolveNonceEffect},
@@ -22,154 +23,11 @@ use amaru_kernel::{
 };
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
+use async_trait::async_trait;
 use pallas_math::math::FixedDecimal;
-use pure_stage::{Effects, StageRef};
-use std::{fmt, sync::Arc};
-use tracing::{Instrument, Level, Span, instrument};
-
-use super::DecodedChainSyncEvent;
-
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    fields(
-        issuer.key = %header.header_body.issuer_vkey,
-    ),
-)]
-pub fn header_is_valid(
-    point: &Point,
-    header: &Header,
-    raw_header_body: &[u8],
-    epoch_nonce: &Nonce,
-    ledger: &dyn HasStakeDistribution,
-    global_parameters: &GlobalParameters,
-) -> Result<(), ConsensusError> {
-    let active_slot_coeff: FixedDecimal = FixedDecimal::from(1_u64)
-        / FixedDecimal::from(global_parameters.active_slot_coeff_inverse as u64);
-
-    praos::header::assert_all(
-        header,
-        raw_header_body,
-        ledger,
-        epoch_nonce,
-        &active_slot_coeff,
-    )
-    .and_then(|assertions| {
-        use rayon::prelude::*;
-        assertions.into_par_iter().try_for_each(|assert| assert())
-    })
-    .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
-}
-
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct ValidateHeader {
-    #[serde(skip, default = "default_ledger")]
-    pub ledger: Arc<dyn HasStakeDistribution>,
-}
-
-impl PartialEq for ValidateHeader {
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
-}
-
-fn default_ledger() -> Arc<dyn HasStakeDistribution> {
-    struct Fake;
-    impl HasStakeDistribution for Fake {
-        fn get_pool(
-            &self,
-            _slot: amaru_kernel::Slot,
-            _pool: &amaru_kernel::PoolId,
-        ) -> Option<amaru_ouroboros::PoolSummary> {
-            unimplemented!()
-        }
-
-        fn slot_to_kes_period(&self, _slot: amaru_kernel::Slot) -> u64 {
-            unimplemented!()
-        }
-
-        fn max_kes_evolutions(&self) -> u64 {
-            unimplemented!()
-        }
-
-        fn latest_opcert_sequence_number(&self, _pool: &amaru_kernel::PoolId) -> Option<u64> {
-            unimplemented!()
-        }
-    }
-    Arc::new(Fake)
-}
-
-impl fmt::Debug for ValidateHeader {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ValidateHeader")
-            .field("ledger", &"<dyn HasStakeDistribution>")
-            .finish()
-    }
-}
-
-impl ValidateHeader {
-    pub fn new(ledger: Arc<dyn HasStakeDistribution>) -> Self {
-        Self { ledger }
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "consensus.roll_forward",
-        fields(
-            point.slot = %point.slot_or_default(),
-            point.hash = %Hash::<32>::from(&point),
-        )
-    )]
-    pub async fn handle_roll_forward<M>(
-        &mut self,
-        eff: &mut Effects<M>,
-        peer: Peer,
-        point: Point,
-        header: Header,
-        global_parameters: &GlobalParameters,
-    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
-        let nonces = eff.external(EvolveNonceEffect::new(header.clone())).await?;
-        let epoch_nonce = &nonces.active;
-
-        header_is_valid(
-            &point,
-            &header,
-            to_cbor(&header.header_body).as_slice(),
-            epoch_nonce,
-            self.ledger.as_ref(),
-            global_parameters,
-        )?;
-
-        Ok(DecodedChainSyncEvent::RollForward {
-            peer,
-            point,
-            header,
-            span: Span::current(),
-        })
-    }
-
-    pub async fn validate_header<M>(
-        &mut self,
-        eff: &mut Effects<M>,
-        chain_sync: DecodedChainSyncEvent,
-        global_parameters: &GlobalParameters,
-    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
-        match chain_sync {
-            DecodedChainSyncEvent::RollForward {
-                peer,
-                point,
-                header,
-                ..
-            } => {
-                self.handle_roll_forward(eff, peer, point, header, global_parameters)
-                    .await
-            }
-            DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
-            DecodedChainSyncEvent::CaughtUp { .. } => Ok(chain_sync),
-        }
-    }
-}
+use pure_stage::{Effects, Stage, StageRef};
+use std::sync::Arc;
+use tracing::{Level, instrument};
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum UpstreamAction {
@@ -178,83 +36,118 @@ pub enum UpstreamAction {
     OnlyLogging,
 }
 
-type State = (
-    ValidateHeader,
-    GlobalParameters,
-    StageRef<DecodedChainSyncEvent>,
-    StageRef<ValidationFailed>,
-);
+#[derive(Clone)]
+pub struct ValidateHeader {
+    global_parameters: GlobalParameters,
+    ledger: Arc<dyn HasStakeDistribution>,
+    downstream: StageRef<DecodedChainSyncEvent>,
+    errors: StageRef<ValidationFailed>,
+}
 
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.validate_header",
-)]
-pub async fn stage(
-    state: State,
-    msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent>,
-) -> State {
-    adopt_current_span(&msg);
-    let (state, global, downstream, errors) = state;
-
-    let (peer, point, header) = match &msg {
-        DecodedChainSyncEvent::RollForward {
-            peer,
-            point,
-            header,
-            ..
-        } => (peer, point, header),
-        DecodedChainSyncEvent::Rollback { .. } => {
-            eff.send(&downstream, msg).await;
-            return (state, global, downstream, errors);
+impl ValidateHeader {
+    pub fn new(
+        global_parameters: &GlobalParameters,
+        ledger: Arc<dyn HasStakeDistribution>,
+        downstream: impl AsRef<StageRef<DecodedChainSyncEvent>>,
+        errors: impl AsRef<StageRef<ValidationFailed>>,
+    ) -> Self {
+        Self {
+            global_parameters: global_parameters.clone(),
+            ledger,
+            downstream: downstream.as_ref().clone(),
+            errors: errors.as_ref().clone(),
         }
-        DecodedChainSyncEvent::CaughtUp { .. } => {
-            eff.send(&downstream, msg).await;
-            return (state, global, downstream, errors);
-        }
-    };
+    }
 
-    let span = tracing::trace_span!(
-        "consensus.roll_forward",
-        point.slot = %point.slot_or_default(),
-        point.hash = %Hash::<32>::from(point),
-    );
-
-    let send_downstream = async {
-        let nonces = match eff.external(EvolveNonceEffect::new(header.clone())).await {
-            Ok(nonces) => nonces,
-            Err(error) => {
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        fields(point.slot=%point.slot_or_default(),
+        point.hash=%Hash::<32>::from(point)),
+    )]
+    async fn validate(
+        &self,
+        eff: &Effects<DecodedChainSyncEvent>,
+        peer: &Peer,
+        point: &Point,
+        header: &Header,
+    ) -> Result<(), ValidationFailed> {
+        let nonces = eff
+            .external(EvolveNonceEffect::new(header.clone()))
+            .await
+            .map_err(|error| {
                 tracing::error!(%peer, %error, "evolve nonce failed");
-                eff.send(&errors, ValidationFailed::new(peer.clone(), error.into()))
-                    .await;
-                return false;
-            }
-        };
-        let epoch_nonce = &nonces.active;
+                ValidationFailed::new(peer.clone(), ConsensusError::NoncesError(error))
+            })?;
 
-        if let Err(error) = header_is_valid(
+        self.header_is_valid(
             point,
             header,
             to_cbor(&header.header_body).as_slice(),
-            epoch_nonce,
-            state.ledger.as_ref(),
-            &global,
-        ) {
+            &nonces.active,
+        )
+        .map_err(|error| {
             tracing::info!(%peer, %error, "invalid header");
-            eff.send(&errors, ValidationFailed::new(peer.clone(), error))
-                .await;
-            false
+            ValidationFailed::new(peer.clone(), error)
+        })
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        fields(issuer.key = %header.header_body.issuer_vkey)
+    )]
+    fn header_is_valid(
+        &self,
+        point: &Point,
+        header: &Header,
+        raw_header_body: &[u8],
+        epoch_nonce: &Nonce,
+    ) -> Result<(), ConsensusError> {
+        let active_slot_coeff: FixedDecimal = FixedDecimal::from(1_u64)
+            / FixedDecimal::from(self.global_parameters.active_slot_coeff_inverse as u64);
+
+        praos::header::assert_all(
+            header,
+            raw_header_body,
+            self.ledger.as_ref(),
+            epoch_nonce,
+            &active_slot_coeff,
+        )
+        .and_then(|assertions| {
+            use rayon::prelude::*;
+            assertions.into_par_iter().try_for_each(|assert| assert())
+        })
+        .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
+    }
+}
+
+#[async_trait]
+impl Stage<DecodedChainSyncEvent, ()> for ValidateHeader {
+    fn initial_state(&self) {}
+
+    #[instrument(level = Level::TRACE, skip_all, name = "stage.validate_header")]
+    async fn run(
+        &self,
+        _state: (),
+        msg: DecodedChainSyncEvent,
+        eff: Effects<DecodedChainSyncEvent>,
+    ) {
+        adopt_current_span(&msg);
+        if let DecodedChainSyncEvent::RollForward {
+            ref peer,
+            ref point,
+            ref header,
+            ..
+        } = msg
+        {
+            if let Some(e) = self.validate(&eff, peer, point, header).await.err() {
+                eff.send(&self.errors, e).await
+            } else {
+                eff.send(&self.downstream, msg).await
+            }
         } else {
-            true
+            eff.send(&self.downstream, msg).await
         }
     }
-    .instrument(span)
-    .await;
-
-    if send_downstream {
-        eff.send(&downstream, msg).await;
-    }
-
-    (state, global, downstream, errors)
 }

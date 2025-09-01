@@ -35,8 +35,8 @@ pub use receiver::Receiver;
 pub use resources::Resources;
 pub use sender::Sender;
 pub use stage_ref::{StageBuildRef, StageRef};
-pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning};
+pub use stagegraph::{CallId, CallRef, Stage, StageGraph, StageGraphRunning};
 pub use time::{Clock, EPOCH, Instant};
-pub use types::{BoxFuture, Name, SendData};
+pub use types::{BoxFuture, MpscSender, Name, SendData};
 
 pub use typetag;

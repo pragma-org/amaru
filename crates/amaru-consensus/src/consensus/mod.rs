@@ -12,11 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
-
-use crate::{ConsensusError, consensus::select_chain::SelectChain, is_header::IsHeader};
+use crate::consensus::receive_header::ReceiveHeader;
+use crate::consensus::select_chain::SelectChain;
+use crate::consensus::store_header::StoreHeader;
+use crate::consensus::upstream_errors::UpstreamErrors;
+use crate::consensus::validate_header::ValidateHeader;
+use crate::{ConsensusError, consensus::select_chain::SelectChainState, is_header::IsHeader};
 use amaru_kernel::{Header, Point, peer::Peer, protocol_parameters::GlobalParameters};
+use amaru_ouroboros_traits::HasStakeDistribution;
 use pure_stage::{StageGraph, StageRef};
+use std::fmt;
+use std::sync::Arc;
 use tracing::Span;
 
 pub mod headers_tree;
@@ -27,66 +33,39 @@ pub mod store_block;
 pub mod store_effects;
 pub mod store_header;
 pub mod tip;
+mod upstream_errors;
 pub mod validate_header;
 
 pub const EVENT_TARGET: &str = "amaru::consensus";
 
-pub fn build_stage_graph(
+pub fn build_consensus_stages(
     global_parameters: &GlobalParameters,
-    consensus: validate_header::ValidateHeader,
-    chain_selector: SelectChain,
+    ledger: Arc<dyn HasStakeDistribution>,
+    chain_selector: SelectChainState,
     network: &mut impl StageGraph,
-    outputs: StageRef<ValidateHeaderEvent>,
+    outputs: impl AsRef<StageRef<ValidateHeaderEvent>>,
 ) -> StageRef<ChainSyncEvent> {
-    let receive_header_stage = network.stage("receive_header", receive_header::stage);
-    let store_header_stage = network.stage("store_header", store_header::stage);
-    let validate_header_stage = network.stage("validate_header", validate_header::stage);
-    let select_chain_stage = network.stage("select_chain", select_chain::stage);
+    let upstream_errors = network.make_stage("upstream_errors");
+    let receive_header = network.make_stage("receive_header");
+    let store_header = network.make_stage("store_header");
+    let validate_header = network.make_stage("validate_header");
+    let select_chain = network.make_stage("select_chain");
 
-    // TODO: currently only validate_header errors, will need to grow into all error handling
-    let upstream_errors_stage = network.stage("upstream_errors", async |_, msg, eff| {
-        let ValidationFailed { peer, error } = msg;
-        tracing::error!(%peer, %error, "invalid header");
-
-        // TODO: implement specific actions once we have an upstream network
-
-        // termination here will tear down the entire stage graph
-        eff.terminate().await
-    });
-
-    let upstream_errors_stage = network.wire_up(upstream_errors_stage, ());
-
-    let select_chain_stage = network.wire_up(
-        select_chain_stage,
-        (
-            chain_selector,
-            outputs,
-            upstream_errors_stage.clone().without_state(),
-        ),
+    let upstream_errors = network.register(&upstream_errors, UpstreamErrors);
+    network.register(
+        &receive_header,
+        ReceiveHeader::new(&store_header, &upstream_errors),
     );
-
-    let validate_header_stage = network.wire_up(
-        validate_header_stage,
-        (
-            consensus,
-            global_parameters.clone(),
-            select_chain_stage.without_state(),
-            upstream_errors_stage.clone().without_state(),
-        ),
+    network.register(&store_header, StoreHeader::new(&validate_header));
+    network.register(
+        &validate_header,
+        ValidateHeader::new(global_parameters, ledger, &select_chain, &upstream_errors),
     );
-
-    let store_header_stage =
-        network.wire_up(store_header_stage, validate_header_stage.without_state());
-
-    let receive_header_stage = network.wire_up(
-        receive_header_stage,
-        (
-            store_header_stage.without_state(),
-            upstream_errors_stage.without_state(),
-        ),
+    network.register(
+        &select_chain,
+        SelectChain::new(chain_selector, outputs, &upstream_errors),
     );
-
-    receive_header_stage.without_state()
+    receive_header.without_state()
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

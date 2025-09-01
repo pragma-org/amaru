@@ -17,9 +17,12 @@ use crate::{
     BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
     StageBuildRef, StageRef, types::MpscSender,
 };
+use async_trait::async_trait;
+use serde::Serialize;
+use std::pin::Pin;
+use std::sync::Arc;
 use std::{
     fmt::Debug,
-    future::Future,
     marker::PhantomData,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -98,47 +101,80 @@ impl<Resp: SendData> CallRef<Resp> {
 
 /// A factory for processing network stages and their wiring.
 ///
-/// Network construction proceeds in two phases:
-/// 1. create stages, providing their transition functions
-/// 2. wire up the stages by providing their initial state (which usually includes [`StageRef`]s for sending to other stages)
-/// 3. populate the resources collection with the necessary resources
+/// Network construction proceeds in 3 phases:
 ///
-/// If you forget to call [`wire_up`](StageGraph::wire_up) on a stage, the simulation will panic.
+/// 1. create stage references
+/// 2. associate each stage reference with a transition function
+/// 3. populate the resources collection with the necessary resources
+///    If you forget to call [`register`](StageGraph::register) on a stage, the runtime will panic.
+///
+/// Then start the network.
 ///
 /// Example:
 /// ```rust
-/// use pure_stage::{StageGraph, simulation::SimulationBuilder};
+/// use pure_stage::{StageGraph, Stage, StageRef, Effects, tokio::TokioBuilder};
+/// use tokio::runtime::Runtime;
+/// use async_trait::async_trait;
 ///
-/// let mut network = SimulationBuilder::default();
+/// let mut network = TokioBuilder::default();
 ///
-/// // phase 1: create stages
-/// let stage = network.stage("basic", async |(mut state, out), msg: u32, eff| {
-///     state += msg;
-///     eff.send(&out, state).await;
-///     (state, out)
-/// });
-/// // this is a feature of the SimulationBuilder
-/// let (output, mut rx) = network.output("output", 10);
+/// // phase 1: create stage references. In this example we create two stages. One stage is processing
+/// // numbers and the other one is just outputting them.
+/// let stage = network.make_stage("basic");
+/// let output = network.make_stage("output");
 ///
-/// // phase 2: wire up stages by injecting targets into their state
-/// let stage = network.wire_up(stage, (1u32, output));
+/// // phase 2: register stage transition functions
+/// // Here we define a simple stage that sums up all incoming u32 messages and sends them to a downstream
+/// #[derive(Clone)]
+/// struct MyStage { out: StageRef<u32> };
+///
+/// impl MyStage {
+///   pub fn new(out: impl AsRef<StageRef<u32>>) -> Self { Self { out: out.as_ref().clone() } }
+/// }
+///
+/// #[async_trait]
+/// impl Stage<u32, u32> for MyStage {
+///     fn initial_state(&self) -> u32 { 1u32 }
+///
+///     async fn run(&self, mut state: u32, msg: u32, eff: Effects<u32>) -> u32 {
+///         state += msg;
+///         eff.send(&self.out, state).await;
+///         state
+///     }
+/// }
+///
+/// network.register(&stage, MyStage::new(&output));
 ///
 /// // phase 3: populate the resources collection with the necessary resources (if used by external effects)
 /// network.resources().put(42u8);
 ///
-/// // finalize the network and run it (or make it controllable, in case of SimulationBuilder)
+/// // create a receiver to access the output messages
+/// let mut rx = network.output(&output, 10);
+///
+/// // finalize the network and run it
 /// // (this needs a Tokio runtime for executing external effects)
-/// let rt = tokio::runtime::Runtime::new().unwrap();
-/// let mut running = network.run(rt.handle().clone());
+/// let mut running = network.run(Runtime::new().unwrap().handle().clone());
+///
+/// // print the results
+/// println!("{}", rx.drain().map(|n| n.to_string()).collect::<Vec<_>>().join("\n"));
 /// ```
+///
+/// See simulation.rs for a similar example using the SimulationBuilder.
+///
 pub trait StageGraph {
     type Running: StageGraphRunning;
     type RefAux<Msg, State>;
 
-    /// Create a stage from an asynchronous transition function (state × message → state) and
-    /// an initial state.
+    /// Create a stage that accepts messages of type `Msg` and has state of type `St`.
     ///
     /// _The provided name will be made unique within this `StageGraph` by appending a number!_
+    ///
+    fn make_stage<Msg, St>(&mut self, name: impl AsRef<str>) -> StageStateRef<Msg, St> {
+        let name = self.make_name(name);
+        StageStateRef::new(name)
+    }
+
+    /// Register the transition function for the given stage.
     ///
     /// **IMPORTANT:** While the transition function is asynchronous, it cannot await asynchronous
     /// effects other than those constructed by this library.
@@ -158,19 +194,24 @@ pub trait StageGraph {
     ///     }
     /// }
     /// ```
-    fn stage<Msg, St, F, Fut>(
+    ///
+    /// The returned [`StageRef`] can be used to send messages to this stage from other stages.
+    ///
+    fn register<Msg, St>(
         &mut self,
-        name: impl AsRef<str>,
-        f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
+        stage: &StageStateRef<Msg, St>,
+        stageable: impl Stage<Msg, St> + 'static + Send + Clone,
+    ) -> StageRef<Msg>
     where
-        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
 
+    /// Create a unique
+    fn make_name(&mut self, name: impl AsRef<str>) -> Name;
+
     /// Finalize the given stage by providing its initial state.
-    fn wire_up<Msg, St>(
+    /// Return a stage handle that can also be used to access the internal state (for testing)
+    fn wire<Msg, St>(
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         state: St,
@@ -178,6 +219,23 @@ pub trait StageGraph {
     where
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
+
+    fn stage<Msg, St, F, Fut>(
+        &mut self,
+        name: impl AsRef<str>,
+        f: F,
+        state: St,
+    ) -> StageStateRef<Msg, St>
+    where
+        F: Fn(St, Msg, Effects<Msg>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = St> + Send + 'static,
+        Msg: SendData + serde::de::DeserializeOwned + 'static,
+        St: SendData + Clone + Sync + 'static,
+    {
+        let stage = self.make_stage(name);
+        self.register(&stage, AnonymousStage::new(f, state));
+        stage
+    }
 
     /// Consume this network builder and start the network — the precise meaning of this
     /// depends on the `StageGraph` implementation used.
@@ -196,30 +254,110 @@ pub trait StageGraph {
     /// asynchronous [`Stream`](futures_util::Stream).
     fn output<Msg>(
         &mut self,
-        name: impl AsRef<str>,
+        out: &StageStateRef<Msg, MpscSender<Msg>>,
         send_queue_size: usize,
-    ) -> (StageRef<Msg>, Receiver<Msg>)
+    ) -> Receiver<Msg>
     where
-        Msg: SendData + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
+        Msg: SendData + Clone + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
     {
-        let name = Name::from(name.as_ref());
         let (sender, rx) = mpsc::channel(send_queue_size);
         let tx = MpscSender { sender };
-
-        let output = self.stage(name, async |tx: MpscSender<Msg>, msg: Msg, eff| {
-            eff.external(OutputEffect::new(eff.me().name().clone(), msg, tx.clone()))
-                .await;
-            tx
-        });
-        let output = self.wire_up(output, tx);
-
-        (output.without_state(), Receiver::new(rx))
+        self.register(out, Output::new(tx));
+        Receiver::new(rx)
     }
 
     /// Get the resources collection for the network.
     ///
     /// It is prudent to populate this collection before running the network.
     fn resources(&self) -> &Resources;
+}
+
+#[derive(Clone)]
+pub struct Output<Msg> {
+    mpsc_sender: MpscSender<Msg>,
+}
+
+impl<Msg> Output<Msg> {
+    pub fn new(mpsc_sender: MpscSender<Msg>) -> Self {
+        Self { mpsc_sender }
+    }
+}
+
+// handy alias for our erased future
+type BoxFut<S> = Pin<Box<dyn Future<Output = S> + Send + 'static>>;
+
+/// A Stageable that delegates `run` to a user-provided function.
+pub struct AnonymousStage<Msg, State> {
+    // Arc so Staged is Clone, Fn so we can call it via &self,
+    // and we return a boxed Send future.
+    func: Arc<dyn Fn(State, Msg, Effects<Msg>) -> BoxFut<State> + Send + Sync + 'static>,
+    init: State,
+}
+
+impl<Msg, State> Clone for AnonymousStage<Msg, State>
+where
+    State: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            func: self.func.clone(),
+            init: self.init.clone(),
+        }
+    }
+}
+
+impl<Msg, State> AnonymousStage<Msg, State>
+where
+    State: SendData + Clone + 'static,
+    Msg: SendData + serde::de::DeserializeOwned + 'static,
+{
+    pub fn new<F, Fut>(f: F, initial_state: State) -> Self
+    where
+        F: Fn(State, Msg, Effects<Msg>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = State> + Send + 'static,
+    {
+        let func = Arc::new(
+            move |st: State, msg: Msg, eff: Effects<Msg>| -> BoxFut<State> {
+                Box::pin(f(st, msg, eff))
+            },
+        );
+        Self {
+            func,
+            init: initial_state,
+        }
+    }
+}
+
+#[async_trait]
+impl<Msg, State> Stage<Msg, State> for AnonymousStage<Msg, State>
+where
+    State: SendData + Clone + 'static + Sync,
+    Msg: SendData + serde::de::DeserializeOwned + 'static,
+{
+    fn initial_state(&self) -> State {
+        self.init.clone()
+    }
+
+    async fn run(&self, state: State, msg: Msg, eff: Effects<Msg>) -> State {
+        (self.func)(state, msg, eff).await
+    }
+}
+
+#[async_trait]
+impl<Msg: PartialEq + SendData + serde::de::DeserializeOwned + Serialize>
+    Stage<Msg, MpscSender<Msg>> for Output<Msg>
+{
+    fn initial_state(&self) -> MpscSender<Msg> {
+        MpscSender {
+            sender: self.mpsc_sender.clone(),
+        }
+    }
+
+    async fn run(&self, tx: MpscSender<Msg>, msg: Msg, eff: Effects<Msg>) -> MpscSender<Msg> {
+        eff.external(OutputEffect::new(eff.me().name().clone(), msg, tx.clone()))
+            .await;
+        tx
+    }
 }
 
 /// A trait for running stage graphs.
@@ -231,4 +369,11 @@ pub trait StageGraphRunning {
 
     /// A future that resolves once the stage graph has terminated.
     fn termination(&self) -> BoxFuture<'static, ()>;
+}
+
+#[async_trait]
+pub trait Stage<Msg, State> {
+    fn initial_state(&self) -> State;
+
+    async fn run(&self, state: State, msg: Msg, eff: Effects<Msg>) -> State;
 }

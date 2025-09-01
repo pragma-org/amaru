@@ -14,10 +14,10 @@
 
 use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
-    ConsensusError, IsHeader,
+    ConsensusError, HasStakeDistribution, IsHeader,
     consensus::{
-        ChainSyncEvent, build_stage_graph, headers_tree::HeadersTree, select_chain::SelectChain,
-        store::ChainStore, store_block::StoreBlock, store_effects, validate_header::ValidateHeader,
+        ChainSyncEvent, build_consensus_stages, headers_tree::HeadersTree,
+        select_chain::SelectChainState, store::ChainStore, store_block::StoreBlock,
     },
 };
 use amaru_kernel::{
@@ -156,12 +156,11 @@ pub fn bootstrap(
     clients: Vec<(String, PeerClient)>,
     exit: CancellationToken,
 ) -> Result<Vec<Tether>, Box<dyn Error>> {
-    let era_history: &EraHistory = config.network.into();
-
     let global_parameters: &GlobalParameters = config.network.into();
 
     let peers: Vec<Peer> = clients.iter().map(|c| Peer::new(&c.0)).collect();
 
+    let era_history: &EraHistory = config.network.into();
     let (mut ledger_stage, tip) = make_ledger(
         &config,
         config.network,
@@ -203,17 +202,17 @@ pub fn bootstrap(
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
 
-    let chain_selector =
-        make_chain_selector(header, &peers, global_parameters.consensus_security_param)?;
+    let chain_selector_state =
+        make_chain_selector_state(header, &peers, global_parameters.consensus_security_param)?;
 
-    let consensus = match &ledger_stage {
-        LedgerStage::InMemLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
-            validate_block_stage.state.view_stake_distribution(),
-        )),
+    let consensus: Arc<dyn HasStakeDistribution> = match &ledger_stage {
+        LedgerStage::InMemLedgerStage(validate_block_stage) => {
+            Arc::new(validate_block_stage.state.view_stake_distribution())
+        }
 
-        LedgerStage::OnDiskLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
-            validate_block_stage.state.view_stake_distribution(),
-        )),
+        LedgerStage::OnDiskLedgerStage(validate_block_stage) => {
+            Arc::new(validate_block_stage.state.view_stake_distribution())
+        }
     };
 
     let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
@@ -233,23 +232,20 @@ pub fn bootstrap(
 
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
-    let (output_ref, output_stage) = network.output("output", 50);
+    let output = network.make_stage("output");
+    let out = network.output(&output, 50);
 
-    let graph_input = build_stage_graph(
+    let graph_input = build_consensus_stages(
         global_parameters,
         consensus,
-        chain_selector,
+        chain_selector_state,
         &mut network,
-        output_ref,
+        &output,
     );
     let graph_input = network.input(&graph_input);
 
-    network
-        .resources()
-        .put::<store_effects::ResourceHeaderStore>(chain_store_ref);
-    network
-        .resources()
-        .put::<store_effects::ResourceParameters>(global_parameters.clone());
+    network.resources().put(chain_store_ref);
+    network.resources().put(global_parameters.clone());
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
@@ -264,9 +260,7 @@ pub fn bootstrap(
         output.connect(SendAdapter(graph_input.clone()));
     }
 
-    fetch_block_stage
-        .upstream
-        .connect(RecvAdapter(output_stage));
+    fetch_block_stage.upstream.connect(RecvAdapter(out));
     fetch_block_stage.downstream.connect(to_store_block);
 
     store_block_stage.upstream.connect(from_fetch_block);
@@ -401,11 +395,11 @@ fn make_ledger(
     }
 }
 
-fn make_chain_selector(
+fn make_chain_selector_state(
     header: Option<Header>,
     peers: &Vec<Peer>,
     consensus_security_parameter: usize,
-) -> Result<SelectChain, ConsensusError> {
+) -> Result<SelectChainState, ConsensusError> {
     let root_hash = match &header {
         Some(h) => h.hash(),
         None => Point::Origin.hash(),
@@ -418,7 +412,7 @@ fn make_chain_selector(
         tree.initialize_peer(peer, &root_hash)?;
     }
 
-    Ok(SelectChain::new(tree, peers))
+    Ok(SelectChainState::new(tree, peers))
 }
 
 pub trait PallasPoint {

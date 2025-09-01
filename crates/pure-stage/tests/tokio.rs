@@ -27,20 +27,25 @@ fn basic() {
 
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    let mut graph = TokioBuilder::default();
-    let double = graph.stage("double", async |to, msg: u32, eff| {
-        eff.send(&to, msg * 2).await;
-        to
-    });
-    let (out_ref, mut out_rx) = graph.output("output", 10);
-    let double = graph.wire_up(double, out_ref);
+    let mut network = TokioBuilder::default();
+    let output = network.make_stage("output");
+    let mut rx = network.output(&output, 10);
 
-    let send_double = graph.input(&double);
+    let double = network.stage(
+        "double",
+        async |to, msg: u32, eff| {
+            eff.send(&to, msg * 2).await;
+            to
+        },
+        output,
+    );
+
+    let send_double = network.input(&double);
 
     let handle = rt.handle().clone();
     rt.block_on(async move {
         // running needs `tokio::spawn` to work
-        let graph = graph.run(handle);
+        let graph = network.run(handle);
 
         for i in 0..10 {
             tracing::info!("sending {}", i);
@@ -53,9 +58,7 @@ fn basic() {
         for i in 0..10 {
             tracing::info!("receiving {}", i);
             assert_eq!(
-                timeout(Duration::from_secs(1), out_rx.next())
-                    .await
-                    .unwrap(),
+                timeout(Duration::from_secs(1), rx.next()).await.unwrap(),
                 Some(i * 2)
             );
         }

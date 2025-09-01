@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::{
-    EffectBox, Instant, StageData, StageEffect, StageResponse, StageState, inputs::Inputs,
+    EffectBox, Instant, StageData, StageEffect, StageResponse, StageStateRef, inputs::Inputs,
 };
-use crate::stage_ref::StageStateRef;
+use crate::simulation::state::StageState;
 use crate::{
     BoxFuture, CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
     simulation::{
@@ -992,18 +992,21 @@ fn simulation_invariants() {
     struct Msg(Option<CallRef<()>>);
 
     let mut network = super::SimulationBuilder::default();
-    let stage = network.stage("stage", async |_state, _msg: Msg, eff| {
-        eff.send(&eff.me(), Msg(None)).await;
-        eff.clock().await;
-        eff.wait(std::time::Duration::from_secs(1)).await;
-        eff.call(&eff.me(), std::time::Duration::from_secs(1), |cr| {
-            Msg(Some(cr))
-        })
-        .await;
-        true
-    });
+    let stage = network.stage(
+        "stage",
+        async |_state, _msg: Msg, eff| {
+            eff.send(eff.me(), Msg(None)).await;
+            eff.clock().await;
+            eff.wait(std::time::Duration::from_secs(1)).await;
+            eff.call(eff.me(), std::time::Duration::from_secs(1), |cr| {
+                Msg(Some(cr))
+            })
+            .await;
+            true
+        },
+        false,
+    );
 
-    let stage = network.wire_up(stage, false);
     let rt = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();
@@ -1094,19 +1097,14 @@ fn simulation_invariants() {
         for (pred, op, name) in &ops {
             if pred(&effect).is_none() {
                 tracing::info!("op `{}` should not work", name);
-                op(
-                    &mut sim,
-                    &stage.clone().without_state(),
-                    CallId::from_u64(0),
-                )
-                .unwrap_err();
+                op(&mut sim, &stage, CallId::from_u64(0)).unwrap_err();
                 sim.invariants();
             }
         }
         for (pred, op, name) in &ops {
             if let Some(id) = pred(&effect) {
                 tracing::info!("op `{}` should work", name);
-                op(&mut sim, &stage.clone().without_state(), id).unwrap();
+                op(&mut sim, &stage, id).unwrap();
                 sim.invariants();
             }
         }

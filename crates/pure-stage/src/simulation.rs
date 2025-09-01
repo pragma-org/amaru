@@ -27,7 +27,7 @@
 //!
 
 use crate::{
-    BoxFuture, Effects, Instant, Name, Resources, SendData, Sender, StageBuildRef, StageRef,
+    BoxFuture, Effects, Instant, Name, Resources, SendData, Sender, Stage, StageBuildRef, StageRef,
     effect::{StageEffect, StageResponse},
     time::Clock,
     trace_buffer::TraceBuffer,
@@ -36,7 +36,7 @@ use either::Either;
 use parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, VecDeque},
-    future::{Future, poll_fn},
+    future::poll_fn,
     marker::PhantomData,
     sync::{Arc, atomic::AtomicU64},
     task::Poll,
@@ -107,24 +107,45 @@ pub(crate) fn airlock_effect<Out>(
 ///
 /// Example:
 /// ```rust
-/// use pure_stage::{Resources, StageGraph, simulation::SimulationBuilder, OutputEffect, ExternalEffect};
+/// use pure_stage::{Resources, Stage, StageGraph, StageRef, simulation::SimulationBuilder, Effects, OutputEffect, ExternalEffect};
+/// use tokio::runtime::Runtime;
+/// use async_trait::async_trait;
 ///
 /// let mut network = SimulationBuilder::default();
-/// let stage = network.stage("basic", async |(mut state, out), msg: u32, eff| {
-///     state += msg;
-///     eff.send(&out, state).await;
-///     (state, out)
-/// });
-/// let (output, mut rx) = network.output("output", 10);
-/// let stage = network.wire_up(stage, (1u32, output.clone()));
 ///
-/// let rt = tokio::runtime::Runtime::new().unwrap();
+/// // Create the graph
+/// let stage = network.make_stage("basic");
+/// let output = network.make_stage("output");
+///
+/// #[derive(Clone)]
+/// struct MyStage { out: StageRef<u32> };
+///
+/// impl MyStage {
+///   pub fn new(out: impl AsRef<StageRef<u32>>) -> Self { Self { out: out.as_ref().clone() } }
+/// }
+///
+/// #[async_trait]
+/// impl Stage<u32, u32> for MyStage {
+///     fn initial_state(&self) -> u32 { 1u32 }
+///
+///     async fn run(&self, mut state: u32, msg: u32, eff: Effects<u32>) -> u32 {
+///         state += msg;
+///         eff.send(&self.out, state).await;
+///         state
+///     }
+/// }
+///
+/// network.register(&stage, MyStage::new(&output));
+/// let mut rx = network.output(&output, 10);
+///
+/// // Start the network. This needs a Tokio runtime for executing external effects.
+/// let rt = Runtime::new().unwrap();
 /// let mut running = network.run(rt.handle().clone());
 ///
-/// // first check that the stages start out suspended on Receive
+/// // First check that the stages start out suspended on Receive
 /// running.try_effect().unwrap_err().assert_idle();
 ///
-/// // then insert some input and check reaction
+/// // Then insert some input and check reaction
 /// running.enqueue_msg(&stage, [1]);
 /// running.resume_receive(&stage).unwrap();
 /// running.effect().assert_send(&stage, &output, 2u32);
@@ -137,10 +158,12 @@ pub(crate) fn airlock_effect<Out>(
 /// running.resume_external(&output, result).unwrap();
 /// running.effect().assert_receive(&output);
 ///
+/// // Finally check that the output was received
 /// assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 /// ```
 pub struct SimulationBuilder {
     stages: BTreeMap<Name, InitStageData>,
+    name_counter: usize,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
@@ -192,6 +215,7 @@ impl Default for SimulationBuilder {
 
         Self {
             stages: Default::default(),
+            name_counter: Default::default(),
             effect: Default::default(),
             clock,
             resources: Resources::default(),
@@ -207,30 +231,34 @@ impl super::StageGraph for SimulationBuilder {
     type Running = SimulationRunning;
     type RefAux<Msg, State> = ();
 
-    fn stage<Msg, St, F, Fut>(
+    fn register<Msg, St>(
         &mut self,
-        name: impl AsRef<str>,
-        mut f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
+        stage: &StageStateRef<Msg, St>,
+        stageable: impl Stage<Msg, St> + 'static + Send + Clone,
+    ) -> StageRef<Msg>
     where
-        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
-        // THIS MUST MATCH THE TOKIO BUILDER
-        let name = Name::from(&*format!("{}-{}", name.as_ref(), self.stages.len()));
+        let name = stage.name();
         let me = StageRef::new(name.clone());
         let self_sender = self.inputs.sender(&me);
         let effects = Effects::new(me, self.effect.clone(), self.clock.clone(), self_sender);
+        let initial_state = stageable.initial_state();
         let transition: Transition =
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = state.cast::<St>().expect("internal state type error");
                 let msg = msg
                     .cast_deserialize::<Msg>()
                     .expect("internal message type error");
-                let state = f(*state, msg, effects.clone());
-                Box::pin(async move { Box::new(state.await) as Box<dyn SendData> })
+                let effects = effects.clone();
+                Box::pin({
+                    let stageable_clone = stageable.clone();
+                    async move {
+                        let fut = stageable_clone.run(*state, msg, effects);
+                        Box::new(fut.await) as Box<dyn SendData>
+                    }
+                })
             });
 
         if let Some(old) = self.stages.insert(
@@ -248,18 +276,30 @@ impl super::StageGraph for SimulationBuilder {
             }
         }
 
-        StageBuildRef {
-            name,
+        let stage_build_ref = StageBuildRef {
+            name: name.clone(),
             network: (),
             _ph: PhantomData,
-        }
+        };
+        self.wire(stage_build_ref, initial_state).without_state()
     }
 
-    fn wire_up<Msg: SendData, St: SendData>(
+    fn make_name(&mut self, name: impl AsRef<str>) -> Name {
+        // THIS MUST MATCH THE TOKIO BUILDER
+        let result = Name::from(&*format!("{}-{}", name.as_ref(), self.name_counter));
+        self.name_counter += 1;
+        result
+    }
+
+    fn wire<Msg, St>(
         &mut self,
-        stage: crate::StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         state: St,
-    ) -> StageStateRef<Msg, St> {
+    ) -> StageStateRef<Msg, St>
+    where
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+    {
         let StageBuildRef {
             name,
             network: (),
@@ -279,6 +319,7 @@ impl super::StageGraph for SimulationBuilder {
     fn run(self, rt: Handle) -> Self::Running {
         let Self {
             stages: s,
+            name_counter: _,
             effect,
             clock,
             resources,

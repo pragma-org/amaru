@@ -20,8 +20,9 @@ use crate::{ConsensusError, consensus::EVENT_TARGET};
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer};
 use amaru_ouroboros::IsHeader;
+use async_trait::async_trait;
 use pallas_crypto::hash::Hash;
-use pure_stage::{Effects, StageRef};
+use pure_stage::{Effects, Stage, StageRef};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
@@ -29,85 +30,19 @@ use tracing::{Level, Span, debug, info, instrument, trace, warn};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-pub struct SelectChain {
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct SelectChainState {
     chain_selector: HeadersTree<Header>,
     sync_tracker: SyncTracker,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct SyncTracker {
-    peers_state: BTreeMap<Peer, SyncState>,
-}
-
-impl SyncTracker {
-    pub fn new(peers: &[Peer]) -> Self {
-        let peers_state = peers
-            .iter()
-            .map(|p| (p.clone(), SyncState::Syncing))
-            .collect();
-        Self { peers_state }
-    }
-
-    pub fn caught_up(&mut self, peer: &Peer) {
-        if let Some(s) = self.peers_state.get_mut(peer) {
-            match s {
-                SyncState::Syncing => {
-                    *s = SyncState::CaughtUp;
-                    info!(%peer, "caught-up");
-                }
-                SyncState::CaughtUp => (),
-            }
-        } else {
-            warn!("unknown caught-up peer {}", peer);
-        }
-    }
-
-    pub fn is_caught_up(&self) -> bool {
-        self.peers_state.values().all(|s| *s == SyncState::CaughtUp)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub enum SyncState {
-    Syncing,
-    CaughtUp,
-}
-
-impl SelectChain {
+impl SelectChainState {
     pub fn new(chain_selector: HeadersTree<Header>, peers: &[Peer]) -> Self {
         let sync_tracker = SyncTracker::new(peers);
-        SelectChain {
+        SelectChainState {
             chain_selector,
             sync_tracker,
         }
-    }
-
-    fn forward_block(peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
-        ValidateHeaderEvent::Validated { peer, header, span }
-    }
-
-    fn switch_to_fork(
-        peer: Peer,
-        rollback_point: Point,
-        fork: Vec<Header>,
-        span: Span,
-    ) -> Vec<ValidateHeaderEvent> {
-        let mut result = vec![ValidateHeaderEvent::Rollback {
-            rollback_point,
-            peer: peer.clone(),
-            span: span.clone(),
-        }];
-
-        for header in fork {
-            result.push(SelectChain::forward_block(
-                peer.clone(),
-                header,
-                span.clone(),
-            ));
-        }
-
-        result
     }
 
     pub async fn select_chain(
@@ -121,8 +56,7 @@ impl SelectChain {
         let events = match result {
             ForwardChainSelection::NewTip { peer, tip } => {
                 debug!(target: EVENT_TARGET, hash = %tip.hash(), slot = %tip.slot(), "new_tip");
-
-                vec![SelectChain::forward_block(peer, tip, span)]
+                vec![SelectChainState::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
                 peer,
@@ -130,8 +64,7 @@ impl SelectChain {
                 fork,
             }) => {
                 debug!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
-
-                SelectChain::switch_to_fork(peer, rollback_point, fork, span)
+                SelectChainState::switch_to_fork(peer, rollback_point, fork, span)
             }
             ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, "no_change");
@@ -160,7 +93,7 @@ impl SelectChain {
             }) => {
                 debug!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
 
-                Ok(SelectChain::switch_to_fork(
+                Ok(SelectChainState::switch_to_fork(
                     peer,
                     rollback_point,
                     fork,
@@ -202,6 +135,72 @@ impl SelectChain {
 
         Ok(vec![])
     }
+
+    fn forward_block(peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
+        ValidateHeaderEvent::Validated { peer, header, span }
+    }
+
+    fn switch_to_fork(
+        peer: Peer,
+        rollback_point: Point,
+        fork: Vec<Header>,
+        span: Span,
+    ) -> Vec<ValidateHeaderEvent> {
+        let mut result = vec![ValidateHeaderEvent::Rollback {
+            rollback_point,
+            peer: peer.clone(),
+            span: span.clone(),
+        }];
+
+        for header in fork {
+            result.push(SelectChainState::forward_block(
+                peer.clone(),
+                header,
+                span.clone(),
+            ));
+        }
+
+        result
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct SyncTracker {
+    peers_state: BTreeMap<Peer, SyncState>,
+}
+
+impl SyncTracker {
+    pub fn new(peers: &[Peer]) -> Self {
+        let peers_state = peers
+            .iter()
+            .map(|p| (p.clone(), SyncState::Syncing))
+            .collect();
+        Self { peers_state }
+    }
+
+    pub fn caught_up(&mut self, peer: &Peer) {
+        if let Some(s) = self.peers_state.get_mut(peer) {
+            match s {
+                SyncState::Syncing => {
+                    *s = SyncState::CaughtUp;
+                    info!(%peer, "caught-up");
+                }
+                SyncState::CaughtUp => (),
+            }
+        } else {
+            warn!("unknown caught-up peer {}", peer);
+        }
+    }
+
+    pub fn is_caught_up(&self) -> bool {
+        self.peers_state.values().all(|s| *s == SyncState::CaughtUp)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub enum SyncState {
+    Syncing,
+    CaughtUp,
 }
 
 /// Definition of a fork.
@@ -297,38 +296,55 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
     }
 }
 
-type State = (
-    SelectChain,
-    StageRef<ValidateHeaderEvent>,
-    StageRef<ValidationFailed>,
-);
+#[derive(Clone)]
+pub struct SelectChain {
+    initial_state: SelectChainState,
+    downstream: StageRef<ValidateHeaderEvent>,
+    errors: StageRef<ValidationFailed>,
+}
 
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.select_chain",
-)]
-pub async fn stage(
-    (mut select_chain, downstream, errors): State,
-    msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent>,
-) -> State {
-    adopt_current_span(&msg);
-    let peer = msg.peer();
-
-    let events = match select_chain.handle_chain_sync(msg).await {
-        Ok(events) => events,
-        Err(e) => {
-            eff.send(&errors, ValidationFailed::new(peer, e)).await;
-            return (select_chain, downstream, errors);
+impl SelectChain {
+    pub fn new(
+        initial_state: SelectChainState,
+        downstream: impl AsRef<StageRef<ValidateHeaderEvent>>,
+        errors: impl AsRef<StageRef<ValidationFailed>>,
+    ) -> Self {
+        Self {
+            initial_state,
+            downstream: downstream.as_ref().clone(),
+            errors: errors.as_ref().clone(),
         }
-    };
+    }
+}
 
-    for event in events {
-        eff.send(&downstream, event).await;
+#[async_trait]
+impl Stage<DecodedChainSyncEvent, SelectChainState> for SelectChain {
+    fn initial_state(&self) -> SelectChainState {
+        self.initial_state.clone()
     }
 
-    (select_chain, downstream, errors)
+    #[instrument(level = Level::TRACE, skip_all, name = "stage.select_chain")]
+    async fn run(
+        &self,
+        mut state: SelectChainState,
+        msg: DecodedChainSyncEvent,
+        eff: Effects<DecodedChainSyncEvent>,
+    ) -> SelectChainState {
+        adopt_current_span(&msg);
+        let peer = msg.peer();
+
+        match state.handle_chain_sync(msg).await {
+            Ok(events) => {
+                for event in events {
+                    eff.send(&self.downstream, event).await;
+                }
+            }
+            Err(e) => {
+                eff.send(&self.errors, ValidationFailed::new(peer, e)).await;
+            }
+        };
+        state
+    }
 }
 
 #[cfg(test)]

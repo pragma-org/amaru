@@ -96,10 +96,14 @@ impl<M: SendData> Effects<M> {
 impl<M> Effects<M> {
     /// Send a message to the given stage, blocking the current stage until space has been
     /// made available in the target stage’s send queue.
-    pub fn send<Msg: SendData>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
+    pub fn send<Msg: SendData>(
+        &self,
+        target: impl AsRef<StageRef<Msg>>,
+        msg: Msg,
+    ) -> BoxFuture<'static, ()> {
         airlock_effect(
             &self.effect,
-            StageEffect::Send(target.name().clone(), Box::new(msg), None),
+            StageEffect::Send(target.as_ref().name().clone(), Box::new(msg), None),
             |_eff| Some(()),
         )
     }
@@ -129,14 +133,14 @@ impl<M> Effects<M> {
     /// if the call timed out.
     pub fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
         &self,
-        target: &StageRef<Req>,
+        target: impl AsRef<StageRef<Req>>,
         timeout: Duration,
         msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
     ) -> BoxFuture<'static, Option<Resp>> {
         let (response, recv) = oneshot::channel();
         let now = self.clock.now();
         let deadline = now + timeout;
-        let target = target.name().clone();
+        let target = target.as_ref().name().clone();
         let me = self.me.name().clone();
         let id = CallId::new();
 

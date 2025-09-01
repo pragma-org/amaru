@@ -19,7 +19,8 @@
 
 use crate::stage_ref::StageStateRef;
 use crate::{
-    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BoxFuture, Effects, Instant, Name, SendData, Sender, Stage, StageBuildRef, StageGraph,
+    StageRef,
     effect::{StageEffect, StageResponse},
     resources::Resources,
     simulation::EffectBox,
@@ -30,7 +31,6 @@ use either::Either::{Left, Right};
 use parking_lot::Mutex;
 use std::{
     collections::BTreeMap,
-    future::Future,
     marker::PhantomData,
     sync::Arc,
     task::{Context, Poll, Waker},
@@ -52,6 +52,7 @@ pub struct SendError {
 
 struct TokioInner {
     senders: BTreeMap<Name, mpsc::Sender<Box<dyn SendData>>>,
+    name_counter: usize,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
     mailbox_size: usize,
@@ -62,6 +63,7 @@ impl TokioInner {
     fn new(termination: watch::Sender<bool>) -> Self {
         Self {
             senders: Default::default(),
+            name_counter: 0,
             clock: Arc::new(TokioClock),
             resources: Resources::default(),
             mailbox_size: 10,
@@ -108,31 +110,45 @@ impl StageGraph for TokioBuilder {
         Box<dyn FnMut(State, Msg, Effects<Msg>) -> BoxFuture<'static, State> + 'static + Send>,
     );
 
-    fn stage<Msg: SendData, St: SendData, F, Fut>(
+    fn register<Msg, St>(
         &mut self,
-        name: impl AsRef<str>,
-        mut f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
+        stage: &StageStateRef<Msg, St>,
+        stageable: impl Stage<Msg, St> + 'static + Send + Clone,
+    ) -> StageRef<Msg>
     where
-        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output = St> + 'static + Send,
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
     {
-        // THIS MUST MATCH THE SIMULATION BUILDER
-        let name = Name::from(&*format!("{}-{}", name.as_ref(), self.inner.senders.len()));
         let (tx, rx) = mpsc::channel(self.inner.mailbox_size);
+        let name = stage.name().clone();
+        let initial_state = stageable.initial_state();
         self.inner.senders.insert(name.clone(), tx);
-        StageBuildRef {
+        let stageable_clone = stageable.clone();
+        let stage_build_ref: StageBuildRef<Msg, St, Self::RefAux<Msg, St>> = StageBuildRef {
             name,
             network: (
                 rx,
-                Box::new(move |state, msg, eff| Box::pin(f(state, msg, eff))),
+                Box::new(move |state, msg, eff| {
+                    Box::pin({
+                        let stageable_clone2 = stageable_clone.clone();
+                        async move { stageable_clone2.run(state, msg, eff).await }
+                    })
+                }),
             ),
             _ph: PhantomData,
-        }
+        };
+        self.wire(stage_build_ref, initial_state).as_ref().clone()
+    }
+
+    fn make_name(&mut self, name: impl AsRef<str>) -> Name {
+        // THIS MUST MATCH THE SIMULATION BUILDER
+        let result = Name::from(&*format!("{}-{}", name.as_ref(), self.inner.name_counter));
+        self.inner.name_counter += 1;
+        result
     }
 
     #[expect(clippy::expect_used)]
-    fn wire_up<Msg: SendData, St: SendData>(
+    fn wire<Msg: SendData, St: SendData>(
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         mut state: St,
