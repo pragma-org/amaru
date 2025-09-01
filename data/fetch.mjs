@@ -116,6 +116,8 @@ if (fs.existsSync(configFile)) {
 async function fetchContinuously() {
   const tryConnect = async (retry) => {
     const exit = await ogmios(async (ws, done) => {
+      tty.write(`connected to ogmios(${ogmiosUrl})`);
+
       const eraSummaries = await ws.queryLedgerState("eraSummaries");
 
       const genesisParameters = await ws.queryNetwork("genesisConfiguration", {
@@ -125,12 +127,15 @@ async function fetchContinuously() {
       const networkEpoch = currentEpoch(eraSummaries, genesisParameters);
 
       let frame = 0;
-      const spinnerId = setInterval(() => {
-        tty.cursorTo(0, 0);
-        tty.clearLine(0);
-        tty.write(`${spinner[frame]} fetching data until epoch=${networkEpoch}`);
-        frame = (frame + 1) % spinner.length;
-      }, 100);
+      const spinnerId = setInterval(() =>
+        {
+          if (tty.ok) {
+            tty.cursorTo(0, 0);
+            tty.clearLine(0);
+            tty.write(`${spinner[frame]} fetching data until epoch=${networkEpoch}`);
+            frame = (frame + 1) % spinner.length;
+          }
+        }, 100);
 
       const ledgerTip = await ws.queryLedgerState("tip");
 
@@ -156,7 +161,7 @@ async function fetchContinuously() {
 	        // Run the step through a different socket, so that messages don't conflict.
 	        await ogmios(async (ws, done) => {
             step(ws, [], 1, previousTip, done);
-	        });
+	        }, ogmiosUrl);
         }
 
         if (point.epoch >= networkEpoch) {
@@ -165,6 +170,8 @@ async function fetchContinuously() {
 
         previousTip = point;
       }
+
+      clearInterval(spinnerId);
 
       done(true);
     }, ogmiosUrl);
@@ -178,7 +185,7 @@ async function fetchContinuously() {
     } else {
       tty.cursorTo(0, 0);
       tty.clearScreenDown();
-      clearInterval(spinnerId);
+      tty.write(`terminating with exit ${exit}`);
       return exit;
     }
   };
@@ -201,10 +208,12 @@ async function fetchSpecificPoints(points, snapshots, additionalStakeKeys, addit
 
   let frame = 0;
   const spinnerId = setInterval(() => {
-    tty.cursorTo(0, Math.min(10, points.length));
-    tty.clearLine(0);
-    tty.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)" : ""}`);
-    frame = (frame + 1) % spinner.length;
+    if (tty.ok) {
+      tty.cursorTo(0, Math.min(10, points.length));
+      tty.clearLine(0);
+      tty.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)" : ""}`);
+      frame = (frame + 1) % spinner.length;
+    }
   }, 100);
 
   // Run the set of queries for each configured point while the node is
