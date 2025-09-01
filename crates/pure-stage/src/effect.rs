@@ -36,14 +36,14 @@ use tokio::sync::oneshot;
 ///
 /// The [`StageRef`] is used to obtain a reference to the current stage, which can be used
 /// in messages sent to other stages.
-pub struct Effects<M, S> {
-    me: StageRef<M, S>,
+pub struct Effects<M> {
+    me: StageRef<M>,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     self_sender: Sender<M>,
 }
 
-impl<M, S> Clone for Effects<M, S> {
+impl<M> Clone for Effects<M> {
     fn clone(&self) -> Self {
         Self {
             me: self.me.clone(),
@@ -54,7 +54,7 @@ impl<M, S> Clone for Effects<M, S> {
     }
 }
 
-impl<M: Debug, S: Debug> Debug for Effects<M, S> {
+impl<M: Debug> Debug for Effects<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Effects")
             .field("me", &self.me)
@@ -63,9 +63,9 @@ impl<M: Debug, S: Debug> Debug for Effects<M, S> {
     }
 }
 
-impl<M: SendData, S> Effects<M, S> {
+impl<M: SendData> Effects<M> {
     pub(crate) fn new(
-        me: StageRef<M, S>,
+        me: StageRef<M>,
         effect: EffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
         self_sender: Sender<M>,
@@ -81,7 +81,7 @@ impl<M: SendData, S> Effects<M, S> {
     /// Obtain a reference to the current stage.
     ///
     /// This is useful for sending to other stages that may want to send or call back.
-    pub fn me(&self) -> StageRef<M, S> {
+    pub fn me(&self) -> StageRef<M> {
         self.me.clone()
     }
 
@@ -93,12 +93,12 @@ impl<M: SendData, S> Effects<M, S> {
     }
 }
 
-impl<M, S> Effects<M, S> {
+impl<M> Effects<M> {
     /// Send a message to the given stage, blocking the current stage until space has been
     /// made available in the target stage’s send queue.
-    pub fn send<Msg: SendData, St>(
+    pub fn send<Msg: SendData>(
         &self,
-        target: &StageRef<Msg, St>,
+        target: &StageRef<Msg>,
         msg: Msg,
     ) -> BoxFuture<'static, ()> {
         airlock_effect(
@@ -131,9 +131,9 @@ impl<M, S> Effects<M, S> {
     ///
     /// The returned future will resolve to `Some(resp)` if the call was successful, or `None`
     /// if the call timed out.
-    pub fn call<Req: SendData, Resp: SendData + DeserializeOwned, St>(
+    pub fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
         &self,
-        target: &StageRef<Req, St>,
+        target: &StageRef<Req>,
         timeout: Duration,
         msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
     ) -> BoxFuture<'static, Option<Resp>> {
@@ -486,7 +486,7 @@ impl Effect {
         }
     }
 
-    pub fn assert_receive<Msg, St>(&self, at_stage: &StageRef<Msg, St>) {
+    pub fn assert_receive<Msg, St>(&self, at_stage: &StageRef<Msg>) {
         match self {
             Effect::Receive { at_stage: a } if a == &at_stage.name => {}
             _ => panic!(
@@ -497,10 +497,10 @@ impl Effect {
     }
 
     #[allow(clippy::unwrap_used)]
-    pub fn assert_send<Msg1, Msg2: SendData + PartialEq, St1, St2>(
+    pub fn assert_send<Msg1, Msg2: SendData + PartialEq>(
         &self,
-        at_stage: &StageRef<Msg1, St1>,
-        target: &StageRef<Msg2, St2>,
+        at_stage: &StageRef<Msg1>,
+        target: &StageRef<Msg2>,
         msg: Msg2,
     ) {
         match self {
@@ -519,7 +519,7 @@ impl Effect {
         }
     }
 
-    pub fn assert_clock<Msg, St>(&self, at_stage: &StageRef<Msg, St>) {
+    pub fn assert_clock<Msg, St>(&self, at_stage: &StageRef<Msg>) {
         match self {
             Effect::Clock { at_stage: a } if a == &at_stage.name => {}
             _ => panic!(
@@ -529,7 +529,7 @@ impl Effect {
         }
     }
 
-    pub fn assert_wait<Msg, St>(&self, at_stage: &StageRef<Msg, St>, duration: Duration) {
+    pub fn assert_wait<Msg, St>(&self, at_stage: &StageRef<Msg>, duration: Duration) {
         match self {
             Effect::Wait {
                 at_stage: a,
@@ -542,10 +542,10 @@ impl Effect {
         }
     }
 
-    pub fn assert_call<Msg1, Msg2: SendData, Out, St1, St2>(
+    pub fn assert_call<Msg1, Msg2: SendData, Out>(
         self,
-        at_stage: &StageRef<Msg1, St1>,
-        target: &StageRef<Msg2, St2>,
+        at_stage: &StageRef<Msg1>,
+        target: &StageRef<Msg2>,
         extract: impl FnOnce(Msg2) -> Out,
         duration: Duration,
     ) -> Out {
@@ -565,9 +565,9 @@ impl Effect {
         }
     }
 
-    pub fn assert_respond<Msg, St, Msg2: SendData + PartialEq>(
+    pub fn assert_respond<Msg, Msg2: SendData + PartialEq>(
         &self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: &StageRef<Msg>,
         cr: &CallRef<Msg2>,
         msg: Msg2,
     ) {
@@ -587,9 +587,9 @@ impl Effect {
         }
     }
 
-    pub fn assert_external<Msg, St, Eff: ExternalEffect + PartialEq>(
+    pub fn assert_external<Msg, Eff: ExternalEffect + PartialEq>(
         &self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: &StageRef<Msg>,
         effect: &Eff,
     ) {
         match self {
@@ -604,9 +604,9 @@ impl Effect {
         }
     }
 
-    pub fn extract_external<Eff: ExternalEffectAPI + PartialEq, Msg, St>(
+    pub fn extract_external<Eff: ExternalEffectAPI + PartialEq, Msg>(
         self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: &StageRef<Msg>,
         effect: &Eff,
     ) -> Box<Eff> {
         match self {

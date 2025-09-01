@@ -105,9 +105,9 @@ impl StageGraph for TokioBuilder {
     type RefAux<Msg, State> = (
         Receiver<Box<dyn SendData>>,
         Box<
-            dyn FnMut(State, Msg, Effects<Msg, State>) -> BoxFuture<'static, State>
-                + 'static
-                + Send,
+            dyn FnMut(State, Msg, Effects<Msg>) -> BoxFuture<'static, State>
+            + 'static
+            + Send,
         >,
     );
 
@@ -117,8 +117,8 @@ impl StageGraph for TokioBuilder {
         mut f: F,
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
-        F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
-        Fut: Future<Output = St> + 'static + Send,
+        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
+        Fut: Future<Output=St> + 'static + Send,
     {
         // THIS MUST MATCH THE SIMULATION BUILDER
         let name = Name::from(&*format!("{}-{}", name.as_ref(), self.inner.senders.len()));
@@ -139,7 +139,7 @@ impl StageGraph for TokioBuilder {
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         mut state: St,
-    ) -> StageRef<Msg, St> {
+    ) -> StageRef<Msg> {
         let StageBuildRef {
             name,
             network: (mut rx, mut ff),
@@ -166,7 +166,7 @@ impl StageGraph for TokioBuilder {
                             effects.clone(),
                         ),
                     )
-                    .await;
+                        .await;
                     match result {
                         Some(st) => state = st,
                         None => {
@@ -185,7 +185,7 @@ impl StageGraph for TokioBuilder {
     }
 
     #[allow(clippy::expect_used)]
-    fn input<Msg: SendData, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
+    fn input<Msg: SendData>(&mut self, stage: &StageRef<Msg>) -> Sender<Msg> {
         mk_sender(&stage.name, &self.inner)
     }
 

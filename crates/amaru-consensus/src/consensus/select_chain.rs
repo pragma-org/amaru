@@ -21,7 +21,7 @@ use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
-use pure_stage::{Effects, StageRef, Void};
+use pure_stage::{Effects, StageRef};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use tracing::{Level, Span, instrument, trace};
@@ -79,10 +79,10 @@ impl SelectChain {
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => {
+                                                    peer,
+                                                    rollback_point,
+                                                    fork,
+                                                }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
                 SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
@@ -107,10 +107,10 @@ impl SelectChain {
 
         match result {
             RollbackChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => Ok(SelectChain::switch_to_fork(
+                                                     peer,
+                                                     rollback_point,
+                                                     fork,
+                                                 }) => Ok(SelectChain::switch_to_fork(
                 peer,
                 rollback_point,
                 fork,
@@ -180,10 +180,10 @@ impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
             }
             ForwardChainSelection::NoChange => f.write_str("NoChange"),
             ForwardChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => write!(
+                                                    peer,
+                                                    rollback_point,
+                                                    fork,
+                                                }) => write!(
                 f,
                 "SwitchToFork[\n    peer: {},\n    rollback_point: {},\n    fork:\n        {}]",
                 peer,
@@ -216,10 +216,10 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
         match self {
             RollbackChainSelection::NoChange => f.write_str("NoChange"),
             RollbackChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => write!(
+                                                     peer,
+                                                     rollback_point,
+                                                     fork,
+                                                 }) => write!(
                 f,
                 "SwitchToFork[\n    peer: {},\n    rollback_point: {},\n    fork:\n        {}]",
                 peer,
@@ -241,8 +241,8 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
 
 type State = (
     SelectChain,
-    StageRef<ValidateHeaderEvent, Void>,
-    StageRef<ValidationFailed, Void>,
+    StageRef<ValidateHeaderEvent>,
+    StageRef<ValidationFailed>,
 );
 
 #[instrument(
@@ -253,7 +253,7 @@ type State = (
 pub async fn stage(
     (mut select_chain, downstream, errors): State,
     msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent, State>,
+    eff: Effects<DecodedChainSyncEvent>,
 ) -> State {
     adopt_current_span(&msg);
     let peer = msg.peer();

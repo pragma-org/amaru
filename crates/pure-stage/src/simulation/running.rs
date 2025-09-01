@@ -230,10 +230,10 @@ impl SimulationRunning {
     ///
     /// Note that this method does not check if there is enough space in the
     /// mailbox, it will grow the mailbox beyond the `mailbox_size` limit.
-    pub fn enqueue_msg<T: SendData, St>(
+    pub fn enqueue_msg<T: SendData>(
         &mut self,
-        sr: &StageRef<T, St>,
-        msg: impl IntoIterator<Item = T>,
+        sr: &StageRef<T>,
+        msg: impl IntoIterator<Item=T>,
     ) {
         let data = self.stages.get_mut(&sr.name).unwrap();
         data.mailbox
@@ -241,7 +241,7 @@ impl SimulationRunning {
     }
 
     /// Retrieve the number of messages currently in the given stage’s mailbox.
-    pub fn mailbox_len<Msg, St>(&self, sr: &StageRef<Msg, St>) -> usize {
+    pub fn mailbox_len<Msg>(&self, sr: &StageRef<Msg>) -> usize {
         let data = self.stages.get(&sr.name).unwrap();
         data.mailbox.len()
     }
@@ -253,7 +253,7 @@ impl SimulationRunning {
     ///
     /// Returns `None` if the stage is not suspended on [`Effect::Receive`], panics if the
     /// state type is incorrect.
-    pub fn get_state<Msg, St: SendData>(&self, sr: &StageRef<Msg, St>) -> Option<&St> {
+    pub fn get_state<Msg, St: SendData>(&self, sr: &StageRef<Msg>) -> Option<&St> {
         let data = self.stages.get(&sr.name).unwrap();
         match &data.state {
             StageState::Idle(state) => {
@@ -482,7 +482,7 @@ impl SimulationRunning {
                         },
                         sim.clock.now(),
                     )
-                    .expect("wait effect is always runnable");
+                        .expect("wait effect is always runnable");
                 });
             }
             Effect::Respond {
@@ -578,7 +578,7 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Receive`].
-    pub fn resume_receive<Msg, St>(&mut self, at_stage: &StageRef<Msg, St>) -> anyhow::Result<()> {
+    pub fn resume_receive<Msg>(&mut self, at_stage: &StageRef<Msg>) -> anyhow::Result<()> {
         let data = self
             .stages
             .get_mut(&at_stage.name)
@@ -593,10 +593,10 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Send`].
-    pub fn resume_send<Msg1, Msg2: SendData, St1, St2>(
+    pub fn resume_send<Msg1, Msg2: SendData>(
         &mut self,
-        from: &StageRef<Msg1, St1>,
-        to: &StageRef<Msg2, St2>,
+        from: &StageRef<Msg1>,
+        to: &StageRef<Msg2>,
         msg: Msg2,
     ) -> anyhow::Result<()> {
         let data = self
@@ -651,15 +651,15 @@ impl SimulationRunning {
                     },
                     id,
                 )
-                .ok();
+                    .ok();
             });
         }
     }
 
     /// Resume an [`Effect::Clock`].
-    pub fn resume_clock<Msg, St>(
+    pub fn resume_clock<Msg>(
         &mut self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: &StageRef<Msg>,
         time: Instant,
     ) -> anyhow::Result<()> {
         let data = self
@@ -702,9 +702,9 @@ impl SimulationRunning {
     /// Resume an [`Effect::Wait`].
     ///
     /// The given time is the clock when the stage wakes up.
-    pub fn resume_wait<Msg, St>(
+    pub fn resume_wait<Msg>(
         &mut self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: &StageRef<Msg>,
         time: Instant,
     ) -> anyhow::Result<()> {
         let data = self
@@ -723,9 +723,9 @@ impl SimulationRunning {
     /// Resume an [`Effect::Send`]’s second stage in case of a call.
     ///
     /// The message to be delivered to the stage must have been sent by the called stage already.
-    pub fn resume_call<Msg, St, Resp: SendData>(
+    pub fn resume_call<Msg, Resp: SendData>(
         &mut self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: &StageRef<Msg>,
         call: &CallRef<Resp>,
     ) -> anyhow::Result<()> {
         let data = self
@@ -742,9 +742,9 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Respond`].
-    pub fn resume_respond<Msg, St, Resp: SendData>(
+    pub fn resume_respond<Msg, Resp: SendData>(
         &mut self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: &StageRef<Msg>,
         cr: &CallRef<Resp>,
         msg: Resp,
     ) -> anyhow::Result<()> {
@@ -783,9 +783,9 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::External`].
-    pub fn resume_external<Msg, St>(
+    pub fn resume_external<Msg>(
         &mut self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: &StageRef<Msg>,
         result: Box<dyn SendData>,
     ) -> anyhow::Result<()> {
         let data = self
@@ -857,10 +857,10 @@ struct OverrideExternalEffect {
     #[allow(clippy::type_complexity)]
     transform: Box<
         dyn FnMut(
-                Box<dyn ExternalEffect>,
-            ) -> OverrideResult<Box<dyn ExternalEffect>, Box<dyn ExternalEffect>>
-            + Send
-            + 'static,
+            Box<dyn ExternalEffect>,
+        ) -> OverrideResult<Box<dyn ExternalEffect>, Box<dyn ExternalEffect>>
+        + Send
+        + 'static,
     >,
 }
 
@@ -992,7 +992,7 @@ fn simulation_invariants() {
         eff.call(&eff.me(), std::time::Duration::from_secs(1), |cr| {
             Msg(Some(cr))
         })
-        .await;
+            .await;
         true
     });
 

@@ -16,7 +16,7 @@ use std::fmt;
 
 use crate::{ConsensusError, consensus::select_chain::SelectChain, is_header::IsHeader};
 use amaru_kernel::{Header, Point, peer::Peer, protocol_parameters::GlobalParameters};
-use pure_stage::{StageGraph, StageRef, Void};
+use pure_stage::{StageGraph, StageRef};
 use tracing::Span;
 
 pub mod headers_tree;
@@ -36,8 +36,8 @@ pub fn build_stage_graph(
     consensus: validate_header::ValidateHeader,
     chain_selector: SelectChain,
     network: &mut impl StageGraph,
-    outputs: StageRef<ValidateHeaderEvent, Void>,
-) -> StageRef<ChainSyncEvent, Void> {
+    outputs: StageRef<ValidateHeaderEvent>,
+) -> StageRef<ChainSyncEvent> {
     let receive_header_stage = network.stage("receive_header", receive_header::stage);
     let store_header_stage = network.stage("store_header", store_header::stage);
     let validate_header_stage = network.stage("validate_header", validate_header::stage);

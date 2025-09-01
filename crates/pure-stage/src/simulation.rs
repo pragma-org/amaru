@@ -1,17 +1,17 @@
 #![allow(
-// Copyright 2025 PRAGMA
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+    // Copyright 2025 PRAGMA
+    //
+    // Licensed under the Apache License, Version 2.0 (the "License");
+    // you may not use this file except in compliance with the License.
+    // You may obtain a copy of the License at
+    //
+    //     http://www.apache.org/licenses/LICENSE-2.0
+    //
+    // Unless required by applicable law or agreed to in writing, software
+    // distributed under the License is distributed on an "AS IS" BASIS,
+    // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    // See the License for the specific language governing permissions and
+    // limitations under the License.
 
     clippy::wildcard_enum_match_arm,
     clippy::unwrap_used,
@@ -59,7 +59,7 @@ mod running;
 mod state;
 
 pub(crate) type EffectBox =
-    Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
+Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
 
 pub(crate) fn airlock_effect<Out>(
     eb: &EffectBox,
@@ -213,8 +213,8 @@ impl super::StageGraph for SimulationBuilder {
         mut f: F,
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
-        F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
-        Fut: Future<Output = St> + 'static + Send,
+        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
+        Fut: Future<Output=St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
@@ -262,7 +262,7 @@ impl super::StageGraph for SimulationBuilder {
         &mut self,
         stage: crate::StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         state: St,
-    ) -> StageRef<Msg, St> {
+    ) -> StageRef<Msg> {
         let StageBuildRef {
             name,
             network: (),
@@ -278,7 +278,7 @@ impl super::StageGraph for SimulationBuilder {
         }
     }
 
-    fn input<Msg: SendData, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
+    fn input<Msg: SendData>(&mut self, stage: &StageRef<Msg>) -> Sender<Msg> {
         self.inputs.sender(stage)
     }
 

@@ -21,7 +21,7 @@ use amaru_kernel::{Hash, Header, Nonce, Point, protocol_parameters::GlobalParame
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
 use pallas_math::math::FixedDecimal;
-use pure_stage::{Effects, StageRef, Void};
+use pure_stage::{Effects, StageRef};
 use std::{fmt, sync::Arc};
 use tracing::{Instrument, Level, instrument};
 
@@ -52,11 +52,11 @@ pub fn header_is_valid(
         epoch_nonce,
         &active_slot_coeff,
     )
-    .and_then(|assertions| {
-        use rayon::prelude::*;
-        assertions.into_par_iter().try_for_each(|assert| assert())
-    })
-    .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
+        .and_then(|assertions| {
+            use rayon::prelude::*;
+            assertions.into_par_iter().try_for_each(|assert| assert())
+        })
+        .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -114,8 +114,8 @@ impl ValidateHeader {
 type State = (
     ValidateHeader,
     GlobalParameters,
-    StageRef<DecodedChainSyncEvent, Void>,
-    StageRef<ValidationFailed, Void>,
+    StageRef<DecodedChainSyncEvent>,
+    StageRef<ValidationFailed>,
 );
 
 #[instrument(
@@ -126,7 +126,7 @@ type State = (
 pub async fn stage(
     state: State,
     msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent, State>,
+    eff: Effects<DecodedChainSyncEvent>,
 ) -> State {
     adopt_current_span(&msg);
     let (state, global, downstream, errors) = state;
@@ -159,7 +159,7 @@ pub async fn stage(
                     &errors,
                     ValidationFailed::new(peer.clone(), point.clone(), error.into()),
                 )
-                .await;
+                    .await;
                 return false;
             }
         };
@@ -178,14 +178,14 @@ pub async fn stage(
                 &errors,
                 ValidationFailed::new(peer.clone(), point.clone(), error),
             )
-            .await;
+                .await;
             false
         } else {
             true
         }
     }
-    .instrument(span)
-    .await;
+        .instrument(span)
+        .await;
 
     if send_downstream {
         eff.send(&downstream, msg).await;
