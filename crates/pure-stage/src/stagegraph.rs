@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::stage_ref::Stage;
 use crate::{
     BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
     StageBuildRef, StageRef, types::MpscSender,
@@ -120,7 +121,7 @@ impl<Resp: SendData> CallRef<Resp> {
 /// let (output, mut rx) = network.output("output", 10);
 ///
 /// // phase 2: wire up stages by injecting targets into their state
-/// let stage = network.wire_up(stage, (1u32, output.without_state()));
+/// let stage = network.wire_up(stage, (1u32, output));
 ///
 /// // phase 3: populate the resources collection with the necessary resources (if used by external effects)
 /// network.resources().put(42u8);
@@ -164,16 +165,28 @@ pub trait StageGraph {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output=St> + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
 
     /// Finalize the given stage by providing its initial state.
+    /// Return a reference to the stage
     fn wire_up<Msg, St>(
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         state: St,
     ) -> StageRef<Msg>
+    where
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData;
+
+    /// Finalize the given stage by providing its initial state.
+    /// Return a stage handle that can also be used to access the internal state (for testing)
+    fn wire<Msg, St>(
+        &mut self,
+        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        state: St,
+    ) -> Stage<Msg, St>
     where
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
@@ -212,7 +225,7 @@ pub trait StageGraph {
         });
         let output = self.wire_up(output, tx);
 
-        (output.without_state(), Receiver::new(rx))
+        (output, Receiver::new(rx))
     }
 
     /// Get the resources collection for the network.

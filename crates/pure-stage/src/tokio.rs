@@ -17,6 +17,7 @@
 //! It is good practice to perform the stage contruction and wiring in a function that takes an
 //! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
 
+use crate::stage_ref::Stage;
 use crate::{
     BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
     effect::{StageEffect, StageResponse},
@@ -104,11 +105,7 @@ impl StageGraph for TokioBuilder {
 
     type RefAux<Msg, State> = (
         Receiver<Box<dyn SendData>>,
-        Box<
-            dyn FnMut(State, Msg, Effects<Msg>) -> BoxFuture<'static, State>
-            + 'static
-            + Send,
-        >,
+        Box<dyn FnMut(State, Msg, Effects<Msg>) -> BoxFuture<'static, State> + 'static + Send>,
     );
 
     fn stage<Msg: SendData, St: SendData, F, Fut>(
@@ -118,7 +115,7 @@ impl StageGraph for TokioBuilder {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output=St> + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
     {
         // THIS MUST MATCH THE SIMULATION BUILDER
         let name = Name::from(&*format!("{}-{}", name.as_ref(), self.inner.senders.len()));
@@ -135,11 +132,28 @@ impl StageGraph for TokioBuilder {
     }
 
     #[allow(clippy::expect_used)]
-    fn wire_up<Msg: SendData, St: SendData>(
+    fn wire_up<Msg, St>(
+        &mut self,
+        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        state: St,
+    ) -> StageRef<Msg>
+    where
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+    {
+        self.wire(stage, state).as_ref()
+    }
+
+    #[allow(clippy::expect_used)]
+    fn wire<Msg, St>(
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         mut state: St,
-    ) -> StageRef<Msg> {
+    ) -> Stage<Msg, St>
+    where
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+    {
         let StageBuildRef {
             name,
             network: (mut rx, mut ff),
@@ -166,7 +180,7 @@ impl StageGraph for TokioBuilder {
                             effects.clone(),
                         ),
                     )
-                        .await;
+                    .await;
                     match result {
                         Some(st) => state = st,
                         None => {
@@ -178,10 +192,7 @@ impl StageGraph for TokioBuilder {
                 }
             })
         }));
-        StageRef {
-            name,
-            _ph: PhantomData,
-        }
+        Stage::new(name)
     }
 
     #[allow(clippy::expect_used)]

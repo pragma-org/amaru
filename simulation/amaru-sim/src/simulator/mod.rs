@@ -39,7 +39,7 @@ use clap::Parser;
 use generate::{generate_entries, parse_json, read_chain_json};
 use ledger::{FakeStakeDistribution, populate_chain_store};
 use pure_stage::{
-    Instant, Receiver, StageGraph, StageRef, Void, simulation::SimulationBuilder,
+    Instant, Receiver, StageGraph, StageRef, simulation::SimulationBuilder,
     trace_buffer::TraceBuffer,
 };
 use rand::Rng;
@@ -151,7 +151,7 @@ fn spawn_node(
     network: &mut SimulationBuilder,
 ) -> (
     Receiver<Envelope<ChainSyncMessage>>,
-    StageRef<Envelope<ChainSyncMessage>, Void>,
+    StageRef<Envelope<ChainSyncMessage>>,
 ) {
     info!("Spawning node!");
 
@@ -262,9 +262,9 @@ fn spawn_node(
 
     let (output, rx) = network.output("output", 10);
 
-    let receiver = network.wire_up(receiver, (receive_header_ref, output.without_state()));
+    let receiver = network.wire_up(receiver, (receive_header_ref, output.clone()));
 
-    network.wire_up(propagate_header_stage, (0, output.without_state()));
+    network.wire_up(propagate_header_stage, (0, output));
 
     network
         .resources()
@@ -273,7 +273,7 @@ fn spawn_node(
         .resources()
         .put::<store_effects::ResourceParameters>(global_parameters);
 
-    (rx, receiver.without_state())
+    (rx, receiver)
 }
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {

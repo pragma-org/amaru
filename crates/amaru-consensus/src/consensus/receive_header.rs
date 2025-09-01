@@ -39,10 +39,7 @@ pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, Consen
     Ok(Header::from(header))
 }
 
-type State = (
-    StageRef<DecodedChainSyncEvent>,
-    StageRef<ValidationFailed>,
-);
+type State = (StageRef<DecodedChainSyncEvent>, StageRef<ValidationFailed>);
 
 #[instrument(
     level = Level::TRACE,
@@ -80,7 +77,7 @@ pub async fn stage(
                     span,
                 },
             )
-                .await;
+            .await;
         }
         ChainSyncEvent::Rollback {
             peer,
@@ -95,7 +92,7 @@ pub async fn stage(
                     span,
                 },
             )
-                .await
+            .await
         }
     }
     (downstream, errors)

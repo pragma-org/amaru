@@ -96,11 +96,7 @@ impl<M: SendData> Effects<M> {
 impl<M> Effects<M> {
     /// Send a message to the given stage, blocking the current stage until space has been
     /// made available in the target stage’s send queue.
-    pub fn send<Msg: SendData>(
-        &self,
-        target: &StageRef<Msg>,
-        msg: Msg,
-    ) -> BoxFuture<'static, ()> {
+    pub fn send<Msg: SendData>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
         airlock_effect(
             &self.effect,
             StageEffect::Send(target.name(), Box::new(msg), None),
@@ -486,7 +482,7 @@ impl Effect {
         }
     }
 
-    pub fn assert_receive<Msg, St>(&self, at_stage: &StageRef<Msg>) {
+    pub fn assert_receive<Msg>(&self, at_stage: &StageRef<Msg>) {
         match self {
             Effect::Receive { at_stage: a } if a == &at_stage.name => {}
             _ => panic!(
@@ -529,7 +525,7 @@ impl Effect {
         }
     }
 
-    pub fn assert_wait<Msg, St>(&self, at_stage: &StageRef<Msg>, duration: Duration) {
+    pub fn assert_wait<Msg>(&self, at_stage: &StageRef<Msg>, duration: Duration) {
         match self {
             Effect::Wait {
                 at_stage: a,

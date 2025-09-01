@@ -48,6 +48,7 @@ pub use blocked::Blocked;
 pub use replay::Replay;
 pub use running::{OverrideResult, SimulationRunning};
 
+use crate::stage_ref::Stage;
 use inputs::Inputs;
 use state::{InitStageData, InitStageState, StageData, StageState, Transition};
 
@@ -59,7 +60,7 @@ mod running;
 mod state;
 
 pub(crate) type EffectBox =
-Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
+    Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
 
 pub(crate) fn airlock_effect<Out>(
     eb: &EffectBox,
@@ -116,7 +117,7 @@ pub(crate) fn airlock_effect<Out>(
 ///     (state, out)
 /// });
 /// let (output, mut rx) = network.output("output", 10);
-/// let stage = network.wire_up(stage, (1u32, output.without_state()));
+/// let stage = network.wire_up(stage, (1u32, output.clone()));
 ///
 /// let rt = tokio::runtime::Runtime::new().unwrap();
 /// let mut running = network.run(rt.handle().clone());
@@ -214,7 +215,7 @@ impl super::StageGraph for SimulationBuilder {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output=St> + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
@@ -258,11 +259,27 @@ impl super::StageGraph for SimulationBuilder {
         }
     }
 
-    fn wire_up<Msg: SendData, St: SendData>(
+    fn wire_up<Msg, St>(
         &mut self,
-        stage: crate::StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         state: St,
-    ) -> StageRef<Msg> {
+    ) -> StageRef<Msg>
+    where
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+    {
+        self.wire(stage, state).as_ref()
+    }
+
+    fn wire<Msg, St>(
+        &mut self,
+        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        state: St,
+    ) -> Stage<Msg, St>
+    where
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+    {
         let StageBuildRef {
             name,
             network: (),
@@ -271,11 +288,7 @@ impl super::StageGraph for SimulationBuilder {
 
         let data = self.stages.get_mut(&name).unwrap();
         data.state = InitStageState::Idle(Box::new(state));
-
-        StageRef {
-            name,
-            _ph: PhantomData,
-        }
+        Stage::new(name)
     }
 
     fn input<Msg: SendData>(&mut self, stage: &StageRef<Msg>) -> Sender<Msg> {

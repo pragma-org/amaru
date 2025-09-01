@@ -84,14 +84,13 @@ pub struct NodeHandle<Msg> {
     close: Box<dyn FnMut()>,
 }
 
-pub fn pure_stage_node_handle<Msg, St>(
+pub fn pure_stage_node_handle<Msg>(
     mut rx: Receiver<Envelope<Msg>>,
-    stage: StageRef<Envelope<Msg>, St>,
+    stage: StageRef<Envelope<Msg>>,
     mut running: SimulationRunning,
 ) -> anyhow::Result<NodeHandle<Msg>>
 where
     Msg: PartialEq + Send + Debug + serde::Serialize + serde::de::DeserializeOwned + 'static,
-    St: 'static,
 {
     let handle = Box::new(move |msg: Envelope<Msg>| {
         info!(msg = ?msg, "enqueuing");
@@ -425,7 +424,7 @@ mod tests {
     };
 
     use super::*;
-    use pure_stage::{StageGraph, Void, simulation::SimulationBuilder};
+    use pure_stage::{StageGraph, simulation::SimulationBuilder};
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
@@ -440,7 +439,7 @@ mod tests {
     #[should_panic]
     fn simulate_pure_stage_echo() {
         #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-        struct State(u64, StageRef<Envelope<EchoMessage>, Void>);
+        struct State(u64, StageRef<Envelope<EchoMessage>>);
 
         let number_of_tests = 100;
         let seed = 42;
@@ -477,11 +476,11 @@ mod tests {
                 },
             );
             let (output, rx) = network.output("output", 10);
-            let stage = network.wire_up(stage, State(0, output.without_state()));
+            let stage = network.wire_up(stage, State(0, output));
             let rt = tokio::runtime::Runtime::new().unwrap();
             let running = network.run(rt.handle().clone());
 
-            pure_stage_node_handle(rx, stage.without_state(), running).unwrap()
+            pure_stage_node_handle(rx, stage, running).unwrap()
         };
         simulate(
             SimulateConfig {
@@ -531,10 +530,10 @@ mod tests {
         {
             if let EchoMessage::Echo { msg_id, echo } = &msg.body {
                 let response = history.0.split_at(index + 1).1.iter().find(|resp| {
-                        resp.dest == msg.src
-                            && matches!(&resp.body, EchoMessage::EchoOk { in_reply_to, echo: resp_echo, .. }
+                    resp.dest == msg.src
+                        && matches!(&resp.body, EchoMessage::EchoOk { in_reply_to, echo: resp_echo, .. }
                                 if in_reply_to == msg_id && resp_echo == echo)
-                    });
+                });
                 if response.is_none() {
                     return Err(format!(
                         "No matching response found for echo request: {:?}",

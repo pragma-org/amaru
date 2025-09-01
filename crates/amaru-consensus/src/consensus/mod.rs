@@ -58,11 +58,7 @@ pub fn build_stage_graph(
 
     let select_chain_stage = network.wire_up(
         select_chain_stage,
-        (
-            chain_selector,
-            outputs.without_state(),
-            upstream_errors_stage.without_state(),
-        ),
+        (chain_selector, outputs, upstream_errors_stage.clone()),
     );
 
     let validate_header_stage = network.wire_up(
@@ -70,23 +66,17 @@ pub fn build_stage_graph(
         (
             consensus,
             global_parameters.clone(),
-            select_chain_stage.without_state(),
-            upstream_errors_stage.without_state(),
+            select_chain_stage,
+            upstream_errors_stage.clone(),
         ),
     );
 
-    let store_header_stage =
-        network.wire_up(store_header_stage, validate_header_stage.without_state());
+    let store_header_stage = network.wire_up(store_header_stage, validate_header_stage);
 
-    let receive_header_stage = network.wire_up(
+    network.wire_up(
         receive_header_stage,
-        (
-            store_header_stage.without_state(),
-            upstream_errors_stage.without_state(),
-        ),
-    );
-
-    receive_header_stage.without_state()
+        (store_header_stage, upstream_errors_stage),
+    )
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

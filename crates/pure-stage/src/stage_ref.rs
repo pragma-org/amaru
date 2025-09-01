@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Name};
+use crate::Name;
 use std::{fmt, marker::PhantomData};
 
 /// A handle to a stage during the building phase of a [`StageGraph`](crate::StageGraph).
@@ -25,6 +25,34 @@ pub struct StageBuildRef<Msg, St, RefAux> {
 impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
     /// Derive the handle that can later be used for sending messages to this stage.
     pub fn sender(&self) -> StageRef<Msg> {
+        StageRef {
+            name: self.name.clone(),
+            _ph: PhantomData,
+        }
+    }
+}
+
+/// A handle for a built stage, allowing to access its internal state
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct Stage<Msg, State> {
+    pub name: Name,
+    #[serde(skip)]
+    pub(crate) _ph: PhantomData<(Msg, State)>,
+}
+
+impl<Msg, State> Stage<Msg, State> {
+    pub fn new(name: Name) -> Self {
+        Self {
+            name,
+            _ph: PhantomData,
+        }
+    }
+
+    pub fn name(&self) -> Name {
+        self.name.clone()
+    }
+
+    pub fn as_ref(&self) -> StageRef<Msg> {
         StageRef {
             name: self.name.clone(),
             _ph: PhantomData,
@@ -66,13 +94,6 @@ impl<Msg> fmt::Debug for StageRef<Msg> {
 impl<Msg> StageRef<Msg> {
     pub fn name(&self) -> Name {
         self.name.clone()
-    }
-
-    pub fn without_state(&self) -> StageRef<Msg> {
-        StageRef {
-            name: self.name.clone(),
-            _ph: PhantomData,
-        }
     }
 }
 

@@ -52,11 +52,11 @@ pub fn header_is_valid(
         epoch_nonce,
         &active_slot_coeff,
     )
-        .and_then(|assertions| {
-            use rayon::prelude::*;
-            assertions.into_par_iter().try_for_each(|assert| assert())
-        })
-        .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
+    .and_then(|assertions| {
+        use rayon::prelude::*;
+        assertions.into_par_iter().try_for_each(|assert| assert())
+    })
+    .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -159,7 +159,7 @@ pub async fn stage(
                     &errors,
                     ValidationFailed::new(peer.clone(), point.clone(), error.into()),
                 )
-                    .await;
+                .await;
                 return false;
             }
         };
@@ -178,14 +178,14 @@ pub async fn stage(
                 &errors,
                 ValidationFailed::new(peer.clone(), point.clone(), error),
             )
-                .await;
+            .await;
             false
         } else {
             true
         }
     }
-        .instrument(span)
-        .await;
+    .instrument(span)
+    .await;
 
     if send_downstream {
         eff.send(&downstream, msg).await;

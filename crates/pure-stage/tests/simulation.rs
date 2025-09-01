@@ -15,7 +15,7 @@
 
 use pure_stage::{
     CallRef, Effect, ExternalEffect, Instant, OutputEffect, Receiver, Resources, SendData,
-    StageGraph, StageGraphRunning, StageRef, Void,
+    StageGraph, StageGraphRunning, StageRef,
     simulation::{OverrideResult, SimulationBuilder},
     trace_buffer::TraceBuffer,
 };
@@ -30,7 +30,7 @@ use std::{
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct State(u32, StageRef<u32, Void>);
+struct State(u32, StageRef<u32>);
 
 #[test]
 fn basic() {
@@ -42,7 +42,7 @@ fn basic() {
         state
     });
     let (output, mut rx) = network.output("output", 10);
-    let basic = network.wire_up(basic, State(1u32, output.without_state()));
+    let basic = network.wire_up(basic, State(1u32, output.clone()));
     let mut running = network.run(rt.handle().clone());
 
     // first check that the stages start out suspended on Receive
@@ -74,9 +74,7 @@ fn automatic() {
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
 
-    fn basic(
-        network: &mut impl StageGraph,
-    ) -> (StageRef<u32, Void>, Receiver<u32>, StageRef<u32, Void>) {
+    fn basic(network: &mut impl StageGraph) -> (StageRef<u32>, Receiver<u32>, StageRef<u32>) {
         let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
             state.0 += msg;
             eff.wait(Duration::from_secs(10)).await;
@@ -84,8 +82,8 @@ fn automatic() {
             state
         });
         let (output, rx) = network.output("output", 10);
-        let basic = network.wire_up(basic, State(1u32, output.without_state()));
-        (basic.without_state(), rx, output)
+        let basic = network.wire_up(basic, State(1u32, output.clone()));
+        (basic, rx, output)
     }
 
     let (in_ref, mut rx, output) = basic(&mut network);
@@ -159,7 +157,7 @@ fn automatic() {
 
     assert_eq!(
         replay.latest_state(&in_ref.name()),
-        Some(&State(7, output.without_state()) as &dyn SendData)
+        Some(&State(7, output.clone()) as &dyn SendData)
     );
     assert_eq!(replay.is_running(&in_ref.name()), false);
     assert_eq!(replay.is_idle(&in_ref.name()), true);
@@ -180,7 +178,7 @@ fn breakpoint() {
         state
     });
     let (output, mut rx) = network.output("output", 10);
-    let basic = network.wire_up(basic, State(1u32, output.without_state()));
+    let basic = network.wire_up(basic, State(1u32, output.clone()));
     let mut running = network.run(rt.handle().clone());
 
     running.enqueue_msg(&basic, [1, 2, 3]);
@@ -189,7 +187,7 @@ fn breakpoint() {
             eff,
             Effect::Send { from, to, msg, .. }
                 if from == &basic.name &&
-                    to == &output.name &&
+                    to == &output.name() &&
                     *msg == Box::new(4u32) as Box<dyn SendData>
         )
     });
@@ -207,7 +205,7 @@ fn overrides() {
         state
     });
     let (output, mut rx) = network.output("output", 10);
-    let basic = network.wire_up(basic, State(1u32, output.without_state()));
+    let basic = network.wire_up(basic, State(1u32, output));
     let mut running = network.run(rt.handle().clone());
 
     let count = Arc::new(AtomicUsize::new(0));
@@ -250,14 +248,15 @@ fn backpressure() {
     });
 
     let sender = network.wire_up(sender, pressure.sender());
-    let pressure = network.wire_up(pressure, 1u32);
+    let pressure = network.wire(pressure, 1u32);
+    let pressure_ref = pressure.as_ref();
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mut running = network.run(rt.handle().clone());
 
     running.enqueue_msg(&sender, [1, 2, 3]);
     running.breakpoint("pressure", {
-        let pressure = pressure.clone();
+        let pressure = pressure_ref.clone();
         move |eff| matches!(eff, Effect::Clock { at_stage: a } if a == &pressure.name)
     });
 
@@ -291,11 +290,11 @@ fn clock() {
         let later = eff.wait(Duration::from_secs(1)).await;
         State2::Full(msg, now, later)
     });
-    let basic = network.wire_up(basic, State2::Empty);
+    let basic = network.wire(basic, State2::Empty);
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mut running = network.run(rt.handle().clone());
 
-    running.enqueue_msg(&basic, [42]);
+    running.enqueue_msg(&basic.as_ref(), [42]);
     let now = running.now();
     running.run_until_blocked().assert_idle();
     let later = running.now();
@@ -305,7 +304,7 @@ fn clock() {
     );
     assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
 
-    running.enqueue_msg(&basic, [43]);
+    running.enqueue_msg(&basic.as_ref(), [43]);
     let wakeup = running
         .run_until_blocked_or_time(later + Duration::from_millis(100))
         .assert_sleeping();
@@ -320,11 +319,12 @@ fn clock_manual() {
         let later = eff.wait(Duration::from_secs(1)).await;
         State2::Full(msg, now, later)
     });
-    let stage = network.wire_up(stage, State2::Empty);
+    let stage = network.wire(stage, State2::Empty);
+    let stage_ref = stage.as_ref();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mut running = network.run(rt.handle().clone());
 
-    running.enqueue_msg(&stage, [42]);
+    running.enqueue_msg(&stage_ref, [42]);
     let now = running.now();
     running.run_until_sleeping_or_blocked().assert_sleeping();
     assert_eq!(running.get_state(&stage), None);
@@ -352,7 +352,7 @@ fn clock_manual() {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct State3(u32, StageRef<Msg3, Void>);
+struct State3(u32, StageRef<Msg3>);
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Msg3(u32, CallRef<u32>);
@@ -384,28 +384,29 @@ fn call() {
         eff.respond(msg.1, msg.0 * 2).await;
         state
     });
-    let caller = network.wire_up(caller, State3(1u32, callee.sender()));
+    let caller = network.wire(caller, State3(1u32, callee.sender()));
     let callee = network.wire_up(callee, ());
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mut sim = network.run(rt.handle().clone());
 
-    sim.enqueue_msg(&caller, [1]);
+    sim.enqueue_msg(&caller.as_ref(), [1]);
     sim.run_until_blocked().assert_idle();
     assert_eq!(sim.get_state(&caller).unwrap().0, 4);
 
     // also try manual mode
-    sim.enqueue_msg(&caller, [2]);
-    sim.resume_receive(&caller).unwrap();
+    sim.enqueue_msg(&caller.as_ref(), [2]);
+    sim.resume_receive(&caller.as_ref()).unwrap();
     let (msg, cr) = sim.effect().assert_call(
-        &caller,
+        &caller.as_ref(),
         &callee,
         |msg| (msg.0 + 1, msg.1),
         Duration::from_secs(2),
     );
 
     let cr2 = cr.dummy();
-    sim.resume_send(&caller, &callee, Msg3(msg, cr)).unwrap();
+    sim.resume_send(&caller.as_ref(), &callee, Msg3(msg, cr))
+        .unwrap();
     // still not runnable, now waiting for response
     sim.try_effect().unwrap_err().assert_busy([caller.name()]);
 
@@ -416,7 +417,7 @@ fn call() {
     sim.resume_respond(&callee, &cr2, 7).unwrap();
     sim.effect().assert_receive(&callee);
     // the processing above has already dealt with sending the response, which has resumed the caller
-    sim.effect().assert_receive(&caller);
+    sim.effect().assert_receive(&caller.as_ref());
     assert_eq!(sim.get_state(&caller).unwrap().0, 7);
 }
 
