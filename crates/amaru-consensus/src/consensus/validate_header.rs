@@ -123,7 +123,7 @@ impl ValidateHeader {
     )]
     pub async fn handle_roll_forward<M, S>(
         &mut self,
-        eff: &Effects<M, S>,
+        eff: &mut Effects<M, S>,
         peer: Peer,
         point: Point,
         header: Header,
@@ -151,7 +151,7 @@ impl ValidateHeader {
 
     pub async fn validate_header<M, S>(
         &mut self,
-        eff: &Effects<M, S>,
+        eff: &mut Effects<M, S>,
         chain_sync: DecodedChainSyncEvent,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
@@ -226,11 +226,8 @@ pub async fn stage(
             Ok(nonces) => nonces,
             Err(error) => {
                 tracing::error!(%peer, %error, "evolve nonce failed");
-                eff.send(
-                    &errors,
-                    ValidationFailed::new(peer.clone(), point.clone(), error.into()),
-                )
-                .await;
+                eff.send(&errors, ValidationFailed::new(peer.clone(), error.into()))
+                    .await;
                 return false;
             }
         };
@@ -245,11 +242,8 @@ pub async fn stage(
             &global,
         ) {
             tracing::info!(%peer, %error, "invalid header");
-            eff.send(
-                &errors,
-                ValidationFailed::new(peer.clone(), point.clone(), error),
-            )
-            .await;
+            eff.send(&errors, ValidationFailed::new(peer.clone(), error))
+                .await;
             false
         } else {
             true

@@ -66,8 +66,7 @@ pub async fn stage(
                 Ok(header) => header,
                 Err(error) => {
                     tracing::error!(%error, %point, %peer, "Failed to decode header");
-                    eff.send(&errors, ValidationFailed::new(peer, point.clone(), error))
-                        .await;
+                    eff.send(&errors, ValidationFailed::new(peer, error)).await;
                     return (downstream, errors);
                 }
             };
