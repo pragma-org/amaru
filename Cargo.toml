@@ -47,6 +47,7 @@ pallas-crypto = "0.33.0"
 pallas-math = "0.33.0"
 pallas-network = "0.33.0"
 pallas-primitives = "0.33.0"
+pallas-network2 = { git = "https://github.com/txpipe/pallas" }
 pallas-traverse = "0.33.0"
 parking_lot = "0.12.3"
 rayon = "1.10"

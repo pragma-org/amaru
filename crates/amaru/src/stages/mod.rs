@@ -66,6 +66,7 @@ pub mod common;
 pub mod consensus;
 pub mod ledger;
 pub mod pull;
+pub mod pull_p2p;
 mod pure_stage_util;
 
 pub type BlockHash = pallas_crypto::hash::Hash<32>;
