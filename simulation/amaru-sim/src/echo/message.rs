@@ -21,6 +21,16 @@ pub struct Envelope<T> {
     pub body: T,
 }
 
+impl<T> Envelope<T> {
+    pub fn new(src: String, dest: String, body: T) -> Self {
+        Self { src, dest, body }
+    }
+
+    pub fn is_client_message(&self) -> bool {
+        self.src.starts_with("c")
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EchoMessage {

@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::{self, Args};
+use amaru_sim::simulator::Args;
+use amaru_sim::simulator::run::run;
 use clap::Parser;
+use tokio::runtime::Runtime;
 
 fn main() {
     let args = Args::parse();
@@ -23,6 +25,5 @@ fn main() {
         .json()
         .init();
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    simulator::run(rt, args);
+    run(Runtime::new().unwrap(), args);
 }

@@ -61,7 +61,7 @@ pub mod ledger;
 pub mod pull;
 mod pure_stage_util;
 
-pub type BlockHash = pallas_crypto::hash::Hash<32>;
+pub type BlockHash = Hash<32>;
 
 /// Whether or not data is stored on disk or in memory.
 #[derive(Clone)]
@@ -156,7 +156,7 @@ pub fn bootstrap(
     config: Config,
     clients: Vec<(String, PeerClient)>,
     exit: CancellationToken,
-) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
+) -> Result<Vec<Tether>, Box<dyn Error>> {
     let era_history: &EraHistory = config.network.into();
 
     let global_parameters: &GlobalParameters = config.network.into();
@@ -278,12 +278,12 @@ pub fn bootstrap(
         .map(|p| spawn_stage(p, policy.clone()))
         .collect::<Vec<_>>();
 
-    let pure_stages = gasket::runtime::spawn_stage(pure_stages, policy.clone());
+    let pure_stages = spawn_stage(pure_stages, policy.clone());
 
-    let fetch = gasket::runtime::spawn_stage(fetch_block_stage, policy.clone());
-    let store_block = gasket::runtime::spawn_stage(store_block_stage, policy.clone());
+    let fetch = spawn_stage(fetch_block_stage, policy.clone());
+    let store_block = spawn_stage(store_block_stage, policy.clone());
     let ledger = ledger_stage.spawn(policy.clone());
-    let block_forward = gasket::runtime::spawn_stage(forward_chain_stage, policy.clone());
+    let block_forward = spawn_stage(forward_chain_stage, policy.clone());
 
     stages.push(pure_stages);
 

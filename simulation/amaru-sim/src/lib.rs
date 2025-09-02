@@ -14,3 +14,4 @@
 
 pub mod echo;
 pub mod simulator;
+pub mod sync;

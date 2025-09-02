@@ -16,9 +16,15 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Bytes {
     pub bytes: Vec<u8>,
+}
+
+impl Bytes {
+    pub fn new() -> Self {
+        Bytes { bytes: Vec::new() }
+    }
 }
 
 impl fmt::Debug for Bytes {
