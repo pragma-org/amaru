@@ -28,7 +28,7 @@ pub struct Args {
     ///
     /// This option can be specified multiple times to connect to multiple peers.
     /// At least one peer address must be specified.
-    #[arg(long, value_name = "NETWORK_ADDRESS", env("AMARU_PEER_ADDRESS"), action = ArgAction::Append, required = true)]
+    #[arg(long, value_name = "NETWORK_ADDRESS", env = "AMARU_PEER_ADDRESS", action = ArgAction::Append, required = true)]
     peer_address: Vec<String>,
 
     /// The target network to choose from.
@@ -38,7 +38,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK",
-        env("AMARU_NETWORK"),
+        env = "AMARU_NETWORK",
         default_value_t = NetworkName::Preprod,
     )]
     network: NetworkName,
@@ -52,7 +52,7 @@ pub struct Args {
     chain_dir: Option<PathBuf>,
 
     /// The address to listen on for incoming connections.
-    #[arg(long, value_name = "LISTEN_ADDRESS", env("AMARU_LISTEN_ADDRESS"), default_value = super::DEFAULT_LISTEN_ADDRESS)]
+    #[arg(long, value_name = "LISTEN_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS)]
     listen_address: String,
 
     /// The maximum number of downstream peers to connect to.
@@ -67,7 +67,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "MAX_EXTRA_LEDGER_SNAPSHOTS",
-        env("AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS"),
+        env = "AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS",
         default_value_t = MaxExtraLedgerSnapshots::default(),
     )]
     max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
