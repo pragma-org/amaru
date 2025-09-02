@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use crate::{
-    BoxFuture, CallId, CallRef, Instant, Name, Resources, SendData, Sender, StageRef,
+    BoxFuture, CallId, CallRef, Instant, StageName, Resources, SendData, Sender, StageRef,
     serde::{SendDataValue, never, to_cbor},
     simulation::{EffectBox, airlock_effect},
     time::Clock,
@@ -328,13 +328,13 @@ fn unknown_external_effect() {
         #[serde(with = "crate::serde::serialize_external_effect")] Box<dyn ExternalEffect>,
     );
 
-    let output = crate::OutputEffect::new(Name::from("from"), 3.2, tokio::sync::mpsc::channel(1).0);
+    let output = crate::OutputEffect::new(StageName::from("from"), 3.2, tokio::sync::mpsc::channel(1).0);
     let container = Container(Box::new(output));
     let bytes = to_cbor(&container);
     let container2: Container = from_slice(&bytes).unwrap();
     let output2 = *container2.0.cast::<UnknownExternalEffect>().unwrap();
     let output2 = output2.cast::<crate::OutputEffect<f64>>().unwrap();
-    assert_eq!(output2.name, Name::from("from"));
+    assert_eq!(output2.name, StageName::from("from"));
     assert_eq!(output2.msg, 3.2);
 }
 
@@ -344,7 +344,7 @@ fn unknown_external_effect() {
 pub(crate) enum StageEffect<T> {
     Receive,
     Send(
-        Name,
+        StageName,
         T,
         // this is present in case the send is the first part of a call effect
         Option<(Duration, oneshot::Receiver<Box<dyn SendData>>, CallId)>,
@@ -352,13 +352,13 @@ pub(crate) enum StageEffect<T> {
     Clock,
     Wait(Duration),
     Call(
-        Name,
+        StageName,
         Instant,
         T,
         oneshot::Receiver<Box<dyn SendData>>,
         CallId,
     ),
-    Respond(Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>, T),
+    Respond(StageName, CallId, Instant, oneshot::Sender<Box<dyn SendData>>, T),
     External(Box<dyn ExternalEffect>),
     Terminate,
 }
@@ -378,7 +378,7 @@ impl StageEffect<Box<dyn SendData>> {
     /// Split this effect from the stage into two parts:
     /// - the marker we remember in the running simulation
     /// - the effect we emit to the outside world
-    pub fn split(self, at_name: Name) -> (StageEffect<()>, Effect) {
+    pub fn split(self, at_name: StageName) -> (StageEffect<()>, Effect) {
         #[allow(clippy::panic)]
         match self {
             StageEffect::Receive => (StageEffect::Receive, Effect::Receive { at_stage: at_name }),
@@ -435,42 +435,42 @@ impl StageEffect<Box<dyn SendData>> {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Effect {
     Receive {
-        at_stage: Name,
+        at_stage: StageName,
     },
     Send {
-        from: Name,
-        to: Name,
+        from: StageName,
+        to: StageName,
         #[serde(with = "crate::serde::serialize_send_data")]
         msg: Box<dyn SendData>,
         call: Option<(Duration, CallId)>,
     },
     Clock {
-        at_stage: Name,
+        at_stage: StageName,
     },
     Wait {
-        at_stage: Name,
+        at_stage: StageName,
         duration: Duration,
     },
     Respond {
-        at_stage: Name,
-        target: Name,
+        at_stage: StageName,
+        target: StageName,
         id: CallId,
         #[serde(with = "crate::serde::serialize_send_data")]
         msg: Box<dyn SendData>,
     },
     External {
-        at_stage: Name,
+        at_stage: StageName,
         #[serde(with = "crate::serde::serialize_external_effect")]
         effect: Box<dyn ExternalEffect>,
     },
     Terminate {
-        at_stage: Name,
+        at_stage: StageName,
     },
 }
 
 #[allow(clippy::wildcard_enum_match_arm, clippy::panic)]
 impl Effect {
-    pub fn at_stage(&self) -> &Name {
+    pub fn at_stage(&self) -> &StageName {
         match self {
             Effect::Receive { at_stage, .. } => at_stage,
             Effect::Send { from, .. } => from,

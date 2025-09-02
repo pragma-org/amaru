@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::StageEffect;
-use crate::{BoxFuture, Name, SendData};
+use crate::{BoxFuture, StageName, SendData};
 use std::{collections::VecDeque, fmt};
 
 pub enum InitStageState {
@@ -57,10 +57,10 @@ impl fmt::Debug for StageState {
 }
 
 pub struct StageData {
-    pub name: Name,
+    pub name: StageName,
     pub mailbox: VecDeque<Box<dyn SendData>>,
     pub state: StageState,
     pub transition: Transition,
     pub waiting: Option<StageEffect<()>>,
-    pub senders: VecDeque<(Name, Box<dyn SendData>)>,
+    pub senders: VecDeque<(StageName, Box<dyn SendData>)>,
 }

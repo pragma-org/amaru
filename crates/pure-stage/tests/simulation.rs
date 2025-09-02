@@ -268,7 +268,7 @@ fn backpressure() {
         }
     );
 
-    running.run_until_blocked().assert_busy([&pressure.name]);
+    running.run_until_blocked().assert_busy([&pressure.name()]);
 
     running.handle_effect(broken);
     running.clear_breakpoint("pressure");

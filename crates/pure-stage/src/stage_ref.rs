@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Name;
+use crate::StageName;
 use std::{fmt, marker::PhantomData};
 
 /// A handle to a stage during the building phase of a [`StageGraph`](crate::StageGraph).
 pub struct StageBuildRef<Msg, St, RefAux> {
-    pub name: Name,
+    pub name: StageName,
     pub(crate) network: RefAux,
     pub(crate) _ph: PhantomData<(Msg, St)>,
 }
@@ -32,23 +32,20 @@ impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
     }
 }
 
-/// A handle for a built stage, allowing to access its internal state
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Stage<Msg, State> {
-    pub name: Name,
-    #[serde(skip)]
+    name: StageName,
     pub(crate) _ph: PhantomData<(Msg, State)>,
 }
 
 impl<Msg, State> Stage<Msg, State> {
-    pub fn new(name: Name) -> Self {
+    pub fn new(name: impl AsRef<str>) -> Self {
         Self {
-            name,
+            name: name.as_ref().into(),
             _ph: PhantomData,
         }
     }
 
-    pub fn name(&self) -> Name {
+    pub fn name(&self) -> StageName {
         self.name.clone()
     }
 
@@ -63,9 +60,18 @@ impl<Msg, State> Stage<Msg, State> {
 /// A handle for sending messages to a stage via the [`Effects`](crate::Effects) argument to the stage transition function.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct StageRef<Msg> {
-    pub name: Name,
+    pub name: StageName,
     #[serde(skip)]
     pub(crate) _ph: PhantomData<Msg>,
+}
+
+impl<Msg> StageRef<Msg> {
+    pub fn new(name: impl AsRef<str>) -> Self {
+        Self {
+            name: name.as_ref().into(),
+            _ph: PhantomData,
+        }
+    }
 }
 
 impl<Msg> PartialEq for StageRef<Msg> {
@@ -92,7 +98,7 @@ impl<Msg> fmt::Debug for StageRef<Msg> {
 }
 
 impl<Msg> StageRef<Msg> {
-    pub fn name(&self) -> Name {
+    pub fn name(&self) -> StageName {
         self.name.clone()
     }
 }

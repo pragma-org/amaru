@@ -19,7 +19,8 @@
 
 use crate::stage_ref::Stage;
 use crate::{
-    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BoxFuture, Effects, Instant, StageName, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    Stageable,
     effect::{StageEffect, StageResponse},
     resources::Resources,
     simulation::EffectBox,
@@ -47,11 +48,12 @@ use tokio::{
 #[derive(Debug, thiserror::Error)]
 #[error("message send failed to stage `{target}`")]
 pub struct SendError {
-    target: Name,
+    target: StageName,
 }
 
 struct TokioInner {
-    senders: BTreeMap<Name, mpsc::Sender<Box<dyn SendData>>>,
+    senders: BTreeMap<StageName, mpsc::Sender<Box<dyn SendData>>>,
+    name_counter: usize,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
     mailbox_size: usize,
@@ -62,6 +64,7 @@ impl TokioInner {
     fn new(termination: watch::Sender<bool>) -> Self {
         Self {
             senders: Default::default(),
+            name_counter: 0,
             clock: Arc::new(TokioClock),
             resources: Resources::default(),
             mailbox_size: 10,
@@ -108,6 +111,42 @@ impl StageGraph for TokioBuilder {
         Box<dyn FnMut(State, Msg, Effects<Msg>) -> BoxFuture<'static, State> + 'static + Send>,
     );
 
+    fn register<Msg, St>(
+        &mut self,
+        stageable: impl Stageable<Msg, St> + 'static + Send + Clone,
+    ) -> Stage<Msg, St>
+    where
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+    {
+        let (tx, rx) = mpsc::channel(self.inner.mailbox_size);
+        let name = self.make_name(stageable.named());
+        let initial_state = stageable.initial_state();
+        self.inner.senders.insert(name.clone(), tx);
+        let stageable_clone = stageable.clone();
+        let stage_build_ref: StageBuildRef<Msg, St, Self::RefAux<Msg, St>> = StageBuildRef {
+            name,
+            network: (
+                rx,
+                Box::new(move |state, msg, eff| {
+                    Box::pin({
+                        let stageable_clone2 = stageable_clone.clone();
+                        async move { stageable_clone2.run(state, msg, eff).await }
+                    })
+                }),
+            ),
+            _ph: PhantomData,
+        };
+        self.wire(stage_build_ref, initial_state)
+    }
+
+    fn make_name(&mut self, name: impl AsRef<str>) -> StageName {
+        // THIS MUST MATCH THE SIMULATION BUILDER
+        let result = StageName::from(&*format!("{}-{}", name.as_ref(), self.inner.name_counter));
+        self.inner.name_counter += 1;
+        result
+    }
+
     fn stage<Msg: SendData, St: SendData, F, Fut>(
         &mut self,
         name: impl AsRef<str>,
@@ -115,10 +154,10 @@ impl StageGraph for TokioBuilder {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output = St> + 'static + Send,
+        Fut: Future<Output=St> + 'static + Send,
     {
         // THIS MUST MATCH THE SIMULATION BUILDER
-        let name = Name::from(&*format!("{}-{}", name.as_ref(), self.inner.senders.len()));
+        let name = StageName::from(&*format!("{}-{}", name.as_ref(), self.inner.senders.len()));
         let (tx, rx) = mpsc::channel(self.inner.mailbox_size);
         self.inner.senders.insert(name.clone(), tx);
         StageBuildRef {
@@ -180,7 +219,7 @@ impl StageGraph for TokioBuilder {
                             effects.clone(),
                         ),
                     )
-                    .await;
+                        .await;
                     match result {
                         Some(st) => state = st,
                         None => {
@@ -236,7 +275,7 @@ impl StageGraph for TokioBuilder {
 }
 
 #[allow(clippy::expect_used)]
-fn mk_sender<Msg: SendData>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg> {
+fn mk_sender<Msg: SendData>(stage_name: &StageName, inner: &TokioInner) -> Sender<Msg> {
     let tx = inner
         .senders
         .get(stage_name)
@@ -255,7 +294,7 @@ fn mk_sender<Msg: SendData>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg
 async fn interpreter<St>(
     inner: &TokioInner,
     effect: &EffectBox,
-    name: &Name,
+    name: &StageName,
     mut stage: BoxFuture<'static, St>,
 ) -> Option<St> {
     loop {

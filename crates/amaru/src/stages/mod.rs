@@ -16,8 +16,9 @@ use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
     ConsensusError, IsHeader,
     consensus::{
-        ChainSyncEvent, build_stage_graph, headers_tree::HeadersTree, select_chain::SelectChain,
-        store::ChainStore, store_block::StoreBlock, store_effects, validate_header::ValidateHeader,
+        ChainSyncEvent, build_stage_graph, headers_tree::HeadersTree,
+        select_chain::SelectChainState, store::ChainStore, store_block::StoreBlock, store_effects,
+        validate_header::ValidateHeaderState,
     },
 };
 use amaru_kernel::{
@@ -216,11 +217,11 @@ pub fn bootstrap(
         make_chain_selector(header, &peers, global_parameters.consensus_security_param)?;
 
     let consensus = match &ledger_stage {
-        LedgerStage::InMemLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
+        LedgerStage::InMemLedgerStage(validate_block_stage) => ValidateHeaderState::new(Arc::new(
             validate_block_stage.state.view_stake_distribution(),
         )),
 
-        LedgerStage::OnDiskLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
+        LedgerStage::OnDiskLedgerStage(validate_block_stage) => ValidateHeaderState::new(Arc::new(
             validate_block_stage.state.view_stake_distribution(),
         )),
     };
@@ -418,7 +419,7 @@ fn make_chain_selector(
     header: Option<Header>,
     peers: &Vec<Peer>,
     consensus_security_parameter: usize,
-) -> Result<SelectChain, ConsensusError> {
+) -> Result<SelectChainState, ConsensusError> {
     let root_hash = match &header {
         Some(h) => h.hash(),
         None => Point::Origin.hash(),
@@ -431,7 +432,7 @@ fn make_chain_selector(
         tree.initialize_peer(peer, &root_hash)?;
     }
 
-    Ok(SelectChain::new(tree))
+    Ok(SelectChainState::new(tree))
 }
 
 pub trait PallasPoint {

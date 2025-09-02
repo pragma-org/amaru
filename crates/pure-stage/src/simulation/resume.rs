@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    CallId, Instant, Name, SendData, StageResponse,
+    CallId, Instant, StageName, SendData, StageResponse,
     effect::StageEffect,
     simulation::state::{StageData, StageState},
     trace_buffer::TraceBuffer,
@@ -24,7 +24,7 @@ use tokio::sync::oneshot::{Receiver, Sender};
 pub fn resume_receive_internal(
     trace_buffer: &mut TraceBuffer,
     data: &mut StageData,
-    run: &mut dyn FnMut(Name, StageResponse),
+    run: &mut dyn FnMut(StageName, StageResponse),
 ) -> anyhow::Result<()> {
     let waiting_for = data
         .waiting
@@ -76,8 +76,8 @@ pub fn post_message(
 
 pub fn resume_send_internal(
     data: &mut StageData,
-    run: &mut dyn FnMut(Name, StageResponse),
-    to: Name,
+    run: &mut dyn FnMut(StageName, StageResponse),
+    to: StageName,
 ) -> anyhow::Result<Option<(Duration, Receiver<Box<dyn SendData>>, CallId)>> {
     let waiting_for = data
         .waiting
@@ -106,7 +106,7 @@ pub fn resume_send_internal(
 
 pub fn resume_clock_internal(
     data: &mut StageData,
-    run: &mut dyn FnMut(Name, StageResponse),
+    run: &mut dyn FnMut(StageName, StageResponse),
     time: Instant,
 ) -> anyhow::Result<()> {
     let waiting_for = data
@@ -131,7 +131,7 @@ pub fn resume_clock_internal(
 
 pub fn resume_wait_internal(
     data: &mut StageData,
-    run: &mut dyn FnMut(Name, StageResponse),
+    run: &mut dyn FnMut(StageName, StageResponse),
     time: Instant,
 ) -> anyhow::Result<()> {
     let waiting_for = data
@@ -156,7 +156,7 @@ pub fn resume_wait_internal(
 
 pub fn resume_call_internal(
     data: &mut StageData,
-    run: &mut dyn FnMut(Name, StageResponse),
+    run: &mut dyn FnMut(StageName, StageResponse),
     id: CallId,
 ) -> anyhow::Result<()> {
     let waiting_for = data
@@ -189,10 +189,10 @@ pub fn resume_call_internal(
 
 pub fn resume_respond_internal(
     data: &mut StageData,
-    run: &mut dyn FnMut(Name, StageResponse),
-    target: Name,
+    run: &mut dyn FnMut(StageName, StageResponse),
+    target: StageName,
     id: CallId,
-) -> anyhow::Result<(Name, CallId, Instant, Sender<Box<dyn SendData>>)> {
+) -> anyhow::Result<(StageName, CallId, Instant, Sender<Box<dyn SendData>>)> {
     let waiting_for = data
         .waiting
         .as_ref()
@@ -220,7 +220,7 @@ pub fn resume_respond_internal(
 pub fn resume_external_internal(
     data: &mut StageData,
     result: Box<dyn SendData>,
-    run: &mut dyn FnMut(Name, StageResponse),
+    run: &mut dyn FnMut(StageName, StageResponse),
 ) -> anyhow::Result<()> {
     let waiting_for = data
         .waiting

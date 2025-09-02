@@ -15,7 +15,7 @@
 
 //! This module contains the [`TraceBuffer`] type, which is used to record the trace of a simulation.
 
-use crate::{Effect, Instant, Name, SendData, effect::StageResponse, serde::to_cbor};
+use crate::{Effect, Instant, StageName, SendData, effect::StageResponse, serde::to_cbor};
 use cbor4ii::serde::from_slice;
 use parking_lot::Mutex;
 use std::{collections::VecDeque, sync::Arc};
@@ -42,17 +42,17 @@ pub struct TraceBuffer {
 pub enum TraceEntry {
     Suspend(Effect),
     Resume {
-        stage: Name,
+        stage: StageName,
         response: StageResponse,
     },
     Clock(Instant),
     Input {
-        stage: Name,
+        stage: StageName,
         #[serde(with = "crate::serde::serialize_send_data")]
         input: Box<dyn SendData>,
     },
     State {
-        stage: Name,
+        stage: StageName,
         #[serde(with = "crate::serde::serialize_send_data")]
         state: Box<dyn SendData>,
     },
@@ -65,16 +65,16 @@ pub enum TraceEntry {
 pub enum TraceEntryRef<'a> {
     Suspend(&'a Effect),
     Resume {
-        stage: &'a Name,
+        stage: &'a StageName,
         response: &'a StageResponse,
     },
     Clock(Instant),
     Input {
-        stage: &'a Name,
+        stage: &'a StageName,
         input: &'a Box<dyn SendData>,
     },
     State {
-        stage: &'a Name,
+        stage: &'a StageName,
         state: &'a Box<dyn SendData>,
     },
 }
@@ -107,7 +107,7 @@ impl TraceBuffer {
     }
 
     /// Push a resume event to the trace buffer.
-    pub fn push_resume(&mut self, stage: &Name, response: &StageResponse) {
+    pub fn push_resume(&mut self, stage: &StageName, response: &StageResponse) {
         self.push(to_cbor(&TraceEntryRef::Resume { stage, response }));
     }
 
@@ -117,7 +117,7 @@ impl TraceBuffer {
     }
 
     /// Push a receive event to the trace buffer.
-    pub fn push_receive(&mut self, stage: &Name, input: &Box<dyn SendData>) {
+    pub fn push_receive(&mut self, stage: &StageName, input: &Box<dyn SendData>) {
         self.push(to_cbor(&TraceEntryRef::Input { stage, input }));
     }
 
@@ -125,7 +125,7 @@ impl TraceBuffer {
     ///
     /// This happens every time polling a stage yields a `Poll::Ready(Ok(...))`, i.e. as soon as the next
     /// stage state has been computed.
-    pub fn push_state(&mut self, stage: &Name, state: &Box<dyn SendData>) {
+    pub fn push_state(&mut self, stage: &StageName, state: &Box<dyn SendData>) {
         self.push(to_cbor(&TraceEntryRef::State { stage, state }));
     }
 
@@ -164,7 +164,7 @@ impl TraceBuffer {
     }
 
     /// Iterate over the entries in the trace buffer.
-    pub fn iter(&self) -> impl Iterator<Item = &[u8]> {
+    pub fn iter(&self) -> impl Iterator<Item=&[u8]> {
         self.messages.iter().map(|m| m.as_slice())
     }
 

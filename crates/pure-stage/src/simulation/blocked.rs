@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Effect, Instant, Name};
+use crate::{Effect, Instant, StageName};
 
 /// Classification of why [`SimulationRunning::run_until_blocked`](crate::simulation::SimulationRunning::run_until_blocked) has stopped.
 #[derive(Debug, PartialEq)]
@@ -22,12 +22,12 @@ pub enum Blocked {
     /// The simulation is waiting for a wakeup.
     Sleeping { next_wakeup: Instant },
     /// All stages are suspended on either [`Effect::Receive`] or [`Effect::Send`].
-    Deadlock(Vec<Name>),
+    Deadlock(Vec<StageName>),
     /// The given breakpoint was hit.
-    Breakpoint(Name, Effect),
+    Breakpoint(StageName, Effect),
     /// The given stages are suspended on effects other than [`Effect::Receive`]
     /// while none are suspended on [`Effect::Send`].
-    Busy(Vec<Name>),
+    Busy(Vec<StageName>),
 }
 
 impl Blocked {
@@ -48,10 +48,10 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Deadlock` by at least the given stages.
-    pub fn assert_deadlock(&self, names: impl IntoIterator<Item = impl AsRef<str>>) {
+    pub fn assert_deadlock(&self, names: impl IntoIterator<Item=impl AsRef<str>>) {
         let names = names
             .into_iter()
-            .map(|n| Name::from(n.as_ref()))
+            .map(|n| StageName::from(n.as_ref()))
             .collect::<Vec<_>>();
         match self {
             Blocked::Deadlock(deadlock) if names.iter().all(|n| deadlock.contains(n)) => {}
@@ -60,10 +60,10 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Busy` by at least the given stages.
-    pub fn assert_busy(&self, names: impl IntoIterator<Item = impl AsRef<str>>) {
+    pub fn assert_busy(&self, names: impl IntoIterator<Item=impl AsRef<str>>) {
         let names = names
             .into_iter()
-            .map(|n| Name::from(n.as_ref()))
+            .map(|n| StageName::from(n.as_ref()))
             .collect::<Vec<_>>();
         match self {
             Blocked::Busy(busy) if names.iter().all(|n| busy.contains(n)) => {}

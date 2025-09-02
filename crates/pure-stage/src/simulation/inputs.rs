@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Name, SendData, Sender, StageRef};
+use crate::{StageName, SendData, Sender, StageRef};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 pub struct Envelope {
-    pub name: Name,
+    pub name: StageName,
     pub msg: Box<dyn SendData>,
     pub tx: oneshot::Sender<()>,
 }
 
 impl Envelope {
-    fn new(name: Name, msg: Box<dyn SendData>, tx: oneshot::Sender<()>) -> Self {
+    fn new(name: StageName, msg: Box<dyn SendData>, tx: oneshot::Sender<()>) -> Self {
         Self { name, msg, tx }
     }
 }
@@ -66,7 +66,7 @@ impl Inputs {
         }))
     }
 
-    pub fn peek_name(&mut self) -> Option<&Name> {
+    pub fn peek_name(&mut self) -> Option<&StageName> {
         if self.peeked.is_none() {
             self.peeked = self.rx.try_recv().ok();
         }

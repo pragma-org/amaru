@@ -13,40 +13,61 @@
 // limitations under the License.
 
 use crate::{consensus::store_effects::StoreHeaderEffect, span::adopt_current_span};
+use async_trait::async_trait;
 
-use super::DecodedChainSyncEvent;
-use pure_stage::{Effects, StageRef};
+use super::{ChainSyncEvent, DecodedChainSyncEvent};
+use pure_stage::{Effects, Name, StageRef, Stageable};
 use tracing::{Level, instrument};
 
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.store_header",
-)]
-pub async fn stage(
+#[derive(Clone)]
+pub struct StoreHeader {
+    name: String,
     downstream: StageRef<DecodedChainSyncEvent>,
-    msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent>,
-) -> StageRef<DecodedChainSyncEvent> {
-    adopt_current_span(&msg);
-    match &msg {
-        DecodedChainSyncEvent::RollForward {
-            peer,
-            point,
-            header,
-            ..
-        } => {
-            if let Err(error) = eff
-                .external(StoreHeaderEffect::new(header.clone(), point.clone()))
-                .await
-            {
-                tracing::error!(%error, %point, %peer, "Failed to store header");
-                // FIXME what should be the consequence of this?
-                return eff.terminate().await;
-            };
-            eff.send(&downstream, msg).await
+}
+
+impl StoreHeader {
+    pub fn new(name: impl AsRef<str>, downstream: StageRef<DecodedChainSyncEvent>) -> Self {
+        Self {
+            name: name.as_ref().to_string(),
+            downstream,
         }
-        DecodedChainSyncEvent::Rollback { .. } => eff.send(&downstream, msg).await,
     }
-    downstream
+
+    pub fn name() -> Name<DecodedChainSyncEvent, ()> {
+        Name::new("store_header")
+    }
+}
+
+#[async_trait]
+impl Stageable<DecodedChainSyncEvent, ()> for StoreHeader {
+    fn initial_state(&self) {}
+
+    #[instrument(level = Level::TRACE, skip_all, name = "stage.store_header")]
+    async fn run(
+        &self,
+        _state: (),
+        msg: DecodedChainSyncEvent,
+        eff: Effects<DecodedChainSyncEvent>,
+    ) -> () {
+        adopt_current_span(&msg);
+        match &msg {
+            DecodedChainSyncEvent::RollForward {
+                peer,
+                point,
+                header,
+                ..
+            } => {
+                if let Err(error) = eff
+                    .external(StoreHeaderEffect::new(header.clone(), point.clone()))
+                    .await
+                {
+                    tracing::error!(%error, %point, %peer, "Failed to store header");
+                    // FIXME what should be the consequence of this?
+                    return eff.terminate().await;
+                };
+                eff.send(&self.downstream, msg).await
+            }
+            DecodedChainSyncEvent::Rollback { .. } => eff.send(&self.downstream, msg).await,
+        }
+    }
 }

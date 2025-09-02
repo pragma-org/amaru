@@ -14,9 +14,10 @@
 
 use crate::stage_ref::Stage;
 use crate::{
-    BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
+    BoxFuture, Effects, Instant, StageName, OutputEffect, Receiver, Resources, SendData, Sender,
     StageBuildRef, StageRef, types::MpscSender,
 };
+use async_trait::async_trait;
 use std::{
     fmt::Debug,
     future::Future,
@@ -49,7 +50,7 @@ impl CallId {
 /// In order to respond to the calling stage, use [`Effects::respond`].
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct CallRef<Resp: SendData> {
-    pub(crate) target: Name,
+    pub(crate) target: StageName,
     pub(crate) id: CallId,
     pub(crate) deadline: Instant,
     #[serde(skip, default = "dummy_response")]
@@ -135,6 +136,22 @@ pub trait StageGraph {
     type Running: StageGraphRunning;
     type RefAux<Msg, State>;
 
+    fn register<Msg, St>(
+        &mut self,
+        name: Stage<Msg, St>,
+        stageable: impl Stageable<Msg, St> + 'static + Send + Clone + Sync,
+    ) -> Stage<Msg, St>
+    where
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData;
+
+    fn make_stage<Msg, St>(
+        &mut self,
+        named: Name<Msg, St>,
+    ) -> Stage<Msg, St>;
+
+    fn make_name(&mut self, name: impl AsRef<str>) -> StageName;
+
     /// Create a stage from an asynchronous transition function (state × message → state) and
     /// an initial state.
     ///
@@ -165,7 +182,7 @@ pub trait StageGraph {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output = St> + 'static + Send,
+        Fut: Future<Output=St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
 
@@ -214,7 +231,7 @@ pub trait StageGraph {
     where
         Msg: SendData + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
     {
-        let name = Name::from(name.as_ref());
+        let name = StageName::from(name.as_ref());
         let (sender, rx) = mpsc::channel(send_queue_size);
         let tx = MpscSender { sender };
 
@@ -243,4 +260,29 @@ pub trait StageGraphRunning {
 
     /// A future that resolves once the stage graph has terminated.
     fn termination(&self) -> BoxFuture<'static, ()>;
+}
+
+#[async_trait]
+pub trait Stageable<Msg, State> {
+    fn initial_state(&self) -> State;
+
+    async fn run(&self, state: State, msg: Msg, eff: Effects<Msg>) -> State;
+}
+
+pub struct Name<Msg, State> {
+    name: String,
+    _ph: PhantomData<(Msg, State)>,
+}
+
+impl<Msg, State> Name<Msg, State> {
+    pub fn new(name: impl AsRef<str>) -> Self {
+        Self {
+            name: name.as_ref().to_string(),
+            _ph: PhantomData,
+        }
+    }
+}
+
+pub trait Referenceable<Msg, State> {
+    fn name(&self) -> String;
 }

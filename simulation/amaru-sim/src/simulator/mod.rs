@@ -18,10 +18,10 @@ use amaru_consensus::{
     consensus::{
         ChainSyncEvent, ValidateHeaderEvent, build_stage_graph,
         headers_tree::HeadersTree,
-        select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
+        select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChainState},
         store::ChainStore,
         store_effects,
-        validate_header::ValidateHeader,
+        validate_header::ValidateHeaderState,
     },
 };
 use amaru_kernel::{
@@ -110,8 +110,8 @@ fn init_node(
     args: &Args,
 ) -> (
     GlobalParameters,
-    SelectChain,
-    ValidateHeader,
+    SelectChainState,
+    ValidateHeaderState,
     store_effects::ResourceHeaderStore,
 ) {
     let network_name = NetworkName::Testnet(42);
@@ -136,7 +136,7 @@ fn init_node(
             .collect::<Vec<_>>(),
     );
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let validate_header = ValidateHeader::new(Arc::new(stake_distribution));
+    let validate_header = ValidateHeaderState::new(Arc::new(stake_distribution));
 
     (
         global_parameters.clone(),
@@ -352,7 +352,7 @@ fn make_chain_selector(
     tip: Point,
     chain_store: &impl ChainStore<Header>,
     peers: &Vec<Peer>,
-) -> SelectChain {
+) -> SelectChainState {
     let root = match tip {
         Origin => None,
         Specific(..) => match chain_store.load_header(&Hash::from(&tip)) {
@@ -367,5 +367,5 @@ fn make_chain_selector(
         tree.initialize_peer(peer, &root_hash)
             .expect("the root node is guaranteed to already be in the tree")
     }
-    SelectChain::new(tree)
+    SelectChainState::new(tree)
 }

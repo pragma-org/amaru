@@ -26,7 +26,7 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output=T> + Send + 'a>>;
 
 /// Type constraint for messages, which must be self-contained and have a `Debug` instance.
 ///
@@ -47,12 +47,12 @@ pub trait SendData: Any + fmt::Debug + Send + 'static {
 impl<T> SendData for T
 where
     T: Any
-        + PartialEq
-        + fmt::Debug
-        + serde::Serialize
-        + serde::de::DeserializeOwned
-        + Send
-        + 'static,
+    + PartialEq
+    + fmt::Debug
+    + serde::Serialize
+    + serde::de::DeserializeOwned
+    + Send
+    + 'static,
 {
     fn typetag_name(&self) -> &'static str {
         type_name::<T>()
@@ -146,9 +146,9 @@ impl PartialEq for dyn SendData {
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
-pub struct Name(Arc<str>);
+pub struct StageName(Arc<str>);
 
-impl Name {
+impl StageName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -161,25 +161,25 @@ impl Name {
     }
 }
 
-impl AsRef<str> for Name {
+impl AsRef<str> for StageName {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl Borrow<str> for Name {
+impl Borrow<str> for StageName {
     fn borrow(&self) -> &str {
         self.as_str()
     }
 }
 
-impl From<&str> for Name {
+impl From<&str> for StageName {
     fn from(value: &str) -> Self {
         Self(value.into())
     }
 }
 
-impl fmt::Display for Name {
+impl fmt::Display for StageName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }

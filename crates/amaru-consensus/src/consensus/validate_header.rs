@@ -20,8 +20,9 @@ use crate::{
 use amaru_kernel::{Hash, Header, Nonce, Point, protocol_parameters::GlobalParameters, to_cbor};
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
+use async_trait::async_trait;
 use pallas_math::math::FixedDecimal;
-use pure_stage::{Effects, StageRef};
+use pure_stage::{Effects, Name, StageRef, Stageable};
 use std::{fmt, sync::Arc};
 use tracing::{Instrument, Level, instrument};
 
@@ -52,20 +53,20 @@ pub fn header_is_valid(
         epoch_nonce,
         &active_slot_coeff,
     )
-    .and_then(|assertions| {
-        use rayon::prelude::*;
-        assertions.into_par_iter().try_for_each(|assert| assert())
-    })
-    .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
+        .and_then(|assertions| {
+            use rayon::prelude::*;
+            assertions.into_par_iter().try_for_each(|assert| assert())
+        })
+        .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct ValidateHeader {
+pub struct ValidateHeaderState {
     #[serde(skip, default = "default_ledger")]
     pub ledger: Arc<dyn HasStakeDistribution>,
 }
 
-impl PartialEq for ValidateHeader {
+impl PartialEq for ValidateHeaderState {
     fn eq(&self, _other: &Self) -> bool {
         true
     }
@@ -97,7 +98,7 @@ fn default_ledger() -> Arc<dyn HasStakeDistribution> {
     Arc::new(Fake)
 }
 
-impl fmt::Debug for ValidateHeader {
+impl fmt::Debug for ValidateHeaderState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ValidateHeader")
             .field("ledger", &"<dyn HasStakeDistribution>")
@@ -105,91 +106,114 @@ impl fmt::Debug for ValidateHeader {
     }
 }
 
-impl ValidateHeader {
+impl ValidateHeaderState {
     pub fn new(ledger: Arc<dyn HasStakeDistribution>) -> Self {
         Self { ledger }
     }
 }
 
-type State = (
-    ValidateHeader,
-    GlobalParameters,
-    StageRef<DecodedChainSyncEvent>,
-    StageRef<ValidationFailed>,
-);
+#[derive(Clone)]
+pub struct ValidateHeader {
+    initial_state: ValidateHeaderState,
+    global_parameters: GlobalParameters,
+    downstream: StageRef<DecodedChainSyncEvent>,
+    errors: StageRef<ValidationFailed>,
+}
 
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.validate_header",
-)]
-pub async fn stage(
-    state: State,
-    msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent>,
-) -> State {
-    adopt_current_span(&msg);
-    let (state, global, downstream, errors) = state;
-
-    let (peer, point, header) = match &msg {
-        DecodedChainSyncEvent::RollForward {
-            peer,
-            point,
-            header,
-            ..
-        } => (peer, point, header),
-        DecodedChainSyncEvent::Rollback { .. } => {
-            eff.send(&downstream, msg).await;
-            return (state, global, downstream, errors);
+impl ValidateHeader {
+    pub fn new(
+        global_parameters: &GlobalParameters,
+        initial_state: ValidateHeaderState,
+        downstream: StageRef<DecodedChainSyncEvent>,
+        errors: StageRef<ValidationFailed>,
+    ) -> Self {
+        Self {
+            initial_state,
+            global_parameters: global_parameters.clone(),
+            downstream,
+            errors,
         }
-    };
+    }
 
-    let span = tracing::trace_span!(
-        "consensus.roll_forward",
-        point.slot = %point.slot_or_default(),
-        point.hash = %Hash::<32>::from(point),
-    );
+    pub fn name() -> Name<DecodedChainSyncEvent, ValidateHeaderState> {
+        Name::new("validate_header")
+    }
+}
 
-    let send_downstream = async {
-        let nonces = match eff.external(EvolveNonceEffect::new(header.clone())).await {
-            Ok(nonces) => nonces,
-            Err(error) => {
-                tracing::error!(%peer, %error, "evolve nonce failed");
-                eff.send(
-                    &errors,
-                    ValidationFailed::new(peer.clone(), point.clone(), error.into()),
-                )
-                .await;
-                return false;
+#[async_trait]
+impl Stageable<DecodedChainSyncEvent, ValidateHeaderState> for ValidateHeader {
+    fn initial_state(&self) -> ValidateHeaderState {
+        self.initial_state.clone()
+    }
+
+    #[instrument(level = Level::TRACE, skip_all, name = "stage.validate_header")]
+    async fn run(
+        &self,
+        state: ValidateHeaderState,
+        msg: DecodedChainSyncEvent,
+        eff: Effects<DecodedChainSyncEvent>,
+    ) -> ValidateHeaderState {
+        adopt_current_span(&msg);
+
+        let (peer, point, header) = match &msg {
+            DecodedChainSyncEvent::RollForward {
+                peer,
+                point,
+                header,
+                ..
+            } => (peer, point, header),
+            DecodedChainSyncEvent::Rollback { .. } => {
+                eff.send(&self.downstream, msg).await;
+                return state;
             }
         };
-        let epoch_nonce = &nonces.active;
 
-        if let Err(error) = header_is_valid(
-            point,
-            header,
-            to_cbor(&header.header_body).as_slice(),
-            epoch_nonce,
-            state.ledger.as_ref(),
-            &global,
-        ) {
-            tracing::info!(%peer, %error, "invalid header");
-            eff.send(
-                &errors,
-                ValidationFailed::new(peer.clone(), point.clone(), error),
-            )
-            .await;
-            false
-        } else {
-            true
+        let span = tracing::trace_span!(
+            "consensus.roll_forward",
+            point.slot = %point.slot_or_default(),
+            point.hash = %Hash::<32>::from(point),
+        );
+
+        let send_downstream = async {
+            let nonces = match eff.external(EvolveNonceEffect::new(header.clone())).await {
+                Ok(nonces) => nonces,
+                Err(error) => {
+                    tracing::error!(%peer, %error, "evolve nonce failed");
+                    eff.send(
+                        &self.errors,
+                        ValidationFailed::new(peer.clone(), point.clone(), error.into()),
+                    )
+                        .await;
+                    return false;
+                }
+            };
+            let epoch_nonce = &nonces.active;
+
+            if let Err(error) = header_is_valid(
+                point,
+                header,
+                to_cbor(&header.header_body).as_slice(),
+                epoch_nonce,
+                state.ledger.as_ref(),
+                &self.global_parameters,
+            ) {
+                tracing::info!(%peer, %error, "invalid header");
+                eff.send(
+                    &self.errors,
+                    ValidationFailed::new(peer.clone(), point.clone(), error),
+                )
+                    .await;
+                false
+            } else {
+                true
+            }
         }
-    }
-    .instrument(span)
-    .await;
+            .instrument(span)
+            .await;
 
-    if send_downstream {
-        eff.send(&downstream, msg).await;
+        if send_downstream {
+            eff.send(&self.downstream, msg).await;
+        }
+        state
     }
-
-    (state, global, downstream, errors)
 }

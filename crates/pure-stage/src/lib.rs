@@ -36,8 +36,8 @@ pub use resources::Resources;
 pub use sender::Sender;
 pub use serde::Void;
 pub use stage_ref::{StageBuildRef, StageRef};
-pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning};
+pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning, Name, Referenceable, Stageable};
 pub use time::{Clock, EPOCH, Instant};
-pub use types::{BoxFuture, Name, SendData};
+pub use types::{BoxFuture, StageName, SendData};
 
 pub use typetag;

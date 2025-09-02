@@ -20,22 +20,23 @@ use crate::{ConsensusError, consensus::EVENT_TARGET};
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer};
 use amaru_ouroboros::IsHeader;
+use async_trait::async_trait;
 use pallas_crypto::hash::Hash;
-use pure_stage::{Effects, StageRef};
+use pure_stage::{Effects, Name, StageRef, Stageable};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use tracing::{Level, Span, instrument, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-pub struct SelectChain {
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct SelectChainState {
     chain_selector: HeadersTree<Header>,
 }
 
-impl SelectChain {
+impl SelectChainState {
     pub fn new(chain_selector: HeadersTree<Header>) -> Self {
-        SelectChain { chain_selector }
+        SelectChainState { chain_selector }
     }
 
     fn forward_block(peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
@@ -55,7 +56,7 @@ impl SelectChain {
         }];
 
         for header in fork {
-            result.push(SelectChain::forward_block(
+            result.push(SelectChainState::forward_block(
                 peer.clone(),
                 header,
                 span.clone(),
@@ -76,15 +77,15 @@ impl SelectChain {
         let events = match result {
             ForwardChainSelection::NewTip { peer, tip } => {
                 trace!(target: EVENT_TARGET, hash = %tip.hash(), "new_tip");
-                vec![SelectChain::forward_block(peer, tip, span)]
+                vec![SelectChainState::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => {
+                                                    peer,
+                                                    rollback_point,
+                                                    fork,
+                                                }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
-                SelectChain::switch_to_fork(peer, rollback_point, fork, span)
+                SelectChainState::switch_to_fork(peer, rollback_point, fork, span)
             }
             ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, "no_change");
@@ -107,10 +108,10 @@ impl SelectChain {
 
         match result {
             RollbackChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => Ok(SelectChain::switch_to_fork(
+                                                     peer,
+                                                     rollback_point,
+                                                     fork,
+                                                 }) => Ok(SelectChainState::switch_to_fork(
                 peer,
                 rollback_point,
                 fork,
@@ -180,10 +181,10 @@ impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
             }
             ForwardChainSelection::NoChange => f.write_str("NoChange"),
             ForwardChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => write!(
+                                                    peer,
+                                                    rollback_point,
+                                                    fork,
+                                                }) => write!(
                 f,
                 "SwitchToFork[\n    peer: {},\n    rollback_point: {},\n    fork:\n        {}]",
                 peer,
@@ -216,10 +217,10 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
         match self {
             RollbackChainSelection::NoChange => f.write_str("NoChange"),
             RollbackChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => write!(
+                                                     peer,
+                                                     rollback_point,
+                                                     fork,
+                                                 }) => write!(
                 f,
                 "SwitchToFork[\n    peer: {},\n    rollback_point: {},\n    fork:\n        {}]",
                 peer,
@@ -239,41 +240,63 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
     }
 }
 
-type State = (
-    SelectChain,
-    StageRef<ValidateHeaderEvent>,
-    StageRef<ValidationFailed>,
-);
+#[derive(Clone)]
+pub struct SelectChain {
+    chain_selector: SelectChainState,
+    downstream: StageRef<ValidateHeaderEvent>,
+    errors: StageRef<ValidationFailed>,
+}
 
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.select_chain",
-)]
-pub async fn stage(
-    (mut select_chain, downstream, errors): State,
-    msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent>,
-) -> State {
-    adopt_current_span(&msg);
-    let peer = msg.peer();
-
-    let point = msg.point();
-    let events = match select_chain.handle_chain_sync(msg).await {
-        Ok(events) => events,
-        Err(e) => {
-            eff.send(&errors, ValidationFailed::new(peer, point, e))
-                .await;
-            return (select_chain, downstream, errors);
+impl SelectChain {
+    pub fn new(
+        chain_selector: SelectChainState,
+        downstream: StageRef<ValidateHeaderEvent>,
+        errors: StageRef<ValidationFailed>,
+    ) -> Self {
+        Self {
+            chain_selector,
+            downstream,
+            errors,
         }
-    };
-
-    if events.is_empty() {
-        tracing::info!(%peer, %point, "no events to send");
-    }
-    for event in events {
-        eff.send(&downstream, event).await;
     }
 
-    (select_chain, downstream, errors)
+    pub fn name() -> Name<DecodedChainSyncEvent, SelectChainState> {
+        Name::new("select_chain")
+    }
+}
+
+#[async_trait]
+impl Stageable<DecodedChainSyncEvent, SelectChainState> for SelectChain {
+    fn initial_state(&self) -> SelectChainState {
+        self.chain_selector.clone()
+    }
+
+    #[instrument(level = Level::TRACE, skip_all, name = "stage.select_chain")]
+    async fn run(
+        &self,
+        mut state: SelectChainState,
+        msg: DecodedChainSyncEvent,
+        eff: Effects<DecodedChainSyncEvent>,
+    ) -> SelectChainState {
+        adopt_current_span(&msg);
+        let peer = msg.peer();
+
+        let point = msg.point();
+        let events = match state.handle_chain_sync(msg).await {
+            Ok(events) => events,
+            Err(e) => {
+                eff.send(&self.errors, ValidationFailed::new(peer, point, e))
+                    .await;
+                return state;
+            }
+        };
+
+        if events.is_empty() {
+            tracing::info!(%peer, %point, "no events to send");
+        }
+        for event in events {
+            eff.send(&self.downstream, event).await;
+        }
+        state
+    }
 }

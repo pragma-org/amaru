@@ -17,7 +17,7 @@ use super::{
 };
 use crate::stage_ref::Stage;
 use crate::{
-    BoxFuture, CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
+    BoxFuture, CallId, Effect, ExternalEffect, StageName, Resources, SendData, StageRef,
     simulation::{
         Blocked,
         resume::{
@@ -56,18 +56,18 @@ use tokio::{
 /// so you need to use [`resume_receive`](Self::resume_receive) to get them running.
 /// See also [`run_until_blocked`](Self::run_until_blocked) for how to achieve this.
 pub struct SimulationRunning {
-    stages: BTreeMap<Name, StageData>,
+    stages: BTreeMap<StageName, StageData>,
     inputs: Inputs,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
-    runnable: VecDeque<(Name, StageResponse)>,
+    runnable: VecDeque<(StageName, StageResponse)>,
     sleeping: BinaryHeap<Sleeping>,
-    responded: Vec<(Name, CallId)>,
+    responded: Vec<(StageName, CallId)>,
     mailbox_size: usize,
     rt: Handle,
     overrides: Vec<OverrideExternalEffect>,
-    breakpoints: Vec<(Name, Box<dyn Fn(&Effect) -> bool + Send + 'static>)>,
+    breakpoints: Vec<(StageName, Box<dyn Fn(&Effect) -> bool + Send + 'static>)>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     terminate: watch::Sender<bool>,
     termination: watch::Receiver<bool>,
@@ -76,7 +76,7 @@ pub struct SimulationRunning {
 impl SimulationRunning {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
-        stages: BTreeMap<Name, StageData>,
+        stages: BTreeMap<StageName, StageData>,
         inputs: Inputs,
         effect: EffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
@@ -119,7 +119,7 @@ impl SimulationRunning {
         predicate: impl Fn(&Effect) -> bool + Send + 'static,
     ) {
         self.breakpoints
-            .push((Name::from(name.as_ref()), Box::new(predicate)));
+            .push((StageName::from(name.as_ref()), Box::new(predicate)));
     }
 
     /// Remove all breakpoints.
@@ -231,7 +231,7 @@ impl SimulationRunning {
     ///
     /// Note that this method does not check if there is enough space in the
     /// mailbox, it will grow the mailbox beyond the `mailbox_size` limit.
-    pub fn enqueue_msg<T: SendData>(&mut self, sr: &StageRef<T>, msg: impl IntoIterator<Item = T>) {
+    pub fn enqueue_msg<T: SendData>(&mut self, sr: &StageRef<T>, msg: impl IntoIterator<Item=T>) {
         let data = self.stages.get_mut(&sr.name).unwrap();
         data.mailbox
             .extend(msg.into_iter().map(|m| Box::new(m) as Box<dyn SendData>));
@@ -251,7 +251,7 @@ impl SimulationRunning {
     /// Returns `None` if the stage is not suspended on [`Effect::Receive`], panics if the
     /// state type is incorrect.
     pub fn get_state<Msg, St: SendData>(&self, sr: &Stage<Msg, St>) -> Option<&St> {
-        let data = self.stages.get(&sr.name).unwrap();
+        let data = self.stages.get(&sr.name()).unwrap();
         match &data.state {
             StageState::Idle(state) => {
                 Some(state.cast_ref::<St>().expect("internal state type error"))
@@ -479,7 +479,7 @@ impl SimulationRunning {
                         },
                         sim.clock.now(),
                     )
-                    .expect("wait effect is always runnable");
+                        .expect("wait effect is always runnable");
                 });
             }
             Effect::Respond {
@@ -622,8 +622,8 @@ impl SimulationRunning {
 
     fn handle_call_continuation(
         &mut self,
-        from: Name,
-        to: Name,
+        from: StageName,
+        to: StageName,
         call: Option<(
             Duration,
             oneshot::Receiver<Box<dyn SendData + 'static>>,
@@ -648,7 +648,7 @@ impl SimulationRunning {
                     },
                     id,
                 )
-                .ok();
+                    .ok();
             });
         }
     }
@@ -674,7 +674,7 @@ impl SimulationRunning {
 
     fn resume_clock_internal(
         data: &mut StageData,
-        run: &mut dyn FnMut(Name, StageResponse),
+        run: &mut dyn FnMut(StageName, StageResponse),
         time: Instant,
     ) -> anyhow::Result<()> {
         let waiting_for = data.waiting.as_ref().ok_or_else(|| {
@@ -765,7 +765,7 @@ impl SimulationRunning {
     fn handle_send_response(
         &mut self,
         msg: Box<dyn SendData>,
-        (target, id, deadline, sender): (Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>),
+        (target, id, deadline, sender): (StageName, CallId, Instant, oneshot::Sender<Box<dyn SendData>>),
     ) {
         if let Err(msg) = sender.send(msg) {
             tracing::warn!(
@@ -854,10 +854,10 @@ struct OverrideExternalEffect {
     #[allow(clippy::type_complexity)]
     transform: Box<
         dyn FnMut(
-                Box<dyn ExternalEffect>,
-            ) -> OverrideResult<Box<dyn ExternalEffect>, Box<dyn ExternalEffect>>
-            + Send
-            + 'static,
+            Box<dyn ExternalEffect>,
+        ) -> OverrideResult<Box<dyn ExternalEffect>, Box<dyn ExternalEffect>>
+        + Send
+        + 'static,
     >,
 }
 
@@ -875,8 +875,8 @@ pub enum OverrideResult<In, Out> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InputsResult {
-    Delivered(Vec<Name>),
-    Blocked(Name),
+    Delivered(Vec<StageName>),
+    Blocked(StageName),
 }
 
 fn block_reason(sim: &SimulationRunning) -> Blocked {
@@ -931,7 +931,7 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
 pub fn poll_stage(
     trace_buffer: &mut TraceBuffer,
     data: &mut StageData,
-    name: Name,
+    name: StageName,
     response: StageResponse,
     effect: &EffectBox,
 ) -> Effect {
@@ -989,7 +989,7 @@ fn simulation_invariants() {
         eff.call(&eff.me(), std::time::Duration::from_secs(1), |cr| {
             Msg(Some(cr))
         })
-        .await;
+            .await;
         true
     });
 

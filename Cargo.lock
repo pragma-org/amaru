@@ -120,6 +120,7 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
  "anyhow",
+ "async-trait",
  "either",
  "hex",
  "insta",
@@ -2533,6 +2534,7 @@ name = "pure-stage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "cbor4ii",
  "either",
  "futures-util",

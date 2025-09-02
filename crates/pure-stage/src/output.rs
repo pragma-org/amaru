@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ExternalEffect, ExternalEffectAPI, Name, Resources, SendData, types::MpscSender};
+use crate::{ExternalEffect, ExternalEffectAPI, StageName, Resources, SendData, types::MpscSender};
 use std::fmt;
 use tokio::sync::mpsc;
 
@@ -23,13 +23,13 @@ use tokio::sync::mpsc;
 /// The [`OutputEffect`] is created by [`StageGraph::output`](crate::StageGraph::output).
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct OutputEffect<Msg> {
-    pub name: Name,
+    pub name: StageName,
     pub msg: Msg,
     sender: MpscSender<Msg>,
 }
 
 impl<Msg> OutputEffect<Msg> {
-    pub fn new(name: Name, msg: Msg, sender: mpsc::Sender<Msg>) -> Self {
+    pub fn new(name: StageName, msg: Msg, sender: mpsc::Sender<Msg>) -> Self {
         Self {
             name,
             msg,
@@ -38,7 +38,7 @@ impl<Msg> OutputEffect<Msg> {
     }
 
     /// Create a fake output effect for testing.
-    pub fn fake(name: Name, msg: Msg) -> (Self, mpsc::Receiver<Msg>) {
+    pub fn fake(name: StageName, msg: Msg) -> (Self, mpsc::Receiver<Msg>) {
         let (tx, rx) = mpsc::channel(1);
         (
             Self {

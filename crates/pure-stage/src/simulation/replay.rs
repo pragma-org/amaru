@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use crate::{
-    Effect, Instant, Name, SendData,
+    Effect, Instant, StageName, SendData,
     serde::to_cbor,
     simulation::{
         EffectBox,
@@ -32,15 +32,15 @@ use std::{collections::HashMap, mem::replace};
 ///
 /// This is used to replay a simulation from a trace.
 pub struct Replay {
-    stages: HashMap<Name, StageData>,
+    stages: HashMap<StageName, StageData>,
     effect: EffectBox,
-    pending_suspend: HashMap<Name, Effect>,
-    latest_state: HashMap<Name, Box<dyn SendData>>,
+    pending_suspend: HashMap<StageName, Effect>,
+    latest_state: HashMap<StageName, Box<dyn SendData>>,
     clock: Instant,
 }
 
 impl Replay {
-    pub(crate) fn new(stages: HashMap<Name, StageData>, effect: EffectBox) -> Self {
+    pub(crate) fn new(stages: HashMap<StageName, StageData>, effect: EffectBox) -> Self {
         Self {
             stages,
             effect,
@@ -134,30 +134,30 @@ impl Replay {
         Ok(())
     }
 
-    pub fn pending_suspend(&self) -> &HashMap<Name, Effect> {
+    pub fn pending_suspend(&self) -> &HashMap<StageName, Effect> {
         &self.pending_suspend
     }
 
-    pub fn latest_state(&self, stage: &Name) -> Option<&dyn SendData> {
+    pub fn latest_state(&self, stage: &StageName) -> Option<&dyn SendData> {
         self.latest_state.get(stage).map(|s| &**s)
     }
 
-    pub fn is_running(&self, stage: &Name) -> bool {
+    pub fn is_running(&self, stage: &StageName) -> bool {
         matches!(
             self.stages.get(stage).unwrap().state,
             StageState::Running(_)
         )
     }
 
-    pub fn is_failed(&self, stage: &Name) -> bool {
+    pub fn is_failed(&self, stage: &StageName) -> bool {
         matches!(self.stages.get(stage).unwrap().state, StageState::Failed(_))
     }
 
-    pub fn is_idle(&self, stage: &Name) -> bool {
+    pub fn is_idle(&self, stage: &StageName) -> bool {
         matches!(self.stages.get(stage).unwrap().state, StageState::Idle(_))
     }
 
-    pub fn get_failure(&self, stage: &Name) -> Option<&str> {
+    pub fn get_failure(&self, stage: &StageName) -> Option<&str> {
         self.stages.get(stage).and_then(|s| match &s.state {
             StageState::Idle(_) | StageState::Running(_) => None,
             StageState::Failed(error) => Some(&**error),
