@@ -45,8 +45,8 @@ pub fn build_stage_graph(
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
     let upstream_errors_stage = network.stage("upstream_errors", async |_, msg, eff| {
-        let ValidationFailed { peer, point, error } = msg;
-        tracing::error!(%peer, %point, %error, "invalid header");
+        let ValidationFailed { peer, error } = msg;
+        tracing::error!(%peer, %error, "invalid header");
 
         // TODO: implement specific actions once we have an upstream network
 
@@ -92,13 +92,12 @@ pub fn build_stage_graph(
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidationFailed {
     pub peer: Peer,
-    pub point: Point,
     pub error: ConsensusError,
 }
 
 impl ValidationFailed {
-    pub fn new(peer: Peer, point: Point, error: ConsensusError) -> Self {
-        Self { peer, point, error }
+    pub fn new(peer: Peer, error: ConsensusError) -> Self {
+        Self { peer, error }
     }
 }
 
@@ -114,6 +113,11 @@ pub enum ChainSyncEvent {
     Rollback {
         peer: Peer,
         rollback_point: Point,
+        #[serde(skip, default = "Span::none")]
+        span: Span,
+    },
+    CaughtUp {
+        peer: Peer,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -145,6 +149,10 @@ impl fmt::Debug for ChainSyncEvent {
                 .field("peer", &peer.name)
                 .field("rollback_point", &rollback_point.to_string())
                 .finish(),
+            ChainSyncEvent::CaughtUp { peer, .. } => f
+                .debug_struct("CaughtUp")
+                .field("peer", &peer.name)
+                .finish(),
         }
     }
 }
@@ -165,6 +173,11 @@ pub enum DecodedChainSyncEvent {
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
+    CaughtUp {
+        peer: Peer,
+        #[serde(skip, default = "Span::none")]
+        span: Span,
+    },
 }
 
 impl DecodedChainSyncEvent {
@@ -172,13 +185,7 @@ impl DecodedChainSyncEvent {
         match self {
             DecodedChainSyncEvent::RollForward { peer, .. } => peer.clone(),
             DecodedChainSyncEvent::Rollback { peer, .. } => peer.clone(),
-        }
-    }
-
-    pub fn point(&self) -> Point {
-        match self {
-            DecodedChainSyncEvent::RollForward { point, .. } => point.clone(),
-            DecodedChainSyncEvent::Rollback { rollback_point, .. } => rollback_point.clone(),
+            DecodedChainSyncEvent::CaughtUp { peer, .. } => peer.clone(),
         }
     }
 }
@@ -205,6 +212,10 @@ impl fmt::Debug for DecodedChainSyncEvent {
                 .debug_struct("Rollback")
                 .field("peer", &peer.name)
                 .field("rollback_point", &rollback_point.to_string())
+                .finish(),
+            DecodedChainSyncEvent::CaughtUp { peer, .. } => f
+                .debug_struct("CaughtUp")
+                .field("peer", &peer.name)
                 .finish(),
         }
     }

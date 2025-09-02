@@ -21,12 +21,7 @@ use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse};
-use std::{
-    error::Error,
-    path::PathBuf,
-    sync::{Arc, RwLock},
-    time::Duration,
-};
+use std::{error::Error, path::PathBuf, time::Duration};
 use tokio::time::timeout;
 use tracing::info;
 
@@ -109,7 +104,6 @@ pub(crate) async fn import_headers(
         Peer::new(peer_address),
         peer_client.chainsync,
         vec![point.clone()],
-        Arc::new(RwLock::new(true)),
     );
 
     client.find_intersection().await?;

@@ -17,13 +17,15 @@ use crate::{
     consensus::{ValidationFailed, store_effects::EvolveNonceEffect},
     span::adopt_current_span,
 };
-use amaru_kernel::{Hash, Header, Nonce, Point, protocol_parameters::GlobalParameters, to_cbor};
+use amaru_kernel::{
+    Hash, Header, Nonce, Point, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
+};
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
 use pallas_math::math::FixedDecimal;
 use pure_stage::{Effects, StageRef, Void};
 use std::{fmt, sync::Arc};
-use tracing::{Instrument, Level, instrument};
+use tracing::{Instrument, Level, Span, instrument};
 
 use super::DecodedChainSyncEvent;
 
@@ -109,6 +111,71 @@ impl ValidateHeader {
     pub fn new(ledger: Arc<dyn HasStakeDistribution>) -> Self {
         Self { ledger }
     }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "consensus.roll_forward",
+        fields(
+            point.slot = %point.slot_or_default(),
+            point.hash = %Hash::<32>::from(&point),
+        )
+    )]
+    pub async fn handle_roll_forward<M, S>(
+        &mut self,
+        eff: &mut Effects<M, S>,
+        peer: Peer,
+        point: Point,
+        header: Header,
+        global_parameters: &GlobalParameters,
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+        let nonces = eff.external(EvolveNonceEffect::new(header.clone())).await?;
+        let epoch_nonce = &nonces.active;
+
+        header_is_valid(
+            &point,
+            &header,
+            to_cbor(&header.header_body).as_slice(),
+            epoch_nonce,
+            self.ledger.as_ref(),
+            global_parameters,
+        )?;
+
+        Ok(DecodedChainSyncEvent::RollForward {
+            peer,
+            point,
+            header,
+            span: Span::current(),
+        })
+    }
+
+    pub async fn validate_header<M, S>(
+        &mut self,
+        eff: &mut Effects<M, S>,
+        chain_sync: DecodedChainSyncEvent,
+        global_parameters: &GlobalParameters,
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+        match chain_sync {
+            DecodedChainSyncEvent::RollForward {
+                peer,
+                point,
+                header,
+                ..
+            } => {
+                self.handle_roll_forward(eff, peer, point, header, global_parameters)
+                    .await
+            }
+            DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
+            DecodedChainSyncEvent::CaughtUp { .. } => Ok(chain_sync),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum UpstreamAction {
+    KickPeer,
+    BanPeer,
+    OnlyLogging,
 }
 
 type State = (
@@ -142,6 +209,10 @@ pub async fn stage(
             eff.send(&downstream, msg).await;
             return (state, global, downstream, errors);
         }
+        DecodedChainSyncEvent::CaughtUp { .. } => {
+            eff.send(&downstream, msg).await;
+            return (state, global, downstream, errors);
+        }
     };
 
     let span = tracing::trace_span!(
@@ -155,11 +226,8 @@ pub async fn stage(
             Ok(nonces) => nonces,
             Err(error) => {
                 tracing::error!(%peer, %error, "evolve nonce failed");
-                eff.send(
-                    &errors,
-                    ValidationFailed::new(peer.clone(), point.clone(), error.into()),
-                )
-                .await;
+                eff.send(&errors, ValidationFailed::new(peer.clone(), error.into()))
+                    .await;
                 return false;
             }
         };
@@ -174,11 +242,8 @@ pub async fn stage(
             &global,
         ) {
             tracing::info!(%peer, %error, "invalid header");
-            eff.send(
-                &errors,
-                ValidationFailed::new(peer.clone(), point.clone(), error),
-            )
-            .await;
+            eff.send(&errors, ValidationFailed::new(peer.clone(), error))
+                .await;
             false
         } else {
             true

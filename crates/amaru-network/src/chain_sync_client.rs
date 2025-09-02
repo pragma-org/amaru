@@ -19,7 +19,7 @@ use pallas_network::miniprotocols::chainsync::{
     Client, ClientError, HeaderContent, NextResponse, Tip,
 };
 use pallas_traverse::MultiEraHeader;
-use std::sync::{Arc, RwLock};
+
 use tracing::{Level, Span, instrument};
 
 #[derive(Debug, thiserror::Error)]
@@ -46,43 +46,14 @@ pub struct ChainSyncClient {
     pub peer: Peer,
     chain_sync: Client<HeaderContent>,
     intersection: Vec<Point>,
-    is_catching_up: Arc<RwLock<bool>>,
 }
 
 impl ChainSyncClient {
-    pub fn new(
-        peer: Peer,
-        chain_sync: Client<HeaderContent>,
-        intersection: Vec<Point>,
-        is_catching_up: Arc<RwLock<bool>>,
-    ) -> Self {
+    pub fn new(peer: Peer, chain_sync: Client<HeaderContent>, intersection: Vec<Point>) -> Self {
         Self {
             peer,
             chain_sync,
             intersection,
-            is_catching_up,
-        }
-    }
-
-    #[allow(clippy::unwrap_used)]
-    fn no_longer_catching_up(&self) {
-        // Do not acquire the lock unless necessary.
-        if self.is_catching_up.read().map(|lock| *lock).unwrap_or(true) {
-            tracing::info!("chain tip reached; awaiting next block");
-            *self.is_catching_up.write().unwrap() = false;
-        }
-    }
-
-    #[allow(clippy::unwrap_used)]
-    fn catching_up(&self) {
-        // Do not acquire the lock unless necessary.
-        if !self
-            .is_catching_up
-            .read()
-            .map(|lock| *lock)
-            .unwrap_or(false)
-        {
-            *self.is_catching_up.write().unwrap() = true;
         }
     }
 
@@ -150,7 +121,6 @@ impl ChainSyncClient {
     pub async fn request_next(
         &mut self,
     ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
-        self.catching_up();
         let client = &mut self.chain_sync;
 
         client
@@ -163,7 +133,6 @@ impl ChainSyncClient {
     pub async fn await_next(
         &mut self,
     ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
-        self.no_longer_catching_up();
         let client = &mut self.chain_sync;
 
         match client.recv_while_must_reply().await {
