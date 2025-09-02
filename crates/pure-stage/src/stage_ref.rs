@@ -89,6 +89,30 @@ impl<Msg> Clone for StageRef<Msg> {
     }
 }
 
+impl<Msg, State> From<&Stage<Msg, State>> for StageRef<Msg> {
+    fn from(stage: &Stage<Msg, State>) -> Self {
+        StageRef {
+            name: stage.name.clone(),
+            _ph: PhantomData,
+        }
+    }
+}
+
+impl<Msg, State> From<Stage<Msg, State>> for StageRef<Msg> {
+    fn from(stage: Stage<Msg, State>) -> Self {
+        StageRef {
+            name: stage.name.clone(),
+            _ph: PhantomData,
+        }
+    }
+}
+
+impl<Msg> From<&StageRef<Msg>> for StageRef<Msg> {
+    fn from(stage_ref: &StageRef<Msg>) -> Self {
+        stage_ref.clone()
+    }
+}
+
 impl<Msg> fmt::Debug for StageRef<Msg> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StageRef")

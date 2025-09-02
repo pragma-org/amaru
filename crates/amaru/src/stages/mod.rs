@@ -250,7 +250,7 @@ pub fn bootstrap(
         consensus,
         chain_selector,
         &mut network,
-        output_ref,
+        &output_ref,
     );
     let graph_input = network.input(&graph_input);
 

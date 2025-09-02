@@ -41,41 +41,34 @@ pub fn build_stage_graph(
     consensus: ValidateHeaderState,
     chain_selector: SelectChainState,
     network: &mut impl StageGraph,
-    outputs: StageRef<ValidateHeaderEvent>,
+    outputs: &StageRef<ValidateHeaderEvent>,
 ) -> StageRef<ChainSyncEvent> {
-    let upstream_errors = network.make_stage(UpstreamErrors::name());
-    let receive_header = network.make_stage(ReceiveHeader::name());
-    let store_header = network.make_stage(StoreHeader::name());
-    let validate_header = network.make_stage(ValidateHeader::name());
-    let select_chain = network.make_stage(SelectChain::name());
+    let upstream_errors = network.make_stage("upstream_errors");
+    let receive_header = network.make_stage("receive_header");
+    let store_header = network.make_stage("store_header");
+    let validate_header = network.make_stage("validate_header");
+    let select_chain = network.make_stage("select_chain");
 
-    let upstream_errors =
-        network.register(upstream_errors::new(network.make_name("upstream_errors")));
-
-    network.register(select_chain, SelectChain::new(
-        chain_selector,
-        outputs,
-        upstream_errors.as_ref(),
-    ));
-
-    let validate_header = network.register(ValidateHeader::new(
-        "validate_header",
-        global_parameters,
-        consensus,
-        select_chain.as_ref(),
-        upstream_errors.as_ref(),
-    ));
-
-    let store_header_stage =
-        network.register(StoreHeader::new("store_header", validate_header.as_ref()));
-
-    network
-        .register(ReceiveHeader::new(
-            network.make_name("receive_header"),
-            store_header_stage.as_ref(),
-            upstream_errors.as_ref(),
-        ))
-        .as_ref()
+    let upstream_errors = network.register(&upstream_errors, UpstreamErrors);
+    network.register(
+        &receive_header,
+        ReceiveHeader::new(&store_header, &upstream_errors),
+    );
+    network.register(&store_header, StoreHeader::new(&validate_header));
+    network.register(
+        &validate_header,
+        ValidateHeader::new(
+            global_parameters,
+            consensus,
+            &select_chain,
+            &upstream_errors,
+        ),
+    );
+    network.register(
+        &select_chain,
+        SelectChain::new(chain_selector, outputs, &upstream_errors),
+    );
+    receive_header.into()
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

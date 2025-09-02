@@ -28,12 +28,17 @@ fn basic() {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     let mut graph = TokioBuilder::default();
-    let double = graph.stage("double", async |to, msg: u32, eff| {
-        eff.send(&to, msg * 2).await;
-        to
-    });
-    let (out_ref, mut out_rx) = graph.output("output", 10);
-    let double = graph.wire_up(double, out_ref);
+    let (out, mut out_rx) = graph.output("output", 10);
+    let double = graph
+        .stage(
+            "double",
+            async |to, msg: u32, eff| {
+                eff.send(&to, msg * 2).await;
+                to
+            },
+            out,
+        )
+        .as_ref();
 
     let send_double = graph.input(&double);
 

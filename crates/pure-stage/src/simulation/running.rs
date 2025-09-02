@@ -17,7 +17,7 @@ use super::{
 };
 use crate::stage_ref::Stage;
 use crate::{
-    BoxFuture, CallId, Effect, ExternalEffect, StageName, Resources, SendData, StageRef,
+    BoxFuture, CallId, Effect, ExternalEffect, Resources, SendData, StageName, StageRef,
     simulation::{
         Blocked,
         resume::{
@@ -231,7 +231,7 @@ impl SimulationRunning {
     ///
     /// Note that this method does not check if there is enough space in the
     /// mailbox, it will grow the mailbox beyond the `mailbox_size` limit.
-    pub fn enqueue_msg<T: SendData>(&mut self, sr: &StageRef<T>, msg: impl IntoIterator<Item=T>) {
+    pub fn enqueue_msg<T: SendData>(&mut self, sr: &StageRef<T>, msg: impl IntoIterator<Item = T>) {
         let data = self.stages.get_mut(&sr.name).unwrap();
         data.mailbox
             .extend(msg.into_iter().map(|m| Box::new(m) as Box<dyn SendData>));
@@ -479,7 +479,7 @@ impl SimulationRunning {
                         },
                         sim.clock.now(),
                     )
-                        .expect("wait effect is always runnable");
+                    .expect("wait effect is always runnable");
                 });
             }
             Effect::Respond {
@@ -648,7 +648,7 @@ impl SimulationRunning {
                     },
                     id,
                 )
-                    .ok();
+                .ok();
             });
         }
     }
@@ -765,7 +765,12 @@ impl SimulationRunning {
     fn handle_send_response(
         &mut self,
         msg: Box<dyn SendData>,
-        (target, id, deadline, sender): (StageName, CallId, Instant, oneshot::Sender<Box<dyn SendData>>),
+        (target, id, deadline, sender): (
+            StageName,
+            CallId,
+            Instant,
+            oneshot::Sender<Box<dyn SendData>>,
+        ),
     ) {
         if let Err(msg) = sender.send(msg) {
             tracing::warn!(
@@ -854,10 +859,10 @@ struct OverrideExternalEffect {
     #[allow(clippy::type_complexity)]
     transform: Box<
         dyn FnMut(
-            Box<dyn ExternalEffect>,
-        ) -> OverrideResult<Box<dyn ExternalEffect>, Box<dyn ExternalEffect>>
-        + Send
-        + 'static,
+                Box<dyn ExternalEffect>,
+            ) -> OverrideResult<Box<dyn ExternalEffect>, Box<dyn ExternalEffect>>
+            + Send
+            + 'static,
     >,
 }
 
@@ -982,19 +987,21 @@ fn simulation_invariants() {
     struct Msg(Option<CallRef<()>>);
 
     let mut network = super::SimulationBuilder::default();
-    let stage = network.stage("stage", async |_state, _msg: Msg, eff| {
-        eff.send(&eff.me(), Msg(None)).await;
-        eff.clock().await;
-        eff.wait(std::time::Duration::from_secs(1)).await;
-        eff.call(&eff.me(), std::time::Duration::from_secs(1), |cr| {
-            Msg(Some(cr))
-        })
+    let stage = network.stage(
+        "stage",
+        async |_state, _msg: Msg, eff| {
+            eff.send(&eff.me(), Msg(None)).await;
+            eff.clock().await;
+            eff.wait(std::time::Duration::from_secs(1)).await;
+            eff.call(&eff.me(), std::time::Duration::from_secs(1), |cr| {
+                Msg(Some(cr))
+            })
             .await;
-        true
-    });
+            true
+        },
+        false,
+    );
 
-    let stage = network.wire(stage, false);
-    let stage_ref = stage.as_ref();
     let rt = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();
@@ -1066,7 +1073,7 @@ fn simulation_invariants() {
     ];
 
     sim.invariants();
-    sim.enqueue_msg(&stage_ref, [Msg(None)]);
+    sim.enqueue_msg(&stage.as_ref(), [Msg(None)]);
     sim.invariants();
 
     for idx in 0..ops.len() {
@@ -1085,20 +1092,20 @@ fn simulation_invariants() {
         for (pred, op, name) in &ops {
             if pred(&effect).is_none() {
                 tracing::info!("op `{}` should not work", name);
-                op(&mut sim, &stage_ref, CallId::from_u64(0)).unwrap_err();
+                op(&mut sim, &stage.as_ref(), CallId::from_u64(0)).unwrap_err();
                 sim.invariants();
             }
         }
         for (pred, op, name) in &ops {
             if let Some(id) = pred(&effect) {
                 tracing::info!("op `{}` should work", name);
-                op(&mut sim, &stage_ref, id).unwrap();
+                op(&mut sim, &stage.as_ref(), id).unwrap();
                 sim.invariants();
             }
         }
     }
     tracing::info!("final invariants");
-    sim.effect().assert_receive(&stage_ref);
+    sim.effect().assert_receive(&stage.as_ref());
     let state = sim.get_state(&stage).unwrap();
     assert!(state);
 }

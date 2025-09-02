@@ -26,7 +26,7 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output=T> + Send + 'a>>;
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Type constraint for messages, which must be self-contained and have a `Debug` instance.
 ///
@@ -47,12 +47,12 @@ pub trait SendData: Any + fmt::Debug + Send + 'static {
 impl<T> SendData for T
 where
     T: Any
-    + PartialEq
-    + fmt::Debug
-    + serde::Serialize
-    + serde::de::DeserializeOwned
-    + Send
-    + 'static,
+        + PartialEq
+        + fmt::Debug
+        + serde::Serialize
+        + serde::de::DeserializeOwned
+        + Send
+        + 'static,
 {
     fn typetag_name(&self) -> &'static str {
         type_name::<T>()

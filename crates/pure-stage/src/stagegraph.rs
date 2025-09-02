@@ -14,13 +14,15 @@
 
 use crate::stage_ref::Stage;
 use crate::{
-    BoxFuture, Effects, Instant, StageName, OutputEffect, Receiver, Resources, SendData, Sender,
-    StageBuildRef, StageRef, types::MpscSender,
+    BoxFuture, Effects, Instant, OutputEffect, Receiver, Resources, SendData, Sender,
+    StageBuildRef, StageName, StageRef, types::MpscSender,
 };
 use async_trait::async_trait;
+use serde::Serialize;
+use std::pin::Pin;
+use std::sync::Arc;
 use std::{
     fmt::Debug,
-    future::Future,
     marker::PhantomData,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -136,26 +138,16 @@ pub trait StageGraph {
     type Running: StageGraphRunning;
     type RefAux<Msg, State>;
 
-    fn register<Msg, St>(
-        &mut self,
-        name: Stage<Msg, St>,
-        stageable: impl Stageable<Msg, St> + 'static + Send + Clone + Sync,
-    ) -> Stage<Msg, St>
-    where
-        Msg: SendData + serde::de::DeserializeOwned,
-        St: SendData;
-
-    fn make_stage<Msg, St>(
-        &mut self,
-        named: Name<Msg, St>,
-    ) -> Stage<Msg, St>;
-
-    fn make_name(&mut self, name: impl AsRef<str>) -> StageName;
-
-    /// Create a stage from an asynchronous transition function (state × message → state) and
-    /// an initial state.
+    /// Create a stage that accepts messages of type `Msg` and has state of type `St`.
     ///
     /// _The provided name will be made unique within this `StageGraph` by appending a number!_
+    ///
+    fn make_stage<Msg, St>(&mut self, named: impl AsRef<str>) -> Stage<Msg, St> {
+        let name = self.make_name(named);
+        Stage::new(name)
+    }
+
+    /// Register the transition function for the given stage.
     ///
     /// **IMPORTANT:** While the transition function is asynchronous, it cannot await asynchronous
     /// effects other than those constructed by this library.
@@ -175,27 +167,20 @@ pub trait StageGraph {
     ///     }
     /// }
     /// ```
-    fn stage<Msg, St, F, Fut>(
+    ///
+    /// The returned [`StageRef`] can be used to send messages to this stage from other stages.
+    ///
+    fn register<Msg, St>(
         &mut self,
-        name: impl AsRef<str>,
-        f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
-    where
-        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output=St> + 'static + Send,
-        Msg: SendData + serde::de::DeserializeOwned,
-        St: SendData;
-
-    /// Finalize the given stage by providing its initial state.
-    /// Return a reference to the stage
-    fn wire_up<Msg, St>(
-        &mut self,
-        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
-        state: St,
+        stage: &Stage<Msg, St>,
+        stageable: impl Stageable<Msg, St> + 'static + Send + Clone,
     ) -> StageRef<Msg>
     where
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
+
+    /// Create a unique
+    fn make_name(&mut self, name: impl AsRef<str>) -> StageName;
 
     /// Finalize the given stage by providing its initial state.
     /// Return a stage handle that can also be used to access the internal state (for testing)
@@ -207,6 +192,18 @@ pub trait StageGraph {
     where
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
+
+    fn stage<Msg, St, F, Fut>(&mut self, name: impl AsRef<str>, f: F, state: St) -> Stage<Msg, St>
+    where
+        F: Fn(St, Msg, Effects<Msg>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = St> + Send + 'static,
+        Msg: SendData + serde::de::DeserializeOwned + 'static,
+        St: SendData + Clone + Sync + 'static,
+    {
+        let stage = self.make_stage(name);
+        self.register(&stage, Staged::new(f, state));
+        stage
+    }
 
     /// Consume this network builder and start the network — the precise meaning of this
     /// depends on the `StageGraph` implementation used.
@@ -229,26 +226,108 @@ pub trait StageGraph {
         send_queue_size: usize,
     ) -> (StageRef<Msg>, Receiver<Msg>)
     where
-        Msg: SendData + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
+        Msg: SendData + Clone + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
     {
-        let name = StageName::from(name.as_ref());
+        let output_stage = self.make_stage(name);
         let (sender, rx) = mpsc::channel(send_queue_size);
         let tx = MpscSender { sender };
 
-        let output = self.stage(name, async |tx: MpscSender<Msg>, msg: Msg, eff| {
-            eff.external(OutputEffect::new(eff.me().name(), msg, tx.clone()))
-                .await;
-            tx
-        });
-        let output = self.wire_up(output, tx);
-
-        (output, Receiver::new(rx))
+        self.register(&output_stage, Output::new(tx));
+        (output_stage.as_ref(), Receiver::new(rx))
     }
 
     /// Get the resources collection for the network.
     ///
     /// It is prudent to populate this collection before running the network.
     fn resources(&self) -> &Resources;
+}
+
+#[derive(Clone)]
+pub struct Output<Msg> {
+    mpsc_sender: MpscSender<Msg>,
+}
+
+impl<Msg> Output<Msg> {
+    pub fn new(mpsc_sender: MpscSender<Msg>) -> Self {
+        Self { mpsc_sender }
+    }
+}
+
+// handy alias for our erased future
+type BoxFut<S> = Pin<Box<dyn Future<Output = S> + Send + 'static>>;
+
+/// A Stageable that delegates `run` to a user-provided function.
+pub struct Staged<Msg, State> {
+    // Arc so Staged is Clone, Fn so we can call it via &self,
+    // and we return a boxed Send future.
+    func: Arc<dyn Fn(State, Msg, Effects<Msg>) -> BoxFut<State> + Send + Sync + 'static>,
+    init: State,
+}
+
+impl<Msg, State> Clone for Staged<Msg, State>
+where
+    State: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            func: self.func.clone(),
+            init: self.init.clone(),
+        }
+    }
+}
+
+impl<Msg, State> Staged<Msg, State>
+where
+    State: SendData + Clone + 'static,
+    Msg: SendData + serde::de::DeserializeOwned + 'static,
+{
+    pub fn new<F, Fut>(f: F, initial_state: State) -> Self
+    where
+        F: Fn(State, Msg, Effects<Msg>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = State> + Send + 'static,
+    {
+        let func = Arc::new(
+            move |st: State, msg: Msg, eff: Effects<Msg>| -> BoxFut<State> {
+                Box::pin(f(st, msg, eff))
+            },
+        );
+        Self {
+            func,
+            init: initial_state,
+        }
+    }
+}
+
+#[async_trait]
+impl<Msg, State> Stageable<Msg, State> for Staged<Msg, State>
+where
+    State: SendData + Clone + 'static + Sync,
+    Msg: SendData + serde::de::DeserializeOwned + 'static,
+{
+    fn initial_state(&self) -> State {
+        self.init.clone()
+    }
+
+    async fn run(&self, state: State, msg: Msg, eff: Effects<Msg>) -> State {
+        (self.func)(state, msg, eff).await
+    }
+}
+
+#[async_trait]
+impl<Msg: PartialEq + SendData + serde::de::DeserializeOwned + Serialize>
+    Stageable<Msg, MpscSender<Msg>> for Output<Msg>
+{
+    fn initial_state(&self) -> MpscSender<Msg> {
+        MpscSender {
+            sender: self.mpsc_sender.clone(),
+        }
+    }
+
+    async fn run(&self, tx: MpscSender<Msg>, msg: Msg, eff: Effects<Msg>) -> MpscSender<Msg> {
+        eff.external(OutputEffect::new(eff.me().name(), msg, tx.clone()))
+            .await;
+        tx
+    }
 }
 
 /// A trait for running stage graphs.
@@ -267,22 +346,4 @@ pub trait Stageable<Msg, State> {
     fn initial_state(&self) -> State;
 
     async fn run(&self, state: State, msg: Msg, eff: Effects<Msg>) -> State;
-}
-
-pub struct Name<Msg, State> {
-    name: String,
-    _ph: PhantomData<(Msg, State)>,
-}
-
-impl<Msg, State> Name<Msg, State> {
-    pub fn new(name: impl AsRef<str>) -> Self {
-        Self {
-            name: name.as_ref().to_string(),
-            _ph: PhantomData,
-        }
-    }
-}
-
-pub trait Referenceable<Msg, State> {
-    fn name(&self) -> String;
 }

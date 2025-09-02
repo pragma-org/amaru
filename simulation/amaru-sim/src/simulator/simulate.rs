@@ -438,7 +438,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn simulate_pure_stage_echo() {
-        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
         struct State(u64, StageRef<Envelope<EchoMessage>>);
 
         let number_of_tests = 100;
@@ -447,36 +447,38 @@ mod tests {
 
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
             let mut network = SimulationBuilder::default();
-            let stage = network.stage(
-                "echo",
-                async |mut state: State, msg: Envelope<EchoMessage>, eff| {
-                    if let EchoMessage::Echo { msg_id, echo } = &msg.body {
-                        state.0 += 1;
-                        // Insert a bug every 5 messages.
-                        let echo_response = if state.0.is_multiple_of(5) {
-                            echo.to_string().to_uppercase()
-                        } else {
-                            echo.to_string()
-                        };
-                        let reply = Envelope {
-                            src: msg.dest,
-                            dest: msg.src,
-                            body: EchoMessage::EchoOk {
-                                msg_id: state.0,
-                                in_reply_to: *msg_id,
-                                echo: echo_response,
-                            },
-                        };
-                        // println!(" ==> {:?}", reply);
-                        eff.send(&state.1, reply).await;
-                        state
-                    } else {
-                        panic!("Got a message that wasn't an echo: {:?}", msg.body)
-                    }
-                },
-            );
             let (output, rx) = network.output("output", 10);
-            let stage = network.wire_up(stage, State(0, output));
+            let stage = network
+                .stage(
+                    "echo",
+                    async |mut state: State, msg: Envelope<EchoMessage>, eff| {
+                        if let EchoMessage::Echo { msg_id, echo } = &msg.body {
+                            state.0 += 1;
+                            // Insert a bug every 5 messages.
+                            let echo_response = if state.0.is_multiple_of(5) {
+                                echo.to_string().to_uppercase()
+                            } else {
+                                echo.to_string()
+                            };
+                            let reply = Envelope {
+                                src: msg.dest,
+                                dest: msg.src,
+                                body: EchoMessage::EchoOk {
+                                    msg_id: state.0,
+                                    in_reply_to: *msg_id,
+                                    echo: echo_response,
+                                },
+                            };
+                            // println!(" ==> {:?}", reply);
+                            eff.send(&state.1, reply).await;
+                            state
+                        } else {
+                            panic!("Got a message that wasn't an echo: {:?}", msg.body)
+                        }
+                    },
+                    State(0, output),
+                )
+                .as_ref();
             let rt = tokio::runtime::Runtime::new().unwrap();
             let running = network.run(rt.handle().clone());
 

@@ -15,7 +15,7 @@
 
 //! This module contains the [`TraceBuffer`] type, which is used to record the trace of a simulation.
 
-use crate::{Effect, Instant, StageName, SendData, effect::StageResponse, serde::to_cbor};
+use crate::{Effect, Instant, SendData, StageName, effect::StageResponse, serde::to_cbor};
 use cbor4ii::serde::from_slice;
 use parking_lot::Mutex;
 use std::{collections::VecDeque, sync::Arc};
@@ -164,7 +164,7 @@ impl TraceBuffer {
     }
 
     /// Iterate over the entries in the trace buffer.
-    pub fn iter(&self) -> impl Iterator<Item=&[u8]> {
+    pub fn iter(&self) -> impl Iterator<Item = &[u8]> {
         self.messages.iter().map(|m| m.as_slice())
     }
 

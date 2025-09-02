@@ -14,16 +14,10 @@
 
 use crate::consensus::ValidationFailed;
 use async_trait::async_trait;
-use pure_stage::{Name, Referenceable, Stageable};
+use pure_stage::Stageable;
 
 #[derive(Clone)]
 pub struct UpstreamErrors;
-
-impl UpstreamErrors {
-    pub fn name() -> Name<ValidationFailed, ()> {
-        Name::new("upstream_errors")
-    }
-}
 
 #[async_trait]
 impl Stageable<ValidationFailed, ()> for UpstreamErrors {

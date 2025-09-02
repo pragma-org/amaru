@@ -28,7 +28,7 @@
 //!
 
 use crate::{
-    BoxFuture, Effects, Instant, StageName, Resources, SendData, Sender, StageBuildRef, StageRef,
+    BoxFuture, Effects, Instant, Resources, SendData, Sender, StageBuildRef, StageName, StageRef,
     Stageable,
     effect::{StageEffect, StageResponse},
     time::Clock,
@@ -38,7 +38,7 @@ use either::Either;
 use parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, VecDeque},
-    future::{Future, poll_fn},
+    future::poll_fn,
     marker::PhantomData,
     sync::{Arc, atomic::AtomicU64},
     task::Poll,
@@ -61,7 +61,7 @@ mod running;
 mod state;
 
 pub(crate) type EffectBox =
-Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
+    Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
 
 pub(crate) fn airlock_effect<Out>(
     eb: &EffectBox,
@@ -213,13 +213,14 @@ impl super::StageGraph for SimulationBuilder {
 
     fn register<Msg, St>(
         &mut self,
-        stageable: impl Stageable<Msg, St> + 'static + Send + Clone + Sync,
-    ) -> Stage<Msg, St>
+        stage: &Stage<Msg, St>,
+        stageable: impl Stageable<Msg, St> + 'static + Send + Clone,
+    ) -> StageRef<Msg>
     where
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
-        let name = self.make_name(stageable.named());
+        let name = stage.name();
         let me = StageRef {
             name: name.clone(),
             _ph: PhantomData,
@@ -263,7 +264,7 @@ impl super::StageGraph for SimulationBuilder {
             network: (),
             _ph: PhantomData,
         };
-        self.wire(stage_build_ref, initial_state)
+        self.wire(stage_build_ref, initial_state).as_ref()
     }
 
     fn make_name(&mut self, name: impl AsRef<str>) -> StageName {
@@ -271,69 +272,6 @@ impl super::StageGraph for SimulationBuilder {
         let result = StageName::from(&*format!("{}-{}", name.as_ref(), self.name_counter));
         self.name_counter += 1;
         result
-    }
-
-    fn stage<Msg, St, F, Fut>(
-        &mut self,
-        name: impl AsRef<str>,
-        mut f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
-    where
-        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output=St> + 'static + Send,
-        Msg: SendData + serde::de::DeserializeOwned,
-        St: SendData,
-    {
-        // THIS MUST MATCH THE TOKIO BUILDER
-        let name = StageName::from(&*format!("{}-{}", name.as_ref(), self.stages.len()));
-        let me = StageRef {
-            name: name.clone(),
-            _ph: PhantomData,
-        };
-        let self_sender = self.inputs.sender(&me);
-        let effects = Effects::new(me, self.effect.clone(), self.clock.clone(), self_sender);
-        let transition: Transition =
-            Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
-                let state = state.cast::<St>().expect("internal state type error");
-                let msg = msg
-                    .cast_deserialize::<Msg>()
-                    .expect("internal message type error");
-                let state = f(*state, msg, effects.clone());
-                Box::pin(async move { Box::new(state.await) as Box<dyn SendData> })
-            });
-
-        if let Some(old) = self.stages.insert(
-            name.clone(),
-            InitStageData {
-                state: InitStageState::Uninitialized,
-                mailbox: VecDeque::new(),
-                transition,
-            },
-        ) {
-            #[allow(clippy::panic)]
-            {
-                // names are unique by construction
-                panic!("stage {name} already exists with state {:?}", old.state);
-            }
-        }
-
-        StageBuildRef {
-            name,
-            network: (),
-            _ph: PhantomData,
-        }
-    }
-
-    fn wire_up<Msg, St>(
-        &mut self,
-        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
-        state: St,
-    ) -> StageRef<Msg>
-    where
-        Msg: SendData + serde::de::DeserializeOwned,
-        St: SendData,
-    {
-        self.wire(stage, state).as_ref()
     }
 
     fn wire<Msg, St>(

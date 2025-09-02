@@ -48,7 +48,7 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Deadlock` by at least the given stages.
-    pub fn assert_deadlock(&self, names: impl IntoIterator<Item=impl AsRef<str>>) {
+    pub fn assert_deadlock(&self, names: impl IntoIterator<Item = impl AsRef<str>>) {
         let names = names
             .into_iter()
             .map(|n| StageName::from(n.as_ref()))
@@ -60,7 +60,7 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Busy` by at least the given stages.
-    pub fn assert_busy(&self, names: impl IntoIterator<Item=impl AsRef<str>>) {
+    pub fn assert_busy(&self, names: impl IntoIterator<Item = impl AsRef<str>>) {
         let names = names
             .into_iter()
             .map(|n| StageName::from(n.as_ref()))

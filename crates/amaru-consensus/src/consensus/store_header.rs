@@ -15,26 +15,23 @@
 use crate::{consensus::store_effects::StoreHeaderEffect, span::adopt_current_span};
 use async_trait::async_trait;
 
-use super::{ChainSyncEvent, DecodedChainSyncEvent};
-use pure_stage::{Effects, Name, StageRef, Stageable};
+use super::DecodedChainSyncEvent;
+use pure_stage::{Effects, StageRef, Stageable};
 use tracing::{Level, instrument};
 
 #[derive(Clone)]
 pub struct StoreHeader {
-    name: String,
     downstream: StageRef<DecodedChainSyncEvent>,
 }
 
 impl StoreHeader {
-    pub fn new(name: impl AsRef<str>, downstream: StageRef<DecodedChainSyncEvent>) -> Self {
+    pub fn new<D>(downstream: D) -> Self
+    where
+        D: Into<StageRef<DecodedChainSyncEvent>>,
+    {
         Self {
-            name: name.as_ref().to_string(),
-            downstream,
+            downstream: downstream.into(),
         }
-    }
-
-    pub fn name() -> Name<DecodedChainSyncEvent, ()> {
-        Name::new("store_header")
     }
 }
 

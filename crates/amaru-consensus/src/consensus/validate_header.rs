@@ -22,7 +22,7 @@ use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
 use async_trait::async_trait;
 use pallas_math::math::FixedDecimal;
-use pure_stage::{Effects, Name, StageRef, Stageable};
+use pure_stage::{Effects, StageRef, Stageable};
 use std::{fmt, sync::Arc};
 use tracing::{Instrument, Level, instrument};
 
@@ -53,11 +53,11 @@ pub fn header_is_valid(
         epoch_nonce,
         &active_slot_coeff,
     )
-        .and_then(|assertions| {
-            use rayon::prelude::*;
-            assertions.into_par_iter().try_for_each(|assert| assert())
-        })
-        .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
+    .and_then(|assertions| {
+        use rayon::prelude::*;
+        assertions.into_par_iter().try_for_each(|assert| assert())
+    })
+    .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -121,22 +121,22 @@ pub struct ValidateHeader {
 }
 
 impl ValidateHeader {
-    pub fn new(
+    pub fn new<D, E>(
         global_parameters: &GlobalParameters,
         initial_state: ValidateHeaderState,
-        downstream: StageRef<DecodedChainSyncEvent>,
-        errors: StageRef<ValidationFailed>,
-    ) -> Self {
+        downstream: D,
+        errors: E,
+    ) -> Self
+    where
+        D: Into<StageRef<DecodedChainSyncEvent>>,
+        E: Into<StageRef<ValidationFailed>>,
+    {
         Self {
             initial_state,
             global_parameters: global_parameters.clone(),
-            downstream,
-            errors,
+            downstream: downstream.into(),
+            errors: errors.into(),
         }
-    }
-
-    pub fn name() -> Name<DecodedChainSyncEvent, ValidateHeaderState> {
-        Name::new("validate_header")
     }
 }
 
@@ -183,7 +183,7 @@ impl Stageable<DecodedChainSyncEvent, ValidateHeaderState> for ValidateHeader {
                         &self.errors,
                         ValidationFailed::new(peer.clone(), point.clone(), error.into()),
                     )
-                        .await;
+                    .await;
                     return false;
                 }
             };
@@ -202,14 +202,14 @@ impl Stageable<DecodedChainSyncEvent, ValidateHeaderState> for ValidateHeader {
                     &self.errors,
                     ValidationFailed::new(peer.clone(), point.clone(), error),
                 )
-                    .await;
+                .await;
                 false
             } else {
                 true
             }
         }
-            .instrument(span)
-            .await;
+        .instrument(span)
+        .await;
 
         if send_downstream {
             eff.send(&self.downstream, msg).await;

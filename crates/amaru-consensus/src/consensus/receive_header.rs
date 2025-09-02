@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use tracing::{Level, instrument};
 
 use super::{ChainSyncEvent, DecodedChainSyncEvent, ValidationFailed};
-use pure_stage::{Effects, Name, StageRef, Stageable};
+use pure_stage::{Effects, StageRef, Stageable};
 
 #[instrument(
         level = Level::TRACE,
@@ -47,18 +47,15 @@ pub struct ReceiveHeader {
 }
 
 impl ReceiveHeader {
-    pub fn new(
-        downstream: StageRef<DecodedChainSyncEvent>,
-        errors: StageRef<ValidationFailed>,
-    ) -> Self {
+    pub fn new<D, E>(downstream: D, errors: E) -> Self
+    where
+        D: Into<StageRef<DecodedChainSyncEvent>>,
+        E: Into<StageRef<ValidationFailed>>,
+    {
         Self {
-            downstream,
-            errors,
+            downstream: downstream.into(),
+            errors: errors.into(),
         }
-    }
-
-    pub fn name() -> Name<ChainSyncEvent, ()> {
-        Name::new("receive_header")
     }
 }
 
@@ -88,8 +85,8 @@ impl Stageable<ChainSyncEvent, ()> for ReceiveHeader {
                             &self.errors,
                             ValidationFailed::new(peer, point.clone(), error),
                         )
-                            .await;
-                        return ();
+                        .await;
+                        return;
                     }
                 };
                 eff.send(
@@ -101,7 +98,7 @@ impl Stageable<ChainSyncEvent, ()> for ReceiveHeader {
                         span,
                     },
                 )
-                    .await;
+                .await;
             }
             ChainSyncEvent::Rollback {
                 peer,
@@ -116,7 +113,7 @@ impl Stageable<ChainSyncEvent, ()> for ReceiveHeader {
                         span,
                     },
                 )
-                    .await
+                .await
             }
         }
     }

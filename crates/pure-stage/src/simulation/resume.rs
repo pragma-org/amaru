@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    CallId, Instant, StageName, SendData, StageResponse,
+    CallId, Instant, SendData, StageName, StageResponse,
     effect::StageEffect,
     simulation::state::{StageData, StageState},
     trace_buffer::TraceBuffer,

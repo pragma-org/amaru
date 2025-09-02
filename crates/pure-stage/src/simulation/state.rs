@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::StageEffect;
-use crate::{BoxFuture, StageName, SendData};
+use crate::{BoxFuture, SendData, StageName};
 use std::{collections::VecDeque, fmt};
 
 pub enum InitStageState {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{StageName, SendData, Sender, StageRef};
+use crate::{SendData, Sender, StageName, StageRef};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 

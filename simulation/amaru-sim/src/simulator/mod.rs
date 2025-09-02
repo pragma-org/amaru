@@ -34,12 +34,13 @@ use amaru_kernel::{
     to_cbor,
 };
 use amaru_stores::rocksdb::consensus::InMemConsensusStore;
+use async_trait::async_trait;
 use bytes::Bytes;
 use clap::Parser;
 use generate::{generate_entries, parse_json, read_chain_json};
 use ledger::{FakeStakeDistribution, populate_chain_store};
 use pure_stage::{
-    Instant, Receiver, StageGraph, StageRef, simulation::SimulationBuilder,
+    Effects, Instant, Receiver, StageGraph, StageRef, Stageable, simulation::SimulationBuilder,
     trace_buffer::TraceBuffer,
 };
 use rand::Rng;
@@ -156,115 +157,21 @@ fn spawn_node(
     info!("Spawning node!");
 
     let (global_parameters, select_chain, validate_header, chain_ref) = init_node(&args);
+    let (output, rx) = network.output("output", 10);
 
-    let receiver = network.stage(
-        "receiver",
-        async |(downstream, output), msg: Envelope<ChainSyncMessage>, eff| {
-            match msg.body {
-                ChainSyncMessage::Init { msg_id, .. } => {
-                    eff.send(
-                        &output,
-                        Envelope {
-                            src: msg.dest,
-                            dest: msg.src,
-                            body: ChainSyncMessage::InitOk {
-                                in_reply_to: msg_id,
-                            },
-                        },
-                    )
-                    .await
-                }
-                ChainSyncMessage::InitOk { .. } => (),
-                ChainSyncMessage::Fwd {
-                    slot, hash, header, ..
-                } => {
-                    eff.send(
-                        &downstream,
-                        ChainSyncEvent::RollForward {
-                            peer: Peer::new(&msg.src),
-                            point: Point::Specific(slot.into(), hash.into()),
-                            raw_header: header.into(),
-                            span: Span::current(),
-                        },
-                    )
-                    .await
-                }
-                ChainSyncMessage::Bck { slot, hash, .. } => {
-                    eff.send(
-                        &downstream,
-                        ChainSyncEvent::Rollback {
-                            peer: Peer::new(&msg.src),
-                            rollback_point: Point::Specific(slot.into(), hash.into()),
-                            span: Span::current(),
-                        },
-                    )
-                    .await
-                }
-            }
-            (downstream, output)
-        },
-    );
+    let propagate_header = network.make_stage("propagate_header");
+    network.register(&propagate_header, PropagateHeader::new(&output));
 
-    let propagate_header_stage = network.stage(
-        "propagate_header",
-        async |(msg_id, downstream), msg: ValidateHeaderEvent, eff| {
-            let (peer, chain_sync_message) = match msg {
-                ValidateHeaderEvent::Validated { peer, header, .. } => (
-                    peer,
-                    ChainSyncMessage::Fwd {
-                        msg_id,
-                        slot: header.point().slot_or_default(),
-                        hash: Bytes {
-                            bytes: Hash::from(&header.point()).as_slice().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: to_cbor(&header),
-                        },
-                    },
-                ),
-                ValidateHeaderEvent::Rollback {
-                    peer,
-                    rollback_point,
-                    ..
-                } => (
-                    peer,
-                    ChainSyncMessage::Bck {
-                        msg_id,
-                        slot: rollback_point.slot_or_default(),
-                        hash: Bytes {
-                            bytes: Hash::from(&rollback_point).as_slice().to_vec(),
-                        },
-                    },
-                ),
-            };
-            eff.send(
-                &downstream,
-                Envelope {
-                    // FIXME: do we have the name of the node stored somewhere?
-                    src: "n1".to_string(),
-                    // XXX: this should be broadcast to ALL followers
-                    dest: peer.name,
-                    body: chain_sync_message,
-                },
-            )
-            .await;
-            (msg_id + 1, downstream)
-        },
-    );
-
-    let receive_header_ref = build_stage_graph(
+    let receive_header = build_stage_graph(
         &global_parameters,
         validate_header,
         select_chain,
         network,
-        propagate_header_stage.sender(),
+        &propagate_header.as_ref(),
     );
 
-    let (output, rx) = network.output("output", 10);
-
-    let receiver = network.wire_up(receiver, (receive_header_ref, output.clone()));
-
-    network.wire_up(propagate_header_stage, (0, output));
+    let receiver = network.make_stage("receiver");
+    network.register(&receiver, ChainSyncReceiver::new(&receive_header, &output));
 
     network
         .resources()
@@ -273,7 +180,152 @@ fn spawn_node(
         .resources()
         .put::<store_effects::ResourceParameters>(global_parameters);
 
-    (rx, receiver)
+    (rx, receiver.as_ref())
+}
+
+#[derive(Clone)]
+pub struct ChainSyncReceiver {
+    downstream: StageRef<ChainSyncEvent>,
+    output: StageRef<Envelope<ChainSyncMessage>>,
+}
+
+impl ChainSyncReceiver {
+    pub fn new<D, O>(downstream: D, output: O) -> Self
+    where
+        D: Into<StageRef<ChainSyncEvent>>,
+        O: Into<StageRef<Envelope<ChainSyncMessage>>>,
+    {
+        Self {
+            downstream: downstream.into(),
+            output: output.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl Stageable<Envelope<ChainSyncMessage>, ()> for ChainSyncReceiver {
+    fn initial_state(&self) {}
+
+    async fn run(
+        &self,
+        _state: (),
+        msg: Envelope<ChainSyncMessage>,
+        eff: Effects<Envelope<ChainSyncMessage>>,
+    ) -> () {
+        match msg.body {
+            ChainSyncMessage::Init { msg_id, .. } => {
+                eff.send(
+                    &self.output,
+                    Envelope {
+                        src: msg.dest,
+                        dest: msg.src,
+                        body: ChainSyncMessage::InitOk {
+                            in_reply_to: msg_id,
+                        },
+                    },
+                )
+                .await
+            }
+            ChainSyncMessage::InitOk { .. } => (),
+            ChainSyncMessage::Fwd {
+                slot, hash, header, ..
+            } => {
+                eff.send(
+                    &self.downstream,
+                    ChainSyncEvent::RollForward {
+                        peer: Peer::new(&msg.src),
+                        point: Point::Specific(slot.into(), hash.into()),
+                        raw_header: header.into(),
+                        span: Span::current(),
+                    },
+                )
+                .await
+            }
+            ChainSyncMessage::Bck { slot, hash, .. } => {
+                eff.send(
+                    &self.downstream,
+                    ChainSyncEvent::Rollback {
+                        peer: Peer::new(&msg.src),
+                        rollback_point: Point::Specific(slot.into(), hash.into()),
+                        span: Span::current(),
+                    },
+                )
+                .await
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PropagateHeader {
+    output: StageRef<Envelope<ChainSyncMessage>>,
+}
+
+impl PropagateHeader {
+    pub fn new<O>(output: O) -> Self
+    where
+        O: Into<StageRef<Envelope<ChainSyncMessage>>>,
+    {
+        Self {
+            output: output.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl Stageable<ValidateHeaderEvent, u64> for PropagateHeader {
+    fn initial_state(&self) -> u64 {
+        0
+    }
+
+    async fn run(
+        &self,
+        msg_id: u64,
+        msg: ValidateHeaderEvent,
+        eff: Effects<ValidateHeaderEvent>,
+    ) -> u64 {
+        let (peer, chain_sync_message) = match msg {
+            ValidateHeaderEvent::Validated { peer, header, .. } => (
+                peer,
+                ChainSyncMessage::Fwd {
+                    msg_id,
+                    slot: header.point().slot_or_default(),
+                    hash: Bytes {
+                        bytes: Hash::from(&header.point()).as_slice().to_vec(),
+                    },
+                    header: Bytes {
+                        bytes: to_cbor(&header),
+                    },
+                },
+            ),
+            ValidateHeaderEvent::Rollback {
+                peer,
+                rollback_point,
+                ..
+            } => (
+                peer,
+                ChainSyncMessage::Bck {
+                    msg_id,
+                    slot: rollback_point.slot_or_default(),
+                    hash: Bytes {
+                        bytes: Hash::from(&rollback_point).as_slice().to_vec(),
+                    },
+                },
+            ),
+        };
+        eff.send(
+            &self.output,
+            Envelope {
+                // FIXME: do we have the name of the node stored somewhere?
+                src: "n1".to_string(),
+                // XXX: this should be broadcast to ALL followers
+                dest: peer.name,
+                body: chain_sync_message,
+            },
+        )
+        .await;
+        msg_id + 1
+    }
 }
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {

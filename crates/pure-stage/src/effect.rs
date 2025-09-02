@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use crate::{
-    BoxFuture, CallId, CallRef, Instant, StageName, Resources, SendData, Sender, StageRef,
+    BoxFuture, CallId, CallRef, Instant, Resources, SendData, Sender, StageName, StageRef,
     serde::{SendDataValue, never, to_cbor},
     simulation::{EffectBox, airlock_effect},
     time::Clock,
@@ -328,7 +328,11 @@ fn unknown_external_effect() {
         #[serde(with = "crate::serde::serialize_external_effect")] Box<dyn ExternalEffect>,
     );
 
-    let output = crate::OutputEffect::new(StageName::from("from"), 3.2, tokio::sync::mpsc::channel(1).0);
+    let output = crate::OutputEffect::new(
+        StageName::from("from"),
+        3.2,
+        tokio::sync::mpsc::channel(1).0,
+    );
     let container = Container(Box::new(output));
     let bytes = to_cbor(&container);
     let container2: Container = from_slice(&bytes).unwrap();
@@ -358,7 +362,13 @@ pub(crate) enum StageEffect<T> {
         oneshot::Receiver<Box<dyn SendData>>,
         CallId,
     ),
-    Respond(StageName, CallId, Instant, oneshot::Sender<Box<dyn SendData>>, T),
+    Respond(
+        StageName,
+        CallId,
+        Instant,
+        oneshot::Sender<Box<dyn SendData>>,
+        T,
+    ),
     External(Box<dyn ExternalEffect>),
     Terminate,
 }

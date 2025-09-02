@@ -19,7 +19,7 @@
 
 use crate::stage_ref::Stage;
 use crate::{
-    BoxFuture, Effects, Instant, StageName, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BoxFuture, Effects, Instant, SendData, Sender, StageBuildRef, StageGraph, StageName, StageRef,
     Stageable,
     effect::{StageEffect, StageResponse},
     resources::Resources,
@@ -31,7 +31,6 @@ use either::Either::{Left, Right};
 use parking_lot::Mutex;
 use std::{
     collections::BTreeMap,
-    future::Future,
     marker::PhantomData,
     sync::Arc,
     task::{Context, Poll, Waker},
@@ -113,14 +112,15 @@ impl StageGraph for TokioBuilder {
 
     fn register<Msg, St>(
         &mut self,
+        stage: &Stage<Msg, St>,
         stageable: impl Stageable<Msg, St> + 'static + Send + Clone,
-    ) -> Stage<Msg, St>
+    ) -> StageRef<Msg>
     where
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
         let (tx, rx) = mpsc::channel(self.inner.mailbox_size);
-        let name = self.make_name(stageable.named());
+        let name = stage.name();
         let initial_state = stageable.initial_state();
         self.inner.senders.insert(name.clone(), tx);
         let stageable_clone = stageable.clone();
@@ -137,7 +137,7 @@ impl StageGraph for TokioBuilder {
             ),
             _ph: PhantomData,
         };
-        self.wire(stage_build_ref, initial_state)
+        self.wire(stage_build_ref, initial_state).as_ref()
     }
 
     fn make_name(&mut self, name: impl AsRef<str>) -> StageName {
@@ -145,42 +145,6 @@ impl StageGraph for TokioBuilder {
         let result = StageName::from(&*format!("{}-{}", name.as_ref(), self.inner.name_counter));
         self.inner.name_counter += 1;
         result
-    }
-
-    fn stage<Msg: SendData, St: SendData, F, Fut>(
-        &mut self,
-        name: impl AsRef<str>,
-        mut f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
-    where
-        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output=St> + 'static + Send,
-    {
-        // THIS MUST MATCH THE SIMULATION BUILDER
-        let name = StageName::from(&*format!("{}-{}", name.as_ref(), self.inner.senders.len()));
-        let (tx, rx) = mpsc::channel(self.inner.mailbox_size);
-        self.inner.senders.insert(name.clone(), tx);
-        StageBuildRef {
-            name,
-            network: (
-                rx,
-                Box::new(move |state, msg, eff| Box::pin(f(state, msg, eff))),
-            ),
-            _ph: PhantomData,
-        }
-    }
-
-    #[allow(clippy::expect_used)]
-    fn wire_up<Msg, St>(
-        &mut self,
-        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
-        state: St,
-    ) -> StageRef<Msg>
-    where
-        Msg: SendData + serde::de::DeserializeOwned,
-        St: SendData,
-    {
-        self.wire(stage, state).as_ref()
     }
 
     #[allow(clippy::expect_used)]
@@ -219,7 +183,7 @@ impl StageGraph for TokioBuilder {
                             effects.clone(),
                         ),
                     )
-                        .await;
+                    .await;
                     match result {
                         Some(st) => state = st,
                         None => {

@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use crate::{
-    Effect, Instant, StageName, SendData,
+    Effect, Instant, SendData, StageName,
     serde::to_cbor,
     simulation::{
         EffectBox,
