@@ -21,32 +21,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Error;
 use std::{fs::File, io::BufReader, path::Path};
 
-/// Stake data for a single pool.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IndividualStake {
-    /// The ratio of stake for a single pool.
-    individual_pool_stake: RationalNumber,
-
-    /// The hash of the VRF key for the pool.
-    individual_pool_stake_vrf: Hash<32>,
-
-    /// The total stake for the pool.
-    individual_total_pool_stake: u64,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FakeStakePoolInfo {
-    cold_sign_key: String,
-    individual_stake: IndividualStake,
-    kes_sign_key: String,
-    ocert_counter: u64,
-    pool_id: Hash<28>,
-    pool_idx: u64,
-    vrf_sign_key: String,
-}
-
+/// A fake stake distribution used for simulation purposes.
+/// It can be loaded from a JSON file or instantiated directly from a list of pools (FakeStakePoolInfo).
 pub struct FakeStakeDistribution {
     total_active_stake: u64,
     pools: Vec<FakeStakePoolInfo>,
@@ -55,6 +31,7 @@ pub struct FakeStakeDistribution {
 }
 
 impl FakeStakeDistribution {
+    /// Deserialize a stake distribution from a JSON file.
     pub fn from_file(
         stake_distribution_file: &Path,
         global_parameters: &GlobalParameters,
@@ -67,6 +44,7 @@ impl FakeStakeDistribution {
         })
     }
 
+    /// Create a new stake distribution from a list of pools.
     pub fn new(
         pools: Vec<FakeStakePoolInfo>,
         global_parameters: &GlobalParameters,
@@ -86,11 +64,7 @@ impl FakeStakeDistribution {
 }
 
 impl HasStakeDistribution for FakeStakeDistribution {
-    fn get_pool(
-        &self,
-        _slot: amaru_kernel::Slot,
-        pool: &amaru_kernel::PoolId,
-    ) -> Option<amaru_ouroboros::PoolSummary> {
+    fn get_pool(&self, _slot: Slot, pool: &amaru_kernel::PoolId) -> Option<PoolSummary> {
         self.pools
             .iter()
             .find(|p| p.pool_id == *pool)
@@ -117,6 +91,33 @@ impl HasStakeDistribution for FakeStakeDistribution {
     }
 }
 
+/// Minimum pool information for testing the system.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FakeStakePoolInfo {
+    cold_sign_key: String,
+    individual_stake: IndividualStake,
+    kes_sign_key: String,
+    ocert_counter: u64,
+    pool_id: Hash<28>,
+    pool_idx: u64,
+    vrf_sign_key: String,
+}
+
+/// Stake data for a single pool.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndividualStake {
+    /// The ratio of stake for a single pool.
+    individual_pool_stake: RationalNumber,
+
+    /// The hash of the VRF key for the pool.
+    individual_pool_stake_vrf: Hash<32>,
+
+    /// The total stake for the pool.
+    individual_total_pool_stake: u64,
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum PopulateError {
@@ -133,7 +134,7 @@ pub(crate) fn populate_chain_store(
     use PopulateError::*;
 
     let file = File::open(consensus_context_file)
-            .unwrap_or_else(|_| panic!("cannot find consensus context file '{}', use --consensus-context-file <FILE> to set the file to load context from", consensus_context_file.display()));
+        .unwrap_or_else(|_| panic!("cannot find consensus context file '{}', use --consensus-context-file <FILE> to set the file to load context from", consensus_context_file.display()));
 
     let store: ConsensusContext =
         serde_json::from_reader(BufReader::new(file)).map_err(SerdeError)?;
@@ -179,18 +180,10 @@ mod test {
     use super::populate_chain_store;
 
     use super::FakeStakeDistribution;
+    use amaru_kernel::tests::random_bytes;
     use amaru_ouroboros::HasStakeDistribution;
     use pallas_crypto::hash::Hash;
-    use rand::{RngCore, SeedableRng, rngs::StdRng};
     use std::path::PathBuf;
-
-    /// FIXME: already exists in chain_selection test module
-    pub fn random_bytes(arg: u32) -> Vec<u8> {
-        let mut rng = StdRng::from_os_rng();
-        let mut buffer = vec![0; arg as usize];
-        rng.fill_bytes(&mut buffer);
-        buffer
-    }
 
     #[test]
     fn can_create_stake_distribution_from_file() {

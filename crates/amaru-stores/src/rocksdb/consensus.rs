@@ -192,19 +192,11 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
 #[cfg(test)]
 mod test {
     use super::*;
+    use amaru_kernel::tests::random_bytes;
     use amaru_kernel::{EraHistory, network::NetworkName};
     use amaru_ouroboros_traits::is_header::fake::FakeHeader;
-    use rand::{RngCore, SeedableRng, rngs::StdRng};
     use std::{fs::create_dir_all, path::PathBuf};
     use tempfile::TempDir;
-
-    /// FIXME: already exists in chain_selection test module
-    pub fn random_bytes(arg: u32) -> Vec<u8> {
-        let mut rng = StdRng::from_os_rng();
-        let mut buffer = vec![0; arg as usize];
-        rng.fill_bytes(&mut buffer);
-        buffer
-    }
 
     fn init_dir_and_era(tempdir: &TempDir) -> (PathBuf, EraHistory) {
         let basedir = tempdir.path().join("rocksdb_chain_store");

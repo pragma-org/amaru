@@ -14,7 +14,7 @@ rust-version.workspace = true
 
 [features]
 default = []
-test-utils = ["proptest"]
+test-utils = ["proptest", "dep:rand"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -26,6 +26,7 @@ pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-primitives.workspace = true
 pallas-traverse.workspace = true
+rand = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha3.workspace = true

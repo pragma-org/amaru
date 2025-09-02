@@ -164,8 +164,6 @@ pub mod string_utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::{Epoch, Hash, Nullable, RationalNumber, ScriptHash};
-    use proptest::prelude::*;
-
     pub use crate::{
         anchor::tests::*, ballot::tests::*, ballot_id::tests::*, certificate_pointer::tests::*,
         constitution::tests::*, constitutional_committee::tests::*, drep::tests::*,
@@ -174,6 +172,9 @@ pub mod tests {
         reward_account::tests::*, stake_credential::tests::*, transaction_pointer::tests::*,
         vote::tests::*,
     };
+    use proptest::prelude::*;
+    use rand::SeedableRng;
+    use rand::prelude::StdRng;
 
     prop_compose! {
         pub fn any_key_hash()(bytes in any::<[u8; 28]>()) -> Hash<28> {
@@ -213,6 +214,13 @@ pub mod tests {
                 denominator,
             }
         }
+    }
+
+    pub fn random_bytes(arg: usize) -> Vec<u8> {
+        let mut rng = StdRng::from_os_rng();
+        let mut buffer = vec![0; arg];
+        rng.fill_bytes(&mut buffer);
+        buffer
     }
 }
 

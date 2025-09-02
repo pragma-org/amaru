@@ -12,21 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod bytes;
-mod ledger;
+mod node_handle;
+#[allow(clippy::module_inception)]
+mod world;
 
-pub mod simulate;
-
-mod simulate_config;
-pub use simulate_config::*;
-
-mod args;
-pub use args::*;
-
-pub mod world;
+pub use node_handle::*;
 pub use world::*;
-
-pub mod run;
-
-mod data_generation;
-pub use data_generation::*;

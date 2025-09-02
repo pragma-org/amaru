@@ -13,22 +13,28 @@
 // limitations under the License.
 
 use amaru_kernel::Hash;
-use amaru_sim::simulator::{self, Args};
+use amaru_sim::simulator::run::run;
+use amaru_sim::simulator::{Args, SimulateConfig};
 use std::env;
 use std::str::FromStr;
+use tokio::runtime::Runtime;
 use tracing_subscriber::EnvFilter;
 
 #[test]
 fn run_simulator() {
+    let defaults = SimulateConfig::default();
     let args = Args {
         stake_distribution_file: "tests/data/stake-distribution.json".into(),
         consensus_context_file: "tests/data/consensus-context.json".into(),
         chain_dir: "./chain.db".into(),
         block_tree_file: "tests/data/chain.json".into(),
         start_header: Hash::from([0; 32]),
-        number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", 50),
-        number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", 1),
-        number_of_upstream_peers: get_env_var("AMARU_NUMBER_OF_UPSTREAM_PEERS", 2),
+        number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", defaults.number_of_tests),
+        number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", defaults.number_of_nodes),
+        number_of_upstream_peers: get_env_var(
+            "AMARU_NUMBER_OF_UPSTREAM_PEERS",
+            defaults.number_of_upstream_peers,
+        ),
         disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true("AMARU_PERSIST_ON_SUCCESS"),
@@ -45,8 +51,7 @@ fn run_simulator() {
         .json()
         .init();
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    simulator::run(rt, args);
+    run(Runtime::new().unwrap(), args);
 }
 
 // Parse the environment variable `var_name` as type T, or return `default` if not set or invalid.
