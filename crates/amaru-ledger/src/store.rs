@@ -42,14 +42,19 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io, iter,
     ops::Deref,
+    path::Path,
 };
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub enum OpenErrorKind {
-    #[error(transparent)]
-    IO(#[from] io::Error),
+    #[error("IO error with file '{file}': {source}")]
+    IO {
+        file: String,
+        #[source]
+        source: io::Error,
+    },
     #[error("no ledger stable snapshot found; at least two are expected")]
     NoStableSnapshot,
 }
@@ -86,6 +91,15 @@ impl StoreError {
                 type_name: std::any::type_name::<T>().to_string(),
             },
         )
+    }
+}
+
+impl OpenErrorKind {
+    pub fn io_with_file<P: AsRef<Path>>(file: P, error: io::Error) -> Self {
+        Self::IO {
+            file: file.as_ref().display().to_string(),
+            source: error,
+        }
     }
 }
 

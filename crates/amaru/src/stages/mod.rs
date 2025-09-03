@@ -167,7 +167,14 @@ pub fn bootstrap(
         config.network,
         era_history.clone(),
         global_parameters.clone(),
-    )?;
+    )
+    .map_err(|e| -> Box<dyn Error> {
+        format!(
+            "Failed to create ledger. Have you bootstrapped your node? Error: {}",
+            e
+        )
+        .into()
+    })?;
 
     let (chain_syncs, block_fetchs): (
         Vec<(Peer, Client<HeaderContent>)>,
