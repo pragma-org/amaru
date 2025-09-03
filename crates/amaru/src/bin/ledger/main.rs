@@ -13,11 +13,7 @@
 // limitations under the License.
 
 use clap::Parser;
-use std::{
-    fs::read_dir,
-    path::PathBuf,
-    sync::{Arc, RwLock},
-};
+use std::{fs::read_dir, path::PathBuf};
 use tracing::info;
 
 use amaru::stages::ledger::ValidateBlockStage;
@@ -150,14 +146,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let era_history: &EraHistory = network.into();
     let global_parameters: &GlobalParameters = network.into();
     let store = RocksDBHistoricalStores::new(&ledger_dir, u64::MAX);
-    let is_catching_up = Arc::new(RwLock::new(true));
     let (mut ledger, tip) = ValidateBlockStage::new(
         RocksDB::new(&ledger_dir)?,
         store,
         network,
         era_history.clone(),
         global_parameters.clone(),
-        is_catching_up,
     )?;
 
     // Read all file names in data/blocks. File name format is POINT.HASH
