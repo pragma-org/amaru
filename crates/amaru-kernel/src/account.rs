@@ -17,7 +17,6 @@ use crate::{DRep, Lovelace, PoolId, Set, StrictMaybe, cbor};
 #[derive(Debug)]
 pub struct Account {
     pub rewards_and_deposit: StrictMaybe<(Lovelace, Lovelace)>,
-    #[allow(dead_code)]
     pub pointers: Set<(u64, u64, u64)>,
     pub pool: StrictMaybe<PoolId>,
     pub drep: StrictMaybe<DRep>,

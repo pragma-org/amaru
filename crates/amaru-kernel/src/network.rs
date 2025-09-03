@@ -434,7 +434,6 @@ impl From<NetworkName> for &EraHistory {
     }
 }
 
-#[allow(clippy::todo)]
 impl From<NetworkName> for &GlobalParameters {
     fn from(value: NetworkName) -> Self {
         match value {
@@ -590,7 +589,6 @@ pub mod tests {
         }
 
         #[test]
-        #[allow(clippy::disallowed_methods)]
         fn can_compute_slot_to_epoch_for_preprod() {
             let era_history = &*PREPROD_ERA_HISTORY;
             assert_eq!(

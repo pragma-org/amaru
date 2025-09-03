@@ -29,7 +29,6 @@ use tracing::error;
 pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
 
 /// Register a new DRep.
-#[allow(clippy::unwrap_used)]
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
     valid_until_on_update: Epoch,

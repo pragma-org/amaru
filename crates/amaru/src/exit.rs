@@ -20,7 +20,7 @@ use tracing::{trace, warn};
 
 #[inline]
 #[cfg(unix)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 async fn wait_for_exit_signal() {
     let mut sigterm =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();

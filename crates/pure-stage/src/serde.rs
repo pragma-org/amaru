@@ -1,4 +1,4 @@
-#![allow(dead_code, clippy::borrowed_box)]
+#![expect(dead_code, clippy::borrowed_box)]
 // Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -58,7 +58,7 @@ pub enum Void {}
 #[cold]
 #[inline(never)]
 #[track_caller]
-#[allow(clippy::panic)]
+#[expect(clippy::panic)]
 pub fn never() -> ! {
     panic!("unreachable: never")
 }
@@ -222,7 +222,7 @@ pub fn to_cbor<T: serde::Serialize>(value: &T) -> Vec<u8> {
         static BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     }
     BUFFER.with_borrow_mut(|buffer| {
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         to_writer(&mut *buffer, value).expect("serialization should not fail");
         let ret = Vec::from(buffer.as_slice());
         buffer.clear();

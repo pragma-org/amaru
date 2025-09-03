@@ -73,7 +73,6 @@ impl GovernanceSummary {
 
         db.iter_proposals()?
             .try_for_each(|(_, row)| -> Result<(), Error> {
-                #[allow(clippy::disallowed_methods)]
                 let epoch = era_history
                     .slot_to_epoch_unchecked_horizon(row.proposed_in.transaction.slot)
                     .map_err(|e| Error::EraHistoryError(row.proposed_in.transaction.slot, e))?;

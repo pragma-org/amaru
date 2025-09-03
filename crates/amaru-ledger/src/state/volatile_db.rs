@@ -184,7 +184,7 @@ pub struct StoreUpdate<W, A, R> {
 }
 
 impl AnchoredVolatileState {
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     pub fn into_store_update(
         self,
         epoch: Epoch,
@@ -320,7 +320,7 @@ fn remove_dreps(
     mut deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
 ) -> impl Iterator<Item = (dreps::Key, CertificatePointer)> {
     iterator.map(move |credential| {
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         let pointer = deregistrations
             .remove(&credential)
             .expect("every 'unregistered' drep must have a matching deregistration");

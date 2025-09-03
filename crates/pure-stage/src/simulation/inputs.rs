@@ -57,7 +57,7 @@ impl Inputs {
                     .send(Envelope::new(stage_name, Box::new(msg), tx))
                     .await
                     .map_err(|e| {
-                        #[allow(clippy::expect_used)]
+                        #[expect(clippy::expect_used)]
                         *e.0.msg.cast::<Msg>().expect("message was just boxed")
                     })?;
                 rx.await.ok();

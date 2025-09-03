@@ -15,7 +15,7 @@
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
-#[allow(clippy::disallowed_types)]
+#[expect(clippy::disallowed_types)]
 use std::{
     any::{Any, TypeId, type_name},
     collections::HashMap,
@@ -46,7 +46,7 @@ use std::{
 /// use [`SyncWrapper`](https://docs.rs/sync_wrapper/latest/sync_wrapper/struct.SyncWrapper.html)
 /// or a mutex.
 #[derive(Default, Clone)]
-#[allow(clippy::disallowed_types)]
+#[expect(clippy::disallowed_types)]
 pub struct Resources(Arc<RwLock<HashMap<TypeId, Box<dyn Any + Send + Sync>>>>);
 
 impl Resources {

@@ -157,7 +157,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         ))
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new_with(
         stable: S,
         snapshots: HS,
@@ -233,8 +233,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
     /// applied to the ledger.
-    #[allow(clippy::panic)]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::panic)]
+    #[expect(clippy::unwrap_used)]
     pub fn tip(&'_ self) -> Cow<'_, Point> {
         if let Some(st) = self.volatile.view_back() {
             return Cow::Borrowed(&st.anchor.0);
@@ -249,8 +249,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         )
     }
 
-    #[allow(clippy::unwrap_used)]
-    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = %now_stable.anchor.0.slot_or_default()))]
+    #[expect(clippy::unwrap_used)]
+    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = %now_stable.anchor.0.slot_or_default())
+    )]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
         let stable_tip_slot = now_stable.anchor.0.slot_or_default();
 
@@ -419,7 +420,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         Ok(protocol_parameters)
     }
 
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
     fn compute_rewards(&mut self) -> Result<RewardsSummary, StateError> {
         let mut stake_distributions = self.stake_distributions.lock().unwrap();
@@ -450,7 +451,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// Roll the ledger forward with the given block by applying transactions one by one, in
     /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
     /// the internal state of the ledger.
-    #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
     pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
         // Persist the next now-immutable block, which may not quite exist when we just
@@ -498,8 +498,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         })
     }
 
-    #[allow(clippy::unwrap_used)]
-    #[instrument(level = Level::TRACE, skip_all, name="state.resolve_inputs", fields(resolved_from_context, resolved_from_volatile, resolved_from_db))]
+    #[expect(clippy::unwrap_used)]
+    #[instrument(level = Level::TRACE, skip_all, name="state.resolve_inputs", fields(resolved_from_context, resolved_from_volatile, resolved_from_db)
+    )]
     pub fn resolve_inputs<'a>(
         &'_ self,
         ongoing_state: &VolatileState,
@@ -932,10 +933,9 @@ pub struct StakeDistributionObserver {
 }
 
 impl HasStakeDistribution for StakeDistributionObserver {
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
         let view = self.view.lock().unwrap();
-        #[allow(clippy::disallowed_methods)]
         let epoch = self
             .era_history
             // NOTE: This function is called by the consensus when validating block headers. So in

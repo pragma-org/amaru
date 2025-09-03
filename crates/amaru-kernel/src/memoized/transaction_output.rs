@@ -313,7 +313,6 @@ fn from_legacy_value(value: AlonzoValue) -> Result<Value, String> {
     }
 }
 
-#[allow(dead_code)] // not dead, used in a serde macro field.
 fn serialize_address<S: serde::ser::Serializer>(
     addr: &Address,
     serializer: S,
@@ -329,7 +328,6 @@ fn deserialize_address<'de, D: serde::de::Deserializer<'de>>(
 }
 
 // FIXME: Eventually allow serializing complete values, not just coins.
-#[allow(dead_code)] // not dead, used in a serde macro field.
 fn serialize_value<S: serde::ser::Serializer>(
     value: &Value,
     serializer: S,

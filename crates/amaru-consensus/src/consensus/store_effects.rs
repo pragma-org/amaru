@@ -35,7 +35,7 @@ impl StoreHeaderEffect {
 }
 
 impl ExternalEffect for StoreHeaderEffect {
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used)]
     fn run(
         self: Box<Self>,
         resources: Resources,
@@ -70,7 +70,7 @@ impl EvolveNonceEffect {
 }
 
 impl ExternalEffect for EvolveNonceEffect {
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used)]
     fn run(
         self: Box<Self>,
         resources: Resources,

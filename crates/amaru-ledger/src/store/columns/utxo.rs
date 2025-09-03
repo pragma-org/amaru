@@ -112,7 +112,7 @@ pub mod tests {
                 fields: MaybeIndefArray::Def(vec![PlutusData::BigInt(big_int)]),
             });
 
-            #[allow(clippy::expect_used)]
+            #[expect(clippy::expect_used)]
             let memoized =
                 MemoizedPlutusData::new(pd).expect("PlutusData encoding should never fail");
 

@@ -151,7 +151,6 @@ impl From<MaxExtraLedgerSnapshots> for u64 {
     }
 }
 
-#[allow(clippy::todo)]
 pub fn bootstrap(
     config: Config,
     clients: Vec<(String, PeerClient)>,
@@ -296,7 +295,7 @@ pub fn bootstrap(
 
 type ChainStoreResult = (Tip, Option<Header>, Arc<Mutex<dyn ChainStore<Header>>>);
 
-#[allow(clippy::todo, clippy::panic)]
+#[expect(clippy::panic)]
 fn make_chain_store(
     config: &Config,
     era_history: &EraHistory,
@@ -309,7 +308,6 @@ fn make_chain_store(
 
     let (our_tip, header) = if let amaru_kernel::Point::Specific(_slot, hash) = &tip {
         let tip_hash = &Hash::from(&**hash);
-        #[allow(clippy::expect_used)]
         let header: Header = chain_store.load_header(tip_hash).unwrap_or_else(|| {
             panic!(
                 "Tip {} not found in chain database '{}'",

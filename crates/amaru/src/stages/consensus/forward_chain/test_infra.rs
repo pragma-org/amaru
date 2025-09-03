@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![expect(dead_code)]
 // Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -349,7 +349,6 @@ impl Client {
 }
 
 #[derive(Clone)]
-#[allow(clippy::large_enum_variant)]
 pub enum ClientMsg {
     Forward(Header, Tip),
     Backward(Point, Tip),

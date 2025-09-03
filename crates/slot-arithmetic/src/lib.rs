@@ -190,7 +190,7 @@ pub struct Bound {
     pub epoch: Epoch,
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 impl Bound {
     fn genesis() -> Bound {
         Bound {
@@ -453,7 +453,7 @@ pub struct EpochBounds {
 // the current tip. Returns number of milliseconds elapsed since the system start time.
 impl EraHistory {
     pub fn new(eras: &[Summary], stability_window: Slot) -> EraHistory {
-        #[allow(clippy::panic)]
+        #[expect(clippy::panic)]
         if eras.is_empty() {
             panic!("EraHistory cannot be empty");
         }
@@ -619,7 +619,6 @@ fn slot_to_epoch(slot: &Slot, era: &Summary) -> Result<Epoch, EraHistoryError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use proptest::prelude::*;

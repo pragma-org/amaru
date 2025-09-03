@@ -21,7 +21,7 @@ pub enum RewardKind {
 }
 
 impl<'b, C> cbor::decode::Decode<'b, C> for RewardKind {
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         Ok(match d.u8()? {
             0 => RewardKind::Member,

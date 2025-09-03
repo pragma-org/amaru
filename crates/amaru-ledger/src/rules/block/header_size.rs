@@ -20,7 +20,7 @@ pub fn block_header_size_valid(
     header: &[u8],
     protocol_params: &ProtocolParameters,
 ) -> Result<(), InvalidBlockDetails> {
-    #[allow(clippy::unnecessary_fallible_conversions)]
+    #[expect(clippy::unnecessary_fallible_conversions)]
     let max_header_size = protocol_params
         .max_block_header_size
         .try_into()

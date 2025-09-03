@@ -1,4 +1,4 @@
-#![allow(clippy::bool_assert_comparison)]
+#![expect(clippy::bool_assert_comparison)]
 // Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");

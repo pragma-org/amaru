@@ -73,7 +73,7 @@ pub struct SimulationRunning {
 }
 
 impl SimulationRunning {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub(super) fn new(
         stages: BTreeMap<Name, StageData>,
         inputs: Inputs,
@@ -154,7 +154,7 @@ impl SimulationRunning {
                 if effect.is::<T>() {
                     // if this casting turns out to be a significant cost, we can split the
                     // overrides by TypeId and run each in an appropriately typed closure
-                    #[allow(clippy::expect_used)]
+                    #[expect(clippy::expect_used)]
                     match transform(effect.cast::<T>().expect("checked above")) {
                         OverrideResult::NoMatch(effect) => {
                             OverrideResult::NoMatch(effect as Box<dyn ExternalEffect>)
@@ -854,7 +854,6 @@ impl PartialOrd for Sleeping {
 
 struct OverrideExternalEffect {
     remaining: usize,
-    #[allow(clippy::type_complexity)]
     transform: Box<
         dyn FnMut(
                 Box<dyn ExternalEffect>,
@@ -1002,7 +1001,7 @@ fn simulation_invariants() {
         .unwrap();
     let mut sim = network.run(rt.handle().clone());
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     let ops: [(
         Box<dyn Fn(&Effect) -> Option<CallId>>,
         Box<dyn Fn(&mut SimulationRunning, &StageRef<Msg, bool>, CallId) -> anyhow::Result<()>>,

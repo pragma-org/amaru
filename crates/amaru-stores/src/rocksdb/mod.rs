@@ -230,7 +230,8 @@ impl Snapshot for RocksDBSnapshot {
 impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
-    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch))]
+    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch)
+    )]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
 
@@ -249,7 +250,7 @@ impl Store for RocksDB {
         Ok(())
     }
 
-    #[allow(clippy::panic)] // Expected
+    #[expect(clippy::panic)] // Expected
     fn create_transaction(&self) -> RocksDBTransactionalContext<'_> {
         if self.ongoing_transaction.get() {
             // Thats a bug in the code, we should never have two transactions at the same time
@@ -851,7 +852,7 @@ fn pretty_print_snapshot_ranges(ranges: &[Vec<u64>]) -> String {
         .map(|g| match g.len() {
             0 => "[]".to_string(),
             1 => format!("[{}]", g[0]),
-            #[allow(clippy::unwrap_used)] // Infallible error.
+            #[expect(clippy::unwrap_used)] // Infallible error.
             _ => format!("[{}..{}]", g.first().unwrap(), g.last().unwrap()),
         })
         .collect::<Vec<_>>()
@@ -898,8 +899,8 @@ where
         .map_err(StoreError::Undecodable)
 }
 
-#[allow(clippy::panic)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::panic)]
+#[expect(clippy::unwrap_used)]
 pub fn iter<'a, 'b, K, V, DB, F>(
     db_iter_opt: F,
     prefix: [u8; PREFIX_LEN],
@@ -940,7 +941,7 @@ where
 }
 
 /// An generic column iterator, provided that rows from the column are (de)serialisable.
-#[allow(clippy::panic)]
+#[expect(clippy::panic)]
 fn with_prefix_iterator<
     K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
     V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,

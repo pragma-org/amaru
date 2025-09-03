@@ -78,7 +78,7 @@ pub enum InvalidTransaction {
     Metadata(#[from] InvalidTransactionMetadata),
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn execute<C>(
     context: &mut C,
     network: &Network,

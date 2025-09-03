@@ -69,7 +69,7 @@ impl ForwardChainStage {
         max_peers: usize,
         our_tip: Tip,
     ) -> Self {
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         let runtime =
             AcTokio::new("consensus.forward", 1).expect("failed to create AcTokio runtime");
         Self {
@@ -85,7 +85,6 @@ impl ForwardChainStage {
     }
 }
 
-#[allow(clippy::large_enum_variant)]
 pub enum Unit {
     Peer(RefCell<Option<PeerServer>>),
     Block(BlockValidationResult),
@@ -183,7 +182,6 @@ impl Drop for Worker {
     }
 }
 
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 enum ClientOp {
     /// the tip to go back to
@@ -360,7 +358,6 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
     }
 }
 
-#[allow(clippy::large_enum_variant)]
 enum ClientMsg {
     /// A new peer has connected to us.
     ///

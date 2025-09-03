@@ -23,7 +23,7 @@ pub mod tests {
     prop_compose! {
         pub fn any_anchor()(
             url in {
-                #[allow(clippy::unwrap_used)]
+                #[expect(clippy::unwrap_used)]
                 string::string_regex(
                     r"(https:)?[a-zA-Z0-9]{2,}(\.[a-zA-Z0-9]{2,})(\.[a-zA-Z0-9]{2,})?"
                 ).unwrap()

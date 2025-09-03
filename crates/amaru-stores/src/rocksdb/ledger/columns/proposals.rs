@@ -25,7 +25,6 @@ pub use amaru_ledger::store::{
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x72, 0x6F, 0x70];
 
 /// Register a new Proposal.
-#[allow(clippy::unwrap_used)]
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,

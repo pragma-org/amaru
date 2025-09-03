@@ -13,7 +13,7 @@
 // limitations under the License.
 
 mod node_handle;
-#[allow(clippy::module_inception)]
+#[expect(clippy::module_inception)]
 mod world;
 
 pub use node_handle::*;

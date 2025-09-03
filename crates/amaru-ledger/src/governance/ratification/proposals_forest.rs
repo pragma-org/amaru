@@ -313,7 +313,6 @@ impl ProposalsForest {
                     }
                 }
 
-                #[allow(clippy::map_entry)]
                 if self.proposals.contains_key(&id) {
                     Ok((id, BTreeSet::new()))
                 } else {
@@ -1217,7 +1216,7 @@ mod tests {
                                 .map(|(k, v)| (k, u64::from(v)))
                                 .collect::<Vec<(_, _)>>(),
                         ),
-                        #[allow(clippy::unwrap_used)]
+                        #[expect(clippy::unwrap_used)]
                         RationalNumber {
                             numerator: threshold.numer().try_into().unwrap(),
                             denominator: threshold.denom().try_into().unwrap(),
@@ -1280,7 +1279,7 @@ mod tests {
                                 .chain(protocol_parameters.1)
                                 .chain(orphan)
                                 .for_each(|(id, pointer, action)| {
-                                    #[allow(clippy::unwrap_used)]
+                                    #[expect(clippy::unwrap_used)]
                                     forest
                                         .insert(&ERA_HISTORY, id.clone(), pointer, action.clone())
                                         .unwrap();
@@ -1293,7 +1292,7 @@ mod tests {
                                 .chain(constitution.1)
                                 .chain(orphan)
                                 .for_each(|(id, pointer, action)| {
-                                    #[allow(clippy::unwrap_used)]
+                                    #[expect(clippy::unwrap_used)]
                                     forest
                                         .insert(&ERA_HISTORY, id.clone(), pointer, action.clone())
                                         .unwrap();

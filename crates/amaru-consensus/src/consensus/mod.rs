@@ -158,7 +158,6 @@ impl fmt::Debug for ChainSyncEvent {
 }
 
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[allow(clippy::large_enum_variant)]
 pub enum DecodedChainSyncEvent {
     RollForward {
         peer: Peer,
@@ -222,7 +221,6 @@ impl fmt::Debug for DecodedChainSyncEvent {
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[allow(clippy::large_enum_variant)]
 pub enum ValidateHeaderEvent {
     Validated {
         peer: Peer,

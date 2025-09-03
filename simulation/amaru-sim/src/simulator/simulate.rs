@@ -256,7 +256,7 @@ mod tests {
 
     // This shows how we can test external binaries. The test is disabled because building and
     // locating a binary on CI, across all platforms, is annoying.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     #[ignore]
     fn blackbox_test_echo() {
         let config = SimulateConfig::default()

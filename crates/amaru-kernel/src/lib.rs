@@ -372,7 +372,7 @@ pub fn output_stake_credential(output: &MemoizedTransactionOutput) -> Option<Sta
 
 // TODO: Required because Pallas doesn't export any contructors for StakeAddress directly. Should
 // be fixed there.
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddress {
     let fake_payment_part = ShelleyPaymentPart::Key(Hash::new([
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -449,7 +449,7 @@ pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<Sta
 
 /// An 'unsafe' version of `reward_account_to_stake_credential` that panics when the given
 /// RewardAccount isn't a `StakeCredential`.
-#[allow(clippy::panic)]
+#[expect(clippy::panic)]
 pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
     reward_account_to_stake_credential(account)
         .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
@@ -618,7 +618,7 @@ pub trait HasNetwork {
 }
 
 impl HasNetwork for Address {
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn has_network(&self) -> Network {
         match self {
             Address::Byron(address) => address.has_network(),
@@ -644,7 +644,7 @@ impl HasNetwork for ByronAddress {
         As a result, since we are only checking the network of a Byron address for validation, we will mirror the Haskell node logic and disregard the discriminant when fetching the network from an address.
         (https://github.com/IntersectMBO/cardano-ledger/blob/2d1e94cf96d00ba0da53883c388fa0aba6d74624/libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs#L152)
     */
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn has_network(&self) -> Network {
         // Unwrap is safe, we know that there is a valid address payload if it is a Byron address.
         let x: AddressPayload = from_cbor(&self.payload.0).unwrap();

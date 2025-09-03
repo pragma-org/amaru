@@ -454,7 +454,7 @@ pub mod tests {
         ) -> DRepState {
             // Ensure registered at is always strictly after previous de-registrations.
             let (registered_at, previous_deregistration) = if previous_deregistration > Some(registered_at) {
-                #[allow(clippy::unwrap_used)]
+                #[expect(clippy::unwrap_used)]
                 // NOTE: .unwrap can't fail because of the 'if' guard.
                 (previous_deregistration.unwrap(), Some(registered_at))
             } else if previous_deregistration == Some(registered_at) {

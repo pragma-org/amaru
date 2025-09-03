@@ -28,7 +28,7 @@ pub struct MockLedgerState {
 }
 
 impl MockLedgerState {
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     pub fn new(vrf_vkey_hash: &str, stake: Lovelace, active_stake: Lovelace) -> Self {
         Self {
             vrf_vkey_hash: vrf_vkey_hash.parse().unwrap(),

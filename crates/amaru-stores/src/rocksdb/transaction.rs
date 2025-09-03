@@ -39,7 +39,7 @@ impl OngoingTransaction {
     }
 
     pub(crate) fn set(&self, value: bool) {
-        #[allow(clippy::panic)]
+        #[expect(clippy::panic)]
         if self.get() == value {
             // This is a bug, we should never set the same value twice. Crash the process.
             panic!("Ongoing transaction was already set to {}", value);

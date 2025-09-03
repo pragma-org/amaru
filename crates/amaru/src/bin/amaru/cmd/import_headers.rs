@@ -58,7 +58,8 @@ pub struct Args {
     ///
     /// This is the "intersection" point which will be given to the peer as a starting point
     /// to import the chain database.
-    #[arg(long, value_name = "POINT", verbatim_doc_comment, value_parser = |s: &str| Point::try_from(s))]
+    #[arg(long, value_name = "POINT", verbatim_doc_comment, value_parser = |s: &str| Point::try_from(s)
+    )]
     starting_point: Point,
 
     /// Number of headers to import.
@@ -158,7 +159,7 @@ async fn await_for_next_block(
     }
 }
 
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn handle_response(
     next: NextResponse<HeaderContent>,
     db: &mut RocksDBStore,
@@ -189,7 +190,6 @@ fn handle_response(
                 Ok(Continue)
             }
         }
-        #[allow(clippy::unwrap_used)]
         NextResponse::RollBackward(point, tip) => {
             info!(?point, ?tip, "roll_backward");
             if progress.is_none() {

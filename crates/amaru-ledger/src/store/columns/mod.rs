@@ -24,7 +24,7 @@ pub mod slots;
 pub mod utxo;
 pub mod votes;
 
-#[allow(clippy::panic)]
+#[expect(clippy::panic)]
 pub fn unsafe_decode<T: for<'d> cbor::Decode<'d, ()>>(bytes: Vec<u8>) -> T {
     cbor::decode(&bytes).unwrap_or_else(|e| {
         panic!(

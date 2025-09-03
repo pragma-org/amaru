@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used)]
+#![expect(clippy::expect_used)]
 // Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -255,7 +255,7 @@ impl dyn ExternalEffect {
 
     pub fn cast<T: ExternalEffect>(self: Box<Self>) -> anyhow::Result<Box<T>> {
         if (&*self as &dyn Any).is::<T>() {
-            #[allow(clippy::expect_used)]
+            #[expect(clippy::expect_used)]
             Ok(Box::new(
                 *(self as Box<dyn Any>)
                     .downcast::<T>()
@@ -383,7 +383,7 @@ impl StageEffect<Box<dyn SendData>> {
     /// - the marker we remember in the running simulation
     /// - the effect we emit to the outside world
     pub fn split(self, at_name: Name) -> (StageEffect<()>, Effect) {
-        #[allow(clippy::panic)]
+        #[expect(clippy::panic)]
         match self {
             StageEffect::Receive => (StageEffect::Receive, Effect::Receive { at_stage: at_name }),
             StageEffect::Send(name, msg, call_param) => {
@@ -472,7 +472,7 @@ pub enum Effect {
     },
 }
 
-#[allow(clippy::wildcard_enum_match_arm, clippy::panic)]
+#[expect(clippy::wildcard_enum_match_arm, clippy::panic)]
 impl Effect {
     pub fn at_stage(&self) -> &Name {
         match self {
@@ -496,7 +496,7 @@ impl Effect {
         }
     }
 
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     pub fn assert_send<Msg1, Msg2: SendData + PartialEq, St1, St2>(
         &self,
         at_stage: &StageRef<Msg1, St1>,
@@ -614,7 +614,7 @@ impl Effect {
                 at_stage: a,
                 effect: e,
             } if a == at_stage.name => {
-                #[allow(clippy::unwrap_used)]
+                #[expect(clippy::unwrap_used)]
                 let e = e.cast::<Eff>().unwrap();
                 assert_eq!(&*e, effect);
                 e
@@ -628,7 +628,7 @@ impl Effect {
 }
 
 impl PartialEq for Effect {
-    #[allow(clippy::wildcard_enum_match_arm)]
+    #[expect(clippy::wildcard_enum_match_arm)]
     fn eq(&self, other: &Self) -> bool {
         match self {
             Effect::Receive { at_stage } => match other {
