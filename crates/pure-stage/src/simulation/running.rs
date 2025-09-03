@@ -1094,14 +1094,19 @@ fn simulation_invariants() {
         for (pred, op, name) in &ops {
             if pred(&effect).is_none() {
                 tracing::info!("op `{}` should not work", name);
-                op(&mut sim, &stage.without_state(), CallId::from_u64(0)).unwrap_err();
+                op(
+                    &mut sim,
+                    &stage.clone().without_state(),
+                    CallId::from_u64(0),
+                )
+                .unwrap_err();
                 sim.invariants();
             }
         }
         for (pred, op, name) in &ops {
             if let Some(id) = pred(&effect) {
                 tracing::info!("op `{}` should work", name);
-                op(&mut sim, &stage.without_state(), id).unwrap();
+                op(&mut sim, &stage.clone().without_state(), id).unwrap();
                 sim.invariants();
             }
         }

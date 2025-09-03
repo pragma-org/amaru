@@ -121,7 +121,7 @@ impl<Resp: SendData> CallRef<Resp> {
 /// let (output, mut rx) = network.output("output", 10);
 ///
 /// // phase 2: wire up stages by injecting targets into their state
-/// let stage = network.wire_up(stage, (1u32, output.without_state()));
+/// let stage = network.wire_up(stage, (1u32, output));
 ///
 /// // phase 3: populate the resources collection with the necessary resources (if used by external effects)
 /// network.resources().put(42u8);

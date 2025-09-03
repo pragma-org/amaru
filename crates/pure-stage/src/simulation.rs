@@ -116,7 +116,7 @@ pub(crate) fn airlock_effect<Out>(
 ///     (state, out)
 /// });
 /// let (output, mut rx) = network.output("output", 10);
-/// let stage = network.wire_up(stage, (1u32, output.without_state()));
+/// let stage = network.wire_up(stage, (1u32, output.clone()));
 ///
 /// let rt = tokio::runtime::Runtime::new().unwrap();
 /// let mut running = network.run(rt.handle().clone());

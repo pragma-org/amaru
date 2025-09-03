@@ -59,7 +59,7 @@ pub fn spawn_echo_node() -> NodeHandle<EchoMessage> {
         },
     );
     let (output, rx) = network.output("output", 10);
-    let stage = network.wire_up(stage, State(0, output.without_state()));
+    let stage = network.wire_up(stage, State(0, output));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let running = network.run(rt.handle().clone());
 

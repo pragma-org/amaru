@@ -198,8 +198,8 @@ fn spawn_node(
     );
 
     let (output, rx) = network.output("output", 10);
-    let receiver = network.wire_up(receiver, (receive_header_ref, output.without_state()));
-    network.wire_up(propagate_header_stage, (0, output.without_state()));
+    let receiver = network.wire_up(receiver, (receive_header_ref, output.clone()));
+    network.wire_up(propagate_header_stage, (0, output));
 
     network.resources().put(chain_ref);
     network.resources().put(global_parameters);

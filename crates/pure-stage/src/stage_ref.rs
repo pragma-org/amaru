@@ -80,23 +80,25 @@ impl<Msg> StageRef<Msg> {
     pub fn name(&self) -> &Name {
         &self.name
     }
-
-    pub fn without_state(&self) -> StageRef<Msg> {
-        StageRef {
-            name: self.name.clone(),
-            _ph: PhantomData,
-        }
-    }
 }
 
 /// A handle for sending messages to a stage via the [`Effects`](crate::Effects) argument to the stage transition function.
 ///
 /// This is a variant that is mostly useful in tests because it allows extracting the current state of the stage.
-#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StageStateRef<Msg, St> {
     stage_ref: StageRef<Msg>,
     #[serde(skip)]
     pub(crate) _ph: PhantomData<St>,
+}
+
+impl<Msg, St> Clone for StageStateRef<Msg, St> {
+    fn clone(&self) -> Self {
+        Self {
+            stage_ref: self.stage_ref.clone(),
+            _ph: self._ph.clone(),
+        }
+    }
 }
 
 impl<Msg, St> StageStateRef<Msg, St> {
@@ -115,8 +117,8 @@ impl<Msg, St> fmt::Debug for StageStateRef<Msg, St> {
 }
 
 impl<Msg, St> StageStateRef<Msg, St> {
-    pub fn without_state(&self) -> StageRef<Msg> {
-        self.stage_ref.clone()
+    pub fn without_state(self) -> StageRef<Msg> {
+        self.stage_ref
     }
 }
 

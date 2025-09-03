@@ -60,8 +60,8 @@ pub fn build_stage_graph(
         select_chain_stage,
         (
             chain_selector,
-            outputs.without_state(),
-            upstream_errors_stage.without_state(),
+            outputs,
+            upstream_errors_stage.clone().without_state(),
         ),
     );
 
@@ -71,7 +71,7 @@ pub fn build_stage_graph(
             consensus,
             global_parameters.clone(),
             select_chain_stage.without_state(),
-            upstream_errors_stage.without_state(),
+            upstream_errors_stage.clone().without_state(),
         ),
     );
 

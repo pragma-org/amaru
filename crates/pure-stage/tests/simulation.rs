@@ -42,7 +42,7 @@ fn basic() {
         state
     });
     let (output, mut rx) = network.output("output", 10);
-    let basic = network.wire_up(basic, State(1u32, output.without_state()));
+    let basic = network.wire_up(basic, State(1u32, output.clone()));
     let mut running = network.run(rt.handle().clone());
 
     // first check that the stages start out suspended on Receive
@@ -82,7 +82,7 @@ fn automatic() {
             state
         });
         let (output, rx) = network.output("output", 10);
-        let basic = network.wire_up(basic, State(1u32, output.without_state()));
+        let basic = network.wire_up(basic, State(1u32, output.clone()));
         (basic.without_state(), rx, output)
     }
 
@@ -157,7 +157,7 @@ fn automatic() {
 
     assert_eq!(
         replay.latest_state(in_ref.name()),
-        Some(&State(7, output.without_state()) as &dyn SendData)
+        Some(&State(7, output.clone()) as &dyn SendData)
     );
     assert_eq!(replay.is_running(in_ref.name()), false);
     assert_eq!(replay.is_idle(in_ref.name()), true);
@@ -178,7 +178,7 @@ fn breakpoint() {
         state
     });
     let (output, mut rx) = network.output("output", 10);
-    let basic = network.wire_up(basic, State(1u32, output.without_state()));
+    let basic = network.wire_up(basic, State(1u32, output.clone()));
     let mut running = network.run(rt.handle().clone());
 
     running.enqueue_msg(&basic, [1, 2, 3]);
@@ -205,7 +205,7 @@ fn overrides() {
         state
     });
     let (output, mut rx) = network.output("output", 10);
-    let basic = network.wire_up(basic, State(1u32, output.without_state()));
+    let basic = network.wire_up(basic, State(1u32, output.clone()));
     let mut running = network.run(rt.handle().clone());
 
     let count = Arc::new(AtomicUsize::new(0));
