@@ -133,10 +133,11 @@ impl RocksDB {
         let mut snapshots: Vec<Epoch> = Vec::new();
 
         for entry in fs::read_dir(dir)
-            .map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?
+            .map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dir, err)))?
             .by_ref()
         {
-            let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
+            let entry =
+                entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dir, err)))?;
             if let Ok(epoch) = entry
                 .file_name()
                 .to_str()
@@ -296,7 +297,8 @@ impl HistoricalStores for RocksDBHistoricalStores {
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
         with_snapshots(&self.dir, |path, epoch| {
             if epoch < desired_minimum {
-                fs::remove_dir_all(path).map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
+                fs::remove_dir_all(&path)
+                    .map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(path, err)))?;
             }
             Ok(())
         })
@@ -323,10 +325,12 @@ fn with_snapshots(
     dirname: &Path,
     mut with: impl FnMut(PathBuf, Epoch) -> Result<(), StoreError>,
 ) -> Result<(), StoreError> {
-    let mut dir = fs::read_dir(dirname).map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
+    let mut dir = fs::read_dir(dirname)
+        .map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
 
     for entry in dir.by_ref() {
-        let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
+        let entry =
+            entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
         let path = entry.path();
         if let Ok(epoch) = entry
             .file_name()
