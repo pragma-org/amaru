@@ -99,7 +99,7 @@ impl<M> Effects<M> {
     pub fn send<Msg: SendData>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
         airlock_effect(
             &self.effect,
-            StageEffect::Send(target.name(), Box::new(msg), None),
+            StageEffect::Send(target.name().clone(), Box::new(msg), None),
             |_eff| Some(()),
         )
     }
@@ -136,8 +136,8 @@ impl<M> Effects<M> {
         let (response, recv) = oneshot::channel();
         let now = self.clock.now();
         let deadline = now + timeout;
-        let target = target.name();
-        let me = self.me.name();
+        let target = target.name().clone();
+        let me = self.me.name().clone();
         let id = CallId::new();
 
         let msg = Box::new(msg(CallRef {
@@ -482,167 +482,146 @@ impl Effect {
         }
     }
 
-    pub fn assert_receive<Msg, S>(&self, at_stage: S)
-    where
-        S: Into<StageRef<Msg>>,
-    {
-        let at_stage = at_stage.into();
+    pub fn assert_receive<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>) {
+        let at_stage = at_stage.as_ref();
         match self {
-            Effect::Receive { at_stage: a } if a == &at_stage.name => {}
+            Effect::Receive { at_stage: a } if a == at_stage.name() => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Receive at `{}`",
-                at_stage.name
+                at_stage.name()
             ),
         }
     }
 
     #[expect(clippy::unwrap_used)]
-    pub fn assert_send<Msg1, Msg2: SendData + PartialEq, S1, S2>(
+    pub fn assert_send<Msg1, Msg2: SendData + PartialEq>(
         &self,
-        at_stage: S1,
-        target: S2,
+        at_stage: impl AsRef<StageRef<Msg1>>,
+        target: impl AsRef<StageRef<Msg2>>,
         msg: Msg2,
-    ) where
-        S1: Into<StageRef<Msg1>>,
-        S2: Into<StageRef<Msg2>>,
-    {
-        let at_stage = at_stage.into();
-        let target = target.into();
+    ) {
+        let at_stage = at_stage.as_ref();
+        let target = target.as_ref();
         match self {
             Effect::Send {
                 from,
                 to,
                 msg: m,
                 call: None,
-            } if from == &at_stage.name
-                && to == &target.name
+            } if from == at_stage.name()
+                && to == target.name()
                 && (&**m as &dyn Any).downcast_ref::<Msg2>().unwrap() == &msg => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Send from `{}` to `{}` with msg {msg:?}",
-                at_stage.name, target.name
+                at_stage.name(),
+                target.name()
             ),
         }
     }
 
-    pub fn assert_clock<Msg, S>(&self, at_stage: S)
-    where
-        S: Into<StageRef<Msg>>,
-    {
-        let at_stage = at_stage.into();
+    pub fn assert_clock<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>) {
+        let at_stage = at_stage.as_ref();
         match self {
-            Effect::Clock { at_stage: a } if a == &at_stage.name => {}
+            Effect::Clock { at_stage: a } if a == at_stage.name() => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Clock at `{}`",
-                at_stage.name
+                at_stage.name()
             ),
         }
     }
 
-    pub fn assert_wait<Msg, S>(&self, at_stage: S, duration: Duration)
-    where
-        S: Into<StageRef<Msg>>,
-    {
-        let at_stage = at_stage.into();
+    pub fn assert_wait<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>, duration: Duration) {
+        let at_stage = at_stage.as_ref();
         match self {
             Effect::Wait {
                 at_stage: a,
                 duration: d,
-            } if a == &at_stage.name && d == &duration => {}
+            } if a == at_stage.name() && d == &duration => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Wait at `{}` with duration {duration:?}",
-                at_stage.name
+                at_stage.name()
             ),
         }
     }
 
-    pub fn assert_call<Msg1, Msg2: SendData, S1, S2, Out>(
+    pub fn assert_call<Msg1, Msg2: SendData, Out>(
         self,
-        at_stage: S1,
-        target: S2,
+        at_stage: impl AsRef<StageRef<Msg1>>,
+        target: impl AsRef<StageRef<Msg2>>,
         extract: impl FnOnce(Msg2) -> Out,
         duration: Duration,
-    ) -> Out
-    where
-        S1: Into<StageRef<Msg1>>,
-        S2: Into<StageRef<Msg2>>,
-    {
-        let at_stage = at_stage.into();
-        let target = target.into();
+    ) -> Out {
+        let at_stage = at_stage.as_ref();
+        let target = target.as_ref();
         match self {
             Effect::Send {
                 from,
                 to,
                 msg: m,
                 call: Some((d, _id)),
-            } if from == at_stage.name && to == target.name && d == duration => {
+            } if &from == at_stage.name() && &to == target.name() && d == duration => {
                 extract(*m.cast::<Msg2>().expect("internal messaging type error"))
             }
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Send from `{}` to `{}` with duration {duration:?}",
-                at_stage.name, target.name
+                at_stage.name(),
+                target.name()
             ),
         }
     }
 
-    pub fn assert_respond<Msg, S, Msg2: SendData + PartialEq>(
+    pub fn assert_respond<Msg, Msg2: SendData + PartialEq>(
         &self,
-        at_stage: S,
+        at_stage: impl AsRef<StageRef<Msg>>,
         cr: &CallRef<Msg2>,
         msg: Msg2,
-    ) where
-        S: Into<StageRef<Msg>>,
-    {
-        let at_stage = at_stage.into();
+    ) {
+        let at_stage = at_stage.as_ref();
         match self {
             Effect::Respond {
                 at_stage: a,
                 target: _,
                 id: i,
                 msg: m,
-            } if a == &at_stage.name
+            } if a == at_stage.name()
                 && *i == cr.id
                 && &**m as &dyn SendData == &msg as &dyn SendData => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Respond at `{}` with id {cr:?} and msg {msg:?}",
-                at_stage.name
+                at_stage.name()
             ),
         }
     }
 
-    pub fn assert_external<Msg, S, Eff: ExternalEffect + PartialEq>(
+    pub fn assert_external<Msg, Eff: ExternalEffect + PartialEq>(
         &self,
-        at_stage: S,
+        at_stage: impl AsRef<StageRef<Msg>>,
         effect: &Eff,
-    ) where
-        S: Into<StageRef<Msg>>,
-    {
-        let at_stage = at_stage.into();
+    ) {
+        let at_stage = at_stage.as_ref();
         match self {
             Effect::External {
                 at_stage: a,
                 effect: e,
-            } if a == &at_stage.name && &**e as &dyn SendData == effect as &dyn SendData => {}
+            } if a == at_stage.name() && &**e as &dyn SendData == effect as &dyn SendData => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for External at `{}` with effect {effect:?}",
-                at_stage.name
+                at_stage.name()
             ),
         }
     }
 
-    pub fn extract_external<Eff: ExternalEffectAPI + PartialEq, Msg, S>(
+    pub fn extract_external<Eff: ExternalEffectAPI + PartialEq, Msg>(
         self,
-        at_stage: S,
+        at_stage: impl AsRef<StageRef<Msg>>,
         effect: &Eff,
-    ) -> Box<Eff>
-    where
-        S: Into<StageRef<Msg>>,
-    {
-        let at_stage = at_stage.into();
+    ) -> Box<Eff> {
+        let at_stage = at_stage.as_ref();
         match self {
             Effect::External {
                 at_stage: a,
                 effect: e,
-            } if a == at_stage.name => {
+            } if &a == at_stage.name() => {
                 #[expect(clippy::unwrap_used)]
                 let e = e.cast::<Eff>().unwrap();
                 assert_eq!(&*e, effect);
@@ -650,7 +629,7 @@ impl Effect {
             }
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for External at `{}` with effect {effect:?}",
-                at_stage.name
+                at_stage.name()
             ),
         }
     }

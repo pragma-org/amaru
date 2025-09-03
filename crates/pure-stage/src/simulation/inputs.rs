@@ -47,7 +47,7 @@ impl Inputs {
 
     pub fn sender<Msg: SendData>(&self, stage: &StageRef<Msg>) -> Sender<Msg> {
         let tx_main = self.tx.clone();
-        let stage_name = stage.name();
+        let stage_name = stage.name().clone();
         Sender::new(Arc::new(move |msg| {
             let tx_main = tx_main.clone();
             let stage_name = stage_name.clone();

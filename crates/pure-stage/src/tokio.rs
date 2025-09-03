@@ -145,10 +145,7 @@ impl StageGraph for TokioBuilder {
         let stage_name = name.clone();
         self.tasks.push(Box::new(move |inner| {
             Box::pin(async move {
-                let me = StageRef {
-                    name: stage_name.clone(),
-                    _ph: PhantomData,
-                };
+                let me = StageRef::new(stage_name.clone());
                 let effect = Arc::new(Mutex::new(None));
                 let sender = mk_sender(&stage_name, &inner);
                 let effects = Effects::new(me, effect.clone(), inner.clock.clone(), sender);
@@ -175,17 +172,11 @@ impl StageGraph for TokioBuilder {
                 }
             })
         }));
-        StageStateRef {
-            name,
-            _ph: PhantomData,
-        }
+        StageStateRef::new(name)
     }
 
-    fn input<Msg: SendData, S>(&mut self, stage: S) -> Sender<Msg>
-    where
-        S: Into<StageRef<Msg>>,
-    {
-        mk_sender(&stage.into().name, &self.inner)
+    fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg> {
+        mk_sender(stage.as_ref().name(), &self.inner)
     }
 
     fn run(self, rt: Handle) -> Self::Running {
