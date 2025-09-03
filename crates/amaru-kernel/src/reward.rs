@@ -16,9 +16,7 @@ use crate::{Lovelace, PoolId, RewardKind, cbor};
 
 #[derive(Debug)]
 pub struct Reward {
-    #[allow(dead_code)]
     pub kind: RewardKind,
-    #[allow(dead_code)]
     pub pool: PoolId,
     pub amount: Lovelace,
 }

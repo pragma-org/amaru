@@ -20,7 +20,7 @@ pub struct TerminalProgressBar {
     inner: indicatif::ProgressBar,
 }
 
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 pub fn new_terminal_progress_bar(size: usize, template: &str) -> Box<dyn ProgressBar> {
     Box::new(TerminalProgressBar {
         inner: indicatif::ProgressBar::new(size as u64)

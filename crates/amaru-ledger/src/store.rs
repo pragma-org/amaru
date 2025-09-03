@@ -214,7 +214,7 @@ pub trait HistoricalStores {
 
     /// The least recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     fn least_recent_snapshot(&self) -> Epoch {
         self.snapshots()
             .unwrap_or_default()
@@ -225,7 +225,7 @@ pub trait HistoricalStores {
 
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     fn most_recent_snapshot(&self) -> Epoch {
         self.snapshots()
             .unwrap_or_default()
@@ -262,7 +262,7 @@ pub trait TransactionalContext<'a>: ReadStore {
 
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn save(
         &self,
         era_history: &EraHistory,

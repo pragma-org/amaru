@@ -13,10 +13,10 @@
 // limitations under the License.
 
 #[cfg(any(test, feature = "test-utils"))]
-#[allow(clippy::module_inception, clippy::unwrap_used)]
+#[expect(clippy::module_inception, clippy::unwrap_used)]
 pub mod data_generation;
 
-#[allow(clippy::module_inception)]
+#[expect(clippy::module_inception)]
 pub mod headers_tree;
 mod tree;
 

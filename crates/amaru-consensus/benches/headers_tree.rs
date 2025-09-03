@@ -26,7 +26,7 @@
 /// This way of profiling was chosen to be able to isolate exactly the code we want to benchmark
 /// and not the generation of the tree and actions.
 ///
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 #[cfg(all(unix, feature = "profiling", feature = "test-utils"))]
 fn main() {
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};

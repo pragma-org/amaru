@@ -78,7 +78,7 @@ impl dyn SendData {
 
     fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
         if (&*self as &dyn Any).is::<T>() {
-            #[allow(clippy::expect_used)]
+            #[expect(clippy::expect_used)]
             Ok(Box::new(
                 *(self as Box<dyn Any>)
                     .downcast::<T>()
@@ -222,14 +222,14 @@ impl<T> DerefMut for MpscSender<T> {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MpscReceiver<T> {
     #[serde(skip, default = "dummy_receiver")]
     pub receiver: mpsc::Receiver<T>,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn dummy_receiver<T>() -> mpsc::Receiver<T> {
     mpsc::channel(1).1
 }

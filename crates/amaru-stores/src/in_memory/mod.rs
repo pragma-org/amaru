@@ -154,7 +154,6 @@ impl ReadStore for MemoryStore {
         Ok((&*self.pots.borrow()).into())
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_utxos(
         &self,
     ) -> Result<
@@ -175,7 +174,6 @@ impl ReadStore for MemoryStore {
         Ok(utxo_vec.into_iter())
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_block_issuers(
         &self,
     ) -> Result<
@@ -197,7 +195,6 @@ impl ReadStore for MemoryStore {
         Ok(block_issuer_vec.into_iter())
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_pools(
         &self,
     ) -> Result<
@@ -219,7 +216,6 @@ impl ReadStore for MemoryStore {
         Ok(pool_vec.into_iter())
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_accounts(
         &self,
     ) -> Result<
@@ -241,7 +237,6 @@ impl ReadStore for MemoryStore {
         Ok(accounts_vec.into_iter())
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_dreps(
         &self,
     ) -> Result<
@@ -263,7 +258,6 @@ impl ReadStore for MemoryStore {
         Ok(dreps_vec.into_iter())
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_proposals(
         &self,
     ) -> Result<
@@ -285,7 +279,6 @@ impl ReadStore for MemoryStore {
         Ok(proposals_vec.into_iter())
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_cc_members(
         &self,
     ) -> Result<
@@ -307,7 +300,6 @@ impl ReadStore for MemoryStore {
         Ok(cc_members_vec.into_iter())
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_votes(
         &self,
     ) -> Result<
@@ -419,7 +411,6 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
         self.store.pots()
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_utxos(
         &self,
     ) -> Result<
@@ -434,7 +425,6 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
         self.store.iter_utxos()
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_block_issuers(
         &self,
     ) -> Result<
@@ -449,7 +439,6 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
         self.store.iter_block_issuers()
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_pools(
         &self,
     ) -> Result<
@@ -464,7 +453,6 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
         self.store.iter_pools()
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_accounts(
         &self,
     ) -> Result<
@@ -479,7 +467,6 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
         self.store.iter_accounts()
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_dreps(
         &self,
     ) -> Result<
@@ -494,7 +481,6 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
         self.store.iter_dreps()
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_proposals(
         &self,
     ) -> Result<
@@ -509,7 +495,6 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
         self.store.iter_proposals()
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_cc_members(
         &self,
     ) -> Result<
@@ -524,7 +509,6 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
         self.store.iter_cc_members()
     }
 
-    #[allow(refining_impl_trait)]
     fn iter_votes(
         &self,
     ) -> Result<

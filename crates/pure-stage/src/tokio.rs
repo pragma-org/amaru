@@ -134,7 +134,7 @@ impl StageGraph for TokioBuilder {
         }
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used)]
     fn wire_up<Msg: SendData, St: SendData>(
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
@@ -184,7 +184,6 @@ impl StageGraph for TokioBuilder {
         }
     }
 
-    #[allow(clippy::expect_used)]
     fn input<Msg: SendData, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
         mk_sender(&stage.name, &self.inner)
     }
@@ -224,7 +223,7 @@ impl StageGraph for TokioBuilder {
     }
 }
 
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 fn mk_sender<Msg: SendData>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg> {
     let tx = inner
         .senders
@@ -252,19 +251,19 @@ async fn interpreter<St>(
         if let Poll::Ready(state) = poll {
             return Some(state);
         }
-        #[allow(clippy::panic)]
+        #[expect(clippy::panic)]
         let Some(Left(eff)) = effect.lock().take() else {
             panic!("stage `{name}` used .await on something that was not a stage effect");
         };
         let resp = match eff {
             StageEffect::Receive => {
-                #[allow(clippy::panic)]
+                #[expect(clippy::panic)]
                 {
                     panic!("effect Receive cannot be explicitly awaited (stage `{name}`)")
                 }
             }
             StageEffect::Send(target, msg, call) => {
-                #[allow(clippy::expect_used)]
+                #[expect(clippy::expect_used)]
                 let tx = inner
                     .senders
                     .get(&target)
@@ -290,7 +289,7 @@ async fn interpreter<St>(
                 StageResponse::WaitResponse(now())
             }
             StageEffect::Call(..) => {
-                #[allow(clippy::panic)]
+                #[expect(clippy::panic)]
                 {
                     panic!("StageEffect::Call cannot be explicitly awaited (stage `{name}`")
                 }

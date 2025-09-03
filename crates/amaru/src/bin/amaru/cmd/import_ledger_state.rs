@@ -122,7 +122,7 @@ async fn import_all(
     Ok(())
 }
 
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 async fn import_one(
     network: NetworkName,
     snapshot: &PathBuf,

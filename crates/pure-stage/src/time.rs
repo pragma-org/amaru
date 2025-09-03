@@ -117,7 +117,7 @@ impl Instant {
 impl std::ops::Add<Duration> for Instant {
     type Output = Instant;
 
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used)]
     fn add(self, duration: Duration) -> Self {
         Instant(
             self.0
@@ -130,7 +130,7 @@ impl std::ops::Add<Duration> for Instant {
 impl std::ops::Sub<Duration> for Instant {
     type Output = Instant;
 
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used)]
     fn sub(self, duration: Duration) -> Self {
         Instant(
             self.0

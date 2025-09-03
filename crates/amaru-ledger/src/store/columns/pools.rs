@@ -179,7 +179,7 @@ impl Row {
         )
     }
 
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     pub fn extend(mut bytes: Vec<u8>, future_params: (Option<PoolParams>, Epoch)) -> Vec<u8> {
         let tail = bytes.split_off(bytes.len() - 1);
         assert_eq!(tail, vec![0xFF], "invalid pool tail");

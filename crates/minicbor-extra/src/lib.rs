@@ -18,7 +18,7 @@ use std::convert::Infallible;
 pub use decode::*;
 pub mod decode;
 
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 /// Encode any serialisable value `T` into bytes.
 pub fn to_cbor<T: cbor::Encode<()>>(value: &T) -> Vec<u8> {
     let mut buffer = Vec::new();

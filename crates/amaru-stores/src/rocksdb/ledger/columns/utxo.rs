@@ -23,7 +23,7 @@ use rocksdb::Transaction;
 /// Name prefixed used for storing UTxO entries. UTF-8 encoding for "utxo"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x75, 0x74, 0x78, 0x6f];
 
-#[allow(clippy::panic)]
+#[expect(clippy::panic)]
 pub fn get(
     db_get: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, rocksdb::Error>,
     key: &Key,

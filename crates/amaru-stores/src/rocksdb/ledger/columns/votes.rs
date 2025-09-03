@@ -27,7 +27,6 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x76, 0x6f, 0x74, 0x65];
 
 /// Register a series of new votes. Returns the credentials (script or key) of all dreps found
 /// amongst the voters.
-#[allow(clippy::unwrap_used)]
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,

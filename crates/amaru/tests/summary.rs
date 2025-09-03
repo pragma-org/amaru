@@ -36,8 +36,8 @@ use test_case::test_case;
 pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
-#[allow(clippy::panic)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::panic)]
+#[expect(clippy::unwrap_used)]
 /// Get a read-only handle on a snapshot. This allows to run all test cases in parallel without
 /// conflicts (a single scenario typically need 2 snapshots, so two tests may need access to the
 /// same snapshot at the same time).
@@ -76,9 +76,9 @@ include!(concat!(
     "/generated_compare_snapshot_test_cases.incl"
 ));
 
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn compare_snapshot(epoch: Epoch) {
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used)]
     let network: NetworkName = env!("NETWORK")
         .to_string()
         .parse()

@@ -119,7 +119,7 @@ pub struct IndividualStake {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub enum PopulateError {
     IoError(StoreError),
     SerdeError(serde_json::Error),
@@ -161,7 +161,7 @@ pub(crate) fn populate_chain_store(
 #[serde(rename_all = "camelCase")]
 // NOTE: we allow non snake case here because of the way the field name and KES
 // acronym is usually encoded in Haskell-land.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub struct ConsensusContext {
     active_slot_coeff: f64,
     nonce: Hash<32>,

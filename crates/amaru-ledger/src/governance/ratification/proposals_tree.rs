@@ -193,7 +193,7 @@ impl<T: Eq + Ord> Sibling<T> {
         }
     }
 
-    #[allow(dead_code)] // Actually used in tests.
+    #[cfg(test)]
     pub fn id(&self) -> Rc<T> {
         self.id.clone()
     }
@@ -332,7 +332,7 @@ mod tests {
         #[test]
         #[should_panic]
         fn prop_cannot_insert_already_existing_element((mut tree, next, any_parent) in any_proposals_tree()) {
-            #[allow(unused_must_use)]
+            #[expect(unused_must_use)]
             tree.insert(Rc::new(next - 1), any_parent);
         }
     }

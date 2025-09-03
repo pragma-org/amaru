@@ -21,7 +21,6 @@ use std::{fmt, fs};
 /// A chain represents a tree of blocks read from a JSON file.
 /// Each block may have multiple children, representing forks in the chain.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct Chain {
     pub block: Block,
     pub children: Vec<Chain>,

@@ -52,7 +52,7 @@ type JsonLayer<S> = Layered<JsonFilter<S>, S>;
 
 type JsonFilter<S> = Filtered<Layer<S, JsonFields, Format<Json>>, EnvFilter, S>;
 
-#[allow(clippy::large_enum_variant)]
+#[expect(clippy::large_enum_variant)]
 #[derive(Default)]
 pub enum TracingSubscriber<S> {
     #[default]
@@ -68,8 +68,8 @@ impl TracingSubscriber<Registry> {
         Self::Registry(tracing_subscriber::registry())
     }
 
-    #[allow(clippy::panic)]
-    #[allow(clippy::wildcard_enum_match_arm)]
+    #[expect(clippy::panic)]
+    #[expect(clippy::wildcard_enum_match_arm)]
     pub fn with_open_telemetry(&mut self, layer: OpenTelemetryFilter<Registry>) {
         match std::mem::take(self) {
             Self::Registry(registry) => {
@@ -79,8 +79,8 @@ impl TracingSubscriber<Registry> {
         }
     }
 
-    #[allow(clippy::panic)]
-    #[allow(clippy::wildcard_enum_match_arm)]
+    #[expect(clippy::panic)]
+    #[expect(clippy::wildcard_enum_match_arm)]
     pub fn with_json<F, G>(&mut self, layer_json: F, layer_both: G)
     where
         F: FnOnce() -> JsonFilter<Registry>,
@@ -207,7 +207,7 @@ pub struct OpenTelemetryConfig {
     pub metric_url: String,
 }
 
-#[allow(clippy::panic)]
+#[expect(clippy::panic)]
 pub fn setup_open_telemetry(
     config: &OpenTelemetryConfig,
     subscriber: &mut TracingSubscriber<Registry>,
@@ -281,7 +281,7 @@ fn teardown_open_telemetry(
 // -----------------------------------------------------------------------------
 // ENV FILTER
 // -----------------------------------------------------------------------------
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 fn default_filter(var: &str, default: &str) -> EnvFilter {
     match EnvFilter::try_from_env(var) {
         Ok(filter) => filter,

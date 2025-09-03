@@ -82,7 +82,6 @@ pub async fn client_protocols(
     Ok(())
 }
 
-#[allow(clippy::large_enum_variant)]
 pub enum ChainSyncMsg {
     /// An operation coming in from the ledger
     Op(ClientOp),

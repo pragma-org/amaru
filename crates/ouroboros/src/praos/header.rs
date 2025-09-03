@@ -28,7 +28,7 @@ use thiserror::Error;
 /// FIXME: Ideally, we should replace the use of dashu in pallas-math with num-bigint
 /// since it has become our weapong of choice within Amaru. Mixing maths libraries is
 /// a recipe for mistakes.
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
     FixedDecimal::from_str(
         "1157920892373161954235709850086879078532699846656405640394575840079131296399360000000000000000000000000000000000",

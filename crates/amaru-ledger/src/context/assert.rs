@@ -59,7 +59,7 @@ impl From<AssertPreparationContext> for AssertValidationContext {
 impl PreparationContext<'_> for AssertPreparationContext {}
 
 impl PrepareUtxoSlice<'_> for AssertPreparationContext {
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     fn require_input(&mut self, input: &TransactionInput) {
         if !self.utxo.contains_key(input) {
             panic!("unknown required input: {input:?}");

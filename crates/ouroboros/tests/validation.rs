@@ -184,7 +184,7 @@ where
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Mutation {
-    #[allow(clippy::enum_variant_names)]
+    #[expect(clippy::enum_variant_names)]
     NoMutation,
     MutateKESKey,
     MutateColdKey,

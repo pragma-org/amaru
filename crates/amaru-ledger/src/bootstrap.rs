@@ -613,7 +613,7 @@ fn import_proposals(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn import_stake_pools<S: Store>(
     db: &S,
     point: &Point,
@@ -1024,7 +1024,7 @@ fn decode_seggregated_parameters(
 
 // TODO: Move to Pallas
 #[derive(Debug)]
-#[allow(dead_code)]
+#[expect(dead_code)]
 struct GovActionState {
     id: ProposalId,
     committee_votes: BTreeMap<StakeCredential, Vote>,
@@ -1056,7 +1056,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for GovActionState {
 #[derive(Debug)]
 enum ConstitutionalCommitteeAuthorization {
     DelegatedToHotCredential(StakeCredential),
-    Resigned(#[allow(dead_code)] StrictMaybe<Anchor>),
+    Resigned(#[expect(dead_code)] StrictMaybe<Anchor>),
 }
 
 impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization {

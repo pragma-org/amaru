@@ -41,7 +41,6 @@ type HeaderHash = Hash<HEADER_HASH_SIZE>;
 ///  - tree: a tree representation of the headers to be able to traverse from root to leaves.
 ///  - peers: a map of the latest tip for each peer.
 ///
-#[allow(dead_code)]
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeadersTree<H> {
     /// Maximum size allowed for a given chain
@@ -140,7 +139,6 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
     }
 }
 
-#[allow(dead_code)]
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// Initialize a HeadersTree as a tree rooted in the Genesis header
     pub fn new(max_length: usize, root: &Option<H>) -> HeadersTree<H> {
@@ -446,7 +444,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the header for a given hash, panicking if it does not exist.
     /// This function should only with precaution, when we are sure the header exists.
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     fn unsafe_get_header(&self, hash: &HeaderHash) -> &H {
         self.get_header(hash)
             .unwrap_or_else(|| panic!("A header must exist for hash {}", hash))
@@ -528,7 +526,6 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the header hash that is the least common parent between 2 headers in the tree
     /// This implementation avoids materializing the full set of ancestors for both headers.
-    #[allow(clippy::panic)]
     fn find_intersection_hash(&self, hash1: &HeaderHash, hash2: &HeaderHash) -> HeaderHash {
         if hash1 == hash2 {
             return *hash1;

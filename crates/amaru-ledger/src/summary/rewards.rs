@@ -597,7 +597,7 @@ impl RewardsSummary {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn apply_leader_rewards(
         accounts: &mut BTreeMap<StakeCredential, Lovelace>,
         blocks_per_pool: &mut BTreeMap<PoolId, u64>,

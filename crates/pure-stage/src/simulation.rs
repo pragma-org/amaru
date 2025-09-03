@@ -1,4 +1,9 @@
-#![allow(
+#![expect(
+    clippy::wildcard_enum_match_arm,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::expect_used
+)]
 // Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,12 +17,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-    clippy::wildcard_enum_match_arm,
-    clippy::unwrap_used,
-    clippy::panic,
-    clippy::expect_used
-)]
 
 //! This module contains the [`SimulationBuilder`] and [`SimulationRunning`] types, which are
 //! used to build and run a simulation.
@@ -244,7 +243,7 @@ impl super::StageGraph for SimulationBuilder {
                 transition,
             },
         ) {
-            #[allow(clippy::panic)]
+            #[expect(clippy::panic)]
             {
                 // names are unique by construction
                 panic!("stage {name} already exists with state {:?}", old.state);

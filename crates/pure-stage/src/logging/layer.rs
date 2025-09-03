@@ -38,7 +38,7 @@
 // NOTE: This is a work in progress.
 // ********************************************************
 
-#![allow(unused)]
+#![expect(unused)]
 
 use cbor4ii::{
     core::{
@@ -63,7 +63,7 @@ impl CborVisitor {
     }
 }
 
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 impl tracing::field::Visit for CborVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         let mut buf = Vec::new();
@@ -164,7 +164,7 @@ where
         }
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used)]
     fn on_enter(&self, id: &tracing::span::Id, ctx: Context<'_, S>) {
         if let Some(span) = ctx.span(id) {
             let ext = span.extensions();
@@ -199,7 +199,7 @@ where
         }
     }
 
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used)]
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
         let mut visitor = CborVisitor::default();
         event.record(&mut visitor);
@@ -226,7 +226,7 @@ impl CborEmitter for Arc<Mutex<Vec<u8>>> {
     }
 }
 
-#[allow(clippy::disallowed_types)]
+#[expect(clippy::disallowed_types)]
 #[cfg(test)]
 mod tests {
     use super::*;

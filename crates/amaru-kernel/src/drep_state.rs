@@ -19,7 +19,6 @@ pub struct DRepState {
     pub expiry: Epoch,
     pub anchor: StrictMaybe<Anchor>,
     pub deposit: Lovelace,
-    #[allow(dead_code)]
     pub delegators: Set<StakeCredential>,
 }
 

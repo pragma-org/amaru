@@ -47,7 +47,7 @@ struct JsonVisitor {
 }
 
 impl JsonVisitor {
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn add_field(&mut self, json_path: &str, value: json::Value) {
         let steps = json_path.split('.').collect::<Vec<_>>();
 

@@ -77,7 +77,6 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[allow(clippy::wildcard_enum_match_arm)]
     #[tokio::test]
     async fn handle_event_returns_passed_event_when_rollbacking() {
         let mock_store = Arc::new(Mutex::new(FakeStore::default()));

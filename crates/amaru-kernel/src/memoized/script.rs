@@ -70,15 +70,15 @@ pub fn encode_script<W: cbor::encode::Write>(
             bytes
         }
         MemoizedScript::PlutusV1Script(plutus) => {
-            #[allow(clippy::unwrap_used)] // Infallible error.
+            #[expect(clippy::unwrap_used)] // Infallible error.
             cbor::to_vec((1, Into::<&ByteSlice>::into(plutus.as_ref()))).unwrap()
         }
         MemoizedScript::PlutusV2Script(plutus) => {
-            #[allow(clippy::unwrap_used)] // Infallible error.
+            #[expect(clippy::unwrap_used)] // Infallible error.
             cbor::to_vec((2, Into::<&ByteSlice>::into(plutus.as_ref()))).unwrap()
         }
         MemoizedScript::PlutusV3Script(plutus) => {
-            #[allow(clippy::unwrap_used)] // Infallible error.
+            #[expect(clippy::unwrap_used)] // Infallible error.
             cbor::to_vec((3, Into::<&ByteSlice>::into(plutus.as_ref()))).unwrap()
         }
     };

@@ -1,4 +1,4 @@
-#![allow(clippy::borrowed_box)]
+#![expect(clippy::borrowed_box)]
 // Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -136,7 +136,7 @@ impl TraceBuffer {
 
         self.used_size += msg.len();
 
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         while self.used_size > self.max_size && self.messages.len() > self.min_entries {
             self.used_size -= self
                 .messages
@@ -174,7 +174,7 @@ impl TraceBuffer {
     }
 
     /// Hydrate the trace buffer (stored in CBOR format) into a vector of entries.
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used)]
     pub fn hydrate(&self) -> Vec<TraceEntry> {
         self.messages
             .iter()

@@ -19,7 +19,6 @@ pub struct ProposalState {
     pub id: ProposalId,
     pub procedure: Proposal,
     pub proposed_in: Epoch,
-    #[allow(dead_code)]
     pub expires_after: Epoch,
 }
 
