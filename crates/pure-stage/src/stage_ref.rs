@@ -96,7 +96,7 @@ impl<Msg, St> Clone for StageStateRef<Msg, St> {
     fn clone(&self) -> Self {
         Self {
             stage_ref: self.stage_ref.clone(),
-            _ph: self._ph.clone(),
+            _ph: self._ph,
         }
     }
 }
