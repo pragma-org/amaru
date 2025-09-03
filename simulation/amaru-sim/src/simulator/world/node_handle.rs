@@ -57,14 +57,13 @@ impl<Msg> NodeHandle<Msg> {
     ///  * `output` is a handle used to receive messages from the node.
     ///  * `running` is the simulated node, waiting for messages to arrive.
     ///
-    pub fn from_pure_stage<St>(
-        input: StageRef<Envelope<Msg>, St>,
+    pub fn from_pure_stage(
+        input: StageRef<Envelope<Msg>>,
         mut output: Receiver<Envelope<Msg>>,
         mut running: SimulationRunning,
     ) -> anyhow::Result<NodeHandle<Msg>>
     where
         Msg: PartialEq + Send + Debug + serde::Serialize + serde::de::DeserializeOwned + 'static,
-        St: 'static,
     {
         let handle = Box::new(move |msg: Envelope<Msg>| {
             info!(msg = ?msg, "enqueuing");

@@ -34,7 +34,6 @@ pub use output::OutputEffect;
 pub use receiver::Receiver;
 pub use resources::Resources;
 pub use sender::Sender;
-pub use serde::Void;
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning};
 pub use time::{Clock, EPOCH, Instant};

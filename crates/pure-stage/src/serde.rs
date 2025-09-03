@@ -49,10 +49,6 @@ impl<T> std::fmt::Debug for NoDebug<T> {
     }
 }
 
-/// A type that is not inhabited.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Void {}
-
 /// Diverging helper used in type contexts that expect `!`.
 /// Panics intentionally; for non-resolving futures, use `std::future::pending()`.
 #[cold]

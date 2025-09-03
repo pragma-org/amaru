@@ -15,7 +15,7 @@
 
 use pure_stage::{
     CallRef, Effect, ExternalEffect, Instant, OutputEffect, Receiver, Resources, SendData,
-    StageGraph, StageGraphRunning, StageRef, Void,
+    StageGraph, StageGraphRunning, StageRef,
     simulation::{OverrideResult, SimulationBuilder},
     trace_buffer::TraceBuffer,
 };
@@ -30,7 +30,7 @@ use std::{
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct State(u32, StageRef<u32, Void>);
+struct State(u32, StageRef<u32>);
 
 #[test]
 fn basic() {
@@ -74,9 +74,7 @@ fn automatic() {
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
 
-    fn basic(
-        network: &mut impl StageGraph,
-    ) -> (StageRef<u32, Void>, Receiver<u32>, StageRef<u32, Void>) {
+    fn basic(network: &mut impl StageGraph) -> (StageRef<u32>, Receiver<u32>, StageRef<u32>) {
         let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
             state.0 += msg;
             eff.wait(Duration::from_secs(10)).await;
@@ -352,7 +350,7 @@ fn clock_manual() {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct State3(u32, StageRef<Msg3, Void>);
+struct State3(u32, StageRef<Msg3>);
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Msg3(u32, CallRef<u32>);

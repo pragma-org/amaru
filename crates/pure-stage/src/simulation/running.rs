@@ -15,6 +15,7 @@
 use super::{
     EffectBox, Instant, StageData, StageEffect, StageResponse, StageState, inputs::Inputs,
 };
+use crate::stage_ref::StageStateRef;
 use crate::{
     BoxFuture, CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
     simulation::{
@@ -230,18 +231,17 @@ impl SimulationRunning {
     ///
     /// Note that this method does not check if there is enough space in the
     /// mailbox, it will grow the mailbox beyond the `mailbox_size` limit.
-    pub fn enqueue_msg<T: SendData, St>(
-        &mut self,
-        sr: &StageRef<T, St>,
-        msg: impl IntoIterator<Item = T>,
-    ) {
-        let data = self.stages.get_mut(&sr.name).unwrap();
+    pub fn enqueue_msg<Msg: SendData, S>(&mut self, sr: S, msg: impl IntoIterator<Item = Msg>)
+    where
+        S: Into<StageRef<Msg>>,
+    {
+        let data = self.stages.get_mut(&sr.into().name).unwrap();
         data.mailbox
             .extend(msg.into_iter().map(|m| Box::new(m) as Box<dyn SendData>));
     }
 
     /// Retrieve the number of messages currently in the given stage’s mailbox.
-    pub fn mailbox_len<Msg, St>(&self, sr: &StageRef<Msg, St>) -> usize {
+    pub fn mailbox_len<Msg>(&self, sr: &StageRef<Msg>) -> usize {
         let data = self.stages.get(&sr.name).unwrap();
         data.mailbox.len()
     }
@@ -253,7 +253,7 @@ impl SimulationRunning {
     ///
     /// Returns `None` if the stage is not suspended on [`Effect::Receive`], panics if the
     /// state type is incorrect.
-    pub fn get_state<Msg, St: SendData>(&self, sr: &StageRef<Msg, St>) -> Option<&St> {
+    pub fn get_state<Msg, St: SendData>(&self, sr: &StageStateRef<Msg, St>) -> Option<&St> {
         let data = self.stages.get(&sr.name).unwrap();
         match &data.state {
             StageState::Idle(state) => {
@@ -578,10 +578,13 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Receive`].
-    pub fn resume_receive<Msg, St>(&mut self, at_stage: &StageRef<Msg, St>) -> anyhow::Result<()> {
+    pub fn resume_receive<Msg, S>(&mut self, at_stage: S) -> anyhow::Result<()>
+    where
+        S: Into<StageRef<Msg>>,
+    {
         let data = self
             .stages
-            .get_mut(&at_stage.name)
+            .get_mut(&at_stage.into().name)
             .expect("stage ref exists, so stage must exist");
         resume_receive_internal(
             &mut self.trace_buffer.lock(),
@@ -593,12 +596,18 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Send`].
-    pub fn resume_send<Msg1, Msg2: SendData, St1, St2>(
+    pub fn resume_send<Msg1, S1, Msg2: SendData, S2>(
         &mut self,
-        from: &StageRef<Msg1, St1>,
-        to: &StageRef<Msg2, St2>,
+        from: S1,
+        to: S2,
         msg: Msg2,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        S1: Into<StageRef<Msg1>>,
+        S2: Into<StageRef<Msg2>>,
+    {
+        let from = from.into();
+        let to = to.into();
         let data = self
             .stages
             .get_mut(&to.name)
@@ -657,14 +666,13 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Clock`].
-    pub fn resume_clock<Msg, St>(
-        &mut self,
-        at_stage: &StageRef<Msg, St>,
-        time: Instant,
-    ) -> anyhow::Result<()> {
+    pub fn resume_clock<Msg, S>(&mut self, at_stage: S, time: Instant) -> anyhow::Result<()>
+    where
+        S: Into<StageRef<Msg>>,
+    {
         let data = self
             .stages
-            .get_mut(&at_stage.name)
+            .get_mut(&at_stage.into().name)
             .expect("stage ref exists, so stage must exist");
         resume_clock_internal(
             data,
@@ -702,14 +710,13 @@ impl SimulationRunning {
     /// Resume an [`Effect::Wait`].
     ///
     /// The given time is the clock when the stage wakes up.
-    pub fn resume_wait<Msg, St>(
-        &mut self,
-        at_stage: &StageRef<Msg, St>,
-        time: Instant,
-    ) -> anyhow::Result<()> {
+    pub fn resume_wait<Msg, S>(&mut self, at_stage: S, time: Instant) -> anyhow::Result<()>
+    where
+        S: Into<StageRef<Msg>>,
+    {
         let data = self
             .stages
-            .get_mut(&at_stage.name)
+            .get_mut(&at_stage.into().name)
             .expect("stage ref exists, so stage must exist");
         resume_wait_internal(
             data,
@@ -723,14 +730,17 @@ impl SimulationRunning {
     /// Resume an [`Effect::Send`]’s second stage in case of a call.
     ///
     /// The message to be delivered to the stage must have been sent by the called stage already.
-    pub fn resume_call<Msg, St, Resp: SendData>(
+    pub fn resume_call<Msg, S, Resp: SendData>(
         &mut self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: S,
         call: &CallRef<Resp>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        S: Into<StageRef<Msg>>,
+    {
         let data = self
             .stages
-            .get_mut(&at_stage.name)
+            .get_mut(&at_stage.into().name)
             .expect("stage ref exists, so stage must exist");
         resume_call_internal(
             data,
@@ -742,15 +752,18 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Respond`].
-    pub fn resume_respond<Msg, St, Resp: SendData>(
+    pub fn resume_respond<Msg, S, Resp: SendData>(
         &mut self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: S,
         cr: &CallRef<Resp>,
         msg: Resp,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        S: Into<StageRef<Msg>>,
+    {
         let data = self
             .stages
-            .get_mut(&at_stage.name)
+            .get_mut(&at_stage.into().name)
             .expect("stage ref exists, so stage must exist");
         let res = resume_respond_internal(
             data,
@@ -783,14 +796,17 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::External`].
-    pub fn resume_external<Msg, St>(
+    pub fn resume_external<Msg, S>(
         &mut self,
-        at_stage: &StageRef<Msg, St>,
+        at_stage: S,
         result: Box<dyn SendData>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        S: Into<StageRef<Msg>>,
+    {
         let data = self
             .stages
-            .get_mut(&at_stage.name)
+            .get_mut(&at_stage.into().name)
             .expect("stage ref exists, so stage must exist");
         resume_external_internal(data, result, &mut |name, response| {
             self.runnable.push_back((name, response));
@@ -1004,7 +1020,7 @@ fn simulation_invariants() {
     #[expect(clippy::type_complexity)]
     let ops: [(
         Box<dyn Fn(&Effect) -> Option<CallId>>,
-        Box<dyn Fn(&mut SimulationRunning, &StageRef<Msg, bool>, CallId) -> anyhow::Result<()>>,
+        Box<dyn Fn(&mut SimulationRunning, &StageRef<Msg>, CallId) -> anyhow::Result<()>>,
         &'static str,
     ); 5] = [
         (
@@ -1086,14 +1102,14 @@ fn simulation_invariants() {
         for (pred, op, name) in &ops {
             if pred(&effect).is_none() {
                 tracing::info!("op `{}` should not work", name);
-                op(&mut sim, &stage, CallId::from_u64(0)).unwrap_err();
+                op(&mut sim, &stage.without_state(), CallId::from_u64(0)).unwrap_err();
                 sim.invariants();
             }
         }
         for (pred, op, name) in &ops {
             if let Some(id) = pred(&effect) {
                 tracing::info!("op `{}` should work", name);
-                op(&mut sim, &stage, id).unwrap();
+                op(&mut sim, &stage.without_state(), id).unwrap();
                 sim.invariants();
             }
         }

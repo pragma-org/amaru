@@ -17,6 +17,7 @@
 //! It is good practice to perform the stage contruction and wiring in a function that takes an
 //! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
 
+use crate::stage_ref::StageStateRef;
 use crate::{
     BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
     effect::{StageEffect, StageResponse},
@@ -104,11 +105,7 @@ impl StageGraph for TokioBuilder {
 
     type RefAux<Msg, State> = (
         Receiver<Box<dyn SendData>>,
-        Box<
-            dyn FnMut(State, Msg, Effects<Msg, State>) -> BoxFuture<'static, State>
-                + 'static
-                + Send,
-        >,
+        Box<dyn FnMut(State, Msg, Effects<Msg>) -> BoxFuture<'static, State> + 'static + Send>,
     );
 
     fn stage<Msg: SendData, St: SendData, F, Fut>(
@@ -117,7 +114,7 @@ impl StageGraph for TokioBuilder {
         mut f: F,
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
-        F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
+        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
     {
         // THIS MUST MATCH THE SIMULATION BUILDER
@@ -139,7 +136,7 @@ impl StageGraph for TokioBuilder {
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         mut state: St,
-    ) -> StageRef<Msg, St> {
+    ) -> StageStateRef<Msg, St> {
         let StageBuildRef {
             name,
             network: (mut rx, mut ff),
@@ -178,14 +175,17 @@ impl StageGraph for TokioBuilder {
                 }
             })
         }));
-        StageRef {
+        StageStateRef {
             name,
             _ph: PhantomData,
         }
     }
 
-    fn input<Msg: SendData, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
-        mk_sender(&stage.name, &self.inner)
+    fn input<Msg: SendData, S>(&mut self, stage: S) -> Sender<Msg>
+    where
+        S: Into<StageRef<Msg>>,
+    {
+        mk_sender(&stage.into().name, &self.inner)
     }
 
     fn run(self, rt: Handle) -> Self::Running {

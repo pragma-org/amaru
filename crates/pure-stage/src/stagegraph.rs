@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::stage_ref::StageStateRef;
 use crate::{
     BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
-    StageBuildRef, StageRef, Void, types::MpscSender,
+    StageBuildRef, StageRef, types::MpscSender,
 };
 use std::{
     fmt::Debug,
@@ -163,7 +164,7 @@ pub trait StageGraph {
         f: F,
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
-        F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
+        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
@@ -173,7 +174,7 @@ pub trait StageGraph {
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         state: St,
-    ) -> StageRef<Msg, St>
+    ) -> StageStateRef<Msg, St>
     where
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
@@ -187,7 +188,9 @@ pub trait StageGraph {
     fn run(self, rt: Handle) -> Self::Running;
 
     /// Obtain a handle for sending messages to the given stage from outside the network.
-    fn input<Msg: SendData, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg>;
+    fn input<Msg: SendData, S>(&mut self, stage: S) -> Sender<Msg>
+    where
+        S: Into<StageRef<Msg>>;
 
     /// Utility function to create an output for the network.
     ///
@@ -197,7 +200,7 @@ pub trait StageGraph {
         &mut self,
         name: impl AsRef<str>,
         send_queue_size: usize,
-    ) -> (StageRef<Msg, Void>, Receiver<Msg>)
+    ) -> (StageRef<Msg>, Receiver<Msg>)
     where
         Msg: SendData + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
     {

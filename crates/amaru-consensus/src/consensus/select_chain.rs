@@ -21,7 +21,7 @@ use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
-use pure_stage::{Effects, StageRef, Void};
+use pure_stage::{Effects, StageRef};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
@@ -299,8 +299,8 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
 
 type State = (
     SelectChain,
-    StageRef<ValidateHeaderEvent, Void>,
-    StageRef<ValidationFailed, Void>,
+    StageRef<ValidateHeaderEvent>,
+    StageRef<ValidationFailed>,
 );
 
 #[instrument(
@@ -311,7 +311,7 @@ type State = (
 pub async fn stage(
     (mut select_chain, downstream, errors): State,
     msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent, State>,
+    eff: Effects<DecodedChainSyncEvent>,
 ) -> State {
     adopt_current_span(&msg);
     let peer = msg.peer();

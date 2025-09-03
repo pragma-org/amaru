@@ -18,13 +18,13 @@ use crate::simulator::{
     generate_zip_with,
 };
 use pure_stage::simulation::SimulationBuilder;
-use pure_stage::{Instant, StageGraph, StageRef, Void};
+use pure_stage::{Instant, StageGraph, StageRef};
 use rand::prelude::StdRng;
 use std::cmp::Reverse;
 use std::time::Duration;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct State(u64, StageRef<Envelope<EchoMessage>, Void>);
+struct State(u64, StageRef<Envelope<EchoMessage>>);
 
 /// Start a node that has just one "echo" stage.
 /// The regular echo behavior is to respond with the same message that was sent.

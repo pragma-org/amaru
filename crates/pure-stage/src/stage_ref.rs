@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Name, Void};
+use crate::Name;
 use std::{fmt, marker::PhantomData};
 
 /// A handle to a stage during the building phase of a [`StageGraph`](crate::StageGraph).
@@ -24,7 +24,7 @@ pub struct StageBuildRef<Msg, St, RefAux> {
 
 impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
     /// Derive the handle that can later be used for sending messages to this stage.
-    pub fn sender(&self) -> StageRef<Msg, Void> {
+    pub fn sender(&self) -> StageRef<Msg> {
         StageRef {
             name: self.name.clone(),
             _ph: PhantomData,
@@ -34,19 +34,19 @@ impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
 
 /// A handle for sending messages to a stage via the [`Effects`](crate::Effects) argument to the stage transition function.
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct StageRef<Msg, State> {
+pub struct StageRef<Msg> {
     pub name: Name,
     #[serde(skip)]
-    pub(crate) _ph: PhantomData<(Msg, State)>,
+    pub(crate) _ph: PhantomData<Msg>,
 }
 
-impl<Msg, State> PartialEq for StageRef<Msg, State> {
+impl<Msg> PartialEq for StageRef<Msg> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
     }
 }
 
-impl<Msg, State> Clone for StageRef<Msg, State> {
+impl<Msg> Clone for StageRef<Msg> {
     fn clone(&self) -> Self {
         Self {
             name: self.name.clone(),
@@ -55,7 +55,7 @@ impl<Msg, State> Clone for StageRef<Msg, State> {
     }
 }
 
-impl<Msg, State> fmt::Debug for StageRef<Msg, State> {
+impl<Msg> fmt::Debug for StageRef<Msg> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StageRef")
             .field("name", &self.name)
@@ -63,12 +63,74 @@ impl<Msg, State> fmt::Debug for StageRef<Msg, State> {
     }
 }
 
-impl<Msg, State> StageRef<Msg, State> {
+impl<Msg> StageRef<Msg> {
     pub fn name(&self) -> Name {
         self.name.clone()
     }
 
-    pub fn without_state(&self) -> StageRef<Msg, Void> {
+    pub fn without_state(&self) -> StageRef<Msg> {
+        StageRef {
+            name: self.name.clone(),
+            _ph: PhantomData,
+        }
+    }
+}
+
+impl<Msg, St> From<StageStateRef<Msg, St>> for StageRef<Msg> {
+    fn from(s: StageStateRef<Msg, St>) -> Self {
+        s.without_state()
+    }
+}
+
+impl<Msg, St> From<&StageStateRef<Msg, St>> for StageRef<Msg> {
+    fn from(s: &StageStateRef<Msg, St>) -> Self {
+        s.without_state()
+    }
+}
+
+impl<Msg> From<&StageRef<Msg>> for StageRef<Msg> {
+    fn from(s: &StageRef<Msg>) -> Self {
+        s.clone()
+    }
+}
+
+/// A handle for sending messages to a stage via the [`Effects`](crate::Effects) argument to the stage transition function.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct StageStateRef<Msg, St> {
+    pub name: Name,
+    #[serde(skip)]
+    pub(crate) _ph: PhantomData<(Msg, St)>,
+}
+
+impl<Msg, St> PartialEq for StageStateRef<Msg, St> {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl<Msg, St> Clone for StageStateRef<Msg, St> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            _ph: PhantomData,
+        }
+    }
+}
+
+impl<Msg, St> fmt::Debug for StageStateRef<Msg, St> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StageImplRef")
+            .field("name", &self.name)
+            .finish()
+    }
+}
+
+impl<Msg, St> StageStateRef<Msg, St> {
+    pub fn name(&self) -> Name {
+        self.name.clone()
+    }
+
+    pub fn without_state(&self) -> StageRef<Msg> {
         StageRef {
             name: self.name.clone(),
             _ph: PhantomData,

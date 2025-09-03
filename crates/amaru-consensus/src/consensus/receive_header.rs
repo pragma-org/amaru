@@ -17,7 +17,7 @@ use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
 use tracing::{Level, instrument};
 
 use super::{ChainSyncEvent, DecodedChainSyncEvent, ValidationFailed};
-use pure_stage::{Effects, StageRef, Void};
+use pure_stage::{Effects, StageRef};
 
 #[instrument(
         level = Level::TRACE,
@@ -27,7 +27,7 @@ use pure_stage::{Effects, StageRef, Void};
             point.slot = %point.slot_or_default(),
             point.hash = %Hash::<32>::from(point),
         )
-    )]
+)]
 pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, ConsensusError> {
     let header: MintedHeader<'_> =
         cbor::decode(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
@@ -39,10 +39,7 @@ pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, Consen
     Ok(Header::from(header))
 }
 
-type State = (
-    StageRef<DecodedChainSyncEvent, Void>,
-    StageRef<ValidationFailed, Void>,
-);
+type State = (StageRef<DecodedChainSyncEvent>, StageRef<ValidationFailed>);
 
 #[instrument(
     level = Level::TRACE,
@@ -52,7 +49,7 @@ type State = (
 pub async fn stage(
     (downstream, errors): State,
     msg: ChainSyncEvent,
-    eff: Effects<ChainSyncEvent, State>,
+    eff: Effects<ChainSyncEvent>,
 ) -> State {
     adopt_current_span(&msg);
     match msg {
