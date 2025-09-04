@@ -13,21 +13,16 @@
 // limitations under the License.
 
 use super::{
+    import_headers::import_headers_for_network,
     import_ledger_state::import_all_from_directory,
     import_nonces::{InitialNonces, import_nonces},
 };
 use crate::cmd::DEFAULT_NETWORK;
 use amaru::snapshots_dir;
-use amaru_consensus::IsHeader;
-use amaru_consensus::consensus::store::ChainStore;
-use amaru_kernel::{
-    Header, default_chain_dir, default_ledger_dir, from_cbor, network::NetworkName,
-};
-use amaru_stores::rocksdb::consensus::RocksDBStore;
+use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{Parser, arg};
 use futures_util::TryStreamExt;
-use gasket::framework::WorkerError;
 use serde::Deserialize;
 use std::{
     error::Error,
@@ -37,7 +32,7 @@ use std::{
 use thiserror::Error;
 use tokio::{
     fs::{self, File},
-    io::{AsyncReadExt, BufReader},
+    io::BufReader,
 };
 use tokio_util::io::StreamReader;
 use tracing::info;
@@ -108,40 +103,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     import_nonces_for_network(network, &network_dir, &chain_dir).await?;
 
     import_headers_for_network(network, &network_dir, &chain_dir).await?;
-
-    Ok(())
-}
-
-#[allow(clippy::unwrap_used)]
-async fn import_headers_for_network(
-    network: NetworkName,
-    config_dir: &Path,
-    chain_dir: &PathBuf,
-) -> Result<(), Box<dyn Error>> {
-    let era_history = network.into();
-    let mut db = RocksDBStore::new(chain_dir, era_history)?;
-
-    for entry in std::fs::read_dir(config_dir.join("headers"))? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file()
-            && let Some(filename) = path.file_name().and_then(|f| f.to_str())
-            && filename.starts_with("header.")
-            && filename.ends_with(".cbor")
-        {
-            let mut file = File::open(&path).await
-                    .inspect_err(|reason| tracing::error!(file = %path.display(), reason = %reason, "Failed to open header file"))
-                    .map_err(|_| WorkerError::Panic)?;
-            let mut cbor_data = Vec::new();
-            file.read_to_end(&mut cbor_data).await
-                    .inspect_err(|reason| tracing::error!(file = %path.display(), reason = %reason, "Failed to read header file"))
-                    .map_err(|_| WorkerError::Panic)?;
-            let header_from_file: Header = from_cbor(&cbor_data).unwrap();
-            let hash = header_from_file.hash();
-            db.store_header(&hash, &header_from_file)
-                .map_err(|_| WorkerError::Panic)?;
-        }
-    }
 
     Ok(())
 }

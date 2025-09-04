@@ -54,9 +54,7 @@ import-headers: ## Import headers from $PEER_ADDRESS for demo
 		cargo run --profile $(BUILD_PROFILE) -- import-headers \
 			--network $(NETWORK) \
 			--chain-dir $(CHAIN_DIR) \
-			--peer-address $(PEER_ADDRESS) \
-			--starting-point $$HEADER \
-			--count 2; \
+			--config-dir $(CONFIG_FOLDER); \
 	done
 
 import-nonces: ## Import nonces for demo

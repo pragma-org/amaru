@@ -46,7 +46,7 @@ enum Command {
     #[clap(alias = "import")]
     ImportLedgerState(cmd::import_ledger_state::Args),
 
-    /// Import block headers from another (live) node.
+    /// Import block headers from `${config_dir}/${network name}/`
     #[clap(alias = "import-chain-db")]
     ImportHeaders(cmd::import_headers::Args),
 
