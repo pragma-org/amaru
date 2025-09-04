@@ -1,18 +1,20 @@
-NETWORK ?= preprod
+.EXPORT_ALL_VARIABLES:
+
+AMARU_NETWORK ?= preprod
 CONFIG_FOLDER ?= data
 DATA_FOLDER := $(CONFIG_FOLDER)/$(NETWORK)
 SNAPSHOTS_FILE := $(DATA_FOLDER)/snapshots.json
 NONCES_FILE := $(DATA_FOLDER)/nonces.json
 HEADERS_FILE := $(DATA_FOLDER)/headers.json
-PEER_ADDRESS ?= 127.0.0.1:3001
+AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
 DEMO_TARGET_EPOCH ?= 182
 HASKELL_NODE_CONFIG_SOURCE := https://book.world.dev.cardano.org/environments
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
-LISTEN_ADDRESS ?= 0.0.0.0:0
-LEDGER_DIR ?= ./ledger.$(NETWORK).db
-CHAIN_DIR ?= ./chain.$(NETWORK).db
+AMARU_LISTEN_ADDRESS ?= 0.0.0.0:0
+AMARU_LEDGER_DIR ?= ./ledger.$(AMARU_NETWORK).db
+AMARU_CHAIN_DIR ?= ./chain.$(AMARU_NETWORK).db
 BUILD_PROFILE ?= release
 
 .PHONY: help bootstrap start import-ledger-state import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov fetch-chain-headers
@@ -24,7 +26,7 @@ help:
 	@echo "\033[1;4mConfiguration:\033[00m"
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
 
-snapshots/$(NETWORK): ## Download snapshots
+snapshots/$(AMARU_NETWORK): ## Download snapshots
 	@if [ ! -f "${SNAPSHOTS_FILE}" ]; then echo "SNAPSHOTS_FILE not found: ${SNAPSHOTS_FILE}"; exit 1; fi;
 	mkdir -p $@
 	cat $(SNAPSHOTS_FILE) \
@@ -35,7 +37,7 @@ snapshots/$(NETWORK): ## Download snapshots
 		done
 
 import-snapshots: import-ledger-state # 'backward-compatibility'; might remove after a while.
-import-ledger-state: snapshots/$(NETWORK) ## Import snapshots for demo
+import-ledger-state: snapshots/$(AMARU_NETWORK) ## Import snapshots for demo
 	@SNAPSHOT_ARGS=""; \
 	CBOR_FILES=$$(find "$^" -maxdepth 1 -name '*.cbor'); \
 	if [ -z "$$CBOR_FILES" ]; then echo "No .cbor files found in $^"; exit 1; fi; \
@@ -43,42 +45,40 @@ import-ledger-state: snapshots/$(NETWORK) ## Import snapshots for demo
 		SNAPSHOT_ARGS="$$SNAPSHOT_ARGS --snapshot $$SNAPSHOT"; \
 	done; \
 	cargo run --profile $(BUILD_PROFILE) -- import-ledger-state \
-		--network $(NETWORK) \
-		--ledger-dir "$(LEDGER_DIR)" \
+		--network $(AMARU_NETWORK) \
+		--ledger-dir "$(AMARU_LEDGER_DIR)" \
 		$$SNAPSHOT_ARGS
 
-import-headers: ## Import headers from $PEER_ADDRESS for demo
+import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
 	@if [ ! -f "$(HEADERS_FILE)" ]; then echo "HEADERS_FILE not found: $(HEADERS_FILE)"; exit 1; fi; \
 	HEADERS=$$(jq -r '.[]' $(HEADERS_FILE)); \
 	for HEADER in $$HEADERS; do \
 		cargo run --profile $(BUILD_PROFILE) -- import-headers \
-			--network $(NETWORK) \
-			--chain-dir $(CHAIN_DIR) \
-			--config-dir $(CONFIG_FOLDER); \
+			--config-dir $(CONFIG_FOLDER);
 	done
 
 import-nonces: ## Import nonces for demo
 	@if [ ! -f "$(NONCES_FILE)" ]; then echo "NONCES_FILE not found: $(NONCES_FILE)"; exit 1; fi; \
 	cargo run --profile $(BUILD_PROFILE) -- import-nonces \
-		--network $(NETWORK) \
-		--chain-dir $(CHAIN_DIR) \
+		--network $(AMARU_NETWORK) \
+		--chain-dir $(AMARU_CHAIN_DIR) \
 		--at $$(jq -r .at $(NONCES_FILE)) \
 		--active $$(jq -r .active $(NONCES_FILE)) \
 		--candidate $$(jq -r .candidate $(NONCES_FILE)) \
 		--evolving $$(jq -r .evolving $(NONCES_FILE)) \
 		--tail $$(jq -r .tail $(NONCES_FILE))
 
-download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
+download-haskell-config: ## Download Cardano Haskell configuration for $AMARU_NETWORK
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/config.json
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/topology.json
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/byron-genesis.json
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/shelley-genesis.json
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/alonzo-genesis.json
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/conway-genesis.json
+	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/config.json
+	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/topology.json
+	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/byron-genesis.json
+	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/shelley-genesis.json
+	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/alonzo-genesis.json
+	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/conway-genesis.json
 
 clear-dbs: ## Clear the databases
-	@rm -rf $(LEDGER_DIR) $(CHAIN_DIR)
+	@rm -rf $(AMARU_LEDGER_DIR) $(AMARU_CHAIN_DIR)
 
 fetch-chain-headers: $(CONFIG_FOLDER)/$(NETWORK)/ ## Fetch chain headers from the network
 	cargo run --profile $(BUILD_PROFILE) -- fetch-chain-headers \
@@ -89,28 +89,23 @@ fetch-chain-headers: $(CONFIG_FOLDER)/$(NETWORK)/ ## Fetch chain headers from th
 bootstrap: clear-dbs ## Bootstrap the node from scratch
 	cargo run --profile $(BUILD_PROFILE) -- bootstrap \
 		--config-dir $(CONFIG_FOLDER) \
-		--ledger-dir $(LEDGER_DIR) \
-		--chain-dir $(CHAIN_DIR) \
-		--network $(NETWORK)
+		--ledger-dir $(AMARU_LEDGER_DIR) \
+		--chain-dir $(AMARU_CHAIN_DIR) \
+		--network $(AMARU_NETWORK)
 
 dev: start # 'backward-compatibility'; might remove after a while.
 start: ## Compile and run for development with default options
-	cargo run --profile $(BUILD_PROFILE) -- daemon \
-		--ledger-dir $(LEDGER_DIR) \
-		--chain-dir $(CHAIN_DIR) \
-		--peer-address $(PEER_ADDRESS) \
-		--network=$(NETWORK) \
-		--listen-address $(LISTEN_ADDRESS)
+	cargo run --profile $(BUILD_PROFILE) -- daemon
 
 fetch-data: ## Fetch data from the node
-	@npm --prefix data run fetch -- "$(NETWORK)"
+	@npm --prefix data run fetch -- "$(AMARU_NETWORK)"
 
 generate-test-snapshots: ## Generate test snapshots for test-e2e
-	@npm --prefix conformance-tests run generate-all -- "$(NETWORK)"
+	@npm --prefix conformance-tests run generate-all -- "$(AMARU_NETWORK)"
 	@./scripts/generate-snapshot-test-cases
 
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
-	NETWORK=$(NETWORK) cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored
+	AMARU_NETWORK=$(AMARU_NETWORK) cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored
 
 test-e2e-from-scratch: bootstrap demo test-e2e ## Run end-to-end tests from scratch
 
@@ -136,8 +131,7 @@ coverage-lconv: ## Run test coverage for CI to upload to Codecov
 		--output-path lcov.info
 
 demo: ## Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
-	LEDGER_DIR=$(LEDGER_DIR) CHAIN_DIR=$(CHAIN_DIR) \
-		./scripts/demo $(BUILD_PROFILE) $(PEER_ADDRESS) $(LISTEN_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
+		./scripts/demo $(BUILD_PROFILE) $(AMARU_PEER_ADDRESS) $(AMARU_LISTEN_ADDRESS) $(DEMO_TARGET_EPOCH) $(AMARU_NETWORK)
 
 build-examples: ## Build all examples
 	@for dir in $(wildcard examples/*/.); do \

@@ -4,23 +4,27 @@ set -euo pipefail
 
 exitWithUsage () {
   echo -e "\033[1;31mError: missing argument(s)!\033[00m\n"
-  echo -e "\033[1;32mUsage:\033[00m\n    $0 PEER_ADDRESS LISTEN_ADDRESS TARGET_EPOCH [NETWORK]\n"
+  echo -e "\033[1;32mUsage:\033[00m\n    $0 AMARU_PEER_ADDRESS AMARU_LISTEN_ADDRESS TARGET_EPOCH [AMARU_NETWORK]\n"
   echo -e "\033[1mExamples:\033[00m \n    $0 127.0.0.1:3000 0.0.0.0:0    173\n    $0 127.0.0.1:3001 0.0.0.0:8000 200 preprod"
   exit 1
 }
+
+if [ $# -ne  5 ]; then
+    exitWithUsage
+fi
 
 BUILD_PROFILE=$1
 if [ -z "$BUILD_PROFILE" ]; then
   exitWithUsage
 fi
 
-PEER_ADDRESS=$2
-if [ -z "$PEER_ADDRESS" ]; then
+export AMARU_PEER_ADDRESS=$2
+if [ -z "$AMARU_PEER_ADDRESS" ]; then
   exitWithUsage
 fi
 
-LISTEN_ADDRESS=$3
-if [ -z "$LISTEN_ADDRESS" ]; then
+export AMARU_LISTEN_ADDRESS=$3
+if [ -z "$AMARU_LISTEN_ADDRESS" ]; then
   exitWithUsage
 fi
 
@@ -29,20 +33,15 @@ if [ -z "$TARGET_EPOCH" ]; then
   exitWithUsage
 fi
 
-NETWORK=${5:-preprod}
+export AMARU_NETWORK=${5:-preprod}
 
-LEDGER_DIR=${LEDGER_DIR:-./ledger.${NETWORK}.db}
+export AMARU_LEDGER_DIR=${AMARU_LEDGER_DIR:-./ledger.${AMARU_NETWORK}.db}
 
-CHAIN_DIR=${CHAIN_DIR:-./chain.${NETWORK}.db}
+export AMARU_CHAIN_DIR=${AMARU_CHAIN_DIR:-./chain.${AMARU_NETWORK}.db}
 
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 
-AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-traces daemon \
-           --peer-address="${PEER_ADDRESS}" \
-           --listen-address="${LISTEN_ADDRESS}" \
-           --network="${NETWORK}" \
-           --chain-dir="${CHAIN_DIR}" \
-           --ledger-dir="${LEDGER_DIR}" | while read line; do
+AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-traces daemon | while read line; do
   EVENT=$(jq -r '.fields.message' <<< "$line" 2>/dev/null)
   SPAN=$(jq -r '.span.name' <<< "$line" 2>/dev/null)
   if [ "$EVENT" = "exit" ] && [ "$SPAN" = "epoch_transition" ]; then
