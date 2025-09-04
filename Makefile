@@ -15,7 +15,7 @@ LEDGER_DIR ?= ./ledger.$(NETWORK).db
 CHAIN_DIR ?= ./chain.$(NETWORK).db
 BUILD_PROFILE ?= release
 
-.PHONY: help bootstrap start import-ledger-state import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov
+.PHONY: help bootstrap start import-ledger-state import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov fetch-chain-headers
 
 help:
 	@echo "\033[1;4mTargets:\033[00m"
@@ -54,9 +54,7 @@ import-headers: ## Import headers from $PEER_ADDRESS for demo
 		cargo run --profile $(BUILD_PROFILE) -- import-headers \
 			--network $(NETWORK) \
 			--chain-dir $(CHAIN_DIR) \
-			--peer-address $(PEER_ADDRESS) \
-			--starting-point $$HEADER \
-			--count 2; \
+			--config-dir $(CONFIG_FOLDER); \
 	done
 
 import-nonces: ## Import nonces for demo
@@ -82,9 +80,14 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 clear-dbs: ## Clear the databases
 	@rm -rf $(LEDGER_DIR) $(CHAIN_DIR)
 
+fetch-chain-headers: $(CONFIG_FOLDER)/$(NETWORK)/ ## Fetch chain headers from the network
+	cargo run --profile $(BUILD_PROFILE) -- fetch-chain-headers \
+		--peer-address $(PEER_ADDRESS) \
+		--config-dir $(CONFIG_FOLDER) \
+		--network $(NETWORK)
+
 bootstrap: clear-dbs ## Bootstrap the node from scratch
 	cargo run --profile $(BUILD_PROFILE) -- bootstrap \
-		--peer-address $(PEER_ADDRESS) \
 		--config-dir $(CONFIG_FOLDER) \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \

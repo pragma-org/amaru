@@ -13,20 +13,20 @@
 // limitations under the License.
 
 use super::{
-    import_headers::import_headers,
+    import_headers::import_headers_for_network,
     import_ledger_state::import_all_from_directory,
     import_nonces::{InitialNonces, import_nonces},
 };
 use crate::cmd::DEFAULT_NETWORK;
 use amaru::snapshots_dir;
-use amaru_kernel::{Point, default_chain_dir, default_ledger_dir, network::NetworkName};
+use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{Parser, arg};
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 use std::{
     error::Error,
-    io,
+    io::{self},
     path::{Path, PathBuf},
 };
 use thiserror::Error;
@@ -74,24 +74,10 @@ pub struct Args {
         verbatim_doc_comment
     )]
     config_dir: PathBuf,
-
-    /// Address of the node to connect to for retrieving chain data.
-    /// The node should be accessible via the node-2-node protocol, which
-    /// means the remote node should be running as a validator and not
-    /// as a client node.
-    ///
-    /// Address is given in the usual `host:port` format, for example: "1.2.3.4:3000".
-    #[arg(
-        long,
-        value_name = "NETWORK_ADDRESS",
-        default_value = "127.0.0.1:3001",
-        verbatim_doc_comment
-    )]
-    peer_address: String,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    info!(config=?args.config_dir, ledger_dir=?args.ledger_dir, chain_dir=?args.chain_dir, peer=%args.peer_address, network=%args.network,
+    info!(config=?args.config_dir, ledger_dir=?args.ledger_dir, chain_dir=?args.chain_dir, network=%args.network,
           "bootstrapping",
     );
 
@@ -116,34 +102,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     import_nonces_for_network(network, &network_dir, &chain_dir).await?;
 
-    import_headers_for_network(network, &args.peer_address, &network_dir, &chain_dir).await?;
-
-    Ok(())
-}
-
-async fn import_headers_for_network(
-    network: NetworkName,
-    peer_address: &str,
-    config_dir: &Path,
-    chain_dir: &PathBuf,
-) -> Result<(), Box<dyn Error>> {
-    let headers_file: PathBuf = config_dir.join("headers.json");
-    let content = tokio::fs::read_to_string(headers_file).await?;
-    let points: Vec<String> = serde_json::from_str(&content)?;
-    let mut initial_headers = Vec::new();
-    for point in points {
-        match Point::try_from(point.as_str()) {
-            Ok(point) => initial_headers.push(point),
-            Err(e) => tracing::warn!("Ignoring malformed header point '{}': {}", point, e),
-        }
-    }
-    for hdr in initial_headers {
-        // FIXME: why do we only import 2 headers for each header listed in the
-        // config file? The 2 headers make sense, but why starting from more than
-        // one header?
-        const NUM_HEADERS_TO_IMPORT: usize = 2;
-        import_headers(peer_address, network, chain_dir, hdr, NUM_HEADERS_TO_IMPORT).await?;
-    }
+    import_headers_for_network(network, &network_dir, &chain_dir).await?;
 
     Ok(())
 }

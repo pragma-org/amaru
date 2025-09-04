@@ -37,6 +37,8 @@ enum Command {
     /// **NOTE**: Only `preprod` network is supported for now.
     Bootstrap(cmd::bootstrap::Args),
 
+    FetchChainHeaders(cmd::fetch_chain_headers::Args),
+
     /// Run the node in all its glory.
     Daemon(cmd::daemon::Args),
 
@@ -44,7 +46,7 @@ enum Command {
     #[clap(alias = "import")]
     ImportLedgerState(cmd::import_ledger_state::Args),
 
-    /// Import block headers from another (live) node.
+    /// Import block headers from `${config_dir}/${network name}/`
     #[clap(alias = "import-chain-db")]
     ImportHeaders(cmd::import_headers::Args),
 
@@ -114,6 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
         Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
+        Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
