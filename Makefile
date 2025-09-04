@@ -1,8 +1,8 @@
 .EXPORT_ALL_VARIABLES:
 
 AMARU_NETWORK ?= preprod
-CONFIG_FOLDER ?= data
-DATA_FOLDER := $(CONFIG_FOLDER)/$(AMARU_NETWORK)
+AMARU_CONFIG_DIR ?= data
+DATA_FOLDER := $(AMARU_CONFIG_DIR)/$(AMARU_NETWORK)
 SNAPSHOTS_FILE := $(DATA_FOLDER)/snapshots.json
 NONCES_FILE := $(DATA_FOLDER)/nonces.json
 HEADERS_FILE := $(DATA_FOLDER)/headers.json
@@ -53,8 +53,7 @@ import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
 	@if [ ! -f "$(HEADERS_FILE)" ]; then echo "HEADERS_FILE not found: $(HEADERS_FILE)"; exit 1; fi; \
 	HEADERS=$$(jq -r '.[]' $(HEADERS_FILE)); \
 	for HEADER in $$HEADERS; do \
-		cargo run --profile $(BUILD_PROFILE) -- import-headers \
-			--config-dir $(CONFIG_FOLDER);
+		cargo run --profile $(BUILD_PROFILE) -- import-headers --config-dir $(AMARU_CONFIG_DIR); \
 	done
 
 import-nonces: ## Import nonces for demo
@@ -80,15 +79,15 @@ download-haskell-config: ## Download Cardano Haskell configuration for $AMARU_NE
 clear-dbs: ## Clear the databases
 	@rm -rf $(AMARU_LEDGER_DIR) $(AMARU_CHAIN_DIR)
 
-fetch-chain-headers: $(CONFIG_FOLDER)/$(NETWORK)/ ## Fetch chain headers from the network
+fetch-chain-headers: $(AMARU_CONFIG_DIR)/$(NETWORK)/ ## Fetch chain headers from the network
 	cargo run --profile $(BUILD_PROFILE) -- fetch-chain-headers \
 		--peer-address $(PEER_ADDRESS) \
-		--config-dir $(CONFIG_FOLDER) \
+		--config-dir $(AMARU_CONFIG_DIR) \
 		--network $(NETWORK)
 
 bootstrap: clear-dbs ## Bootstrap the node from scratch
 	cargo run --profile $(BUILD_PROFILE) -- bootstrap \
-		--config-dir $(CONFIG_FOLDER) \
+		--config-dir $(AMARU_CONFIG_DIR) \
 		--ledger-dir $(AMARU_LEDGER_DIR) \
 		--chain-dir $(AMARU_CHAIN_DIR) \
 		--network $(AMARU_NETWORK)
