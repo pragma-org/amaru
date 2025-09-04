@@ -231,18 +231,19 @@ impl SimulationRunning {
     ///
     /// Note that this method does not check if there is enough space in the
     /// mailbox, it will grow the mailbox beyond the `mailbox_size` limit.
-    pub fn enqueue_msg<Msg: SendData, S>(&mut self, sr: S, msg: impl IntoIterator<Item = Msg>)
-    where
-        S: Into<StageRef<Msg>>,
-    {
-        let data = self.stages.get_mut(&sr.into().name).unwrap();
+    pub fn enqueue_msg<Msg: SendData>(
+        &mut self,
+        sr: impl AsRef<StageRef<Msg>>,
+        msg: impl IntoIterator<Item = Msg>,
+    ) {
+        let data = self.stages.get_mut(sr.as_ref().name()).unwrap();
         data.mailbox
             .extend(msg.into_iter().map(|m| Box::new(m) as Box<dyn SendData>));
     }
 
     /// Retrieve the number of messages currently in the given stage’s mailbox.
-    pub fn mailbox_len<Msg>(&self, sr: &StageRef<Msg>) -> usize {
-        let data = self.stages.get(&sr.name).unwrap();
+    pub fn mailbox_len<Msg>(&self, sr: impl AsRef<StageRef<Msg>>) -> usize {
+        let data = self.stages.get(sr.as_ref().name()).unwrap();
         data.mailbox.len()
     }
 
@@ -254,7 +255,7 @@ impl SimulationRunning {
     /// Returns `None` if the stage is not suspended on [`Effect::Receive`], panics if the
     /// state type is incorrect.
     pub fn get_state<Msg, St: SendData>(&self, sr: &StageStateRef<Msg, St>) -> Option<&St> {
-        let data = self.stages.get(&sr.name).unwrap();
+        let data = self.stages.get(sr.name()).unwrap();
         match &data.state {
             StageState::Idle(state) => {
                 Some(state.cast_ref::<St>().expect("internal state type error"))
@@ -578,13 +579,13 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Receive`].
-    pub fn resume_receive<Msg, S>(&mut self, at_stage: S) -> anyhow::Result<()>
-    where
-        S: Into<StageRef<Msg>>,
-    {
+    pub fn resume_receive<Msg>(
+        &mut self,
+        at_stage: impl AsRef<StageRef<Msg>>,
+    ) -> anyhow::Result<()> {
         let data = self
             .stages
-            .get_mut(&at_stage.into().name)
+            .get_mut(at_stage.as_ref().name())
             .expect("stage ref exists, so stage must exist");
         resume_receive_internal(
             &mut self.trace_buffer.lock(),
@@ -596,21 +597,15 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Send`].
-    pub fn resume_send<Msg1, S1, Msg2: SendData, S2>(
+    pub fn resume_send<Msg1, Msg2: SendData>(
         &mut self,
-        from: S1,
-        to: S2,
+        from: impl AsRef<StageRef<Msg1>>,
+        to: impl AsRef<StageRef<Msg2>>,
         msg: Msg2,
-    ) -> anyhow::Result<()>
-    where
-        S1: Into<StageRef<Msg1>>,
-        S2: Into<StageRef<Msg2>>,
-    {
-        let from = from.into();
-        let to = to.into();
+    ) -> anyhow::Result<()> {
         let data = self
             .stages
-            .get_mut(&to.name)
+            .get_mut(to.as_ref().name())
             .expect("stage ref exists, so stage must exist");
         if post_message(data, self.mailbox_size, Box::new(msg)).is_err() {
             anyhow::bail!("mailbox is full while resuming send");
@@ -618,17 +613,21 @@ impl SimulationRunning {
 
         let data = self
             .stages
-            .get_mut(&from.name)
+            .get_mut(from.as_ref().name())
             .expect("stage ref exists, so stage must exist");
         let call = resume_send_internal(
             data,
             &mut |name, response| {
                 self.runnable.push_back((name, response));
             },
-            to.name(),
+            to.as_ref().name().clone(),
         )?;
 
-        self.handle_call_continuation(from.name(), to.name(), call);
+        self.handle_call_continuation(
+            from.as_ref().name().clone(),
+            to.as_ref().name().clone(),
+            call,
+        );
         Ok(())
     }
 
@@ -666,13 +665,14 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Clock`].
-    pub fn resume_clock<Msg, S>(&mut self, at_stage: S, time: Instant) -> anyhow::Result<()>
-    where
-        S: Into<StageRef<Msg>>,
-    {
+    pub fn resume_clock<Msg>(
+        &mut self,
+        at_stage: impl AsRef<StageRef<Msg>>,
+        time: Instant,
+    ) -> anyhow::Result<()> {
         let data = self
             .stages
-            .get_mut(&at_stage.into().name)
+            .get_mut(at_stage.as_ref().name())
             .expect("stage ref exists, so stage must exist");
         resume_clock_internal(
             data,
@@ -710,13 +710,14 @@ impl SimulationRunning {
     /// Resume an [`Effect::Wait`].
     ///
     /// The given time is the clock when the stage wakes up.
-    pub fn resume_wait<Msg, S>(&mut self, at_stage: S, time: Instant) -> anyhow::Result<()>
-    where
-        S: Into<StageRef<Msg>>,
-    {
+    pub fn resume_wait<Msg>(
+        &mut self,
+        at_stage: impl AsRef<StageRef<Msg>>,
+        time: Instant,
+    ) -> anyhow::Result<()> {
         let data = self
             .stages
-            .get_mut(&at_stage.into().name)
+            .get_mut(at_stage.as_ref().name())
             .expect("stage ref exists, so stage must exist");
         resume_wait_internal(
             data,
@@ -730,17 +731,14 @@ impl SimulationRunning {
     /// Resume an [`Effect::Send`]’s second stage in case of a call.
     ///
     /// The message to be delivered to the stage must have been sent by the called stage already.
-    pub fn resume_call<Msg, S, Resp: SendData>(
+    pub fn resume_call<Msg, Resp: SendData>(
         &mut self,
-        at_stage: S,
+        at_stage: impl AsRef<StageRef<Msg>>,
         call: &CallRef<Resp>,
-    ) -> anyhow::Result<()>
-    where
-        S: Into<StageRef<Msg>>,
-    {
+    ) -> anyhow::Result<()> {
         let data = self
             .stages
-            .get_mut(&at_stage.into().name)
+            .get_mut(at_stage.as_ref().name())
             .expect("stage ref exists, so stage must exist");
         resume_call_internal(
             data,
@@ -752,18 +750,15 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Respond`].
-    pub fn resume_respond<Msg, S, Resp: SendData>(
+    pub fn resume_respond<Msg, Resp: SendData>(
         &mut self,
-        at_stage: S,
+        at_stage: impl AsRef<StageRef<Msg>>,
         cr: &CallRef<Resp>,
         msg: Resp,
-    ) -> anyhow::Result<()>
-    where
-        S: Into<StageRef<Msg>>,
-    {
+    ) -> anyhow::Result<()> {
         let data = self
             .stages
-            .get_mut(&at_stage.into().name)
+            .get_mut(at_stage.as_ref().name())
             .expect("stage ref exists, so stage must exist");
         let res = resume_respond_internal(
             data,
@@ -796,17 +791,14 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::External`].
-    pub fn resume_external<Msg, S>(
+    pub fn resume_external<Msg>(
         &mut self,
-        at_stage: S,
+        at_stage: impl AsRef<StageRef<Msg>>,
         result: Box<dyn SendData>,
-    ) -> anyhow::Result<()>
-    where
-        S: Into<StageRef<Msg>>,
-    {
+    ) -> anyhow::Result<()> {
         let data = self
             .stages
-            .get_mut(&at_stage.into().name)
+            .get_mut(at_stage.as_ref().name())
             .expect("stage ref exists, so stage must exist");
         resume_external_internal(data, result, &mut |name, response| {
             self.runnable.push_back((name, response));
@@ -1069,7 +1061,7 @@ fn simulation_invariants() {
             }),
             // resume_call works because resume_send from the second item has already been called
             Box::new(|sim, stage, id| {
-                let data = sim.stages.get_mut(&stage.name).unwrap();
+                let data = sim.stages.get_mut(stage.name()).unwrap();
                 resume_call_internal(
                     data,
                     &mut |name, response| {
@@ -1102,14 +1094,19 @@ fn simulation_invariants() {
         for (pred, op, name) in &ops {
             if pred(&effect).is_none() {
                 tracing::info!("op `{}` should not work", name);
-                op(&mut sim, &stage.without_state(), CallId::from_u64(0)).unwrap_err();
+                op(
+                    &mut sim,
+                    &stage.clone().without_state(),
+                    CallId::from_u64(0),
+                )
+                .unwrap_err();
                 sim.invariants();
             }
         }
         for (pred, op, name) in &ops {
             if let Some(id) = pred(&effect) {
                 tracing::info!("op `{}` should work", name);
-                op(&mut sim, &stage.without_state(), id).unwrap();
+                op(&mut sim, &stage.clone().without_state(), id).unwrap();
                 sim.invariants();
             }
         }

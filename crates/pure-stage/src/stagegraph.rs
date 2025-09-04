@@ -121,7 +121,7 @@ impl<Resp: SendData> CallRef<Resp> {
 /// let (output, mut rx) = network.output("output", 10);
 ///
 /// // phase 2: wire up stages by injecting targets into their state
-/// let stage = network.wire_up(stage, (1u32, output.without_state()));
+/// let stage = network.wire_up(stage, (1u32, output));
 ///
 /// // phase 3: populate the resources collection with the necessary resources (if used by external effects)
 /// network.resources().put(42u8);
@@ -188,9 +188,7 @@ pub trait StageGraph {
     fn run(self, rt: Handle) -> Self::Running;
 
     /// Obtain a handle for sending messages to the given stage from outside the network.
-    fn input<Msg: SendData, S>(&mut self, stage: S) -> Sender<Msg>
-    where
-        S: Into<StageRef<Msg>>;
+    fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg>;
 
     /// Utility function to create an output for the network.
     ///
@@ -209,7 +207,7 @@ pub trait StageGraph {
         let tx = MpscSender { sender };
 
         let output = self.stage(name, async |tx: MpscSender<Msg>, msg: Msg, eff| {
-            eff.external(OutputEffect::new(eff.me().name(), msg, tx.clone()))
+            eff.external(OutputEffect::new(eff.me().name().clone(), msg, tx.clone()))
                 .await;
             tx
         });

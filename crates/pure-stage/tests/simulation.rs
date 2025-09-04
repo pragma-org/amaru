@@ -42,7 +42,7 @@ fn basic() {
         state
     });
     let (output, mut rx) = network.output("output", 10);
-    let basic = network.wire_up(basic, State(1u32, output.without_state()));
+    let basic = network.wire_up(basic, State(1u32, output.clone()));
     let mut running = network.run(rt.handle().clone());
 
     // first check that the stages start out suspended on Receive
@@ -58,7 +58,7 @@ fn basic() {
     running.resume_receive(&output).unwrap();
     let ext = running
         .effect()
-        .extract_external(&output, &OutputEffect::fake(output.name(), 2u32).0);
+        .extract_external(&output, &OutputEffect::fake(output.name().clone(), 2u32).0);
     let result = rt.block_on(ext.run(Resources::default()));
     // this check is also done when resuming, just want to show how to do it here
     assert_eq!(&*result, &() as &dyn SendData);
@@ -82,7 +82,7 @@ fn automatic() {
             state
         });
         let (output, rx) = network.output("output", 10);
-        let basic = network.wire_up(basic, State(1u32, output.without_state()));
+        let basic = network.wire_up(basic, State(1u32, output.clone()));
         (basic.without_state(), rx, output)
     }
 
@@ -156,15 +156,15 @@ fn automatic() {
     replay.run_trace(trace).unwrap();
 
     assert_eq!(
-        replay.latest_state(&in_ref.name()),
-        Some(&State(7, output.without_state()) as &dyn SendData)
+        replay.latest_state(in_ref.name()),
+        Some(&State(7, output.clone()) as &dyn SendData)
     );
-    assert_eq!(replay.is_running(&in_ref.name()), false);
-    assert_eq!(replay.is_idle(&in_ref.name()), true);
-    assert_eq!(replay.is_failed(&output.name()), false);
-    assert_eq!(replay.is_idle(&output.name()), true);
-    assert_eq!(replay.get_failure(&in_ref.name()), None);
-    assert_eq!(replay.get_failure(&output.name()), None);
+    assert_eq!(replay.is_running(in_ref.name()), false);
+    assert_eq!(replay.is_idle(in_ref.name()), true);
+    assert_eq!(replay.is_failed(output.name()), false);
+    assert_eq!(replay.is_idle(output.name()), true);
+    assert_eq!(replay.get_failure(in_ref.name()), None);
+    assert_eq!(replay.get_failure(output.name()), None);
     assert_eq!(replay.clock(), Instant::at_offset(Duration::from_secs(30)));
 }
 
@@ -178,7 +178,7 @@ fn breakpoint() {
         state
     });
     let (output, mut rx) = network.output("output", 10);
-    let basic = network.wire_up(basic, State(1u32, output.without_state()));
+    let basic = network.wire_up(basic, State(1u32, output.clone()));
     let mut running = network.run(rt.handle().clone());
 
     running.enqueue_msg(&basic, [1, 2, 3]);
@@ -186,8 +186,8 @@ fn breakpoint() {
         matches!(
             eff,
             Effect::Send { from, to, msg, .. }
-                if from == &basic.name &&
-                    to == &output.name &&
+                if from == basic.name() &&
+                    to == output.name() &&
                     *msg == Box::new(4u32) as Box<dyn SendData>
         )
     });
@@ -205,7 +205,7 @@ fn overrides() {
         state
     });
     let (output, mut rx) = network.output("output", 10);
-    let basic = network.wire_up(basic, State(1u32, output.without_state()));
+    let basic = network.wire_up(basic, State(1u32, output.clone()));
     let mut running = network.run(rt.handle().clone());
 
     let count = Arc::new(AtomicUsize::new(0));
@@ -256,18 +256,18 @@ fn backpressure() {
     running.enqueue_msg(&sender, [1, 2, 3]);
     running.breakpoint("pressure", {
         let pressure = pressure.clone();
-        move |eff| matches!(eff, Effect::Clock { at_stage: a } if a == &pressure.name)
+        move |eff| matches!(eff, Effect::Clock { at_stage: a } if a == pressure.name())
     });
 
     let broken = running.run_until_blocked().assert_breakpoint("pressure");
     assert_eq!(
         broken,
         Effect::Clock {
-            at_stage: pressure.name(),
+            at_stage: pressure.name().clone(),
         }
     );
 
-    running.run_until_blocked().assert_busy([&pressure.name]);
+    running.run_until_blocked().assert_busy([pressure.name()]);
 
     running.handle_effect(broken);
     running.clear_breakpoint("pressure");

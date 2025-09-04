@@ -116,7 +116,7 @@ pub(crate) fn airlock_effect<Out>(
 ///     (state, out)
 /// });
 /// let (output, mut rx) = network.output("output", 10);
-/// let stage = network.wire_up(stage, (1u32, output.without_state()));
+/// let stage = network.wire_up(stage, (1u32, output.clone()));
 ///
 /// let rt = tokio::runtime::Runtime::new().unwrap();
 /// let mut running = network.run(rt.handle().clone());
@@ -132,7 +132,7 @@ pub(crate) fn airlock_effect<Out>(
 /// running.effect().assert_receive(&stage);
 ///
 /// running.resume_receive(&output).unwrap();
-/// let ext = running.effect().extract_external(&output, &OutputEffect::fake(output.name(), 2u32).0);
+/// let ext = running.effect().extract_external(&output, &OutputEffect::fake(output.name().clone(), 2u32).0);
 /// let result = rt.block_on(ext.run(Resources::default()));
 /// running.resume_external(&output, result).unwrap();
 /// running.effect().assert_receive(&output);
@@ -220,10 +220,7 @@ impl super::StageGraph for SimulationBuilder {
     {
         // THIS MUST MATCH THE TOKIO BUILDER
         let name = Name::from(&*format!("{}-{}", name.as_ref(), self.stages.len()));
-        let me = StageRef {
-            name: name.clone(),
-            _ph: PhantomData,
-        };
+        let me = StageRef::new(name.clone());
         let self_sender = self.inputs.sender(&me);
         let effects = Effects::new(me, self.effect.clone(), self.clock.clone(), self_sender);
         let transition: Transition =
@@ -272,17 +269,11 @@ impl super::StageGraph for SimulationBuilder {
         let data = self.stages.get_mut(&name).unwrap();
         data.state = InitStageState::Idle(Box::new(state));
 
-        StageStateRef {
-            name,
-            _ph: PhantomData,
-        }
+        StageStateRef::new(name)
     }
 
-    fn input<Msg: SendData, S>(&mut self, stage: S) -> Sender<Msg>
-    where
-        S: Into<StageRef<Msg>>,
-    {
-        self.inputs.sender(&stage.into())
+    fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg> {
+        self.inputs.sender(stage.as_ref())
     }
 
     fn run(self, rt: Handle) -> Self::Running {
