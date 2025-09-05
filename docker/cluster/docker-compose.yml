@@ -1,0 +1,58 @@
+services:
+  amaru:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.amaru
+    depends_on:
+      cardano:
+        condition: service_healthy
+    environment:
+      - NETWORK
+      - LEDGER_DIR
+      - CONFIG_FOLDER
+      - CHAIN_DIR
+    volumes:
+      - amaru_data:/srv/amaru
+  
+  amaru_2:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.amaru
+    depends_on:
+      cardano:
+        condition: service_healthy
+      amaru:
+        condition: service_started
+    environment:
+      - NETWORK
+      - LEDGER_DIR
+      - CONFIG_FOLDER
+      - CHAIN_DIR
+      - PEER_ADDRESS=amaru:3000
+    volumes:
+      - amaru_2_data:/srv/amaru
+
+  cardano:
+    image: ghcr.io/blinklabs-io/cardano-node
+    environment:
+      - NETWORK
+    volumes:
+      - cardano_data:/data/db
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo testing > /dev/tcp/localhost/3001"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 100
+      start_period: 40s
+      start_interval: 5s
+
+  # debug:
+  #   image: debian:latest
+  #   command: tail -f /dev/null # Waits forever for someone to exec into it
+  #   profiles:
+  #     - debug
+
+volumes:
+  amaru_data:
+  cardano_data:
+  amaru_2_data:
