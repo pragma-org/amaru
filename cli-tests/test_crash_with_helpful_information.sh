@@ -10,7 +10,6 @@ setup() {
 	export LEDGER_DIR=./ledger.${NETWORK}.db
 	export CHAIN_DIR=./chain.${NETWORK}.db
 	export BUILD_PROFILE=dev
-	export AMARU_PEER_ADDRESS=127.0.0.1:3001
 }
 
 given_snapshots_file_is_missing() {
@@ -19,7 +18,6 @@ given_snapshots_file_is_missing() {
 
 bootstrap_amaru() {
 	cargo run --profile ${BUILD_PROFILE} -- bootstrap \
-		--peer-address ${AMARU_PEER_ADDRESS} \
 		--config-dir ${CONFIG_FOLDER} \
 		--ledger-dir ${LEDGER_DIR} \
 		--chain-dir ${CHAIN_DIR} \
