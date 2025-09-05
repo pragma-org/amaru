@@ -13,18 +13,20 @@
 // limitations under the License.
 
 use super::{DecodedChainSyncEvent, ValidateHeaderEvent};
-use crate::consensus::ValidationFailed;
-use crate::consensus::headers_tree::HeadersTree;
-use crate::span::adopt_current_span;
-use crate::{ConsensusError, consensus::EVENT_TARGET};
-use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer};
+use crate::{
+    ConsensusError,
+    consensus::{EVENT_TARGET, ValidationFailed, headers_tree::HeadersTree},
+    span::adopt_current_span,
+};
+use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer, string_utils::ListToString};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
 use pure_stage::{Effects, StageRef};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::fmt::{Debug, Display, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Debug, Display, Formatter},
+};
 use tracing::{Level, Span, debug, info, instrument, trace, warn};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
@@ -37,34 +39,23 @@ pub struct SelectChain {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct SyncTracker {
-    peers_state: BTreeMap<Peer, SyncState>,
+    syncing_peers: BTreeSet<Peer>,
 }
 
 impl SyncTracker {
     pub fn new(peers: &[Peer]) -> Self {
-        let peers_state = peers
-            .iter()
-            .map(|p| (p.clone(), SyncState::Syncing))
-            .collect();
-        Self { peers_state }
+        let syncing_peers = peers.iter().cloned().collect();
+        Self { syncing_peers }
     }
 
     pub fn caught_up(&mut self, peer: &Peer) {
-        if let Some(s) = self.peers_state.get_mut(peer) {
-            match s {
-                SyncState::Syncing => {
-                    *s = SyncState::CaughtUp;
-                    info!(%peer, "caught-up");
-                }
-                SyncState::CaughtUp => (),
-            }
-        } else {
+        if !self.syncing_peers.remove(peer) {
             warn!("unknown caught-up peer {}", peer);
         }
     }
 
     pub fn is_caught_up(&self) -> bool {
-        self.peers_state.values().all(|s| *s == SyncState::CaughtUp)
+        self.syncing_peers.is_empty()
     }
 }
 
@@ -120,8 +111,11 @@ impl SelectChain {
 
         let events = match result {
             ForwardChainSelection::NewTip { peer, tip } => {
-                debug!(target: EVENT_TARGET, hash = %tip.hash(), slot = %tip.slot(), "new_tip");
-
+                if self.sync_tracker.is_caught_up() {
+                    debug!(target: EVENT_TARGET, %peer, hash = %tip.hash(), slot = %tip.slot(), "new tip");
+                } else {
+                    trace!(target: EVENT_TARGET, %peer, hash = %tip.hash(), slot = %tip.slot(), "new tip");
+                }
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
@@ -129,12 +123,11 @@ impl SelectChain {
                 rollback_point,
                 fork,
             }) => {
-                debug!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
-
+                info!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
                 SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
             ForwardChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, "no_change");
+                trace!(target: EVENT_TARGET, "no change");
                 vec![]
             }
         };
@@ -158,8 +151,7 @@ impl SelectChain {
                 rollback_point,
                 fork,
             }) => {
-                debug!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
-
+                info!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
                 Ok(SelectChain::switch_to_fork(
                     peer,
                     rollback_point,
@@ -199,7 +191,6 @@ impl SelectChain {
 
     fn caught_up(&mut self, peer: &Peer) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         self.sync_tracker.caught_up(peer);
-
         Ok(vec![])
     }
 }
