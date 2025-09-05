@@ -217,11 +217,17 @@ function toDrepId(str, category, type) {
 }
 
 function toStakeAddress(str, category) {
+  const prefix = network === "mainnet"
+	? (category === "verificationKey" ? 0xe1 : 0xf1)
+	: (category === "verificationKey" ? 0xe0 : 0xf0);
+
+  const hrp = network === "mainnet" ? "stake" : "stake_test";
+
   return bech32.encode(
-    "stake_test",
+    hrp,
     bech32.toWords(
       Buffer.concat([
-        Buffer.from([category === "verificationKey" ? 0xe0 : 0xf0]),
+        Buffer.from([prefix]),
         Buffer.from(str, "hex"),
       ])
     )
