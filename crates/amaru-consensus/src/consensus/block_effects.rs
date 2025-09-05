@@ -18,9 +18,8 @@ use amaru_kernel::peer::Peer;
 use amaru_kernel::{Point, protocol_parameters::GlobalParameters};
 use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
-pub type ResourceBlockFetcher = Arc<Mutex<dyn BlockFetcher + Send + Sync>>;
+pub type ResourceBlockFetcher = Arc<dyn BlockFetcher + Send + Sync>;
 pub type ResourceParameters = GlobalParameters;
 
 /// This effect is used to fetch a block from a peer given a point (hash + slot).
@@ -53,7 +52,6 @@ impl ExternalEffect for FetchBlockEffect {
                 .get::<ResourceBlockFetcher>()
                 .expect("FetchBlockEffect requires a BlockFetcher")
                 .clone();
-            let mut block_fetcher = block_fetcher.lock().await;
             let result: <Self as ExternalEffectAPI>::Response =
                 block_fetcher.fetch_block(&self.peer, &self.point).await;
             Box::new(result) as Box<dyn pure_stage::SendData>

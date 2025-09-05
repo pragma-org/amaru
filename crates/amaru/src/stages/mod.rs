@@ -250,8 +250,8 @@ pub fn bootstrap(
 
     network
         .resources()
-        .put::<block_effects::ResourceBlockFetcher>(Arc::new(Mutex::new(
-            ClientsBlockFetcher::new(block_fetchs),
+        .put::<block_effects::ResourceBlockFetcher>(Arc::new(ClientsBlockFetcher::new(
+            block_fetchs,
         )));
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
