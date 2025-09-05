@@ -54,7 +54,7 @@ echo "Uploading all files in '$SOURCE_DIR' (flattened) to bucket '$BUCKET_NAME'.
 
 find "$SOURCE_DIR" -type f | while read -r file; do
   filename="$(basename "$file")"
-  local_size=$(stat -c%s "$file")
+  local_size=$(wc -c < "$file")
 
   if object_exists "$filename"; then
     remote_size=$(get_remote_size "$filename")
