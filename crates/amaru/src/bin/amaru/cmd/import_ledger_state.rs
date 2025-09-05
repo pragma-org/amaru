@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Point, default_ledger_dir, network::NetworkName};
+use amaru_kernel::{default_ledger_dir, network::NetworkName, Point};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -123,7 +123,7 @@ async fn import_all(
 }
 
 #[expect(clippy::unwrap_used)]
-async fn import_one(
+pub async fn import_one(
     network: NetworkName,
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
