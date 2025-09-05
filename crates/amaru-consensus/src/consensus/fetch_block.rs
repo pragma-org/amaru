@@ -16,7 +16,7 @@ use crate::ConsensusError;
 use crate::consensus::block_effects::FetchBlockEffect;
 use crate::consensus::{ValidateHeaderEvent, ValidationFailed};
 use crate::span::adopt_current_span;
-use amaru_kernel::{Point, block::ValidateBlockEvent, peer::Peer};
+use amaru_kernel::{Point, RawBlock, block::ValidateBlockEvent, peer::Peer};
 use amaru_ouroboros_traits::IsHeader;
 use async_trait::async_trait;
 use pure_stage::{Effects, StageRef};
@@ -46,6 +46,7 @@ pub async fn stage(
                 .await
             {
                 Ok(block) => {
+                    let block = RawBlock::from(&*block);
                     eff.send(
                         &downstream,
                         ValidateBlockEvent::Validated {
@@ -83,5 +84,5 @@ pub async fn stage(
 /// A trait for fetching blocks from peers.
 #[async_trait]
 pub trait BlockFetcher {
-    async fn fetch_block(&mut self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError>;
+    async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError>;
 }
