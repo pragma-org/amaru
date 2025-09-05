@@ -20,6 +20,7 @@ telemetry = ["opentelemetry", "tracing-opentelemetry"]
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 hex.workspace = true
 itertools.workspace = true
 opentelemetry = { workspace = true, optional = true }
