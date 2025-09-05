@@ -19,15 +19,14 @@ use amaru_kernel::peer::Peer;
 use async_trait::async_trait;
 use pallas_network::miniprotocols::blockfetch::Client;
 use std::collections::BTreeMap;
-use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use std::fmt::Debug;
 
 pub struct ClientsBlockFetcher {
-    clients: RwLock<BTreeMap<Peer, Arc<Mutex<Client>>>>,
+    clients: BTreeMap<Peer, Client>,
 }
 
 impl ClientsBlockFetcher {
-    async fn fetch(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
+    async fn fetch(&mut self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
         // FIXME: should not crash if the peer is not found
         // the block should be fetched from any other valid peer
         // which is known to have it
@@ -52,6 +51,14 @@ impl ClientsBlockFetcher {
     }
 }
 
+impl Debug for ClientsBlockFetcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientsBlockFetcher")
+            .field("clients", &self.clients.keys().collect::<Vec<&Peer>>())
+            .finish()
+    }
+}
+
 impl ClientsBlockFetcher {
     pub fn new(clients: Vec<(Peer, Client)>) -> Self {
         let mut cs = BTreeMap::new();
@@ -59,14 +66,14 @@ impl ClientsBlockFetcher {
             cs.insert(peer, Arc::new(Mutex::new(client)));
         }
         Self {
-            clients: RwLock::new(cs),
+            clients: clients.into_iter().collect(),
         }
     }
 }
 
 #[async_trait]
 impl BlockFetcher for ClientsBlockFetcher {
-    async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
+    async fn fetch_block(&mut self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
         self.fetch(peer, point).await
     }
 }
