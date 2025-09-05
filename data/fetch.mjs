@@ -121,7 +121,7 @@ async function fetchContinuously() {
       const eraSummaries = await ws.queryLedgerState("eraSummaries");
 
       const genesisParameters = await ws.queryNetwork("genesisConfiguration", {
-	      "era": "shelley"
+        "era": "shelley"
       });
 
       const networkEpoch = currentEpoch(eraSummaries, genesisParameters);
@@ -152,16 +152,16 @@ async function fetchContinuously() {
         if (previousTip != null) {
           tty.cursorTo(0, 1);
           tty.clearLine(0);
-	        const num = relativeSlot(eraSummaries, point.slot);
-	        const den = epochLength(eraSummaries, point.slot);
+          const num = relativeSlot(eraSummaries, point.slot);
+          const den = epochLength(eraSummaries, point.slot);
           tty.write(`awaiting end of epoch ${previousTip.epoch} (${num}/${den})`);
-	      }
+        }
 
         if (previousTip != null && point.epoch > previousTip.epoch) {
-	        // Run the step through a different socket, so that messages don't conflict.
-	        await ogmios(async (ws, done) => {
+          // Run the step through a different socket, so that messages don't conflict.
+          await ogmios(async (ws, done) => {
             step(ws, [], 1, previousTip, done);
-	        }, ogmiosUrl);
+          });
         }
 
         if (point.epoch >= networkEpoch) {
@@ -185,7 +185,6 @@ async function fetchContinuously() {
     } else {
       tty.cursorTo(0, 0);
       tty.clearScreenDown();
-      tty.write(`terminating with exit ${exit}`);
       return exit;
     }
   };
@@ -282,13 +281,12 @@ function step(ws, snapshots, i, point, done) {
       await ws.queryLedgerState("dump", { to });
     }
 
-    let result;
     for (let q = 0; q < queries.length; q += 1) {
       const { query, getFilename } = queries[q];
       const filename = getFilename(point);
       fs.mkdirSync(path.dirname(filename), { recursive: true });
-      result = await query(ws, result);
-      fs.writeFileSync(filename, Json.stringify(result, null, 2));
+      const result = await query(ws);
+      fs.writeFileSync(filename, Json.stringify(result));
     }
 
     tty.cursorTo(0, i % 10);
@@ -346,7 +344,7 @@ function fetchRewardsProvenance(ws) {
   return ws.queryLedgerState("rewardsProvenance");
 }
 
-async function fetchDReps(ws, { stakePools }) {
+async function fetchDReps(ws, stakePools = {}) {
   let dreps = await ws.queryLedgerState("delegateRepresentatives");
 
   let abstain = dreps.find((drep) => drep.type === "abstain") ?? { stake: { ada: { lovelace: 0 } } };
