@@ -28,12 +28,12 @@ help:
 
 snapshots/$(AMARU_NETWORK): ## Download snapshots
 	@if [ ! -f "${SNAPSHOTS_FILE}" ]; then echo "SNAPSHOTS_FILE not found: ${SNAPSHOTS_FILE}"; exit 1; fi;
-	mkdir -p $@
+	mkdir -p "$@"
 	cat $(SNAPSHOTS_FILE) \
 		| jq -r '.[] | "\(.point) \(.url)"' \
-		| while read p u; do \
+		| while read -r p u; do \
 			echo "Fetching $$p.cbor"; \
-			curl --progress-bar -o - $$u | gunzip > $@/$$p.cbor; \
+			curl --progress-bar -o - "$$u" | gunzip > "$@/$$p.cbor"; \
 		done
 
 import-snapshots: import-ledger-state # 'backward-compatibility'; might remove after a while.
@@ -50,11 +50,7 @@ import-ledger-state: snapshots/$(AMARU_NETWORK) ## Import snapshots for demo
 		$$SNAPSHOT_ARGS
 
 import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
-	@if [ ! -f "$(HEADERS_FILE)" ]; then echo "HEADERS_FILE not found: $(HEADERS_FILE)"; exit 1; fi; \
-	HEADERS=$$(jq -r '.[]' $(HEADERS_FILE)); \
-	for HEADER in $$HEADERS; do \
-		cargo run --profile $(BUILD_PROFILE) -- import-headers --config-dir $(AMARU_CONFIG_DIR); \
-	done
+	cargo run --profile $(BUILD_PROFILE) -- import-headers --config-dir "$(AMARU_CONFIG_DIR)"
 
 import-nonces: ## Import nonces for demo
 	@if [ ! -f "$(NONCES_FILE)" ]; then echo "NONCES_FILE not found: $(NONCES_FILE)"; exit 1; fi; \
@@ -77,9 +73,10 @@ download-haskell-config: ## Download Cardano Haskell configuration for $AMARU_NE
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/conway-genesis.json"
 
 clear-dbs: ## Clear the databases
-	@rm -rf $(AMARU_LEDGER_DIR) $(AMARU_CHAIN_DIR)
+	@test -n "$(AMARU_LEDGER_DIR)" -a -n "$(AMARU_CHAIN_DIR)"
+	@rm -rf -- "$(AMARU_LEDGER_DIR)" "$(AMARU_CHAIN_DIR)"
 
-fetch-chain-headers: $(AMARU_CONFIG_DIR)/$(NETWORK)/ ## Fetch chain headers from the network
+fetch-chain-headers: $(AMARU_CONFIG_DIR)/$(AMARU_NETWORK)/ ## Fetch chain headers from the network
 	cargo run --profile $(BUILD_PROFILE) -- fetch-chain-headers \
 		--peer-address $(AMARU_PEER_ADDRESS) \
 		--config-dir $(AMARU_CONFIG_DIR) \
