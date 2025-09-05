@@ -120,6 +120,7 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
  "anyhow",
+ "async-trait",
  "either",
  "hex",
  "insta",

@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::stages::consensus::clients_block_fetcher::ClientsBlockFetcher;
 use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
+use amaru_consensus::consensus::block_effects;
 use amaru_consensus::{
     ConsensusError, IsHeader,
     consensus::{
@@ -35,9 +37,7 @@ use amaru_stores::{
     },
 };
 use anyhow::Context;
-use consensus::{
-    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage, store_block::StoreBlockStage,
-};
+use consensus::{forward_chain::ForwardChainStage, store_block::StoreBlockStage};
 use gasket::{
     messaging::OutputPort,
     runtime::{self, Tether, spawn_stage},
@@ -194,8 +194,6 @@ pub fn bootstrap(
         })
         .collect();
 
-    let mut fetch_block_stage = BlockFetchStage::new(block_fetchs);
-
     let mut stages = chain_syncs
         .into_iter()
         .map(|session| pull::Stage::new(session.0, session.1, vec![tip.clone()]))
@@ -227,7 +225,6 @@ pub fn bootstrap(
         our_tip,
     );
 
-    let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
@@ -251,6 +248,12 @@ pub fn bootstrap(
         .resources()
         .put::<store_effects::ResourceParameters>(global_parameters.clone());
 
+    network
+        .resources()
+        .put::<block_effects::ResourceBlockFetcher>(Arc::new(Mutex::new(
+            ClientsBlockFetcher::new(block_fetchs),
+        )));
+
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
     let pure_stages = PureStageSim::new(network, rt, exit);
@@ -264,12 +267,9 @@ pub fn bootstrap(
         output.connect(SendAdapter(graph_input.clone()));
     }
 
-    fetch_block_stage
+    store_block_stage
         .upstream
         .connect(RecvAdapter(output_stage));
-    fetch_block_stage.downstream.connect(to_store_block);
-
-    store_block_stage.upstream.connect(from_fetch_block);
     store_block_stage.downstream.connect(to_ledger);
 
     ledger_stage.connect(from_store_block, to_block_forward);
@@ -286,7 +286,6 @@ pub fn bootstrap(
 
     let pure_stages = spawn_stage(pure_stages, policy.clone());
 
-    let fetch = spawn_stage(fetch_block_stage, policy.clone());
     let store_block = spawn_stage(store_block_stage, policy.clone());
     let ledger = ledger_stage.spawn(policy.clone());
     let block_forward = spawn_stage(forward_chain_stage, policy.clone());
@@ -294,7 +293,6 @@ pub fn bootstrap(
     stages.push(pure_stages);
 
     stages.push(store_block);
-    stages.push(fetch);
     stages.push(ledger);
     stages.push(block_forward);
     Ok(stages)
@@ -485,7 +483,7 @@ mod tests {
 
         let stages = bootstrap(config, vec![], CancellationToken::new()).unwrap();
 
-        assert_eq!(5, stages.len());
+        assert_eq!(4, stages.len());
     }
 
     #[test]

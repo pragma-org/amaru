@@ -12,18 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::peer::Peer;
 use crate::{Point, RawBlock};
+use pallas_primitives::babbage::Header;
+use serde::{Deserialize, Serialize};
 use tracing::Span;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum ValidateBlockEvent {
     Validated {
-        point: Point,
+        peer: Peer,
+        header: Header,
         block: RawBlock,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
     Rollback {
+        peer: Peer,
         rollback_point: Point,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
 }

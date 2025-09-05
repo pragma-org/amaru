@@ -19,21 +19,22 @@ use crate::simulator::ledger::{FakeStakeDistribution, populate_chain_store};
 use crate::simulator::simulate::simulate;
 use crate::simulator::{Args, Chain, History, NodeHandle, SimulateConfig};
 use crate::sync::ChainSyncMessage;
-use amaru_consensus::IsHeader;
+use amaru_consensus::consensus::fetch_block::BlockFetcher;
 use amaru_consensus::consensus::headers_tree::HeadersTree;
 use amaru_consensus::consensus::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain};
 use amaru_consensus::consensus::store::ChainStore;
 use amaru_consensus::consensus::validate_header::ValidateHeader;
-use amaru_consensus::consensus::{
-    ChainSyncEvent, ValidateHeaderEvent, build_stage_graph, store_effects,
-};
+use amaru_consensus::consensus::{ChainSyncEvent, block_effects, build_stage_graph, store_effects};
+use amaru_consensus::{ConsensusError, IsHeader};
 use amaru_kernel::Point::{Origin, Specific};
+use amaru_kernel::block::ValidateBlockEvent;
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use amaru_kernel::{Point, to_cbor};
 use amaru_slot_arithmetic::Slot;
 use amaru_stores::rocksdb::consensus::InMemConsensusStore;
+use async_trait::async_trait;
 use pallas_crypto::hash::Hash;
 use pallas_primitives::babbage::Header;
 use pure_stage::simulation::SimulationBuilder;
@@ -144,9 +145,9 @@ fn spawn_node(
 
     let propagate_header_stage = network.stage(
         "propagate_header",
-        async |(msg_id, downstream), msg: ValidateHeaderEvent, eff| {
+        async |(msg_id, downstream), msg: ValidateBlockEvent, eff| {
             let (peer, chain_sync_message) = match msg {
-                ValidateHeaderEvent::Validated { peer, header, .. } => (
+                ValidateBlockEvent::Validated { peer, header, .. } => (
                     peer,
                     ChainSyncMessage::Fwd {
                         msg_id,
@@ -159,7 +160,7 @@ fn spawn_node(
                         },
                     },
                 ),
-                ValidateHeaderEvent::Rollback {
+                ValidateBlockEvent::Rollback {
                     peer,
                     rollback_point,
                     ..
@@ -203,6 +204,9 @@ fn spawn_node(
 
     network.resources().put(chain_ref);
     network.resources().put(global_parameters);
+    network
+        .resources()
+        .put::<block_effects::ResourceBlockFetcher>(Arc::new(Mutex::new(FakeBlockFetcher)));
 
     (receiver.without_state(), rx)
 }
@@ -301,5 +305,21 @@ fn chain_property(
         } else {
             Err("impossible, no first entry in history".to_string())
         }
+    }
+}
+
+/// A fake block fetcher that always returns an empty block.
+/// This is used in for simulating the network.
+#[derive(Clone, Debug, Default)]
+pub struct FakeBlockFetcher;
+
+#[async_trait]
+impl BlockFetcher for FakeBlockFetcher {
+    async fn fetch_block(
+        &mut self,
+        _peer: &Peer,
+        _point: &Point,
+    ) -> Result<Vec<u8>, ConsensusError> {
+        Ok(vec![])
     }
 }
