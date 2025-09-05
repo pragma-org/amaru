@@ -206,7 +206,7 @@ fn spawn_node(
     network.resources().put(global_parameters);
     network
         .resources()
-        .put::<block_effects::ResourceBlockFetcher>(Arc::new(FakeBlockFetcher));
+        .put::<block_effects::ResourceBlockFetcher>(Arc::new(Mutex::new(FakeBlockFetcher)));
 
     (receiver.without_state(), rx)
 }
@@ -315,7 +315,11 @@ pub struct FakeBlockFetcher;
 
 #[async_trait]
 impl BlockFetcher for FakeBlockFetcher {
-    async fn fetch_block(&self, _peer: &Peer, _point: &Point) -> Result<Vec<u8>, ConsensusError> {
+    async fn fetch_block(
+        &mut self,
+        _peer: &Peer,
+        _point: &Point,
+    ) -> Result<Vec<u8>, ConsensusError> {
         Ok(vec![])
     }
 }
