@@ -1,5 +1,3 @@
-.EXPORT_ALL_VARIABLES:
-
 AMARU_NETWORK ?= preprod
 AMARU_CONFIG_DIR ?= data
 DATA_FOLDER := $(AMARU_CONFIG_DIR)/$(AMARU_NETWORK)
@@ -17,7 +15,9 @@ AMARU_LEDGER_DIR ?= ./ledger.$(AMARU_NETWORK).db
 AMARU_CHAIN_DIR ?= ./chain.$(AMARU_NETWORK).db
 BUILD_PROFILE ?= release
 
-.PHONY: help bootstrap start import-ledger-state import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov fetch-chain-headers
+export AMARU_NETWORK AMARU_CONFIG_DIR AMARU_PEER_ADDRESS AMARU_LISTEN_ADDRESS AMARU_LEDGER_DIR AMARU_CHAIN_DIR
+
+.PHONY: help bootstrap start import-ledger-state import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov fetch-chain-headers dev
 
 help:
 	@echo "\033[1;4mTargets:\033[00m"
@@ -69,21 +69,21 @@ import-nonces: ## Import nonces for demo
 
 download-haskell-config: ## Download Cardano Haskell configuration for $AMARU_NETWORK
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/config.json
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/topology.json
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/byron-genesis.json
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/shelley-genesis.json
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/alonzo-genesis.json
-	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/conway-genesis.json
+	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/config.json"
+	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/topology.json"
+	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/byron-genesis.json"
+	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/shelley-genesis.json"
+	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/alonzo-genesis.json"
+	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/conway-genesis.json"
 
 clear-dbs: ## Clear the databases
 	@rm -rf $(AMARU_LEDGER_DIR) $(AMARU_CHAIN_DIR)
 
 fetch-chain-headers: $(AMARU_CONFIG_DIR)/$(NETWORK)/ ## Fetch chain headers from the network
 	cargo run --profile $(BUILD_PROFILE) -- fetch-chain-headers \
-		--peer-address $(PEER_ADDRESS) \
+		--peer-address $(AMARU_PEER_ADDRESS) \
 		--config-dir $(AMARU_CONFIG_DIR) \
-		--network $(NETWORK)
+		--network $(AMARU_NETWORK)
 
 bootstrap: clear-dbs ## Bootstrap the node from scratch
 	cargo run --profile $(BUILD_PROFILE) -- bootstrap \
