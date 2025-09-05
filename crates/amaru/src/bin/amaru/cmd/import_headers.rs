@@ -32,6 +32,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK",
+        env = "AMARU_NETWORK",
         default_value_t = NetworkName::Preprod,
     )]
     network: NetworkName,
@@ -40,7 +41,12 @@ pub struct Args {
     ///
     /// This is the directory where data will be stored. The directory and any intermediate
     /// paths will be created if they do not exist.
-    #[arg(long, value_name = "DIR", verbatim_doc_comment)]
+    #[arg(
+        long,
+        value_name = "DIR",
+        env = "AMARU_CHAIN_DIR",
+        verbatim_doc_comment
+    )]
     chain_dir: Option<PathBuf>,
 
     /// Path to directory containing per-network configuration files.
@@ -54,6 +60,7 @@ pub struct Args {
         long,
         value_name = "DIRECTORY",
         default_value = "data",
+        env = "AMARU_CONFIG_DIR",
         verbatim_doc_comment
     )]
     config_dir: PathBuf,
