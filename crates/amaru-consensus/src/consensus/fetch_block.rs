@@ -84,5 +84,5 @@ pub async fn stage(
 /// A trait for fetching blocks from peers.
 #[async_trait]
 pub trait BlockFetcher {
-    async fn fetch_block(&mut self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError>;
+    async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError>;
 }
