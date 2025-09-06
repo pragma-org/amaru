@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::cbor;
+use amaru_kernel::{cbor, Hash, HEADER_HASH_SIZE};
 use clap::Parser;
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};
@@ -35,12 +35,6 @@ pub struct Args {
 pub enum Error {
     #[error("Snapshot {0} does not exist")]
     SnapshotDoesNotExist(PathBuf),
-    #[error(
-        "Snapshot name {0} is not well-formed, expected something like 'xxxx.<epoch no>.<slot no>.<hash>'"
-    )]
-    InvalidSnapshotPath(PathBuf),
-    #[error("Cannot find parent directory for {0}")]
-    NoParentDir(PathBuf),
 }
 
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -60,22 +54,15 @@ async fn convert_one_snapshot_file(
         return Err(Box::new(Error::SnapshotDoesNotExist(snapshot.clone())));
     }
 
-    let target_name = make_target_name(snapshot)?;
-    let target_path = target_dir.join(target_name);
-    let path = target_path
-        .parent()
-        .ok_or(Box::new(Error::NoParentDir(target_path.clone())))?;
-    fs::create_dir_all(path).await?;
+    fs::create_dir_all(target_dir).await?;
 
-    convert_snapshot_to(snapshot, &target_path).await?;
-
-    Ok(target_path)
+    convert_snapshot_to(snapshot, target_dir).await
 }
 
 async fn convert_snapshot_to(
     snapshot: &PathBuf,
-    target_path: &PathBuf,
-) -> Result<(), Box<dyn std::error::Error>> {
+    target_dir: &Path,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let bytes = fs::read(snapshot).await?;
     let mut d = cbor::Decoder::new(bytes.as_slice());
 
@@ -113,25 +100,21 @@ async fn convert_snapshot_to(
 
     d.array()?;
     // tip
-    d.skip()?;
+    // https://github.com/abailly/ouroboros-consensus/blob/1508638f832772d21874e18e48b908fcb791cd49/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Ledger/Ledger.hs#L694
+    // the Tip is wrapped in a WithOrigin type hence the double array
+    d.array()?;
+    d.array()?;
+    let slot = d.u64()?;
+    let _height = d.u64()?;
+    let hash: Hash<HEADER_HASH_SIZE> = d.decode()?;
 
     let p = d.position();
+
+    let target_path = target_dir.join(format!("{}.{}.cbor", slot, hash));
+
     fs::write(&target_path, &bytes[p..bytes.len() - 1]).await?;
 
-    Ok(())
-}
-
-fn make_target_name(snapshot: &Path) -> Result<String, Box<dyn std::error::Error>> {
-    snapshot
-        .file_name()
-        .and_then(|s| s.to_str())
-        .map(|s| s.split('.').collect())
-        .and_then(|parts: Vec<&str>| {
-            let slot = parts.get(3);
-            let hash = parts.get(4);
-            slot.and_then(|s| hash.map(|h| s.to_string() + "." + h + ".cbor"))
-        })
-        .ok_or(Box::new(Error::InvalidSnapshotPath(snapshot.to_path_buf())))
+    Ok(target_path)
 }
 
 #[cfg(test)]
