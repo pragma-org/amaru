@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Hash, HEADER_HASH_SIZE};
+use amaru_kernel::{HEADER_HASH_SIZE, Hash, cbor};
 use clap::Parser;
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};
@@ -26,8 +26,8 @@ pub struct Args {
 
     /// Directory to store converted snapshots into.
     ///
-    /// Directory will be created if it does not exist.
-    #[arg(long, value_name = "DIR", verbatim_doc_comment, num_args(0..))]
+    /// Directory will be created if it does not exist, defaults to '.'.
+    #[arg(long, value_name = "DIR", verbatim_doc_comment)]
     target_dir: Option<PathBuf>,
 }
 
@@ -35,6 +35,8 @@ pub struct Args {
 pub enum Error {
     #[error("Snapshot {0} does not exist")]
     SnapshotDoesNotExist(PathBuf),
+    #[error("Snapshot {0} is not a file")]
+    SnapshotIsNotFile(PathBuf),
 }
 
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -52,6 +54,9 @@ async fn convert_one_snapshot_file(
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     if !snapshot.exists() {
         return Err(Box::new(Error::SnapshotDoesNotExist(snapshot.clone())));
+    }
+    if !snapshot.is_file() {
+        return Err(Box::new(Error::SnapshotIsNotFile(snapshot.clone())));
     }
 
     fs::create_dir_all(target_dir).await?;
