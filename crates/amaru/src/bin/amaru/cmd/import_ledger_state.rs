@@ -110,7 +110,7 @@ fn sort_snapshots_by_slot(snapshots: &mut [PathBuf]) {
     snapshots.sort();
 }
 
-async fn import_all(
+pub async fn import_all(
     network: NetworkName,
     snapshots: &Vec<PathBuf>,
     ledger_dir: &PathBuf,
