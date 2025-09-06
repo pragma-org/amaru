@@ -405,7 +405,7 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 /// A default era history for testnets
 ///
 /// This default `EraHistory` contains a single era which covers 1000 epochs,
-/// with a slot length of 1 second and epoch size of 432000 slots.
+/// with a slot length of 1 second and epoch size of 86400 slots.
 static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     let eras: [Summary; 1] = [Summary {
         start: Bound {
@@ -416,7 +416,7 @@ static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         end: None,
 
         params: EraParams {
-            epoch_size_slots: 432000,
+            epoch_size_slots: 86400, // one day
             slot_length: 1000,
         },
     }];
@@ -573,7 +573,7 @@ pub mod tests {
     #[cfg(test)]
     mod internal {
         use super::{super::EraHistoryFileError, any_network_name};
-        use crate::network::{PREPROD_ERA_HISTORY, load_era_history_from_file};
+        use crate::network::{load_era_history_from_file, PREPROD_ERA_HISTORY};
         use amaru_slot_arithmetic::{Epoch, Slot};
         use proptest::proptest;
         use std::{env, fs::File, io::Write, path::Path, str::FromStr};

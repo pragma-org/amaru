@@ -14,7 +14,7 @@
 
 use amaru_kernel::cbor;
 use clap::Parser;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs::{self};
 
 #[derive(Debug, Parser)]
@@ -39,6 +39,8 @@ pub enum Error {
         "Snapshot name {0} is not well-formed, expected something like 'xxxx.<epoch no>.<slot no>.<hash>'"
     )]
     InvalidSnapshotPath(PathBuf),
+    #[error("Cannot find parent directory for {0}")]
+    NoParentDir(PathBuf),
 }
 
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -51,7 +53,7 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn convert_one_snapshot_file(
-    target_dir: &PathBuf,
+    target_dir: &Path,
     snapshot: &PathBuf,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     if !snapshot.exists() {
@@ -60,7 +62,10 @@ async fn convert_one_snapshot_file(
 
     let target_name = make_target_name(snapshot)?;
     let target_path = target_dir.join(target_name);
-    fs::create_dir_all(target_path.parent().unwrap()).await?;
+    let path = target_path
+        .parent()
+        .ok_or(Box::new(Error::NoParentDir(target_path.clone())))?;
+    fs::create_dir_all(path).await?;
 
     convert_snapshot_to(snapshot, &target_path).await?;
 
@@ -116,7 +121,7 @@ async fn convert_snapshot_to(
     Ok(())
 }
 
-fn make_target_name(snapshot: &PathBuf) -> Result<String, Box<dyn std::error::Error>> {
+fn make_target_name(snapshot: &Path) -> Result<String, Box<dyn std::error::Error>> {
     snapshot
         .file_name()
         .and_then(|s| s.to_str())
@@ -126,56 +131,72 @@ fn make_target_name(snapshot: &PathBuf) -> Result<String, Box<dyn std::error::Er
             let hash = parts.get(4);
             slot.and_then(|s| hash.map(|h| s.to_string() + "." + h + ".cbor"))
         })
-        .ok_or(Box::new(Error::InvalidSnapshotPath(snapshot.clone())))
+        .ok_or(Box::new(Error::InvalidSnapshotPath(snapshot.to_path_buf())))
 }
 
 #[cfg(test)]
 mod test {
-    use amaru_kernel::network::NetworkName;
-    use tokio::fs;
-
-    use crate::cmd::import_ledger_state::import_one;
-
     use super::*;
+    use crate::cmd::import_ledger_state::import_all;
+    use amaru_kernel::network::NetworkName;
     use std::path::PathBuf;
+    use tokio::fs;
 
     #[tokio::test]
     async fn fails_if_file_does_not_exist() {
         let tempdir = tempfile::tempdir().unwrap();
         let snapshot_path = PathBuf::from("does-not-exist");
 
-        let result = convert_one_snapshot_file(&tempdir.path().into(), &snapshot_path).await;
+        let result = convert_one_snapshot_file(tempdir.path(), &snapshot_path).await;
 
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn generates_converted_snapshot_in_given_target_dir() {
+    async fn generates_converted_snapshots_in_given_target_dir() {
         let tempdir = tempfile::tempdir().unwrap();
-        let snapshot_path = "tests/data/convert/ledger.snapshot.1.86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968".into();
-        let expected_path = tempdir
-            .path()
-            .join("86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor");
+        let expected_paths = vec![
+            tempdir.path().join(
+                "86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor",
+            ),
+            tempdir.path().join(
+                "172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.cbor",
+            ),
+            tempdir.path().join(
+                "259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.cbor",
+            ),
+        ];
 
-        let result = convert_one_snapshot_file(&tempdir.path().to_path_buf(), &snapshot_path)
+        let args = super::Args {
+            snapshot: dir_content(Path::new("tests/data/convert")).await.unwrap(),
+            target_dir: Some(tempdir.path().to_path_buf()),
+        };
+
+        run(args)
             .await
-            .unwrap();
+            .expect("unexpected error in conversion test");
 
-        let tmp_ledger_dir = tempdir.path().join("ledger.db");
+        assert!(
+            expected_paths.iter().all(|p| p.exists()),
+            "missing converted snapshots in {:?}",
+            dir_content(tempdir.path())
+                .await
+                .unwrap_or_else(|_| panic!("failed to list {tempdir:?} content"))
+        );
 
-        assert_eq!(expected_path, result.as_path());
-        // for error reporting
-        let dir = dir_content(&tempdir.path().to_path_buf()).await.unwrap();
-        assert!(result.exists(), "target dir content: {:?}", dir);
-        import_one(NetworkName::Testnet(42), &result, &tmp_ledger_dir)
-            .await
-            .expect(format!("fail to import snapshot from {result:?}").as_str());
+        assert_import_ledger_db(&expected_paths, &tempdir.path().join("ledger.db")).await;
     }
 
-    async fn dir_content(path: &PathBuf) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    async fn assert_import_ledger_db(expected_paths: &Vec<PathBuf>, ledger_dir: &PathBuf) {
+        import_all(NetworkName::Testnet(42), expected_paths, ledger_dir)
+            .await
+            .unwrap_or_else(|_| panic!("fail to import snapshots {expected_paths:?}"));
+    }
+
+    async fn dir_content(path: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
         let mut result = Vec::new();
         let mut acc: Vec<PathBuf> = Vec::new();
-        acc.push(path.clone());
+        acc.push(path.to_path_buf());
         while let Some(dir) = acc.pop() {
             let mut list = fs::read_dir(dir).await?;
             while let Some(entry) = list.next_entry().await? {
@@ -186,6 +207,6 @@ mod test {
                 }
             }
         }
-        Ok(result.iter().map(|p| format!("{}", p.display())).collect())
+        Ok(result)
     }
 }
