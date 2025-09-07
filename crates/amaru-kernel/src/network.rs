@@ -573,7 +573,7 @@ pub mod tests {
     #[cfg(test)]
     mod internal {
         use super::{super::EraHistoryFileError, any_network_name};
-        use crate::network::{load_era_history_from_file, PREPROD_ERA_HISTORY};
+        use crate::network::{PREPROD_ERA_HISTORY, load_era_history_from_file};
         use amaru_slot_arithmetic::{Epoch, Slot};
         use proptest::proptest;
         use std::{env, fs::File, io::Write, path::Path, str::FromStr};
