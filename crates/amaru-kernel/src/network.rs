@@ -506,6 +506,31 @@ impl NetworkName {
             Self::Testnet(magic) => magic,
         }
     }
+
+    /// Compute the default epoch length for this network.
+    ///
+    /// This is an over-simplification as _theoretically_ each era can
+    /// have a different epoch length but in practice, except for
+    /// Byron era, all eras for each network have always had the same
+    /// length
+    pub fn default_epoch_size_in_slots(&self) -> u64 {
+        match self {
+            NetworkName::Mainnet => 432000,
+            NetworkName::Preprod => 432000,
+            NetworkName::Preview => 86400,
+            NetworkName::Testnet(_) => 86400,
+        }
+    }
+
+    /// Provide stability window for given network.
+    pub fn default_stability_window(&self) -> Slot {
+        match self {
+            NetworkName::Mainnet => MAINNET_GLOBAL_PARAMETERS.stability_window,
+            NetworkName::Preprod => PREPROD_GLOBAL_PARAMETERS.stability_window,
+            NetworkName::Preview => PREVIEW_GLOBAL_PARAMETERS.stability_window,
+            NetworkName::Testnet(_) => TESTNET_GLOBAL_PARAMETERS.stability_window,
+        }
+    }
 }
 
 /// Error type for era history file operations

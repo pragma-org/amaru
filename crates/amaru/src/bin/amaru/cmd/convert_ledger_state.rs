@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use amaru_consensus::Nonces;
-use amaru_kernel::{Epoch, HEADER_HASH_SIZE, Hash, Nonce, cbor};
+use amaru_kernel::{
+    Bound, EraHistory, EraParams, HEADER_HASH_SIZE, Hash, Nonce, Summary, cbor,
+    network::NetworkName,
+};
 use clap::Parser;
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};
@@ -30,6 +33,10 @@ pub struct Args {
     /// Directory will be created if it does not exist, defaults to '.'.
     #[arg(long, value_name = "DIR", verbatim_doc_comment)]
     target_dir: Option<PathBuf>,
+
+    /// Network to convert snapshots for.
+    #[arg(long, value_name = "NETWORK_NAME", verbatim_doc_comment)]
+    network: NetworkName,
 }
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -43,7 +50,7 @@ pub enum Error {
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let target_dir = args.target_dir.unwrap_or(PathBuf::from("."));
     for snapshot in args.snapshot {
-        convert_one_snapshot_file(&target_dir, &snapshot).await?;
+        convert_one_snapshot_file(&target_dir, &snapshot, &args.network).await?;
     }
 
     Ok(())
@@ -52,6 +59,7 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 async fn convert_one_snapshot_file(
     target_dir: &Path,
     snapshot: &PathBuf,
+    network: &NetworkName,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     if !snapshot.exists() {
         return Err(Box::new(Error::SnapshotDoesNotExist(snapshot.clone())));
@@ -62,12 +70,13 @@ async fn convert_one_snapshot_file(
 
     fs::create_dir_all(target_dir).await?;
 
-    convert_snapshot_to(snapshot, target_dir).await
+    convert_snapshot_to(snapshot, target_dir, network).await
 }
 
 async fn convert_snapshot_to(
     snapshot: &PathBuf,
     target_dir: &Path,
+    network: &NetworkName,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let bytes = fs::read(snapshot).await?;
     let mut d = cbor::Decoder::new(bytes.as_slice());
@@ -88,16 +97,20 @@ async fn convert_snapshot_to(
     // HardForkCombinator telescope encoding.
     // encodes the era history. There are 6 eras before conway.
     // FIXME: pass the current Era to know how many skips to do
-    d.skip()?;
-    d.skip()?;
-    d.skip()?;
-    d.skip()?;
-    d.skip()?;
-    d.skip()?;
+    let mut eras: Vec<Summary> = decode_eras(&mut d, network)?;
 
-    // conway era bounds
+    // current era lower bound
     d.array()?;
-    d.skip()?;
+    let start: Bound = d.decode()?;
+    eras.push(Summary {
+        start,
+        end: None,
+        params: EraParams {
+            epoch_size_slots: network.default_epoch_size_in_slots(),
+            slot_length: 1000,
+        },
+    });
+    let history = EraHistory::new(&eras, network.default_stability_window());
 
     // ledger state
     // https://github.com/abailly/ouroboros-consensus/blob/1508638f832772d21874e18e48b908fcb791cd49/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Ledger/Ledger.hs#L736
@@ -138,7 +151,7 @@ async fn convert_snapshot_to(
     // https://github.com/abailly/ouroboros-consensus/blob/1508638f832772d21874e18e48b908fcb791cd49/ouroboros-consensus/src/ouroboros-consensus/Ouroboros/Consensus/HeaderValidation.hs#L599
     d.array()?;
     // NOTE: The encoding of an AnnTip is not consistent with the encoding of a Tip
-    let _tip_slot = d.u64()?;
+    let tip_slot = d.u64()?;
     let _tip_hash: Hash<HEADER_HASH_SIZE> = d.decode()?;
     let _tip_height = d.u64()?;
 
@@ -201,12 +214,36 @@ async fn convert_snapshot_to(
         active,
         evolving,
         candidate,
-        epoch: Epoch::from(0), // FIXME: should be computed from era history
+        epoch: history.slot_to_epoch(tip_slot.into(), tip_slot.into())?,
         tail,
     };
 
     write_nonces(target_dir, nonces).await?;
     write_ledger_snapshot(target_dir, slot, hash, &bytes[begin..end]).await
+}
+
+fn decode_eras(
+    d: &mut minicbor::Decoder<'_>,
+    network: &NetworkName,
+) -> Result<Vec<Summary>, Box<dyn std::error::Error>> {
+    let mut eras = Vec::new();
+
+    for _ in 0..6 {
+        d.array()?;
+        let start: Bound = d.decode()?;
+        let end: Bound = d.decode()?;
+        let summary = Summary {
+            start,
+            end: Some(end),
+            params: EraParams {
+                epoch_size_slots: network.default_epoch_size_in_slots(),
+                slot_length: 1000,
+            },
+        };
+        eras.push(summary);
+    }
+
+    Ok(eras)
 }
 
 async fn write_nonces(target_dir: &Path, nonces: Nonces) -> Result<(), Box<dyn std::error::Error>> {
@@ -239,13 +276,16 @@ mod test {
         let tempdir = tempfile::tempdir().unwrap();
         let snapshot_path = PathBuf::from("does-not-exist");
 
-        let result = convert_one_snapshot_file(tempdir.path(), &snapshot_path).await;
+        let result =
+            convert_one_snapshot_file(tempdir.path(), &snapshot_path, &NetworkName::Testnet(42))
+                .await;
 
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn generates_converted_snapshots_in_given_target_dir() {
+        let network = NetworkName::Testnet(42);
         let tempdir = tempfile::tempdir().unwrap();
         let expected_paths = vec![
             tempdir.path().join(
@@ -262,6 +302,7 @@ mod test {
         let args = super::Args {
             snapshot: dir_content(Path::new("tests/data/convert")).await.unwrap(),
             target_dir: Some(tempdir.path().to_path_buf()),
+            network,
         };
 
         run(args)
@@ -276,23 +317,29 @@ mod test {
                 .unwrap_or_else(|_| panic!("failed to list {tempdir:?} content"))
         );
 
-        assert_import_ledger_db(&expected_paths, &tempdir.path().join("ledger.db")).await;
+        assert_import_ledger_db(&expected_paths, &tempdir.path().join("ledger.db"), network).await;
     }
 
-    async fn assert_import_ledger_db(expected_paths: &Vec<PathBuf>, ledger_dir: &PathBuf) {
-        import_all(NetworkName::Testnet(42), expected_paths, ledger_dir)
+    async fn assert_import_ledger_db(
+        expected_paths: &Vec<PathBuf>,
+        ledger_dir: &PathBuf,
+        network: NetworkName,
+    ) {
+        import_all(network, expected_paths, ledger_dir)
             .await
             .unwrap_or_else(|_| panic!("fail to import snapshots {expected_paths:?}"));
     }
 
     #[tokio::test]
     async fn run_produces_nonces_json_file() {
+        let network = NetworkName::Testnet(42);
         let tempdir = tempfile::tempdir().unwrap();
         let target_dir = tempdir.path().to_path_buf();
 
         let args = super::Args {
             snapshot: dir_content(Path::new("tests/data/convert")).await.unwrap(),
             target_dir: Some(target_dir.clone()),
+            network,
         };
 
         run(args)
