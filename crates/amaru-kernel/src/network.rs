@@ -421,7 +421,7 @@ static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
     }];
 
-    EraHistory::new(&eras, PREVIEW_GLOBAL_PARAMETERS.stability_window)
+    EraHistory::new(&eras, TESTNET_GLOBAL_PARAMETERS.stability_window)
 });
 
 impl From<NetworkName> for &EraHistory {
