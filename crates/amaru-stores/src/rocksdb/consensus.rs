@@ -132,6 +132,7 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
 pub struct InMemConsensusStore<H> {
     nonces: BTreeMap<Hash<32>, Nonces>,
     headers: BTreeMap<Hash<32>, H>,
+    blocks: BTreeMap<Hash<32>, RawBlock>,
 }
 
 impl<H> Default for InMemConsensusStore<H> {
@@ -145,6 +146,7 @@ impl<H> InMemConsensusStore<H> {
         InMemConsensusStore {
             nonces: BTreeMap::new(),
             headers: BTreeMap::new(),
+            blocks: BTreeMap::new(),
         }
     }
 }
@@ -180,12 +182,13 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
         Ok(())
     }
 
-    fn era_history(&self) -> &amaru_kernel::EraHistory {
+    fn era_history(&self) -> &EraHistory {
         NetworkName::Testnet(42).into()
     }
 
-    fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
-        unimplemented!()
+    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
+        self.blocks.insert(*hash, (*block).clone());
+        Ok(())
     }
 }
 

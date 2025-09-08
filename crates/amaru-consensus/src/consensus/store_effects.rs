@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::ConsensusError;
-use amaru_kernel::{Header, Point, protocol_parameters::GlobalParameters};
+use amaru_kernel::{Header, Point, RawBlock, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{IsHeader, Praos};
 use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
@@ -55,6 +55,45 @@ impl ExternalEffect for StoreHeaderEffect {
 }
 
 impl ExternalEffectAPI for StoreHeaderEffect {
+    type Response = Result<(), ConsensusError>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StoreBlockEffect {
+    point: Point,
+    block: Arc<RawBlock>,
+}
+
+impl StoreBlockEffect {
+    pub fn new(point: &Point, block: Arc<RawBlock>) -> Self {
+        Self {
+            point: point.clone(),
+            block,
+        }
+    }
+}
+
+impl ExternalEffect for StoreBlockEffect {
+    #[expect(clippy::expect_used)]
+    fn run(
+        self: Box<Self>,
+        resources: Resources,
+    ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
+        Box::pin(async move {
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("StoreBlockEffect requires a chain store")
+                .clone();
+            let mut store = store.lock().await;
+            let result: <Self as ExternalEffectAPI>::Response = store
+                .store_block(&self.point.hash(), &self.block)
+                .map_err(|e| ConsensusError::StoreBlockFailed(self.point.clone(), e));
+            Box::new(result) as Box<dyn pure_stage::SendData>
+        })
+    }
+}
+
+impl ExternalEffectAPI for StoreBlockEffect {
     type Response = Result<(), ConsensusError>;
 }
 
