@@ -183,9 +183,50 @@ impl Step for Epoch {
     }
 }
 
+#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize, Default)]
+#[repr(transparent)]
+pub struct TimeMs(u64);
+
+impl From<u64> for TimeMs {
+    fn from(epoch: u64) -> TimeMs {
+        TimeMs(epoch)
+    }
+}
+
+impl From<TimeMs> for u64 {
+    fn from(time_ms: TimeMs) -> u64 {
+        time_ms.0
+    }
+}
+
+
+impl Add<u64> for TimeMs {
+    type Output = Self;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        TimeMs(self.0 + rhs)
+    }
+}
+
+impl<C> Encode<C> for TimeMs {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        self.0.encode(e, ctx)
+    }
+}
+
+impl<'b, C> Decode<'b, C> for TimeMs {
+    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        d.u64().map(TimeMs)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bound {
-    pub time_ms: u64, // Milliseconds
+    pub time_ms: TimeMs, // Milliseconds
     pub slot: Slot,
     pub epoch: Epoch,
 }
@@ -194,7 +235,7 @@ pub struct Bound {
 impl Bound {
     fn genesis() -> Bound {
         Bound {
-            time_ms: 0,
+            time_ms: TimeMs(0),
             slot: Slot(0),
             epoch: Epoch(0),
         }
@@ -218,7 +259,7 @@ impl<C> Encode<C> for Bound {
 impl<'b, C> Decode<'b, C> for Bound {
     fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
         let _ = d.array()?;
-        let time_ms = d.u64()?;
+        let time_ms = d.decode()?;
         let slot = d.decode()?;
         let epoch = d.decode_with(ctx)?;
         Ok(Bound {
@@ -462,7 +503,7 @@ impl EraHistory {
         }
     }
 
-    pub fn slot_to_relative_time(&self, slot: Slot, tip: Slot) -> Result<u64, EraHistoryError> {
+    pub fn slot_to_relative_time(&self, slot: Slot, tip: Slot) -> Result<TimeMs, EraHistoryError> {
         for era in &self.eras {
             if era.start.slot > slot {
                 return Err(EraHistoryError::InvalidEraHistory);
@@ -481,7 +522,7 @@ impl EraHistory {
     pub fn slot_to_relative_time_unchecked_horizon(
         &self,
         slot: Slot,
-    ) -> Result<u64, EraHistoryError> {
+    ) -> Result<TimeMs, EraHistoryError> {
         for era in &self.eras {
             if era.start.slot > slot {
                 return Err(EraHistoryError::InvalidEraHistory);
@@ -592,10 +633,10 @@ impl EraHistory {
     }
 }
 
-/// Compute the time in seconds between the start of the system and the given slot.
+/// Compute the time in milliseconds between the start of the system and the given slot.
 ///
 /// **pre-condition**: the given summary must be the era containing that slot.
-fn slot_to_relative_time(slot: &Slot, era: &Summary) -> Result<u64, EraHistoryError> {
+fn slot_to_relative_time(slot: &Slot, era: &Summary) -> Result<TimeMs, EraHistoryError> {
     let slots_elapsed = slot
         .elapsed_from(era.start.slot)
         .map_err(|_| EraHistoryError::InvalidEraHistory)?;
@@ -624,14 +665,20 @@ mod tests {
     use test_case::test_case;
 
     prop_compose! {
-        fn arbitrary_bound()(time_ms in any::<u64>(), slot in any::<u64>(), epoch in any::<Epoch>()) -> Bound {
+        fn arbitrary_time_ms()(ms in any::<u64>()) -> TimeMs {
+            TimeMs(ms)
+        }
+    }
+
+    prop_compose! {
+        fn arbitrary_bound()(time_ms in arbitrary_time_ms(), slot in any::<u64>(), epoch in any::<Epoch>()) -> Bound {
             Bound {
                 time_ms, slot: Slot(slot), epoch
             }
         }
     }
     prop_compose! {
-        fn arbitrary_bound_for_epoch(epoch: Epoch)(time_ms in any::<u64>(), slot in any::<u64>()) -> Bound {
+        fn arbitrary_bound_for_epoch(epoch: Epoch)(time_ms in arbitrary_time_ms(), slot in any::<u64>()) -> Bound {
             Bound {
                 time_ms, slot: Slot(slot), epoch
             }
@@ -734,7 +781,7 @@ mod tests {
             stability_window: Slot(25920),
             eras: vec![Summary {
                 start: Bound {
-                    time_ms: 0,
+                    time_ms: TimeMs(0),
                     slot: Slot(0),
                     epoch: Epoch(0),
                 },
@@ -750,12 +797,12 @@ mod tests {
             eras: vec![
                 Summary {
                     start: Bound {
-                        time_ms: 0,
+                        time_ms: TimeMs(0),
                         slot: Slot(0),
                         epoch: Epoch(0),
                     },
                     end: Some(Bound {
-                        time_ms: 86400000,
+                        time_ms: TimeMs(86400000),
                         slot: Slot(86400),
                         epoch: Epoch(1),
                     }),
@@ -763,7 +810,7 @@ mod tests {
                 },
                 Summary {
                     start: Bound {
-                        time_ms: 86400000,
+                        time_ms: TimeMs(86400000),
                         slot: Slot(86400),
                         epoch: Epoch(1),
                     },
@@ -779,7 +826,7 @@ mod tests {
         let eras = two_eras();
         assert_eq!(
             eras.slot_to_relative_time(Slot(172800), Slot(172800)),
-            Ok(172800000)
+            Ok(TimeMs(172800000))
         );
     }
 
@@ -788,7 +835,7 @@ mod tests {
         let eras = two_eras();
         assert_eq!(
             eras.slot_to_relative_time(Slot(172800), Slot(100000)),
-            Ok(172800000),
+            Ok(TimeMs(172800000)),
             "point is right at the end of the epoch, tip is somewhere"
         );
         assert_eq!(
@@ -803,7 +850,7 @@ mod tests {
         );
         assert_eq!(
             eras.slot_to_relative_time(Slot(172801), Slot(146880)),
-            Ok(172801000),
+            Ok(TimeMs(172801000)),
             "point in the next epoch, and tip right at the stability window limit"
         );
         assert_eq!(
@@ -914,12 +961,12 @@ mod tests {
             eras: vec![
                 Summary {
                     start: Bound {
-                        time_ms: 100000,
+                        time_ms: TimeMs(100000),
                         slot: Slot(100),
                         epoch: Epoch(1),
                     },
                     end: Some(Bound {
-                        time_ms: 186400000,
+                        time_ms: TimeMs(186400000),
                         slot: Slot(86500),
                         epoch: Epoch(2),
                     }),
@@ -927,12 +974,12 @@ mod tests {
                 },
                 Summary {
                     start: Bound {
-                        time_ms: 186400000,
+                        time_ms: TimeMs(186400000),
                         slot: Slot(50), // This is invalid - earlier than first era's start
                         epoch: Epoch(2),
                     },
                     end: Some(Bound {
-                        time_ms: 272800000,
+                        time_ms: TimeMs(272800000),
                         slot: Slot(86450),
                         epoch: Epoch(3),
                     }),
@@ -953,12 +1000,12 @@ mod tests {
             eras: vec![
                 Summary {
                     start: Bound {
-                        time_ms: 0,
+                        time_ms: TimeMs(0),
                         slot: Slot(0),
                         epoch: Epoch(0),
                     },
                     end: Some(Bound {
-                        time_ms: 86400000,
+                        time_ms: TimeMs(86400000),
                         slot: Slot(86400),
                         epoch: Epoch(1),
                     }),
@@ -966,12 +1013,12 @@ mod tests {
                 },
                 Summary {
                     start: Bound {
-                        time_ms: 86400000,
+                        time_ms: TimeMs(86400000),
                         slot: Slot(186400), // Gap of 100000 slots
                         epoch: Epoch(1),
                     },
                     end: Some(Bound {
-                        time_ms: 172800000,
+                        time_ms: TimeMs(172800000),
                         slot: Slot(272800),
                         epoch: Epoch(2),
                     }),
