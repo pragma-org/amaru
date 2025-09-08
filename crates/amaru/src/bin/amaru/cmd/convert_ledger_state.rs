@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HEADER_HASH_SIZE, Hash, cbor};
+use amaru_consensus::Nonces;
+use amaru_kernel::{Epoch, HEADER_HASH_SIZE, Hash, Nonce, cbor};
 use clap::Parser;
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};
@@ -120,9 +121,98 @@ async fn convert_snapshot_to(
     d.skip()?;
     let end = d.position();
 
-    // header state
+    // shelley transition:
+    // https://github.com/abailly/ouroboros-consensus/blob/1508638f832772d21874e18e48b908fcb791cd49/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Ledger/Ledger.hs#L717
+    d.skip()?;
 
+    // header state
+    // https://github.com/abailly/ouroboros-consensus/blob/1508638f832772d21874e18e48b908fcb791cd49/ouroboros-consensus/src/ouroboros-consensus/Ouroboros/Consensus/HeaderValidation.hs#L639
+    d.array()?;
+    // the Tip is wrapped in a WithOrigin type hence the double array
+    d.array()?;
+    d.array()?;
+    // ? Number of eras ?
+    d.u8()?;
+
+    // AnnTip
+    // https://github.com/abailly/ouroboros-consensus/blob/1508638f832772d21874e18e48b908fcb791cd49/ouroboros-consensus/src/ouroboros-consensus/Ouroboros/Consensus/HeaderValidation.hs#L599
+    d.array()?;
+    // NOTE: The encoding of an AnnTip is not consistent with the encoding of a Tip
+    let _tip_slot = d.u64()?;
+    let _tip_hash: Hash<HEADER_HASH_SIZE> = d.decode()?;
+    let _tip_height = d.u64()?;
+
+    // ChainDepState for Praos
+    d.array()?;
+
+    // more HFC telescope encoding
+    d.skip()?;
+    d.skip()?;
+    d.skip()?;
+    d.skip()?;
+    d.skip()?;
+    d.skip()?;
+
+    // the actual PraosState
+    // https://github.com/abailly/ouroboros-consensus/blob/1508638f832772d21874e18e48b908fcb791cd49/ouroboros-consensus-protocol/src/ouroboros-consensus-protocol/Ouroboros/Consensus/Protocol/Praos.hs#L280
+    d.array()?;
+    // HFC era bounds?
+    d.skip()?;
+
+    // version
+    // https://github.com/abailly/ouroboros-consensus/blob/1508638f832772d21874e18e48b908fcb791cd49/ouroboros-consensus/src/ouroboros-consensus/Ouroboros/Consensus/Util/Versioned.hs#L95
+    d.array()?;
+    // currently 0?
+    d.u8()?;
+    d.array()?;
+
+    // last slot
+    d.array()?;
+    // ?
+    d.u8()?;
+    d.u64()?;
+    // TODO: ocert counters
+    // they are currently in the ledger, not sure where they come from
+    d.skip()?;
+
+    // each nonce is a sum type hence encoded as an array, why?
+    // https://github.com/input-output-hk/cardano-ledger/blob/12acadc5bf352d8a5ad3c9b982204207278cdc90/libs/cardano-ledger-core/src/Cardano/Ledger/BaseTypes.hs#L493
+    d.array()?;
+    d.u8()?;
+    let evolving: Nonce = d.decode()?;
+
+    d.array()?;
+    d.u8()?;
+    let candidate: Nonce = d.decode()?;
+
+    d.array()?;
+    d.u8()?;
+    let active: Nonce = d.decode()?;
+
+    d.array()?;
+    d.u8()?;
+    let tail = d.decode()?;
+
+    // previous epoch nonce, can be defined or 0
+    // FIXME: do we use it?
+    d.skip()?;
+
+    let nonces = Nonces {
+        active,
+        evolving,
+        candidate,
+        epoch: Epoch::from(0), // FIXME: should be computed from era history
+        tail,
+    };
+
+    write_nonces(target_dir, nonces).await?;
     write_ledger_snapshot(target_dir, slot, hash, &bytes[begin..end]).await
+}
+
+async fn write_nonces(target_dir: &Path, nonces: Nonces) -> Result<(), Box<dyn std::error::Error>> {
+    let target_path = target_dir.join(format!("nonces.{}.json", nonces.epoch));
+    fs::write(&target_path, serde_json::to_string(&nonces)?).await?;
+    Ok(())
 }
 
 async fn write_ledger_snapshot(
@@ -199,7 +289,7 @@ mod test {
     async fn run_produces_nonces_json_file() {
         let tempdir = tempfile::tempdir().unwrap();
         let target_dir = tempdir.path().to_path_buf();
-        
+
         let args = super::Args {
             snapshot: dir_content(Path::new("tests/data/convert")).await.unwrap(),
             target_dir: Some(target_dir.clone()),
@@ -209,7 +299,7 @@ mod test {
             .await
             .expect("unexpected error in conversion test");
 
-        let nonces_json_path = target_dir.join("nonces.json");
+        let nonces_json_path = target_dir.join("nonces.0.json");
         assert!(
             nonces_json_path.exists(),
             "nonces.json file should be created in target directory"
