@@ -12,22 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::DecodedChainSyncEvent;
 use crate::{
     ConsensusError,
     consensus::{ValidationFailed, store_effects::EvolveNonceEffect},
-    span::adopt_current_span,
 };
+use amaru_kernel::block::StageError;
+use amaru_kernel::span::adopt_current_span;
 use amaru_kernel::{
     Hash, Header, Nonce, Point, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
+use anyhow::anyhow;
 use pallas_math::math::FixedDecimal;
 use pure_stage::{Effects, StageRef};
 use std::{fmt, sync::Arc};
 use tracing::{Instrument, Level, Span, instrument};
-
-use super::DecodedChainSyncEvent;
 
 #[instrument(
     level = Level::TRACE,
@@ -182,7 +183,7 @@ type State = (
     ValidateHeader,
     GlobalParameters,
     StageRef<DecodedChainSyncEvent>,
-    StageRef<ValidationFailed>,
+    StageRef<StageError>,
 );
 
 #[instrument(
@@ -226,8 +227,14 @@ pub async fn stage(
             Ok(nonces) => nonces,
             Err(error) => {
                 tracing::error!(%peer, %error, "evolve nonce failed");
-                eff.send(&errors, ValidationFailed::new(peer.clone(), error.into()))
-                    .await;
+                eff.send(
+                    &errors,
+                    StageError::new(anyhow!(ValidationFailed::new(
+                        peer.clone(),
+                        ConsensusError::NoncesError(error)
+                    ))),
+                )
+                .await;
                 return false;
             }
         };
@@ -242,8 +249,11 @@ pub async fn stage(
             &global,
         ) {
             tracing::info!(%peer, %error, "invalid header");
-            eff.send(&errors, ValidationFailed::new(peer.clone(), error))
-                .await;
+            eff.send(
+                &errors,
+                StageError::new(anyhow!(ValidationFailed::new(peer.clone(), error))),
+            )
+            .await;
             false
         } else {
             true

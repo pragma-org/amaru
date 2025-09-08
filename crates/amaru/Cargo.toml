@@ -36,10 +36,10 @@ serde_json.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [
-    "fs",
-    "rt",
-    "rt-multi-thread",
-    "signal",
+  "fs",
+  "rt",
+  "rt-multi-thread",
+  "signal",
 ] }
 tokio-util.workspace = true
 tracing-opentelemetry.workspace = true
@@ -49,7 +49,7 @@ tracing.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-consensus = { workspace = true, features = ["telemetry"] }
 amaru-kernel.workspace = true
-amaru-ledger.workspace = true
+amaru-ledger = { workspace = true, features = ["telemetry"] }
 amaru-network.workspace = true
 amaru-stores.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }

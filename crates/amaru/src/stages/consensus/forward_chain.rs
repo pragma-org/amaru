@@ -15,6 +15,7 @@
 use crate::stages::PallasPoint;
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
 use amaru_consensus::{IsHeader, consensus::store::ChainStore};
+use amaru_kernel::span::adopt_current_span;
 use amaru_kernel::{Hash, Header, block::BlockValidationResult};
 use client_protocol::{ClientProtocolMsg, client_protocols};
 use gasket::framework::*;
@@ -32,7 +33,6 @@ use tokio::{
     task::JoinHandle,
 };
 use tracing::{Level, error, info, instrument, trace};
-use amaru_kernel::span::adopt_current_span;
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
@@ -106,12 +106,12 @@ impl Worker {
     ) -> Result<(), WorkerError> {
         match result {
             BlockValidationResult::BlockValidated {
-                point,
+                header,
                 block_height,
                 ..
             } => {
                 let store = stage.store.lock().await;
-                if let Some(header) = store.load_header(&Hash::from(point)) {
+                if let Some(header) = store.load_header(&header.hash()) {
                     // assert that the new tip is a direct successor of the old tip
                     assert_eq!(*block_height, self.our_tip.1 + 1);
                     match header.parent() {
@@ -122,11 +122,11 @@ impl Worker {
                         None => assert_eq!(self.our_tip.0, Point::Origin),
                     }
 
-                    self.our_tip = Tip(point.pallas_point(), *block_height);
+                    self.our_tip = Tip(header.point().pallas_point(), *block_height);
 
                     trace!(
                         target: EVENT_TARGET,
-                        tip = %point,
+                        tip = %header.point(),
                         "tip_changed"
                     );
 
@@ -137,7 +137,7 @@ impl Worker {
 
                     stage
                         .downstream
-                        .send(ForwardEvent::Forward(point.pallas_point()));
+                        .send(ForwardEvent::Forward(header.point().pallas_point()));
                 }
 
                 Ok(())

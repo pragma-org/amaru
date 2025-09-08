@@ -158,6 +158,7 @@ version = "0.1.0"
 dependencies = [
  "amaru-minicbor-extra",
  "amaru-slot-arithmetic",
+ "anyhow",
  "bech32 0.11.0",
  "hex",
  "itertools 0.14.0",
@@ -191,12 +192,14 @@ dependencies = [
  "anyhow",
  "hex",
  "num",
+ "opentelemetry",
  "proptest",
  "pure-stage",
  "serde",
  "test-case",
  "thiserror 2.0.16",
  "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -277,6 +280,7 @@ version = "0.1.0"
 dependencies = [
  "amaru-kernel",
  "amaru-slot-arithmetic",
+ "anyhow",
  "hex",
  "proptest",
  "serde",
@@ -296,6 +300,7 @@ dependencies = [
  "amaru",
  "amaru-consensus",
  "amaru-kernel",
+ "amaru-ledger",
  "amaru-ouroboros",
  "amaru-slot-arithmetic",
  "amaru-stores",

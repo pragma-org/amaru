@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ConsensusError};
-use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
-use tracing::{Level, instrument};
-use amaru_kernel::span::adopt_current_span;
 use super::{ChainSyncEvent, DecodedChainSyncEvent, ValidationFailed};
+use crate::ConsensusError;
+use amaru_kernel::block::StageError;
+use amaru_kernel::span::adopt_current_span;
+use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
+use anyhow::anyhow;
 use pure_stage::{Effects, StageRef};
+use tracing::{Level, instrument};
 
 #[instrument(
         level = Level::TRACE,
@@ -39,7 +41,7 @@ pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, Consen
     Ok(Header::from(header))
 }
 
-type State = (StageRef<DecodedChainSyncEvent>, StageRef<ValidationFailed>);
+type State = (StageRef<DecodedChainSyncEvent>, StageRef<StageError>);
 
 #[instrument(
     level = Level::TRACE,
@@ -63,7 +65,11 @@ pub async fn stage(
                 Ok(header) => header,
                 Err(error) => {
                     tracing::error!(%error, %point, %peer, "Failed to decode header");
-                    eff.send(&errors, ValidationFailed::new(peer, error)).await;
+                    eff.send(
+                        &errors,
+                        StageError::new(anyhow!(ValidationFailed::new(peer, error))),
+                    )
+                    .await;
                     return (downstream, errors);
                 }
             };

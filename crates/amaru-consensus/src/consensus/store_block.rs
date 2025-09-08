@@ -14,14 +14,15 @@
 
 use crate::consensus::ValidationFailed;
 use crate::consensus::store_effects::StoreBlockEffect;
-use amaru_kernel::block::ValidateBlockEvent;
+use amaru_kernel::block::{StageError, ValidateBlockEvent};
+use amaru_kernel::span::adopt_current_span;
 use amaru_ouroboros_traits::IsHeader;
+use anyhow::anyhow;
 use pure_stage::{Effects, StageRef};
 use tracing::Level;
 use tracing::instrument;
-use amaru_kernel::span::adopt_current_span;
 
-type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
+type State = (StageRef<ValidateBlockEvent>, StageRef<StageError>);
 
 /// This stages stores a full block from a peer
 /// It then sends the full block to the downstream stage for validation and storage.
@@ -48,8 +49,11 @@ pub async fn stage(
         {
             Ok(_) => eff.send(&downstream, msg).await,
             Err(e) => {
-                eff.send(&errors, ValidationFailed::new(peer.clone(), e))
-                    .await
+                eff.send(
+                    &errors,
+                    StageError::new(anyhow!(ValidationFailed::new(peer.clone(), e))),
+                )
+                .await
             }
         },
         ValidateBlockEvent::Rollback { .. } => eff.send(&downstream, msg).await,

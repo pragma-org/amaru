@@ -234,7 +234,8 @@ impl Setup {
 
         let f = self.block.send(
             BlockValidationResult::BlockValidated {
-                point: point.clone(),
+                peer: Peer::new("test"),
+                header: header.clone(),
                 span,
                 block: RawBlock::from(&[] as &[u8]),
                 block_height,
@@ -256,6 +257,7 @@ impl Setup {
         let span = tracing::debug_span!("whatever");
         let f = self.block.send(
             BlockValidationResult::RolledBackTo {
+                peer: Peer::new("test"),
                 rollback_point: point.clone(),
                 span,
             }
