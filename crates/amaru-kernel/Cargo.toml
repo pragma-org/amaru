@@ -27,7 +27,7 @@ pallas-crypto.workspace = true
 pallas-primitives.workspace = true
 pallas-traverse.workspace = true
 rand = { workspace = true, optional = true }
-serde.workspace = true
+serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 sha3.workspace = true
 thiserror.workspace = true

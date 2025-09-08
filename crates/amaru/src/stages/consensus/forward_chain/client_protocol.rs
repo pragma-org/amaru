@@ -248,7 +248,7 @@ async fn block_fetch(
         let db = store.lock().await;
         let block = db.load_block(&Hash::from(&from_network_point(&lb_point)))?;
         server.send_start_batch().await?;
-        server.send_block(block).await?;
+        server.send_block(block.to_vec()).await?;
         server.send_batch_done().await?;
     }
 }
