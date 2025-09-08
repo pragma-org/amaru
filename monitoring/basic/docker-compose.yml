@@ -1,0 +1,9 @@
+services:
+  otlp-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    volumes:
+      - "./otlp-collector.yml:/etc/otlp-collector.yml"
+    command: ["--config", "/etc/otlp-collector.yml"]
+    ports:
+      - "4318:4318"
+      - "8889:8889"
