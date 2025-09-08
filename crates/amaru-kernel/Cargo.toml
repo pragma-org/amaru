@@ -19,6 +19,7 @@ telemetry = ["opentelemetry", "tracing-opentelemetry"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+anyhow.workspace = true
 bech32.workspace = true
 hex.workspace = true
 itertools.workspace = true

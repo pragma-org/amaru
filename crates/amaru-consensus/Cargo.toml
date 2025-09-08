@@ -38,7 +38,7 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-opentelemetry = { workspace = true, optional = true }
 
-amaru-kernel.workspace = true
+amaru-kernel = { workspace = true, features = ["telemetry"] }
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-slot-arithmetic.workspace = true

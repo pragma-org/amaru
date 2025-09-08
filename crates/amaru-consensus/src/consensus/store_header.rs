@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store_effects::StoreHeaderEffect};
+use crate::consensus::store_effects::StoreHeaderEffect;
 
 use super::DecodedChainSyncEvent;
+use amaru_kernel::span::adopt_current_span;
 use pure_stage::{Effects, StageRef};
 use tracing::{Level, instrument};
-use amaru_kernel::span::adopt_current_span;
 
 #[instrument(
     level = Level::TRACE,

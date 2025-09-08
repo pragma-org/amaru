@@ -15,16 +15,19 @@ rust-version.workspace = true
 [features]
 default = []
 test-utils = ["proptest", "amaru-slot-arithmetic/test-utils"]
+telemetry = ["opentelemetry", "tracing-opentelemetry"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
 hex.workspace = true
 num.workspace = true
+opentelemetry = { workspace = true, optional = true }
 proptest = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+tracing-opentelemetry = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true

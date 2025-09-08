@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Lovelace, PoolId, VrfKeyhash};
+use amaru_kernel::block::StageError;
+use amaru_kernel::{Lovelace, Point, PoolId, RawBlock, VrfKeyhash};
 use amaru_slot_arithmetic::Slot;
 
 pub mod mock;
@@ -44,4 +45,33 @@ pub trait HasStakeDistribution: Send + Sync {
     /// TODO: This should most probably live within the consensus, and not the ledger, similar to
     /// the tracking of the epoch nonce.
     fn latest_opcert_sequence_number(&self, pool: &PoolId) -> Option<u64>;
+}
+
+pub trait HasBlockValidation: Send + Sync {
+    fn roll_forward_block(
+        &self,
+        point: &Point,
+        block: &RawBlock,
+    ) -> anyhow::Result<anyhow::Result<u64, StageError>, StageError>;
+
+    fn rollback_block(&self, to: &Point) -> anyhow::Result<(), StageError>;
+}
+
+/// A fake block fetcher that always returns an empty block.
+/// This is used in for simulating the network.
+#[derive(Clone, Debug, Default)]
+pub struct FakeBlockValidation;
+
+impl HasBlockValidation for FakeBlockValidation {
+    fn roll_forward_block(
+        &self,
+        _point: &Point,
+        _block: &RawBlock,
+    ) -> anyhow::Result<anyhow::Result<u64, StageError>, StageError> {
+        Ok(Ok(1))
+    }
+
+    fn rollback_block(&self, _to: &Point) -> anyhow::Result<(), StageError> {
+        Ok(())
+    }
 }

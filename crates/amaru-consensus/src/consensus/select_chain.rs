@@ -20,6 +20,7 @@ use crate::{
 };
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer, string_utils::ListToString};
 use amaru_ouroboros::IsHeader;
+use anyhow::anyhow;
 use pallas_crypto::hash::Hash;
 use pure_stage::{Effects, StageRef};
 use serde::{Deserialize, Serialize};
@@ -28,7 +29,6 @@ use std::{
     fmt::{Debug, Display, Formatter},
 };
 use tracing::{Level, Span, debug, info, instrument, trace, warn};
-use amaru_kernel::span::adopt_current_span;
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -292,7 +292,7 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
 type State = (
     SelectChain,
     StageRef<ValidateHeaderEvent>,
-    StageRef<ValidationFailed>,
+    StageRef<StageError>,
 );
 
 #[instrument(
@@ -311,7 +311,11 @@ pub async fn stage(
     let events = match select_chain.handle_chain_sync(msg).await {
         Ok(events) => events,
         Err(e) => {
-            eff.send(&errors, ValidationFailed::new(peer, e)).await;
+            eff.send(
+                &errors,
+                StageError::new(anyhow!(ValidationFailed::new(peer, e))),
+            )
+            .await;
             return (select_chain, downstream, errors);
         }
     };

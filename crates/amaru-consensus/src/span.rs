@@ -13,16 +13,13 @@
 // limitations under the License.
 
 use crate::consensus::{ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent};
-use amaru_kernel::block::{BlockValidationResult, ValidateBlockEvent};
-
-pub use impls::*;
 
 #[cfg(feature = "telemetry")]
 mod impls {
     use super::*;
+    use amaru_kernel::span::HasSpan;
     use opentelemetry::Context;
     use tracing_opentelemetry::OpenTelemetrySpanExt;
-    use amaru_kernel::span::HasSpan;
 
     impl HasSpan for ChainSyncEvent {
         fn context(&self) -> Context {
@@ -52,25 +49,6 @@ mod impls {
             }
         }
     }
-
-    impl HasSpan for ValidateBlockEvent {
-        fn context(&self) -> Context {
-            match self {
-                ValidateBlockEvent::Validated { span, .. } => span.context(),
-                ValidateBlockEvent::Rollback { span, .. } => span.context(),
-            }
-        }
-    }
-
-    impl HasSpan for BlockValidationResult {
-        fn context(&self) -> Context {
-            match self {
-                BlockValidationResult::BlockValidated { span, .. } => span.context(),
-                BlockValidationResult::BlockValidationFailed { span, .. } => span.context(),
-                BlockValidationResult::RolledBackTo { span, .. } => span.context(),
-            }
-        }
-    }
 }
 
 #[cfg(not(feature = "telemetry"))]
@@ -82,8 +60,4 @@ mod impls {
     impl HasSpan for DecodedChainSyncEvent {}
 
     impl HasSpan for ValidateHeaderEvent {}
-
-    impl HasSpan for ValidateBlockEvent {}
-
-    impl HasSpan for BlockValidationResult {}
 }
