@@ -207,11 +207,10 @@ impl<C> Encode<C> for Bound {
         e: &mut minicbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), minicbor::encode::Error<W::Error>> {
-        e.begin_array()?;
+        e.array(3)?;
         self.time_ms.encode(e, ctx)?;
         self.slot.encode(e, ctx)?;
         self.epoch.encode(e, ctx)?;
-        e.end()?;
         Ok(())
     }
 }
@@ -222,7 +221,6 @@ impl<'b, C> Decode<'b, C> for Bound {
         let time_ms = d.u64()?;
         let slot = d.decode()?;
         let epoch = d.decode_with(ctx)?;
-        d.skip()?;
         Ok(Bound {
             time_ms,
             slot,
@@ -995,7 +993,7 @@ mod tests {
         let buffer = minicbor::to_vec(&eras).unwrap();
         assert_eq!(
             hex::encode(buffer),
-            "9f9f9f000000fff69f1a000151801903e8ffffff"
+            "9f9f83000000f69f1a000151801903e8ffffff"
         );
     }
 
