@@ -122,9 +122,17 @@ async fn convert_snapshot_to(
 
     // header state
 
-    let target_path = target_dir.join(format!("{}.{}.cbor", slot, hash));
-    fs::write(&target_path, &bytes[begin..end]).await?;
+    write_ledger_snapshot(target_dir, slot, hash, &bytes[begin..end]).await
+}
 
+async fn write_ledger_snapshot(
+    target_dir: &Path,
+    slot: u64,
+    hash: Hash<HEADER_HASH_SIZE>,
+    ledger_data: &[u8],
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let target_path = target_dir.join(format!("{}.{}.cbor", slot, hash));
+    fs::write(&target_path, ledger_data).await?;
     Ok(target_path)
 }
 
