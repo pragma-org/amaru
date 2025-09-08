@@ -140,7 +140,6 @@ impl gasket::framework::Worker<Stage> for Worker {
                 stage.roll_forward(&header).await?;
 
                 if let Some(downstream) = stage.metrics_downstream.as_mut() {
-                    debug!("metrics enabled, sending downstream");
                     let metrics = PullMetrics {
                         header_size_bytes: header.cbor.len() as u64,
                     };
