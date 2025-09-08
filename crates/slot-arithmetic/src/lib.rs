@@ -15,6 +15,7 @@
 #![feature(step_trait)]
 
 use minicbor::{Decode, Decoder, Encode};
+use num::BigUint;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::Display,
@@ -38,7 +39,7 @@ impl Display for Slot {
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum SlotArithmeticError {
-    #[error("slot arithmetic overflow, substracting {1} from {0}")]
+    #[error("slot arithmetic underflow, substracting {1} from {0}")]
     Underflow(u64, u64),
 }
 
@@ -199,7 +200,6 @@ impl From<TimeMs> for u64 {
     }
 }
 
-
 impl Add<u64> for TimeMs {
     type Output = Self;
 
@@ -220,7 +220,24 @@ impl<C> Encode<C> for TimeMs {
 
 impl<'b, C> Decode<'b, C> for TimeMs {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        d.u64().map(TimeMs)
+        d.u64()
+            .or_else(|_| {
+                let bytes: &[u8] = d.bytes()?;
+                let num = BigUint::from_bytes_be(bytes);
+                let num_ms = num / 1_000_000_000u64;
+                if num_ms > BigUint::from(u64::MAX) {
+                    Err(minicbor::decode::Error::message(
+                        "Unsigned integer too large",
+                    ))
+                } else {
+                    Ok(num_ms.try_into().map_err(|e| {
+                        minicbor::decode::Error::message(format!(
+                            "Error converting BigUint to u64 {e}"
+                        ))
+                    })?)
+                }
+            })
+            .map(TimeMs)
     }
 }
 
@@ -1042,6 +1059,22 @@ mod tests {
             hex::encode(buffer),
             "9f9f83000000f69f1a000151801903e8ffffff"
         );
+    }
+
+    #[test]
+    fn can_decode_bounds_with_unbounded_integer_slot() {
+        let buffer = hex::decode("868283000000830000008283000000830000008283000000830000008283000000830000008283000000831b0398dd06d5c800001a0003f4800382831b0398dd06d5c800001a0003f4800383c2490306949515279000001a0353a900190286").unwrap();
+        let eras: Vec<(Bound, Bound)> = minicbor::decode(&buffer).unwrap();
+
+        assert_eq!(eras[5].1.time_ms, TimeMs(55814400000));
+    }
+
+    #[test]
+    fn cannot_decode_bounds_with_too_large_integer_value() {
+        let buffer =
+            hex::decode("83c25101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
+        let result = minicbor::decode::<Bound>(&buffer);
+        assert!(result.is_err());
     }
 
     proptest! {
