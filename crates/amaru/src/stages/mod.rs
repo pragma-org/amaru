@@ -40,7 +40,7 @@ use amaru_stores::{
     },
 };
 use anyhow::Context;
-use consensus::{forward_chain::ForwardChainStage, store_block::StoreBlockStage};
+use consensus::forward_chain::ForwardChainStage;
 use gasket::{
     messaging::OutputPort,
     runtime::{self, Tether, spawn_stage},
@@ -220,8 +220,6 @@ pub fn bootstrap(
         )),
     };
 
-    let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
-
     let mut forward_chain_stage = ForwardChainStage::new(
         None,
         chain_store_ref.clone(),
@@ -276,13 +274,7 @@ pub fn bootstrap(
         output.connect(SendAdapter(graph_input.clone()));
     }
 
-    store_block_stage
-        .upstream
-        .connect(RecvAdapter(output_stage));
-    store_block_stage.downstream.connect(to_ledger);
-
-    ledger_stage.connect(from_store_block, to_block_forward);
-
+    ledger_stage.connect(RecvAdapter(output_stage), to_block_forward);
     forward_chain_stage.upstream.connect(from_ledger);
 
     stages.iter_mut().for_each(|stage| {
@@ -302,8 +294,6 @@ pub fn bootstrap(
 
     let pure_stages = spawn_stage(pure_stages, policy.clone());
 
-    let store_block = spawn_stage(store_block_stage, policy.clone());
-
     let ledger = ledger_stage.spawn(policy.clone());
     let block_forward = spawn_stage(forward_chain_stage, policy.clone());
 
@@ -311,7 +301,6 @@ pub fn bootstrap(
 
     stages.push(pure_stages);
 
-    stages.push(store_block);
     stages.push(ledger);
     stages.push(block_forward);
 
@@ -372,7 +361,7 @@ impl LedgerStage {
 
     fn connect(
         &mut self,
-        from_store_block: gasket::messaging::tokio::ChannelRecvAdapter<ValidateBlockEvent>,
+        from_store_block: RecvAdapter<ValidateBlockEvent>,
         to_block_forward: gasket::messaging::tokio::ChannelSendAdapter<BlockValidationResult>,
     ) {
         match self {
@@ -393,7 +382,7 @@ fn make_ledger(
     network: NetworkName,
     era_history: EraHistory,
     global_parameters: GlobalParameters,
-) -> Result<(LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
+) -> Result<(LedgerStage, Point), Box<dyn std::error::Error>> {
     match &config.ledger_store {
         StorePath::InMem(store) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
@@ -505,7 +494,7 @@ mod tests {
 
         let stages = bootstrap(config, vec![], CancellationToken::new(), None).unwrap();
 
-        assert_eq!(5, stages.len());
+        assert_eq!(3, stages.len());
     }
 
     #[test]

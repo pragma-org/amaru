@@ -14,4 +14,3 @@
 
 pub mod clients_block_fetcher;
 pub mod forward_chain;
-pub mod store_block;

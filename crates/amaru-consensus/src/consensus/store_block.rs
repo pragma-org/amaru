@@ -12,39 +12,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ConsensusError, consensus::store::ChainStore};
-use amaru_kernel::{Header, Point, RawBlock, block::ValidateBlockEvent};
+use crate::consensus::ValidationFailed;
+use crate::consensus::store_effects::StoreBlockEffect;
+use crate::span::adopt_current_span;
+use amaru_kernel::block::ValidateBlockEvent;
 use amaru_ouroboros_traits::IsHeader;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use pure_stage::{Effects, StageRef};
+use tracing::Level;
+use tracing::instrument;
 
-pub struct StoreBlock {
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
-}
+type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
 
-impl StoreBlock {
-    pub fn new(chain_store: Arc<Mutex<dyn ChainStore<Header>>>) -> Self {
-        StoreBlock { store: chain_store }
-    }
-
-    pub async fn store(&self, point: &Point, block: &RawBlock) -> Result<(), ConsensusError> {
-        self.store
-            .lock()
+/// This stages stores a full block from a peer
+/// It then sends the full block to the downstream stage for validation and storage.
+#[instrument(
+    level = Level::TRACE,
+    skip_all,
+    name = "stage.store_block",
+)]
+pub async fn stage(
+    (downstream, errors): State,
+    msg: ValidateBlockEvent,
+    eff: Effects<ValidateBlockEvent>,
+) -> State {
+    adopt_current_span(&msg);
+    match msg {
+        ValidateBlockEvent::Validated {
+            ref header,
+            ref block,
+            ref peer,
+            ..
+        } => match eff
+            .external(StoreBlockEffect::new(&header.point(), block.clone()))
             .await
-            .store_block(&point.into(), block)
-            .map_err(|e| ConsensusError::StoreBlockFailed(point.clone(), e))
-    }
-
-    pub async fn handle_event(
-        &self,
-        event: &ValidateBlockEvent,
-    ) -> Result<ValidateBlockEvent, ConsensusError> {
-        match event {
-            ValidateBlockEvent::Validated { header, block, .. } => {
-                self.store(&header.point(), block).await?;
-                Ok(event.clone())
+        {
+            Ok(_) => eff.send(&downstream, msg).await,
+            Err(e) => {
+                eff.send(&errors, ValidationFailed::new(peer.clone(), e))
+                    .await
             }
-            ValidateBlockEvent::Rollback { .. } => Ok(event.clone()),
-        }
+        },
+        ValidateBlockEvent::Rollback { .. } => eff.send(&downstream, msg).await,
     }
+    (downstream, errors)
 }

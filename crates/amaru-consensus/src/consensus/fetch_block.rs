@@ -20,6 +20,7 @@ use amaru_kernel::{Point, RawBlock, block::ValidateBlockEvent, peer::Peer};
 use amaru_ouroboros_traits::IsHeader;
 use async_trait::async_trait;
 use pure_stage::{Effects, StageRef};
+use std::sync::Arc;
 use tracing::Level;
 use tracing::instrument;
 
@@ -52,7 +53,7 @@ pub async fn stage(
                         ValidateBlockEvent::Validated {
                             peer,
                             header,
-                            block,
+                            block: Arc::new(block),
                             span,
                         },
                     )

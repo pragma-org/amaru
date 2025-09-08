@@ -16,14 +16,17 @@ use crate::peer::Peer;
 use crate::{Point, RawBlock};
 use pallas_primitives::babbage::Header;
 use serde::{Deserialize, Serialize};
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 use tracing::Span;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ValidateBlockEvent {
     Validated {
         peer: Peer,
         header: Header,
-        block: RawBlock,
+        #[serde(skip, default = "default_block")]
+        block: Arc<RawBlock>,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -33,6 +36,71 @@ pub enum ValidateBlockEvent {
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
+}
+
+fn default_block() -> Arc<RawBlock> {
+    Arc::new(Vec::new())
+}
+
+impl Debug for ValidateBlockEvent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValidateBlockEvent::Validated {
+                peer,
+                header,
+                block,
+                ..
+            } => f
+                .debug_struct("Validated")
+                .field("peer", peer)
+                .field("header", header)
+                .field("block", block)
+                .finish(),
+            ValidateBlockEvent::Rollback {
+                peer,
+                rollback_point,
+                ..
+            } => f
+                .debug_struct("Rollback")
+                .field("peer", peer)
+                .field("rollback_point", rollback_point)
+                .finish(),
+        }
+    }
+}
+
+impl PartialEq for ValidateBlockEvent {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                ValidateBlockEvent::Validated {
+                    peer: p1,
+                    header: h1,
+                    block: b1,
+                    ..
+                },
+                ValidateBlockEvent::Validated {
+                    peer: p2,
+                    header: h2,
+                    block: b2,
+                    ..
+                },
+            ) => p1 == p2 && h1 == h2 && Arc::ptr_eq(b1, b2),
+            (
+                ValidateBlockEvent::Rollback {
+                    peer: p1,
+                    rollback_point: rp1,
+                    ..
+                },
+                ValidateBlockEvent::Rollback {
+                    peer: p2,
+                    rollback_point: rp2,
+                    ..
+                },
+            ) => p1 == p2 && rp1 == rp2,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
