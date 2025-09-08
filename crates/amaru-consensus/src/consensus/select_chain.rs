@@ -15,7 +15,6 @@
 use super::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::ValidationFailed;
 use crate::consensus::headers_tree::HeadersTree;
-use crate::span::adopt_current_span;
 use crate::{ConsensusError, consensus::EVENT_TARGET};
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer};
@@ -26,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 use tracing::{Level, Span, debug, info, instrument, trace, warn};
+use amaru_kernel::span::adopt_current_span;
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 

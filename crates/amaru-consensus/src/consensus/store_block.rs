@@ -14,12 +14,12 @@
 
 use crate::consensus::ValidationFailed;
 use crate::consensus::store_effects::StoreBlockEffect;
-use crate::span::adopt_current_span;
 use amaru_kernel::block::ValidateBlockEvent;
 use amaru_ouroboros_traits::IsHeader;
 use pure_stage::{Effects, StageRef};
 use tracing::Level;
 use tracing::instrument;
+use amaru_kernel::span::adopt_current_span;
 
 type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
 

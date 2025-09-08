@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::hash::Hash;
+use crate::stages::consensus::forward_chain::ForwardEvent;
 use crate::{schedule, send};
-use amaru_consensus::{IsHeader, span::adopt_current_span};
+use amaru_consensus::consensus::{DecodedChainSyncEvent, ValidationFailed};
+use amaru_consensus::{ConsensusError, IsHeader};
 use amaru_kernel::{
     EraHistory, Hasher, MintedBlock, Network, Point, RawBlock,
     block::{BlockValidationResult, ValidateBlockEvent},
@@ -32,34 +35,17 @@ use amaru_ledger::{
 };
 use anyhow::Context;
 use gasket::framework::{WorkSchedule, WorkerError};
+use pure_stage::{Effects, StageRef};
 use tracing::{Level, Span, error, instrument};
-
-pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
-pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
+use amaru_kernel::span::adopt_current_span;
+use crate::store::{HistoricalStores, Store};
 
 pub struct ValidateBlockStage<S, HS>
 where
     S: Store + Send,
     HS: HistoricalStores + Send,
 {
-    pub upstream: UpstreamPort,
-    pub downstream: DownstreamPort,
     pub state: state::State<S, HS>,
-}
-
-impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
-    for ValidateBlockStage<S, HS>
-{
-    type Unit = ValidateBlockEvent;
-    type Worker = Worker;
-
-    fn name(&self) -> &str {
-        "ledger"
-    }
-
-    fn metrics(&self) -> gasket::metrics::Registry {
-        gasket::metrics::Registry::default()
-    }
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
@@ -128,9 +114,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     }
 
     /// Returns:
-    /// * `Ok(Ok(u64))` - if no error occurred and the block is valid. `u64` is the blockheight.
-    /// * `Ok(Err(<InvalidBlockDetails>))` - if no error occurred but block is invalid.
-    /// * `Err(_)` - if an error occurred.
+    /// * `Ok(u64)` - if no error occurred and the block is valid. `u64` is the block height.
+    /// * `Err(<InvalidBlockDetails>)` - if the block is invalid.
+    /// * `Err(_)` - if another error occurred.
     #[instrument(
         level = Level::TRACE,
         skip_all,
@@ -140,7 +126,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         &mut self,
         point: Point,
         raw_block: RawBlock,
-    ) -> anyhow::Result<Result<u64, InvalidBlockDetails>> {
+    ) -> anyhow::Result<u64, InvalidBlockDetails> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
         let mut context = self.create_validation_context(&block)?;
 
@@ -152,17 +138,17 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
             self.state.governance_activity(),
             &block,
         ) {
-            BlockValidation::Err(err) => Err(err),
+            BlockValidation::Err(err) => Err(ConsensusError::err),
             BlockValidation::Invalid(slot, id, err) => {
                 error!("Block {id} invalid at slot={slot}: {}", err);
-                Ok(Err(err))
+                Err(err)
             }
             BlockValidation::Valid(()) => {
                 let state: VolatileState = context.into();
                 let block_height = &block.header.block_height();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
                 self.state.forward(state.anchor(&point, issuer))?;
-                Ok(Ok(*block_height))
+                Ok(*block_height)
             }
         }
     }
@@ -185,74 +171,74 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     }
 }
 
-pub struct Worker {}
+type State<S, HS> = (
+    ValidateBlockStage<S, HS>,
+    StageRef<BlockValidationResult>,
+    StageRef<ValidationFailed>,
+);
 
-#[async_trait::async_trait(?Send)]
-impl<S: Store + Send, HS: HistoricalStores + Send>
-    gasket::framework::Worker<ValidateBlockStage<S, HS>> for Worker
-{
-    async fn bootstrap(_stage: &ValidateBlockStage<S, HS>) -> Result<Self, WorkerError> {
-        Ok(Self {})
-    }
-
-    async fn schedule(
-        &mut self,
-        stage: &mut ValidateBlockStage<S, HS>,
-    ) -> Result<WorkSchedule<ValidateBlockEvent>, WorkerError> {
-        schedule!(&mut stage.upstream)
-    }
-
-    #[instrument(
+#[instrument(
         level = Level::TRACE,
         skip_all,
         name = "stage.ledger"
-    )]
-    async fn execute(
-        &mut self,
-        unit: &ValidateBlockEvent,
-        stage: &mut ValidateBlockStage<S, HS>,
-    ) -> Result<(), WorkerError> {
-        let _span = adopt_current_span(unit).entered();
-        let result = match unit {
-            ValidateBlockEvent::Validated {
-                header,
-                block,
-                span,
-                ..
-            } => {
-                let point = header.point();
+)]
+async fn stage<S, HS>(
+    (mut stage, downstream, errors): State<S, HS>,
+    msg: ValidateBlockEvent,
+    eff: Effects<ValidateBlockEvent>,
+) -> State<S, HS>
+where
+    S: Store + Send,
+    HS: HistoricalStores + Send,
+{
+    adopt_current_span(&msg);
+    match msg {
+        ValidateBlockEvent::Validated {
+            header,
+            block,
+            span,
+            peer,
+            ..
+        } => {
+            let point = header.point();
+            let block = block.to_vec();
 
-                match stage.roll_forward(point.clone(), block.clone()) {
-                    Ok(Ok(block_height)) => BlockValidationResult::BlockValidated {
-                        point,
-                        block: block.clone(),
-                        span: span.clone(),
-                        block_height,
-                    },
-                    Ok(Err(_)) => BlockValidationResult::BlockValidationFailed {
-                        point,
-                        span: span.clone(),
-                    },
-                    Err(err) => {
-                        error!(?err, "Failed to validate block");
-                        BlockValidationResult::BlockValidationFailed {
+            match stage.roll_forward(point.clone(), block.clone()) {
+                Ok(block_height) =>
+                    eff.send(
+                        &downstream,
+                        BlockValidationResult::BlockValidated {
                             point,
+                            block,
                             span: span.clone(),
-                        }
-                    }
+                            block_height,
+                        },
+                    )
+                        .await,
+                Err(err) => {
+                    error!(?err, "Failed to validate block");
+                    eff.send(&errors, ValidationFailed::new(peer, err))
                 }
             }
-            ValidateBlockEvent::Rollback {
-                rollback_point,
-                span,
-                ..
-            } => {
-                stage
-                    .rollback_to(rollback_point.clone(), span.clone())
-                    .await
+        }
+        ValidateBlockEvent::Rollback {
+            rollback_point,
+            span,
+            ..
+        } => {
+            match stage
+                .rollback_to(rollback_point.clone(), span.clone())
+                .await {
+                Ok(err) => {
+                    error!(?err, "Failed to rollback");
+                    eff.send(&errors, ValidationFailed::new(peer, err))
+                }
+                Err(err) => {
+                    error!(?err, "Failed to rollback");
+                    eff.send(&errors, ValidationFailed::new(peer, err))
+                }
             }
-        };
-
-        send!(&mut stage.downstream, result)
-    }
+        }
+    };
+    (stage, downstream, errors)
 }

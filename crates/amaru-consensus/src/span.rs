@@ -14,7 +14,6 @@
 
 use crate::consensus::{ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent};
 use amaru_kernel::block::{BlockValidationResult, ValidateBlockEvent};
-use tracing::Span;
 
 pub use impls::*;
 
@@ -23,22 +22,7 @@ mod impls {
     use super::*;
     use opentelemetry::Context;
     use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-    /// Make current span a child of given span.
-    ///
-    /// This is needed to ensure tracing keeps track of dependencies between
-    /// stages, properly connecting related spans even though they are crossing
-    /// thread boundaries.
-    pub fn adopt_current_span(has_span: &impl HasSpan) -> Span {
-        let span = Span::current();
-        span.set_parent(has_span.context());
-        span
-    }
-
-    /// Helper trait to remove span reparenting boilerplate.
-    pub trait HasSpan {
-        fn context(&self) -> Context;
-    }
+    use amaru_kernel::span::HasSpan;
 
     impl HasSpan for ChainSyncEvent {
         fn context(&self) -> Context {
@@ -92,12 +76,6 @@ mod impls {
 #[cfg(not(feature = "telemetry"))]
 mod impls {
     use super::*;
-
-    pub fn adopt_current_span(_has_span: &impl HasSpan) -> Span {
-        Span::current()
-    }
-
-    pub trait HasSpan {}
 
     impl HasSpan for ChainSyncEvent {}
 

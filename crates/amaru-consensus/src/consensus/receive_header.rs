@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ConsensusError, span::adopt_current_span};
+use crate::{ConsensusError};
 use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
 use tracing::{Level, instrument};
-
+use amaru_kernel::span::adopt_current_span;
 use super::{ChainSyncEvent, DecodedChainSyncEvent, ValidationFailed};
 use pure_stage::{Effects, StageRef};
 
