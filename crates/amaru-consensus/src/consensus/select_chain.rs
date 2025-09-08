@@ -28,6 +28,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
 };
 use tracing::{Level, Span, debug, info, instrument, trace, warn};
+use amaru_kernel::span::adopt_current_span;
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 

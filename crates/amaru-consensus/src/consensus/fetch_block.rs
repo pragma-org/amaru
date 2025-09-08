@@ -15,7 +15,6 @@
 use crate::ConsensusError;
 use crate::consensus::block_effects::FetchBlockEffect;
 use crate::consensus::{ValidateHeaderEvent, ValidationFailed};
-use crate::span::adopt_current_span;
 use amaru_kernel::{Point, RawBlock, block::ValidateBlockEvent, peer::Peer};
 use amaru_ouroboros_traits::IsHeader;
 use async_trait::async_trait;
@@ -23,6 +22,7 @@ use pure_stage::{Effects, StageRef};
 use std::sync::Arc;
 use tracing::Level;
 use tracing::instrument;
+use amaru_kernel::span::adopt_current_span;
 
 type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
 

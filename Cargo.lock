@@ -161,6 +161,7 @@ dependencies = [
  "bech32 0.11.0",
  "hex",
  "itertools 0.14.0",
+ "opentelemetry",
  "pallas-addresses",
  "pallas-codec",
  "pallas-crypto",
@@ -174,6 +175,7 @@ dependencies = [
  "test-case",
  "thiserror 2.0.16",
  "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -190,6 +192,7 @@ dependencies = [
  "hex",
  "num",
  "proptest",
+ "pure-stage",
  "serde",
  "test-case",
  "thiserror 2.0.16",

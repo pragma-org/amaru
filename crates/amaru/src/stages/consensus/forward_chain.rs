@@ -14,7 +14,7 @@
 
 use crate::stages::PallasPoint;
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
-use amaru_consensus::{IsHeader, consensus::store::ChainStore, span::adopt_current_span};
+use amaru_consensus::{IsHeader, consensus::store::ChainStore};
 use amaru_kernel::{Hash, Header, block::BlockValidationResult};
 use client_protocol::{ClientProtocolMsg, client_protocols};
 use gasket::framework::*;
@@ -32,6 +32,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tracing::{Level, error, info, instrument, trace};
+use amaru_kernel::span::adopt_current_span;
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
