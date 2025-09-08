@@ -84,7 +84,9 @@ async fn convert_snapshot_to(
     // ledger state
     d.array()?;
 
-    // there are 6 pair of integer triples before the actual ledger state I have no clue what they are
+    // HardForkCombinator telescope encoding.
+    // encodes the era history. There are 6 eras before conway.
+    // FIXME: pass the current Era to know how many skips to do
     d.skip()?;
     d.skip()?;
     d.skip()?;
@@ -92,7 +94,7 @@ async fn convert_snapshot_to(
     d.skip()?;
     d.skip()?;
 
-    // ???
+    // conway era bounds
     d.array()?;
     d.skip()?;
 
@@ -113,11 +115,15 @@ async fn convert_snapshot_to(
     let _height = d.u64()?;
     let hash: Hash<HEADER_HASH_SIZE> = d.decode()?;
 
-    let p = d.position();
+    // ledger state
+    let begin = d.position();
+    d.skip()?;
+    let end = d.position();
+
+    // header state
 
     let target_path = target_dir.join(format!("{}.{}.cbor", slot, hash));
-
-    fs::write(&target_path, &bytes[p..bytes.len() - 1]).await?;
+    fs::write(&target_path, &bytes[begin..end]).await?;
 
     Ok(target_path)
 }
@@ -179,6 +185,27 @@ mod test {
         import_all(NetworkName::Testnet(42), expected_paths, ledger_dir)
             .await
             .unwrap_or_else(|_| panic!("fail to import snapshots {expected_paths:?}"));
+    }
+
+    #[tokio::test]
+    async fn run_produces_nonces_json_file() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target_dir = tempdir.path().to_path_buf();
+        
+        let args = super::Args {
+            snapshot: dir_content(Path::new("tests/data/convert")).await.unwrap(),
+            target_dir: Some(target_dir.clone()),
+        };
+
+        run(args)
+            .await
+            .expect("unexpected error in conversion test");
+
+        let nonces_json_path = target_dir.join("nonces.json");
+        assert!(
+            nonces_json_path.exists(),
+            "nonces.json file should be created in target directory"
+        );
     }
 
     async fn dir_content(path: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
