@@ -233,7 +233,6 @@ pub fn bootstrap(
 
     let mut metrics_stage = MetricsStage::new(metrics_provider);
 
-    let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
@@ -506,7 +505,7 @@ mod tests {
 
         let stages = bootstrap(config, vec![], CancellationToken::new(), None).unwrap();
 
-        assert_eq!(4, stages.len());
+        assert_eq!(5, stages.len());
     }
 
     #[test]
