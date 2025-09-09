@@ -140,24 +140,8 @@ impl TracingSubscriber<Registry> {
                         .with_filter(log_filter()),
                 )
                 .init(),
-            TracingSubscriber::WithJson(layered) => layered
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(log_writer())
-                        .event_format(log_format())
-                        .with_span_events(log_events())
-                        .with_filter(log_filter()),
-                )
-                .init(),
-            TracingSubscriber::WithBoth(layered) => layered
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(log_writer())
-                        .event_format(log_format())
-                        .with_span_events(log_events())
-                        .with_filter(log_filter()),
-                )
-                .init(),
+            TracingSubscriber::WithJson(layered) => layered.init(),
+            TracingSubscriber::WithBoth(layered) => layered.init(),
         };
 
         if let Some(notify) = warning {
