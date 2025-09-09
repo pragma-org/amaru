@@ -20,6 +20,7 @@ use amaru_consensus::{
     IsHeader, Nonces,
     consensus::store::{ChainStore, ReadOnlyChainStore, StoreError},
 };
+use amaru_kernel::peer::Peer;
 use amaru_kernel::{Hash, Header, RawBlock, block::BlockValidationResult, from_cbor};
 use gasket::{
     messaging::tokio::ChannelRecvAdapter,

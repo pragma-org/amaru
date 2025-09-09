@@ -161,14 +161,14 @@ pub type ResourceBlockValidation = Arc<dyn HasBlockValidation + Send + Sync>;
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlockEffect {
     point: Point,
-    block: Arc<RawBlock>,
+    block: RawBlock,
 }
 
 impl ValidateBlockEffect {
-    pub fn new(point: &Point, block: Arc<RawBlock>) -> Self {
+    pub fn new(point: &Point, block: RawBlock) -> Self {
         Self {
             point: point.clone(),
-            block,
+            block: block.clone(),
         }
     }
 }

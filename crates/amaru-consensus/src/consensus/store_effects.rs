@@ -61,14 +61,14 @@ impl ExternalEffectAPI for StoreHeaderEffect {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StoreBlockEffect {
     point: Point,
-    block: Arc<RawBlock>,
+    block: RawBlock,
 }
 
 impl StoreBlockEffect {
-    pub fn new(point: &Point, block: Arc<RawBlock>) -> Self {
+    pub fn new(point: &Point, block: RawBlock) -> Self {
         Self {
             point: point.clone(),
-            block,
+            block: block.clone(),
         }
     }
 }
