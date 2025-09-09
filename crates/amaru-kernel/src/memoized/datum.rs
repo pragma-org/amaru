@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use crate::{
+    DatumHash, Legacy, MemoizedPlutusData, MintedDatumOption,
     cbor::{self, data::IanaTag},
-    memoized, DatumHash, Legacy, MemoizedPlutusData, MintedDatumOption,
+    memoized,
 };
 use serde::ser::SerializeStruct;
 

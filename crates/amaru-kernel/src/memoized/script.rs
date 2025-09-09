@@ -17,7 +17,7 @@ use crate::{
     cbor::{bytes::ByteSlice, data::IanaTag},
 };
 use pallas_codec::utils::CborWrap;
-use pallas_primitives::{conway::NativeScript, KeepRaw};
+use pallas_primitives::{KeepRaw, conway::NativeScript};
 use serde::ser::SerializeStruct;
 
 pub type MemoizedScript = PseudoScript<MemoizedNativeScript>;

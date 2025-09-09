@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use crate::{
-    cbor, from_minted_script,
-    script::{encode_script, serialize_memoized_script, PlaceholderScript},
     Address, AlonzoValue, AssetName, KeyValuePairs, Legacy, Lovelace, MemoizedDatum,
     MemoizedNativeScript, MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs,
-    PseudoScript, ScriptHash, Value,
+    PseudoScript, ScriptHash, Value, cbor, from_minted_script,
+    script::{PlaceholderScript, encode_script, serialize_memoized_script},
 };
 
 use amaru_minicbor_extra::{
@@ -79,7 +78,7 @@ fn decode_legacy_output<C>(
             Some(_) => {
                 return Err(cbor::decode::Error::message(format!(
                     "expected legacy transaction output array length of 2 or 3, got {len:?}",
-                )))
+                )));
             }
             None => {
                 if decode_break(d, len)? {
