@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::{IsHeader, consensus::store::ChainStore};
+use amaru_consensus::consensus::store::ChainStore;
 use amaru_kernel::{Header, default_chain_dir, from_cbor, network::NetworkName};
+use amaru_ouroboros_traits::IsHeader;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
@@ -93,12 +94,12 @@ pub(crate) async fn import_headers_for_network(
             && filename.ends_with(".cbor")
         {
             let mut file = File::open(&path).await
-                    .inspect_err(|reason| tracing::error!(file = %path.display(), reason = %reason, "Failed to open header file"))
-                    .map_err(|_| WorkerError::Panic)?;
+                .inspect_err(|reason| tracing::error!(file = %path.display(), reason = %reason, "Failed to open header file"))
+                .map_err(|_| WorkerError::Panic)?;
             let mut cbor_data = Vec::new();
             file.read_to_end(&mut cbor_data).await
-                    .inspect_err(|reason| tracing::error!(file = %path.display(), reason = %reason, "Failed to read header file"))
-                    .map_err(|_| WorkerError::Panic)?;
+                .inspect_err(|reason| tracing::error!(file = %path.display(), reason = %reason, "Failed to read header file"))
+                .map_err(|_| WorkerError::Panic)?;
             let header_from_file: Header = from_cbor(&cbor_data).unwrap();
             let hash = header_from_file.hash();
             db.store_header(&hash, &header_from_file)

@@ -13,23 +13,23 @@
 // limitations under the License.
 
 use crate::stages::build_stage_graph::build_stage_graph;
-use crate::stages::consensus::clients_block_fetcher::ClientsBlockFetcher;
 use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
-use amaru_consensus::consensus::block_effects::{ResourceBlockFetcher, ResourceParameters};
-use amaru_consensus::consensus::store_effects::ResourceHeaderStore;
-use amaru_consensus::consensus::validate_block::ResourceBlockValidation;
-use amaru_consensus::{
-    CanValidateBlocks, ConsensusError, HasStakeDistribution, IsHeader,
-    consensus::{
-        ChainSyncEvent, headers_tree::HeadersTree, select_chain::SelectChain, store::ChainStore,
-        validate_header::ValidateHeader,
-    },
+use amaru_consensus::consensus::effects::block_effects::{
+    ResourceBlockFetcher, ResourceParameters,
 };
+use amaru_consensus::consensus::effects::store_effects::ResourceHeaderStore;
+use amaru_consensus::consensus::errors::ConsensusError;
+use amaru_consensus::consensus::events::ChainSyncEvent;
+use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
+use amaru_consensus::consensus::stages::select_chain::SelectChain;
+use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
+use amaru_consensus::consensus::{headers_tree::HeadersTree, store::ChainStore};
 use amaru_kernel::{
     EraHistory, Hash, Header, Point, network::NetworkName, peer::Peer,
     protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::block_validator::BlockValidator;
+use amaru_ouroboros_traits::{CanValidateBlocks, HasStakeDistribution, IsHeader};
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{
@@ -220,7 +220,7 @@ pub fn bootstrap(
 
     let graph_input = build_stage_graph(
         global_parameters,
-        ValidateHeader::new(ledger.get_stake_distribution()),
+        ledger.get_stake_distribution(),
         chain_selector,
         &mut network,
         output_ref,

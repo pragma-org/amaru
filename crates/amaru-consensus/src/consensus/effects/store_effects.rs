@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ConsensusError;
-use crate::consensus::ProcessingFailed;
+use crate::consensus::errors::{ConsensusError, ProcessingFailed};
+use crate::consensus::store::ChainStore;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Header, Point, RawBlock, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{IsHeader, Praos};
-use amaru_ouroboros_traits::Nonces;
+use amaru_ouroboros_traits::{HasStakeDistribution, Nonces};
 use anyhow::anyhow;
 use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub type ResourceHeaderStore = Arc<Mutex<dyn super::store::ChainStore<Header>>>;
+pub type ResourceHeaderStore = Arc<Mutex<dyn ChainStore<Header>>>;
+pub type ResourceHeaderValidation = Arc<dyn HasStakeDistribution>;
 pub type ResourceParameters = GlobalParameters;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

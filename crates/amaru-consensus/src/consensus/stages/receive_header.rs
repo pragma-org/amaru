@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{ChainSyncEvent, DecodedChainSyncEvent, ValidationFailed};
-use crate::ConsensusError;
+use crate::consensus::errors::{ConsensusError, ValidationFailed};
+use crate::consensus::events::{ChainSyncEvent, DecodedChainSyncEvent};
 use crate::consensus::span::adopt_current_span;
 use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
 use pure_stage::{Effects, StageRef};

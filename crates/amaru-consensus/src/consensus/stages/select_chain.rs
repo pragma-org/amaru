@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{DecodedChainSyncEvent, ValidateHeaderEvent};
-use crate::consensus::ValidationFailed;
+use crate::consensus::EVENT_TARGET;
+use crate::consensus::errors::{ConsensusError, ValidationFailed};
+use crate::consensus::events::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::headers_tree::HeadersTree;
 use crate::consensus::span::adopt_current_span;
-use crate::{ConsensusError, consensus::EVENT_TARGET};
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer};
 use amaru_ouroboros::IsHeader;
@@ -333,9 +333,8 @@ pub async fn stage(
 
 #[cfg(test)]
 mod tests {
+    use crate::consensus::stages::select_chain::SyncTracker;
     use amaru_kernel::peer::Peer;
-
-    use crate::consensus::select_chain::SyncTracker;
 
     #[tokio::test]
     async fn is_caught_up_when_all_peers_are_caught_up() {

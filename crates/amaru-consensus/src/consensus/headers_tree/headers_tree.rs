@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ConsensusError::UnknownPoint;
+use crate::consensus::errors::ConsensusError::UnknownPoint;
+use crate::consensus::errors::{ConsensusError, InvalidHeaderParentData};
 use crate::consensus::headers_tree::headers_tree::Tracker::{Me, SomePeer};
 use crate::consensus::headers_tree::tree::Tree;
-use crate::consensus::select_chain::RollbackChainSelection::RollbackBeyondLimit;
-use crate::consensus::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
+use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
+use crate::consensus::stages::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
 use crate::consensus::tip::Tip;
-use crate::{ConsensusError, InvalidHeaderParentData};
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HEADER_HASH_SIZE, ORIGIN_HASH, Point, peer::Peer};
 use amaru_ouroboros_traits::IsHeader;
@@ -683,7 +683,8 @@ mod tests {
     use super::*;
     use crate::consensus::headers_tree::data_generation::SelectionResult::Forward;
     use crate::consensus::headers_tree::data_generation::*;
-    use crate::consensus::select_chain::ForwardChainSelection::SwitchToFork;
+    use crate::consensus::stages::select_chain::Fork;
+    use crate::consensus::stages::select_chain::ForwardChainSelection::SwitchToFork;
     use amaru_kernel::ORIGIN_HASH;
     use amaru_kernel::string_utils::{ListDebug, ListsToString};
     use proptest::{prop_assert, proptest};

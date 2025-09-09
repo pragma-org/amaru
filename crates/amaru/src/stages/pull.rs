@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::send;
-use amaru_consensus::consensus::ChainSyncEvent;
+use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_kernel::{Point, peer::Peer};
 use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
 use gasket::framework::*;

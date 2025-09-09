@@ -12,16 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ConsensusError;
-use crate::consensus::block_effects::FetchBlockEffect;
+use crate::consensus::effects::block_effects::FetchBlockEffect;
+use crate::consensus::errors::{ConsensusError, ValidationFailed};
+use crate::consensus::events::{ValidateBlockEvent, ValidateHeaderEvent};
 use crate::consensus::span::adopt_current_span;
-use crate::consensus::validate_block::ValidateBlockEvent;
-use crate::consensus::{ValidateHeaderEvent, ValidationFailed};
+use crate::consensus::stages::fetch_block::miniprotocols::blockfetch::Client;
 use amaru_kernel::{Point, RawBlock, peer::Peer};
 use amaru_ouroboros_traits::IsHeader;
 use async_trait::async_trait;
+use pallas_network::miniprotocols;
 use pure_stage::{Effects, StageRef};
-use tracing::{Level, instrument};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use tokio::sync::{Mutex, RwLock};
+use tracing::{Level, error, instrument};
 
 type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
 
@@ -33,7 +37,7 @@ type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
     name = "stage.fetch_block",
 )]
 pub async fn stage(
-    (downstream, validation_errors): State,
+    (downstream, errors): State,
     msg: ValidateHeaderEvent,
     eff: Effects<ValidateHeaderEvent>,
 ) -> State {
@@ -58,10 +62,7 @@ pub async fn stage(
                     )
                     .await
                 }
-                Err(e) => {
-                    eff.send(&validation_errors, ValidationFailed::new(&peer, e))
-                        .await
-                }
+                Err(e) => eff.send(&errors, ValidationFailed::new(&peer, e)).await,
             }
         }
         ValidateHeaderEvent::Rollback {
@@ -81,11 +82,62 @@ pub async fn stage(
             .await
         }
     }
-    (downstream, validation_errors)
+    (downstream, errors)
 }
 
 /// A trait for fetching blocks from peers.
 #[async_trait]
 pub trait BlockFetcher {
     async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError>;
+}
+
+/// This is a map of clients used to fetch blocks, with one client per peer.
+pub struct ClientsBlockFetcher {
+    clients: RwLock<BTreeMap<Peer, Arc<Mutex<Client>>>>,
+}
+
+impl ClientsBlockFetcher {
+    /// Retrieve a block from a peer at a given point.
+    async fn fetch(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
+        // FIXME: should not fail if the peer is not found
+        // the block should be fetched from any other valid peer
+        // which is known to have it
+        let clients = self.clients.read().await;
+        let client = clients
+            .get(peer)
+            .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?;
+        let mut client = client.lock().await;
+        let new_point: miniprotocols::Point = match point.clone() {
+            Point::Origin => miniprotocols::Point::Origin,
+            Point::Specific(slot, hash) => {
+                pallas_network::miniprotocols::Point::Specific(slot, hash)
+            }
+        };
+        client
+            .fetch_single(new_point)
+            .await
+            .map_err(|e| {
+                error!(target: "amaru::consensus", "failed to fetch block from peer {}: {}", peer.name, e);
+                ConsensusError::FetchBlockFailed(point.clone())
+            })
+    }
+}
+
+impl ClientsBlockFetcher {
+    pub fn new(clients: Vec<(Peer, Client)>) -> Self {
+        let mut cs = BTreeMap::new();
+        for (peer, client) in clients {
+            cs.insert(peer, Arc::new(Mutex::new(client)));
+        }
+        Self {
+            clients: RwLock::new(cs),
+        }
+    }
+}
+
+#[async_trait]
+impl BlockFetcher for ClientsBlockFetcher {
+    async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
+        self.fetch(peer, point).await
+    }
 }

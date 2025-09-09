@@ -14,7 +14,7 @@
 
 use crate::echo::Envelope;
 use crate::simulator::bytes::Bytes;
-use amaru_consensus::consensus::ChainSyncEvent;
+use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_kernel::Point;
 use amaru_kernel::peer::Peer;
 use amaru_slot_arithmetic::Slot;

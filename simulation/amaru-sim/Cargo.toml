@@ -15,7 +15,6 @@ rust-version.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 clap.workspace = true
-either.workspace = true
 futures-util.workspace = true
 gasket.workspace = true
 hex.workspace = true
@@ -37,7 +36,6 @@ tracing.workspace = true
 amaru.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-consensus.workspace = true
-amaru-ledger.workspace = true
 amaru-ouroboros.workspace = true
 amaru-slot-arithmetic.workspace = true
 amaru-stores.workspace = true

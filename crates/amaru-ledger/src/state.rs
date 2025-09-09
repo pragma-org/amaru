@@ -1072,14 +1072,6 @@ impl HasStakeDistribution for StakeDistributionObserver {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum BackwardError {
-    /// The ledger has been instructed to rollback to an unknown point. This should be impossible
-    /// if chain-sync messages (roll-forward and roll-backward) are all passed to the ledger.
-    #[error("error rolling back to unknown {0:?}")]
-    UnknownRollbackPoint(Point),
-}
-
 // FailedTransactions
 // ----------------------------------------------------------------------------
 
@@ -1111,6 +1103,14 @@ impl FailedTransactions {
 
 // Errors
 // ----------------------------------------------------------------------------
+
+#[derive(Debug, Error)]
+pub enum BackwardError {
+    /// The ledger has been instructed to rollback to an unknown point. This should be impossible
+    /// if chain-sync messages (roll-forward and roll-backward) are all passed to the ledger.
+    #[error("error rolling back to unknown {0:?}")]
+    UnknownRollbackPoint(Point),
+}
 
 #[derive(Debug, Error)]
 pub enum StateError {

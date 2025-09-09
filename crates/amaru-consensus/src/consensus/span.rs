@@ -16,8 +16,10 @@ pub use impls::*;
 
 #[cfg(feature = "telemetry")]
 mod impls {
-    use crate::consensus::validate_block::{BlockValidationResult, ValidateBlockEvent};
-    use crate::consensus::{ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent};
+    use crate::consensus::events::{
+        BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, ValidateBlockEvent,
+        ValidateHeaderEvent,
+    };
     use opentelemetry::Context;
     use tracing::Span;
     use tracing_opentelemetry::OpenTelemetrySpanExt;

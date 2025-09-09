@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::ProcessingFailed;
+use crate::consensus::effects::store_effects::StoreBlockEffect;
+use crate::consensus::errors::ProcessingFailed;
+use crate::consensus::events::ValidateBlockEvent;
 use crate::consensus::span::adopt_current_span;
-use crate::consensus::store_effects::StoreBlockEffect;
-use crate::consensus::validate_block::ValidateBlockEvent;
 use amaru_ouroboros_traits::IsHeader;
 use pure_stage::{Effects, StageRef};
 use tracing::Level;

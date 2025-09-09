@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::DecodedChainSyncEvent;
+use crate::consensus::effects::store_effects::EvolveNonceEffect;
+use crate::consensus::errors::{ConsensusError, ValidationFailed};
+use crate::consensus::events::DecodedChainSyncEvent;
 use crate::consensus::span::adopt_current_span;
-use crate::{
-    ConsensusError,
-    consensus::{ValidationFailed, store_effects::EvolveNonceEffect},
-};
 use amaru_kernel::{
     Hash, Header, Nonce, Point, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };

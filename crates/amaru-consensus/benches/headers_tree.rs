@@ -36,7 +36,7 @@ fn main() {
     use amaru_consensus::consensus::headers_tree::data_generation::{
         Ratio, execute_actions_on_tree, generate_random_walks, generate_test_header_tree,
     };
-    use amaru_consensus::consensus::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
+    use amaru_consensus::consensus::stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
     let profile = false;
 
     let seed = 42;
