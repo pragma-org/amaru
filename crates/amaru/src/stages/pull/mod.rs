@@ -42,26 +42,17 @@ pub struct Stage {
     pub peer: Peer,
     pub client: ChainSyncClient,
     pub downstream: DownstreamPort,
-    pub metrics_downstream: Option<MetricsDownstreamPort>,
+    pub metrics_downstream: MetricsDownstreamPort,
 }
 
 impl Stage {
-    pub fn new(
-        peer: Peer,
-        chain_sync: Client<HeaderContent>,
-        intersection: Vec<Point>,
-        send_metrics: bool,
-    ) -> Self {
+    pub fn new(peer: Peer, chain_sync: Client<HeaderContent>, intersection: Vec<Point>) -> Self {
         let client = ChainSyncClient::new(peer.clone(), chain_sync, intersection);
         Self {
             peer,
             client,
             downstream: Default::default(),
-            metrics_downstream: if send_metrics {
-                Some(MetricsDownstreamPort::default())
-            } else {
-                None
-            },
+            metrics_downstream: MetricsDownstreamPort::default(),
         }
     }
 
@@ -139,18 +130,16 @@ impl gasket::framework::Worker<Stage> for Worker {
             NextResponse::RollForward(header, _tip) => {
                 stage.roll_forward(&header).await?;
 
-                if let Some(downstream) = stage.metrics_downstream.as_mut() {
-                    let metrics = PullMetrics {
-                        header_size_bytes: header.cbor.len() as u64,
-                    };
+                let metrics = PullMetrics {
+                    header_size_bytes: header.cbor.len() as u64,
+                };
 
-                    send!(
-                        downstream,
-                        MetricsEvent {
-                            metric: Arc::new(metrics)
-                        }
-                    )?;
-                }
+                send!(
+                    &mut stage.metrics_downstream,
+                    MetricsEvent {
+                        metric: Arc::new(metrics)
+                    }
+                )?;
             }
             NextResponse::RollBackward(point, tip) => {
                 stage.roll_back(from_network_point(&point), tip).await?;

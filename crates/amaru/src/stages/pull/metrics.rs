@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::OnceLock;
+
+use opentelemetry::metrics::Counter;
+
 use crate::stages::metrics::Metric;
+
+static HEADER_BYTES: OnceLock<Counter<u64>> = OnceLock::new();
 
 pub struct PullMetrics {
     pub header_size_bytes: u64,
@@ -20,11 +26,13 @@ pub struct PullMetrics {
 
 impl Metric for PullMetrics {
     fn record(&self, meter: &opentelemetry::metrics::Meter) {
-        let counter = meter
-            .u64_counter("cardano_node_header_total_bytes")
-            .with_description("Total bytes of headers received")
-            .with_unit("int")
-            .build();
+        let counter = HEADER_BYTES.get_or_init(|| {
+            meter
+                .u64_counter("cardano_node_header_bytes")
+                .with_description("Total bytes of headers received")
+                .with_unit("By")
+                .build()
+        });
 
         counter.add(self.header_size_bytes, &[]);
     }

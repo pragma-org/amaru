@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::Deref, sync::Arc};
-
+use crate::schedule;
 use gasket::framework::{WorkSchedule, WorkerError};
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-
-use crate::schedule;
+use std::{ops::Deref, sync::Arc};
 
 pub trait Metric: Send + Sync {
     fn record(&self, meter: &Meter);
@@ -30,10 +28,10 @@ pub struct MetricsEvent {
 }
 
 impl Deref for MetricsEvent {
-    type Target = Arc<dyn Metric>;
+    type Target = dyn Metric;
 
     fn deref(&self) -> &Self::Target {
-        &self.metric
+        &*self.metric
     }
 }
 
@@ -41,18 +39,17 @@ pub type UpstreamPort = gasket::messaging::InputPort<MetricsEvent>;
 
 pub struct MetricsStage {
     pub upstream: UpstreamPort,
-    pub meter: Meter,
-    pub _provider: SdkMeterProvider,
+    pub meter: Option<Meter>,
 }
 
 impl MetricsStage {
-    pub fn new(provider: SdkMeterProvider) -> Self {
-        let meter = provider.meter("cardano-node");
+    pub fn new(maybe_provider: Option<SdkMeterProvider>) -> Self {
+        // The meter is named `cardano-node` to match the metrics exported by the cardano node (https://github.com/pragma-org/amaru/issues/428)
+        let meter = maybe_provider.map(|provider| provider.meter("cardano-node"));
 
         Self {
             upstream: Default::default(),
             meter,
-            _provider: provider,
         }
     }
 }
@@ -90,7 +87,9 @@ impl gasket::framework::Worker<MetricsStage> for Worker {
         unit: &MetricsEvent,
         stage: &mut MetricsStage,
     ) -> Result<(), WorkerError> {
-        unit.metric.record(&stage.meter);
+        if let Some(meter) = &stage.meter {
+            unit.metric.record(meter);
+        }
 
         Ok(())
     }

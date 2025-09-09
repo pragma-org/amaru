@@ -7,23 +7,23 @@ status: accepted
 
 ## Motivation
 
-Amaru [observability](./007-observability.md) has already been discussed and documented previously. However, something we're missing is exposing domain-specific metrics for tools such as [nView](https://github.com/blinklabs-io/nview), a local monitoring tool for a Caradno node.
+Amaru [observability](./007-observability.md) has already been discussed and documented previously. However, something we're missing is exposing domain-specific metrics for tools such as [nView](https://github.com/blinklabs-io/nview), a local monitoring tool for a Cardano node.
 
-nView reads prometheus metrics from a `/metrics` endpoint, so if we collect and expose the correct prometheus metrics, nView should "just work" with some fine tuning. This not only allows node operators to use their existing infrastructure with Amaru, but also allows us to use other industry tools that rely on prometheus.
+nView reads Prometheus metrics from a `/metrics` endpoint, so if we collect and expose the correct Prometheus metrics, nView should "just work" with some fine tuning. This not only allows node operators to use their existing infrastructure with Amaru, but also allows us to use other industry tools that rely on Prometheus.
 
 ## Decision
 
 We will propogate metrics via stage events instead of passing around a large record to each stage to be mutated. This metrics stage will be agnostic to the specific metrics themselves, instead relying on a `Metrics` trait, similar to the following:
 
 ```rs
-pub trait Metric {
-    name() -> // name of the metric
-    unit() -> // metric type
-    record() -> // logic to update the value, wehter it's a `Gauge` or a `Counter`
+pub trait Metric: Send + Sync {
+    /// Update underlying OTel instruments (counters, histograms, gauges).
+    fn record(&self, meter: &opentelemetry::metrics::Meter);
 }
 ```
 
-This allows any stage (Consensus, Ledger, Mempool, etc.) to create their own metrics very easily, just passing around a `Box<dyn Metric>`.
+
+This allows any stage (Consensus, Ledger, Mempool, etc.) to create their own metrics very easily, just passing around an `Arc<dyn Metric>`.
 
 To maintain organization, we will use a convention where each stage has a `metrics.rs` that defines the relevant metrics which implement the `Metric` trait.
 

@@ -202,14 +202,7 @@ pub fn bootstrap(
 
     let mut stages = chain_syncs
         .into_iter()
-        .map(|session| {
-            pull::Stage::new(
-                session.0,
-                session.1,
-                vec![tip.clone()],
-                metrics_provider.is_some(),
-            )
-        })
+        .map(|session| pull::Stage::new(session.0, session.1, vec![tip.clone()]))
         .collect::<Vec<_>>();
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
@@ -238,7 +231,7 @@ pub fn bootstrap(
         our_tip,
     );
 
-    let mut maybe_metrics_stage = metrics_provider.map(MetricsStage::new);
+    let mut metrics_stage = MetricsStage::new(metrics_provider);
 
     let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
@@ -293,15 +286,12 @@ pub fn bootstrap(
 
     forward_chain_stage.upstream.connect(from_ledger);
 
-    if let Some(metrics_stage) = maybe_metrics_stage.as_mut() {
-        stages.iter_mut().for_each(|stage| {
-            if let Some(metrics_downstream) = stage.metrics_downstream.as_mut() {
-                // TODO: is this clone acceptable? It makes sense semantically (each stage would have it's own ChannelSendAdapter)
-                metrics_downstream.connect(to_metrics.clone())
-            }
-        });
-        metrics_stage.upstream.connect(from_stages);
-    }
+    stages.iter_mut().for_each(|stage| {
+        // TODO: is this clone acceptable? It makes sense semantically (each stage would have it's own ChannelSendAdapter)
+        stage.metrics_downstream.connect(to_metrics.clone());
+    });
+
+    metrics_stage.upstream.connect(from_stages);
 
     // No retry, crash on panics.
     let policy = runtime::Policy::default();
@@ -318,16 +308,15 @@ pub fn bootstrap(
     let ledger = ledger_stage.spawn(policy.clone());
     let block_forward = spawn_stage(forward_chain_stage, policy.clone());
 
+    let metrics = spawn_stage(metrics_stage, policy.clone());
+
     stages.push(pure_stages);
 
     stages.push(store_block);
     stages.push(ledger);
     stages.push(block_forward);
 
-    if let Some(metrics_stage) = maybe_metrics_stage {
-        let metrics = spawn_stage(metrics_stage, policy.clone());
-        stages.push(metrics);
-    }
+    stages.push(metrics);
 
     Ok(stages)
 }

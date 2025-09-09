@@ -75,11 +75,14 @@ pub struct Args {
 
 pub async fn run(
     args: Args,
-    provider: Option<SdkMeterProvider>,
+    meter_provider: Option<SdkMeterProvider>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = parse_args(args)?;
 
-    let metrics = provider.clone().map(track_system_metrics).transpose()?;
+    let metrics = meter_provider
+        .clone()
+        .map(track_system_metrics)
+        .transpose()?;
 
     let mut clients: Vec<(String, PeerClient)> = vec![];
     for peer in &config.upstream_peers {
@@ -89,7 +92,7 @@ pub async fn run(
 
     let exit = amaru::exit::hook_exit_token();
 
-    let sync = bootstrap(config, clients, exit.clone(), provider)?;
+    let sync = bootstrap(config, clients, exit.clone(), meter_provider)?;
 
     run_pipeline(gasket::daemon::Daemon::new(sync), exit).await;
 
