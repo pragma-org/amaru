@@ -28,7 +28,7 @@ pub struct PoolSummary {
     pub stake: Lovelace,
 }
 
-/// The LedgerState trait provides a lookup mechanism for various information sourced from the ledger
+/// The HasStakeDistribution trait provides a lookup mechanism for various information sourced from the ledger
 pub trait HasStakeDistribution: Send + Sync {
     /// Obtain information about a pool such as its VRF key hash and its stake. The information is
     /// fetched from the ledger based on the given slot.
@@ -52,9 +52,9 @@ pub trait HasBlockValidation: Send + Sync {
         &self,
         point: &Point,
         block: &RawBlock,
-    ) -> anyhow::Result<anyhow::Result<u64, StageError>, StageError>;
+    ) -> Result<Result<u64, StageError>, StageError>;
 
-    fn rollback_block(&self, to: &Point) -> anyhow::Result<(), StageError>;
+    fn rollback_block(&self, to: &Point) -> Result<(), StageError>;
 }
 
 /// A fake block fetcher that always returns an empty block.
@@ -67,11 +67,11 @@ impl HasBlockValidation for FakeBlockValidation {
         &self,
         _point: &Point,
         _block: &RawBlock,
-    ) -> anyhow::Result<anyhow::Result<u64, StageError>, StageError> {
+    ) -> Result<Result<u64, StageError>, StageError> {
         Ok(Ok(1))
     }
 
-    fn rollback_block(&self, _to: &Point) -> anyhow::Result<(), StageError> {
+    fn rollback_block(&self, _to: &Point) -> Result<(), StageError> {
         Ok(())
     }
 }

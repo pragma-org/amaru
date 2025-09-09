@@ -66,13 +66,13 @@ where
         &self,
         point: &Point,
         raw_block: &RawBlock,
-    ) -> anyhow::Result<anyhow::Result<u64, StageError>, StageError> {
+    ) -> Result<Result<u64, StageError>, StageError> {
         let mut state = self.state.lock().unwrap();
         state.roll_forward(point, raw_block)
     }
 
     #[expect(clippy::unwrap_used)]
-    fn rollback_block(&self, to: &Point) -> anyhow::Result<(), StageError> {
+    fn rollback_block(&self, to: &Point) -> Result<(), StageError> {
         let mut state = self.state.lock().unwrap();
         state.rollback_to(to)
     }
@@ -192,7 +192,7 @@ impl ExternalEffect for ValidateBlockEffect {
 }
 
 impl ExternalEffectAPI for ValidateBlockEffect {
-    type Response = anyhow::Result<anyhow::Result<u64, StageError>, StageError>;
+    type Response = Result<Result<u64, StageError>, StageError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
