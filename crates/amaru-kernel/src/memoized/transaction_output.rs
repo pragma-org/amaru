@@ -135,18 +135,31 @@ fn decode_modern_output<C>(
 fn decode_reference_script<C>(
     d: &mut cbor::Decoder<'_>,
     ctx: &mut C,
-) -> Result<Option<PseudoScript<MemoizedNativeScript>>, cbor::decode::Error> {
-    if d.tag()? != IanaTag::Cbor.tag() {
-        return Err(cbor::decode::Error::message("unexpected tag as script tag"));
+) -> Result<Option<MemoizedScript>, cbor::decode::Error> {
+    let tag = d.tag()?;
+    if tag != IanaTag::Cbor.tag() {
+        return Err(cbor::decode::Error::message(format!(
+            "unexpected tag for script: expected {}, got {}",
+            IanaTag::Cbor.tag(),
+            tag
+        )));
     }
 
     let mut script_decoder: cbor::Decoder<'_> = cbor::Decoder::new(d.bytes()?);
     let failed_to_decode =
         |e| cbor::decode::Error::message(format!("failed to decode script: {e}"));
 
-    Ok(Some(
-        script_decoder.decode_with(ctx).map_err(failed_to_decode)?,
-    ))
+    let ps: PseudoScript<MemoizedNativeScript> =
+        script_decoder.decode_with(ctx).map_err(failed_to_decode)?;
+
+    let memo = match ps {
+        PseudoScript::NativeScript(n) => MemoizedScript::NativeScript(n),
+        PseudoScript::PlutusV1Script(s) => MemoizedScript::PlutusV1Script(s),
+        PseudoScript::PlutusV2Script(s) => MemoizedScript::PlutusV2Script(s),
+        PseudoScript::PlutusV3Script(s) => MemoizedScript::PlutusV3Script(s),
+    };
+
+    Ok(Some(memo))
 }
 
 fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
