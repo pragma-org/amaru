@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::ValidationFailed;
+use crate::consensus::ProcessingFailed;
+use crate::consensus::span::adopt_current_span;
 use crate::consensus::store_effects::StoreBlockEffect;
-use amaru_kernel::block::{StageError, ValidateBlockEvent};
-use amaru_kernel::span::adopt_current_span;
+use crate::consensus::validate_block::ValidateBlockEvent;
 use amaru_ouroboros_traits::IsHeader;
-use anyhow::anyhow;
 use pure_stage::{Effects, StageRef};
 use tracing::Level;
 use tracing::instrument;
 
-type State = (StageRef<ValidateBlockEvent>, StageRef<StageError>);
+type State = (StageRef<ValidateBlockEvent>, StageRef<ProcessingFailed>);
 
 /// This stages stores a full block from a peer
 /// It then sends the full block to the downstream stage for validation and storage.
@@ -44,17 +43,11 @@ pub async fn stage(
             ref peer,
             ..
         } => match eff
-            .external(StoreBlockEffect::new(&header.point(), block.clone()))
+            .external(StoreBlockEffect::new(peer, &header.point(), block.clone()))
             .await
         {
             Ok(_) => eff.send(&downstream, msg).await,
-            Err(e) => {
-                eff.send(
-                    &errors,
-                    StageError::new(anyhow!(ValidationFailed::new(peer.clone(), e))),
-                )
-                .await
-            }
+            Err(e) => eff.send(&errors, e).await,
         },
         ValidateBlockEvent::Rollback { .. } => eff.send(&downstream, msg).await,
     }

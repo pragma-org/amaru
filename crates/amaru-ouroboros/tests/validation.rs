@@ -15,7 +15,7 @@
 use amaru_kernel::Header;
 use amaru_kernel::cbor;
 use amaru_ouroboros::{kes, praos};
-use amaru_ouroboros_traits::mock::MockLedgerState;
+use amaru_ouroboros_traits::has_stake_distribution::mock::MockLedgerState;
 use ctor::ctor;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;

@@ -21,6 +21,7 @@ use pallas_network::miniprotocols::blockfetch::Client;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
+use tracing::error;
 
 pub struct ClientsBlockFetcher {
     clients: RwLock<BTreeMap<Peer, Arc<Mutex<Client>>>>,
@@ -48,7 +49,10 @@ impl ClientsBlockFetcher {
         client
             .fetch_single(new_point)
             .await
-            .map_err(|_| ConsensusError::FetchBlockFailed(point.clone()))
+            .map_err(|e| {
+                error!(target: "amaru::consensus", "failed to fetch block from peer {}: {}", peer.name, e);
+                ConsensusError::FetchBlockFailed(point.clone())
+            })
     }
 }
 

@@ -27,7 +27,6 @@ pub use amaru_ouroboros_traits::*;
 ///
 /// The consensus interface is responsible for validating block headers.
 pub mod consensus;
-pub mod span;
 
 pub type RawHeader = Vec<u8>;
 
@@ -69,6 +68,8 @@ pub enum ConsensusError {
         rollback_point: Hash<HEADER_HASH_SIZE>,
         max_point: Hash<HEADER_HASH_SIZE>,
     },
+    #[error("Invalid block from peer {} at {}", peer, point)]
+    InvalidBlock { peer: Peer, point: Point },
     #[error("{0}")]
     NoncesError(#[from] consensus::store::NoncesError),
     #[error("{0}")]

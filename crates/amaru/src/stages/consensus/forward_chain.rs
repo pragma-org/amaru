@@ -14,9 +14,10 @@
 
 use crate::stages::PallasPoint;
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
+use amaru_consensus::consensus::span::adopt_current_span;
+use amaru_consensus::consensus::validate_block::BlockValidationResult;
 use amaru_consensus::{IsHeader, consensus::store::ChainStore};
-use amaru_kernel::span::adopt_current_span;
-use amaru_kernel::{Hash, Header, block::BlockValidationResult};
+use amaru_kernel::{Hash, Header};
 use client_protocol::{ClientProtocolMsg, client_protocols};
 use gasket::framework::*;
 use pallas_network::{

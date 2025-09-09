@@ -12,14 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent};
+pub use impls::*;
 
 #[cfg(feature = "telemetry")]
 mod impls {
-    use super::*;
-    use amaru_kernel::span::HasSpan;
+    use crate::consensus::validate_block::{BlockValidationResult, ValidateBlockEvent};
+    use crate::consensus::{ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent};
     use opentelemetry::Context;
+    use tracing::Span;
     use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+    /// Make current span a child of given span.
+    ///
+    /// This is needed to ensure tracing keeps track of dependencies between
+    /// stages, properly connecting related spans even though they are crossing
+    /// thread boundaries.
+    pub fn adopt_current_span(has_span: &impl HasSpan) -> Span {
+        let span = Span::current();
+        span.set_parent(has_span.context());
+        span
+    }
+
+    /// Helper trait to remove span reparenting boilerplate.
+    pub trait HasSpan {
+        fn context(&self) -> Context;
+    }
 
     impl HasSpan for ChainSyncEvent {
         fn context(&self) -> Context {
@@ -49,15 +66,44 @@ mod impls {
             }
         }
     }
+
+    impl HasSpan for ValidateBlockEvent {
+        fn context(&self) -> Context {
+            match self {
+                ValidateBlockEvent::Validated { span, .. } => span.context(),
+                ValidateBlockEvent::Rollback { span, .. } => span.context(),
+            }
+        }
+    }
+
+    impl HasSpan for BlockValidationResult {
+        fn context(&self) -> Context {
+            match self {
+                BlockValidationResult::BlockValidated { span, .. } => span.context(),
+                BlockValidationResult::BlockValidationFailed { span, .. } => span.context(),
+                BlockValidationResult::RolledBackTo { span, .. } => span.context(),
+            }
+        }
+    }
 }
 
 #[cfg(not(feature = "telemetry"))]
 mod impls {
     use super::*;
 
+    pub fn adopt_current_span(_has_span: &impl HasSpan) -> Span {
+        Span::current()
+    }
+
+    pub trait HasSpan {}
+
     impl HasSpan for ChainSyncEvent {}
 
     impl HasSpan for DecodedChainSyncEvent {}
 
     impl HasSpan for ValidateHeaderEvent {}
+
+    impl HasSpan for ValidateBlockEvent {}
+
+    impl HasSpan for BlockValidationResult {}
 }
