@@ -13,8 +13,12 @@
 // limitations under the License.
 
 use crate::ConsensusError;
+use crate::consensus::ProcessingFailed;
+use amaru_kernel::peer::Peer;
 use amaru_kernel::{Header, Point, RawBlock, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{IsHeader, Praos};
+use amaru_ouroboros_traits::Nonces;
+use anyhow::anyhow;
 use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -24,13 +28,16 @@ pub type ResourceParameters = GlobalParameters;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StoreHeaderEffect {
+    peer: Peer,
     header: Header,
-    point: Point,
 }
 
 impl StoreHeaderEffect {
-    pub fn new(header: Header, point: Point) -> Self {
-        Self { header, point }
+    pub fn new(peer: &Peer, header: Header) -> Self {
+        Self {
+            peer: peer.clone(),
+            header,
+        }
     }
 }
 
@@ -48,25 +55,32 @@ impl ExternalEffect for StoreHeaderEffect {
             let mut store = store.lock().await;
             let result: <Self as ExternalEffectAPI>::Response = store
                 .store_header(&self.header.hash(), &self.header)
-                .map_err(|e| ConsensusError::StoreHeaderFailed(self.point.clone(), e));
+                .map_err(|e| {
+                    ProcessingFailed::new(
+                        &self.peer,
+                        anyhow!("Cannot store the header at {}: {e}", self.header.point()),
+                    )
+                });
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
     }
 }
 
 impl ExternalEffectAPI for StoreHeaderEffect {
-    type Response = Result<(), ConsensusError>;
+    type Response = Result<(), ProcessingFailed>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StoreBlockEffect {
+    peer: Peer,
     point: Point,
     block: RawBlock,
 }
 
 impl StoreBlockEffect {
-    pub fn new(point: &Point, block: RawBlock) -> Self {
+    pub fn new(peer: &Peer, point: &Point, block: RawBlock) -> Self {
         Self {
+            peer: peer.clone(),
             point: point.clone(),
             block: block.clone(),
         }
@@ -87,24 +101,33 @@ impl ExternalEffect for StoreBlockEffect {
             let mut store = store.lock().await;
             let result: <Self as ExternalEffectAPI>::Response = store
                 .store_block(&self.point.hash(), &self.block)
-                .map_err(|e| ConsensusError::StoreBlockFailed(self.point.clone(), e));
+                .map_err(|e| {
+                    ProcessingFailed::new(
+                        &self.peer,
+                        anyhow!("Cannot store the header at {}: {e}", self.point.clone()),
+                    )
+                });
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
     }
 }
 
 impl ExternalEffectAPI for StoreBlockEffect {
-    type Response = Result<(), ConsensusError>;
+    type Response = Result<(), ProcessingFailed>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EvolveNonceEffect {
+    peer: Peer,
     header: Header,
 }
 
 impl EvolveNonceEffect {
-    pub fn new(header: Header) -> Self {
-        Self { header }
+    pub fn new(peer: &Peer, header: Header) -> Self {
+        Self {
+            peer: peer.clone(),
+            header,
+        }
     }
 }
 
@@ -123,13 +146,14 @@ impl ExternalEffect for EvolveNonceEffect {
             let global_parameters = resources
                 .get::<ResourceParameters>()
                 .expect("EvolveNonceEffect requires global parameters");
-            let result: <Self as ExternalEffectAPI>::Response =
-                store.evolve_nonce(&self.header, &global_parameters);
+            let result: <Self as ExternalEffectAPI>::Response = store
+                .evolve_nonce(&self.header, &global_parameters)
+                .map_err(ConsensusError::NoncesError);
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
     }
 }
 
 impl ExternalEffectAPI for EvolveNonceEffect {
-    type Response = Result<amaru_ouroboros::Nonces, super::store::NoncesError>;
+    type Response = Result<Nonces, ConsensusError>;
 }

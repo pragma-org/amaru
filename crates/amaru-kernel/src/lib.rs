@@ -85,8 +85,6 @@ pub mod ballot;
 pub use ballot_id::*;
 pub mod ballot_id;
 
-pub mod block;
-
 pub mod constitution;
 
 pub use constitutional_committee::*;
@@ -161,7 +159,6 @@ pub mod vote;
 
 pub mod macros;
 pub mod serde_utils;
-pub mod span;
 pub mod string_utils;
 
 #[cfg(any(test, feature = "test-utils"))]

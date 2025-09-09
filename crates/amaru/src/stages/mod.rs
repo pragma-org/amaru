@@ -17,8 +17,9 @@ use crate::stages::consensus::clients_block_fetcher::ClientsBlockFetcher;
 use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::consensus::block_effects::{ResourceBlockFetcher, ResourceParameters};
 use amaru_consensus::consensus::store_effects::ResourceHeaderStore;
+use amaru_consensus::consensus::validate_block::ResourceBlockValidation;
 use amaru_consensus::{
-    ConsensusError, HasBlockValidation, HasStakeDistribution, IsHeader,
+    CanValidateBlocks, ConsensusError, HasStakeDistribution, IsHeader,
     consensus::{
         ChainSyncEvent, headers_tree::HeadersTree, select_chain::SelectChain, store::ChainStore,
         validate_header::ValidateHeader,
@@ -28,7 +29,7 @@ use amaru_kernel::{
     EraHistory, Hash, Header, Point, network::NetworkName, peer::Peer,
     protocol_parameters::GlobalParameters,
 };
-use amaru_ledger::block_validator::{BlockValidator, ResourceBlockValidation};
+use amaru_ledger::block_validator::BlockValidator;
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{
@@ -332,7 +333,7 @@ impl LedgerStage {
         }
     }
 
-    fn get_block_validation(self) -> Arc<dyn HasBlockValidation + Send + Sync> {
+    fn get_block_validation(self) -> Arc<dyn CanValidateBlocks + Send + Sync> {
         match self {
             LedgerStage::InMemLedgerStage(stage) => Arc::new(stage),
             LedgerStage::OnDiskLedgerStage(stage) => Arc::new(stage),

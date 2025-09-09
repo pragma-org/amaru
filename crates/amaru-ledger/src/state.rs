@@ -32,7 +32,6 @@ use crate::{
         stake_distribution::StakeDistribution,
     },
 };
-use amaru_kernel::block::StageError;
 use amaru_kernel::{
     ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hash, Hasher, Lovelace,
     MemoizedTransactionOutput, MintedBlock, Network, Point, PoolId, RawBlock, Slot,
@@ -605,9 +604,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &mut self,
         point: &Point,
         raw_block: &RawBlock,
-    ) -> Result<Result<u64, StageError>, StageError> {
-        let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
-        let mut context = self.create_validation_context(&block)?;
+    ) -> BlockValidation<u64, anyhow::Error> {
+        let block = match parse_block(&raw_block[..]) {
+            Ok(block) => block,
+            Err(e) => return BlockValidation::Err(anyhow!(e)),
+        };
+
+        let mut context = match self.create_validation_context(&block) {
+            Ok(context) => context,
+            Err(e) => return BlockValidation::Err(anyhow!(e)),
+        };
 
         match rules::validate_block(
             &mut context,
@@ -617,20 +623,19 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             self.governance_activity(),
             &block,
         ) {
-            BlockValidation::Err(err) => Err(StageError::new(
-                anyhow!(err).context("Failed to validate block"),
-            )),
-            BlockValidation::Invalid(slot, id, err) => {
-                error!("Block {id} invalid at slot={slot}: {}", err);
-                Ok(Err(StageError::new(anyhow!(err).context("Invalid block"))))
-            }
+            BlockValidation::Err(err) => BlockValidation::Err(err),
+            BlockValidation::Invalid(slot, id, err) => BlockValidation::Invalid(slot, id, err),
             BlockValidation::Valid(()) => {
                 let state: VolatileState = context.into();
                 let block_height = &block.header.block_height();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-                self.forward(state.anchor(point, issuer))
-                    .map_err(|e| anyhow!(e))?;
-                Ok(Ok(*block_height))
+                match self.forward(state.anchor(point, issuer)) {
+                    Ok(()) => BlockValidation::Valid(*block_height),
+                    Err(e) => {
+                        error!(%e, "Failed to roll forward the ledger state");
+                        BlockValidation::Err(anyhow!(e))
+                    }
+                }
             }
         }
     }
@@ -640,7 +645,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         skip_all,
         name = "ledger.roll_backward",
     )]
-    pub fn rollback_to(&mut self, to: &Point) -> Result<(), StageError> {
+    pub fn rollback_to(&mut self, to: &Point) -> Result<(), BackwardError> {
         // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
         // rollback to the last known point, which ought to be the tip of the database.
         if self.volatile.is_empty() && self.tip().as_ref() == to {
@@ -648,7 +653,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         }
 
         self.volatile.rollback_to(to, |point| {
-            StageError::new(anyhow!(BackwardError::UnknownRollbackPoint(point.clone())))
+            BackwardError::UnknownRollbackPoint(point.clone())
         })
     }
 }

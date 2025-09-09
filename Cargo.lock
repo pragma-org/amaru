@@ -81,6 +81,7 @@ dependencies = [
  "async-trait",
  "built",
  "clap",
+ "either",
  "futures-util",
  "gasket",
  "hex",
@@ -121,11 +122,8 @@ dependencies = [
  "amaru-slot-arithmetic",
  "anyhow",
  "async-trait",
- "either",
  "hex",
- "insta",
  "itertools 0.14.0",
- "minicbor",
  "opentelemetry",
  "pallas-crypto",
  "pallas-math",
@@ -137,12 +135,10 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
  "tracing-opentelemetry",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -162,7 +158,6 @@ dependencies = [
  "bech32 0.11.0",
  "hex",
  "itertools 0.14.0",
- "opentelemetry",
  "pallas-addresses",
  "pallas-codec",
  "pallas-crypto",
@@ -176,7 +171,6 @@ dependencies = [
  "test-case",
  "thiserror 2.0.16",
  "tracing",
- "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -192,14 +186,12 @@ dependencies = [
  "anyhow",
  "hex",
  "num",
- "opentelemetry",
  "proptest",
  "pure-stage",
  "serde",
  "test-case",
  "thiserror 2.0.16",
  "tracing",
- "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -308,6 +300,7 @@ dependencies = [
  "async-trait",
  "built",
  "clap",
+ "either",
  "futures-util",
  "gasket",
  "hex",

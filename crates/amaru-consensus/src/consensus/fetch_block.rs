@@ -14,18 +14,16 @@
 
 use crate::ConsensusError;
 use crate::consensus::block_effects::FetchBlockEffect;
+use crate::consensus::span::adopt_current_span;
+use crate::consensus::validate_block::ValidateBlockEvent;
 use crate::consensus::{ValidateHeaderEvent, ValidationFailed};
-use amaru_kernel::block::StageError;
-use amaru_kernel::span::adopt_current_span;
-use amaru_kernel::{Point, RawBlock, block::ValidateBlockEvent, peer::Peer};
+use amaru_kernel::{Point, RawBlock, peer::Peer};
 use amaru_ouroboros_traits::IsHeader;
-use anyhow::anyhow;
 use async_trait::async_trait;
 use pure_stage::{Effects, StageRef};
-use tracing::Level;
-use tracing::instrument;
+use tracing::{Level, instrument};
 
-type State = (StageRef<ValidateBlockEvent>, StageRef<StageError>);
+type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
 
 /// This stages fetches the full block from a peer after its header has been validated.
 /// It then sends the full block to the downstream stage for validation and storage.
@@ -35,7 +33,7 @@ type State = (StageRef<ValidateBlockEvent>, StageRef<StageError>);
     name = "stage.fetch_block",
 )]
 pub async fn stage(
-    (downstream, errors): State,
+    (downstream, validation_errors): State,
     msg: ValidateHeaderEvent,
     eff: Effects<ValidateHeaderEvent>,
 ) -> State {
@@ -61,11 +59,8 @@ pub async fn stage(
                     .await
                 }
                 Err(e) => {
-                    eff.send(
-                        &errors,
-                        StageError::new(anyhow!(ValidationFailed::new(peer, e))),
-                    )
-                    .await
+                    eff.send(&validation_errors, ValidationFailed::new(&peer, e))
+                        .await
                 }
             }
         }
@@ -86,7 +81,7 @@ pub async fn stage(
             .await
         }
     }
-    (downstream, errors)
+    (downstream, validation_errors)
 }
 
 /// A trait for fetching blocks from peers.

@@ -20,21 +20,21 @@ use crate::simulator::simulate::simulate;
 use crate::simulator::{Args, Chain, History, NodeHandle, SimulateConfig};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
+use amaru_consensus::can_validate_blocks::mock::MockCanValidateBlocks;
 use amaru_consensus::consensus::block_effects::ResourceBlockFetcher;
 use amaru_consensus::consensus::fetch_block::BlockFetcher;
 use amaru_consensus::consensus::headers_tree::HeadersTree;
 use amaru_consensus::consensus::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain};
 use amaru_consensus::consensus::store::ChainStore;
+use amaru_consensus::consensus::validate_block::{BlockValidationResult, ResourceBlockValidation};
 use amaru_consensus::consensus::validate_header::ValidateHeader;
 use amaru_consensus::consensus::{ChainSyncEvent, store_effects};
-use amaru_consensus::{ConsensusError, FakeBlockValidation, IsHeader};
+use amaru_consensus::{ConsensusError, IsHeader};
 use amaru_kernel::Point::{Origin, Specific};
-use amaru_kernel::block::BlockValidationResult;
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use amaru_kernel::{Point, to_cbor};
-use amaru_ledger::block_validator::ResourceBlockValidation;
 use amaru_slot_arithmetic::Slot;
 use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 use async_trait::async_trait;
@@ -214,7 +214,7 @@ fn spawn_node(
         .put::<ResourceBlockFetcher>(Arc::new(FakeBlockFetcher));
     network
         .resources()
-        .put::<ResourceBlockValidation>(Arc::new(FakeBlockValidation));
+        .put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
 
     (receiver.without_state(), rx)
 }

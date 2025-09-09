@@ -62,6 +62,12 @@ pub enum BlockValidation<A, E> {
     Err(E),
 }
 
+impl<A> From<anyhow::Error> for BlockValidation<A, anyhow::Error> {
+    fn from(err: anyhow::Error) -> Self {
+        BlockValidation::Err(err)
+    }
+}
+
 fn display_ex_units(ex_units: &ExUnits) -> String {
     format!(
         "ExUnits {{ mem: {}, steps: {} }}",

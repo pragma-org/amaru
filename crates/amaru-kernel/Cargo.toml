@@ -15,7 +15,6 @@ rust-version.workspace = true
 [features]
 default = []
 test-utils = ["proptest", "dep:rand"]
-telemetry = ["opentelemetry", "tracing-opentelemetry"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -23,7 +22,6 @@ anyhow.workspace = true
 bech32.workspace = true
 hex.workspace = true
 itertools.workspace = true
-opentelemetry = { workspace = true, optional = true }
 pallas-addresses.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
@@ -35,7 +33,6 @@ serde_json.workspace = true
 sha3.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-tracing-opentelemetry = { workspace = true, optional = true }
 proptest = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
