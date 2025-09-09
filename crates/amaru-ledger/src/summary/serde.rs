@@ -74,7 +74,10 @@ pub fn encode_drep(drep: &DRep) -> String {
 
 pub fn encode_stake_credential(network: Network, credential: &StakeCredential) -> String {
     encode_bech32(
-        "stake_test",
+        match network {
+            Network::Mainnet => "stake",
+            Network::Testnet | Network::Other(..) => "stake_test",
+        },
         &match credential {
             StakeCredential::AddrKeyhash(hash) => {
                 [&[0xe0 | network.value()], hash.as_slice()].concat()
