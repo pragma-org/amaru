@@ -18,7 +18,7 @@ use crate::{
 };
 use serde::ser::SerializeStruct;
 
-use minicbor_extra::heterogeneous_array;
+use amaru_minicbor_extra::heterogeneous_array;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoizedDatum {
@@ -68,7 +68,8 @@ impl<'de> serde::Deserialize<'de> for MemoizedDatum {
 
 impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        heterogeneous_array(d, 2, |d| {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
             let datum_option = d.u8()?;
             match datum_option {
                 0 => {

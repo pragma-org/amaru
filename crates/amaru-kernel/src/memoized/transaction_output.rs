@@ -15,17 +15,16 @@
 use crate::{
     cbor, from_minted_script,
     script::{encode_script, serialize_memoized_script, PlaceholderScript},
-    Address, AlonzoValue, AssetName, KeyValuePairs, Legacy, LocalPseudoScript, Lovelace, MemoizedDatum,
-    MemoizedNativeScript, MemoizedPlutusData, MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs,
+    Address, AlonzoValue, AssetName, KeyValuePairs, Legacy, Lovelace, MemoizedDatum,
+    MemoizedNativeScript, MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs,
     PseudoScript, ScriptHash, Value,
 };
 
-use minicbor_extra::{
+use amaru_minicbor_extra::{
     decode_break, decode_chunk, heterogeneous_map, missing_field, unexpected_field,
     with_default_value,
 };
 use pallas_codec::minicbor::data::{IanaTag, Type};
-use pallas_primitives::conway::PseudoScript;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
 pub struct MemoizedTransactionOutput {
