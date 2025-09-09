@@ -605,7 +605,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &mut self,
         point: &Point,
         raw_block: &RawBlock,
-    ) -> anyhow::Result<anyhow::Result<u64, StageError>, StageError> {
+    ) -> Result<Result<u64, StageError>, StageError> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
         let mut context = self.create_validation_context(&block)?;
 
@@ -640,7 +640,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         skip_all,
         name = "ledger.roll_backward",
     )]
-    pub fn rollback_to(&mut self, to: &Point) -> anyhow::Result<(), StageError> {
+    pub fn rollback_to(&mut self, to: &Point) -> Result<(), StageError> {
         // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
         // rollback to the last known point, which ought to be the tip of the database.
         if self.volatile.is_empty() && self.tip().as_ref() == to {
