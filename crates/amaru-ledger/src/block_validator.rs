@@ -23,6 +23,8 @@ use amaru_ouroboros_traits::can_validate_blocks::BlockValidationError;
 use anyhow::anyhow;
 use std::sync::{Arc, Mutex};
 
+/// This data type encapsulate the ledger state in order to implement the `CanValidateBlocks` trait.
+/// and be able to validate blocks (including rollback).
 pub struct BlockValidator<S, HS>
 where
     S: Store + Send,

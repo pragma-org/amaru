@@ -13,14 +13,16 @@
 // limitations under the License.
 
 use crate::point::to_network_point;
-use amaru_consensus::{RawHeader, consensus::ChainSyncEvent};
 use amaru_kernel::{Point, peer::Peer};
 use pallas_network::miniprotocols::chainsync::{
     Client, ClientError, HeaderContent, NextResponse, Tip,
 };
 use pallas_traverse::MultiEraHeader;
 
+use amaru_consensus::consensus::events::ChainSyncEvent;
 use tracing::{Level, Span, instrument};
+
+pub type RawHeader = Vec<u8>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChainSyncClientError {

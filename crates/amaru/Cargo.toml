@@ -20,7 +20,6 @@ anyhow.workspace = true
 async-compression.workspace = true
 async-trait.workspace = true
 clap.workspace = true
-either.workspace = true
 futures-util.workspace = true
 gasket.workspace = true
 hex.workspace = true
@@ -37,10 +36,10 @@ serde_json.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [
-  "fs",
-  "rt",
-  "rt-multi-thread",
-  "signal",
+    "fs",
+    "rt",
+    "rt-multi-thread",
+    "signal",
 ] }
 tokio-util.workspace = true
 tracing-opentelemetry.workspace = true
@@ -53,6 +52,7 @@ amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-network.workspace = true
 amaru-stores.workspace = true
+amaru-ouroboros-traits.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-slot-arithmetic.workspace = true
 pure-stage.workspace = true

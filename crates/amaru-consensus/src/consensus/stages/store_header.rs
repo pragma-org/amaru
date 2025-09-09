@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::store_effects::StoreHeaderEffect;
-
-use super::DecodedChainSyncEvent;
+use crate::consensus::effects::store_effects::StoreHeaderEffect;
+use crate::consensus::events::DecodedChainSyncEvent;
 use crate::consensus::span::adopt_current_span;
 use amaru_ouroboros_traits::IsHeader;
 use pure_stage::{Effects, StageRef};

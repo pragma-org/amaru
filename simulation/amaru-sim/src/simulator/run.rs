@@ -20,21 +20,26 @@ use crate::simulator::simulate::simulate;
 use crate::simulator::{Args, Chain, History, NodeHandle, SimulateConfig};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
-use amaru_consensus::can_validate_blocks::mock::MockCanValidateBlocks;
-use amaru_consensus::consensus::block_effects::ResourceBlockFetcher;
-use amaru_consensus::consensus::fetch_block::BlockFetcher;
+use amaru_consensus::consensus::effects::block_effects::ResourceBlockFetcher;
+use amaru_consensus::consensus::effects::store_effects::{
+    ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
+};
+use amaru_consensus::consensus::errors::ConsensusError;
+use amaru_consensus::consensus::events::{BlockValidationResult, ChainSyncEvent};
 use amaru_consensus::consensus::headers_tree::HeadersTree;
-use amaru_consensus::consensus::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain};
+use amaru_consensus::consensus::stages::fetch_block::BlockFetcher;
+use amaru_consensus::consensus::stages::select_chain::{
+    DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain,
+};
+use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
 use amaru_consensus::consensus::store::ChainStore;
-use amaru_consensus::consensus::validate_block::{BlockValidationResult, ResourceBlockValidation};
-use amaru_consensus::consensus::validate_header::ValidateHeader;
-use amaru_consensus::consensus::{ChainSyncEvent, store_effects};
-use amaru_consensus::{ConsensusError, IsHeader};
 use amaru_kernel::Point::{Origin, Specific};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use amaru_kernel::{Point, to_cbor};
+use amaru_ouroboros::IsHeader;
+use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateBlocks;
 use amaru_slot_arithmetic::Slot;
 use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 use async_trait::async_trait;
@@ -207,8 +212,10 @@ fn spawn_node(
     let receiver = network.wire_up(receiver, (receive_header_ref, output.clone()));
     network.wire_up(propagate_header_stage, (0, output));
 
-    network.resources().put(chain_ref);
-    network.resources().put(global_parameters);
+    network.resources().put::<ResourceHeaderStore>(chain_ref);
+    network
+        .resources()
+        .put::<ResourceParameters>(global_parameters);
     network
         .resources()
         .put::<ResourceBlockFetcher>(Arc::new(FakeBlockFetcher));
@@ -224,8 +231,8 @@ fn init_node(
 ) -> (
     GlobalParameters,
     SelectChain,
-    ValidateHeader,
-    store_effects::ResourceHeaderStore,
+    ResourceHeaderValidation,
+    ResourceHeaderStore,
 ) {
     let network_name = NetworkName::Testnet(42);
     let global_parameters: &GlobalParameters = network_name.into();
@@ -249,12 +256,11 @@ fn init_node(
             .collect::<Vec<_>>(),
     );
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let validate_header = ValidateHeader::new(Arc::new(stake_distribution));
 
     (
         global_parameters.clone(),
         select_chain,
-        validate_header,
+        Arc::new(stake_distribution),
         chain_ref,
     )
 }

@@ -12,18 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::select_chain::SelectChain;
-use amaru_consensus::consensus::validate_block::BlockValidationResult;
-use amaru_consensus::consensus::{
-    ChainSyncEvent, ProcessingFailed, ValidationFailed, fetch_block, receive_header, select_chain,
-    store_block, store_header, validate_block, validate_header,
+use amaru_consensus::consensus::effects::store_effects::ResourceHeaderValidation;
+use amaru_consensus::consensus::errors::{ProcessingFailed, ValidationFailed};
+use amaru_consensus::consensus::events::{BlockValidationResult, ChainSyncEvent};
+use amaru_consensus::consensus::stages::select_chain::SelectChain;
+use amaru_consensus::consensus::stages::validate_header::ValidateHeader;
+use amaru_consensus::consensus::stages::{
+    fetch_block, receive_header, select_chain, store_block, store_header, validate_block,
+    validate_header,
 };
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use pure_stage::{StageGraph, StageRef};
 
+/// Create the graph of stages supporting the consensus protocol.
+/// The output of the graph is passed as a parameter, allowing the caller to
+/// decide what to do with the results the graph processing.
 pub fn build_stage_graph(
     global_parameters: &GlobalParameters,
-    consensus: validate_header::ValidateHeader,
+    header_validation: ResourceHeaderValidation,
     chain_selector: SelectChain,
     network: &mut impl StageGraph,
     outputs: StageRef<BlockValidationResult>,
@@ -74,7 +80,6 @@ pub fn build_stage_graph(
             processing_errors_stage.clone().without_state(),
         ),
     );
-
     let fetch_block_stage = network.wire_up(
         fetch_block_stage,
         (
@@ -93,7 +98,7 @@ pub fn build_stage_graph(
     let validate_header_stage = network.wire_up(
         validate_header_stage,
         (
-            consensus,
+            ValidateHeader::new(header_validation),
             global_parameters.clone(),
             select_chain_stage.without_state(),
             validation_errors_stage.clone().without_state(),

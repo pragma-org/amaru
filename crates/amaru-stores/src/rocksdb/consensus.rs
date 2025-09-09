@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::{
-    Nonces,
-    consensus::store::{ChainStore, ReadOnlyChainStore, StoreError},
-};
+use amaru_consensus::consensus::store::{ChainStore, ReadOnlyChainStore, StoreError};
 use amaru_kernel::{Hash, RawBlock, cbor, from_cbor, network::NetworkName, to_cbor};
+use amaru_ouroboros_traits::Nonces;
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_slot_arithmetic::EraHistory;
 use rocksdb::{DB, OptimisticTransactionDB, Options};
