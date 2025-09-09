@@ -65,7 +65,7 @@ mod tests {
 
         let event = ValidateBlockEvent::Validated {
             point: Point::Specific(123, Hash::from([1; 32]).to_vec()),
-            block: vec![0, 1, 2, 3],
+            block: RawBlock::from(&*vec![0, 1, 2, 3]),
             span: Span::current(),
         };
 

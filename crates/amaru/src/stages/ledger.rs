@@ -216,7 +216,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
         let result = match unit {
             ValidateBlockEvent::Validated { point, block, span } => {
                 let point = point.clone();
-                let block = block.to_vec();
+                let block = block.clone();
 
                 match stage.roll_forward(point.clone(), block.clone()) {
                     Ok(Ok(block_height)) => BlockValidationResult::BlockValidated {

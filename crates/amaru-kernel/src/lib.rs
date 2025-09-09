@@ -31,7 +31,9 @@ use pallas_primitives::{
     conway::{MintedPostAlonzoTransactionOutput, NativeScript},
 };
 use sha3::{Digest as _, Sha3_256};
-use std::{array::TryFromSliceError, borrow::Cow, collections::BTreeMap, fmt::Debug, ops::Deref};
+use std::{
+    array::TryFromSliceError, borrow::Cow, collections::BTreeMap, fmt::Debug, ops::Deref, sync::Arc,
+};
 
 pub use amaru_minicbor_extra::*;
 pub use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
@@ -231,8 +233,6 @@ pub const PROTOCOL_VERSION_9: ProtocolVersion = (9, 0);
 
 pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
 
-pub const EMPTY_BLOCK: Vec<u8> = vec![];
-
 pub const HEADER_HASH_SIZE: usize = 32;
 
 pub const ORIGIN_HASH: Hash<HEADER_HASH_SIZE> = Hash::new([0; HEADER_HASH_SIZE]);
@@ -248,8 +248,25 @@ pub type ScriptPurpose = RedeemerTag;
 
 pub type AuxiliaryDataHash = Hash<32>;
 
-/// Convenient type alias to any kind of block
-pub type RawBlock = Vec<u8>;
+/// Cheaply cloneable block bytes
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub struct RawBlock(Arc<[u8]>);
+
+impl Deref for RawBlock {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<&[u8]> for RawBlock {
+    fn from(bytes: &[u8]) -> Self {
+        Self(Arc::from(bytes))
+    }
+}
 
 pub type TransactionId = Hash<32>;
 

@@ -20,7 +20,7 @@ use amaru_consensus::{
     IsHeader, Nonces,
     consensus::store::{ChainStore, ReadOnlyChainStore, StoreError},
 };
-use amaru_kernel::{EMPTY_BLOCK, Hash, Header, RawBlock, block::BlockValidationResult, from_cbor};
+use amaru_kernel::{Hash, Header, RawBlock, block::BlockValidationResult, from_cbor};
 use gasket::{
     messaging::tokio::ChannelRecvAdapter,
     runtime::{Tether, spawn_stage},
@@ -236,7 +236,7 @@ impl Setup {
             BlockValidationResult::BlockValidated {
                 point: point.clone(),
                 span,
-                block: EMPTY_BLOCK,
+                block: RawBlock::from(&[] as &[u8]),
                 block_height,
             }
             .into(),

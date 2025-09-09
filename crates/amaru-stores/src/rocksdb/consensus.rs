@@ -122,7 +122,7 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
 
     fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
         self.db
-            .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block)
+            .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),
             })
@@ -241,7 +241,7 @@ mod test {
         let mut store = initialise_test_rw_store(&tempdir);
 
         let hash: Hash<32> = random_bytes(32).as_slice().into();
-        let block = vec![1; 64];
+        let block = RawBlock::from(&*vec![1; 64]);
 
         <RocksDBStore as ChainStore<FakeHeader>>::store_block(&mut store, &hash, &block).unwrap();
         let block2 =

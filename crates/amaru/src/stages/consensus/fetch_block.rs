@@ -18,7 +18,7 @@ use crate::schedule;
 use amaru_consensus::{
     ConsensusError, IsHeader, consensus::ValidateHeaderEvent, span::adopt_current_span,
 };
-use amaru_kernel::{Point, block::ValidateBlockEvent, peer::Peer};
+use amaru_kernel::{Point, RawBlock, block::ValidateBlockEvent, peer::Peer};
 use gasket::framework::*;
 use pallas_network::miniprotocols::blockfetch::Client;
 use tracing::{error, instrument};
@@ -52,6 +52,7 @@ impl BlockFetchStage {
                     error!(error=%e, "failed to fetch block");
                     WorkerError::Recv
                 })?;
+                let block = RawBlock::from(&*block);
 
                 self.downstream
                     .send(ValidateBlockEvent::Validated { point, block, span }.into())
