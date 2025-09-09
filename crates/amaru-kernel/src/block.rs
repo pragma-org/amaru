@@ -17,7 +17,6 @@ use crate::{Point, RawBlock};
 use pallas_primitives::babbage::Header;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
 use tracing::Span;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -26,7 +25,7 @@ pub enum ValidateBlockEvent {
         peer: Peer,
         header: Header,
         #[serde(skip, default = "default_block")]
-        block: Arc<RawBlock>,
+        block: RawBlock,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -38,8 +37,8 @@ pub enum ValidateBlockEvent {
     },
 }
 
-fn default_block() -> Arc<RawBlock> {
-    Arc::new(Vec::new())
+fn default_block() -> RawBlock {
+    RawBlock::from(Vec::new().as_slice())
 }
 
 impl Debug for ValidateBlockEvent {
@@ -85,7 +84,7 @@ impl PartialEq for ValidateBlockEvent {
                     block: b2,
                     ..
                 },
-            ) => p1 == p2 && h1 == h2 && Arc::ptr_eq(b1, b2),
+            ) => p1 == p2 && h1 == h2 && b1 == b2,
             (
                 ValidateBlockEvent::Rollback {
                     peer: p1,
@@ -109,7 +108,7 @@ pub enum BlockValidationResult {
         peer: Peer,
         header: Header,
         #[serde(skip, default = "default_block")]
-        block: Arc<RawBlock>,
+        block: RawBlock,
         #[serde(skip, default = "Span::none")]
         span: Span,
         block_height: u64,
