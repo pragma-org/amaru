@@ -15,7 +15,12 @@
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
-use std::io::{self, IsTerminal};
+use std::{
+    env::VarError,
+    error::Error,
+    io::{self, IsTerminal},
+};
+use tracing::{info, warn};
 use tracing_subscriber::{
     EnvFilter, Registry,
     filter::Filtered,
@@ -52,6 +57,8 @@ type JsonLayer<S> = Layered<JsonFilter<S>, S>;
 
 type JsonFilter<S> = Filtered<Layer<S, JsonFields, Format<Json>>, EnvFilter, S>;
 
+type DelayedWarning = Option<Box<dyn FnOnce()>>;
+
 #[expect(clippy::large_enum_variant)]
 #[derive(Default)]
 pub enum TracingSubscriber<S> {
@@ -81,23 +88,29 @@ impl TracingSubscriber<Registry> {
 
     #[expect(clippy::panic)]
     #[expect(clippy::wildcard_enum_match_arm)]
-    pub fn with_json<F, G>(&mut self, layer_json: F, layer_both: G)
+    pub fn with_json<F, G>(&mut self, layer_json: F, layer_both: G) -> DelayedWarning
     where
-        F: FnOnce() -> JsonFilter<Registry>,
-        G: FnOnce() -> JsonFilter<OpenTelemetryLayer<Registry>>,
+        F: FnOnce() -> (JsonFilter<Registry>, DelayedWarning),
+        G: FnOnce() -> (JsonFilter<OpenTelemetryLayer<Registry>>, DelayedWarning),
     {
         match std::mem::take(self) {
             Self::Registry(registry) => {
-                *self = TracingSubscriber::WithJson(registry.with(layer_json()));
+                let (layer, warning) = layer_json();
+                *self = TracingSubscriber::WithJson(registry.with(layer));
+                warning
             }
             Self::WithOpenTelemetry(layered) => {
-                *self = TracingSubscriber::WithBoth(layered.with(layer_both()));
+                let (layer, warning) = layer_both();
+                *self = TracingSubscriber::WithBoth(layered.with(layer));
+                warning
             }
             _ => panic!("'with_open_telemetry' called after 'with_json'"),
         }
     }
 
     pub fn init(self) {
+        let (default_filter, warning) = new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
+
         let log_format = || {
             tracing_subscriber::fmt::format()
                 .with_ansi(io::stderr().is_terminal())
@@ -105,7 +118,7 @@ impl TracingSubscriber<Registry> {
         };
         let log_writer = || io::stderr as fn() -> io::Stderr;
         let log_events = || FmtSpan::CLOSE;
-        let log_filter = || default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
+        let log_filter = || default_filter;
 
         match self {
             TracingSubscriber::Empty => unreachable!(),
@@ -127,24 +140,12 @@ impl TracingSubscriber<Registry> {
                         .with_filter(log_filter()),
                 )
                 .init(),
-            TracingSubscriber::WithJson(layered) => layered
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(log_writer())
-                        .event_format(log_format())
-                        .with_span_events(log_events())
-                        .with_filter(log_filter()),
-                )
-                .init(),
-            TracingSubscriber::WithBoth(layered) => layered
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(log_writer())
-                        .event_format(log_format())
-                        .with_span_events(log_events())
-                        .with_filter(log_filter()),
-                )
-                .init(),
+            TracingSubscriber::WithJson(layered) => layered.init(),
+            TracingSubscriber::WithBoth(layered) => layered.init(),
+        };
+
+        if let Some(notify) = warning {
+            notify();
         }
     }
 }
@@ -153,25 +154,33 @@ impl TracingSubscriber<Registry> {
 // JSON TRACES
 // -----------------------------------------------------------------------------
 
-pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) {
+pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> DelayedWarning {
     let format = || tracing_subscriber::fmt::format().json();
     let events = || FmtSpan::ENTER | FmtSpan::EXIT;
-    let filter = || default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
+    let filter = || new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
 
     subscriber.with_json(
         || {
-            tracing_subscriber::fmt::layer()
-                .event_format(format())
-                .fmt_fields(JsonFields::new())
-                .with_span_events(events())
-                .with_filter(filter())
+            let (default_filter, warning) = filter();
+            (
+                tracing_subscriber::fmt::layer()
+                    .event_format(format())
+                    .fmt_fields(JsonFields::new())
+                    .with_span_events(events())
+                    .with_filter(default_filter),
+                warning,
+            )
         },
         || {
-            tracing_subscriber::fmt::layer()
-                .event_format(format())
-                .fmt_fields(JsonFields::new())
-                .with_span_events(events())
-                .with_filter(filter())
+            let (default_filter, warning) = filter();
+            (
+                tracing_subscriber::fmt::layer()
+                    .event_format(format())
+                    .fmt_fields(JsonFields::new())
+                    .with_span_events(events())
+                    .with_filter(default_filter),
+                warning,
+            )
         },
     )
 }
@@ -211,7 +220,7 @@ pub struct OpenTelemetryConfig {
 pub fn setup_open_telemetry(
     config: &OpenTelemetryConfig,
     subscriber: &mut TracingSubscriber<Registry>,
-) -> OpenTelemetryHandle {
+) -> (OpenTelemetryHandle, DelayedWarning) {
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
@@ -253,17 +262,24 @@ pub fn setup_open_telemetry(
 
     // Subscriber
     let opentelemetry_tracer = opentelemetry_provider.tracer(config.service_name.clone());
+    let (default_filter, warning) = new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
+
     let opentelemetry_layer = tracing_opentelemetry::layer()
         .with_tracer(opentelemetry_tracer)
         .with_level(true)
-        .with_filter(default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER));
+        .with_filter(default_filter);
 
     subscriber.with_open_telemetry(opentelemetry_layer);
 
-    OpenTelemetryHandle {
-        metrics: Some(metrics_provider.clone()),
-        teardown: Box::new(|| teardown_open_telemetry(opentelemetry_provider, metrics_provider)),
-    }
+    (
+        OpenTelemetryHandle {
+            metrics: Some(metrics_provider.clone()),
+            teardown: Box::new(|| {
+                teardown_open_telemetry(opentelemetry_provider, metrics_provider)
+            }),
+        },
+        warning,
+    )
 }
 
 fn teardown_open_telemetry(
@@ -281,17 +297,26 @@ fn teardown_open_telemetry(
 // -----------------------------------------------------------------------------
 // ENV FILTER
 // -----------------------------------------------------------------------------
-#[expect(clippy::expect_used)]
-fn default_filter(var: &str, default: &str) -> EnvFilter {
+
+fn new_default_filter(var: &str, default: &str) -> (EnvFilter, DelayedWarning) {
     match EnvFilter::try_from_env(var) {
-        Ok(filter) => filter,
+        Ok(filter) => (filter, None),
         Err(e) => {
-            // Early stderr notice since tracing isn't up yet
-            eprintln!(
-                "AMARU: invalid {} value ({}), falling back to '{}'",
-                var, e, default
-            );
-            EnvFilter::try_new(default).expect("invalid default filter")
+            // Notice stashed for when the tracing system is up.
+            let fallback = default.to_string();
+            let var = var.to_string();
+            let warning = match e.source().and_then(|e| e.downcast_ref::<VarError>()) {
+                Some(VarError::NotPresent) => {
+                    Box::new(move || info!(var, fallback, "unspecified ENV variable"))
+                        as Box<dyn FnOnce()>
+                }
+                _ => Box::new(move || warn!(var, fallback, reason = %e, "invalid ENV variable"))
+                    as Box<dyn FnOnce()>,
+            };
+
+            #[expect(clippy::expect_used)]
+            let filter = EnvFilter::try_new(default).expect("invalid default filter");
+            (filter, Some(warning))
         }
     }
 }

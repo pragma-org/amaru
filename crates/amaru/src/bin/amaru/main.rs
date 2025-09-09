@@ -92,24 +92,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut subscriber = observability::TracingSubscriber::new();
 
-    let observability::OpenTelemetryHandle { metrics, teardown } = if args.with_open_telemetry {
-        observability::setup_open_telemetry(
-            &OpenTelemetryConfig {
-                service_name: args.service_name,
-                span_url: args.otlp_span_url,
-                metric_url: args.otlp_metric_url,
-            },
-            &mut subscriber,
-        )
+    let (observability::OpenTelemetryHandle { metrics, teardown }, warning_otlp) =
+        if args.with_open_telemetry {
+            observability::setup_open_telemetry(
+                &OpenTelemetryConfig {
+                    service_name: args.service_name,
+                    span_url: args.otlp_span_url,
+                    metric_url: args.otlp_metric_url,
+                },
+                &mut subscriber,
+            )
+        } else {
+            (observability::OpenTelemetryHandle::default(), None)
+        };
+
+    let warning_json = if args.with_json_traces {
+        observability::setup_json_traces(&mut subscriber)
     } else {
-        observability::OpenTelemetryHandle::default()
+        None
     };
 
-    if args.with_json_traces {
-        observability::setup_json_traces(&mut subscriber);
+    subscriber.init();
+
+    // NOTE: Both warnings are bound to the same ENV var, so `.or` prevents from logging it twice.
+    if let Some(notify) = warning_otlp.or(warning_json) {
+        notify();
     }
 
-    subscriber.init();
     let result = match args.command {
         Command::Daemon(args) => cmd::daemon::run(args, metrics).await,
         Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
