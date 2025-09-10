@@ -37,6 +37,9 @@ enum Command {
     /// **NOTE**: Only `preprod` network is supported for now.
     Bootstrap(cmd::bootstrap::Args),
 
+    /// Bootstrap the node using Mithril.
+    BootstrapMithril(cmd::bootstrap_mithril::Args),
+
     FetchChainHeaders(cmd::fetch_chain_headers::Args),
 
     /// Run the node in all its glory.
@@ -138,6 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
         Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
+        Command::BootstrapMithril(args) => cmd::bootstrap_mithril::run(args).await,
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
         Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
     };

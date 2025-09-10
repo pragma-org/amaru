@@ -32,6 +32,7 @@ indicatif = "0.18.0"
 indoc = "2.0"
 itertools = "0.14.0"
 minicbor = { version = "0.25.1", features = ["std", "half", "derive"] } # Must match the version used by pallas
+mithril-client = { version = "0.12.11", default-features = false, features = ["fs", "num-integer-backend", "rustls-tls"] }
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 opentelemetry = "0.30.0"
 reqwest = { version = "0.12.20", default-features = false, features = ["json", "stream", "rustls-tls"] }

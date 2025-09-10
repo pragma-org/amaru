@@ -107,7 +107,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn import_nonces_for_network(
+pub async fn import_nonces_for_network(
     network: NetworkName,
     config_dir: &Path,
     chain_dir: &PathBuf,

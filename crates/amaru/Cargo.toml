@@ -25,6 +25,7 @@ gasket.workspace = true
 hex.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
+mithril-client.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
