@@ -48,16 +48,13 @@ type HeaderHash = Hash<HEADER_HASH_SIZE>;
 pub struct HeadersTree<H> {
     /// Maximum size allowed for a given chain
     max_length: usize,
-    /// List of headers by their hash
-    // headers: BTreeMap<HeaderHash, Tip<H>>,
-    /// View of the parent->child relationship for headers.
-    parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
     /// The root of the tree
     root: HeaderHash,
     /// This map maintains the hashes of the headers of each peer chain, starting from the root.
     peers: BTreeMap<Tracker, Vec<HeaderHash>>,
     /// One chain tip designates as THE best chain among several chains of the same length.
     best_chain: HeaderHash,
+    /// Store containing headers data
     chain_store: Arc<dyn ChainStore<H>>,
 }
 
@@ -210,7 +207,6 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
 
         HeadersTree {
             max_length,
-            parent_child_relationship: BTreeMap::new(),
             root: ORIGIN_HASH,
             peers,
             best_chain: ORIGIN_HASH,
@@ -369,24 +365,22 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
         self.chain_store
             .store_header(&header.hash(), header)
             .map_err(|e| ConsensusError::StoreHeaderFailed(header.hash(), e))?;
-        // add the new header to the tree
-        if let Some(parent_hash) = header.parent() {
-            self.parent_child_relationship
-                .entry(parent_hash)
-                .or_default()
-                .push(header.hash());
-        } else if self.is_empty_tree() {
-            self.chain_store
-                .remove_header(&ORIGIN_HASH)
-                .map_err(|e| ConsensusError::RemoveHeaderFailed(header.hash(), e))?;
-            self.peers.remove(&Me);
-            self.best_chain = header.hash();
-            self.root = header.hash();
-        } else {
-            // We just need to check that the header is the root header
-            if header.hash() != self.root {
-                return Err(UnknownPoint(header.hash()));
-            };
+
+        // deal with the case of the root header
+        if header.parent().is_none() {
+            if self.is_empty_tree() {
+                self.chain_store
+                    .remove_header(&ORIGIN_HASH)
+                    .map_err(|e| ConsensusError::RemoveHeaderFailed(header.hash(), e))?;
+                self.peers.remove(&Me);
+                self.best_chain = header.hash();
+                self.root = header.hash();
+            } else {
+                // We just need to check that the header is the root header
+                if header.hash() != self.root {
+                    return Err(UnknownPoint(header.hash()));
+                };
+            }
         }
         Ok(())
     }
@@ -501,14 +495,14 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the ancestors of the header, including the header itself.
-    fn ancestors(&self, start: &H) -> impl Iterator<Item = H> + use<'_, H> {
+    fn ancestors(&self, start: &H) -> impl Iterator<Item=H> + use < '_, H > {
         successors(Some(start.clone()), move |h| {
             h.parent().and_then(|p| self.get_header(&p))
         })
     }
 
     /// Return the hashes of the ancestors of the header, including the header hash itself.
-    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + '_> {
+    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item=HeaderHash> + '_> {
         if let Some(header) = self.get_header(hash) {
             Box::new(self.ancestors(&header).map(|h| h.hash()))
         } else {
@@ -606,23 +600,25 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
         // If we have at least two headers, we can move the root up one level
         if let (Some(first), Some(second)) = (first, second) {
             // Now second becomes the new root and we need to delete all the subtrees that are not starting from it
-            let mut other_roots: Vec<_> =
-                if let Some(children) = self.parent_child_relationship.get(&first) {
-                    children.iter().filter(|t| **t != second).cloned().collect()
-                } else {
-                    vec![]
-                };
+            let other_roots: Vec<_> = self
+                .chain_store
+                .get_children(&first)
+                .into_iter()
+                .filter(|t| *t != second)
+                .collect();
 
             // The original root needs to be deleted as well but not its children.
-            other_roots.push(first);
-            self.parent_child_relationship.insert(first, vec![]);
+            let mut removed_hashes = BTreeSet::new();
+            self.chain_store
+                .remove_header(&first)
+                .map_err(|e| ConsensusError::RemoveHeaderFailed(first, e))?;
+            removed_hashes.insert(first);
 
             // Follow the parent-child relationship for the other roots and
             //  - Delete their headers from the headers map
             //  - Delete the parent-child edges from the relationship map
             //
             // Update the set of removed hashes.
-            let mut removed_hashes = BTreeSet::new();
             for other_root in other_roots {
                 self.delete_recursively(&other_root, &mut removed_hashes)?;
             }
@@ -647,15 +643,14 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
         hash: &HeaderHash,
         removed_hashes: &mut BTreeSet<HeaderHash>,
     ) -> Result<(), ConsensusError> {
-        if let Some(children) = self.parent_child_relationship.get(hash).cloned() {
-            for c in children.iter() {
-                self.delete_recursively(c, removed_hashes)?;
-            }
+        let children = self.chain_store.get_children(hash);
+        for c in children {
+            self.delete_recursively(&c, removed_hashes)?;
         }
+
         self.chain_store
             .remove_header(hash)
             .map_err(|e| ConsensusError::StoreHeaderFailed(*hash, e))?;
-        self.parent_child_relationship.remove(hash);
         removed_hashes.insert(*hash);
         Ok(())
     }
@@ -672,7 +667,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the best chain fragment currently known as a list of hashes.
     /// The list starts from the root.
-    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item = HeaderHash> {
+    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item=HeaderHash> {
         self.peers
             .values()
             .find(|chain| chain.last() == Some(&self.best_chain))

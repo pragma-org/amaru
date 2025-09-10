@@ -42,6 +42,7 @@ impl<H> InMemConsensusStore<H> {
 struct InMemConsensusStoreInner<H> {
     nonces: BTreeMap<Hash<32>, Nonces>,
     headers: BTreeMap<Hash<32>, H>,
+    parent_child_relationship: BTreeMap<Hash<32>, Vec<Hash<32>>>,
     blocks: BTreeMap<Hash<32>, RawBlock>,
 }
 
@@ -56,6 +57,7 @@ impl<H> InMemConsensusStoreInner<H> {
         InMemConsensusStoreInner {
             nonces: BTreeMap::new(),
             headers: BTreeMap::new(),
+            parent_child_relationship: BTreeMap::new(),
             blocks: BTreeMap::new(),
         }
     }
@@ -101,6 +103,16 @@ impl<H: IsHeader + Clone + Send + Sync + Clone> ReadOnlyChainStore<H> for InMemC
         let inner = self.inner.lock().unwrap();
         inner.headers.contains_key(hash)
     }
+
+    #[expect(clippy::unwrap_used)]
+    fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .parent_child_relationship
+            .get(hash)
+            .cloned()
+            .unwrap_or_default()
+    }
 }
 
 impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H> {
@@ -108,6 +120,13 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
     fn store_header(&self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.headers.insert(*hash, header.clone());
+        if let Some(parent) = header.parent() {
+            inner
+                .parent_child_relationship
+                .entry(parent)
+                .or_default()
+                .push(*hash);
+        }
         Ok(())
     }
 
@@ -133,6 +152,7 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
     fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.headers.remove(hash);
+        inner.parent_child_relationship.remove(hash);
         Ok(())
     }
 }

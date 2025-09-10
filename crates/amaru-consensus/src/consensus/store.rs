@@ -148,6 +148,7 @@ pub struct FakeStore {
 #[derive(Default)]
 pub struct FakeStoreInner {
     headers: BTreeMap<Hash<32>, Header>,
+    parent_child_relationship: BTreeMap<Hash<32>, Vec<Hash<32>>>,
     nonces: BTreeMap<Hash<32>, Nonces>,
 }
 
@@ -184,6 +185,16 @@ impl ReadOnlyChainStore<Header> for FakeStore {
     fn has_header(&self, hash: &Hash<32>) -> bool {
         let inner = self.inner.lock().unwrap();
         inner.headers.contains_key(hash)
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .parent_child_relationship
+            .get(hash)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 

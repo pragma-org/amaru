@@ -42,6 +42,7 @@ where
     H: IsHeader,
 {
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
+    fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>>;
     fn load_headers(&self) -> Vec<H>;
     fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError>;
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces>;
@@ -52,6 +53,9 @@ where
 impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         self.as_ref().load_header(hash)
+    }
+    fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>> {
+        self.as_ref().get_children(hash)
     }
     fn load_headers(&self) -> Vec<H> {
         self.as_ref().load_headers()

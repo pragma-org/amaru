@@ -71,6 +71,10 @@ macro_rules! impl_ReadOnlyChainStore {
                     .and_then(|bytes| from_cbor(bytes?.as_ref()))
             }
 
+            fn get_children(&self, _hash: &Hash<32>) -> Vec<Hash<32>> {
+                unimplemented!("get_children is not implemented for ReadOnlyStore")
+            }
+
             fn load_headers(&self) -> Vec<H> {
                 let mut result = Vec::new();
                 for values in self.db.iterator(IteratorMode::Start) {
