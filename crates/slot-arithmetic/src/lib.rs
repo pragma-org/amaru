@@ -14,7 +14,10 @@
 
 #![feature(step_trait)]
 
-use minicbor::{Decode, Decoder, Encode};
+use minicbor::{
+    Decode, Decoder, Encode,
+    data::{IanaTag, Type},
+};
 use num::BigUint;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -188,6 +191,12 @@ impl Step for Epoch {
 #[repr(transparent)]
 pub struct TimeMs(u64);
 
+impl Display for TimeMs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}ms", self.0)
+    }
+}
+
 impl From<u64> for TimeMs {
     fn from(epoch: u64) -> TimeMs {
         TimeMs(epoch)
@@ -214,14 +223,38 @@ impl<C> Encode<C> for TimeMs {
         e: &mut minicbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), minicbor::encode::Error<W::Error>> {
-        self.0.encode(e, ctx)
+        match self.0.checked_mul(1_000_000_000u64) {
+            Some(time_ps) => time_ps.encode(e, ctx),
+            None => {
+                let bytes = (BigUint::from(self.0) * 1_000_000_000u64).to_bytes_be();
+                IanaTag::PosBignum.encode(e, ctx)?;
+                e.bytes(&bytes)?;
+                Ok(())
+            }
+        }
     }
 }
 
 impl<'b, C> Decode<'b, C> for TimeMs {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        d.u64()
-            .or_else(|_| {
+        let datatype = d.datatype();
+        (match datatype {
+            Ok(Type::Tag) => {
+                // consume tag!!
+                d.tag()?;
+                // Haskell node defines timestamp as a Fixed E12
+                // (wrapped in a couple of newtypes), a fixed-decimal
+                // number with $10^{12}$ precision, eg. picoseconds
+                // precision.  The corresponding CBOR encoding can
+                // therefore overflow an unsigned 64 bits integer and
+                // is then encoded as a big endian large integer with
+                // a sequence of bytes.
+                //
+                // However, the actual precision the network cares
+                // about is at most milliseconds which is why our
+                // `TimeMs` is what is. We therefore need to convert
+                // the number we find from a big integer and scale it
+                // down accordingly.
                 let bytes: &[u8] = d.bytes()?;
                 let num = BigUint::from_bytes_be(bytes);
                 let num_ms = num / 1_000_000_000u64;
@@ -236,8 +269,16 @@ impl<'b, C> Decode<'b, C> for TimeMs {
                         ))
                     })?)
                 }
-            })
-            .map(TimeMs)
+            }
+            Ok(Type::U64) | Ok(Type::U32) | Ok(Type::U16) | Ok(Type::U8) => {
+                d.u64().map(|ps| ps / 1_000_000_000u64)
+            }
+            Ok(t) => Err(minicbor::decode::Error::message(format!(
+                "Unhandled type decoding TimeMs: {t}"
+            ))),
+            Err(err) => Err(err),
+        })
+        .map(TimeMs)
     }
 }
 
@@ -682,22 +723,22 @@ mod tests {
     use test_case::test_case;
 
     prop_compose! {
-        fn arbitrary_time_ms()(ms in any::<u64>()) -> TimeMs {
+        fn arbitrary_time_ms()(ms in 0u64..u64::MAX) -> TimeMs {
             TimeMs(ms)
         }
     }
 
     prop_compose! {
-        fn arbitrary_bound()(time_ms in arbitrary_time_ms(), slot in any::<u64>(), epoch in any::<Epoch>()) -> Bound {
+        fn arbitrary_bound()(time_ms in arbitrary_time_ms(), slot in any::<u32>(), epoch in any::<Epoch>()) -> Bound {
             Bound {
-                time_ms, slot: Slot(slot), epoch
+                time_ms, slot: Slot(slot as u64), epoch
             }
         }
     }
     prop_compose! {
-        fn arbitrary_bound_for_epoch(epoch: Epoch)(time_ms in arbitrary_time_ms(), slot in any::<u64>()) -> Bound {
+        fn arbitrary_bound_for_epoch(epoch: Epoch)(time_ms in arbitrary_time_ms(), slot in any::<u32>()) -> Bound {
             Bound {
-                time_ms, slot: Slot(slot), epoch
+                time_ms, slot: Slot(slot as u64), epoch
             }
         }
     }
@@ -721,16 +762,16 @@ mod tests {
             params in Just(params),
             start in arbitrary_bound_for_epoch(Epoch::from(max(b1, b2) as u64)),
         ) -> Summary {
-                let epochs_elapsed = last_epoch - first_epoch;
-                let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
-                let time_elapsed = slots_elapsed * params.slot_length;
-                let end = Some(Bound {
-                    time_ms: start.time_ms + time_elapsed,
-                    slot: start.slot.offset_by(slots_elapsed),
-                    epoch: Epoch::from(last_epoch),
-                });
-                Summary { start, end, params }
-            }
+            let epochs_elapsed = last_epoch - first_epoch;
+            let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
+            let time_elapsed = slots_elapsed * params.slot_length;
+            let end = Some(Bound {
+                time_ms: start.time_ms + time_elapsed,
+                slot: start.slot.offset_by(slots_elapsed),
+                epoch: Epoch::from(last_epoch),
+            });
+            Summary { start, end, params }
+        }
     }
 
     prop_compose! {
@@ -1063,6 +1104,13 @@ mod tests {
 
     #[test]
     fn can_decode_bounds_with_unbounded_integer_slot() {
+        // CBOR encoding for
+        // [[[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [259200000000000000, 259200, 3]],
+        //  [[259200000000000000, 259200, 3], [55814400000000000000, 55814400, 646]]]
         let buffer = hex::decode("868283000000830000008283000000830000008283000000830000008283000000830000008283000000831b0398dd06d5c800001a0003f4800382831b0398dd06d5c800001a0003f4800383c2490306949515279000001a0353a900190286").unwrap();
         let eras: Vec<(Bound, Bound)> = minicbor::decode(&buffer).unwrap();
 
@@ -1070,7 +1118,20 @@ mod tests {
     }
 
     #[test]
+    fn scales_encoded_bounds_to_ms_precision() {
+        // CBOR encoding for
+        //   [259200000000000000, 259200, 3]
+        let buffer = hex::decode("831b0398dd06d5c800001a0003f48003").unwrap();
+        let bound: Bound = minicbor::decode(&buffer)
+            .expect("cannot decode '831b0398dd06d5c800001a0003f48003' as a Bound");
+
+        assert_eq!(bound.time_ms, TimeMs(259200000));
+    }
+
+    #[test]
     fn cannot_decode_bounds_with_too_large_integer_value() {
+        // CBOR encoding for
+        // [558144000000000000001234567890000000000, 55814400, 646]
         let buffer =
             hex::decode("83c25101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
         let result = minicbor::decode::<Bound>(&buffer);
@@ -1083,6 +1144,13 @@ mod tests {
             let buffer = minicbor::to_vec(&era_history).unwrap();
             let decoded = minicbor::decode_with(&buffer, &mut era_history.stability_window.clone()).unwrap();
             assert_eq!(era_history, decoded);
+        }
+
+        #[test]
+        fn roundtrip_bounds(bound in arbitrary_bound()) {
+            let buffer = minicbor::to_vec(&bound).unwrap();
+            let decoded = minicbor::decode(&buffer).expect(format!("failed to decode {}", hex::encode(&buffer)).as_str());
+            assert_eq!(bound, decoded);
         }
     }
 }
