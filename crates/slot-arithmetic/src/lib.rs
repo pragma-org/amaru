@@ -14,7 +14,12 @@
 
 #![feature(step_trait)]
 
-use minicbor::{Decode, Decoder, Encode};
+use amaru_minicbor_extra::heterogeneous_array;
+use minicbor::{
+    Decode, Decoder, Encode,
+    data::{IanaTag, Type},
+};
+use num::BigUint;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::Display,
@@ -38,7 +43,7 @@ impl Display for Slot {
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum SlotArithmeticError {
-    #[error("slot arithmetic overflow, substracting {1} from {0}")]
+    #[error("slot arithmetic underflow, substracting {1} from {0}")]
     Underflow(u64, u64),
 }
 
@@ -183,9 +188,109 @@ impl Step for Epoch {
     }
 }
 
+#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize, Default)]
+#[repr(transparent)]
+pub struct TimeMs(u64);
+
+impl Display for TimeMs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}ms", self.0)
+    }
+}
+
+impl From<u64> for TimeMs {
+    fn from(epoch: u64) -> TimeMs {
+        TimeMs(epoch)
+    }
+}
+
+impl From<TimeMs> for u64 {
+    fn from(time_ms: TimeMs) -> u64 {
+        time_ms.0
+    }
+}
+
+impl Add<u64> for TimeMs {
+    type Output = Self;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        TimeMs(self.0 + rhs)
+    }
+}
+
+impl<C> Encode<C> for TimeMs {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        match self.0.checked_mul(1_000_000_000u64) {
+            Some(time_ps) => time_ps.encode(e, ctx),
+            None => {
+                let bytes = (BigUint::from(self.0) * 1_000_000_000u64).to_bytes_be();
+                IanaTag::PosBignum.encode(e, ctx)?;
+                e.bytes(&bytes)?;
+                Ok(())
+            }
+        }
+    }
+}
+
+impl<'b, C> Decode<'b, C> for TimeMs {
+    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        let datatype = d.datatype();
+        (match datatype {
+            Ok(Type::Tag) => {
+                // consume and validate tag
+                let tag = d.tag()?;
+                if tag != IanaTag::PosBignum.into() {
+                    return Err(minicbor::decode::Error::message(format!(
+                        "Unexpected CBOR tag decoding TimeMs: {tag} (expected positive bignum)"
+                    )));
+                };
+                // Haskell node defines timestamp as a Fixed E12
+                // (wrapped in a couple of newtypes), a fixed-decimal
+                // number with $10^{12}$ precision, eg. picoseconds
+                // precision.  The corresponding CBOR encoding can
+                // therefore overflow an unsigned 64 bits integer and
+                // is then encoded as a big endian large integer with
+                // a sequence of bytes.
+                //
+                // However, the actual precision the network cares
+                // about is at most milliseconds which is why our
+                // `TimeMs` is what is. We therefore need to convert
+                // the number we find from a big integer and scale it
+                // down accordingly.
+                let bytes: &[u8] = d.bytes()?;
+                let num = BigUint::from_bytes_be(bytes);
+                let num_ms = num / 1_000_000_000u64;
+                if num_ms > BigUint::from(u64::MAX) {
+                    Err(minicbor::decode::Error::message(
+                        "Unsigned integer too large",
+                    ))
+                } else {
+                    Ok(num_ms.try_into().map_err(|e| {
+                        minicbor::decode::Error::message(format!(
+                            "Error converting BigUint to u64 {e}"
+                        ))
+                    })?)
+                }
+            }
+            Ok(Type::U64) | Ok(Type::U32) | Ok(Type::U16) | Ok(Type::U8) => {
+                d.u64().map(|ps| ps / 1_000_000_000u64)
+            }
+            Ok(t) => Err(minicbor::decode::Error::message(format!(
+                "Unhandled type decoding TimeMs: {t}"
+            ))),
+            Err(err) => Err(err),
+        })
+        .map(TimeMs)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bound {
-    pub time_ms: u64, // Milliseconds
+    pub time_ms: TimeMs, // Milliseconds
     pub slot: Slot,
     pub epoch: Epoch,
 }
@@ -194,7 +299,7 @@ pub struct Bound {
 impl Bound {
     fn genesis() -> Bound {
         Bound {
-            time_ms: 0,
+            time_ms: TimeMs(0),
             slot: Slot(0),
             epoch: Epoch(0),
         }
@@ -207,26 +312,27 @@ impl<C> Encode<C> for Bound {
         e: &mut minicbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), minicbor::encode::Error<W::Error>> {
-        e.begin_array()?;
+        e.array(3)?;
         self.time_ms.encode(e, ctx)?;
         self.slot.encode(e, ctx)?;
         self.epoch.encode(e, ctx)?;
-        e.end()?;
         Ok(())
     }
 }
 
 impl<'b, C> Decode<'b, C> for Bound {
     fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        let _ = d.array()?;
-        let time_ms = d.u64()?;
-        let slot = d.decode()?;
-        let epoch = d.decode_with(ctx)?;
-        d.skip()?;
-        Ok(Bound {
-            time_ms,
-            slot,
-            epoch,
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(3)?;
+
+            let time_ms = d.decode()?;
+            let slot = d.decode()?;
+            let epoch = d.decode_with(ctx)?;
+            Ok(Bound {
+                time_ms,
+                slot,
+                epoch,
+            })
         })
     }
 }
@@ -464,7 +570,7 @@ impl EraHistory {
         }
     }
 
-    pub fn slot_to_relative_time(&self, slot: Slot, tip: Slot) -> Result<u64, EraHistoryError> {
+    pub fn slot_to_relative_time(&self, slot: Slot, tip: Slot) -> Result<TimeMs, EraHistoryError> {
         for era in &self.eras {
             if era.start.slot > slot {
                 return Err(EraHistoryError::InvalidEraHistory);
@@ -483,7 +589,7 @@ impl EraHistory {
     pub fn slot_to_relative_time_unchecked_horizon(
         &self,
         slot: Slot,
-    ) -> Result<u64, EraHistoryError> {
+    ) -> Result<TimeMs, EraHistoryError> {
         for era in &self.eras {
             if era.start.slot > slot {
                 return Err(EraHistoryError::InvalidEraHistory);
@@ -594,10 +700,10 @@ impl EraHistory {
     }
 }
 
-/// Compute the time in seconds between the start of the system and the given slot.
+/// Compute the time in milliseconds between the start of the system and the given slot.
 ///
 /// **pre-condition**: the given summary must be the era containing that slot.
-fn slot_to_relative_time(slot: &Slot, era: &Summary) -> Result<u64, EraHistoryError> {
+fn slot_to_relative_time(slot: &Slot, era: &Summary) -> Result<TimeMs, EraHistoryError> {
     let slots_elapsed = slot
         .elapsed_from(era.start.slot)
         .map_err(|_| EraHistoryError::InvalidEraHistory)?;
@@ -626,16 +732,22 @@ mod tests {
     use test_case::test_case;
 
     prop_compose! {
-        fn arbitrary_bound()(time_ms in any::<u64>(), slot in any::<u64>(), epoch in any::<Epoch>()) -> Bound {
+        fn arbitrary_time_ms()(ms in 0u64..u64::MAX) -> TimeMs {
+            TimeMs(ms)
+        }
+    }
+
+    prop_compose! {
+        fn arbitrary_bound()(time_ms in arbitrary_time_ms(), slot in any::<u32>(), epoch in any::<Epoch>()) -> Bound {
             Bound {
-                time_ms, slot: Slot(slot), epoch
+                time_ms, slot: Slot(slot as u64), epoch
             }
         }
     }
     prop_compose! {
-        fn arbitrary_bound_for_epoch(epoch: Epoch)(time_ms in any::<u64>(), slot in any::<u64>()) -> Bound {
+        fn arbitrary_bound_for_epoch(epoch: Epoch)(time_ms in arbitrary_time_ms(), slot in any::<u32>()) -> Bound {
             Bound {
-                time_ms, slot: Slot(slot), epoch
+                time_ms, slot: Slot(slot as u64), epoch
             }
         }
     }
@@ -659,16 +771,16 @@ mod tests {
             params in Just(params),
             start in arbitrary_bound_for_epoch(Epoch::from(max(b1, b2) as u64)),
         ) -> Summary {
-                let epochs_elapsed = last_epoch - first_epoch;
-                let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
-                let time_elapsed = slots_elapsed * params.slot_length;
-                let end = Some(Bound {
-                    time_ms: start.time_ms + time_elapsed,
-                    slot: start.slot.offset_by(slots_elapsed),
-                    epoch: Epoch::from(last_epoch),
-                });
-                Summary { start, end, params }
-            }
+            let epochs_elapsed = last_epoch - first_epoch;
+            let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
+            let time_elapsed = slots_elapsed * params.slot_length;
+            let end = Some(Bound {
+                time_ms: start.time_ms + time_elapsed,
+                slot: start.slot.offset_by(slots_elapsed),
+                epoch: Epoch::from(last_epoch),
+            });
+            Summary { start, end, params }
+        }
     }
 
     prop_compose! {
@@ -736,7 +848,7 @@ mod tests {
             stability_window: Slot(25920),
             eras: vec![Summary {
                 start: Bound {
-                    time_ms: 0,
+                    time_ms: TimeMs(0),
                     slot: Slot(0),
                     epoch: Epoch(0),
                 },
@@ -752,12 +864,12 @@ mod tests {
             eras: vec![
                 Summary {
                     start: Bound {
-                        time_ms: 0,
+                        time_ms: TimeMs(0),
                         slot: Slot(0),
                         epoch: Epoch(0),
                     },
                     end: Some(Bound {
-                        time_ms: 86400000,
+                        time_ms: TimeMs(86400000),
                         slot: Slot(86400),
                         epoch: Epoch(1),
                     }),
@@ -765,7 +877,7 @@ mod tests {
                 },
                 Summary {
                     start: Bound {
-                        time_ms: 86400000,
+                        time_ms: TimeMs(86400000),
                         slot: Slot(86400),
                         epoch: Epoch(1),
                     },
@@ -781,7 +893,7 @@ mod tests {
         let eras = two_eras();
         assert_eq!(
             eras.slot_to_relative_time(Slot(172800), Slot(172800)),
-            Ok(172800000)
+            Ok(TimeMs(172800000))
         );
     }
 
@@ -790,7 +902,7 @@ mod tests {
         let eras = two_eras();
         assert_eq!(
             eras.slot_to_relative_time(Slot(172800), Slot(100000)),
-            Ok(172800000),
+            Ok(TimeMs(172800000)),
             "point is right at the end of the epoch, tip is somewhere"
         );
         assert_eq!(
@@ -805,7 +917,7 @@ mod tests {
         );
         assert_eq!(
             eras.slot_to_relative_time(Slot(172801), Slot(146880)),
-            Ok(172801000),
+            Ok(TimeMs(172801000)),
             "point in the next epoch, and tip right at the stability window limit"
         );
         assert_eq!(
@@ -916,12 +1028,12 @@ mod tests {
             eras: vec![
                 Summary {
                     start: Bound {
-                        time_ms: 100000,
+                        time_ms: TimeMs(100000),
                         slot: Slot(100),
                         epoch: Epoch(1),
                     },
                     end: Some(Bound {
-                        time_ms: 186400000,
+                        time_ms: TimeMs(186400000),
                         slot: Slot(86500),
                         epoch: Epoch(2),
                     }),
@@ -929,12 +1041,12 @@ mod tests {
                 },
                 Summary {
                     start: Bound {
-                        time_ms: 186400000,
+                        time_ms: TimeMs(186400000),
                         slot: Slot(50), // This is invalid - earlier than first era's start
                         epoch: Epoch(2),
                     },
                     end: Some(Bound {
-                        time_ms: 272800000,
+                        time_ms: TimeMs(272800000),
                         slot: Slot(86450),
                         epoch: Epoch(3),
                     }),
@@ -955,12 +1067,12 @@ mod tests {
             eras: vec![
                 Summary {
                     start: Bound {
-                        time_ms: 0,
+                        time_ms: TimeMs(0),
                         slot: Slot(0),
                         epoch: Epoch(0),
                     },
                     end: Some(Bound {
-                        time_ms: 86400000,
+                        time_ms: TimeMs(86400000),
                         slot: Slot(86400),
                         epoch: Epoch(1),
                     }),
@@ -968,12 +1080,12 @@ mod tests {
                 },
                 Summary {
                     start: Bound {
-                        time_ms: 86400000,
+                        time_ms: TimeMs(86400000),
                         slot: Slot(186400), // Gap of 100000 slots
                         epoch: Epoch(1),
                     },
                     end: Some(Bound {
-                        time_ms: 172800000,
+                        time_ms: TimeMs(172800000),
                         slot: Slot(272800),
                         epoch: Epoch(2),
                     }),
@@ -995,8 +1107,54 @@ mod tests {
         let buffer = minicbor::to_vec(&eras).unwrap();
         assert_eq!(
             hex::encode(buffer),
-            "9f9f9f000000fff69f1a000151801903e8ffffff"
+            "9f9f83000000f69f1a000151801903e8ffffff"
         );
+    }
+
+    #[test]
+    fn can_decode_bounds_with_unbounded_integer_slot() {
+        // CBOR encoding for
+        // [[[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [259200000000000000, 259200, 3]],
+        //  [[259200000000000000, 259200, 3], [55814400000000000000, 55814400, 646]]]
+        let buffer = hex::decode("868283000000830000008283000000830000008283000000830000008283000000830000008283000000831b0398dd06d5c800001a0003f4800382831b0398dd06d5c800001a0003f4800383c2490306949515279000001a0353a900190286").unwrap();
+        let eras: Vec<(Bound, Bound)> = minicbor::decode(&buffer).unwrap();
+
+        assert_eq!(eras[5].1.time_ms, TimeMs(55814400000));
+    }
+
+    #[test]
+    fn scales_encoded_bounds_to_ms_precision() {
+        // CBOR encoding for
+        //   [259200000000000000, 259200, 3]
+        let buffer = hex::decode("831b0398dd06d5c800001a0003f48003").unwrap();
+        let bound: Bound = minicbor::decode(&buffer)
+            .expect("cannot decode '831b0398dd06d5c800001a0003f48003' as a Bound");
+
+        assert_eq!(bound.time_ms, TimeMs(259200000));
+    }
+
+    #[test]
+    fn cannot_decode_bounds_with_too_large_integer_value() {
+        // CBOR encoding for
+        // [558144000000000000001234567890000000000, 55814400, 646]
+        let buffer =
+            hex::decode("83c25101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
+        let result = minicbor::decode::<Bound>(&buffer);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cannot_decode_bounds_with_invalid_tag() {
+        // CBOR encoding for
+        // [-558144000000000000001234567890000000001, 55814400, 646]
+        let buffer =
+            hex::decode("83c35101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
+        let result = minicbor::decode::<Bound>(&buffer);
+        assert!(result.is_err());
     }
 
     proptest! {
@@ -1005,6 +1163,14 @@ mod tests {
             let buffer = minicbor::to_vec(&era_history).unwrap();
             let decoded = minicbor::decode_with(&buffer, &mut era_history.stability_window.clone()).unwrap();
             assert_eq!(era_history, decoded);
+        }
+
+        #[test]
+        fn roundtrip_bounds(bound in arbitrary_bound()) {
+            let buffer = minicbor::to_vec(&bound).unwrap();
+            let msg = format!("failed to decode {}", hex::encode(&buffer));
+            let decoded = minicbor::decode(&buffer).expect(&msg);
+            assert_eq!(bound, decoded);
         }
     }
 }

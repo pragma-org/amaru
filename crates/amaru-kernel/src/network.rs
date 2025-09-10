@@ -16,6 +16,7 @@ use crate::protocol_parameters::{
     GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
     PREVIEW_GLOBAL_PARAMETERS, TESTNET_GLOBAL_PARAMETERS,
 };
+use amaru_slot_arithmetic::TimeMs;
 use pallas_addresses::Network;
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
@@ -34,12 +35,12 @@ static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     let eras: [Summary; 7] = [
         Summary {
             start: Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
             end: Some(Bound {
-                time_ms: 89856000000,
+                time_ms: TimeMs::from(89856000000),
                 slot: Slot::from(4492800),
                 epoch: Epoch::from(208),
             }),
@@ -50,12 +51,12 @@ static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 89856000000,
+                time_ms: TimeMs::from(89856000000),
                 slot: Slot::from(4492800),
                 epoch: Epoch::from(208),
             },
             end: Some(Bound {
-                time_ms: 101952000000,
+                time_ms: TimeMs::from(101952000000),
                 slot: Slot::from(16588800),
                 epoch: Epoch::from(236),
             }),
@@ -66,12 +67,12 @@ static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 101952000000,
+                time_ms: TimeMs::from(101952000000),
                 slot: Slot::from(16588800),
                 epoch: Epoch::from(236),
             },
             end: Some(Bound {
-                time_ms: 108432000000,
+                time_ms: TimeMs::from(108432000000),
                 slot: Slot::from(23068800),
                 epoch: Epoch::from(251),
             }),
@@ -82,12 +83,12 @@ static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 108432000000,
+                time_ms: TimeMs::from(108432000000),
                 slot: Slot::from(23068800),
                 epoch: Epoch::from(251),
             },
             end: Some(Bound {
-                time_ms: 125280000000,
+                time_ms: TimeMs::from(125280000000),
                 slot: Slot::from(39916800),
                 epoch: Epoch::from(290),
             }),
@@ -98,12 +99,12 @@ static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 125280000000,
+                time_ms: TimeMs::from(125280000000),
                 slot: Slot::from(39916800),
                 epoch: Epoch::from(290),
             },
             end: Some(Bound {
-                time_ms: 157680000000,
+                time_ms: TimeMs::from(157680000000),
                 slot: Slot::from(72316800),
                 epoch: Epoch::from(365),
             }),
@@ -114,12 +115,12 @@ static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 157680000000,
+                time_ms: TimeMs::from(157680000000),
                 slot: Slot::from(72316800),
                 epoch: Epoch::from(365),
             },
             end: Some(Bound {
-                time_ms: 219024000000,
+                time_ms: TimeMs::from(219024000000),
                 slot: Slot::from(133660800),
                 epoch: Epoch::from(507),
             }),
@@ -130,7 +131,7 @@ static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 219024000000,
+                time_ms: TimeMs::from(219024000000),
                 slot: Slot::from(133660800),
                 epoch: Epoch::from(507),
             },
@@ -157,12 +158,12 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     let eras: [Summary; 7] = [
         Summary {
             start: Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
             end: Some(Bound {
-                time_ms: 1728000000,
+                time_ms: TimeMs::from(1728000000),
                 slot: Slot::from(86400),
                 epoch: Epoch::from(4),
             }),
@@ -173,12 +174,12 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 1728000000,
+                time_ms: TimeMs::from(1728000000),
                 slot: Slot::from(86400),
                 epoch: Epoch::from(4),
             },
             end: Some(Bound {
-                time_ms: 2160000000,
+                time_ms: TimeMs::from(2160000000),
                 slot: Slot::from(518400),
                 epoch: Epoch::from(5),
             }),
@@ -189,12 +190,12 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 2160000000,
+                time_ms: TimeMs::from(2160000000),
                 slot: Slot::from(518400),
                 epoch: Epoch::from(5),
             },
             end: Some(Bound {
-                time_ms: 2592000000,
+                time_ms: TimeMs::from(2592000000),
                 slot: Slot::from(950400),
                 epoch: Epoch::from(6),
             }),
@@ -206,12 +207,12 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 2592000000,
+                time_ms: TimeMs::from(2592000000),
                 slot: Slot::from(950400),
                 epoch: Epoch::from(6),
             },
             end: Some(Bound {
-                time_ms: 3024000000,
+                time_ms: TimeMs::from(3024000000),
                 slot: Slot::from(1382400),
                 epoch: Epoch::from(7),
             }),
@@ -223,12 +224,12 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 3024000000,
+                time_ms: TimeMs::from(3024000000),
                 slot: Slot::from(1382400),
                 epoch: Epoch::from(7),
             },
             end: Some(Bound {
-                time_ms: 5184000000,
+                time_ms: TimeMs::from(5184000000),
                 slot: Slot::from(3542400),
                 epoch: Epoch::from(12),
             }),
@@ -240,12 +241,12 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 5184000000,
+                time_ms: TimeMs::from(5184000000),
                 slot: Slot::from(3542400),
                 epoch: Epoch::from(12),
             },
             end: Some(Bound {
-                time_ms: 70416000000,
+                time_ms: TimeMs::from(70416000000),
                 slot: Slot::from(68774400),
                 epoch: Epoch::from(163),
             }),
@@ -257,7 +258,7 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 70416000000,
+                time_ms: TimeMs::from(70416000000),
                 slot: Slot::from(68774400),
                 epoch: Epoch::from(163),
             },
@@ -285,12 +286,12 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     let eras: [Summary; 7] = [
         Summary {
             start: Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
             end: Some(Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             }),
@@ -301,12 +302,12 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
             end: Some(Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             }),
@@ -317,12 +318,12 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(5),
             },
             end: Some(Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             }),
@@ -334,12 +335,12 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
             end: Some(Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             }),
@@ -351,12 +352,12 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 0,
+                time_ms: TimeMs::from(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
             end: Some(Bound {
-                time_ms: 259200000,
+                time_ms: TimeMs::from(259200000),
                 slot: Slot::from(259200),
                 epoch: Epoch::from(3),
             }),
@@ -368,12 +369,12 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 259200000,
+                time_ms: TimeMs::from(259200000),
                 slot: Slot::from(259200),
                 epoch: Epoch::from(3),
             },
             end: Some(Bound {
-                time_ms: 55814400000,
+                time_ms: TimeMs::from(55814400000),
                 slot: Slot::from(55814400),
                 epoch: Epoch::from(646),
             }),
@@ -385,7 +386,7 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
         Summary {
             start: Bound {
-                time_ms: 55814400000,
+                time_ms: TimeMs::from(55814400000),
                 slot: Slot::from(55814400),
                 epoch: Epoch::from(646),
             },
@@ -408,7 +409,7 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     let eras: [Summary; 1] = [Summary {
         start: Bound {
-            time_ms: 0,
+            time_ms: TimeMs::from(0),
             slot: Slot::from(0),
             epoch: Epoch::from(0),
         },

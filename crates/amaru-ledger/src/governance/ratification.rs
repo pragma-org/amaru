@@ -564,6 +564,7 @@ fn info_roots(roots: &ProposalsRootsRc) {
 #[cfg(any(all(test, not(target_os = "windows")), feature = "test-utils"))]
 pub mod tests {
     use amaru_kernel::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
+    use amaru_slot_arithmetic::TimeMs;
     use std::sync::LazyLock;
 
     pub use super::proposal_enum::tests::*;
@@ -576,7 +577,7 @@ pub mod tests {
         EraHistory::new(
             &[Summary {
                 start: Bound {
-                    time_ms: 0,
+                    time_ms: TimeMs::from(0),
                     slot: Slot::from(0),
                     epoch: Epoch::from(0),
                 },

@@ -325,8 +325,10 @@ dependencies = [
 name = "amaru-slot-arithmetic"
 version = "0.1.0"
 dependencies = [
+ "amaru-minicbor-extra",
  "hex",
  "minicbor",
+ "num",
  "proptest",
  "serde",
  "test-case",
