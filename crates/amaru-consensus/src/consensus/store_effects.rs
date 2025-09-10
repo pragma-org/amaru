@@ -15,29 +15,39 @@
 use crate::ConsensusError;
 use amaru_kernel::{Header, Point, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{IsHeader, Praos};
-use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub type ResourceHeaderStore = Arc<Mutex<dyn super::store::ChainStore<Header>>>;
 pub type ResourceParameters = GlobalParameters;
 
-pub struct Storage;
-
-impl Storage {
-    pub async fn store_header<M>(
-        eff: &Effects<M>,
+pub trait StorageEffect {
+    fn store_header(
+        &self,
         header: Header,
         point: Point,
-    ) -> Result<(), ConsensusError> {
-        eff.external(StoreHeaderEffect { header, point }).await
+    ) -> BoxFuture<'static, Result<(), ConsensusError>>;
+    fn evolve_nonce(
+        &self,
+        header: Header,
+    ) -> BoxFuture<'static, Result<amaru_ouroboros::Nonces, super::store::NoncesError>>;
+}
+
+impl<M> StorageEffect for Effects<M> {
+    fn store_header(
+        &self,
+        header: Header,
+        point: Point,
+    ) -> BoxFuture<'static, Result<(), ConsensusError>> {
+        self.external(StoreHeaderEffect { header, point })
     }
 
-    pub async fn evolve_nonce<M>(
-        eff: &Effects<M>,
+    fn evolve_nonce(
+        &self,
         header: Header,
-    ) -> Result<amaru_ouroboros::Nonces, super::store::NoncesError> {
-        eff.external(EvolveNonceEffect { header }).await
+    ) -> BoxFuture<'static, Result<amaru_ouroboros::Nonces, super::store::NoncesError>> {
+        self.external(EvolveNonceEffect { header })
     }
 }
 
@@ -53,16 +63,15 @@ impl ExternalEffect for StoreHeaderEffect {
         self: Box<Self>,
         resources: Resources,
     ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
-        Box::pin(async move {
+        Self::wrap(async move {
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("StoreHeaderEffect requires a chain store")
                 .clone();
             let mut store = store.lock().await;
-            let result: <Self as ExternalEffectAPI>::Response = store
+            store
                 .store_header(&self.header.hash(), &self.header)
-                .map_err(|e| ConsensusError::StoreHeaderFailed(self.point.clone(), e));
-            Box::new(result) as Box<dyn pure_stage::SendData>
+                .map_err(|e| ConsensusError::StoreHeaderFailed(self.point.clone(), e))
         })
     }
 }
@@ -82,7 +91,7 @@ impl ExternalEffect for EvolveNonceEffect {
         self: Box<Self>,
         resources: Resources,
     ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
-        Box::pin(async move {
+        Self::wrap(async move {
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("EvolveNonceEffect requires a chain store")
@@ -91,9 +100,7 @@ impl ExternalEffect for EvolveNonceEffect {
             let global_parameters = resources
                 .get::<ResourceParameters>()
                 .expect("EvolveNonceEffect requires global parameters");
-            let result: <Self as ExternalEffectAPI>::Response =
-                store.evolve_nonce(&self.header, &global_parameters);
-            Box::new(result) as Box<dyn pure_stage::SendData>
+            store.evolve_nonce(&self.header, &global_parameters)
         })
     }
 }

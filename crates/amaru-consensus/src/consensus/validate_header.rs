@@ -14,7 +14,7 @@
 
 use crate::{
     ConsensusError,
-    consensus::{ValidationFailed, store_effects::Storage},
+    consensus::{ValidationFailed, store_effects::StorageEffect},
     span::adopt_current_span,
 };
 use amaru_kernel::{
@@ -129,7 +129,7 @@ impl ValidateHeader {
         header: Header,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
-        let nonces = Storage::evolve_nonce(&eff, header.clone()).await?;
+        let nonces = eff.evolve_nonce(header.clone()).await?;
         let epoch_nonce = &nonces.active;
 
         header_is_valid(
@@ -222,7 +222,7 @@ pub async fn stage(
     );
 
     let send_downstream = async {
-        let nonces = match Storage::evolve_nonce(&eff, header.clone()).await {
+        let nonces = match eff.evolve_nonce(header.clone()).await {
             Ok(nonces) => nonces,
             Err(error) => {
                 tracing::error!(%peer, %error, "evolve nonce failed");
