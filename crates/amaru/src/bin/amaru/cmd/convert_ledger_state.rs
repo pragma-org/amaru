@@ -218,7 +218,7 @@ async fn convert_snapshot_to(
         tail,
     };
 
-    write_nonces(target_dir, nonces).await?;
+    write_nonces(target_dir, slot, hash, nonces).await?;
     write_ledger_snapshot(target_dir, slot, hash, &bytes[begin..end]).await
 }
 
@@ -246,8 +246,13 @@ fn decode_eras(
     Ok(eras)
 }
 
-async fn write_nonces(target_dir: &Path, nonces: Nonces) -> Result<(), Box<dyn std::error::Error>> {
-    let target_path = target_dir.join(format!("nonces.{}.json", nonces.epoch));
+async fn write_nonces(
+    target_dir: &Path,
+    slot: u64,
+    hash: Hash<HEADER_HASH_SIZE>,
+    nonces: Nonces,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let target_path = target_dir.join(format!("nonces.{}.{}.json", slot, hash));
     fs::write(&target_path, serde_json::to_string(&nonces)?).await?;
     Ok(())
 }
@@ -335,6 +340,17 @@ mod test {
         let network = NetworkName::Testnet(42);
         let tempdir = tempfile::tempdir().unwrap();
         let target_dir = tempdir.path().to_path_buf();
+        let expected_paths = [
+            tempdir.path().join(
+                "nonces.86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.json",
+            ),
+            tempdir.path().join(
+                "nonces.172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.json",
+            ),
+            tempdir.path().join(
+                "nonces.259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.json",
+            ),
+        ];
 
         let args = super::Args {
             snapshot: dir_content(Path::new("tests/data/convert")).await.unwrap(),
@@ -346,10 +362,12 @@ mod test {
             .await
             .expect("unexpected error in conversion test");
 
-        let nonces_json_path = target_dir.join("nonces.0.json");
         assert!(
-            nonces_json_path.exists(),
-            "nonces.json file should be created in target directory"
+            expected_paths.iter().all(|p| p.exists()),
+            "tempdir content {:?}",
+            dir_content(tempdir.path())
+                .await
+                .unwrap_or_else(|_| panic!("failed to list {tempdir:?} content"))
         );
     }
 
