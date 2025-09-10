@@ -14,6 +14,7 @@
 
 #![feature(step_trait)]
 
+use amaru_minicbor_extra::heterogeneous_array;
 use minicbor::{
     Decode, Decoder, Encode,
     data::{IanaTag, Type},
@@ -316,14 +317,17 @@ impl<C> Encode<C> for Bound {
 
 impl<'b, C> Decode<'b, C> for Bound {
     fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        let _ = d.array()?;
-        let time_ms = d.decode()?;
-        let slot = d.decode()?;
-        let epoch = d.decode_with(ctx)?;
-        Ok(Bound {
-            time_ms,
-            slot,
-            epoch,
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(3)?;
+
+            let time_ms = d.decode()?;
+            let slot = d.decode()?;
+            let epoch = d.decode_with(ctx)?;
+            Ok(Bound {
+                time_ms,
+                slot,
+                epoch,
+            })
         })
     }
 }
