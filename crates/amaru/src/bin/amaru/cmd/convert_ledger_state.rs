@@ -244,10 +244,27 @@ fn decode_eras(
                 slot_length: 0,
             }
         } else {
+            let end_slot = u64::from(end.slot);
+            let start_slot = u64::from(start.slot);
+            let end_epoch = u64::from(end.epoch);
+            let start_epoch = u64::from(start.epoch);
+            let end_ms = u64::from(end.time_ms);
+            let start_ms = u64::from(start.time_ms);
+
+            if end_slot <= start_slot || end_epoch <= start_epoch {
+                return Err("Invalid era bounds (non-increasing)".into());
+            }
+            let slots_elapsed = end_slot - start_slot;
+            let epochs_elapsed = end_epoch - start_epoch;
+            let time_ms_elapsed = end_ms.saturating_sub(start_ms);
+
             EraParams {
-                epoch_size_slots: u64::from(end.epoch)
-                    / (u64::from(end.slot) - u64::from(start.slot)),
-                slot_length: u64::from(end.time_ms) / u64::from(end.slot),
+                epoch_size_slots: slots_elapsed / epochs_elapsed,
+                slot_length: if slots_elapsed == 0 {
+                    0
+                } else {
+                    time_ms_elapsed / slots_elapsed
+                },
             }
         };
         let summary = Summary {
@@ -257,7 +274,6 @@ fn decode_eras(
         };
         eras.push(summary);
     }
-
     Ok(eras)
 }
 
