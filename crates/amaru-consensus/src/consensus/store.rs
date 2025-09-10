@@ -19,124 +19,47 @@ use amaru_kernel::{
 use amaru_ouroboros::{Nonces, praos::nonce};
 use amaru_ouroboros_traits::{IsHeader, Praos};
 use amaru_slot_arithmetic::EraHistoryError;
+use amaru_stores::chain_store::{ChainStore, ReadOnlyChainStore, StoreError};
 use pallas_crypto::hash::Hash;
-use std::{collections::BTreeMap, fmt::Display};
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
-#[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-pub enum StoreError {
-    WriteError { error: String },
-    ReadError { error: String },
-    OpenError { error: String },
-    NotFound { hash: Hash<32> },
+pub struct PraosChainStore<H> {
+    store: Arc<dyn ChainStore<H>>,
 }
 
-impl Display for StoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StoreError::WriteError { error } => write!(f, "WriteError: {}", error),
-            StoreError::ReadError { error } => write!(f, "ReadError: {}", error),
-            StoreError::OpenError { error } => write!(f, "OpenError: {}", error),
-            StoreError::NotFound { hash } => write!(f, "NotFound: {}", hash),
-        }
+impl<H: IsHeader> PraosChainStore<H> {
+    pub fn new(store: Arc<dyn ChainStore<H>>) -> Self {
+        PraosChainStore { store }
     }
 }
 
-pub trait ReadOnlyChainStore<H>
-where
-    H: IsHeader,
-{
-    fn load_header(&self, hash: &Hash<32>) -> Option<H>;
-    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError>;
-    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces>;
-}
-
-impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
-    fn load_header(&self, hash: &Hash<32>) -> Option<H> {
-        self.as_ref().load_header(hash)
-    }
-
-    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-        self.as_ref().load_block(hash)
-    }
-
-    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
-        self.as_ref().get_nonces(header)
-    }
-}
-
-/// A simple chain store interface that can store and retrieve headers indexed by their hash.
-pub trait ChainStore<H>: ReadOnlyChainStore<H> + Send + Sync
-where
-    H: IsHeader,
-{
-    fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
-    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError>;
-    fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError>;
-
-    fn era_history(&self) -> &EraHistory;
-}
-
-impl<H: IsHeader> ChainStore<H> for Box<dyn ChainStore<H>> {
-    fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
-        self.as_mut().store_header(hash, header)
-    }
-
-    fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
-        self.as_mut().put_nonces(header, nonces)
-    }
-
-    fn era_history(&self) -> &EraHistory {
-        self.as_ref().era_history()
-    }
-
-    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
-        self.as_mut().store_block(hash, block)
-    }
-}
-
-#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum NoncesError {
-    #[error("cannot find nonces: unknown parent {parent} from header {header}")]
-    UnknownParent { header: Hash<32>, parent: Hash<32> },
-
-    #[error("unknown header: {header}")]
-    UnknownHeader { header: Hash<32> },
-
-    #[error("no parent header for: {header} (where one is clearly expected)")]
-    NoParentHeader { header: Hash<32> },
-
-    #[error("{0}")]
-    StoreError(#[from] StoreError),
-
-    #[error("{0}")]
-    EraHistoryError(#[from] EraHistoryError),
-}
-
-impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
+impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
     type Error = NoncesError;
 
     fn get_nonce(&self, header: &Hash<32>) -> Option<Nonce> {
-        self.get_nonces(header).map(|nonces| nonces.active)
+        self.store.get_nonces(header).map(|nonces| nonces.active)
     }
 
     fn evolve_nonce(
-        &mut self,
+        &self,
         header: &H,
         global_parameters: &GlobalParameters,
     ) -> Result<Nonces, Self::Error> {
         let (epoch, is_within_stability_window) =
-            nonce::randomness_stability_window(header, self.era_history(), global_parameters)
+            nonce::randomness_stability_window(header, self.store.era_history(), global_parameters)
                 .map_err(NoncesError::EraHistoryError)?;
 
         let parent_hash = header.parent().unwrap_or((&Point::Origin).into());
 
-        let parent = self
-            .get_nonces(&parent_hash)
-            .ok_or_else(|| NoncesError::UnknownParent {
-                header: header.hash(),
-                parent: parent_hash,
-            })?;
+        let parent =
+            self.store
+                .get_nonces(&parent_hash)
+                .ok_or_else(|| NoncesError::UnknownParent {
+                    header: header.hash(),
+                    parent: parent_hash,
+                })?;
 
         // Compute the new evolving nonce by combining it with the current one and the header's VRF
         // output.
@@ -152,11 +75,12 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
             //
             // If the epoch hasn't changed, then our active nonce is unchanged.
             active: if epoch > parent.epoch {
-                let tail = self
-                    .load_header(&parent.tail)
-                    .ok_or(NoncesError::UnknownHeader {
-                        header: parent.tail,
-                    })?;
+                let tail =
+                    self.store
+                        .load_header(&parent.tail)
+                        .ok_or(NoncesError::UnknownHeader {
+                            header: parent.tail,
+                        })?;
                 nonce::from_candidate(&tail, &parent.candidate).ok_or(
                     NoncesError::NoParentHeader {
                         header: parent.tail,
@@ -192,40 +116,89 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
             },
         };
 
-        self.put_nonces(&header.hash(), &nonces)?;
+        self.store.put_nonces(&header.hash(), &nonces)?;
 
         Ok(nonces)
     }
 }
 
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum NoncesError {
+    #[error("cannot find nonces: unknown parent {parent} from header {header}")]
+    UnknownParent { header: Hash<32>, parent: Hash<32> },
+
+    #[error("unknown header: {header}")]
+    UnknownHeader { header: Hash<32> },
+
+    #[error("no parent header for: {header} (where one is clearly expected)")]
+    NoParentHeader { header: Hash<32> },
+
+    #[error("{0}")]
+    StoreError(#[from] StoreError),
+
+    #[error("{0}")]
+    EraHistoryError(#[from] EraHistoryError),
+}
+
 #[derive(Default)]
 pub struct FakeStore {
+    inner: Mutex<FakeStoreInner>,
+}
+
+#[derive(Default)]
+pub struct FakeStoreInner {
     headers: BTreeMap<Hash<32>, Header>,
     nonces: BTreeMap<Hash<32>, Nonces>,
 }
 
 impl ReadOnlyChainStore<Header> for FakeStore {
+    #[expect(clippy::unwrap_used)]
     fn load_header(&self, hash: &Hash<32>) -> Option<Header> {
-        self.headers.get(hash).cloned()
+        let inner = self.inner.lock().unwrap();
+        inner.headers.get(hash).cloned()
     }
 
+    #[expect(clippy::unwrap_used)]
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
-        self.nonces.get(header).cloned()
+        let inner = self.inner.lock().unwrap();
+        inner.nonces.get(header).cloned()
     }
 
     fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-        unimplemented!()
+        unimplemented!("load_block is not implemented for FakeStore")
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn load_headers(&self) -> Vec<Header> {
+        let inner = self.inner.lock().unwrap();
+        inner.headers.values().cloned().collect()
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn count_headers(&self) -> usize {
+        let inner = self.inner.lock().unwrap();
+        inner.headers.values().count()
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn has_header(&self, hash: &Hash<32>) -> bool {
+        let inner = self.inner.lock().unwrap();
+        inner.headers.contains_key(hash)
     }
 }
 
 impl ChainStore<Header> for FakeStore {
-    fn store_header(&mut self, hash: &Hash<32>, header: &Header) -> Result<(), StoreError> {
-        self.headers.insert(*hash, header.clone());
+    #[expect(clippy::unwrap_used)]
+    fn store_header(&self, hash: &Hash<32>, header: &Header) -> Result<(), StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.headers.insert(*hash, header.clone());
         Ok(())
     }
 
-    fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
-        self.nonces.insert(*header, nonces.clone());
+    #[expect(clippy::unwrap_used)]
+    fn put_nonces(&self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.nonces.insert(*header, nonces.clone());
         Ok(())
     }
 
@@ -233,7 +206,14 @@ impl ChainStore<Header> for FakeStore {
         NetworkName::Preprod.into()
     }
 
-    fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
+    fn store_block(&self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
+        unimplemented!("store_block is not implemented for FakeStore")
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.headers.remove(hash);
         Ok(())
     }
 }
@@ -246,7 +226,7 @@ mod test {
     use amaru_ouroboros_traits::{IsHeader, Praos};
     use amaru_slot_arithmetic::Epoch;
     use proptest::{prelude::*, prop_compose, proptest};
-    use std::sync::LazyLock;
+    use std::sync::{Arc, LazyLock};
 
     // Epoch 164's last header
     include_header!(PREPROD_HEADER_69638382, 69638382);
@@ -297,7 +277,7 @@ mod test {
         current: &Header,
         global_parameters: &GlobalParameters,
     ) -> Option<Nonces> {
-        let mut store = Box::new(FakeStore::default()) as Box<dyn ChainStore<Header>>;
+        let store = Arc::new(FakeStore::default());
 
         // Have at least the last header of the last epoch available.
         store
@@ -310,10 +290,10 @@ mod test {
             .expect("database failure");
 
         // Evolve the current nonce so that 'get_nonces' can then return a result.
-        store
+        let praos_store = PraosChainStore::new(store.clone());
+        praos_store
             .evolve_nonce(current, global_parameters)
             .expect("evolve nonce failed");
-
         store.get_nonces(&current.hash())
     }
 

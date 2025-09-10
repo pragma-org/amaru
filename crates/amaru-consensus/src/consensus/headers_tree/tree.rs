@@ -96,9 +96,9 @@ impl<H> Tree<H> {
     }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Default> Tree<H> {
+impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Tree<H> {
     /// Create a `Tree` from a map of headers, indexed by their hash.
-    pub fn from(headers: &BTreeMap<HeaderHash, H>) -> Self {
+    pub fn from(headers: &BTreeMap<HeaderHash, H>) -> Option<Self> {
         // Build parent -> children index
         let mut by_parent: BTreeMap<Option<HeaderHash>, Vec<H>> = BTreeMap::new();
         for header in headers.values() {
@@ -129,9 +129,9 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Default> Tree<H> {
                 }
                 tree
             }
-            build(root.clone(), &by_parent)
+            Some(build(root.clone(), &by_parent))
         } else {
-            Tree::make_leaf(&Default::default())
+            None
         }
     }
 }
@@ -221,10 +221,12 @@ mod tests {
         #[test]
         fn test_creation_from_map(tree in any_tree_of_headers(7, Ratio(1, 5))) {
             let as_map = tree.to_map();
-            let actual = Tree::from(&as_map);
-
-            prop_assert_eq!(actual.size(), tree.size());
-            prop_assert_eq!(actual.to_map(), as_map);
+            if let Some(actual) = Tree::from(&as_map) {
+                prop_assert_eq!(actual.size(), tree.size());
+                prop_assert_eq!(actual.to_map(), as_map);
+            } else {
+                assert!(as_map.is_empty())
+            }
         }
     }
 

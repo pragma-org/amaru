@@ -16,11 +16,12 @@ rust-version.workspace = true
 # External dependencies ───────────────────────────────────────────────────────┐
 hex.workspace = true
 rocksdb = { workspace = true, optional = true }
+serde.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 rand = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru-consensus.workspace = true
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-iter-borrow.workspace = true

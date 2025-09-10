@@ -20,22 +20,20 @@ use amaru_consensus::consensus::effects::block_effects::{
 use amaru_consensus::consensus::effects::store_effects::ResourceHeaderStore;
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
+use amaru_consensus::consensus::headers_tree::HeadersTree;
 use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
 use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
-use amaru_consensus::consensus::{headers_tree::HeadersTree, store::ChainStore};
 use amaru_kernel::{
     EraHistory, Hash, Header, Point, network::NetworkName, peer::Peer,
     protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_ouroboros_traits::{CanValidateBlocks, HasStakeDistribution, IsHeader};
+use amaru_stores::chain_store::ChainStore;
 use amaru_stores::{
-    in_memory::MemoryStore,
-    rocksdb::{
-        RocksDB, RocksDBHistoricalStores,
-        consensus::{InMemConsensusStore, RocksDBStore},
-    },
+    in_memory::{MemoryStore, consensus::InMemConsensusStore},
+    rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore},
 };
 use anyhow::Context;
 use consensus::forward_chain::ForwardChainStage;
@@ -51,8 +49,8 @@ use pallas_network::{
     },
 };
 use pure_stage::{StageGraph, tokio::TokioBuilder};
+use std::fmt::Debug;
 use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 pub mod build_stage_graph;
@@ -200,14 +198,18 @@ pub fn bootstrap(
         .map(|session| pull::Stage::new(session.0, session.1, vec![tip.clone()]))
         .collect::<Vec<_>>();
 
-    let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
+    let (our_tip, header, chain_store) = make_chain_store(&config, era_history, tip)?;
 
-    let chain_selector =
-        make_chain_selector(header, &peers, global_parameters.consensus_security_param)?;
+    let chain_selector = make_chain_selector(
+        chain_store.clone(),
+        header,
+        &peers,
+        global_parameters.consensus_security_param,
+    )?;
 
     let mut forward_chain_stage = ForwardChainStage::new(
         None,
-        chain_store_ref.clone(),
+        chain_store.clone(),
         config.network_magic as u64,
         &config.listen_address,
         config.max_downstream_peers,
@@ -227,9 +229,7 @@ pub fn bootstrap(
     );
     let graph_input = network.input(&graph_input);
 
-    network
-        .resources()
-        .put::<ResourceHeaderStore>(chain_store_ref);
+    network.resources().put::<ResourceHeaderStore>(chain_store);
     network
         .resources()
         .put::<ResourceParameters>(global_parameters.clone());
@@ -273,20 +273,20 @@ pub fn bootstrap(
     Ok(stages)
 }
 
-type ChainStoreResult = (Tip, Option<Header>, Arc<Mutex<dyn ChainStore<Header>>>);
+type ChainStoreResult = (Tip, Option<Header>, Arc<dyn ChainStore<Header>>);
 
 #[expect(clippy::panic)]
 fn make_chain_store(
     config: &Config,
     era_history: &EraHistory,
-    tip: amaru_kernel::Point,
+    tip: Point,
 ) -> Result<ChainStoreResult, Box<dyn Error>> {
-    let chain_store: Box<dyn ChainStore<Header>> = match config.chain_store {
-        StorePath::InMem(()) => Box::new(InMemConsensusStore::new()),
-        StorePath::OnDisk(ref chain_dir) => Box::new(RocksDBStore::new(chain_dir, era_history)?),
+    let chain_store: Arc<dyn ChainStore<Header>> = match config.chain_store {
+        StorePath::InMem(()) => Arc::new(InMemConsensusStore::new()),
+        StorePath::OnDisk(ref chain_dir) => Arc::new(RocksDBStore::new(chain_dir, era_history)?),
     };
 
-    let (our_tip, header) = if let amaru_kernel::Point::Specific(_slot, hash) = &tip {
+    let (our_tip, header) = if let Point::Specific(_slot, hash) = &tip {
         let tip_hash = &Hash::from(&**hash);
         let header: Header = chain_store.load_header(tip_hash).unwrap_or_else(|| {
             panic!(
@@ -302,8 +302,7 @@ fn make_chain_store(
         (Tip(pallas_network::miniprotocols::Point::Origin, 0), None)
     };
 
-    let chain_store_ref: Arc<Mutex<dyn ChainStore<Header>>> = Arc::new(Mutex::new(chain_store));
-    Ok((our_tip, header, chain_store_ref))
+    Ok((our_tip, header, chain_store))
 }
 
 enum LedgerStage {
@@ -375,6 +374,7 @@ fn make_ledger(
 }
 
 fn make_chain_selector(
+    chain_store: Arc<dyn ChainStore<Header>>,
     header: Option<Header>,
     peers: &Vec<Peer>,
     consensus_security_parameter: usize,
@@ -385,7 +385,7 @@ fn make_chain_selector(
     };
 
     // TODO: initialize the headers tree from the ChainDB store
-    let mut tree = HeadersTree::new(consensus_security_parameter, &header);
+    let mut tree = HeadersTree::new(chain_store, consensus_security_parameter, &header);
 
     for peer in peers {
         tree.initialize_peer(peer, &root_hash)?;

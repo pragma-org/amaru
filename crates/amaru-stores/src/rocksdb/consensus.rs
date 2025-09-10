@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::store::{ChainStore, ReadOnlyChainStore, StoreError};
-use amaru_kernel::{Hash, RawBlock, cbor, from_cbor, network::NetworkName, to_cbor};
+use crate::chain_store::{ChainStore, ReadOnlyChainStore, StoreError};
+use amaru_kernel::{Hash, RawBlock, cbor, from_cbor, to_cbor};
 use amaru_ouroboros_traits::Nonces;
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_slot_arithmetic::EraHistory;
-use rocksdb::{DB, OptimisticTransactionDB, Options};
-use std::{collections::BTreeMap, path::PathBuf};
-use tracing::{Level, error, instrument};
+use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options};
+use std::path::PathBuf;
+use tracing::{Level, instrument};
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
@@ -71,6 +71,27 @@ macro_rules! impl_ReadOnlyChainStore {
                     .and_then(|bytes| from_cbor(bytes?.as_ref()))
             }
 
+            fn load_headers(&self) -> Vec<H> {
+                let mut result = Vec::new();
+                for values in self.db.iterator(IteratorMode::Start) {
+                    let (_, value) = values.unwrap_or_default();
+                    if let Some(header) = from_cbor(value.as_ref()) {
+                        result.push(header);
+                    }
+                }
+                result
+            }
+
+            fn count_headers(&self) -> usize {
+                self.db.iterator(IteratorMode::Start).count()
+            }
+
+            fn has_header(&self, hash: &Hash<32>) -> bool {
+                self.db.get_pinned(hash)
+                    .map(|opt| opt.is_some())
+                    .unwrap_or(false)
+            }
+
             fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
                 self.db
                     .get_pinned([&NONCES_PREFIX[..], &header[..]].concat())
@@ -98,7 +119,7 @@ impl_ReadOnlyChainStore!(for ReadOnlyChainDB, RocksDBStore);
 
 impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     #[instrument(level = Level::TRACE, skip_all, fields(%hash))]
-    fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
+    fn store_header(&self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
         self.db
             .put(hash, to_cbor(header))
             .map_err(|e| StoreError::WriteError {
@@ -106,7 +127,7 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
             })
     }
 
-    fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
+    fn put_nonces(&self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
         self.db
             .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(nonces))
             .map_err(|e| StoreError::WriteError {
@@ -118,75 +139,18 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
         &self.era_history
     }
 
-    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
+    fn store_block(&self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
         self.db
             .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),
             })
     }
-}
 
-pub struct InMemConsensusStore<H> {
-    nonces: BTreeMap<Hash<32>, Nonces>,
-    headers: BTreeMap<Hash<32>, H>,
-    blocks: BTreeMap<Hash<32>, RawBlock>,
-}
-
-impl<H> Default for InMemConsensusStore<H> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<H> InMemConsensusStore<H> {
-    pub fn new() -> InMemConsensusStore<H> {
-        InMemConsensusStore {
-            nonces: BTreeMap::new(),
-            headers: BTreeMap::new(),
-            blocks: BTreeMap::new(),
-        }
-    }
-}
-
-impl<H: IsHeader + Send + Sync + Clone> ReadOnlyChainStore<H> for InMemConsensusStore<H> {
-    fn load_header(&self, hash: &Hash<32>) -> Option<H> {
-        self.headers.get(hash).cloned()
-    }
-
-    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
-        self.nonces.get(header).cloned().or_else(|| {
-            error!("failed to find nonce {}", header);
-            for (key, value) in self.headers.iter() {
-                error!("{:?}: {:?}", key, value.hash());
-            }
-            None
+    fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+        self.db.delete(hash).map_err(|e| StoreError::WriteError {
+            error: e.to_string(),
         })
-    }
-
-    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-        unimplemented!()
-    }
-}
-
-impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H> {
-    fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
-        self.headers.insert(*hash, header.clone());
-        Ok(())
-    }
-
-    fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
-        self.nonces.insert(*header, nonces.clone());
-        Ok(())
-    }
-
-    fn era_history(&self) -> &EraHistory {
-        NetworkName::Testnet(42).into()
-    }
-
-    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
-        self.blocks.insert(*hash, (*block).clone());
-        Ok(())
     }
 }
 
@@ -222,7 +186,7 @@ mod test {
     #[test]
     fn rocksdb_chain_store_can_get_header_it_puts() {
         let tempdir = tempfile::tempdir().unwrap();
-        let mut store = initialise_test_rw_store(&tempdir);
+        let store = initialise_test_rw_store(&tempdir);
 
         let header = FakeHeader {
             block_number: 1,
@@ -239,12 +203,12 @@ mod test {
     #[test]
     fn rocksdb_chain_store_can_get_block_it_puts() {
         let tempdir = tempfile::tempdir().unwrap();
-        let mut store = initialise_test_rw_store(&tempdir);
+        let store = initialise_test_rw_store(&tempdir);
 
         let hash: Hash<32> = random_bytes(32).as_slice().into();
         let block = RawBlock::from(&*vec![1; 64]);
 
-        <RocksDBStore as ChainStore<FakeHeader>>::store_block(&mut store, &hash, &block).unwrap();
+        <RocksDBStore as ChainStore<FakeHeader>>::store_block(&store, &hash, &block).unwrap();
         let block2 =
             <RocksDBStore as ReadOnlyChainStore<FakeHeader>>::load_block(&store, &hash).unwrap();
         assert_eq!(block, block2);

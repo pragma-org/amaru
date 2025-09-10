@@ -18,16 +18,19 @@ use crate::consensus::headers_tree::headers_tree::Tracker::{Me, SomePeer};
 use crate::consensus::headers_tree::tree::Tree;
 use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
 use crate::consensus::stages::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
-use crate::consensus::tip::Tip;
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HEADER_HASH_SIZE, ORIGIN_HASH, Point, peer::Peer};
 use amaru_ouroboros_traits::IsHeader;
+use amaru_stores::chain_store::ChainStore;
+#[cfg(any(test, feature = "test-utils"))]
+use amaru_stores::in_memory::consensus::InMemConsensusStore;
 use itertools::Itertools;
 use pallas_crypto::hash::Hash;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::successors;
+use std::sync::Arc;
 use tracing::instrument;
 
 /// Type alias for a header hash to improve readability
@@ -41,12 +44,12 @@ type HeaderHash = Hash<HEADER_HASH_SIZE>;
 ///  - tree: a tree representation of the headers to be able to traverse from root to leaves.
 ///  - peers: a map of the latest tip for each peer.
 ///
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct HeadersTree<H> {
     /// Maximum size allowed for a given chain
     max_length: usize,
     /// List of headers by their hash
-    headers: BTreeMap<HeaderHash, Tip<H>>,
+    // headers: BTreeMap<HeaderHash, Tip<H>>,
     /// View of the parent->child relationship for headers.
     parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
     /// The root of the tree
@@ -55,6 +58,33 @@ pub struct HeadersTree<H> {
     peers: BTreeMap<Tracker, Vec<HeaderHash>>,
     /// One chain tip designates as THE best chain among several chains of the same length.
     best_chain: HeaderHash,
+    chain_store: Arc<dyn ChainStore<H>>,
+}
+
+impl<H: PartialEq> PartialEq for HeadersTree<H> {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl<H: Eq> Eq for HeadersTree<H> {}
+
+impl<H: Serialize> Serialize for HeadersTree<H> {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        todo!("serialize for HeadersTree")
+    }
+}
+
+impl<'de, H: Deserialize<'de>> Deserialize<'de> for HeadersTree<H> {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        todo!("deserialize for HeadersTree")
+    }
 }
 
 /// A tracker is either "Me" (the local node) or a specific peer.
@@ -93,25 +123,27 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Debug for HeadersTree<H> {
     }
 }
 
-impl<H: IsHeader + Clone + Display + PartialEq + Eq> Display for HeadersTree<H> {
+impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq> Display for HeadersTree<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f, |tip| format!("{tip}"))
     }
 }
 
-impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
+impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
     /// Common function to format the headers tree either for Debug or Display
     fn format(
         &self,
         f: &mut Formatter<'_>,
-        header_to_string: fn(&Tip<H>) -> String,
+        header_to_string: fn(&H) -> String,
     ) -> std::fmt::Result {
         f.write_str("HeadersTree {\n")?;
-        writeln!(
-            f,
-            "  headers:\n    {}",
-            &self.to_tree().pretty_print_with(header_to_string)
-        )?;
+        if let Some(tree) = self.to_tree() {
+            writeln!(
+                f,
+                "  headers:\n    {}",
+                &tree.pretty_print_with(header_to_string)
+            )?;
+        }
         writeln!(f, "  root: {}", &self.root)?;
         writeln!(
             f,
@@ -134,45 +166,55 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the tree representation of the headers tree.
-    fn to_tree(&self) -> Tree<Tip<H>> {
-        Tree::from(&self.headers)
+    fn to_tree(&self) -> Option<Tree<H>> {
+        let mut as_map = BTreeMap::new();
+        for header in self.chain_store.load_headers() {
+            let _ = as_map.insert(header.hash(), header);
+        }
+        Tree::from(&as_map)
     }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
+impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
     /// Initialize a HeadersTree as a tree rooted in the Genesis header
-    pub fn new(max_length: usize, root: &Option<H>) -> HeadersTree<H> {
-        if let Some(root) = root {
-            HeadersTree::create(max_length, Tip::from(root.clone()))
-        } else {
-            HeadersTree::create(max_length, Tip::Genesis)
-        }
+    pub fn new(
+        chain_store: Arc<dyn ChainStore<H>>,
+        max_length: usize,
+        root: &Option<H>,
+    ) -> HeadersTree<H> {
+        HeadersTree::create(chain_store, max_length, root.clone())
     }
 
-    /// Initialize a HeadersTree with a specific header as the root
-    pub fn new_with_header(max_length: usize, header: &H) -> HeadersTree<H> {
-        HeadersTree::create(max_length, Tip::from(header.clone()))
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn new_in_memory(max_length: usize, root: &Option<H>) -> HeadersTree<H> {
+        HeadersTree::new(Arc::new(InMemConsensusStore::new()), max_length, root)
     }
 
     /// Create a new HeadersTree with a specific tip as the root
-    fn create(max_length: usize, header: Tip<H>) -> HeadersTree<H> {
+    fn create(
+        chain_store: Arc<dyn ChainStore<H>>,
+        max_length: usize,
+        header: Option<H>,
+    ) -> HeadersTree<H> {
         assert!(
             max_length >= 2,
             "Cannot create a headers tree with maximum chain length lower than 2"
         );
-        let mut headers = BTreeMap::new();
-        headers.insert(header.hash(), header.clone());
 
         let mut peers = BTreeMap::new();
-        peers.insert(Me, vec![header.hash()]);
+        if let Some(header) = header {
+            let hash = header.hash();
+            let _ = chain_store.store_header(&hash, &header);
+            peers.insert(Me, vec![hash]);
+        }
 
         HeadersTree {
             max_length,
-            headers,
             parent_child_relationship: BTreeMap::new(),
-            root: header.hash(),
+            root: ORIGIN_HASH,
             peers,
-            best_chain: header.hash(),
+            best_chain: ORIGIN_HASH,
+            chain_store,
         }
     }
 
@@ -184,7 +226,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         peer: &Peer,
         hash: &HeaderHash,
     ) -> Result<(), ConsensusError> {
-        if self.headers.contains_key(hash) {
+        if self.chain_store.has_header(hash) || hash == &ORIGIN_HASH {
             let mut peer_chain: Vec<_> = self.ancestors_hashes(hash).collect();
             peer_chain.reverse();
             self.peers.insert(SomePeer(peer.clone()), peer_chain);
@@ -255,7 +297,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
                 Ok(ForwardChainSelection::NoChange)
             }
         };
-        self.prune_headers();
+        self.prune_headers()?;
         result
     }
 
@@ -275,7 +317,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         peer: &Peer,
         rollback_hash: &HeaderHash,
     ) -> Result<RollbackChainSelection<H>, ConsensusError> {
-        if !self.headers.contains_key(rollback_hash) {
+        if !self.chain_store.has_header(rollback_hash) {
             return Ok(RollbackBeyondLimit {
                 peer: peer.clone(),
                 rollback_point: *rollback_hash,
@@ -324,8 +366,9 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     ///
     fn insert_header(&mut self, header: &H) -> Result<(), ConsensusError> {
         // add the new header to the map
-        self.headers
-            .insert(header.hash(), Tip::from(header.clone()));
+        self.chain_store
+            .store_header(&header.hash(), header)
+            .map_err(|e| ConsensusError::StoreHeaderFailed(header.hash(), e))?;
         // add the new header to the tree
         if let Some(parent_hash) = header.parent() {
             self.parent_child_relationship
@@ -333,7 +376,9 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
                 .or_default()
                 .push(header.hash());
         } else if self.is_empty_tree() {
-            self.headers.remove(&ORIGIN_HASH);
+            self.chain_store
+                .remove_header(&ORIGIN_HASH)
+                .map_err(|e| ConsensusError::RemoveHeaderFailed(header.hash(), e))?;
             self.peers.remove(&Me);
             self.best_chain = header.hash();
             self.root = header.hash();
@@ -380,7 +425,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
                 if chain.len() > best_length {
                     best_length = chain.len();
                     best_chains = vec![last];
-                } else if chain.len() == best_length {
+                } else if chain.len() == best_length && !best_chains.contains(&last) {
                     best_chains.push(last);
                 }
             }
@@ -445,22 +490,19 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
     /// Return the header for a given hash, panicking if it does not exist.
     /// This function should only with precaution, when we are sure the header exists.
     #[expect(clippy::panic)]
-    fn unsafe_get_header(&self, hash: &HeaderHash) -> &H {
+    fn unsafe_get_header(&self, hash: &HeaderHash) -> H {
         self.get_header(hash)
             .unwrap_or_else(|| panic!("A header must exist for hash {}", hash))
     }
 
     /// Return the header for a given hash, or None if it does not exist.
-    fn get_header(&self, hash: &HeaderHash) -> Option<&H> {
-        self.headers.get(hash).and_then(|h| h.to_header())
+    fn get_header(&self, hash: &HeaderHash) -> Option<H> {
+        self.chain_store.load_header(hash)
     }
 
     /// Return the ancestors of the header, including the header itself.
-    fn ancestors<'a>(&'a self, start: &'a H) -> impl Iterator<Item = &'a H> + 'a
-    where
-        H: 'a,
-    {
-        successors(Some(start), move |h| {
+    fn ancestors(&self, start: &H) -> impl Iterator<Item = H> + use<'_, H> {
+        successors(Some(start.clone()), move |h| {
             h.parent().and_then(|p| self.get_header(&p))
         })
     }
@@ -468,7 +510,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
     /// Return the hashes of the ancestors of the header, including the header hash itself.
     fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + '_> {
         if let Some(header) = self.get_header(hash) {
-            Box::new(self.ancestors(header).map(|h| h.hash()))
+            Box::new(self.ancestors(&header).map(|h| h.hash()))
         } else {
             Box::new(std::iter::empty())
         }
@@ -518,8 +560,8 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
             .get_peer_tip(peer)
             .ok_or(ConsensusError::UnknownPeer(peer.clone()))?;
         Ok(self
-            .headers
-            .get(tip)
+            .chain_store
+            .load_header(tip)
             .map(|t| t.point())
             .unwrap_or(Point::Origin))
     }
@@ -550,9 +592,9 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
     /// When the best chain exceeds the maximum length, move its root up one level and
     /// remove all the subtrees that start from the old root.
     #[instrument(level = "trace", skip_all)]
-    fn prune_headers(&mut self) {
-        if self.best_length() <= self.max_length || self.headers.len() <= 2 {
-            return;
+    fn prune_headers(&mut self) -> Result<(), ConsensusError> {
+        if self.best_length() <= self.max_length || self.chain_store.count_headers() <= 2 {
+            return Ok(());
         }
 
         // Get the first two headers of the best chain fragment
@@ -582,7 +624,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
             // Update the set of removed hashes.
             let mut removed_hashes = BTreeSet::new();
             for other_root in other_roots {
-                self.delete_recursively(&other_root, &mut removed_hashes);
+                self.delete_recursively(&other_root, &mut removed_hashes)?;
             }
 
             // Use the list of removed hashes to update the peer chains.
@@ -595,19 +637,27 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
             // Set the new root
             self.root = second;
         };
+        Ok(())
     }
 
     /// Remove children headers hashes, starting from a given root in the parent_child_relationship map.
     /// Collect the removed hashes in the given set.
-    fn delete_recursively(&mut self, hash: &HeaderHash, removed_hashes: &mut BTreeSet<HeaderHash>) {
+    fn delete_recursively(
+        &mut self,
+        hash: &HeaderHash,
+        removed_hashes: &mut BTreeSet<HeaderHash>,
+    ) -> Result<(), ConsensusError> {
         if let Some(children) = self.parent_child_relationship.get(hash).cloned() {
             for c in children.iter() {
-                self.delete_recursively(c, removed_hashes);
+                self.delete_recursively(c, removed_hashes)?;
             }
         }
-        self.headers.remove(hash);
+        self.chain_store
+            .remove_header(hash)
+            .map_err(|e| ConsensusError::StoreHeaderFailed(*hash, e))?;
         self.parent_child_relationship.remove(hash);
         removed_hashes.insert(*hash);
+        Ok(())
     }
 
     /// Return the best chain fragment currently known as a list of hashes.
@@ -633,14 +683,14 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
 
 #[cfg(any(test, doc, feature = "test-utils"))]
 /// Those functions are only used by tests
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
+impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
     /// Return true if the peer is known
     pub fn has_peer(&self, peer: &Peer) -> bool {
         self.peers.contains_key(&SomePeer(peer.clone()))
     }
 
     /// Return the tip of the best chain that currently known as a header
-    pub fn best_chain_tip(&self) -> &H {
+    pub fn best_chain_tip(&self) -> H {
         self.unsafe_get_header(self.best_chain())
     }
 
@@ -648,8 +698,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// The list starts from the root.
     pub fn best_chain_fragment(&self) -> Vec<H> {
         let mut fragment: Vec<_> = self
-            .ancestors(self.unsafe_get_header(&self.best_chain))
-            .cloned()
+            .ancestors(&self.unsafe_get_header(&self.best_chain))
             .collect();
         fragment.reverse();
         fragment
@@ -659,7 +708,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// This is used to check the garbage collection aspect of this data structure.
     #[cfg(test)]
     fn size(&self) -> usize {
-        self.headers.len()
+        self.chain_store.count_headers()
     }
 
     /// Insert headers into the arena and return the last created node id
@@ -692,7 +741,7 @@ mod tests {
 
     #[test]
     fn initialize_peer_on_empty_tree() {
-        let mut tree: HeadersTree<TestHeader> = HeadersTree::new(10, &None);
+        let mut tree: HeadersTree<TestHeader> = HeadersTree::new_in_memory(10, &None);
         let peer = Peer::new("alice");
         let mut header = generate_header();
         header.parent = Some(ORIGIN_HASH);
@@ -700,7 +749,7 @@ mod tests {
         tree.select_roll_forward(&peer, header).unwrap();
         assert_eq!(
             tree.best_chain_tip(),
-            &header,
+            header,
             "there must be a best chain available after the first roll forward"
         );
     }
@@ -709,11 +758,11 @@ mod tests {
     fn single_chain_is_best_chain() {
         let headers = generate_headers_chain(5);
         let last = headers[4];
-        let mut tree = HeadersTree::new(10, &None);
+        let mut tree = HeadersTree::new_in_memory(10, &None);
         tree.insert_headers(&headers).unwrap();
 
         assert_eq!(tree.size(), 5);
-        assert_eq!(tree.best_chain_tip(), &last);
+        assert_eq!(tree.best_chain_tip(), last);
         assert_eq!(tree.best_chain_fragment(), headers);
     }
 
@@ -753,9 +802,8 @@ mod tests {
         // Now roll forward extending tip
         let new_tip = make_header_with_parent(tip);
         let result = tree.select_roll_forward(&peer, new_tip).unwrap();
-
         assert_eq!(result, ForwardChainSelection::NewTip { peer, tip: new_tip });
-        assert_eq!(tree.best_chain_tip(), &new_tip);
+        assert_eq!(tree.best_chain_tip(), new_tip);
 
         headers.push(new_tip);
         let best_chain_fragment = tree.best_chain_fragment();
@@ -819,7 +867,7 @@ mod tests {
                 tip: new_tip
             }
         );
-        assert_eq!(tree.best_chain_tip(), &new_tip);
+        assert_eq!(tree.best_chain_tip(), new_tip);
 
         headers.push(new_tip);
         assert_eq!(tree.best_chain_fragment(), headers);
@@ -845,7 +893,7 @@ mod tests {
         let tip = headers.last().unwrap();
         assert_eq!(
             tree.best_chain_tip(),
-            tip,
+            *tip,
             "the current tip must not change"
         );
 
@@ -876,7 +924,7 @@ mod tests {
         let tip = headers.last().unwrap();
         assert_eq!(
             tree.best_chain_tip(),
-            tip,
+            *tip,
             "the current tip must not change"
         );
 
@@ -959,7 +1007,7 @@ mod tests {
                 tip: new_tip
             }
         );
-        assert_eq!(tree.best_chain_tip(), &new_tip);
+        assert_eq!(tree.best_chain_tip(), new_tip);
 
         // The expected chain ends with the new tip but starts with the second header
         // in order to stay below max_length
@@ -1048,7 +1096,7 @@ mod tests {
         let middle = headers[3];
         let result = tree.select_rollback(&alice, &middle.hash()).unwrap();
         assert_eq!(result, RollbackChainSelection::NoChange);
-        assert_eq!(tree.best_chain_tip(), &headers[4]);
+        assert_eq!(tree.best_chain_tip(), headers[4]);
     }
 
     #[test]
@@ -1065,7 +1113,7 @@ mod tests {
         // roll forward again
         let result = tree.select_roll_forward(&alice, headers[4]).unwrap();
         assert_eq!(result, ForwardChainSelection::NoChange);
-        assert_eq!(tree.best_chain_tip(), &headers[4])
+        assert_eq!(tree.best_chain_tip(), headers[4])
     }
 
     #[test]
@@ -1118,7 +1166,7 @@ mod tests {
             .select_rollback(&alice, &rollback_point.hash())
             .unwrap();
         assert_eq!(result, RollbackChainSelection::NoChange);
-        assert_eq!(tree.best_chain_tip(), &headers[4]);
+        assert_eq!(tree.best_chain_tip(), headers[4]);
     }
 
     #[test]
@@ -1140,7 +1188,7 @@ mod tests {
         //     + - 5 - 6 - 7 - 6 - 9 (*bob, me)
 
         // sanity check: bob chain is the longest
-        assert_eq!(tree.best_chain_tip(), added_headers.last().unwrap());
+        assert_eq!(tree.best_chain_tip(), *added_headers.last().unwrap());
 
         // Now bob is rolled back 2 headers. The best chain stays at 9
         // but bob is rolled backed to 7
@@ -1172,7 +1220,7 @@ mod tests {
         //     + - 5 - 6 - 7 - 8 (*bob, me)
 
         // sanity check: bob chain is the longest
-        assert_eq!(tree.best_chain_tip(), added_headers.last().unwrap());
+        assert_eq!(tree.best_chain_tip(), *added_headers.last().unwrap());
 
         // alice adds one more header. Now bob's chain is the best
         // and both bob and alice are in the best chains list
@@ -1237,7 +1285,7 @@ mod tests {
         expected = "Cannot create a headers tree with maximum chain length lower than 2"
     )]
     fn cannot_initialize_tree_with_k_lower_than_2() {
-        HeadersTree::<TestHeader>::new(1, &None);
+        HeadersTree::<TestHeader>::new_in_memory(1, &None);
     }
 
     const DEPTH: usize = 10;

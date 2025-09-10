@@ -120,7 +120,7 @@ pub fn generate_header() -> TestHeader {
 /// Generate a random `HeadersTree` initialized with a single chain of `TestHeader`s
 pub fn create_headers_tree(size: usize) -> HeadersTree<TestHeader> {
     let headers = generate_headers_chain(size);
-    let mut tree = HeadersTree::new(10, &None);
+    let mut tree = HeadersTree::new_in_memory(10, &None);
     tree.insert_headers(&headers).unwrap();
     tree
 }

@@ -66,7 +66,7 @@ fn main() {
     assert!(actions.len() > 5000);
 
     // Initialize an empty HeadersTree and execute the actions on it while measuring the time taken.
-    let mut headers_tree = HeadersTree::new(max_length, &None);
+    let mut headers_tree = HeadersTree::new_in_memory(max_length, &None);
 
     let guard = if profile {
         ProfilerGuardBuilder::default().frequency(1000).build().ok()

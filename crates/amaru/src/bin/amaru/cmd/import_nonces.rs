@@ -17,6 +17,7 @@ use amaru_kernel::{
     EraHistory, Hash, Header, Nonce, Point, default_chain_dir, network::NetworkName, parse_nonce,
 };
 use amaru_ouroboros_traits::Nonces;
+use amaru_stores::chain_store::ChainStore;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use serde::{Deserialize, Deserializer};

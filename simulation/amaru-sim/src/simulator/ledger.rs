@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::store::{ChainStore, StoreError};
 use amaru_kernel::{Header, RationalNumber, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{HasStakeDistribution, Nonces, PoolSummary};
 use amaru_slot_arithmetic::{Epoch, Slot};
+use amaru_stores::chain_store::{ChainStore, StoreError};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
+use std::sync::Arc;
 use std::{fs::File, io::BufReader, path::Path};
 
 /// A fake stake distribution used for simulation purposes.
@@ -127,7 +128,7 @@ pub enum PopulateError {
 
 /// Populate a chain store with nonces data from given context file.
 pub(crate) fn populate_chain_store(
-    chain_store: &mut impl ChainStore<Header>,
+    chain_store: Arc<dyn ChainStore<Header>>,
     header: &Hash<32>,
     consensus_context_file: &Path,
 ) -> Result<(), PopulateError> {

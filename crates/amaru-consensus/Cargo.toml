@@ -43,6 +43,7 @@ amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-slot-arithmetic.workspace = true
+amaru-stores.workspace = true
 pure-stage.workspace = true
 
 [dev-dependencies]
