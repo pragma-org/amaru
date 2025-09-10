@@ -131,7 +131,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                 stage.roll_forward(&header).await?;
 
                 let metrics = PullMetrics {
-                    header_size_bytes: header.cbor.len() as u64,
+                    header_size_bytes: 1,
                 };
 
                 send!(

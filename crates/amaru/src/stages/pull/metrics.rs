@@ -28,9 +28,9 @@ impl Metric for PullMetrics {
     fn record(&self, meter: &opentelemetry::metrics::Meter) {
         let counter = HEADER_BYTES.get_or_init(|| {
             meter
-                .u64_counter("cardano_node_header_bytes")
+                .u64_counter("cardano_node_metrics_blockNum_int")
                 .with_description("Total bytes of headers received")
-                .with_unit("By")
+                .with_unit("int")
                 .build()
         });
 

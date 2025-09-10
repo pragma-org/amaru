@@ -44,8 +44,8 @@ pub struct MetricsStage {
 
 impl MetricsStage {
     pub fn new(maybe_provider: Option<SdkMeterProvider>) -> Self {
-        // The meter is named `cardano-node` to match the metrics exported by the cardano node (https://github.com/pragma-org/amaru/issues/428)
-        let meter = maybe_provider.map(|provider| provider.meter("cardano-node"));
+        // The meter is named `cardano_node_metrics` to match the metrics exported by the cardano node (https://github.com/pragma-org/amaru/issues/428)
+        let meter = maybe_provider.map(|provider| provider.meter("cardano_node_metrics"));
 
         Self {
             upstream: Default::default(),
