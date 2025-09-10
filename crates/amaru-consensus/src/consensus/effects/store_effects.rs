@@ -83,7 +83,7 @@ impl StoreBlockEffect {
         Self {
             peer: peer.clone(),
             point: point.clone(),
-            block: block.clone(),
+            block,
         }
     }
 }
