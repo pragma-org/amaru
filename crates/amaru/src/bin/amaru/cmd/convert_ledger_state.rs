@@ -222,13 +222,17 @@ async fn convert_snapshot_to(
     write_ledger_snapshot(target_dir, slot, hash, &bytes[begin..end]).await
 }
 
+/// This is the number of past eras before the current era in the "standard" Cardano history, e.g
+/// from Byron to Babbage. Bump this number when a hard fork happens.
+pub const PAST_ERAS_NUMBER: i32 = 6;
+
 fn decode_eras(
     d: &mut minicbor::Decoder<'_>,
     network: &NetworkName,
 ) -> Result<Vec<Summary>, Box<dyn std::error::Error>> {
     let mut eras = Vec::new();
 
-    for _ in 0..6 {
+    for _ in 0..PAST_ERAS_NUMBER {
         d.array()?;
         let start: Bound = d.decode()?;
         let end: Bound = d.decode()?;
