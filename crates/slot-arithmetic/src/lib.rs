@@ -241,8 +241,13 @@ impl<'b, C> Decode<'b, C> for TimeMs {
         let datatype = d.datatype();
         (match datatype {
             Ok(Type::Tag) => {
-                // consume tag!!
-                d.tag()?;
+                // consume and validate tag
+                let tag = d.tag()?;
+                if tag != IanaTag::PosBignum.into() {
+                    return Err(minicbor::decode::Error::message(format!(
+                        "Unexpected CBOR tag decoding TimeMs: {tag} (expected positive bignum)"
+                    )));
+                };
                 // Haskell node defines timestamp as a Fixed E12
                 // (wrapped in a couple of newtypes), a fixed-decimal
                 // number with $10^{12}$ precision, eg. picoseconds
@@ -1138,6 +1143,16 @@ mod tests {
         // [558144000000000000001234567890000000000, 55814400, 646]
         let buffer =
             hex::decode("83c25101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
+        let result = minicbor::decode::<Bound>(&buffer);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cannot_decode_bounds_with_invalid_tag() {
+        // CBOR encoding for
+        // [-558144000000000000001234567890000000001, 55814400, 646]
+        let buffer =
+            hex::decode("83c35101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
         let result = minicbor::decode::<Bound>(&buffer);
         assert!(result.is_err());
     }
