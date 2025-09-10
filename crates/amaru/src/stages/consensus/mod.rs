@@ -12,6 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod fetch_block;
+pub mod clients_block_fetcher;
 pub mod forward_chain;
 pub mod store_block;

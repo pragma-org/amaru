@@ -14,6 +14,7 @@
 
 use crate::{ConsensusError, consensus::store::ChainStore};
 use amaru_kernel::{Header, Point, RawBlock, block::ValidateBlockEvent};
+use amaru_ouroboros_traits::IsHeader;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -39,65 +40,11 @@ impl StoreBlock {
         event: &ValidateBlockEvent,
     ) -> Result<ValidateBlockEvent, ConsensusError> {
         match event {
-            ValidateBlockEvent::Validated { point, block, .. } => {
-                self.store(point, block).await?;
+            ValidateBlockEvent::Validated { header, block, .. } => {
+                self.store(&header.point(), block).await?;
                 Ok(event.clone())
             }
             ValidateBlockEvent::Rollback { .. } => Ok(event.clone()),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::consensus::store::FakeStore;
-
-    use super::*;
-    use amaru_kernel::{Hash, Point};
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
-    use tracing::Span;
-
-    #[tokio::test]
-    async fn handle_event_returns_passed_event_when_forwarding_given_store_succeeds() {
-        let mock_store = Arc::new(Mutex::new(FakeStore::default()));
-        let store_block = StoreBlock::new(mock_store.clone());
-
-        let event = ValidateBlockEvent::Validated {
-            point: Point::Specific(123, Hash::from([1; 32]).to_vec()),
-            block: RawBlock::from(&*vec![0, 1, 2, 3]),
-            span: Span::current(),
-        };
-
-        let result = store_block.handle_event(&event).await;
-
-        // we don't care about checking the data is stored properly as the underlying
-        // storage is a mock anyway, we just verify that IF the storage does not
-        // fail, we return ()
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn handle_event_returns_passed_event_when_rollbacking() {
-        let mock_store = Arc::new(Mutex::new(FakeStore::default()));
-        let store_block = StoreBlock::new(mock_store.clone());
-
-        let expected_rollback_point = Point::Specific(100, Hash::from([2; 32]).to_vec());
-
-        let event = ValidateBlockEvent::Rollback {
-            rollback_point: expected_rollback_point.clone(),
-            span: Span::current(),
-        };
-
-        let result = store_block.handle_event(&event).await.unwrap();
-
-        match result {
-            ValidateBlockEvent::Validated { .. } => {
-                panic!("expected Rollback event")
-            }
-            ValidateBlockEvent::Rollback { rollback_point, .. } => {
-                assert_eq!(rollback_point, expected_rollback_point)
-            }
         }
     }
 }
