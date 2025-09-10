@@ -15,23 +15,36 @@
 use crate::ConsensusError;
 use amaru_kernel::{Header, Point, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{IsHeader, Praos};
-use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
+use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub type ResourceHeaderStore = Arc<Mutex<dyn super::store::ChainStore<Header>>>;
 pub type ResourceParameters = GlobalParameters;
 
+pub struct Storage;
+
+impl Storage {
+    pub async fn store_header<M>(
+        eff: &Effects<M>,
+        header: Header,
+        point: Point,
+    ) -> Result<(), ConsensusError> {
+        eff.external(StoreHeaderEffect { header, point }).await
+    }
+
+    pub async fn evolve_nonce<M>(
+        eff: &Effects<M>,
+        header: Header,
+    ) -> Result<amaru_ouroboros::Nonces, super::store::NoncesError> {
+        eff.external(EvolveNonceEffect { header }).await
+    }
+}
+
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StoreHeaderEffect {
     header: Header,
     point: Point,
-}
-
-impl StoreHeaderEffect {
-    pub fn new(header: Header, point: Point) -> Self {
-        Self { header, point }
-    }
 }
 
 impl ExternalEffect for StoreHeaderEffect {
@@ -61,12 +74,6 @@ impl ExternalEffectAPI for StoreHeaderEffect {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EvolveNonceEffect {
     header: Header,
-}
-
-impl EvolveNonceEffect {
-    pub fn new(header: Header) -> Self {
-        Self { header }
-    }
 }
 
 impl ExternalEffect for EvolveNonceEffect {
