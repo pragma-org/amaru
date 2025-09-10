@@ -32,8 +32,6 @@ use amaru_consensus::consensus::stages::select_chain::{
     DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain,
 };
 use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
-use amaru_consensus::consensus::store::ChainStore;
-use amaru_kernel::Point::{Origin, Specific};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_parameters::GlobalParameters;
@@ -41,7 +39,8 @@ use amaru_kernel::{Point, to_cbor};
 use amaru_ouroboros::IsHeader;
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateBlocks;
 use amaru_slot_arithmetic::Slot;
-use amaru_stores::rocksdb::consensus::InMemConsensusStore;
+use amaru_stores::chain_store::ChainStore;
+use amaru_stores::in_memory::consensus::InMemConsensusStore;
 use async_trait::async_trait;
 use pallas_crypto::hash::Hash;
 use pallas_primitives::babbage::Header;
@@ -52,7 +51,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
-use tokio::sync::Mutex;
 use tracing::{Span, info};
 
 /// Run the full simulation:
@@ -239,49 +237,33 @@ fn init_node(
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
 
-    let mut chain_store = InMemConsensusStore::new();
+    let chain_store = Arc::new(InMemConsensusStore::new());
 
     populate_chain_store(
-        &mut chain_store,
+        chain_store.clone(),
         &args.start_header,
         &args.consensus_context_file,
     )
     .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
 
     let select_chain = make_chain_selector(
-        Origin,
-        &chain_store,
+        chain_store.clone(),
         &(1..=args.number_of_upstream_peers)
             .map(|i| Peer::new(&format!("c{}", i)))
             .collect::<Vec<_>>(),
     );
-    let chain_ref = Arc::new(Mutex::new(chain_store));
-
     (
         global_parameters.clone(),
         select_chain,
         Arc::new(stake_distribution),
-        chain_ref,
+        chain_store,
     )
 }
 
-fn make_chain_selector(
-    tip: Point,
-    chain_store: &impl ChainStore<Header>,
-    peers: &Vec<Peer>,
-) -> SelectChain {
-    let root = match tip {
-        Origin => None,
-        Specific(..) => match chain_store.load_header(&Hash::from(&tip)) {
-            None => panic!("Tip {:?} not found in chain store", tip),
-            Some(header) => Some(header),
-        },
-    };
-
-    let root_hash = root.as_ref().map(|r| r.hash()).unwrap_or(Origin.hash());
-    let mut tree = HeadersTree::new(DEFAULT_MAXIMUM_FRAGMENT_LENGTH, &root);
+fn make_chain_selector(chain_store: Arc<dyn ChainStore<Header>>, peers: &Vec<Peer>) -> SelectChain {
+    let mut tree = HeadersTree::new(chain_store.clone(), DEFAULT_MAXIMUM_FRAGMENT_LENGTH);
     for peer in peers {
-        tree.initialize_peer(peer, &root_hash)
+        tree.initialize_peer(peer, &chain_store.get_anchor_hash())
             .expect("the root node is guaranteed to already be in the tree")
     }
     SelectChain::new(tree, peers)

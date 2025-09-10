@@ -40,6 +40,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+pub mod consensus;
 pub mod ledger;
 
 // TODO: Add a field to MemoryStore for storing per-epoch snapshots as nested MemoryStores

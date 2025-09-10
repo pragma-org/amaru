@@ -131,7 +131,15 @@ impl<'b> cbor::decode::Decode<'b, ()> for Point {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::Point;
+    use crate::HEADER_HASH_SIZE;
+    use crate::tests::random_bytes;
+    use pallas_crypto::hash::Hash;
     use proptest::prelude::*;
+
+    /// Generate a random Hash that could be the hash of a `H: IsHeader` value.
+    pub fn random_hash() -> Hash<HEADER_HASH_SIZE> {
+        Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice())
+    }
 
     prop_compose! {
         pub fn any_point()(

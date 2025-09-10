@@ -17,10 +17,11 @@ use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
 use amaru_consensus::consensus::events::BlockValidationResult;
-use amaru_consensus::consensus::store::{ChainStore, ReadOnlyChainStore, StoreError};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Hash, Header, RawBlock, from_cbor};
-use amaru_ouroboros_traits::{IsHeader, Nonces};
+use amaru_ouroboros_traits::IsHeader;
+use amaru_stores::chain_store::ChainStore;
+use amaru_stores::in_memory::consensus::InMemConsensusStore;
 use gasket::{
     messaging::tokio::ChannelRecvAdapter,
     runtime::{Tether, spawn_stage},
@@ -32,93 +33,9 @@ use pallas_network::{
         chainsync::{NextResponse, Tip},
     },
 };
-use std::{
-    collections::BTreeMap, fs::File, future::Future, path::Path, str::FromStr, sync::Arc,
-    time::Duration,
-};
-use tokio::{
-    sync::{Mutex, mpsc},
-    time::timeout,
-};
+use std::{fs::File, future::Future, path::Path, str::FromStr, sync::Arc, time::Duration};
+use tokio::{sync::mpsc, time::timeout};
 use tracing_subscriber::EnvFilter;
-
-#[derive(Debug, Clone)]
-pub struct TestStore(BTreeMap<Hash<32>, Header>);
-
-impl TestStore {
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn get(&self, hash: &Hash<32>) -> Option<&Header> {
-        self.0.get(hash)
-    }
-
-    pub fn get_chain(&self, h: &str) -> Vec<Header> {
-        let mut chain = Vec::new();
-        let mut current = hash(h);
-        while let Some(header) = self.get(&current) {
-            chain.push(header.clone());
-            let Some(parent) = header.parent() else {
-                break;
-            };
-            current = parent;
-        }
-        chain.reverse();
-        chain
-    }
-
-    pub fn get_tip(&self, h: &str) -> Tip {
-        let header = self.get(&hash(h)).unwrap();
-        Tip(header.pallas_point(), header.block_height())
-    }
-
-    pub fn get_point(&self, h: &str) -> Point {
-        let header = self.get(&hash(h)).unwrap();
-        header.pallas_point()
-    }
-
-    pub fn get_height(&self, h: &str) -> u64 {
-        let header = self.get(&hash(h)).unwrap();
-        header.block_height()
-    }
-}
-
-impl ReadOnlyChainStore<Header> for TestStore {
-    fn load_header(&self, hash: &Hash<32>) -> Option<Header> {
-        self.0.get(hash).cloned()
-    }
-    fn get_nonces(&self, _header: &Hash<32>) -> Option<Nonces> {
-        unimplemented!()
-    }
-
-    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-        unimplemented!()
-    }
-}
-
-impl ChainStore<Header> for TestStore {
-    fn store_header(&mut self, hash: &Hash<32>, header: &Header) -> Result<(), StoreError> {
-        self.0.insert(*hash, header.clone());
-        Ok(())
-    }
-
-    fn put_nonces(&mut self, _header: &Hash<32>, _nonces: &Nonces) -> Result<(), StoreError> {
-        unimplemented!()
-    }
-
-    fn era_history(&self) -> &amaru_slot_arithmetic::EraHistory {
-        unimplemented!()
-    }
-
-    fn store_block(
-        &mut self,
-        _hash: &Hash<32>,
-        _block: &amaru_kernel::RawBlock,
-    ) -> Result<(), StoreError> {
-        unimplemented!()
-    }
-}
 
 pub const CHAIN_47: &str = "tests/data/chain41.json";
 pub const TIP_47: &str = "fcb4a51804f14f3f5b5ad841199b557aed0187280f7855736bdb153b0d202bb6";
@@ -126,7 +43,7 @@ pub const LOST_47: &str = "bd41b102018a21e068d504e64b282512a3b7d5c3883b743aa070a
 pub const BRANCH_47: &str = "64565f22fb23476baaa6f82e0e2d68636ceadabded697099fb376c23226bdf03";
 pub const WINNER_47: &str = "66c90f54f9073cfc03a334f5b15b1617f6bf6fe6c892fad8368e16abe20b0f4f";
 
-pub fn mk_store(path: impl AsRef<Path>) -> TestStore {
+pub fn mk_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<Header>> {
     let f = File::open(path).unwrap();
     let json: serde_json::Value = serde_json::from_reader(f).unwrap();
     let headers = json
@@ -135,16 +52,20 @@ pub fn mk_store(path: impl AsRef<Path>) -> TestStore {
         .as_array()
         .unwrap();
 
-    let mut store = BTreeMap::new();
+    let store = InMemConsensusStore::new();
+    let mut anchor_set = false;
 
     for header in headers {
-        let hash = header.pointer("/hash").unwrap().as_str().unwrap();
         let header = header.pointer("/header").unwrap().as_str().unwrap();
         let header = hex::decode(header).unwrap();
-        store.insert(hash.parse().unwrap(), minicbor::decode(&header).unwrap());
+        let header: Header = minicbor::decode(&header).unwrap();
+        if !anchor_set {
+            store.set_anchor_hash(&header.hash()).unwrap();
+            anchor_set = true
+        }
+        store.store_header(&header).unwrap();
     }
-
-    TestStore(store)
+    Arc::new(store)
 }
 
 pub fn hash(s: &str) -> Hash<32> {
@@ -164,7 +85,7 @@ pub fn amaru_point(slot: u64, hash: &str) -> amaru_kernel::Point {
 }
 
 pub struct Setup {
-    pub store: TestStore,
+    pub store: Arc<dyn ChainStore<Header>>,
     runtime: AcTokio,
     event: mpsc::Receiver<ForwardEvent>,
     block: mpsc::Sender<gasket::messaging::Message<BlockValidationResult>>,
@@ -195,11 +116,11 @@ impl Setup {
         let (block_tx, block_rx) = mpsc::channel(8);
         let mut stage = ForwardChainStage::new(
             Some(downstream),
-            Arc::new(Mutex::new(store.clone())),
+            store.clone(),
             42,
             "127.0.0.1:0",
             1,
-            store.get_tip(our_tip),
+            &hash(our_tip),
         );
         stage.upstream.connect(ChannelRecvAdapter::Mpsc(block_rx));
         let tether = spawn_stage(stage, Default::default());
@@ -227,7 +148,7 @@ impl Setup {
     }
 
     pub fn send_validated(&mut self, s: &str) {
-        let header = self.store.get(&hash(s)).unwrap();
+        let header = self.store.load_header(&hash(s)).unwrap();
         let point = header.point();
         let block_height = header.block_height();
         let span = tracing::debug_span!("whatever");
@@ -253,7 +174,7 @@ impl Setup {
     }
 
     pub fn send_backward(&mut self, s: &str) {
-        let point = self.store.get(&hash(s)).unwrap().point();
+        let point = self.store.load_header(&hash(s)).unwrap().point();
         let span = tracing::debug_span!("whatever");
         let f = self.block.send(
             BlockValidationResult::RolledBackTo {
@@ -286,8 +207,61 @@ impl Setup {
     }
 
     pub fn check_header(&self, s: &str, h: &Header) {
-        let header = self.store.get(&hash(s)).unwrap();
+        let header = self.store.load_header(&hash(s)).unwrap();
         assert_eq!(header.header_body, h.header_body);
+    }
+}
+
+pub trait ChainStoreExt {
+    fn len(&self) -> usize;
+
+    fn get_all_children(&self, hash: &Hash<32>) -> Vec<Header>;
+
+    fn get_chain(&self, h: &str) -> Vec<Header>;
+
+    fn get_point(&self, h: &str) -> Point;
+
+    fn get_height(&self, h: &str) -> u64;
+}
+
+impl ChainStoreExt for Arc<dyn ChainStore<Header>> {
+    fn len(&self) -> usize {
+        self.get_all_children(&self.get_anchor_hash()).len()
+    }
+
+    fn get_all_children(&self, hash: &Hash<32>) -> Vec<Header> {
+        let mut result = vec![];
+        if let Some(header) = self.load_header(hash) {
+            result.push(header);
+        }
+        for child in self.get_children(hash) {
+            result.extend(self.get_all_children(&child))
+        }
+        result
+    }
+
+    fn get_chain(&self, h: &str) -> Vec<Header> {
+        let mut chain = Vec::new();
+        let mut current = hash(h);
+        while let Some(header) = self.load_header(&current) {
+            chain.push(header.clone());
+            let Some(parent) = header.parent() else {
+                break;
+            };
+            current = parent;
+        }
+        chain.reverse();
+        chain
+    }
+
+    fn get_point(&self, h: &str) -> Point {
+        let header = self.load_header(&hash(h)).unwrap();
+        header.pallas_point()
+    }
+
+    fn get_height(&self, h: &str) -> u64 {
+        let header = self.load_header(&hash(h)).unwrap();
+        header.block_height()
     }
 }
 

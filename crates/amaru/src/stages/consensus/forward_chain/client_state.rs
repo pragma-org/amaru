@@ -14,11 +14,12 @@
 
 use super::{ClientOp, hash_point};
 use crate::stages::AsTip;
-use amaru_consensus::consensus::store::ChainStore;
 use amaru_kernel::Header;
 use amaru_ouroboros_traits::IsHeader;
+use amaru_stores::chain_store::ChainStore;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 /// The state we track for one client.
 ///
@@ -69,7 +70,7 @@ impl ClientState {
 /// Otherwise returns Some(headers) where headers is a list of headers leading from
 /// the tallest point from the list that lies in the past of `start_point`.
 pub(super) fn find_headers_between(
-    store: &dyn ChainStore<Header>,
+    store: Arc<dyn ChainStore<Header>>,
     start_point: &Point,
     points: &[Point],
 ) -> Option<(Vec<ClientOp>, Tip)> {

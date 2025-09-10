@@ -16,9 +16,9 @@ use crate::stages::PallasPoint;
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
 use amaru_consensus::consensus::events::BlockValidationResult;
 use amaru_consensus::consensus::span::adopt_current_span;
-use amaru_consensus::consensus::store::ChainStore;
-use amaru_kernel::{Hash, Header};
+use amaru_kernel::{Hash, Header, ORIGIN_HASH};
 use amaru_ouroboros_traits::IsHeader;
+use amaru_stores::chain_store::ChainStore;
 use client_protocol::{ClientProtocolMsg, client_protocols};
 use gasket::framework::*;
 use pallas_network::{
@@ -28,10 +28,7 @@ use pallas_network::{
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 use tokio::{
     net::TcpListener,
-    sync::{
-        Mutex,
-        mpsc::{self, Receiver},
-    },
+    sync::mpsc::{self, Receiver},
     task::JoinHandle,
 };
 use tracing::{Level, error, info, instrument, trace};
@@ -46,7 +43,7 @@ pub const EVENT_TARGET: &str = "amaru::consensus::chain_forward";
 #[derive(Stage)]
 #[stage(name = "consensus.forward", unit = "Unit", worker = "Worker")]
 pub struct ForwardChainStage {
-    pub store: Arc<Mutex<dyn ChainStore<Header>>>,
+    pub store: Arc<dyn ChainStore<Header>>,
     pub upstream: UpstreamPort,
     pub network_magic: u64,
     pub runtime: AcTokio,
@@ -66,15 +63,27 @@ pub enum ForwardEvent {
 impl ForwardChainStage {
     pub fn new(
         downstream: Option<ActoRef<ForwardEvent>>,
-        store: Arc<Mutex<dyn ChainStore<Header>>>,
+        store: Arc<dyn ChainStore<Header>>,
         network_magic: u64,
         listen_address: &str,
         max_peers: usize,
-        our_tip: Tip,
+        hash: &Hash<32>,
     ) -> Self {
         #[expect(clippy::expect_used)]
         let runtime =
             AcTokio::new("consensus.forward", 1).expect("failed to create AcTokio runtime");
+        let our_tip = if *hash == ORIGIN_HASH {
+            Tip(Point::Origin, 0)
+        } else if let Some(header) = store.load_header(hash) {
+            Tip(header.pallas_point(), header.block_height())
+        } else {
+            error!(
+                target: EVENT_TARGET,
+                hash = %hash,
+                "provided tip not found in the store, falling back to origin"
+            );
+            Tip(Point::Origin, 0)
+        };
         Self {
             store,
             upstream: Default::default(),
@@ -112,8 +121,7 @@ impl Worker {
                 block_height,
                 ..
             } => {
-                let store = stage.store.lock().await;
-                if let Some(header) = store.load_header(&header.hash()) {
+                if let Some(header) = stage.store.load_header(&header.hash()) {
                     // assert that the new tip is a direct successor of the old tip
                     assert_eq!(*block_height, self.our_tip.1 + 1);
                     match header.parent() {
@@ -152,8 +160,7 @@ impl Worker {
                 );
 
                 // FIXME: block height should be part of BlockValidated message
-                let store = stage.store.lock().await;
-                if let Some(header) = store.load_header(&Hash::from(rollback_point)) {
+                if let Some(header) = stage.store.load_header(&Hash::from(rollback_point)) {
                     self.our_tip = Tip(rollback_point.pallas_point(), header.block_height());
                     self.clients
                         .send(ClientMsg::Op(ClientOp::Backward(self.our_tip.clone())));
@@ -372,7 +379,7 @@ enum ClientMsg {
 
 async fn client_supervisor(
     mut cell: ActoCell<ClientMsg, impl ActoRuntime, anyhow::Result<()>>,
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
+    store: Arc<dyn ChainStore<Header>>,
     max_peers: usize,
 ) {
     let mut clients = BTreeMap::new();

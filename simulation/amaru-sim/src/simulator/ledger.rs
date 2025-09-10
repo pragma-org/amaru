@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::store::{ChainStore, StoreError};
 use amaru_kernel::{Header, RationalNumber, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{HasStakeDistribution, Nonces, PoolSummary};
 use amaru_slot_arithmetic::{Epoch, Slot};
+use amaru_stores::chain_store::{ChainStore, StoreError};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
+use std::sync::Arc;
 use std::{fs::File, io::BufReader, path::Path};
 
 /// A fake stake distribution used for simulation purposes.
@@ -127,7 +128,7 @@ pub enum PopulateError {
 
 /// Populate a chain store with nonces data from given context file.
 pub(crate) fn populate_chain_store(
-    chain_store: &mut impl ChainStore<Header>,
+    chain_store: Arc<dyn ChainStore<Header>>,
     header: &Hash<32>,
     consensus_context_file: &Path,
 ) -> Result<(), PopulateError> {
@@ -171,17 +172,14 @@ pub struct ConsensusContext {
 
 #[cfg(test)]
 mod test {
-    use amaru_consensus::consensus::store::ReadOnlyChainStore;
+    use super::*;
+
     use amaru_kernel::Header;
     use amaru_kernel::Slot;
     use amaru_kernel::network::NetworkName;
-    use amaru_stores::rocksdb::consensus::InMemConsensusStore;
-
-    use super::populate_chain_store;
-
-    use super::FakeStakeDistribution;
     use amaru_kernel::tests::random_bytes;
     use amaru_ouroboros::HasStakeDistribution;
+    use amaru_stores::in_memory::consensus::InMemConsensusStore;
     use pallas_crypto::hash::Hash;
     use std::path::PathBuf;
 
@@ -231,7 +229,7 @@ mod test {
     #[test]
     fn populate_chain_store_nonces_from_context_file() {
         let consensus_store_file = "tests/data/consensus-context.json";
-        let mut consensus_store: InMemConsensusStore<Header> = InMemConsensusStore::new();
+        let consensus_store: Arc<dyn ChainStore<Header>> = Arc::new(InMemConsensusStore::new());
         let expected_nonce = amaru_kernel::Hash::from(
             hex::decode("ec08f270a044fb94bf61f9870e928a96cf75027d1f0e9f5dead0651b40849a89")
                 .unwrap()
@@ -240,7 +238,7 @@ mod test {
         let genesis_hash = random_bytes(32).as_slice().into();
 
         populate_chain_store(
-            &mut consensus_store,
+            consensus_store.clone(),
             &genesis_hash,
             &PathBuf::from(consensus_store_file),
         )
