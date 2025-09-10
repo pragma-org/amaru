@@ -1153,7 +1153,8 @@ mod tests {
         #[test]
         fn roundtrip_bounds(bound in arbitrary_bound()) {
             let buffer = minicbor::to_vec(&bound).unwrap();
-            let decoded = minicbor::decode(&buffer).expect(format!("failed to decode {}", hex::encode(&buffer)).as_str());
+            let msg = format!("failed to decode {}", hex::encode(&buffer));
+            let decoded = minicbor::decode(&buffer).expect(&msg);
             assert_eq!(bound, decoded);
         }
     }
