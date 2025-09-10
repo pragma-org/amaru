@@ -31,10 +31,13 @@ impl ClientsBlockFetcher {
         // FIXME: should not crash if the peer is not found
         // the block should be fetched from any other valid peer
         // which is known to have it
-        let clients = self.clients.read().await;
-        let client = clients
-            .get(peer)
-            .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?;
+        let client = {
+            let clients = self.clients.read().await;
+            clients
+                .get(peer)
+                .cloned()
+                .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?
+        };
         let mut client = client.lock().await;
         let new_point: pallas_network::miniprotocols::Point = match point.clone() {
             Point::Origin => pallas_network::miniprotocols::Point::Origin,
