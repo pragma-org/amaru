@@ -105,6 +105,8 @@ async fn convert_snapshot_to(
     eras.push(Summary {
         start,
         end: None,
+        // FIXME: the current era params should be extracted from teh
+        // protocol parameters which are decoded later down the road.
         params: EraParams {
             epoch_size_slots: network.default_epoch_size_in_slots(),
             slot_length: 1000,
@@ -236,13 +238,22 @@ fn decode_eras(
         d.array()?;
         let start: Bound = d.decode()?;
         let end: Bound = d.decode()?;
+        let params = if end.slot == 0.into() {
+            EraParams {
+                epoch_size_slots: network.default_epoch_size_in_slots(),
+                slot_length: 0,
+            }
+        } else {
+            EraParams {
+                epoch_size_slots: u64::from(end.epoch)
+                    / (u64::from(end.slot) - u64::from(start.slot)),
+                slot_length: u64::from(end.time_ms) / u64::from(end.slot),
+            }
+        };
         let summary = Summary {
             start,
             end: Some(end),
-            params: EraParams {
-                epoch_size_slots: network.default_epoch_size_in_slots(),
-                slot_length: 1000,
-            },
+            params,
         };
         eras.push(summary);
     }
