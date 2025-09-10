@@ -48,8 +48,6 @@ type HeaderHash = Hash<HEADER_HASH_SIZE>;
 pub struct HeadersTree<H> {
     /// Maximum size allowed for a given chain
     max_length: usize,
-    /// The root of the tree
-    root: HeaderHash,
     /// This map maintains the hashes of the headers of each peer chain, starting from the root.
     peers: BTreeMap<Tracker, Vec<HeaderHash>>,
     /// One chain tip designates as THE best chain among several chains of the same length.
@@ -141,7 +139,7 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
                 &tree.pretty_print_with(header_to_string)
             )?;
         }
-        writeln!(f, "  root: {}", &self.root)?;
+        writeln!(f, "  root: {}", &self.root())?;
         writeln!(
             f,
             "  peers: {}",
@@ -207,7 +205,6 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
 
         HeadersTree {
             max_length,
-            root: ORIGIN_HASH,
             peers,
             best_chain: ORIGIN_HASH,
             chain_store,
@@ -317,7 +314,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
             return Ok(RollbackBeyondLimit {
                 peer: peer.clone(),
                 rollback_point: *rollback_hash,
-                max_point: self.root_hash(),
+                max_point: self.root(),
             });
         }
 
@@ -374,10 +371,10 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
                     .map_err(|e| ConsensusError::RemoveHeaderFailed(header.hash(), e))?;
                 self.peers.remove(&Me);
                 self.best_chain = header.hash();
-                self.root = header.hash();
+                self.set_root(header.hash())?;
             } else {
                 // We just need to check that the header is the root header
-                if header.hash() != self.root {
+                if header.hash() != self.root() {
                     return Err(UnknownPoint(header.hash()));
                 };
             }
@@ -430,7 +427,19 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
 
     /// Return true if the tree is empty, i.e. it only contains the origin header.
     fn is_empty_tree(&self) -> bool {
-        self.root == ORIGIN_HASH
+        self.root() == ORIGIN_HASH
+    }
+
+    /// Return the root of the tree
+    fn root(&self) -> Hash<HEADER_HASH_SIZE> {
+        self.chain_store.get_root_hash()
+    }
+
+    /// Set the root of the tree
+    fn set_root(&self, hash: Hash<HEADER_HASH_SIZE>) -> Result<(), ConsensusError> {
+        self.chain_store
+            .set_root_hash(&hash)
+            .map_err(|e| ConsensusError::SetRootHashFailed(hash, e))
     }
 
     /// Remove all the header hashes for a peer chain after (and excluding) the given hash.
@@ -495,24 +504,19 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the ancestors of the header, including the header itself.
-    fn ancestors(&self, start: &H) -> impl Iterator<Item=H> + use < '_, H > {
+    fn ancestors(&self, start: &H) -> impl Iterator<Item = H> + use<'_, H> {
         successors(Some(start.clone()), move |h| {
             h.parent().and_then(|p| self.get_header(&p))
         })
     }
 
     /// Return the hashes of the ancestors of the header, including the header hash itself.
-    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item=HeaderHash> + '_> {
+    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + '_> {
         if let Some(header) = self.get_header(hash) {
             Box::new(self.ancestors(&header).map(|h| h.hash()))
         } else {
             Box::new(std::iter::empty())
         }
-    }
-
-    /// Return root of the tree
-    fn root_hash(&self) -> HeaderHash {
-        self.root
     }
 
     /// Return true if the parent of the header is the tip of the peer chain
@@ -580,7 +584,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
                 seen.insert(h2);
             }
         }
-        self.root_hash()
+        self.root()
     }
 
     /// When the best chain exceeds the maximum length, move its root up one level and
@@ -631,7 +635,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
             self.peers.retain(|_p, hs| !hs.is_empty());
 
             // Set the new root
-            self.root = second;
+            self.set_root(second)?;
         };
         Ok(())
     }
@@ -667,7 +671,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the best chain fragment currently known as a list of hashes.
     /// The list starts from the root.
-    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item=HeaderHash> {
+    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item = HeaderHash> {
         self.peers
             .values()
             .find(|chain| chain.last() == Some(&self.best_chain))

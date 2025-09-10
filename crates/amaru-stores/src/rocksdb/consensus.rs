@@ -75,6 +75,10 @@ macro_rules! impl_ReadOnlyChainStore {
                 unimplemented!("get_children is not implemented for ReadOnlyStore")
             }
 
+            fn get_root_hash(&self) -> Hash<32> {
+                unimplemented!("get_root_hash is not implemented for ReadOnlyStore")
+            }
+
             fn load_headers(&self) -> Vec<H> {
                 let mut result = Vec::new();
                 for values in self.db.iterator(IteratorMode::Start) {
@@ -155,6 +159,10 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
         self.db.delete(hash).map_err(|e| StoreError::WriteError {
             error: e.to_string(),
         })
+    }
+
+    fn set_root_hash(&self, _hash: &Hash<32>) -> Result<(), StoreError> {
+        unimplemented!("set_root_hash is not implemented for RocksDBStore")
     }
 }
 

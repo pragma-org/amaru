@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    EraHistory, Header, Nonce, Point, RawBlock, network::NetworkName,
+    EraHistory, Header, Nonce, ORIGIN_HASH, Point, RawBlock, network::NetworkName,
     protocol_parameters::GlobalParameters,
 };
 use amaru_ouroboros::{Nonces, praos::nonce};
@@ -145,11 +145,22 @@ pub struct FakeStore {
     inner: Mutex<FakeStoreInner>,
 }
 
-#[derive(Default)]
 pub struct FakeStoreInner {
     headers: BTreeMap<Hash<32>, Header>,
     parent_child_relationship: BTreeMap<Hash<32>, Vec<Hash<32>>>,
+    root: Hash<32>,
     nonces: BTreeMap<Hash<32>, Nonces>,
+}
+
+impl Default for FakeStoreInner {
+    fn default() -> Self {
+        Self {
+            headers: BTreeMap::new(),
+            parent_child_relationship: BTreeMap::new(),
+            root: ORIGIN_HASH,
+            nonces: BTreeMap::new(),
+        }
+    }
 }
 
 impl ReadOnlyChainStore<Header> for FakeStore {
@@ -196,6 +207,12 @@ impl ReadOnlyChainStore<Header> for FakeStore {
             .cloned()
             .unwrap_or_default()
     }
+
+    #[expect(clippy::unwrap_used)]
+    fn get_root_hash(&self) -> Hash<32> {
+        let inner = self.inner.lock().unwrap();
+        inner.root
+    }
 }
 
 impl ChainStore<Header> for FakeStore {
@@ -225,6 +242,13 @@ impl ChainStore<Header> for FakeStore {
     fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.headers.remove(hash);
+        Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn set_root_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.root = *hash;
         Ok(())
     }
 }

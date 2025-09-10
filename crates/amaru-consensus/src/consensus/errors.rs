@@ -32,12 +32,14 @@ pub enum ConsensusError {
     FetchBlockFailed(Point),
     #[error("Failed to validate header at {0}: {1}")]
     InvalidHeader(Point, AssertHeaderError),
-    #[error("Failed to store header at {0}: {1}")]
+    #[error("Failed to store header {0}: {1}")]
     StoreHeaderFailed(Hash<HEADER_HASH_SIZE>, StoreError),
-    #[error("Failed to remove header at {0}: {1}")]
+    #[error("Failed to remove header {0}: {1}")]
     RemoveHeaderFailed(Hash<HEADER_HASH_SIZE>, StoreError),
     #[error("Failed to store block body at {0}: {1}")]
     StoreBlockFailed(Point, StoreError),
+    #[error("Failed to set the root hash {0}: {1}")]
+    SetRootHashFailed(Hash<HEADER_HASH_SIZE>, StoreError),
     #[error(
         "Failed to decode header at {}: {} ({})",
         point,
