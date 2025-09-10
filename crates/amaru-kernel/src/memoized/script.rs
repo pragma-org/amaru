@@ -16,6 +16,8 @@ use crate::{
     Bytes, MemoizedNativeScript, PlutusScript, PseudoScript, cbor,
     cbor::{bytes::ByteSlice, data::IanaTag},
 };
+use pallas_codec::utils::CborWrap;
+use pallas_primitives::{KeepRaw, conway::NativeScript};
 use serde::ser::SerializeStruct;
 
 pub type MemoizedScript = PseudoScript<MemoizedNativeScript>;
@@ -86,6 +88,19 @@ pub fn encode_script<W: cbor::encode::Write>(
     e.bytes(&buffer)?;
 
     Ok(())
+}
+
+pub fn from_minted_script(
+    wrapper: CborWrap<PseudoScript<KeepRaw<'_, NativeScript>>>,
+) -> MemoizedScript {
+    match wrapper.0 {
+        PseudoScript::NativeScript(script) => {
+            MemoizedScript::NativeScript(MemoizedNativeScript::from(script))
+        }
+        PseudoScript::PlutusV1Script(script) => MemoizedScript::PlutusV1Script(script),
+        PseudoScript::PlutusV2Script(script) => MemoizedScript::PlutusV2Script(script),
+        PseudoScript::PlutusV3Script(script) => MemoizedScript::PlutusV3Script(script),
+    }
 }
 
 impl TryFrom<PlaceholderScript> for MemoizedScript {
