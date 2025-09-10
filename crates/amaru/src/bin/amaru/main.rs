@@ -46,6 +46,19 @@ enum Command {
     #[clap(alias = "import")]
     ImportLedgerState(cmd::import_ledger_state::Args),
 
+    /// Convert ledger state as produced by Haskell node into data suitable
+    /// for amaru.
+    ///
+    /// This command allows one to take a snapshot as produced by the
+    /// `LedgerDB` in the Haskell node and extract the informations
+    /// relevant to bootstrap an Amaru node, namely:
+    ///
+    /// * The `NewEpochState` part of the snapshot that contains the
+    ///   core state of the ledger, which is written to a file whose
+    ///   name is the point at which the snapshot was produced,
+    /// * The`Nonces` from the `HeaderState` which are written to a `nonces.json` file.
+    ConvertLedgerState(cmd::convert_ledger_state::Args),
+
     /// Import block headers from `${config_dir}/${network name}/`
     #[clap(alias = "import-chain-db")]
     ImportHeaders(cmd::import_headers::Args),
@@ -126,6 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
         Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
+        Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook

@@ -218,16 +218,19 @@ impl Add<u64> for TimeMs {
     }
 }
 
+/// Scaling factor between picoseconds and milliseconds
+const PICOS_IN_MILLIS: u64 = 1_000_000_000u64;
+
 impl<C> Encode<C> for TimeMs {
     fn encode<W: minicbor::encode::Write>(
         &self,
         e: &mut minicbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), minicbor::encode::Error<W::Error>> {
-        match self.0.checked_mul(1_000_000_000u64) {
+        match self.0.checked_mul(PICOS_IN_MILLIS) {
             Some(time_ps) => time_ps.encode(e, ctx),
             None => {
-                let bytes = (BigUint::from(self.0) * 1_000_000_000u64).to_bytes_be();
+                let bytes = (BigUint::from(self.0) * PICOS_IN_MILLIS).to_bytes_be();
                 IanaTag::PosBignum.encode(e, ctx)?;
                 e.bytes(&bytes)?;
                 Ok(())
@@ -263,7 +266,7 @@ impl<'b, C> Decode<'b, C> for TimeMs {
                 // down accordingly.
                 let bytes: &[u8] = d.bytes()?;
                 let num = BigUint::from_bytes_be(bytes);
-                let num_ms = num / 1_000_000_000u64;
+                let num_ms = num / PICOS_IN_MILLIS;
                 if num_ms > BigUint::from(u64::MAX) {
                     Err(minicbor::decode::Error::message(
                         "Unsigned integer too large",
@@ -277,7 +280,7 @@ impl<'b, C> Decode<'b, C> for TimeMs {
                 }
             }
             Ok(Type::U64) | Ok(Type::U32) | Ok(Type::U16) | Ok(Type::U8) => {
-                d.u64().map(|ps| ps / 1_000_000_000u64)
+                d.u64().map(|ps| ps / PICOS_IN_MILLIS)
             }
             Ok(t) => Err(minicbor::decode::Error::message(format!(
                 "Unhandled type decoding TimeMs: {t}"

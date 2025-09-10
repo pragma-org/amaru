@@ -405,7 +405,7 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 /// A default era history for testnets
 ///
 /// This default `EraHistory` contains a single era which covers 1000 epochs,
-/// with a slot length of 1 second and epoch size of 432000 slots.
+/// with a slot length of 1 second and epoch size of 86400 slots.
 static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     let eras: [Summary; 1] = [Summary {
         start: Bound {
@@ -416,12 +416,12 @@ static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         end: None,
 
         params: EraParams {
-            epoch_size_slots: 432000,
+            epoch_size_slots: 86400, // one day
             slot_length: 1000,
         },
     }];
 
-    EraHistory::new(&eras, PREVIEW_GLOBAL_PARAMETERS.stability_window)
+    EraHistory::new(&eras, TESTNET_GLOBAL_PARAMETERS.stability_window)
 });
 
 impl From<NetworkName> for &EraHistory {
@@ -504,6 +504,31 @@ impl NetworkName {
             Self::Preprod => 1,
             Self::Preview => 2,
             Self::Testnet(magic) => magic,
+        }
+    }
+
+    /// Compute the default epoch length for this network.
+    ///
+    /// This is an over-simplification as _theoretically_ each era can
+    /// have a different epoch length but in practice, except for
+    /// Byron era, all eras for each network have always had the same
+    /// length
+    pub fn default_epoch_size_in_slots(&self) -> u64 {
+        match self {
+            NetworkName::Mainnet => 432000,
+            NetworkName::Preprod => 432000,
+            NetworkName::Preview => 86400,
+            NetworkName::Testnet(_) => 86400,
+        }
+    }
+
+    /// Provide stability window for given network.
+    pub fn default_stability_window(&self) -> Slot {
+        match self {
+            NetworkName::Mainnet => MAINNET_GLOBAL_PARAMETERS.stability_window,
+            NetworkName::Preprod => PREPROD_GLOBAL_PARAMETERS.stability_window,
+            NetworkName::Preview => PREVIEW_GLOBAL_PARAMETERS.stability_window,
+            NetworkName::Testnet(_) => TESTNET_GLOBAL_PARAMETERS.stability_window,
         }
     }
 }
