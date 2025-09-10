@@ -104,7 +104,7 @@ pub trait Praos<H: IsHeader>: Send + Sync {
     /// Once the stability window has been reached, the candidate is fixed for the epoch and will
     /// be used once crossing the epoch boundary to produce the next epoch nonce.
     fn evolve_nonce(
-        &mut self,
+        &self,
         header: &H,
         global_parameters: &GlobalParameters,
     ) -> Result<Nonces, Self::Error>;

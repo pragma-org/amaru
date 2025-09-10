@@ -119,6 +119,7 @@ dependencies = [
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
+ "amaru-stores",
  "anyhow",
  "async-trait",
  "either",
@@ -340,7 +341,6 @@ dependencies = [
 name = "amaru-stores"
 version = "0.1.0"
 dependencies = [
- "amaru-consensus",
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",
@@ -350,7 +350,9 @@ dependencies = [
  "proptest",
  "rand 0.9.2",
  "rocksdb",
+ "serde",
  "tempfile",
+ "thiserror 2.0.16",
  "tracing",
 ]
 

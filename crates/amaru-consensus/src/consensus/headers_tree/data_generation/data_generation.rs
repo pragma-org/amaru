@@ -25,6 +25,7 @@ use crate::consensus::headers_tree::data_generation::{Ratio, TestHeader};
 use crate::consensus::headers_tree::tree::Tree;
 use amaru_kernel::HEADER_HASH_SIZE;
 use amaru_kernel::peer::Peer;
+use amaru_kernel::tests::random_hash;
 use amaru_ouroboros_traits::IsHeader;
 use pallas_crypto::hash::Hash;
 use proptest::prelude::Strategy;
@@ -120,7 +121,7 @@ pub fn generate_header() -> TestHeader {
 /// Generate a random `HeadersTree` initialized with a single chain of `TestHeader`s
 pub fn create_headers_tree(size: usize) -> HeadersTree<TestHeader> {
     let headers = generate_headers_chain(size);
-    let mut tree = HeadersTree::new(10, &None);
+    let mut tree = HeadersTree::new_in_memory(10);
     tree.insert_headers(&headers).unwrap();
     tree
 }
@@ -140,11 +141,6 @@ pub fn make_header_with_parent(parent: &TestHeader) -> TestHeader {
         slot: parent.slot + 1,
         parent: Some(parent.hash()),
     }
-}
-
-/// Generate a random Hash that could be the hash of a `H: IsHeader` value.
-pub fn random_hash() -> Hash<HEADER_HASH_SIZE> {
-    Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice())
 }
 
 // IMPLEMENTATION
@@ -176,11 +172,6 @@ fn generate_test_header(rng: &mut StdRng) -> TestHeader {
         slot: 0,
         parent: None,
     }
-}
-
-/// Very simple function to generate random sequence of bytes of given length.
-fn random_bytes(arg: usize) -> Vec<u8> {
-    random_bytes_with_rng(arg, &mut StdRng::from_os_rng())
 }
 
 /// Very simple function to generate random sequence of bytes of given length.

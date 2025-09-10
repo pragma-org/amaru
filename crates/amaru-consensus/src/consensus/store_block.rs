@@ -12,25 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ConsensusError, consensus::store::ChainStore};
+use crate::ConsensusError;
 use amaru_kernel::{Header, Point, RawBlock, block::ValidateBlockEvent};
 use amaru_ouroboros_traits::IsHeader;
+use amaru_stores::chain_store::ChainStore;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 pub struct StoreBlock {
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
+    store: Arc<dyn ChainStore<Header>>,
 }
 
 impl StoreBlock {
-    pub fn new(chain_store: Arc<Mutex<dyn ChainStore<Header>>>) -> Self {
+    pub fn new(chain_store: Arc<dyn ChainStore<Header>>) -> Self {
         StoreBlock { store: chain_store }
     }
 
     pub async fn store(&self, point: &Point, block: &RawBlock) -> Result<(), ConsensusError> {
         self.store
-            .lock()
-            .await
             .store_block(&point.into(), block)
             .map_err(|e| ConsensusError::StoreBlockFailed(point.clone(), e))
     }

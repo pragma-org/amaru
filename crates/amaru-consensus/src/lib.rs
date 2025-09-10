@@ -22,6 +22,7 @@ use std::fmt::Display;
 use thiserror::Error;
 
 pub use amaru_ouroboros_traits::*;
+use amaru_stores::chain_store::StoreError;
 
 /// Consensus interface
 ///
@@ -40,9 +41,13 @@ pub enum ConsensusError {
     #[error("Failed to validate header at {0}: {1}")]
     InvalidHeader(Point, AssertHeaderError),
     #[error("Failed to store header at {0}: {1}")]
-    StoreHeaderFailed(Point, consensus::store::StoreError),
+    StoreHeaderFailed(Hash<HEADER_HASH_SIZE>, StoreError),
+    #[error("Failed to set anchor hash at {0}: {1}")]
+    SetAnchorHashFailed(Hash<HEADER_HASH_SIZE>, StoreError),
+    #[error("Failed to remove header at {0}: {1}")]
+    RemoveHeaderFailed(Hash<HEADER_HASH_SIZE>, StoreError),
     #[error("Failed to store block body at {0}: {1}")]
-    StoreBlockFailed(Point, consensus::store::StoreError),
+    StoreBlockFailed(Point, StoreError),
     #[error(
         "Failed to decode header at {}: {} ({})",
         point,
