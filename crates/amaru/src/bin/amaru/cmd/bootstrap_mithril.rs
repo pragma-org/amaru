@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::{bootstrap::import_nonces_for_network, import_headers::import_headers_for_network, DEFAULT_NETWORK};
+use crate::cmd::{
+    DEFAULT_NETWORK, bootstrap::import_nonces_for_network,
+    import_headers::import_headers_for_network,
+};
 use amaru_kernel::{default_chain_dir, network::NetworkName};
 use clap::{Parser, arg};
 use mithril_client::{ClientBuilder, MessageBuilder};
@@ -66,8 +69,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network = args.network;
 
     /*let ledger_dir = args
-        .ledger_dir
-        .unwrap_or_else(|| default_ledger_dir(args.network).into());*/
+    .ledger_dir
+    .unwrap_or_else(|| default_ledger_dir(args.network).into());*/
 
     let chain_dir = args
         .chain_dir
@@ -86,17 +89,22 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let database_client = client.cardano_database();
     let snapshots = database_client.list().await?;
     let snapshot_list_item = snapshots.first().ok_or("no snapshot found")?;
-    let snapshot = database_client.get(&snapshot_list_item.digest).await?.ok_or("no snapshot found")?;
-    
+    let snapshot = database_client
+        .get(&snapshot_list_item.digest)
+        .await?
+        .ok_or("no snapshot found")?;
+
     let certificate = client
         .certificate()
         .verify_chain(&snapshot.certificate_hash)
         .await?;
 
     println!("Found snapshot: {:#?}", snapshot);
-    let target_dir = PathBuf::from  ("mithril-snapshots");
+    let target_dir = PathBuf::from("mithril-snapshots");
     fs::create_dir_all(&target_dir)?;
-    database_client.download_unpack_full(&snapshot, &target_dir).await?;
+    database_client
+        .download_unpack_full(&snapshot, &target_dir)
+        .await?;
     // TODO allow to provide user feedback
     println!("Snapshot unpacked to: {:?}", target_dir);
 
