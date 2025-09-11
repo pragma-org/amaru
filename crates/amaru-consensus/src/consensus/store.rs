@@ -202,6 +202,10 @@ impl ReadOnlyChainStore<Header> for FakeStore {
         let inner = self.inner.lock().unwrap();
         inner.anchor
     }
+
+    fn get_best_chain_hash(&self) -> Hash<32> {
+        unimplemented!()
+    }
 }
 
 impl ChainStore<Header> for FakeStore {
@@ -239,6 +243,11 @@ impl ChainStore<Header> for FakeStore {
         let mut inner = self.inner.lock().unwrap();
         inner.anchor = *hash;
         Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn set_best_chain_hash(&self, _hash: &Hash<32>) -> Result<(), StoreError> {
+        unimplemented!()
     }
 }
 

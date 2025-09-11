@@ -44,6 +44,7 @@ struct InMemConsensusStoreInner<H> {
     headers: BTreeMap<Hash<32>, H>,
     parent_child_relationship: BTreeMap<Hash<32>, Vec<Hash<32>>>,
     anchor: Hash<32>,
+    best_chain: Hash<32>,
     blocks: BTreeMap<Hash<32>, RawBlock>,
 }
 
@@ -60,6 +61,7 @@ impl<H> InMemConsensusStoreInner<H> {
             headers: BTreeMap::new(),
             parent_child_relationship: BTreeMap::new(),
             anchor: ORIGIN_HASH,
+            best_chain: ORIGIN_HASH,
             blocks: BTreeMap::new(),
         }
     }
@@ -109,6 +111,12 @@ impl<H: IsHeader + Clone + Send + Sync + Clone> ReadOnlyChainStore<H> for InMemC
         let inner = self.inner.lock().unwrap();
         inner.anchor
     }
+
+    #[expect(clippy::unwrap_used)]
+    fn get_best_chain_hash(&self) -> Hash<32> {
+        let inner = self.inner.lock().unwrap();
+        inner.best_chain
+    }
 }
 
 impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H> {
@@ -156,6 +164,13 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
     fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.anchor = *hash;
+        Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn set_best_chain_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.best_chain = *hash;
         Ok(())
     }
 }

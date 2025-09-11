@@ -79,6 +79,10 @@ macro_rules! impl_ReadOnlyChainStore {
                 unimplemented!("get_anchor_hash is not implemented for ReadOnlyStore")
             }
 
+            fn get_best_chain_hash(&self) -> Hash<32> {
+                unimplemented!("get_best_chain_hash is not implemented for ReadOnlyStore")
+            }
+
             fn has_header(&self, hash: &Hash<32>) -> bool {
                 self.db.get_pinned(hash)
                     .map(|opt| opt.is_some())
@@ -148,6 +152,10 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
 
     fn set_anchor_hash(&self, _hash: &Hash<32>) -> Result<(), StoreError> {
         unimplemented!("set_root_hash is not implemented for RocksDBStore")
+    }
+
+    fn set_best_chain_hash(&self, _hash: &Hash<32>) -> Result<(), StoreError> {
+        unimplemented!("set_best_chain_hash is not implemented for RocksDBStore")
     }
 }
 

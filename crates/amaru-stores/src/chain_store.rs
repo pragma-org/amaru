@@ -44,6 +44,7 @@ where
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
     fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>>;
     fn get_anchor_hash(&self) -> Hash<32>;
+    fn get_best_chain_hash(&self) -> Hash<32>;
     fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError>;
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces>;
     fn has_header(&self, hash: &Hash<32>) -> bool;
@@ -58,6 +59,9 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
     }
     fn get_anchor_hash(&self) -> Hash<32> {
         self.as_ref().get_anchor_hash()
+    }
+    fn get_best_chain_hash(&self) -> Hash<32> {
+        self.as_ref().get_best_chain_hash()
     }
     fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
         self.as_ref().load_block(hash)
@@ -79,6 +83,7 @@ where
 {
     fn store_header(&self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
     fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError>;
+    fn set_best_chain_hash(&self, hash: &Hash<32>) -> Result<(), StoreError>;
     fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError>;
     fn store_block(&self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError>;
     fn put_nonces(&self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError>;
