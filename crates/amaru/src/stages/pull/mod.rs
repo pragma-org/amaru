@@ -12,15 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::send;
+use crate::{
+    send,
+    stages::{metrics::MetricsEvent, pull::metrics::PullMetrics},
+};
 use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::{Point, peer::Peer};
 use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
-use gasket::framework::*;
+use gasket::framework::{Stage as StageTrait, *};
 use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse, Tip};
 use tracing::{Level, Span, debug, instrument};
 
+pub mod metrics;
+
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
+pub type MetricsDownstreamPort = gasket::messaging::OutputPort<MetricsEvent>;
 
 pub enum WorkUnit {
     Pull,
@@ -28,12 +34,13 @@ pub enum WorkUnit {
     Intersect,
 }
 
-#[derive(Stage)]
+#[derive(StageTrait)]
 #[stage(name = "stage.chain_sync_client", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
     pub peer: Peer,
     pub client: ChainSyncClient,
     pub downstream: DownstreamPort,
+    pub metrics_downstream: MetricsDownstreamPort,
 }
 
 impl Stage {
@@ -43,6 +50,7 @@ impl Stage {
             peer,
             client,
             downstream: Default::default(),
+            metrics_downstream: MetricsDownstreamPort::default(),
         }
     }
 
@@ -119,6 +127,7 @@ impl gasket::framework::Worker<Stage> for Worker {
         match next {
             NextResponse::RollForward(header, _tip) => {
                 stage.roll_forward(&header).await?;
+                PullMetrics::record_header_size_bytes(&mut stage.metrics_downstream, 1).await?;
             }
             NextResponse::RollBackward(point, tip) => {
                 stage.roll_back(from_network_point(&point), tip).await?;

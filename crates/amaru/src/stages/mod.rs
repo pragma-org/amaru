@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::consensus::clients_block_fetcher::ClientsBlockFetcher;
-use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
-use amaru_consensus::consensus::block_effects;
+use crate::stages::{
+    consensus::clients_block_fetcher::ClientsBlockFetcher,
+    metrics::MetricsStage,
+    pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter},
+};
 use amaru_consensus::{
     ConsensusError, IsHeader,
     consensus::{
-        ChainSyncEvent, build_stage_graph, headers_tree::HeadersTree, select_chain::SelectChain,
-        store::ChainStore, store_block::StoreBlock, store_effects, validate_header::ValidateHeader,
+        ChainSyncEvent, block_effects, build_stage_graph, headers_tree::HeadersTree,
+        select_chain::SelectChain, store::ChainStore, store_block::StoreBlock, store_effects,
+        validate_header::ValidateHeader,
     },
 };
 use amaru_kernel::{
@@ -43,6 +46,7 @@ use gasket::{
     runtime::{self, Tether, spawn_stage},
 };
 use ledger::ValidateBlockStage;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::{
@@ -58,6 +62,7 @@ use tokio_util::sync::CancellationToken;
 pub mod common;
 pub mod consensus;
 pub mod ledger;
+pub mod metrics;
 pub mod pull;
 mod pure_stage_util;
 
@@ -155,6 +160,7 @@ pub fn bootstrap(
     config: Config,
     clients: Vec<(String, PeerClient)>,
     exit: CancellationToken,
+    metrics_provider: Option<SdkMeterProvider>,
 ) -> Result<Vec<Tether>, Box<dyn Error>> {
     let era_history: &EraHistory = config.network.into();
 
@@ -225,8 +231,11 @@ pub fn bootstrap(
         our_tip,
     );
 
+    let mut metrics_stage = MetricsStage::new(metrics_provider);
+
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
 
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
@@ -276,6 +285,13 @@ pub fn bootstrap(
 
     forward_chain_stage.upstream.connect(from_ledger);
 
+    stages.iter_mut().for_each(|stage| {
+        // These channels are meant to be cloned so they can be shared between threads
+        stage.metrics_downstream.connect(to_metrics.clone());
+    });
+
+    metrics_stage.upstream.connect(from_stages);
+
     // No retry, crash on panics.
     let policy = runtime::Policy::default();
 
@@ -287,14 +303,20 @@ pub fn bootstrap(
     let pure_stages = spawn_stage(pure_stages, policy.clone());
 
     let store_block = spawn_stage(store_block_stage, policy.clone());
+
     let ledger = ledger_stage.spawn(policy.clone());
     let block_forward = spawn_stage(forward_chain_stage, policy.clone());
+
+    let metrics = spawn_stage(metrics_stage, policy.clone());
 
     stages.push(pure_stages);
 
     stages.push(store_block);
     stages.push(ledger);
     stages.push(block_forward);
+
+    stages.push(metrics);
+
     Ok(stages)
 }
 
@@ -481,9 +503,9 @@ mod tests {
             ..Config::default()
         };
 
-        let stages = bootstrap(config, vec![], CancellationToken::new()).unwrap();
+        let stages = bootstrap(config, vec![], CancellationToken::new(), None).unwrap();
 
-        assert_eq!(4, stages.len());
+        assert_eq!(5, stages.len());
     }
 
     #[test]
