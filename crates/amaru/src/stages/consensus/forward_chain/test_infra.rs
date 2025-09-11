@@ -17,10 +17,11 @@ use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
 use amaru_consensus::consensus::events::BlockValidationResult;
-use amaru_consensus::consensus::store::{ChainStore, ReadOnlyChainStore, StoreError};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Hash, Header, RawBlock, from_cbor};
+use amaru_ledger::store::StoreError;
 use amaru_ouroboros_traits::{IsHeader, Nonces};
+use amaru_stores::chain_store::{ChainStore, ReadOnlyChainStore};
 use gasket::{
     messaging::tokio::ChannelRecvAdapter,
     runtime::{Tether, spawn_stage},

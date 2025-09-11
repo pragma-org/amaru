@@ -25,6 +25,7 @@ use crate::consensus::headers_tree::data_generation::{Ratio, TestHeader};
 use crate::consensus::headers_tree::tree::Tree;
 use amaru_kernel::HEADER_HASH_SIZE;
 use amaru_kernel::peer::Peer;
+use amaru_kernel::tests::random_hash;
 use amaru_ouroboros_traits::IsHeader;
 use pallas_crypto::hash::Hash;
 use proptest::prelude::Strategy;
@@ -48,7 +49,7 @@ impl Tree<TestHeader> {
 pub fn any_tree_of_headers(
     depth: usize,
     branching_ratio: Ratio,
-) -> impl Strategy<Value=Tree<TestHeader>> {
+) -> impl Strategy<Value = Tree<TestHeader>> {
     (0..u64::MAX).prop_map(move |seed| generate_test_header_tree(depth, seed, branching_ratio))
 }
 
