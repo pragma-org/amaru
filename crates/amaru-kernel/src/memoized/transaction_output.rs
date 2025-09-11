@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_primitives::{conway::Multiasset, Bytes, Hash, PolicyId, PositiveCoin};
+use pallas_primitives::{Bytes, Hash, PolicyId, PositiveCoin, conway::Multiasset};
 
 use crate::{
     Address, AlonzoValue, AssetName, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedNativeScript,
