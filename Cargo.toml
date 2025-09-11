@@ -75,20 +75,20 @@ typetag = "0.2.20"
 # Internal dependencies
 amaru = { path = "crates/amaru" }
 amaru-consensus = { path = "crates/amaru-consensus" }
+amaru-iter-borrow = { path = "crates/amaru-iter-borrow" }
 amaru-kernel = { path = "crates/amaru-kernel" }
 amaru-ledger = { path = "crates/amaru-ledger" }
 amaru-mempool = { path = "crates/amaru-mempool" }
+amaru-minicbor-extra = { path = "crates/amaru-minicbor-extra" }
 amaru-network = { path = "crates/amaru-network" }
-amaru-ouroboros = { path = "crates/ouroboros" }
-amaru-ouroboros-traits = { path = "crates/ouroboros-traits" }
+amaru-ouroboros = { path = "crates/amaru-ouroboros" }
+amaru-ouroboros-traits = { path = "crates/amaru-ouroboros-traits" }
+amaru-progress-bar = { path = "crates/amaru-progress-bar" }
 amaru-sim = { path = "crates/amaru-sim" }
+amaru-slot-arithmetic = { path = "crates/amaru-slot-arithmetic" }
 amaru-stores = { path = "crates/amaru-stores" }
-amaru-iter-borrow = { path = "crates/iter-borrow" }
-amaru-minicbor-extra = { path = "crates/minicbor-extra" }
-amaru-progress-bar = { path = "crates/progress-bar" }
+amaru-tracing-json = { path = "crates/amaru-tracing-json" }
 pure-stage = { path = "crates/pure-stage" }
-amaru-slot-arithmetic = { path = "crates/slot-arithmetic" }
-amaru-tracing-json = { path = "crates/tracing-json" }
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
 vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c2471fc5c4d441f13086676" }
