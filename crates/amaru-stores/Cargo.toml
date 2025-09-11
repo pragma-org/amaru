@@ -22,7 +22,7 @@ tracing.workspace = true
 rand = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru-kernel.workspace = true
+amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-ledger.workspace = true
 amaru-iter-borrow.workspace = true
 amaru-ouroboros-traits.workspace = true

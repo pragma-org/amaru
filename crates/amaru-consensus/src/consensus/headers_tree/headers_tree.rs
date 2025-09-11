@@ -519,14 +519,14 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the ancestors of the header, including the header itself.
-    fn ancestors(&self, start: &H) -> impl Iterator<Item=H> + use < '_, H > {
+    fn ancestors(&self, start: &H) -> impl Iterator<Item = H> + use<'_, H> {
         successors(Some(start.clone()), move |h| {
             h.parent().and_then(|p| self.get_header(&p))
         })
     }
 
     /// Return the hashes of the ancestors of the header, including the header hash itself.
-    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item=HeaderHash> + '_> {
+    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + '_> {
         if let Some(header) = self.get_header(hash) {
             Box::new(self.ancestors(&header).map(|h| h.hash()))
         } else {
@@ -686,7 +686,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the best chain fragment currently known as a list of hashes.
     /// The list starts from the root.
-    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item=HeaderHash> {
+    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item = HeaderHash> {
         self.peers
             .values()
             .find(|chain| chain.last() == Some(&self.best_chain))

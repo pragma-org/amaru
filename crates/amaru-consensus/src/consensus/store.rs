@@ -339,7 +339,7 @@ mod test {
                 &PREPROD_HEADER_70070379,
                 NetworkName::Preprod.into()
             )
-                .as_ref(),
+            .as_ref(),
             Some(&*PREPROD_NONCES_70070379)
         )
     }
@@ -353,7 +353,7 @@ mod test {
                 &PREPROD_HEADER_70070426,
                 NetworkName::Preprod.into()
             )
-                .as_ref(),
+            .as_ref(),
             Some(&*PREPROD_NONCES_70070426)
         )
     }
@@ -367,7 +367,7 @@ mod test {
                 &PREPROD_HEADER_70070464,
                 NetworkName::Preprod.into()
             )
-                .as_ref(),
+            .as_ref(),
             Some(&*PREPROD_NONCES_70070464)
         )
     }

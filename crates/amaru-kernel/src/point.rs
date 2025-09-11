@@ -130,8 +130,16 @@ impl<'b> cbor::decode::Decode<'b, ()> for Point {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
+    use pallas_crypto::hash::Hash;
     use super::Point;
     use proptest::prelude::*;
+    use crate::HEADER_HASH_SIZE;
+    use crate::tests::random_bytes;
+
+    /// Generate a random Hash that could be the hash of a `H: IsHeader` value.
+    pub fn random_hash() -> Hash<HEADER_HASH_SIZE> {
+        Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice())
+    }
 
     prop_compose! {
         pub fn any_point()(
@@ -201,7 +209,7 @@ pub mod tests {
             let point = Point::try_from(
                 "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
             )
-            .unwrap();
+                .unwrap();
             match point {
                 Point::Specific(slot, _hash) => {
                     assert_eq!(70070379, slot);

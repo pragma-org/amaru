@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::chain_store::{ChainStore, ReadOnlyChainStore, StoreError};
-use amaru_kernel::{Hash, RawBlock, cbor, from_cbor, to_cbor};
+use amaru_kernel::{Hash, RawBlock, cbor, from_cbor, to_cbor, HEADER_HASH_SIZE, ORIGIN_HASH};
 use amaru_ouroboros_traits::Nonces;
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_slot_arithmetic::EraHistory;
@@ -57,9 +57,17 @@ impl RocksDBStore {
     }
 }
 
+/// "nonce"
 const NONCES_PREFIX: [u8; 5] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
 
+/// "block"
 const BLOCK_PREFIX: [u8; 5] = [0x62, 0x6c, 0x6f, 0x63, 0x6b];
+
+/// "ancho"
+const ANCHOR_PREFIX: [u8; 5] = [0x61, 0x6e, 0x63, 0x68, 0x6f];
+
+/// "best_"
+const BEST_CHAIN_PREFIX: [u8; 5] = [0x62, 0x65, 0x73, 0x74, 0x5f];
 
 macro_rules! impl_ReadOnlyChainStore {
     (for $($s:ty),+) => {
@@ -76,11 +84,33 @@ macro_rules! impl_ReadOnlyChainStore {
             }
 
             fn get_anchor_hash(&self) -> Hash<32> {
-                unimplemented!("get_anchor_hash is not implemented for ReadOnlyStore")
+                self.db
+                    .get_pinned(&ANCHOR_PREFIX)
+                    .ok()
+                    .flatten()
+                    .and_then(|bytes| {
+                        if bytes.len() == HEADER_HASH_SIZE {
+                            Some(Hash::from(bytes.as_ref()))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(ORIGIN_HASH)
             }
 
             fn get_best_chain_hash(&self) -> Hash<32> {
-                unimplemented!("get_best_chain_hash is not implemented for ReadOnlyStore")
+                self.db
+                    .get_pinned(&BEST_CHAIN_PREFIX)
+                    .ok()
+                    .flatten()
+                    .and_then(|bytes| {
+                        if bytes.len() == HEADER_HASH_SIZE {
+                            Some(Hash::from(bytes.as_ref()))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(ORIGIN_HASH)
             }
 
             fn has_header(&self, hash: &Hash<32>) -> bool {
@@ -150,22 +180,27 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
         })
     }
 
-    fn set_anchor_hash(&self, _hash: &Hash<32>) -> Result<(), StoreError> {
-        unimplemented!("set_root_hash is not implemented for RocksDBStore")
+    fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+        self.db.put(&ANCHOR_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError {
+            error: e.to_string(),
+        })
     }
 
-    fn set_best_chain_hash(&self, _hash: &Hash<32>) -> Result<(), StoreError> {
-        unimplemented!("set_best_chain_hash is not implemented for RocksDBStore")
+    fn set_best_chain_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+        self.db.put(&BEST_CHAIN_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError {
+            error: e.to_string(),
+        })
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use amaru_kernel::tests::random_bytes;
-    use amaru_kernel::{EraHistory, network::NetworkName};
+    use amaru_kernel::tests::{random_bytes, random_hash};
+    use amaru_kernel::{EraHistory, network::NetworkName, Header};
     use amaru_ouroboros_traits::is_header::fake::FakeHeader;
     use std::{fs::create_dir_all, path::PathBuf};
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     fn init_dir_and_era(tempdir: &TempDir) -> (PathBuf, EraHistory) {
@@ -244,5 +279,37 @@ mod test {
         if let Err(e) = initialise_test_ro_store(&tempdir) {
             panic!("failed to re-open DB in read-only mode: {}", e);
         }
+    }
+
+    #[test]
+    fn best_chain_hash_when_store_is_empty() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let rw_store: Arc<dyn ChainStore<Header>> = Arc::new(initialise_test_rw_store(&tempdir));
+        assert_eq!(rw_store.get_best_chain_hash(), ORIGIN_HASH);
+    }
+
+    #[test]
+    fn store_best_chain_hash() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let rw_store: Arc<dyn ChainStore<Header>> = Arc::new(initialise_test_rw_store(&tempdir));
+        let best_chain = random_hash();
+        rw_store.set_best_chain_hash(&best_chain).unwrap();
+        assert_eq!(rw_store.get_best_chain_hash(), best_chain);
+    }
+
+    #[test]
+    fn anchor_hash_when_store_is_empty() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let rw_store: Arc<dyn ChainStore<Header>> = Arc::new(initialise_test_rw_store(&tempdir));
+        assert_eq!(rw_store.get_anchor_hash(), ORIGIN_HASH);
+    }
+
+    #[test]
+    fn store_anchor_hash() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let rw_store: Arc<dyn ChainStore<Header>> = Arc::new(initialise_test_rw_store(&tempdir));
+        let anchor = random_hash();
+        rw_store.set_anchor_hash(&anchor).unwrap();
+        assert_eq!(rw_store.get_anchor_hash(), anchor);
     }
 }

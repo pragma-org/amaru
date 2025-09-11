@@ -48,7 +48,7 @@ impl Tree<TestHeader> {
 pub fn any_tree_of_headers(
     depth: usize,
     branching_ratio: Ratio,
-) -> impl Strategy<Value = Tree<TestHeader>> {
+) -> impl Strategy<Value=Tree<TestHeader>> {
     (0..u64::MAX).prop_map(move |seed| generate_test_header_tree(depth, seed, branching_ratio))
 }
 
@@ -140,11 +140,6 @@ pub fn make_header_with_parent(parent: &TestHeader) -> TestHeader {
         slot: parent.slot + 1,
         parent: Some(parent.hash()),
     }
-}
-
-/// Generate a random Hash that could be the hash of a `H: IsHeader` value.
-pub fn random_hash() -> Hash<HEADER_HASH_SIZE> {
-    Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice())
 }
 
 // IMPLEMENTATION
