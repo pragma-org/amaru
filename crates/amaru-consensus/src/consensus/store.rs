@@ -140,6 +140,7 @@ pub enum NoncesError {
     EraHistoryError(#[from] EraHistoryError),
 }
 
+/// TODO: this is redundant with InMemConsensusStore from amaru-stores.
 #[derive(Default)]
 pub struct FakeStore {
     inner: Mutex<FakeStoreInner>,
@@ -148,7 +149,7 @@ pub struct FakeStore {
 pub struct FakeStoreInner {
     headers: BTreeMap<Hash<32>, Header>,
     parent_child_relationship: BTreeMap<Hash<32>, Vec<Hash<32>>>,
-    root: Hash<32>,
+    anchor: Hash<32>,
     nonces: BTreeMap<Hash<32>, Nonces>,
 }
 
@@ -157,7 +158,7 @@ impl Default for FakeStoreInner {
         Self {
             headers: BTreeMap::new(),
             parent_child_relationship: BTreeMap::new(),
-            root: ORIGIN_HASH,
+            anchor: ORIGIN_HASH,
             nonces: BTreeMap::new(),
         }
     }
@@ -181,18 +182,6 @@ impl ReadOnlyChainStore<Header> for FakeStore {
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_headers(&self) -> Vec<Header> {
-        let inner = self.inner.lock().unwrap();
-        inner.headers.values().cloned().collect()
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn count_headers(&self) -> usize {
-        let inner = self.inner.lock().unwrap();
-        inner.headers.values().count()
-    }
-
-    #[expect(clippy::unwrap_used)]
     fn has_header(&self, hash: &Hash<32>) -> bool {
         let inner = self.inner.lock().unwrap();
         inner.headers.contains_key(hash)
@@ -209,9 +198,9 @@ impl ReadOnlyChainStore<Header> for FakeStore {
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_root_hash(&self) -> Hash<32> {
+    fn get_anchor_hash(&self) -> Hash<32> {
         let inner = self.inner.lock().unwrap();
-        inner.root
+        inner.anchor
     }
 }
 
@@ -246,9 +235,9 @@ impl ChainStore<Header> for FakeStore {
     }
 
     #[expect(clippy::unwrap_used)]
-    fn set_root_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+    fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
-        inner.root = *hash;
+        inner.anchor = *hash;
         Ok(())
     }
 }
@@ -341,7 +330,7 @@ mod test {
                 &PREPROD_HEADER_70070379,
                 NetworkName::Preprod.into()
             )
-            .as_ref(),
+                .as_ref(),
             Some(&*PREPROD_NONCES_70070379)
         )
     }
@@ -355,7 +344,7 @@ mod test {
                 &PREPROD_HEADER_70070426,
                 NetworkName::Preprod.into()
             )
-            .as_ref(),
+                .as_ref(),
             Some(&*PREPROD_NONCES_70070426)
         )
     }
@@ -369,7 +358,7 @@ mod test {
                 &PREPROD_HEADER_70070464,
                 NetworkName::Preprod.into()
             )
-            .as_ref(),
+                .as_ref(),
             Some(&*PREPROD_NONCES_70070464)
         )
     }

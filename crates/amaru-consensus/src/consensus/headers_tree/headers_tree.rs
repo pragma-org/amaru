@@ -139,7 +139,7 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
                 &tree.pretty_print_with(header_to_string)
             )?;
         }
-        writeln!(f, "  root: {}", &self.root())?;
+        writeln!(f, "  root: {}", &self.anchor())?;
         writeln!(
             f,
             "  peers: {}",
@@ -163,10 +163,25 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
     /// Return the tree representation of the headers tree.
     fn to_tree(&self) -> Option<Tree<H>> {
         let mut as_map = BTreeMap::new();
-        for header in self.chain_store.load_headers() {
+        for header in self.load_headers(&self.anchor()) {
             let _ = as_map.insert(header.hash(), header);
         }
         Tree::from(&as_map)
+    }
+
+    fn load_headers(&self, root: &Hash<HEADER_HASH_SIZE>) -> Vec<H> {
+        let mut headers = vec![];
+        if let Some(header) = self.chain_store.load_header(root) {
+            headers.push(header);
+        }
+        for hash in self.chain_store.get_children(root) {
+            headers.extend(self.load_headers(&hash));
+        }
+        headers
+    }
+
+    fn count_headers(&self) -> usize {
+        self.load_headers(&self.anchor()).len()
     }
 }
 
@@ -175,14 +190,14 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
     pub fn new(
         chain_store: Arc<dyn ChainStore<H>>,
         max_length: usize,
-        root: &Option<H>,
+        anchor: &Option<H>,
     ) -> HeadersTree<H> {
-        HeadersTree::create(chain_store, max_length, root.clone())
+        HeadersTree::create(chain_store, max_length, anchor.clone())
     }
 
     #[cfg(any(test, feature = "test-utils"))]
-    pub fn new_in_memory(max_length: usize, root: &Option<H>) -> HeadersTree<H> {
-        HeadersTree::new(Arc::new(InMemConsensusStore::new()), max_length, root)
+    pub fn new_in_memory(max_length: usize, anchor: &Option<H>) -> HeadersTree<H> {
+        HeadersTree::new(Arc::new(InMemConsensusStore::new()), max_length, anchor)
     }
 
     /// Create a new HeadersTree with a specific tip as the root
@@ -314,7 +329,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
             return Ok(RollbackBeyondLimit {
                 peer: peer.clone(),
                 rollback_point: *rollback_hash,
-                max_point: self.root(),
+                max_point: self.anchor(),
             });
         }
 
@@ -374,7 +389,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
                 self.set_root(header.hash())?;
             } else {
                 // We just need to check that the header is the root header
-                if header.hash() != self.root() {
+                if header.hash() != self.anchor() {
                     return Err(UnknownPoint(header.hash()));
                 };
             }
@@ -383,7 +398,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
     }
 }
 
-impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
+impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// Return the length of the best chain currently known.
     pub fn best_length(&self) -> usize {
         self.peers
@@ -427,18 +442,18 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
 
     /// Return true if the tree is empty, i.e. it only contains the origin header.
     fn is_empty_tree(&self) -> bool {
-        self.root() == ORIGIN_HASH
+        self.anchor() == ORIGIN_HASH
     }
 
     /// Return the root of the tree
-    fn root(&self) -> Hash<HEADER_HASH_SIZE> {
-        self.chain_store.get_root_hash()
+    fn anchor(&self) -> Hash<HEADER_HASH_SIZE> {
+        self.chain_store.get_anchor_hash()
     }
 
     /// Set the root of the tree
     fn set_root(&self, hash: Hash<HEADER_HASH_SIZE>) -> Result<(), ConsensusError> {
         self.chain_store
-            .set_root_hash(&hash)
+            .set_anchor_hash(&hash)
             .map_err(|e| ConsensusError::SetRootHashFailed(hash, e))
     }
 
@@ -504,14 +519,14 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the ancestors of the header, including the header itself.
-    fn ancestors(&self, start: &H) -> impl Iterator<Item = H> + use<'_, H> {
+    fn ancestors(&self, start: &H) -> impl Iterator<Item=H> + use < '_, H > {
         successors(Some(start.clone()), move |h| {
             h.parent().and_then(|p| self.get_header(&p))
         })
     }
 
     /// Return the hashes of the ancestors of the header, including the header hash itself.
-    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + '_> {
+    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item=HeaderHash> + '_> {
         if let Some(header) = self.get_header(hash) {
             Box::new(self.ancestors(&header).map(|h| h.hash()))
         } else {
@@ -584,14 +599,14 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
                 seen.insert(h2);
             }
         }
-        self.root()
+        self.anchor()
     }
 
     /// When the best chain exceeds the maximum length, move its root up one level and
     /// remove all the subtrees that start from the old root.
     #[instrument(level = "trace", skip_all)]
     fn prune_headers(&mut self) -> Result<(), ConsensusError> {
-        if self.best_length() <= self.max_length || self.chain_store.count_headers() <= 2 {
+        if self.best_length() <= self.max_length || self.count_headers() <= 2 {
             return Ok(());
         }
 
@@ -671,7 +686,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the best chain fragment currently known as a list of hashes.
     /// The list starts from the root.
-    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item = HeaderHash> {
+    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item=HeaderHash> {
         self.peers
             .values()
             .find(|chain| chain.last() == Some(&self.best_chain))
@@ -707,7 +722,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
     /// This is used to check the garbage collection aspect of this data structure.
     #[cfg(test)]
     fn size(&self) -> usize {
-        self.chain_store.count_headers()
+        self.count_headers()
     }
 
     /// Insert headers into the arena and return the last created node id

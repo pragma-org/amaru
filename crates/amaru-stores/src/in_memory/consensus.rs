@@ -43,7 +43,7 @@ struct InMemConsensusStoreInner<H> {
     nonces: BTreeMap<Hash<32>, Nonces>,
     headers: BTreeMap<Hash<32>, H>,
     parent_child_relationship: BTreeMap<Hash<32>, Vec<Hash<32>>>,
-    root: Hash<32>,
+    anchor: Hash<32>,
     blocks: BTreeMap<Hash<32>, RawBlock>,
 }
 
@@ -59,7 +59,7 @@ impl<H> InMemConsensusStoreInner<H> {
             nonces: BTreeMap::new(),
             headers: BTreeMap::new(),
             parent_child_relationship: BTreeMap::new(),
-            root: ORIGIN_HASH,
+            anchor: ORIGIN_HASH,
             blocks: BTreeMap::new(),
         }
     }
@@ -70,18 +70,6 @@ impl<H: IsHeader + Clone + Send + Sync + Clone> ReadOnlyChainStore<H> for InMemC
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         let inner = self.inner.lock().unwrap();
         inner.headers.get(hash).cloned()
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn load_headers(&self) -> Vec<H> {
-        let inner = self.inner.lock().unwrap();
-        inner.headers.values().cloned().collect()
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn count_headers(&self) -> usize {
-        let inner = self.inner.lock().unwrap();
-        inner.headers.len()
     }
 
     #[expect(clippy::unwrap_used)]
@@ -117,9 +105,9 @@ impl<H: IsHeader + Clone + Send + Sync + Clone> ReadOnlyChainStore<H> for InMemC
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_root_hash(&self) -> Hash<32> {
+    fn get_anchor_hash(&self) -> Hash<32> {
         let inner = self.inner.lock().unwrap();
-        inner.root
+        inner.anchor
     }
 }
 
@@ -165,9 +153,9 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
     }
 
     #[expect(clippy::unwrap_used)]
-    fn set_root_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+    fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
-        inner.root = *hash;
+        inner.anchor = *hash;
         Ok(())
     }
 }

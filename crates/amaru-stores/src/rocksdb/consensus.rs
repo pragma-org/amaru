@@ -17,7 +17,7 @@ use amaru_kernel::{Hash, RawBlock, cbor, from_cbor, to_cbor};
 use amaru_ouroboros_traits::Nonces;
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_slot_arithmetic::EraHistory;
-use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options};
+use rocksdb::{DB, OptimisticTransactionDB, Options};
 use std::path::PathBuf;
 use tracing::{Level, instrument};
 
@@ -75,23 +75,8 @@ macro_rules! impl_ReadOnlyChainStore {
                 unimplemented!("get_children is not implemented for ReadOnlyStore")
             }
 
-            fn get_root_hash(&self) -> Hash<32> {
-                unimplemented!("get_root_hash is not implemented for ReadOnlyStore")
-            }
-
-            fn load_headers(&self) -> Vec<H> {
-                let mut result = Vec::new();
-                for values in self.db.iterator(IteratorMode::Start) {
-                    let (_, value) = values.unwrap_or_default();
-                    if let Some(header) = from_cbor(value.as_ref()) {
-                        result.push(header);
-                    }
-                }
-                result
-            }
-
-            fn count_headers(&self) -> usize {
-                self.db.iterator(IteratorMode::Start).count()
+            fn get_anchor_hash(&self) -> Hash<32> {
+                unimplemented!("get_anchor_hash is not implemented for ReadOnlyStore")
             }
 
             fn has_header(&self, hash: &Hash<32>) -> bool {
@@ -161,7 +146,7 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
         })
     }
 
-    fn set_root_hash(&self, _hash: &Hash<32>) -> Result<(), StoreError> {
+    fn set_anchor_hash(&self, _hash: &Hash<32>) -> Result<(), StoreError> {
         unimplemented!("set_root_hash is not implemented for RocksDBStore")
     }
 }
