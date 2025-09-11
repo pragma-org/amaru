@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use std::{
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
+    mem,
+};
 
 /// A compact data-structure tracking changes in a DAG which supports optional linking of values with
 /// another data-structure. Items can only be linked if they have been registered first. Yet, they
@@ -38,12 +41,12 @@ pub enum Resettable<A> {
 }
 
 impl<A> Resettable<A> {
-    pub fn set_or_reset(self, value: &mut Option<A>) {
+    pub fn set_or_reset(self, value: &mut Option<A>) -> Option<A> {
         match self {
-            Resettable::Unchanged => (),
-            Resettable::Set(new) => *value = Some(new),
-            Resettable::Reset => *value = None,
-        };
+            Resettable::Unchanged => None,
+            Resettable::Set(new) => Option::replace(value, new),
+            Resettable::Reset => mem::take(value),
+        }
     }
 }
 

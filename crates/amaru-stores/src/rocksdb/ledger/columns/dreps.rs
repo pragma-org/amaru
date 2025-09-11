@@ -12,13 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
-use amaru_kernel::{CertificatePointer, DRepRegistration, Epoch, StakeCredential};
-use amaru_ledger::store::{
-    StoreError,
-    columns::{
-        dreps::{EVENT_TARGET, Key, Row, Value},
-        unsafe_decode,
+use crate::rocksdb::{
+    accounts,
+    common::{PREFIX_LEN, as_key, as_value},
+    dreps_delegations,
+};
+use amaru_kernel::{
+    CertificatePointer, DRepRegistration, Epoch, PROTOCOL_VERSION_9, ProtocolVersion,
+    StakeCredential,
+};
+use amaru_ledger::{
+    state::diff_bind::Resettable,
+    store::{
+        StoreError,
+        columns::{
+            dreps::{EVENT_TARGET, Key, Row, Value},
+            unsafe_decode,
+        },
     },
 };
 use rocksdb::Transaction;
@@ -140,9 +150,33 @@ pub fn set_valid_until<DB>(
 pub fn remove<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
+    protocol_version: ProtocolVersion,
 ) -> Result<(), StoreError> {
     for (credential, pointer) in rows {
         let key = as_key(&PREFIX, &credential);
+
+        // NOTE: Due to a bug in protocol version 9, we need to clear any delegation relation that
+        // *ever* existed between this DRep and its delegators. That is the case even if the
+        // delegators are no longer delegated to the drep, but were at some point in the past.
+        //
+        // The `dreps_delegators` column remembers exactly this information. When we clean it from
+        // the DRep being removed, it yields back all the accounts that have been delegated to the
+        // DRep during its lifetime. And we unbind all of them.
+        if protocol_version <= PROTOCOL_VERSION_9 {
+            let delegators_updates = dreps_delegations::remove(db, &credential)
+                .0?
+                .into_iter()
+                .map(|delegator| {
+                    (
+                        delegator,
+                        (Resettable::Unchanged, Resettable::Reset, None, 0),
+                    )
+                });
+
+            // NOTE: Ignoring any previous delegation here; as we are in fact clearing up the
+            // account entirely.
+            let _previous_delegation = accounts::add(db, delegators_updates, protocol_version)?;
+        }
 
         if let Some(mut row) = db
             .get(&key)
