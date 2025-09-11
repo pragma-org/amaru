@@ -99,20 +99,21 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .verify_chain(&snapshot.certificate_hash)
         .await?;
 
-    println!("Found snapshot: {:#?}", snapshot);
     let target_dir = PathBuf::from("mithril-snapshots");
     fs::create_dir_all(&target_dir)?;
     database_client
         .download_unpack_full(&snapshot, &target_dir)
         .await?;
     // TODO allow to provide user feedback
-    println!("Snapshot unpacked to: {:?}", target_dir);
+
+    info!("Snapshot unpacked to: {:?}", target_dir);
 
     let message = MessageBuilder::new()
         .compute_snapshot_message(&certificate, &target_dir)
         .await?;
     assert!(certificate.match_message(&message));
-    println!("Snapshot verified against certificate");
+
+    info!("Snapshot verified against certificate");
 
     let _snapshots_dir = target_dir.join("ledger");
 
