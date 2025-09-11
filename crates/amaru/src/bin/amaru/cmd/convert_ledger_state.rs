@@ -25,8 +25,8 @@ use tokio::fs::{self};
 pub struct Args {
     /// Path to the CBOR encoded ledger state snapshot as serialised by Haskell
     /// node.
-    #[arg(long, value_name = "SNAPSHOT", verbatim_doc_comment, num_args(0..))]
-    snapshot: Vec<PathBuf>,
+    #[arg(long, value_name = "SNAPSHOT", verbatim_doc_comment)]
+    snapshot: PathBuf,
 
     /// Directory to store converted snapshots into.
     ///
@@ -55,10 +55,7 @@ pub enum Error {
 
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let target_dir = args.target_dir.unwrap_or(PathBuf::from("."));
-    for snapshot in args.snapshot {
-        convert_one_snapshot_file(&target_dir, &snapshot, &args.network).await?;
-    }
-
+    convert_one_snapshot_file(&target_dir, &args.snapshot, &args.network).await?;
     Ok(())
 }
 
@@ -326,7 +323,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn generates_converted_snapshots_in_given_target_dir() {
+    async fn generates_converted_snapshot_in_given_target_dir() {
         let network = NetworkName::Testnet(42);
         let tempdir = tempfile::tempdir().unwrap();
         let expected_paths = vec![
@@ -341,15 +338,19 @@ mod test {
             ),
         ];
 
-        let args = super::Args {
-            snapshot: dir_content(Path::new("tests/data/convert")).await.unwrap(),
-            target_dir: Some(tempdir.path().to_path_buf()),
-            network,
-        };
+        let snapshots = dir_content(Path::new("tests/data/convert")).await.unwrap();
 
-        run(args)
-            .await
-            .expect("unexpected error in conversion test");
+        for snapshot in snapshots {
+            let args = super::Args {
+                snapshot,
+                target_dir: Some(tempdir.path().to_path_buf()),
+                network,
+            };
+
+            run(args)
+                .await
+                .expect("unexpected error in conversion test");
+        }
 
         assert!(
             expected_paths.iter().all(|p| p.exists()),
@@ -389,8 +390,11 @@ mod test {
             ),
         ];
 
+        let snapshots = dir_content(Path::new("tests/data/convert")).await.unwrap();
+
+        for snapshot in snapshots {
         let args = super::Args {
-            snapshot: dir_content(Path::new("tests/data/convert")).await.unwrap(),
+            snapshot,
             target_dir: Some(target_dir.clone()),
             network,
         };
@@ -398,6 +402,7 @@ mod test {
         run(args)
             .await
             .expect("unexpected error in conversion test");
+        }
 
         assert!(
             expected_paths.iter().all(|p| p.exists()),
