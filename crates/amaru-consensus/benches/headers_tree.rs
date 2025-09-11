@@ -16,7 +16,7 @@
 /// (adding headers from random peers and rollbacks) to be executed on a `HeadersTree`.
 /// It then measures the average time taken to execute each action.
 ///
-/// Run with: `cargo bench --bench headers_tree --features="test-utils profiling"`
+/// Run with: `cargo bench --bench headers_tree --features="test-utils profiling telemetry"`
 ///
 /// Note: profiling requires `pprof` to be installed and only works on Unix systems.
 /// If you run with profiling enabled, a flamegraph file named 'headers-tree-flamegraph.svg'
@@ -36,7 +36,7 @@ fn main() {
     use amaru_consensus::consensus::headers_tree::data_generation::{
         Ratio, execute_actions_on_tree, generate_random_walks, generate_test_header_tree,
     };
-    use amaru_consensus::consensus::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
+    use amaru_consensus::consensus::stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
     let profile = false;
 
     let seed = 42;

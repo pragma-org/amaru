@@ -16,11 +16,11 @@
 use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
-use amaru_consensus::{
-    IsHeader, Nonces,
-    consensus::store::{ChainStore, ReadOnlyChainStore, StoreError},
-};
-use amaru_kernel::{Hash, Header, RawBlock, block::BlockValidationResult, from_cbor};
+use amaru_consensus::consensus::events::BlockValidationResult;
+use amaru_consensus::consensus::store::{ChainStore, ReadOnlyChainStore, StoreError};
+use amaru_kernel::peer::Peer;
+use amaru_kernel::{Hash, Header, RawBlock, from_cbor};
+use amaru_ouroboros_traits::{IsHeader, Nonces};
 use gasket::{
     messaging::tokio::ChannelRecvAdapter,
     runtime::{Tether, spawn_stage},
@@ -234,7 +234,8 @@ impl Setup {
 
         let f = self.block.send(
             BlockValidationResult::BlockValidated {
-                point: point.clone(),
+                peer: Peer::new("test"),
+                header: header.clone(),
                 span,
                 block: RawBlock::from(&[] as &[u8]),
                 block_height,
@@ -256,6 +257,7 @@ impl Setup {
         let span = tracing::debug_span!("whatever");
         let f = self.block.send(
             BlockValidationResult::RolledBackTo {
+                peer: Peer::new("test"),
                 rollback_point: point.clone(),
                 span,
             }

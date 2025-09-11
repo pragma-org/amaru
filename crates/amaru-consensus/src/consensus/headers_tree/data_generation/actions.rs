@@ -20,14 +20,14 @@
 //!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<TestHeader>` of a given depth.
 //!
 
-use crate::ConsensusError;
+use crate::consensus::errors::ConsensusError;
 use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
 use crate::consensus::headers_tree::data_generation::SelectionResult::{Back, Forward};
 use crate::consensus::headers_tree::data_generation::{TestHeader, any_tree_of_headers};
 use crate::consensus::headers_tree::tree::Tree;
 use crate::consensus::headers_tree::{HeadersTree, Tracker};
-use crate::consensus::select_chain::RollbackChainSelection::RollbackBeyondLimit;
-use crate::consensus::select_chain::{ForwardChainSelection, RollbackChainSelection};
+use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
+use crate::consensus::stages::select_chain::{ForwardChainSelection, RollbackChainSelection};
 use amaru_kernel::Point;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::string_utils::ListToString;

@@ -85,8 +85,6 @@ pub mod ballot;
 pub use ballot_id::*;
 pub mod ballot_id;
 
-pub mod block;
-
 pub mod constitution;
 
 pub use constitutional_committee::*;

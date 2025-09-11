@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use crate::{
+    context,
     governance::ratification::{self, RatificationContext},
+    rules,
     state::{
         ratification::{ProposalsRoots, ProposalsRootsRc, RatificationResult},
         volatile_db::{StoreUpdate, VolatileDB},
@@ -31,15 +33,16 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hash, Lovelace,
-    MemoizedTransactionOutput, MintedBlock, Point, PoolId, Slot, StakeCredential,
-    StakeCredentialType, TransactionInput, expect_stake_credential,
+    ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hash, Hasher, Lovelace,
+    MemoizedTransactionOutput, MintedBlock, Network, Point, PoolId, RawBlock, Slot,
+    StakeCredential, StakeCredentialType, TransactionInput, expect_stake_credential,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     stake_credential_hash,
 };
-use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
+use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, PoolSummary};
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
+use anyhow::{Context, anyhow};
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque, btree_map},
@@ -47,9 +50,12 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 use thiserror::Error;
-use tracing::{Level, debug, info, instrument, trace, warn};
+use tracing::{Level, Span, debug, error, info, instrument, trace, warn};
 use volatile_db::AnchoredVolatileState;
 
+use crate::context::DefaultValidationContext;
+use crate::rules::block::BlockValidation;
+use crate::rules::parse_block;
 pub use volatile_db::VolatileState;
 
 pub mod diff_bind;
@@ -486,18 +492,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         Ok(())
     }
 
-    pub fn backward(&mut self, to: &Point) -> Result<(), BackwardError> {
-        // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
-        // rollback to the last known point, which ought to be the tip of the database.
-        if self.volatile.is_empty() && self.tip().as_ref() == to {
-            return Ok(());
-        }
-
-        self.volatile.rollback_to(to, |point| {
-            BackwardError::UnknownRollbackPoint(point.clone())
-        })
-    }
-
     #[expect(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all, name="state.resolve_inputs", fields(resolved_from_context, resolved_from_volatile, resolved_from_db)
     )]
@@ -553,6 +547,114 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .map_err(|_| StateError::FailedToAcquireStakeDistrLock)?;
 
         StakeDistributionView::new(guard, epoch)
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name="ledger.create_validation_context",
+        fields(
+            block_body_hash = %block.header.header_body.block_body_hash,
+            block_number = block.header.header_body.block_number,
+            block_body_size = block.header.header_body.block_body_size,
+            total_inputs
+        )
+    )]
+    fn create_validation_context(
+        &self,
+        block: &MintedBlock<'_>,
+    ) -> anyhow::Result<DefaultValidationContext> {
+        let mut ctx = context::DefaultPreparationContext::new();
+        rules::prepare_block(&mut ctx, block);
+        Span::current().record("total_inputs", ctx.utxo.len());
+
+        // TODO: Eventually move into a separate function, or integrate within the ledger instead
+        // of the current .resolve_inputs; once the latter is no longer needed for the state
+        // construction.
+        let inputs = self
+            .resolve_inputs(&Default::default(), ctx.utxo.into_iter())
+            .context("Failed to resolve inputs")?
+            .into_iter()
+            // NOTE:
+            // It isn't okay to just fail early here because we may be missing UTxO even on valid
+            // transactions! Indeed, since we only have access to the _current_ volatile DB and the
+            // immutable DB. That means, we can't be aware of UTxO created and used within the block.
+            //
+            // Those will however be produced during the validation, and be tracked by the
+            // validation context.
+            //
+            // Hence, we *must* defer errors here until the moment we do expect the UTxO to be
+            // present.
+            .filter_map(|(input, opt_output)| opt_output.map(|output| (input, output)))
+            .collect();
+
+        Ok(DefaultValidationContext::new(inputs))
+    }
+
+    /// Returns:
+    /// * `Ok(u64)` - if no error occurred and the block is valid. `u64` is the block height.
+    /// * `Err(<InvalidBlockDetails>)` - if the block is invalid.
+    /// * `Err(_)` - if another error occurred.
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "ledger.roll_forward",
+    )]
+    pub fn roll_forward(
+        &mut self,
+        point: &Point,
+        raw_block: &RawBlock,
+    ) -> BlockValidation<u64, anyhow::Error> {
+        let block = match parse_block(&raw_block[..]) {
+            Ok(block) => block,
+            Err(e) => return BlockValidation::Err(anyhow!(e)),
+        };
+
+        let mut context = match self.create_validation_context(&block) {
+            Ok(context) => context,
+            Err(e) => return BlockValidation::Err(anyhow!(e)),
+        };
+
+        match rules::validate_block(
+            &mut context,
+            &Network::from(*self.network()),
+            self.protocol_parameters(),
+            self.era_history(),
+            self.governance_activity(),
+            &block,
+        ) {
+            BlockValidation::Err(err) => BlockValidation::Err(err),
+            BlockValidation::Invalid(slot, id, err) => BlockValidation::Invalid(slot, id, err),
+            BlockValidation::Valid(()) => {
+                let state: VolatileState = context.into();
+                let block_height = &block.header.block_height();
+                let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+                match self.forward(state.anchor(point, issuer)) {
+                    Ok(()) => BlockValidation::Valid(*block_height),
+                    Err(e) => {
+                        error!(%e, "Failed to roll forward the ledger state");
+                        BlockValidation::Err(anyhow!(e))
+                    }
+                }
+            }
+        }
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "ledger.roll_backward",
+    )]
+    pub fn rollback_to(&mut self, to: &Point) -> Result<(), BackwardError> {
+        // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
+        // rollback to the last known point, which ought to be the tip of the database.
+        if self.volatile.is_empty() && self.tip().as_ref() == to {
+            return Ok(());
+        }
+
+        self.volatile.rollback_to(to, |point| {
+            BackwardError::UnknownRollbackPoint(point.clone())
+        })
     }
 }
 

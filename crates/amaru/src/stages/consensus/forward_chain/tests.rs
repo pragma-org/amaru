@@ -19,7 +19,7 @@ use super::{
     },
 };
 use crate::stages::{AsTip, PallasPoint};
-use amaru_consensus::IsHeader;
+use amaru_ouroboros_traits::IsHeader;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 
 #[test]

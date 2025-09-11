@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store_effects::StoreHeaderEffect, span::adopt_current_span};
-
-use super::DecodedChainSyncEvent;
+use crate::consensus::effects::store_effects::StoreHeaderEffect;
+use crate::consensus::events::DecodedChainSyncEvent;
+use crate::consensus::span::adopt_current_span;
+use amaru_ouroboros_traits::IsHeader;
 use pure_stage::{Effects, StageRef};
 use tracing::{Level, instrument};
 
@@ -30,17 +31,12 @@ pub async fn stage(
 ) -> StageRef<DecodedChainSyncEvent> {
     adopt_current_span(&msg);
     match &msg {
-        DecodedChainSyncEvent::RollForward {
-            peer,
-            point,
-            header,
-            ..
-        } => {
+        DecodedChainSyncEvent::RollForward { peer, header, .. } => {
             if let Err(error) = eff
-                .external(StoreHeaderEffect::new(header.clone(), point.clone()))
+                .external(StoreHeaderEffect::new(peer, header.clone()))
                 .await
             {
-                tracing::error!(%error, %point, %peer, "Failed to store header");
+                tracing::error!(%error, %peer, "Failed to store header at {}", header.point());
                 // FIXME what should be the consequence of this?
                 return eff.terminate().await;
             };

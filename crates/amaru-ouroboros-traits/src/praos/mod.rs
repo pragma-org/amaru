@@ -17,7 +17,7 @@ Provides an interface around Praos nonces & operational certificates. Praos main
 evolving nonce to which every stake pool contributes when producing blocks using their VRF.
 
 Hence, the VRF output of each block is combined with a rolling nonce. Once a certain point
-within the epoch is reacahed, the nonce is anchored for the epoch. Neverthless, the evolving
+within the epoch is reached, the nonce is anchored for the epoch. Nevertheless, the evolving
 nonce keeps evolving until the epoch ends for the next epoch.
 
 Summarizing:

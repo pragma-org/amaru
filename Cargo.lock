@@ -73,6 +73,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-ledger",
  "amaru-network",
+ "amaru-ouroboros-traits",
  "amaru-progress-bar",
  "amaru-slot-arithmetic",
  "amaru-stores",
@@ -121,11 +122,8 @@ dependencies = [
  "amaru-slot-arithmetic",
  "anyhow",
  "async-trait",
- "either",
  "hex",
- "insta",
  "itertools 0.14.0",
- "minicbor",
  "opentelemetry",
  "pallas-crypto",
  "pallas-math",
@@ -137,12 +135,10 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
  "tracing-opentelemetry",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -190,6 +186,7 @@ dependencies = [
  "hex",
  "num",
  "proptest",
+ "pure-stage",
  "serde",
  "test-case",
  "thiserror 2.0.16",
@@ -214,12 +211,12 @@ dependencies = [
 name = "amaru-network"
 version = "0.1.0"
 dependencies = [
- "amaru-consensus",
  "amaru-kernel",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
  "anyhow",
+ "async-trait",
  "hex",
  "insta",
  "minicbor",
@@ -274,6 +271,8 @@ version = "0.1.0"
 dependencies = [
  "amaru-kernel",
  "amaru-slot-arithmetic",
+ "anyhow",
+ "async-trait",
  "hex",
  "proptest",
  "serde",

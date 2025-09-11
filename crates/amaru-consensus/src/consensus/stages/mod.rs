@@ -12,4 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod forward_chain;
+pub mod fetch_block;
+pub mod receive_header;
+pub mod select_chain;
+pub mod store_block;
+pub mod store_header;
+pub mod validate_block;
+pub mod validate_header;

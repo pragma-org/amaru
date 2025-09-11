@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ConsensusError;
-use crate::consensus::fetch_block::BlockFetcher;
+use crate::consensus::errors::ConsensusError;
+use crate::consensus::stages::fetch_block::BlockFetcher;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Point, protocol_parameters::GlobalParameters};
 use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
