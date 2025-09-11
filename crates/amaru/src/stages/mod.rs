@@ -12,26 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::stages::build_stage_graph::build_stage_graph;
 use crate::stages::{
-    consensus::clients_block_fetcher::ClientsBlockFetcher,
     metrics::MetricsStage,
     pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter},
 };
-use amaru_consensus::{
-    CanValidateBlocks, ConsensusError, HasStakeDistribution, IsHeader,
-    consensus::{
-        ChainSyncEvent, block_effects, build_stage_graph, headers_tree::HeadersTree,
-        select_chain::SelectChain, store::ChainStore, store_block::StoreBlock, store_effects,
-        validate_header::ValidateHeader,
-    },
+use amaru_consensus::consensus::effects::block_effects::{
+    ResourceBlockFetcher, ResourceParameters,
 };
 use amaru_consensus::consensus::effects::store_effects::ResourceHeaderStore;
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
+use amaru_consensus::consensus::headers_tree::HeadersTree;
 use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
 use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
-use amaru_consensus::consensus::{headers_tree::HeadersTree, store::ChainStore};
+use amaru_consensus::consensus::store::ChainStore;
 use amaru_kernel::{
     EraHistory, Hash, Header, Point, network::NetworkName, peer::Peer,
     protocol_parameters::GlobalParameters,
@@ -271,6 +267,7 @@ pub fn bootstrap(
         .upstream
         .connect(RecvAdapter(output_stage));
 
+    let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
     stages.iter_mut().for_each(|stage| {
         // These channels are meant to be cloned so they can be shared between threads
         stage.metrics_downstream.connect(to_metrics.clone());
@@ -484,7 +481,7 @@ mod tests {
 
         let stages = bootstrap(config, vec![], CancellationToken::new(), None).unwrap();
 
-        assert_eq!(2, stages.len());
+        assert_eq!(3, stages.len());
     }
 
     #[test]

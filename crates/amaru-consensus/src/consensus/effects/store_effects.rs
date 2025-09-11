@@ -105,7 +105,7 @@ impl ExternalEffect for StoreBlockEffect {
                 .map_err(|e| {
                     ProcessingFailed::new(
                         &self.peer,
-                        anyhow!("Cannot store the header at {}: {e}", self.point.clone()),
+                        anyhow!("Cannot store the block at {}: {e}", self.point.clone()),
                     )
                 });
             Box::new(result) as Box<dyn pure_stage::SendData>
