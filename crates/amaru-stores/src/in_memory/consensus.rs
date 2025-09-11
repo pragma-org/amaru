@@ -86,8 +86,14 @@ impl<H: IsHeader + Clone + Send + Sync + Clone> ReadOnlyChainStore<H> for InMemC
         })
     }
 
-    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-        unimplemented!("load_block is not implemented for InMemConsensusStore")
+    #[expect(clippy::unwrap_used)]
+    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .blocks
+            .get(hash)
+            .cloned()
+            .ok_or(StoreError::NotFound { hash: *hash })
     }
 
     #[expect(clippy::unwrap_used)]
@@ -126,11 +132,10 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
         let mut inner = self.inner.lock().unwrap();
         inner.headers.insert(hash, header.clone());
         if let Some(parent) = header.parent() {
-            inner
-                .parent_child_relationship
-                .entry(parent)
-                .or_default()
-                .push(hash);
+            let children = inner.parent_child_relationship.entry(parent).or_default();
+            if !children.contains(&hash) {
+                children.push(hash);
+            }
         }
         Ok(())
     }

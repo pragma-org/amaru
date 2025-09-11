@@ -191,14 +191,11 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
         if let Some(header) = self.chain_store.load_header(root) {
             headers.push(header);
         }
+
         for hash in self.chain_store.get_children(root) {
             headers.extend(self.load_headers(&hash));
         }
         headers
-    }
-
-    fn count_headers(&self) -> usize {
-        self.load_headers(&self.anchor()).len()
     }
 }
 
@@ -622,7 +619,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// remove all the subtrees that start from the old root.
     #[instrument(level = "trace", skip_all)]
     fn prune_headers(&mut self) -> Result<(), ConsensusError> {
-        if self.best_length() <= self.max_length || self.count_headers() <= 2 {
+        if self.best_length() <= self.max_length {
             return Ok(());
         }
 
@@ -738,7 +735,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
     /// This is used to check the garbage collection aspect of this data structure.
     #[cfg(test)]
     fn size(&self) -> usize {
-        self.count_headers()
+        self.load_headers(&self.anchor()).len()
     }
 
     /// Insert headers into the arena and return the last created node id

@@ -54,15 +54,19 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         self.as_ref().load_header(hash)
     }
+
     fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>> {
         self.as_ref().get_children(hash)
     }
+
     fn get_anchor_hash(&self) -> Hash<32> {
         self.as_ref().get_anchor_hash()
     }
+
     fn get_best_chain_hash(&self) -> Hash<32> {
         self.as_ref().get_best_chain_hash()
     }
+
     fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
         self.as_ref().load_block(hash)
     }
