@@ -12,16 +12,39 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::OnceLock;
-
+use crate::{
+    send,
+    stages::{
+        metrics::{Metric, MetricsEvent},
+        pull::MetricsDownstreamPort,
+    },
+};
+use gasket::framework::WorkerError;
 use opentelemetry::metrics::Counter;
-
-use crate::stages::metrics::Metric;
+use std::sync::{Arc, OnceLock};
 
 static HEADER_BYTES: OnceLock<Counter<u64>> = OnceLock::new();
 
 pub struct PullMetrics {
     pub header_size_bytes: u64,
+}
+
+impl PullMetrics {
+    pub async fn record_header_size_bytes(
+        downstream: &mut MetricsDownstreamPort,
+        header_size_bytes: u64,
+    ) -> Result<(), WorkerError> {
+        let sample = PullMetrics { header_size_bytes };
+
+        send!(
+            downstream,
+            MetricsEvent {
+                metric: Arc::new(sample)
+            }
+        )?;
+
+        Ok(())
+    }
 }
 
 impl Metric for PullMetrics {

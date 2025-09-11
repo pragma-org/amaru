@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
-
 use crate::{
     send,
     stages::{metrics::MetricsEvent, pull::metrics::PullMetrics},
@@ -129,17 +127,7 @@ impl gasket::framework::Worker<Stage> for Worker {
         match next {
             NextResponse::RollForward(header, _tip) => {
                 stage.roll_forward(&header).await?;
-
-                let metrics = PullMetrics {
-                    header_size_bytes: 1,
-                };
-
-                send!(
-                    &mut stage.metrics_downstream,
-                    MetricsEvent {
-                        metric: Arc::new(metrics)
-                    }
-                )?;
+                PullMetrics::record_header_size_bytes(&mut stage.metrics_downstream, 1).await?;
             }
             NextResponse::RollBackward(point, tip) => {
                 stage.roll_back(from_network_point(&point), tip).await?;

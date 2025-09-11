@@ -286,7 +286,7 @@ pub fn bootstrap(
     forward_chain_stage.upstream.connect(from_ledger);
 
     stages.iter_mut().for_each(|stage| {
-        // TODO: is this clone acceptable? It makes sense semantically (each stage would have it's own ChannelSendAdapter)
+        // These channels are meant to be cloned so they can be shared between threads
         stage.metrics_downstream.connect(to_metrics.clone());
     });
 
