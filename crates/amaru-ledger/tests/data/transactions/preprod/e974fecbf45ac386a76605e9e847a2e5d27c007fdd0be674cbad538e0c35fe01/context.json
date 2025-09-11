@@ -7,9 +7,9 @@
       },
       {
         "address": "00de8bcbaa9dca00d04184221a39b6eb1feea604f96d464f8e3c20484fb5f97564c79d450ab5bc2cda0794c31de0676e168798f0d50eda0e6f",
-	"value": 0,
-	"datum": null,
-	"script": null
+        "value": { "Coin": 0 },
+        "datum": null,
+        "script": null
       }
     ]
   ],
