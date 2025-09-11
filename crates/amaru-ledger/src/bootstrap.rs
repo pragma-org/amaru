@@ -503,6 +503,8 @@ fn import_dreps<S: Store>(
 
     info!(size = dreps.len(), "dreps");
 
+    let mut delegations: Vec<(StakeCredential, DRep)> = Vec::new();
+
     transaction.save(
         era_history,
         protocol_parameters,
@@ -531,6 +533,16 @@ fn import_dreps<S: Store>(
                     registered_at,
                 };
 
+                state.delegators.to_vec().into_iter().for_each(|delegator| {
+                    delegations.push((
+                        delegator,
+                        match credential {
+                            StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
+                            StakeCredential::ScriptHash(hash) => DRep::Script(hash),
+                        },
+                    ))
+                });
+
                 (
                     credential,
                     (
@@ -546,6 +558,10 @@ fn import_dreps<S: Store>(
         Default::default(),
         iter::empty(),
     )?;
+
+    info!(size = delegations.len(), "dreps delegations");
+
+    transaction.add_drep_delegations(delegations.into_iter())?;
 
     transaction.commit()
 }
