@@ -1,0 +1,206 @@
+{
+  "activeSlotsCoeff": 0.05,
+  "epochLength": 86400,
+  "genDelegs": {
+    "59ba30be5b9bd6ca603a68c8c0e151af74a69a4157de583b646738e9": {
+      "delegate": "f9331f5a4b019b06b3fc7d578eaec8382858ca6c6c2c02af6cb01a4e",
+      "vrf": "f7348ffaba61c98d4e1ea3155789be6d713608e9f544ad732e58dab5a887378f"
+    }
+  },
+  "initialFunds": {
+    "00309b0362f5781c7434087bbb3f1b1b8ee3d83c328913a6d33329cc358417e39f69cc0713aa2580be9958c9abac22f6c56f3cfc2e6fb8e1a2": 120000000000000,
+    "0040f37de74271a83ad2b2ed0213ec09cf494cf8a8a4349b62a0d029c1fed4a71fbaff417fbb5df6cb89cd2810121599bd67d917d50e5ec51f": 120000000000000,
+    "00479af33bfe4eccfdecb1800a8eeed00b2a824183f57bd103813a5f6e6f1b8c76bb478f6450cab8c06de9fdc1ab4450fd40961a0446ae9428": 120000000000000,
+    "0059037e1f5780181bedc5fdc7211b587167e0bade32ac5bb6a9c8547c6c55673d8c0405c3572e3b3b5cfdd4129879a112c55d8e09451f5fdc": 120000000000000,
+    "00debcaff6a202ce8cde87414d3089cbd2fb8fe72e2d1049e35d248f88bdce906507b3470011a654d7bbf6375c342c7db1b4c2f36f3ab464bb": 120000000000000,
+    "605beb11d1675386c011179996064583cb2cbab23fbdb48ef78de3f62f": 120000000000000,
+    "609bd54ef55b37b313b304f3a283a2bc820ca0b6bc635f255715e459cf": 120000000000000,
+    "60bec2c6e983d47b8dfe076a1e34f8bba8096d0095eba25abf6c260ad6": 120000000000000,
+    "60dd1a555e67b239fe3aa89612f6564691d45e3a107f360bd301d24670": 120000000000000,
+    "60ed8eaa7946a76bd32ccfe37a0ac48edb7a8d282028c39b57421dc42a": 120000000000000
+  },
+  "maxKESEvolutions": 62,
+  "maxLovelaceSupply": 45000000000000000,
+  "networkId": "Testnet",
+  "networkMagic": 42,
+  "protocolParams": {
+    "a0": 0.3,
+    "decentralisationParam": 0,
+    "eMax": 18,
+    "extraEntropy": {
+      "tag": "NeutralNonce"
+    },
+    "keyDeposit": 2000000,
+    "maxBlockBodySize": 90112,
+    "maxBlockHeaderSize": 1100,
+    "maxTxSize": 16384,
+    "minFeeA": 44,
+    "minFeeB": 155381,
+    "minPoolCost": 340000000,
+    "minUTxOValue": 1000000,
+    "nOpt": 150,
+    "poolDeposit": 500000000,
+    "protocolVersion": {
+      "major": 10,
+      "minor": 0
+    },
+    "rho": 0.003,
+    "tau": 0.2
+  },
+  "securityParam": 432,
+  "slotLength": 1,
+  "slotsPerKESPeriod": 129600,
+  "staking": {
+    "pools": {
+      "14f3abc153c13b3d8681e0e0bbde70594ac27f70d156a3727aac184a": {
+        "cost": 340000000,
+        "margin": 0.0,
+        "metadata": null,
+        "owners": [],
+        "pledge": 0,
+        "publicKey": "14f3abc153c13b3d8681e0e0bbde70594ac27f70d156a3727aac184a",
+        "relays": [
+          {
+            "single host name": {
+              "dnsName": "p1.example",
+              "port": 3001
+            }
+          },
+          {
+            "multi host name": {
+              "dnsName": "p1.example"
+            }
+          }
+        ],
+        "rewardAccount": {
+          "credential": {
+            "keyHash": "646b9822097ce55cc8ee518e3588d5da975708029f38918568c82746"
+          },
+          "network": "Testnet"
+        },
+        "vrf": "ead46578f501e6a26edd8ea62683d72b736010ff46d4756c24a4eb9a00b55050"
+      },
+      "193d546d81b491f6133683b673f960e3107e38dd658ed1d59e781acb": {
+        "cost": 340000000,
+        "margin": 0.0,
+        "metadata": null,
+        "owners": [],
+        "pledge": 0,
+        "publicKey": "193d546d81b491f6133683b673f960e3107e38dd658ed1d59e781acb",
+        "relays": [
+          {
+            "single host name": {
+              "dnsName": "p2.example",
+              "port": 3001
+            }
+          },
+          {
+            "multi host name": {
+              "dnsName": "p2.example"
+            }
+          }
+        ],
+        "rewardAccount": {
+          "credential": {
+            "keyHash": "3cda1fb28dde415d316bb1fd6a4dfed1c5b093acde7177a5c3d37d94"
+          },
+          "network": "Testnet"
+        },
+        "vrf": "4b556dd5dcb0b125fc0583775327d3de98c6d9c08e6fbf15e0966ab2d2e8e4c6"
+      },
+      "2cd5c008f534a9133125f8376066657b7ccd0ec6df74a9246520030a": {
+        "cost": 340000000,
+        "margin": 0.0,
+        "metadata": null,
+        "owners": [],
+        "pledge": 0,
+        "publicKey": "2cd5c008f534a9133125f8376066657b7ccd0ec6df74a9246520030a",
+        "relays": [
+          {
+            "single host name": {
+              "dnsName": "p3.example",
+              "port": 3001
+            }
+          },
+          {
+            "multi host name": {
+              "dnsName": "p3.example"
+            }
+          }
+        ],
+        "rewardAccount": {
+          "credential": {
+            "keyHash": "d488951068eba9e16e0bfef916a02fab6b370a953f4a9f5ad292b753"
+          },
+          "network": "Testnet"
+        },
+        "vrf": "034c8f0228c94e86b4875297bd3495dd382b149b0747121611b946649a349901"
+      },
+      "30cbb90cdb8ac8195a640da806dfefbd503e85a089b7bea90bc8adfc": {
+        "cost": 340000000,
+        "margin": 0.0,
+        "metadata": null,
+        "owners": [],
+        "pledge": 0,
+        "publicKey": "30cbb90cdb8ac8195a640da806dfefbd503e85a089b7bea90bc8adfc",
+        "relays": [
+          {
+            "single host name": {
+              "dnsName": "p4.example",
+              "port": 3001
+            }
+          },
+          {
+            "multi host name": {
+              "dnsName": "p4.example"
+            }
+          }
+        ],
+        "rewardAccount": {
+          "credential": {
+            "keyHash": "4375a50afd5a3dc611277e138e0ece5ce65a1cd89c9a2544fe6672a1"
+          },
+          "network": "Testnet"
+        },
+        "vrf": "1b5c9fbf842ad08f3e4702d28ba0902e4caa0bd26d12327851d87bc0752838fa"
+      },
+      "878a923b3fa231629261eb917063194385a6228e88d16572c006e31c": {
+        "cost": 340000000,
+        "margin": 0.0,
+        "metadata": null,
+        "owners": [],
+        "pledge": 0,
+        "publicKey": "878a923b3fa231629261eb917063194385a6228e88d16572c006e31c",
+        "relays": [
+          {
+            "single host name": {
+              "dnsName": "p5.example",
+              "port": 3001
+            }
+          },
+          {
+            "multi host name": {
+              "dnsName": "p5.example"
+            }
+          }
+        ],
+        "rewardAccount": {
+          "credential": {
+            "keyHash": "36f97fd53387aaf29ab5db00ff96adb60a441ac4059a7060a3412bef"
+          },
+          "network": "Testnet"
+        },
+        "vrf": "121cd697a196729949b2d80f7c59f05c6b4f68e7c001c5d89ff1cdc06cfca2c1"
+      }
+    },
+    "stake": {
+      "6c55673d8c0405c3572e3b3b5cfdd4129879a112c55d8e09451f5fdc": "2cd5c008f534a9133125f8376066657b7ccd0ec6df74a9246520030a",
+      "6f1b8c76bb478f6450cab8c06de9fdc1ab4450fd40961a0446ae9428": "878a923b3fa231629261eb917063194385a6228e88d16572c006e31c",
+      "8417e39f69cc0713aa2580be9958c9abac22f6c56f3cfc2e6fb8e1a2": "14f3abc153c13b3d8681e0e0bbde70594ac27f70d156a3727aac184a",
+      "bdce906507b3470011a654d7bbf6375c342c7db1b4c2f36f3ab464bb": "30cbb90cdb8ac8195a640da806dfefbd503e85a089b7bea90bc8adfc",
+      "fed4a71fbaff417fbb5df6cb89cd2810121599bd67d917d50e5ec51f": "193d546d81b491f6133683b673f960e3107e38dd658ed1d59e781acb"
+    }
+  },
+  "systemStart": "2025-09-03T05:38:00Z",
+  "updateQuorum": 1
+}
