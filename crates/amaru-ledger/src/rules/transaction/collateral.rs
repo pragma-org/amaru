@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    fmt::{self},
+};
 
 use amaru_kernel::{
     AlonzoValue, MemoizedTransactionOutput, MintedTransactionOutput, TransactionInput,
@@ -31,10 +34,24 @@ use crate::context::UtxoSlice;
  *  [-9223372036854775808, 18446744073709551615]
  * Which is within the bounds of an i64, so conversions are safe i64<->u64
  */
-#[derive(Debug)]
 pub struct CollateralBalance {
     pub coin: i64,
     pub multiasset: BTreeMap<Vec<u8>, i64>,
+}
+
+impl fmt::Debug for CollateralBalance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "({}, [{}])",
+            self.coin,
+            self.multiasset
+                .iter()
+                .map(|(asset_id, value)| format!("{}: {}", hex::encode(asset_id), value))
+                .collect::<Vec<String>>()
+                .join(",")
+        )
+    }
 }
 
 impl CollateralBalance {
@@ -128,8 +145,7 @@ pub enum InvalidCollateral {
     IncorrectTotalCollateral { provided: u64, expected: u64 },
     #[error("No collateral was provided, but collateral is required")]
     NoCollateral,
-    // TODO: can we provide more context, such as the difference in values?
-    #[error("Collateral input value not conserved")]
+    #[error("collateral has non-zero delta: {0:?}")]
     ValueNotConserved(CollateralBalance),
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("uncategorized error: {0}")]
