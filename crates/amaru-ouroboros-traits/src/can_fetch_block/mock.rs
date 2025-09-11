@@ -12,20 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod has_stake_distribution;
-pub use has_stake_distribution::{HasStakeDistribution, PoolSummary};
+use crate::can_fetch_block::{BlockFetchClientError, CanFetchBlock};
+use amaru_kernel::Point;
+use async_trait::async_trait;
 
-pub mod can_fetch_block;
-pub use can_fetch_block::{BlockFetchClientError, CanFetchBlock};
+/// A block fetcher.
+#[derive(Clone, Debug, Default)]
+pub struct MockCanFetchBlock;
 
-pub mod can_validate_blocks;
-pub use can_validate_blocks::{BlockValidationError, CanValidateBlocks};
-
-pub mod is_header;
-pub use is_header::*;
-
-pub mod praos;
-pub use praos::*;
-
-#[cfg(test)]
-pub use is_header::fake::tests::*;
+#[async_trait]
+impl CanFetchBlock for MockCanFetchBlock {
+    async fn fetch_block(&self, _point: &Point) -> Result<Vec<u8>, BlockFetchClientError> {
+        Ok(vec![])
+    }
+}

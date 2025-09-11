@@ -37,7 +37,8 @@ use amaru_kernel::{
     protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::block_validator::BlockValidator;
-use amaru_ouroboros_traits::{CanValidateBlocks, HasStakeDistribution, IsHeader};
+use amaru_network::block_fetch_client::PallasBlockFetchClient;
+use amaru_ouroboros_traits::{CanFetchBlock, CanValidateBlocks, HasStakeDistribution, IsHeader};
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{
@@ -54,10 +55,7 @@ use gasket::{
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::{
     facades::PeerClient,
-    miniprotocols::{
-        blockfetch,
-        chainsync::{Client, HeaderContent, Tip},
-    },
+    miniprotocols::chainsync::{Client, HeaderContent, Tip},
 };
 use pure_stage::{StageGraph, tokio::TokioBuilder};
 use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
@@ -189,7 +187,7 @@ pub fn bootstrap(
 
     let (chain_syncs, block_fetchs): (
         Vec<(Peer, Client<HeaderContent>)>,
-        Vec<(Peer, blockfetch::Client)>,
+        Vec<(Peer, Arc<dyn CanFetchBlock>)>,
     ) = clients
         .into_iter()
         .map(|(peer_name, client)| {
@@ -198,9 +196,12 @@ pub fn bootstrap(
                 blockfetch,
                 ..
             } = client;
+            let peer = Peer::new(&peer_name);
+            let block_fetch_client: Arc<dyn CanFetchBlock> =
+                Arc::new(PallasBlockFetchClient::new(&peer, blockfetch));
             (
-                (Peer::new(&peer_name), chainsync),
-                (Peer::new(&peer_name), blockfetch),
+                (peer.clone(), chainsync),
+                (peer.clone(), block_fetch_client),
             )
         })
         .collect();

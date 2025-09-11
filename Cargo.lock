@@ -127,7 +127,6 @@ dependencies = [
  "opentelemetry",
  "pallas-crypto",
  "pallas-math",
- "pallas-network",
  "pprof",
  "proptest",
  "pure-stage",
@@ -212,12 +211,12 @@ dependencies = [
 name = "amaru-network"
 version = "0.1.0"
 dependencies = [
- "amaru-consensus",
  "amaru-kernel",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
  "anyhow",
+ "async-trait",
  "hex",
  "insta",
  "minicbor",
@@ -273,6 +272,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-slot-arithmetic",
  "anyhow",
+ "async-trait",
  "hex",
  "proptest",
  "serde",

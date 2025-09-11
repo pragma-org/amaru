@@ -14,13 +14,9 @@
 
 use crate::point::to_network_point;
 use amaru_kernel::{Point, peer::Peer};
-use pallas_network::miniprotocols::chainsync::{
-    Client, ClientError, HeaderContent, NextResponse, Tip,
-};
+use pallas_network::miniprotocols::chainsync::{Client, ClientError, HeaderContent, NextResponse};
 use pallas_traverse::MultiEraHeader;
-
-use amaru_consensus::consensus::events::ChainSyncEvent;
-use tracing::{Level, Span, instrument};
+use tracing::{Level, instrument};
 
 pub type RawHeader = Vec<u8>;
 
@@ -85,39 +81,6 @@ impl ChainSyncClient {
             points: self.intersection.clone(),
         })?;
         Ok(())
-    }
-
-    pub async fn roll_forward(
-        &mut self,
-        header: &HeaderContent,
-    ) -> Result<ChainSyncEvent, ChainSyncClientError> {
-        let peer = &self.peer;
-        let header = to_traverse(header)?;
-        let point = Point::Specific(header.slot(), header.hash().to_vec());
-
-        let raw_header: RawHeader = header.cbor().to_vec();
-
-        let event = ChainSyncEvent::RollForward {
-            peer: peer.clone(),
-            point,
-            raw_header,
-            span: Span::current(),
-        };
-
-        Ok(event)
-    }
-
-    pub async fn roll_back(
-        &self,
-        rollback_point: Point,
-        _tip: Tip,
-    ) -> Result<ChainSyncEvent, ChainSyncClientError> {
-        let peer = &self.peer;
-        Ok(ChainSyncEvent::Rollback {
-            peer: peer.clone(),
-            rollback_point,
-            span: Span::current(),
-        })
     }
 
     pub async fn request_next(

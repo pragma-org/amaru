@@ -91,7 +91,8 @@ mod impls {
 
 #[cfg(not(feature = "telemetry"))]
 mod impls {
-    use super::*;
+    use crate::consensus::events::*;
+    use tracing::Span;
 
     pub fn adopt_current_span(_has_span: &impl HasSpan) -> Span {
         Span::current()

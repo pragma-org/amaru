@@ -16,15 +16,13 @@ use crate::consensus::effects::block_effects::FetchBlockEffect;
 use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::events::{ValidateBlockEvent, ValidateHeaderEvent};
 use crate::consensus::span::adopt_current_span;
-use crate::consensus::stages::fetch_block::miniprotocols::blockfetch::Client;
 use amaru_kernel::{Point, RawBlock, peer::Peer};
-use amaru_ouroboros_traits::IsHeader;
+use amaru_ouroboros_traits::{CanFetchBlock, IsHeader};
 use async_trait::async_trait;
-use pallas_network::miniprotocols;
 use pure_stage::{Effects, StageRef};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tracing::{Level, error, instrument};
 
 type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
@@ -93,7 +91,7 @@ pub trait BlockFetcher {
 
 /// This is a map of clients used to fetch blocks, with one client per peer.
 pub struct ClientsBlockFetcher {
-    clients: RwLock<BTreeMap<Peer, Arc<Mutex<Client>>>>,
+    clients: RwLock<BTreeMap<Peer, Arc<dyn CanFetchBlock>>>,
 }
 
 impl ClientsBlockFetcher {
@@ -109,15 +107,8 @@ impl ClientsBlockFetcher {
                 .cloned()
                 .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?
         };
-        let mut client = client.lock().await;
-        let new_point: miniprotocols::Point = match point.clone() {
-            Point::Origin => miniprotocols::Point::Origin,
-            Point::Specific(slot, hash) => {
-                pallas_network::miniprotocols::Point::Specific(slot, hash)
-            }
-        };
         client
-            .fetch_single(new_point)
+            .fetch_block(point)
             .await
             .map_err(|e| {
                 error!(target: "amaru::consensus", "failed to fetch block from peer {}: {}", peer.name, e);
@@ -127,10 +118,10 @@ impl ClientsBlockFetcher {
 }
 
 impl ClientsBlockFetcher {
-    pub fn new(clients: Vec<(Peer, Client)>) -> Self {
+    pub fn new(clients: Vec<(Peer, Arc<dyn CanFetchBlock>)>) -> Self {
         let mut cs = BTreeMap::new();
         for (peer, client) in clients {
-            cs.insert(peer, Arc::new(Mutex::new(client)));
+            cs.insert(peer, client);
         }
         Self {
             clients: RwLock::new(cs),

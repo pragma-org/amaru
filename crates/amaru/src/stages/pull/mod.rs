@@ -18,6 +18,7 @@ use crate::{
 };
 use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::{Point, peer::Peer};
+use amaru_network::chain_sync_client::{RawHeader, to_traverse};
 use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
 use gasket::framework::{Stage as StageTrait, *};
 use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse, Tip};
@@ -59,16 +60,26 @@ impl Stage {
     }
 
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
-        let event = self.client.roll_forward(header).await.or_panic()?;
+        let peer = &self.peer;
+        let header = to_traverse(header).map_err(|_| WorkerError::Panic)?;
+        let point = Point::Specific(header.slot(), header.hash().to_vec());
+        let raw_header: RawHeader = header.cbor().to_vec();
+
+        let event = ChainSyncEvent::RollForward {
+            peer: peer.clone(),
+            point,
+            raw_header,
+            span: Span::current(),
+        };
         send!(&mut self.downstream, event)
     }
 
-    pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
-        let event = self
-            .client
-            .roll_back(rollback_point, tip)
-            .await
-            .or_panic()?;
+    pub async fn roll_back(&mut self, rollback_point: Point) -> Result<(), WorkerError> {
+        let event = ChainSyncEvent::Rollback {
+            peer: self.peer.clone(),
+            rollback_point,
+            span: Span::current(),
+        };
         self.downstream.send(event.into()).await.or_panic()
     }
 
@@ -129,8 +140,8 @@ impl gasket::framework::Worker<Stage> for Worker {
                 stage.roll_forward(&header).await?;
                 PullMetrics::record_header_size_bytes(&mut stage.metrics_downstream, 1).await?;
             }
-            NextResponse::RollBackward(point, tip) => {
-                stage.roll_back(from_network_point(&point), tip).await?;
+            NextResponse::RollBackward(point, _tip) => {
+                stage.roll_back(from_network_point(&point)).await?;
             }
             NextResponse::Await => stage.caught_up().await?,
         };
