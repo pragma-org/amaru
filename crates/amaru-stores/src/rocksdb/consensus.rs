@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::chain_store::{ChainStore, ReadOnlyChainStore, StoreError};
-use amaru_kernel::{Hash, RawBlock, cbor, from_cbor, to_cbor, HEADER_HASH_SIZE, ORIGIN_HASH};
+use amaru_kernel::{HEADER_HASH_SIZE, Hash, ORIGIN_HASH, RawBlock, cbor, from_cbor, to_cbor};
 use amaru_ouroboros_traits::Nonces;
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_slot_arithmetic::EraHistory;
@@ -69,6 +69,11 @@ const ANCHOR_PREFIX: [u8; 5] = [0x61, 0x6e, 0x63, 0x68, 0x6f];
 /// "best_"
 const BEST_CHAIN_PREFIX: [u8; 5] = [0x62, 0x65, 0x73, 0x74, 0x5f];
 
+/// "child"
+const CHILD_PREFIX: [u8; 5] = [0x63, 0x68, 0x69, 0x6c, 0x64];
+
+const CHILD_PREFIX_LEN : usize = 5;
+
 macro_rules! impl_ReadOnlyChainStore {
     (for $($s:ty),+) => {
         $(impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ReadOnlyChainStore<H> for $s {
@@ -79,8 +84,23 @@ macro_rules! impl_ReadOnlyChainStore {
                     .and_then(|bytes| from_cbor(bytes?.as_ref()))
             }
 
-            fn get_children(&self, _hash: &Hash<32>) -> Vec<Hash<32>> {
-                unimplemented!("get_children is not implemented for ReadOnlyStore")
+            fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>> {
+                let mut result = Vec::new();
+                for res in self.db.prefix_iterator([&CHILD_PREFIX[..], &hash[..]].concat()) {
+                    match res {
+                        Ok((key, _value)) => {
+                            if key.len() == CHILD_PREFIX_LEN + HEADER_HASH_SIZE * 2 {
+                                let mut arr = [0u8; 32];
+                                arr.copy_from_slice(&key[(CHILD_PREFIX_LEN + HEADER_HASH_SIZE)..]);
+                                result.push(Hash::from(arr));
+                            }
+                        },
+                        Err(err) => {
+                            panic!("error iterating over children: {}", err);
+                        }
+                    }}
+
+                result
             }
 
             fn get_anchor_hash(&self) -> Hash<32> {
@@ -147,11 +167,24 @@ impl_ReadOnlyChainStore!(for ReadOnlyChainDB, RocksDBStore);
 impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     #[instrument(level = Level::TRACE, skip_all, fields(%hash))]
     fn store_header(&self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
-        self.db
+        let tx = self.db.transaction();
+        if let Some(parent) = header.parent() {
+            tx.put(
+                [&CHILD_PREFIX[..], &parent[..], &hash[..]].concat(),
+                &[],
+            )
+            .map_err(|e| StoreError::WriteError {
+                error: e.to_string(),
+            })?;
+        };
+        tx
             .put(hash, to_cbor(header))
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),
-            })
+            })?;
+        tx.commit().map_err(|e| StoreError::WriteError {
+            error: e.to_string(),
+        })
     }
 
     fn put_nonces(&self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
@@ -181,15 +214,19 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
     }
 
     fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
-        self.db.put(&ANCHOR_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError {
-            error: e.to_string(),
-        })
+        self.db
+            .put(&ANCHOR_PREFIX, hash.as_ref())
+            .map_err(|e| StoreError::WriteError {
+                error: e.to_string(),
+            })
     }
 
     fn set_best_chain_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
-        self.db.put(&BEST_CHAIN_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError {
-            error: e.to_string(),
-        })
+        self.db
+            .put(&BEST_CHAIN_PREFIX, hash.as_ref())
+            .map_err(|e| StoreError::WriteError {
+                error: e.to_string(),
+            })
     }
 }
 
@@ -197,10 +234,12 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
 mod test {
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
-    use amaru_kernel::{EraHistory, network::NetworkName, Header};
-    use amaru_ouroboros_traits::is_header::fake::FakeHeader;
-    use std::{fs::create_dir_all, path::PathBuf};
+    use amaru_kernel::{EraHistory, Header, network::NetworkName};
+    use amaru_ouroboros_traits::is_header::fake::{FakeHeader, tests};
+    use proptest::strategy::{Strategy, ValueTree};
+    use proptest::test_runner::TestRunner;
     use std::sync::Arc;
+    use std::{fs::create_dir_all, path::PathBuf};
     use tempfile::TempDir;
 
     fn init_dir_and_era(tempdir: &TempDir) -> (PathBuf, EraHistory) {
@@ -311,5 +350,25 @@ mod test {
         let anchor = random_hash();
         rw_store.set_anchor_hash(&anchor).unwrap();
         assert_eq!(rw_store.get_anchor_hash(), anchor);
+    }
+
+    #[test]
+    fn store_parent_children_relationship_for_header() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let rw_store: Arc<dyn ChainStore<FakeHeader>> =
+            Arc::new(initialise_test_rw_store(&tempdir));
+        let mut runner = TestRunner::default();
+        let chain = tests::any_headers_chain_sized(3)
+            .new_tree(&mut runner)
+            .unwrap()
+            .current();
+
+        for header in &chain {
+            rw_store.store_header(&header.hash(), &header).unwrap();
+        }
+
+        let h = chain[0];
+        let children = rw_store.get_children(&h.hash());
+        assert_eq!(children, vec![chain[1].hash()]);
     }
 }

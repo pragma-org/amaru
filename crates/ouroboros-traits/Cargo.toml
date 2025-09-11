@@ -12,9 +12,15 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+test-utils = ["proptest", "dep:rand"]
+
 [dependencies]
 anyhow.workspace = true
 hex.workspace = true
+proptest = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 
 amaru-kernel.workspace = true
