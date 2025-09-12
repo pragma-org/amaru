@@ -35,7 +35,7 @@ use amaru_kernel::{
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{
-        RocksDB, RocksDBHistoricalStores,
+        RocksDB, RocksDBHistoricalStores, RocksDBMaxOpenFiles,
         consensus::{InMemConsensusStore, RocksDBStore},
     },
 };
@@ -55,10 +55,12 @@ use pallas_network::{
     },
 };
 use pure_stage::{StageGraph, tokio::TokioBuilder};
+#[cfg(unix)]
+use rlimit::{Resource, getrlimit};
 use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-
+use tracing::warn;
 pub mod common;
 pub mod consensus;
 pub mod ledger;
@@ -93,6 +95,7 @@ pub struct Config {
     pub listen_address: String,
     pub max_downstream_peers: usize,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
+    pub max_rocksdb_open_files: RocksDBMaxOpenFiles,
 }
 
 impl Default for Config {
@@ -106,8 +109,45 @@ impl Default for Config {
             listen_address: "0.0.0.0:3000".to_string(),
             max_downstream_peers: 10,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
+            max_rocksdb_open_files: estimate_max_open_files(),
         }
     }
+}
+
+#[cfg(unix)]
+fn estimate_max_open_files() -> RocksDBMaxOpenFiles {
+    match getrlimit(Resource::NOFILE) {
+        Ok((soft_limit, hard_limit)) => {
+            const FD_RESERVE_FOR_OTHERS: u64 = 100;
+            const ESTIMATED_NUMBER_OF_ROCKSDB_INSTANCES: u64 = 4;
+            const MIN_FD_PER_INSTANCE: u64 = 10;
+
+            let max_open_files = (soft_limit.saturating_sub(FD_RESERVE_FOR_OTHERS)
+                / ESTIMATED_NUMBER_OF_ROCKSDB_INSTANCES)
+                .max(MIN_FD_PER_INSTANCE);
+            let max_open_files = max_open_files.min(i32::MAX as u64) as i32;
+
+            if soft_limit < 65_535 {
+                warn!(
+                    "Setting max open files per RocksDB instance to {}. Consider increasing ulimit for better performance. Current (soft/hard): {}/{}",
+                    max_open_files, soft_limit, hard_limit
+                );
+            }
+            RocksDBMaxOpenFiles::Limit(max_open_files)
+        }
+        Err(err) => {
+            warn!(
+                "Unable to query rlimit for max open files: {err}. Using -1 (no limit) for RocksDB."
+            );
+            RocksDBMaxOpenFiles::NoLimit
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn estimate_max_open_files() -> RocksDBMaxOpenFiles {
+    warn!("RLIMIT_NOFILE not available on this platform; defaulting to -1 (no limit) for RocksDB.");
+    RocksDBMaxOpenFiles::NoLimit
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -330,7 +370,11 @@ fn make_chain_store(
 ) -> Result<ChainStoreResult, Box<dyn Error>> {
     let chain_store: Box<dyn ChainStore<Header>> = match config.chain_store {
         StorePath::InMem(()) => Box::new(InMemConsensusStore::new()),
-        StorePath::OnDisk(ref chain_dir) => Box::new(RocksDBStore::new(chain_dir, era_history)?),
+        StorePath::OnDisk(ref chain_dir) => Box::new(RocksDBStore::new(
+            chain_dir,
+            config.max_rocksdb_open_files,
+            era_history,
+        )?),
     };
 
     let (our_tip, header) = if let amaru_kernel::Point::Specific(_slot, hash) = &tip {
@@ -407,9 +451,10 @@ fn make_ledger(
         }
         StorePath::OnDisk(ledger_dir) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
-                RocksDB::new(ledger_dir)?,
+                RocksDB::new(ledger_dir, config.max_rocksdb_open_files)?,
                 RocksDBHistoricalStores::new(
                     ledger_dir,
+                    config.max_rocksdb_open_files,
                     u64::from(config.max_extra_ledger_snapshots),
                 ),
                 network,

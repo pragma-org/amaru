@@ -18,7 +18,7 @@ use amaru_ledger::{
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
 use amaru_progress_bar::new_terminal_progress_bar;
-use amaru_stores::rocksdb::RocksDB;
+use amaru_stores::rocksdb::{RocksDB, RocksDBMaxOpenFiles};
 use clap::Parser;
 use std::{fs, path::PathBuf};
 use tracing::info;
@@ -139,7 +139,7 @@ pub async fn import_one(
     .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
-    let db = RocksDB::empty(ledger_dir)?;
+    let db = RocksDB::empty(ledger_dir, RocksDBMaxOpenFiles::NoLimit)?;
     let bytes = fs::read(snapshot)?;
 
     let epoch = import_initial_snapshot(
