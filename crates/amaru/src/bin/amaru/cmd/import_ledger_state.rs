@@ -101,14 +101,11 @@ pub(crate) async fn import_all_from_directory(
 fn sort_snapshots_by_slot(snapshots: &mut [PathBuf]) {
     // Sort by parsed slot number from filename
     snapshots.sort_by_key(|path| {
-        path.file_stem()
+        path.file_prefix()
             .and_then(|s| s.to_str())
-            .and_then(|s| s.split('.').next())
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(u64::MAX)
     });
-
-    snapshots.sort();
 }
 
 pub async fn import_all(
@@ -161,4 +158,35 @@ pub async fn import_one(
 
     info!("Imported snapshot for epoch {}", epoch);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::cmd::import_ledger_state::sort_snapshots_by_slot;
+
+    #[test]
+    fn sort_snapshot_file_names_by_slot_number() {
+        let mut paths = [
+            PathBuf::from(
+                "172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.cbor",
+            ),
+            PathBuf::from(
+                "259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.cbor",
+            ),
+            PathBuf::from(
+                "86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor",
+            ),
+        ];
+
+        sort_snapshots_by_slot(&mut paths);
+
+        assert_eq!(
+            PathBuf::from(
+                "86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor"
+            ),
+            paths[0]
+        );
+    }
 }
