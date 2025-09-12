@@ -11,9 +11,12 @@ documentation.workspace = true
 
 publish = false
 
+[features]
+default = ["getrandom/wasm_js"]
+
 [dependencies]
 amaru-kernel = { path = "../../crates/amaru-kernel" }
 amaru-ledger = { path = "../../crates/amaru-ledger" }
 amaru-stores = { path = "../../crates/amaru-stores", default-features = false }
-
+getrandom = { version = "0.3.3", features = ["wasm_js"] }
 hex.workspace = true
