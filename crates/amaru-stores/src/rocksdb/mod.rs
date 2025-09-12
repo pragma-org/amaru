@@ -83,6 +83,21 @@ const DIR_LIVE_DB: &str = "live";
 // RocksDB
 // ----------------------------------------------------------------------------
 
+#[derive(Copy, Clone)]
+pub enum RocksDBMaxOpenFiles {
+    NoLimit,
+    Limit(i32),
+}
+
+impl From<RocksDBMaxOpenFiles> for i32 {
+    fn from(value: RocksDBMaxOpenFiles) -> Self {
+        match value {
+            RocksDBMaxOpenFiles::NoLimit => -1,
+            RocksDBMaxOpenFiles::Limit(n) => n,
+        }
+    }
+}
+
 // An opaque handle for a store implementation of top of RocksDB. The database has the
 // following structure:
 //
@@ -159,9 +174,9 @@ impl RocksDB {
         Ok(snapshots)
     }
 
-    pub fn new(dir: &Path) -> Result<Self, StoreError> {
+    pub fn new(dir: &Path, max_open_files: RocksDBMaxOpenFiles) -> Result<Self, StoreError> {
         assert_sufficient_snapshots(dir)?;
-        let mut opts = default_opts_with_prefix();
+        let mut opts = default_opts_with_prefix(max_open_files);
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, dir.join("live"))
             .map(|db| Self {
@@ -173,10 +188,9 @@ impl RocksDB {
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
-    pub fn empty(dir: &Path) -> Result<RocksDB, StoreError> {
-        let mut opts = Options::default();
+    pub fn empty(dir: &Path, max_open_files: RocksDBMaxOpenFiles) -> Result<RocksDB, StoreError> {
+        let mut opts = default_opts_with_prefix(max_open_files);
         opts.create_if_missing(true);
-        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
         OptimisticTransactionDB::open(&opts, dir.join("live"))
             .map(|db| Self {
                 dir: dir.to_path_buf(),
@@ -202,9 +216,9 @@ pub struct ReadOnlyRocksDB {
 }
 
 impl ReadOnlyRocksDB {
-    pub fn new(dir: &Path) -> Result<Self, StoreError> {
+    pub fn new(dir: &Path, max_open_files: RocksDBMaxOpenFiles) -> Result<Self, StoreError> {
         assert_sufficient_snapshots(dir)?;
-        let opts = default_opts_with_prefix();
+        let opts = default_opts_with_prefix(max_open_files);
         rocksdb::DB::open_for_read_only(&opts, dir.join("live"), false)
             .map(|db| ReadOnlyRocksDB { db })
             .map_err(|err| StoreError::Internal(err.into()))
@@ -271,21 +285,31 @@ impl Store for RocksDB {
 
 pub struct RocksDBHistoricalStores {
     dir: PathBuf,
+    max_open_files: RocksDBMaxOpenFiles,
     max_extra_ledger_snapshots: u64,
 }
 
 impl RocksDBHistoricalStores {
-    pub fn for_epoch_with(base_dir: &Path, epoch: Epoch) -> Result<RocksDBSnapshot, StoreError> {
-        let opts = default_opts_with_prefix();
+    pub fn for_epoch_with(
+        base_dir: &Path,
+        max_open_files: RocksDBMaxOpenFiles,
+        epoch: Epoch,
+    ) -> Result<RocksDBSnapshot, StoreError> {
+        let opts = default_opts_with_prefix(max_open_files);
 
         OptimisticTransactionDB::open(&opts, base_dir.join(PathBuf::from(format!("{epoch}"))))
             .map_err(|err| StoreError::Internal(err.into()))
             .map(|db| RocksDBSnapshot { epoch, db })
     }
 
-    pub fn new(dir: &Path, max_extra_ledger_snapshots: u64) -> Self {
+    pub fn new(
+        dir: &Path,
+        max_open_files: RocksDBMaxOpenFiles,
+        max_extra_ledger_snapshots: u64,
+    ) -> Self {
         RocksDBHistoricalStores {
             dir: dir.to_path_buf(),
+            max_open_files,
             max_extra_ledger_snapshots,
         }
     }
@@ -317,7 +341,7 @@ impl HistoricalStores for RocksDBHistoricalStores {
         Ok(snapshots)
     }
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
-        RocksDBHistoricalStores::for_epoch_with(&self.dir, epoch)
+        RocksDBHistoricalStores::for_epoch_with(&self.dir, self.max_open_files, epoch)
     }
 }
 
@@ -873,9 +897,10 @@ fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn default_opts_with_prefix() -> Options {
+fn default_opts_with_prefix(max_open_files: RocksDBMaxOpenFiles) -> Options {
     let mut opts = Options::default();
     opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
+    opts.set_max_open_files(max_open_files.into());
     opts
 }
 
@@ -984,7 +1009,10 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::{
-        rocksdb::{ReadOnlyRocksDB, RocksDB, pretty_print_snapshot_ranges, split_continuous},
+        rocksdb::{
+            ReadOnlyRocksDB, RocksDB, RocksDBMaxOpenFiles, pretty_print_snapshot_ranges,
+            split_continuous,
+        },
         tests::{
             Fixture, add_test_data_to_store, test_epoch_transition, test_read_account,
             test_read_drep, test_read_pool, test_read_utxo, test_refund_account,
@@ -1002,7 +1030,8 @@ mod tests {
             (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let tmp_dir = TempDir::new().expect("failed to create temp dir");
 
-        let store = RocksDB::empty(tmp_dir.path()).map_err(|e| StoreError::Internal(e.into()))?;
+        let store = RocksDB::empty(tmp_dir.path(), RocksDBMaxOpenFiles::NoLimit)
+            .map_err(|e| StoreError::Internal(e.into()))?;
 
         let fixture = add_test_data_to_store(&store, &era_history, runner)?;
         Ok((store, fixture))
@@ -1017,10 +1046,12 @@ mod tests {
         let file_path = dir.path().join("0");
         let _fake_snapshot = File::create(&file_path).unwrap();
 
-        let rw_db = RocksDB::new(dir.path()).inspect_err(|e| eprintln!("{e:#?}"));
+        let rw_db = RocksDB::new(dir.path(), RocksDBMaxOpenFiles::NoLimit)
+            .inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(rw_db, Ok(..)));
 
-        let ro_db = ReadOnlyRocksDB::new(dir.path()).inspect_err(|e| eprintln!("{e:#?}"));
+        let ro_db = ReadOnlyRocksDB::new(dir.path(), RocksDBMaxOpenFiles::NoLimit)
+            .inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
     }
 

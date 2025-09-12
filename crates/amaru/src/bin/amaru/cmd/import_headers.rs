@@ -14,7 +14,7 @@
 
 use amaru_consensus::{IsHeader, consensus::store::ChainStore};
 use amaru_kernel::{Header, default_chain_dir, from_cbor, network::NetworkName};
-use amaru_stores::rocksdb::consensus::RocksDBStore;
+use amaru_stores::rocksdb::{RocksDBMaxOpenFiles, consensus::RocksDBStore};
 use clap::Parser;
 use gasket::framework::*;
 use std::{
@@ -82,7 +82,7 @@ pub(crate) async fn import_headers_for_network(
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     let era_history = network.into();
-    let mut db = RocksDBStore::new(chain_dir, era_history)?;
+    let mut db = RocksDBStore::new(chain_dir, RocksDBMaxOpenFiles::NoLimit, era_history)?;
 
     for entry in std::fs::read_dir(config_dir.join("headers"))? {
         let entry = entry?;

@@ -24,7 +24,7 @@ use amaru_ledger::{
     },
 };
 use amaru_slot_arithmetic::Epoch;
-use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot};
+use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBMaxOpenFiles, RocksDBSnapshot};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -52,6 +52,7 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
             Arc::new(
                 RocksDBHistoricalStores::for_epoch_with(
                     &PathBuf::from(format!("../../{}", default_ledger_dir(network))),
+                    RocksDBMaxOpenFiles::NoLimit,
                     epoch,
                 )
                 .unwrap_or_else(|err| {

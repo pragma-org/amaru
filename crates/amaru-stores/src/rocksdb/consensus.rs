@@ -21,7 +21,9 @@ use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_slot_arithmetic::EraHistory;
 use rocksdb::{DB, OptimisticTransactionDB, Options};
 use std::{collections::BTreeMap, path::PathBuf};
-use tracing::{Level, error, instrument};
+use tracing::{Level, error, instrument, warn};
+
+use crate::rocksdb::RocksDBMaxOpenFiles;
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
@@ -34,8 +36,13 @@ pub struct ReadOnlyChainDB {
 }
 
 impl RocksDBStore {
-    pub fn new(basedir: &PathBuf, era_history: &EraHistory) -> Result<Self, StoreError> {
+    pub fn new(
+        basedir: &PathBuf,
+        max_open_files: RocksDBMaxOpenFiles,
+        era_history: &EraHistory,
+    ) -> Result<Self, StoreError> {
         let mut opts = Options::default();
+        opts.set_max_open_files(max_open_files.into());
         opts.create_if_missing(true);
         Ok(Self {
             db: OptimisticTransactionDB::open(&opts, basedir).map_err(|e| {
@@ -191,6 +198,8 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
 
 #[cfg(test)]
 mod test {
+    use crate::rocksdb::RocksDBMaxOpenFiles;
+
     use super::*;
     use amaru_kernel::tests::random_bytes;
     use amaru_kernel::{EraHistory, network::NetworkName};
@@ -208,7 +217,8 @@ mod test {
         let (basedir, era_history) = init_dir_and_era(tempdir);
         create_dir_all(&basedir).unwrap();
 
-        RocksDBStore::new(&basedir, &era_history).expect("fail to initialise RocksDB")
+        RocksDBStore::new(&basedir, RocksDBMaxOpenFiles::NoLimit, &era_history)
+            .expect("fail to initialise RocksDB")
     }
 
     fn initialise_test_ro_store(tempdir: &TempDir) -> Result<ReadOnlyChainDB, StoreError> {

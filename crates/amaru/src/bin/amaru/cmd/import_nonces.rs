@@ -16,7 +16,7 @@ use amaru_consensus::{Nonces, consensus::store::ChainStore};
 use amaru_kernel::{
     EraHistory, Hash, Header, Nonce, Point, default_chain_dir, network::NetworkName, parse_nonce,
 };
-use amaru_stores::rocksdb::consensus::RocksDBStore;
+use amaru_stores::rocksdb::{RocksDBMaxOpenFiles, consensus::RocksDBStore};
 use clap::Parser;
 use serde::{Deserialize, Deserializer};
 use std::{error::Error, path::PathBuf};
@@ -102,8 +102,11 @@ pub(crate) async fn import_nonces(
     chain_db_path: &PathBuf,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
-    let mut db =
-        Box::new(RocksDBStore::new(chain_db_path, era_history)?) as Box<dyn ChainStore<Header>>;
+    let mut db = Box::new(RocksDBStore::new(
+        chain_db_path,
+        RocksDBMaxOpenFiles::NoLimit,
+        era_history,
+    )?) as Box<dyn ChainStore<Header>>;
 
     let header_hash = Hash::from(&initial_nonce.at);
 
