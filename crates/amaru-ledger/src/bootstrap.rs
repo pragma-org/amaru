@@ -98,7 +98,7 @@ pub fn import_initial_snapshot(
     // Epoch State
     d.array()?;
 
-    // Epoch State / Account State
+   // Epoch State / Account State
     d.array()?;
     let treasury: i64 = d.decode()?;
     let reserves: i64 = d.decode()?;
