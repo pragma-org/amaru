@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # copy data for amaru nodes
 
+set -vx
+
 copy_databases() {
     target=/state/$1
 
-    cp -fr ledger.testnet\:42.db "$target"
-    cp -fr chain.testnet\:42.db "$target"
+    cp -fr /data/ledger.testnet\:42.db "$target/ledger.db"
+    cp -fr /data/chain.testnet\:42.db "$target/chain.db"
 }
 
-pools=$(ls -d /state/*)
-number_of_pools=$(ls -d /state/* | wc -l)
+nodes=$(ls -d /state/*)
+number_of_nodes=$(ls -d /state/* | wc -l)
 echo "number_of_nodes: $number_of_nodes"
 for node in $nodes; do
   node_ix=$(echo "$node" | awk -F '/' '{print $3}')

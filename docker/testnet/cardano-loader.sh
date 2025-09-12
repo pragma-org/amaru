@@ -69,8 +69,8 @@ EOF
 }
 
 set_start_time() {
-    # set start time 3 * epochs in the past
-    SYSTEM_START_UNIX=$(echo "$(date +%s) - (86400 * 3)" | bc)
+    # set start time 5 * epochs in the past
+    SYSTEM_START_UNIX=$(echo "$(date +%s) - (86400 * 5)" | bc)
 
     SHELLEY_GENESIS_JSON="$1/configs/shelley-genesis.json"
     BYRON_GENESIS_JSON="$1/configs/byron-genesis.json"
