@@ -16,7 +16,7 @@ use crate::ConsensusError;
 use crate::consensus::store::PraosChainStore;
 use amaru_kernel::{Header, Point, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::Praos;
-use amaru_stores::chain_store::ChainStore;
+use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
 

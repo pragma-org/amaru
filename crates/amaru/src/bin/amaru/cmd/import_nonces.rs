@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::Nonces;
+use amaru_consensus::{ChainStore, Nonces};
 use amaru_kernel::{
     EraHistory, Hash, Header, Nonce, Point, default_chain_dir, network::NetworkName, parse_nonce,
 };
-use amaru_stores::chain_store::ChainStore;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use serde::{Deserialize, Deserializer};

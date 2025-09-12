@@ -14,8 +14,7 @@
 
 use crate::ConsensusError;
 use amaru_kernel::{Header, Point, RawBlock, block::ValidateBlockEvent};
-use amaru_ouroboros_traits::IsHeader;
-use amaru_stores::chain_store::ChainStore;
+use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use std::sync::Arc;
 
 pub struct StoreBlock {

@@ -22,7 +22,6 @@ use std::fmt::Display;
 use thiserror::Error;
 
 pub use amaru_ouroboros_traits::*;
-use amaru_stores::chain_store::StoreError;
 
 /// Consensus interface
 ///

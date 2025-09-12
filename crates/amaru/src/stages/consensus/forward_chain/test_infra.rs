@@ -16,10 +16,9 @@
 use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
-use amaru_consensus::IsHeader;
+use amaru_consensus::{ChainStore, IsHeader};
 use amaru_kernel::block::BlockValidationResult;
 use amaru_kernel::{Hash, Header, RawBlock, from_cbor};
-use amaru_stores::chain_store::ChainStore;
 use amaru_stores::in_memory::consensus::InMemConsensusStore;
 use gasket::{
     messaging::tokio::ChannelRecvAdapter,

@@ -14,13 +14,13 @@
 
 use amaru_kernel::{Nonce, Point, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{Nonces, praos::nonce};
-use amaru_ouroboros_traits::{IsHeader, Praos};
+use amaru_ouroboros_traits::{ChainStore, IsHeader, Praos, StoreError};
 use amaru_slot_arithmetic::EraHistoryError;
-use amaru_stores::chain_store::{ChainStore, StoreError};
 use pallas_crypto::hash::Hash;
 use std::sync::Arc;
 use thiserror::Error;
 
+/// A wrapper around a `ChainStore` that implements the `Praos` trait, supporting nonce evolution.
 pub struct PraosChainStore<H> {
     store: Arc<dyn ChainStore<H>>,
 }
@@ -141,10 +141,9 @@ mod test {
     use super::*;
     use crate::test::include_header;
     use amaru_kernel::{Header, from_cbor, hash, network::NetworkName, to_cbor};
-    use amaru_ouroboros_traits::{IsHeader, Praos};
+    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+    use amaru_ouroboros_traits::{IsHeader, Praos, ReadOnlyChainStore};
     use amaru_slot_arithmetic::Epoch;
-    use amaru_stores::chain_store::ReadOnlyChainStore;
-    use amaru_stores::in_memory::consensus::InMemConsensusStore;
     use proptest::{prelude::*, prop_compose, proptest};
     use std::sync::{Arc, LazyLock};
 

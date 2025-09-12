@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{ChainStore, ReadOnlyChainStore, StoreError};
+use crate::{IsHeader, Nonces};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::{Hash, ORIGIN_HASH, RawBlock};
-use amaru_ouroboros_traits::{ChainStore, IsHeader, Nonces, ReadOnlyChainStore, StoreError};
 use amaru_slot_arithmetic::EraHistory;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
-use tracing::error;
 
 pub struct InMemConsensusStore<H> {
     inner: Mutex<InMemConsensusStoreInner<H>>,
@@ -76,13 +76,7 @@ impl<H: IsHeader + Clone + Send + Sync + Clone> ReadOnlyChainStore<H> for InMemC
     #[expect(clippy::unwrap_used)]
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
         let inner = self.inner.lock().unwrap();
-        inner.nonces.get(header).cloned().or_else(|| {
-            error!("failed to find nonce {}", header);
-            for (key, value) in inner.headers.iter() {
-                error!("{:?}: {:?}", key, value.hash());
-            }
-            None
-        })
+        inner.nonces.get(header).cloned()
     }
 
     #[expect(clippy::unwrap_used)]

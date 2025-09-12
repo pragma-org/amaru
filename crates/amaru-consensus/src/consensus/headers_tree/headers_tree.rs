@@ -20,9 +20,8 @@ use crate::consensus::select_chain::{Fork, ForwardChainSelection, RollbackChainS
 use crate::{ConsensusError, InvalidHeaderParentData};
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HEADER_HASH_SIZE, ORIGIN_HASH, Point, peer::Peer};
-use amaru_ouroboros_traits::IsHeader;
-use amaru_stores::chain_store::ChainStore;
-use amaru_stores::in_memory::consensus::InMemConsensusStore;
+use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use itertools::Itertools;
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -61,15 +60,19 @@ impl<H: PartialEq> PartialEq for HeadersTree<H> {
 
 impl<H: Eq> Eq for HeadersTree<H> {}
 
+/// For now this data type is only used to implement Serialize and Deserialize for HeadersTree
+/// by avoiding serializing the chain_store field.
+///
+/// This will be revisited when the store effects will all be available in pure-stage.
 #[derive(Clone, Serialize, Deserialize)]
-struct HeadersTreeData {
+struct HeadersTreeState {
     max_length: usize,
     peers: BTreeMap<Tracker, Vec<HeaderHash>>,
 }
 
-impl<H> From<&HeadersTree<H>> for HeadersTreeData {
+impl<H> From<&HeadersTree<H>> for HeadersTreeState {
     fn from(tree: &HeadersTree<H>) -> Self {
-        HeadersTreeData {
+        HeadersTreeState {
             max_length: tree.max_length,
             peers: tree.peers.clone(),
         }
@@ -81,7 +84,7 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> Serialize for HeadersTree<H> {
     where
         S: Serializer,
     {
-        HeadersTreeData::from(self).serialize(serializer)
+        HeadersTreeState::from(self).serialize(serializer)
     }
 }
 
@@ -90,7 +93,9 @@ impl<'de, H: IsHeader + Clone + Send + Sync + 'static> Deserialize<'de> for Head
     where
         D: Deserializer<'de>,
     {
-        let data = HeadersTreeData::deserialize(deserializer)?;
+        let data = HeadersTreeState::deserialize(deserializer)?;
+
+        // When deserializing we create a new in-memory store. This is just a stop-gap implementation for now.
         Ok(HeadersTree {
             max_length: data.max_length,
             peers: data.peers,
@@ -186,6 +191,7 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
         Tree::from(&as_map)
     }
 
+    /// Load all the headers in the subtree rooted at the given hash
     fn load_headers(&self, root: &Hash<HEADER_HASH_SIZE>) -> Vec<H> {
         let mut headers = vec![];
         if let Some(header) = self.chain_store.load_header(root) {
@@ -205,6 +211,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
         HeadersTree::create(chain_store, max_length)
     }
 
+    /// Create a new HeadersTree with an in-memory store for testing purposes.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn new_in_memory(max_length: usize) -> HeadersTree<H> {
         HeadersTree::new(Arc::new(InMemConsensusStore::new()), max_length)

@@ -14,9 +14,8 @@
 
 use super::{ClientOp, hash_point};
 use crate::stages::AsTip;
-use amaru_consensus::IsHeader;
+use amaru_consensus::{ChainStore, IsHeader};
 use amaru_kernel::Header;
-use amaru_stores::chain_store::ChainStore;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
 use std::sync::Arc;

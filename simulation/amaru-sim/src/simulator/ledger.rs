@@ -13,9 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{Header, RationalNumber, protocol_parameters::GlobalParameters};
-use amaru_ouroboros::{HasStakeDistribution, Nonces, PoolSummary};
+use amaru_ouroboros::{ChainStore, HasStakeDistribution, Nonces, PoolSummary, StoreError};
 use amaru_slot_arithmetic::{Epoch, Slot};
-use amaru_stores::chain_store::{ChainStore, StoreError};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use serde_json::Error;

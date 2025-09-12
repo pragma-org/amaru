@@ -12,30 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod in_memory_consensus_store;
+
+use crate::{IsHeader, Nonces};
 use amaru_kernel::{Hash, RawBlock};
-use amaru_ouroboros_traits::{IsHeader, Nonces};
 use amaru_slot_arithmetic::EraHistory;
 use std::fmt::Display;
 use thiserror::Error;
-
-#[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-pub enum StoreError {
-    WriteError { error: String },
-    ReadError { error: String },
-    OpenError { error: String },
-    NotFound { hash: Hash<32> },
-}
-
-impl Display for StoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StoreError::WriteError { error } => write!(f, "WriteError: {}", error),
-            StoreError::ReadError { error } => write!(f, "ReadError: {}", error),
-            StoreError::OpenError { error } => write!(f, "OpenError: {}", error),
-            StoreError::NotFound { hash } => write!(f, "NotFound: {}", hash),
-        }
-    }
-}
 
 pub trait ReadOnlyChainStore<H>
 where
@@ -92,4 +75,23 @@ where
     fn store_block(&self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError>;
     fn put_nonces(&self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError>;
     fn era_history(&self) -> &EraHistory;
+}
+
+#[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum StoreError {
+    WriteError { error: String },
+    ReadError { error: String },
+    OpenError { error: String },
+    NotFound { hash: Hash<32> },
+}
+
+impl Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StoreError::WriteError { error } => write!(f, "WriteError: {}", error),
+            StoreError::ReadError { error } => write!(f, "ReadError: {}", error),
+            StoreError::OpenError { error } => write!(f, "OpenError: {}", error),
+            StoreError::NotFound { hash } => write!(f, "NotFound: {}", hash),
+        }
+    }
 }

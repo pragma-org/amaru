@@ -19,8 +19,8 @@ use super::{
     client_state::{ClientState, find_headers_between},
 };
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
+use amaru_consensus::ChainStore;
 use amaru_kernel::{Hash, Header, to_cbor};
-use amaru_stores::chain_store::ChainStore;
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{

@@ -15,7 +15,7 @@
 use amaru_kernel::{Lovelace, PoolId, VrfKeyhash};
 use amaru_slot_arithmetic::Slot;
 
-pub mod mock;
+pub mod mock_ledger_state;
 
 #[derive(Debug)]
 pub struct PoolSummary {

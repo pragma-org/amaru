@@ -23,7 +23,7 @@ use amaru_consensus::consensus::select_chain::SelectChain;
 use amaru_consensus::consensus::store_block::StoreBlock;
 use amaru_consensus::consensus::store_effects::ResourceHeaderStore;
 use amaru_consensus::consensus::{ChainSyncEvent, build_stage_graph};
-use amaru_consensus::{ConsensusError, HasStakeDistribution, IsHeader};
+use amaru_consensus::{ChainStore, ConsensusError, HasStakeDistribution, IsHeader};
 use amaru_kernel::{
     EraHistory, Hash, Header, Point,
     block::{BlockValidationResult, ValidateBlockEvent},
@@ -32,7 +32,6 @@ use amaru_kernel::{
     protocol_parameters::GlobalParameters,
 };
 use amaru_kernel::{HEADER_HASH_SIZE, ORIGIN_HASH};
-use amaru_stores::chain_store::ChainStore;
 use amaru_stores::{
     in_memory::{MemoryStore, consensus::InMemConsensusStore},
     rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore},

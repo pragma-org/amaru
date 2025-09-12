@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::chain_store::{ChainStore, ReadOnlyChainStore, StoreError};
 use amaru_kernel::{HEADER_HASH_SIZE, Hash, ORIGIN_HASH, RawBlock, cbor, from_cbor, to_cbor};
-use amaru_ouroboros_traits::Nonces;
 use amaru_ouroboros_traits::is_header::IsHeader;
+use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use amaru_slot_arithmetic::EraHistory;
 use rocksdb::{ColumnFamilyDescriptor, DB, OptimisticTransactionDB, Options, SliceTransform};
 use std::path::PathBuf;

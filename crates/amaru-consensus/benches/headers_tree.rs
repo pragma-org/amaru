@@ -35,10 +35,11 @@ fn main() {
         Ratio, execute_actions_on_tree, generate_random_walks, generate_test_header_tree,
     };
     use amaru_consensus::consensus::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
-    use amaru_stores::chain_store::ChainStore;
+    use amaru_ouroboros_traits::ChainStore;
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};
     use std::fs::File;
     use std::sync::Arc;
+
     let profile = false;
     let in_memory = false;
 
