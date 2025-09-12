@@ -29,15 +29,19 @@
 #[expect(clippy::unwrap_used)]
 #[cfg(all(unix, feature = "profiling", feature = "test-utils"))]
 fn main() {
-    use pprof::{ProfilerGuardBuilder, flamegraph::Options};
-    use std::fs::File;
-
     use amaru_consensus::consensus::headers_tree::HeadersTree;
+    use amaru_consensus::consensus::headers_tree::data_generation::TestHeader;
     use amaru_consensus::consensus::headers_tree::data_generation::{
         Ratio, execute_actions_on_tree, generate_random_walks, generate_test_header_tree,
     };
     use amaru_consensus::consensus::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
+    use amaru_ouroboros_traits::ChainStore;
+    use pprof::{ProfilerGuardBuilder, flamegraph::Options};
+    use std::fs::File;
+    use std::sync::Arc;
+
     let profile = false;
+    let in_memory = false;
 
     let seed = 42;
 
@@ -66,7 +70,15 @@ fn main() {
     assert!(actions.len() > 5000);
 
     // Initialize an empty HeadersTree and execute the actions on it while measuring the time taken.
-    let mut headers_tree = HeadersTree::new(max_length, &None);
+    let mut headers_tree = if in_memory {
+        HeadersTree::new_in_memory(max_length)
+    } else {
+        use amaru_stores::rocksdb::consensus::initialise_test_rw_store;
+        let tempdir = tempfile::tempdir().unwrap();
+        let chain_store: Arc<dyn ChainStore<TestHeader>> =
+            Arc::new(initialise_test_rw_store(tempdir.path()));
+        HeadersTree::new(chain_store, max_length)
+    };
 
     let guard = if profile {
         ProfilerGuardBuilder::default().frequency(1000).build().ok()

@@ -13,13 +13,14 @@
 // limitations under the License.
 
 use crate::ConsensusError;
+use crate::consensus::store::PraosChainStore;
 use amaru_kernel::{Header, Point, protocol_parameters::GlobalParameters};
-use amaru_ouroboros::{IsHeader, Praos};
+use amaru_ouroboros::Praos;
+use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
-pub type ResourceHeaderStore = Arc<Mutex<dyn super::store::ChainStore<Header>>>;
+pub type ResourceHeaderStore = Arc<dyn ChainStore<Header>>;
 pub type ResourceParameters = GlobalParameters;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -45,10 +46,9 @@ impl ExternalEffect for StoreHeaderEffect {
                 .get::<ResourceHeaderStore>()
                 .expect("StoreHeaderEffect requires a chain store")
                 .clone();
-            let mut store = store.lock().await;
             let result: <Self as ExternalEffectAPI>::Response = store
-                .store_header(&self.header.hash(), &self.header)
-                .map_err(|e| ConsensusError::StoreHeaderFailed(self.point.clone(), e));
+                .store_header(&self.header)
+                .map_err(|e| ConsensusError::StoreHeaderFailed(self.point.hash(), e));
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
     }
@@ -80,12 +80,11 @@ impl ExternalEffect for EvolveNonceEffect {
                 .get::<ResourceHeaderStore>()
                 .expect("EvolveNonceEffect requires a chain store")
                 .clone();
-            let mut store = store.lock().await;
             let global_parameters = resources
                 .get::<ResourceParameters>()
                 .expect("EvolveNonceEffect requires global parameters");
             let result: <Self as ExternalEffectAPI>::Response =
-                store.evolve_nonce(&self.header, &global_parameters);
+                PraosChainStore::new(store).evolve_nonce(&self.header, &global_parameters);
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
     }

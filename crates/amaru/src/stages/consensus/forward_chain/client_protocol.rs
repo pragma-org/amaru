@@ -19,7 +19,7 @@ use super::{
     client_state::{ClientState, find_headers_between},
 };
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
-use amaru_consensus::consensus::store::ChainStore;
+use amaru_consensus::ChainStore;
 use amaru_kernel::{Hash, Header, to_cbor};
 use pallas_network::{
     facades::PeerServer,
@@ -31,7 +31,6 @@ use pallas_network::{
     },
 };
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -56,7 +55,7 @@ pub enum ClientProtocolMsg {
 pub async fn client_protocols(
     mut cell: ActoCell<ClientProtocolMsg, impl ActoRuntime, anyhow::Result<()>>,
     server: PeerServer,
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
+    store: Arc<dyn ChainStore<Header>>,
     our_tip: Tip,
 ) -> anyhow::Result<()> {
     let _block_fetch = cell.spawn_supervised("block_fetch", {
@@ -93,7 +92,7 @@ async fn chain_sync(
     mut cell: ActoCell<ChainSyncMsg, impl ActoRuntime, anyhow::Result<()>>,
     mut server: chainsync::Server<HeaderContent>,
     our_tip: Tip,
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
+    store: Arc<dyn ChainStore<Header>>,
 ) -> anyhow::Result<()> {
     // TODO: do we need to handle validation updates already here in case the client is really slow to ask for intersection?
     let Some(ClientRequest::Intersect(req)) = server.recv_while_idle().await? else {
@@ -102,8 +101,7 @@ async fn chain_sync(
     };
 
     tracing::debug!("finding headers between {:?} and {:?}", our_tip.0, req);
-    let Some((catch_up, client_at)) = find_headers_between(&*store.lock().await, &our_tip.0, &req)
-    else {
+    let Some((catch_up, client_at)) = find_headers_between(store, &our_tip.0, &req) else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
         return Err(ClientError::NoIntersection.into());
@@ -230,7 +228,7 @@ enum BlockFetchMsg {}
 async fn block_fetch(
     _cell: ActoCell<BlockFetchMsg, impl ActoRuntime>,
     mut server: blockfetch::Server,
-    store: Arc<Mutex<dyn ChainStore<Header>>>, // TODO: need a block store here
+    store: Arc<dyn ChainStore<Header>>, // TODO: need a block store here
 ) -> anyhow::Result<()> {
     loop {
         let Some(req) = server.recv_while_idle().await? else {
@@ -245,8 +243,7 @@ async fn block_fetch(
             return Err(ClientError::CannotServeRange(lb_point, ub_point).into());
         }
 
-        let db = store.lock().await;
-        let block = db.load_block(&Hash::from(&from_network_point(&lb_point)))?;
+        let block = store.load_block(&Hash::from(&from_network_point(&lb_point)))?;
         server.send_start_batch().await?;
         server.send_block(block.to_vec()).await?;
         server.send_batch_done().await?;

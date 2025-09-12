@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::{Nonces, consensus::store::ChainStore};
+use amaru_consensus::{ChainStore, Nonces};
 use amaru_kernel::{
     EraHistory, Hash, Header, Nonce, Point, default_chain_dir, network::NetworkName, parse_nonce,
 };
@@ -102,7 +102,7 @@ pub(crate) async fn import_nonces(
     chain_db_path: &PathBuf,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
-    let mut db =
+    let db =
         Box::new(RocksDBStore::new(chain_db_path, era_history)?) as Box<dyn ChainStore<Header>>;
 
     let header_hash = Hash::from(&initial_nonce.at);

@@ -60,6 +60,7 @@ amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(unix)'.dependencies]
 pprof = { version = "0.15", features = ["flamegraph"], optional = true }
+amaru-stores.workspace = true
 
 [[bench]]
 name = "headers_tree"

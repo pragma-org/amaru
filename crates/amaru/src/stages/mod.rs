@@ -17,14 +17,13 @@ use crate::stages::{
     metrics::MetricsStage,
     pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter},
 };
-use amaru_consensus::{
-    ConsensusError, IsHeader,
-    consensus::{
-        ChainSyncEvent, block_effects, build_stage_graph, headers_tree::HeadersTree,
-        select_chain::SelectChain, store::ChainStore, store_block::StoreBlock, store_effects,
-        validate_header::ValidateHeader,
-    },
-};
+use amaru_consensus::consensus::block_effects::{ResourceBlockFetcher, ResourceParameters};
+use amaru_consensus::consensus::headers_tree::HeadersTree;
+use amaru_consensus::consensus::select_chain::SelectChain;
+use amaru_consensus::consensus::store_block::StoreBlock;
+use amaru_consensus::consensus::store_effects::ResourceHeaderStore;
+use amaru_consensus::consensus::{ChainSyncEvent, build_stage_graph};
+use amaru_consensus::{ChainStore, ConsensusError, HasStakeDistribution, IsHeader};
 use amaru_kernel::{
     EraHistory, Hash, Header, Point,
     block::{BlockValidationResult, ValidateBlockEvent},
@@ -32,12 +31,10 @@ use amaru_kernel::{
     peer::Peer,
     protocol_parameters::GlobalParameters,
 };
+use amaru_kernel::{HEADER_HASH_SIZE, ORIGIN_HASH};
 use amaru_stores::{
-    in_memory::MemoryStore,
-    rocksdb::{
-        RocksDB, RocksDBHistoricalStores,
-        consensus::{InMemConsensusStore, RocksDBStore},
-    },
+    in_memory::{MemoryStore, consensus::InMemConsensusStore},
+    rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore},
 };
 use anyhow::Context;
 use consensus::{forward_chain::ForwardChainStage, store_block::StoreBlockStage};
@@ -55,8 +52,8 @@ use pallas_network::{
     },
 };
 use pure_stage::{StageGraph, tokio::TokioBuilder};
+use std::fmt::Debug;
 use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 pub mod common;
@@ -205,30 +202,23 @@ pub fn bootstrap(
         .map(|session| pull::Stage::new(session.0, session.1, vec![tip.clone()]))
         .collect::<Vec<_>>();
 
-    let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
+    let chain_store = make_chain_store(&config, era_history, &tip.hash())?;
 
-    let chain_selector =
-        make_chain_selector(header, &peers, global_parameters.consensus_security_param)?;
+    let chain_selector = make_chain_selector(
+        chain_store.clone(),
+        &peers,
+        global_parameters.consensus_security_param,
+    )?;
 
-    let consensus = match &ledger_stage {
-        LedgerStage::InMemLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
-            validate_block_stage.state.view_stake_distribution(),
-        )),
-
-        LedgerStage::OnDiskLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
-            validate_block_stage.state.view_stake_distribution(),
-        )),
-    };
-
-    let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
+    let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store.clone()));
 
     let mut forward_chain_stage = ForwardChainStage::new(
         None,
-        chain_store_ref.clone(),
+        chain_store.clone(),
         config.network_magic as u64,
         &config.listen_address,
         config.max_downstream_peers,
-        our_tip,
+        &tip.hash(),
     );
 
     let mut metrics_stage = MetricsStage::new(metrics_provider);
@@ -243,25 +233,24 @@ pub fn bootstrap(
 
     let graph_input = build_stage_graph(
         global_parameters,
-        consensus,
+        ledger_stage.get_stake_distribution(),
         chain_selector,
         &mut network,
         output_ref,
     );
     let graph_input = network.input(&graph_input);
 
+    network.resources().put::<ResourceHeaderStore>(chain_store);
     network
         .resources()
-        .put::<store_effects::ResourceHeaderStore>(chain_store_ref);
+        .put::<ResourceParameters>(global_parameters.clone());
     network
         .resources()
-        .put::<store_effects::ResourceParameters>(global_parameters.clone());
+        .put::<ResourceParameters>(global_parameters.clone());
 
     network
         .resources()
-        .put::<block_effects::ResourceBlockFetcher>(Arc::new(ClientsBlockFetcher::new(
-            block_fetchs,
-        )));
+        .put::<ResourceBlockFetcher>(Arc::new(ClientsBlockFetcher::new(block_fetchs)));
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
@@ -320,37 +309,27 @@ pub fn bootstrap(
     Ok(stages)
 }
 
-type ChainStoreResult = (Tip, Option<Header>, Arc<Mutex<dyn ChainStore<Header>>>);
-
 #[expect(clippy::panic)]
 fn make_chain_store(
     config: &Config,
     era_history: &EraHistory,
-    tip: amaru_kernel::Point,
-) -> Result<ChainStoreResult, Box<dyn Error>> {
-    let chain_store: Box<dyn ChainStore<Header>> = match config.chain_store {
-        StorePath::InMem(()) => Box::new(InMemConsensusStore::new()),
-        StorePath::OnDisk(ref chain_dir) => Box::new(RocksDBStore::new(chain_dir, era_history)?),
+    tip: &Hash<HEADER_HASH_SIZE>,
+) -> Result<Arc<dyn ChainStore<Header>>, Box<dyn Error>> {
+    let chain_store: Arc<dyn ChainStore<Header>> = match config.chain_store {
+        StorePath::InMem(()) => Arc::new(InMemConsensusStore::new()),
+        StorePath::OnDisk(ref chain_dir) => Arc::new(RocksDBStore::new(chain_dir, era_history)?),
     };
 
-    let (our_tip, header) = if let amaru_kernel::Point::Specific(_slot, hash) = &tip {
-        let tip_hash = &Hash::from(&**hash);
-        let header: Header = chain_store.load_header(tip_hash).unwrap_or_else(|| {
-            panic!(
-                "Tip {} not found in chain database '{}'",
-                tip_hash, config.chain_store
-            )
-        });
-        (
-            Tip(header.pallas_point(), header.block_height()),
-            Some(header),
+    if *tip != ORIGIN_HASH && chain_store.load_header(tip).is_none() {
+        panic!(
+            "Tip {} not found in chain database '{}'",
+            tip, config.chain_store
         )
-    } else {
-        (Tip(pallas_network::miniprotocols::Point::Origin, 0), None)
     };
 
-    let chain_store_ref: Arc<Mutex<dyn ChainStore<Header>>> = Arc::new(Mutex::new(chain_store));
-    Ok((our_tip, header, chain_store_ref))
+    chain_store.set_anchor_hash(tip)?;
+    chain_store.set_best_chain_hash(tip)?;
+    Ok(chain_store)
 }
 
 enum LedgerStage {
@@ -359,6 +338,15 @@ enum LedgerStage {
 }
 
 impl LedgerStage {
+    fn get_stake_distribution(&self) -> Arc<dyn HasStakeDistribution> {
+        match self {
+            LedgerStage::InMemLedgerStage(stage) => Arc::new(stage.state.view_stake_distribution()),
+            LedgerStage::OnDiskLedgerStage(stage) => {
+                Arc::new(stage.state.view_stake_distribution())
+            }
+        }
+    }
+
     fn spawn(self, policy: runtime::Policy) -> Tether {
         match self {
             LedgerStage::InMemLedgerStage(validate_block_stage) => {
@@ -422,20 +410,14 @@ fn make_ledger(
 }
 
 fn make_chain_selector(
-    header: Option<Header>,
+    chain_store: Arc<dyn ChainStore<Header>>,
     peers: &Vec<Peer>,
     consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
-    let root_hash = match &header {
-        Some(h) => h.hash(),
-        None => Point::Origin.hash(),
-    };
-
-    // TODO: initialize the headers tree from the ChainDB store
-    let mut tree = HeadersTree::new(consensus_security_parameter, &header);
+    let mut tree = HeadersTree::new(chain_store.clone(), consensus_security_parameter);
 
     for peer in peers {
-        tree.initialize_peer(peer, &root_hash)?;
+        tree.initialize_peer(peer, &chain_store.get_anchor_hash())?;
     }
 
     Ok(SelectChain::new(tree, peers))
@@ -451,16 +433,16 @@ impl PallasPoint for Header {
     }
 }
 
-impl PallasPoint for amaru_kernel::Point {
+impl PallasPoint for Point {
     fn pallas_point(&self) -> pallas_network::miniprotocols::Point {
         to_pallas_point(self)
     }
 }
 
-fn to_pallas_point(point: &amaru_kernel::Point) -> pallas_network::miniprotocols::Point {
+pub fn to_pallas_point(point: &Point) -> pallas_network::miniprotocols::Point {
     match point {
-        amaru_kernel::Point::Origin => pallas_network::miniprotocols::Point::Origin,
-        amaru_kernel::Point::Specific(slot, hash) => {
+        Point::Origin => pallas_network::miniprotocols::Point::Origin,
+        Point::Specific(slot, hash) => {
             pallas_network::miniprotocols::Point::Specific(*slot, hash.clone())
         }
     }

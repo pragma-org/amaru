@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
-
+use crate::consensus::validate_header::ValidateHeader;
 use crate::{ConsensusError, consensus::select_chain::SelectChain, is_header::IsHeader};
 use amaru_kernel::block::ValidateBlockEvent;
 use amaru_kernel::{Header, Point, peer::Peer, protocol_parameters::GlobalParameters};
+use amaru_ouroboros_traits::HasStakeDistribution;
 use pure_stage::{StageGraph, StageRef};
+use std::fmt;
+use std::sync::Arc;
 use tracing::Span;
 
 pub mod block_effects;
@@ -36,7 +38,7 @@ pub const EVENT_TARGET: &str = "amaru::consensus";
 
 pub fn build_stage_graph(
     global_parameters: &GlobalParameters,
-    consensus: validate_header::ValidateHeader,
+    consensus: Arc<dyn HasStakeDistribution>,
     chain_selector: SelectChain,
     network: &mut impl StageGraph,
     outputs: StageRef<ValidateBlockEvent>,
@@ -76,7 +78,7 @@ pub fn build_stage_graph(
     let validate_header_stage = network.wire_up(
         validate_header_stage,
         (
-            consensus,
+            ValidateHeader::new(consensus),
             global_parameters.clone(),
             select_chain_stage.without_state(),
             upstream_errors_stage.clone().without_state(),

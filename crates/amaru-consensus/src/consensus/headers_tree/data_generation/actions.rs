@@ -260,7 +260,7 @@ pub fn execute_actions(
     actions: &[Action],
     print: bool,
 ) -> Result<Vec<SelectionResult>, ConsensusError> {
-    let mut tree = HeadersTree::new(max_length, &None);
+    let mut tree = HeadersTree::new_in_memory(max_length);
     execute_actions_on_tree(&mut tree, actions, print)
 }
 
