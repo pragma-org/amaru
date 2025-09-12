@@ -1,0 +1,17 @@
+[
+  {
+    "epoch": 1,
+    "point": "86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968",
+    "url": "file:///home/curry/amaru/docker/testnet:42/86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor"
+  },
+  {
+    "epoch": 2,
+    "point": "172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516",
+    "url": "file:///home/curry/amaru/docker/testnet:42/172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.cbor"
+  },
+  {
+    "epoch": 3,
+    "point": "259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.cbor",
+    "url": "file:///home/curry/amaru/docker/testnet:42/259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.cbor"
+  }
+]

@@ -31,9 +31,9 @@ x-amaru: &amaru
   build:
     context: ../..
     dockerfile: docker/Dockerfile.amaru
+  restart:
+    always
   depends_on:
-    p1:
-      condition: service_healthy
     amaru-loader:
       condition: service_completed_successfully
   environment:
@@ -67,8 +67,8 @@ services:
     image: ghcr.io/pragma-org/amaru/loader:latest
     container_name: amaru-loader
     volumes:
-      - a1-state:/state/a1
-      - a2-state:/state/a2
+      - a1-state:/state/1
+      - a2-state:/state/2
     command:
        - "/data/amaru-loader.sh"
 

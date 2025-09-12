@@ -19,11 +19,12 @@ copy_config () {
     PROTOCOL_MAGIC=$(jq .protocolConsts.protocolMagic /data/p${POOL_ID}-config/configs/configs/byron-genesis.json)
 
     # copy database
-    tar xzf /data/db.tgz -C /state/${POOL_ID} --strip-components
+    cp -fr /data/db/* /state/${POOL_ID}/
     echo -n $PROTOCOL_MAGIC > /state/${POOL_ID}/protocolMagicId
 
     # copy configuration
     cp -fr /data/p${POOL_ID}-config/configs/* /configs/${POOL_ID}/
+    chmod 0600 /configs/${POOL_ID}/keys/*
 }
 
 
