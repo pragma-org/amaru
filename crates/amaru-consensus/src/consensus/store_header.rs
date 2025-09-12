@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store_effects::StoreHeaderEffect, span::adopt_current_span};
+use crate::{consensus::store_effects::StorageEffect, span::adopt_current_span};
 
 use super::DecodedChainSyncEvent;
 use pure_stage::{Effects, StageRef};
@@ -36,10 +36,7 @@ pub async fn stage(
             header,
             ..
         } => {
-            if let Err(error) = eff
-                .external(StoreHeaderEffect::new(header.clone(), point.clone()))
-                .await
-            {
+            if let Err(error) = eff.store_header(header.clone(), point.clone()).await {
                 tracing::error!(%error, %point, %peer, "Failed to store header");
                 // FIXME what should be the consequence of this?
                 return eff.terminate().await;
