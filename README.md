@@ -13,7 +13,7 @@ Amaru is a [Cardano](https://cardano.org) node client written in Rust. It is an 
 ### Installing
 
 ```console
-cargo build --release
+make build
 ```
 
 ### Running
@@ -23,7 +23,7 @@ cargo build --release
 on the selected network (e.g. [preprod](https://book.world.dev.cardano.org/env-preprod.html)).
 >
 > To run a local peer, refer to [Cardano's developers portal](https://developers.cardano.org/docs/get-started/cardano-node/running-cardano).
-> Make sure your peer listens to port `3001` or adapt the `PEER_ADDRESS` environment variable (e.g. `export PEER_ADDRESS=127.0.0.1:3002`)
+> Make sure your peer listens to port `3001` or adapt the `AMARU_PEER_ADDRESS` environment variable (e.g. `export AMARU_PEER_ADDRESS=127.0.0.1:3002`)
 
 1. Bootstrap the node:
 
@@ -40,9 +40,7 @@ docker-compose -f monitoring/jaeger/docker-compose.yml up
 3. Run Amaru:
 
 ```console
-cargo run --release -- daemon \
-  --peer-address=127.0.0.1:3001 \
-  --network=preprod
+make NETWORK=preprod start
 ```
 
 Replace `--peer-address` with your Cardano node peer address. It can be either
@@ -50,12 +48,10 @@ a local or remote node (i.e. any existing node relay), and you can even add
 multiple peers by replicating the option.
 
 > [!TIP]
-> To ensure logs are forwarded to telemetry backend, pass `--with-open-telemetry` as an option _before_ the `daemon` sub-command, eg.
+> To ensure logs are forwarded to telemetry backend, set `AMARU_WITH_OPEN_TELEMETRY=yes`:
 >
 > ```console
-> cargo run --release -- --with-open-telemetry daemon \
->  --peer-address=127.0.0.1:3001 \
->  --network=preprod
+> make NETWORK=preprod AMARU_WITH_OPEN_TELEMETRY=yes start
 > ```
 
 ### Monitoring
