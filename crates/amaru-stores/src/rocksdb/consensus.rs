@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::{
-    Nonces,
-    consensus::store::{ChainStore, ReadOnlyChainStore, StoreError},
-};
+use amaru_consensus::consensus::store::{ChainStore, ReadOnlyChainStore, StoreError};
 use amaru_kernel::{Hash, RawBlock, cbor, from_cbor, network::NetworkName, to_cbor};
+use amaru_ouroboros_traits::Nonces;
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_slot_arithmetic::EraHistory;
 use rocksdb::{DB, OptimisticTransactionDB, Options};
@@ -132,6 +130,7 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
 pub struct InMemConsensusStore<H> {
     nonces: BTreeMap<Hash<32>, Nonces>,
     headers: BTreeMap<Hash<32>, H>,
+    blocks: BTreeMap<Hash<32>, RawBlock>,
 }
 
 impl<H> Default for InMemConsensusStore<H> {
@@ -145,6 +144,7 @@ impl<H> InMemConsensusStore<H> {
         InMemConsensusStore {
             nonces: BTreeMap::new(),
             headers: BTreeMap::new(),
+            blocks: BTreeMap::new(),
         }
     }
 }
@@ -180,12 +180,13 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
         Ok(())
     }
 
-    fn era_history(&self) -> &amaru_kernel::EraHistory {
+    fn era_history(&self) -> &EraHistory {
         NetworkName::Testnet(42).into()
     }
 
-    fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
-        unimplemented!()
+    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
+        self.blocks.insert(*hash, (*block).clone());
+        Ok(())
     }
 }
 

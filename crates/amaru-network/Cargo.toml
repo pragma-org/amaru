@@ -13,6 +13,7 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+async-trait.workspace = true
 anyhow.workspace = true
 hex.workspace = true
 pallas-crypto.workspace = true
@@ -25,7 +26,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-amaru-consensus.workspace = true
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true

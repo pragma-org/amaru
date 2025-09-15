@@ -12,4 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod forward_chain;
+use crate::can_fetch_block::{BlockFetchClientError, CanFetchBlock};
+use amaru_kernel::Point;
+use async_trait::async_trait;
+
+/// A block fetcher.
+#[derive(Clone, Debug, Default)]
+pub struct MockCanFetchBlock;
+
+#[async_trait]
+impl CanFetchBlock for MockCanFetchBlock {
+    async fn fetch_block(&self, _point: &Point) -> Result<Vec<u8>, BlockFetchClientError> {
+        Ok(vec![])
+    }
+}

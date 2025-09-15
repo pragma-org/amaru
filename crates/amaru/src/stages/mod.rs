@@ -12,26 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::stages::build_stage_graph::build_stage_graph;
 use crate::stages::{
-    consensus::clients_block_fetcher::ClientsBlockFetcher,
     metrics::MetricsStage,
     pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter},
 };
-use amaru_consensus::{
-    ConsensusError, IsHeader,
-    consensus::{
-        ChainSyncEvent, block_effects, build_stage_graph, headers_tree::HeadersTree,
-        select_chain::SelectChain, store::ChainStore, store_block::StoreBlock, store_effects,
-        validate_header::ValidateHeader,
-    },
+use amaru_consensus::consensus::effects::block_effects::{
+    ResourceBlockFetcher, ResourceParameters,
 };
+use amaru_consensus::consensus::effects::store_effects::ResourceHeaderStore;
+use amaru_consensus::consensus::errors::ConsensusError;
+use amaru_consensus::consensus::events::ChainSyncEvent;
+use amaru_consensus::consensus::headers_tree::HeadersTree;
+use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
+use amaru_consensus::consensus::stages::select_chain::SelectChain;
+use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
+use amaru_consensus::consensus::store::ChainStore;
 use amaru_kernel::{
-    EraHistory, Hash, Header, Point,
-    block::{BlockValidationResult, ValidateBlockEvent},
-    network::NetworkName,
-    peer::Peer,
+    EraHistory, Hash, Header, Point, network::NetworkName, peer::Peer,
     protocol_parameters::GlobalParameters,
 };
+use amaru_ledger::block_validator::BlockValidator;
+use amaru_network::block_fetch_client::PallasBlockFetchClient;
+use amaru_ouroboros_traits::{CanFetchBlock, CanValidateBlocks, HasStakeDistribution, IsHeader};
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{
@@ -40,28 +43,24 @@ use amaru_stores::{
     },
 };
 use anyhow::Context;
-use consensus::{forward_chain::ForwardChainStage, store_block::StoreBlockStage};
+use consensus::forward_chain::ForwardChainStage;
 use gasket::{
     messaging::OutputPort,
     runtime::{self, Tether, spawn_stage},
 };
-use ledger::ValidateBlockStage;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::{
     facades::PeerClient,
-    miniprotocols::{
-        blockfetch,
-        chainsync::{Client, HeaderContent, Tip},
-    },
+    miniprotocols::chainsync::{Client, HeaderContent, Tip},
 };
 use pure_stage::{StageGraph, tokio::TokioBuilder};
 use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+pub mod build_stage_graph;
 pub mod common;
 pub mod consensus;
-pub mod ledger;
 pub mod metrics;
 pub mod pull;
 mod pure_stage_util;
@@ -168,7 +167,7 @@ pub fn bootstrap(
 
     let peers: Vec<Peer> = clients.iter().map(|c| Peer::new(&c.0)).collect();
 
-    let (mut ledger_stage, tip) = make_ledger(
+    let ledger = make_ledger(
         &config,
         config.network,
         era_history.clone(),
@@ -184,7 +183,7 @@ pub fn bootstrap(
 
     let (chain_syncs, block_fetchs): (
         Vec<(Peer, Client<HeaderContent>)>,
-        Vec<(Peer, blockfetch::Client)>,
+        Vec<(Peer, Arc<dyn CanFetchBlock>)>,
     ) = clients
         .into_iter()
         .map(|(peer_name, client)| {
@@ -193,13 +192,17 @@ pub fn bootstrap(
                 blockfetch,
                 ..
             } = client;
+            let peer = Peer::new(&peer_name);
+            let block_fetch_client: Arc<dyn CanFetchBlock> =
+                Arc::new(PallasBlockFetchClient::new(&peer, blockfetch));
             (
-                (Peer::new(&peer_name), chainsync),
-                (Peer::new(&peer_name), blockfetch),
+                (peer.clone(), chainsync),
+                (peer.clone(), block_fetch_client),
             )
         })
         .collect();
 
+    let tip = ledger.get_tip();
     let mut stages = chain_syncs
         .into_iter()
         .map(|session| pull::Stage::new(session.0, session.1, vec![tip.clone()]))
@@ -209,18 +212,6 @@ pub fn bootstrap(
 
     let chain_selector =
         make_chain_selector(header, &peers, global_parameters.consensus_security_param)?;
-
-    let consensus = match &ledger_stage {
-        LedgerStage::InMemLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
-            validate_block_stage.state.view_stake_distribution(),
-        )),
-
-        LedgerStage::OnDiskLedgerStage(validate_block_stage) => ValidateHeader::new(Arc::new(
-            validate_block_stage.state.view_stake_distribution(),
-        )),
-    };
-
-    let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
 
     let mut forward_chain_stage = ForwardChainStage::new(
         None,
@@ -233,17 +224,13 @@ pub fn bootstrap(
 
     let mut metrics_stage = MetricsStage::new(metrics_provider);
 
-    let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
-
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
     let (output_ref, output_stage) = network.output("output", 50);
 
     let graph_input = build_stage_graph(
         global_parameters,
-        consensus,
+        ledger.get_stake_distribution(),
         chain_selector,
         &mut network,
         output_ref,
@@ -252,16 +239,16 @@ pub fn bootstrap(
 
     network
         .resources()
-        .put::<store_effects::ResourceHeaderStore>(chain_store_ref);
+        .put::<ResourceHeaderStore>(chain_store_ref);
     network
         .resources()
-        .put::<store_effects::ResourceParameters>(global_parameters.clone());
-
+        .put::<ResourceParameters>(global_parameters.clone());
     network
         .resources()
-        .put::<block_effects::ResourceBlockFetcher>(Arc::new(ClientsBlockFetcher::new(
-            block_fetchs,
-        )));
+        .put::<ResourceBlockFetcher>(Arc::new(ClientsBlockFetcher::new(block_fetchs)));
+    network
+        .resources()
+        .put::<ResourceBlockValidation>(ledger.get_block_validation());
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
@@ -276,15 +263,11 @@ pub fn bootstrap(
         output.connect(SendAdapter(graph_input.clone()));
     }
 
-    store_block_stage
+    forward_chain_stage
         .upstream
         .connect(RecvAdapter(output_stage));
-    store_block_stage.downstream.connect(to_ledger);
 
-    ledger_stage.connect(from_store_block, to_block_forward);
-
-    forward_chain_stage.upstream.connect(from_ledger);
-
+    let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
     stages.iter_mut().for_each(|stage| {
         // These channels are meant to be cloned so they can be shared between threads
         stage.metrics_downstream.connect(to_metrics.clone());
@@ -301,18 +284,11 @@ pub fn bootstrap(
         .collect::<Vec<_>>();
 
     let pure_stages = spawn_stage(pure_stages, policy.clone());
-
-    let store_block = spawn_stage(store_block_stage, policy.clone());
-
-    let ledger = ledger_stage.spawn(policy.clone());
     let block_forward = spawn_stage(forward_chain_stage, policy.clone());
 
     let metrics = spawn_stage(metrics_stage, policy.clone());
 
     stages.push(pure_stages);
-
-    stages.push(store_block);
-    stages.push(ledger);
     stages.push(block_forward);
 
     stages.push(metrics);
@@ -354,36 +330,36 @@ fn make_chain_store(
 }
 
 enum LedgerStage {
-    InMemLedgerStage(Box<ValidateBlockStage<MemoryStore, MemoryStore>>),
-    OnDiskLedgerStage(ValidateBlockStage<RocksDB, RocksDBHistoricalStores>),
+    InMemLedgerStage(BlockValidator<MemoryStore, MemoryStore>),
+    OnDiskLedgerStage(BlockValidator<RocksDB, RocksDBHistoricalStores>),
 }
 
 impl LedgerStage {
-    fn spawn(self, policy: runtime::Policy) -> Tether {
+    fn get_tip(&self) -> Point {
         match self {
-            LedgerStage::InMemLedgerStage(validate_block_stage) => {
-                spawn_stage(*validate_block_stage, policy)
+            LedgerStage::InMemLedgerStage(stage) => stage.get_tip(),
+            LedgerStage::OnDiskLedgerStage(stage) => stage.get_tip(),
+        }
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn get_stake_distribution(&self) -> Arc<dyn HasStakeDistribution> {
+        match self {
+            LedgerStage::InMemLedgerStage(stage) => {
+                let state = stage.state.lock().unwrap();
+                Arc::new(state.view_stake_distribution())
             }
-            LedgerStage::OnDiskLedgerStage(validate_block_stage) => {
-                spawn_stage(validate_block_stage, policy)
+            LedgerStage::OnDiskLedgerStage(stage) => {
+                let state = stage.state.lock().unwrap();
+                Arc::new(state.view_stake_distribution())
             }
         }
     }
 
-    fn connect(
-        &mut self,
-        from_store_block: gasket::messaging::tokio::ChannelRecvAdapter<ValidateBlockEvent>,
-        to_block_forward: gasket::messaging::tokio::ChannelSendAdapter<BlockValidationResult>,
-    ) {
+    fn get_block_validation(self) -> Arc<dyn CanValidateBlocks + Send + Sync> {
         match self {
-            LedgerStage::InMemLedgerStage(validate_block_stage) => {
-                validate_block_stage.upstream.connect(from_store_block);
-                validate_block_stage.downstream.connect(to_block_forward);
-            }
-            LedgerStage::OnDiskLedgerStage(validate_block_stage) => {
-                validate_block_stage.upstream.connect(from_store_block);
-                validate_block_stage.downstream.connect(to_block_forward);
-            }
+            LedgerStage::InMemLedgerStage(stage) => Arc::new(stage),
+            LedgerStage::OnDiskLedgerStage(stage) => Arc::new(stage),
         }
     }
 }
@@ -393,20 +369,20 @@ fn make_ledger(
     network: NetworkName,
     era_history: EraHistory,
     global_parameters: GlobalParameters,
-) -> Result<(LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
+) -> anyhow::Result<LedgerStage> {
     match &config.ledger_store {
         StorePath::InMem(store) => {
-            let (ledger, tip) = ledger::ValidateBlockStage::new(
+            let ledger = BlockValidator::new(
                 store.clone(),
                 store.clone(),
                 network,
                 era_history,
                 global_parameters,
             )?;
-            Ok((LedgerStage::InMemLedgerStage(Box::new(ledger)), tip))
+            Ok(LedgerStage::InMemLedgerStage(ledger))
         }
         StorePath::OnDisk(ledger_dir) => {
-            let (ledger, tip) = ledger::ValidateBlockStage::new(
+            let ledger = BlockValidator::new(
                 RocksDB::new(ledger_dir)?,
                 RocksDBHistoricalStores::new(
                     ledger_dir,
@@ -416,7 +392,7 @@ fn make_ledger(
                 era_history,
                 global_parameters,
             )?;
-            Ok((LedgerStage::OnDiskLedgerStage(ledger), tip))
+            Ok(LedgerStage::OnDiskLedgerStage(ledger))
         }
     }
 }
@@ -451,16 +427,16 @@ impl PallasPoint for Header {
     }
 }
 
-impl PallasPoint for amaru_kernel::Point {
+impl PallasPoint for Point {
     fn pallas_point(&self) -> pallas_network::miniprotocols::Point {
         to_pallas_point(self)
     }
 }
 
-fn to_pallas_point(point: &amaru_kernel::Point) -> pallas_network::miniprotocols::Point {
+fn to_pallas_point(point: &Point) -> pallas_network::miniprotocols::Point {
     match point {
-        amaru_kernel::Point::Origin => pallas_network::miniprotocols::Point::Origin,
-        amaru_kernel::Point::Specific(slot, hash) => {
+        Point::Origin => pallas_network::miniprotocols::Point::Origin,
+        Point::Specific(slot, hash) => {
             pallas_network::miniprotocols::Point::Specific(*slot, hash.clone())
         }
     }
@@ -505,7 +481,7 @@ mod tests {
 
         let stages = bootstrap(config, vec![], CancellationToken::new(), None).unwrap();
 
-        assert_eq!(5, stages.len());
+        assert_eq!(3, stages.len());
     }
 
     #[test]

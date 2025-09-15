@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent};
-use amaru_kernel::block::{BlockValidationResult, ValidateBlockEvent};
-use tracing::Span;
-
 pub use impls::*;
 
 #[cfg(feature = "telemetry")]
 mod impls {
-    use super::*;
+    use crate::consensus::events::{
+        BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, ValidateBlockEvent,
+        ValidateHeaderEvent,
+    };
     use opentelemetry::Context;
+    use tracing::Span;
     use tracing_opentelemetry::OpenTelemetrySpanExt;
 
     /// Make current span a child of given span.
@@ -91,7 +91,8 @@ mod impls {
 
 #[cfg(not(feature = "telemetry"))]
 mod impls {
-    use super::*;
+    use crate::consensus::events::*;
+    use tracing::Span;
 
     pub fn adopt_current_span(_has_span: &impl HasSpan) -> Span {
         Span::current()

@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::Nonces;
 use amaru_kernel::{
     Bound, EraHistory, EraParams, HEADER_HASH_SIZE, Hash, Nonce, Summary, cbor,
     network::NetworkName,
 };
+use amaru_ouroboros_traits::Nonces;
 use clap::Parser;
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};

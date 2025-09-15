@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use crate::cmd::{DEFAULT_NETWORK, connect_to_peer};
-use amaru_consensus::IsHeader;
 use amaru_kernel::{Header, Point, from_cbor, network::NetworkName, peer::Peer};
 use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
@@ -29,6 +28,7 @@ use std::{
 };
 use tokio::time::timeout;
 
+use amaru_ouroboros_traits::IsHeader;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -212,7 +212,7 @@ fn handle_response(
                 .map_err(|_| WorkerError::Panic)?;
             let filepath = headers_dir.join(&filename);
             let mut file = File::create(&filepath)
-                .inspect_err(|reason|tracing::error!(file = %filepath.display(), reason = %reason, "Failed to create file"))
+                .inspect_err(|reason| tracing::error!(file = %filepath.display(), reason = %reason, "Failed to create file"))
                 .map_err(|_| WorkerError::Panic)?;
             file.write_all(&content.cbor)
                 .map_err(|_| WorkerError::Panic)?;

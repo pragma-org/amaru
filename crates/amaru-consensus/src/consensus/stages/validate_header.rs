@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    ConsensusError,
-    consensus::{ValidationFailed, store_effects::EvolveNonceEffect},
-    span::adopt_current_span,
-};
+use crate::consensus::effects::store_effects::EvolveNonceEffect;
+use crate::consensus::errors::{ConsensusError, ValidationFailed};
+use crate::consensus::events::DecodedChainSyncEvent;
+use crate::consensus::span::adopt_current_span;
 use amaru_kernel::{
     Hash, Header, Nonce, Point, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
@@ -26,8 +25,6 @@ use pallas_math::math::FixedDecimal;
 use pure_stage::{Effects, StageRef};
 use std::{fmt, sync::Arc};
 use tracing::{Instrument, Level, Span, instrument};
-
-use super::DecodedChainSyncEvent;
 
 #[instrument(
     level = Level::TRACE,
@@ -118,23 +115,25 @@ impl ValidateHeader {
         name = "consensus.roll_forward",
         fields(
             point.slot = %point.slot_or_default(),
-            point.hash = %Hash::<32>::from(&point),
+            point.hash = %Hash::<32>::from(point),
         )
     )]
     pub async fn handle_roll_forward<M>(
         &mut self,
         eff: &mut Effects<M>,
-        peer: Peer,
-        point: Point,
-        header: Header,
+        peer: &Peer,
+        point: &Point,
+        header: &Header,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
-        let nonces = eff.external(EvolveNonceEffect::new(header.clone())).await?;
+        let nonces = eff
+            .external(EvolveNonceEffect::new(peer, header.clone()))
+            .await?;
         let epoch_nonce = &nonces.active;
 
         header_is_valid(
-            &point,
-            &header,
+            point,
+            header,
             to_cbor(&header.header_body).as_slice(),
             epoch_nonce,
             self.ledger.as_ref(),
@@ -142,9 +141,9 @@ impl ValidateHeader {
         )?;
 
         Ok(DecodedChainSyncEvent::RollForward {
-            peer,
-            point,
-            header,
+            peer: peer.clone(),
+            point: point.clone(),
+            header: header.clone(),
             span: Span::current(),
         })
     }
@@ -154,17 +153,17 @@ impl ValidateHeader {
         eff: &mut Effects<M>,
         chain_sync: DecodedChainSyncEvent,
         global_parameters: &GlobalParameters,
-    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+    ) -> Result<DecodedChainSyncEvent, ValidationFailed> {
         match chain_sync {
             DecodedChainSyncEvent::RollForward {
                 peer,
                 point,
                 header,
                 ..
-            } => {
-                self.handle_roll_forward(eff, peer, point, header, global_parameters)
-                    .await
-            }
+            } => self
+                .handle_roll_forward(eff, &peer, &point, &header, global_parameters)
+                .await
+                .map_err(|e| ValidationFailed::new(&peer, e)),
             DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
             DecodedChainSyncEvent::CaughtUp { .. } => Ok(chain_sync),
         }
@@ -222,12 +221,14 @@ pub async fn stage(
     );
 
     let send_downstream = async {
-        let nonces = match eff.external(EvolveNonceEffect::new(header.clone())).await {
+        let nonces = match eff
+            .external(EvolveNonceEffect::new(peer, header.clone()))
+            .await
+        {
             Ok(nonces) => nonces,
             Err(error) => {
                 tracing::error!(%peer, %error, "evolve nonce failed");
-                eff.send(&errors, ValidationFailed::new(peer.clone(), error.into()))
-                    .await;
+                eff.send(&errors, ValidationFailed::new(peer, error)).await;
                 return false;
             }
         };
@@ -242,8 +243,7 @@ pub async fn stage(
             &global,
         ) {
             tracing::info!(%peer, %error, "invalid header");
-            eff.send(&errors, ValidationFailed::new(peer.clone(), error))
-                .await;
+            eff.send(&errors, ValidationFailed::new(peer, error)).await;
             false
         } else {
             true

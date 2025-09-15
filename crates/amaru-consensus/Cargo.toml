@@ -45,17 +45,12 @@ amaru-slot-arithmetic.workspace = true
 pure-stage.workspace = true
 
 [dev-dependencies]
-either.workspace = true
 hex.workspace = true
-insta.workspace = true
-minicbor.workspace = true
 proptest.workspace = true
 rand.workspace = true
 rand_distr.workspace = true
 serde_json.workspace = true
-tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
-tracing-subscriber.workspace = true
 amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(unix)'.dependencies]

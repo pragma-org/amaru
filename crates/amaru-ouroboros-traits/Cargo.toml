@@ -13,9 +13,12 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-amaru-kernel.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
 hex.workspace = true
 serde = { workspace = true, features = ["derive"] }
+
+amaru-kernel.workspace = true
 amaru-slot-arithmetic.workspace = true
 
 [dev-dependencies]

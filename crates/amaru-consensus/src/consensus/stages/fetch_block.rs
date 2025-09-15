@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ConsensusError;
-use crate::consensus::block_effects::FetchBlockEffect;
-use crate::consensus::{ValidateHeaderEvent, ValidationFailed};
-use crate::span::adopt_current_span;
-use amaru_kernel::{Point, RawBlock, block::ValidateBlockEvent, peer::Peer};
-use amaru_ouroboros_traits::IsHeader;
+use crate::consensus::effects::block_effects::FetchBlockEffect;
+use crate::consensus::errors::{ConsensusError, ValidationFailed};
+use crate::consensus::events::{ValidateBlockEvent, ValidateHeaderEvent};
+use crate::consensus::span::adopt_current_span;
+use amaru_kernel::{Point, RawBlock, peer::Peer};
+use amaru_ouroboros_traits::{CanFetchBlock, IsHeader};
 use async_trait::async_trait;
 use pure_stage::{Effects, StageRef};
-use tracing::Level;
-use tracing::instrument;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{Level, error, instrument};
 
 type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
 
@@ -58,7 +60,7 @@ pub async fn stage(
                     )
                     .await
                 }
-                Err(e) => eff.send(&errors, ValidationFailed::new(peer, e)).await,
+                Err(e) => eff.send(&errors, ValidationFailed::new(&peer, e)).await,
             }
         }
         ValidateHeaderEvent::Rollback {
@@ -85,4 +87,51 @@ pub async fn stage(
 #[async_trait]
 pub trait BlockFetcher {
     async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError>;
+}
+
+/// This is a map of clients used to fetch blocks, with one client per peer.
+pub struct ClientsBlockFetcher {
+    clients: RwLock<BTreeMap<Peer, Arc<dyn CanFetchBlock>>>,
+}
+
+impl ClientsBlockFetcher {
+    /// Retrieve a block from a peer at a given point.
+    async fn fetch(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
+        // FIXME: should not fail if the peer is not found
+        // the block should be fetched from any other valid peer
+        // which is known to have it
+        let client = {
+            let clients = self.clients.read().await;
+            clients
+                .get(peer)
+                .cloned()
+                .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?
+        };
+        client
+            .fetch_block(point)
+            .await
+            .map_err(|e| {
+                error!(target: "amaru::consensus", "failed to fetch block from peer {}: {}", peer.name, e);
+                ConsensusError::FetchBlockFailed(point.clone())
+            })
+    }
+}
+
+impl ClientsBlockFetcher {
+    pub fn new(clients: Vec<(Peer, Arc<dyn CanFetchBlock>)>) -> Self {
+        let mut cs = BTreeMap::new();
+        for (peer, client) in clients {
+            cs.insert(peer, client);
+        }
+        Self {
+            clients: RwLock::new(cs),
+        }
+    }
+}
+
+#[async_trait]
+impl BlockFetcher for ClientsBlockFetcher {
+    async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
+        self.fetch(peer, point).await
+    }
 }

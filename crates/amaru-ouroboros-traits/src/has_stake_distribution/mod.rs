@@ -27,7 +27,7 @@ pub struct PoolSummary {
     pub stake: Lovelace,
 }
 
-/// The LedgerState trait provides a lookup mechanism for various information sourced from the ledger
+/// The HasStakeDistribution trait provides a lookup mechanism for various information sourced from the ledger
 pub trait HasStakeDistribution: Send + Sync {
     /// Obtain information about a pool such as its VRF key hash and its stake. The information is
     /// fetched from the ledger based on the given slot.
