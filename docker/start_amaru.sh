@@ -14,7 +14,7 @@ LEDGER_DIR="${LEDGER_DIR:-${DATA_DIR}/ledger.db}"
 CHAIN_DIR="${CHAIN_DIR:-${DATA_DIR}/chain.db}"
 CONFIG_FOLDER="${CONFIG_FOLDER:-data}"
 
-[[ -z "${NETWORK:-}" ]] && usage "Set NETWORK (via .env, compose, or shell) to a value supported by Amaru"
+[[ -z "${AMARU_NETWORK:-}" ]] && usage "Set NETWORK (via .env, compose, or shell) to a value supported by Amaru"
 
 if ! [ -d "${LEDGER_DIR}" ]
 then
@@ -28,5 +28,4 @@ fi
 exec cargo run --profile dev -- daemon \
       --peer-address "${PEER_ADDRESS}" \
       --ledger-dir "${LEDGER_DIR}" \
-      --chain-dir "${CHAIN_DIR}" \
-      --network "${NETWORK}"
+      --chain-dir "${CHAIN_DIR}"

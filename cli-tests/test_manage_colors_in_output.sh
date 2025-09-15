@@ -9,7 +9,7 @@ test_color_if_in_terminal() {
 }
 
 setup_suite() {
-	NETWORK=preprod
+	AMARU_NETWORK=preprod
 	LEDGER_DIR=./ledger.${NETWORK}.db
 	CHAIN_DIR=./chain.${NETWORK}.db
 	BUILD_PROFILE=dev
@@ -18,7 +18,6 @@ setup_suite() {
 		--peer-address ${UNREACHABLE_PEER}
 		--ledger-dir ${LEDGER_DIR}
 		--chain-dir ${CHAIN_DIR}
-		--network ${NETWORK}"
 }
 
 emulate_terminal() {
