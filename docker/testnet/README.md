@@ -27,7 +27,7 @@ done ; echo "]" ) > bulk.json
 Generate a test database spanning at least 3 epochs:
 
 ```bash
-db-synthesizer --config p1-config/configs/configs/config.json --bulk-credentials-file bulk.json -s "$(( 86400 * 3 + 1 ))" --db db
+db-synthesizer --config p1-config/configs/configs/config.json --bulk-credentials-file bulk.json -s "$(( 86400 * 4 + 1 ))" --db db
 ```
 
 This should create a `db/` directory containing the chain database and also ledger snapshots:

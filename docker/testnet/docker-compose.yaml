@@ -102,6 +102,8 @@ services:
     <<: *cardano-node
     container_name: p1
     hostname: p1.example
+    ports:
+      - 9003:3001
     volumes:
       - p1-configs:/configs
       - p1-state:/state
