@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    cbor, network::NetworkName, AuxiliaryData, EraHistory, Epoch, Hasher, KeepRaw, MintedTransactionBody,
-    MintedTx, MintedWitnessSet, Point, PoolId, TransactionPointer,
-    protocol_parameters::{ProtocolParameters},
+    AuxiliaryData, Epoch, EraHistory, Hasher, KeepRaw, MintedTransactionBody, MintedTx,
+    MintedWitnessSet, Point, PoolId, TransactionPointer, cbor, network::NetworkName,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     self,
@@ -98,13 +98,16 @@ fn import_vector(
     pparams_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if record.initial_nes[0] == 0x80 {
-        return Ok(())
+        return Ok(());
     }
     let epoch = peek_epoch(&record.initial_nes)?;
-    let point = amaru_kernel::Point::try_from(format!(
-        "{}.0000000000000000000000000000000000000000000000000000000000000000",
-        epoch * 86400
-    ).as_str())?;
+    let point = amaru_kernel::Point::try_from(
+        format!(
+            "{}.0000000000000000000000000000000000000000000000000000000000000000",
+            epoch * 86400
+        )
+        .as_str(),
+    )?;
 
     fs::create_dir_all(ledger_dir)?;
     let db = RocksDB::empty(ledger_dir)?;
@@ -138,82 +141,83 @@ fn import_vector(
     transaction.commit()?;
 
     for entry in record.transactions {
-      let (tx_bytes, success): (pallas_codec::utils::Bytes, bool) = minicbor::decode(entry.raw_bytes())?;
-      let tx: MintedTx<'_> = minicbor::decode(&*tx_bytes)?;
+        let (tx_bytes, success): (pallas_codec::utils::Bytes, bool) =
+            minicbor::decode(entry.raw_bytes())?;
+        let tx: MintedTx<'_> = minicbor::decode(&*tx_bytes)?;
 
-      let utxo = db.iter_utxos()?.collect();
-      let mut validation_context = DefaultValidationContext::new(utxo);
+        let utxo = db.iter_utxos()?.collect();
+        let mut validation_context = DefaultValidationContext::new(utxo);
 
-      let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
-      let tx_witness_set: MintedWitnessSet<'_> = tx.transaction_witness_set.deref().clone();
-      let _tx_auxiliary_data =
-          Into::<Option<KeepRaw<'_, AuxiliaryData>>>::into(tx.auxiliary_data.clone())
-              .map(|aux_data| Hasher::<256>::hash(aux_data.raw_cbor()));
+        let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
+        let tx_witness_set: MintedWitnessSet<'_> = tx.transaction_witness_set.deref().clone();
+        let _tx_auxiliary_data =
+            Into::<Option<KeepRaw<'_, AuxiliaryData>>>::into(tx.auxiliary_data.clone())
+                .map(|aux_data| Hasher::<256>::hash(aux_data.raw_cbor()));
 
-      let pointer = TransactionPointer {
-          slot: point.slot_or_default(),
-          transaction_index: 0,
-      };
+        let pointer = TransactionPointer {
+            slot: point.slot_or_default(),
+            transaction_index: 0,
+        };
 
-      // Run the transaction against the imported ledger state
-      let result = transaction::execute(
-          &mut validation_context,
-          &Network::Testnet,
-          &protocol_parameters,
-          era_history,
-          &governance_activity,
-          pointer,
-          true,
-          tx_body,
-          &tx_witness_set,
-          None, // tx_auxiliary_data.as_ref(),
-      );
+        // Run the transaction against the imported ledger state
+        let result = transaction::execute(
+            &mut validation_context,
+            &Network::Testnet,
+            &protocol_parameters,
+            era_history,
+            &governance_activity,
+            pointer,
+            true,
+            tx_body,
+            &tx_witness_set,
+            None, // tx_auxiliary_data.as_ref(),
+        );
 
-      let vs = state::VolatileState::from(validation_context);
+        let vs = state::VolatileState::from(validation_context);
 
-      // Can we re-use this point? We should be able to treat all txes as if they're in the same block
-      let p: Point = point.clone();
-      let issuer: PoolId = [7; 28].into();
-      let anchored_vs = vs.anchor(&p, issuer);
-      let StoreUpdate {
-          point: stable_point,
-          issuer: stable_issuer,
-          fees,
-          add,
-          remove,
-          withdrawals,
-      } = anchored_vs.into_store_update(epoch, &protocol_parameters);
+        // Can we re-use this point? We should be able to treat all txes as if they're in the same block
+        let p: Point = point.clone();
+        let issuer: PoolId = [7; 28].into();
+        let anchored_vs = vs.anchor(&p, issuer);
+        let StoreUpdate {
+            point: stable_point,
+            issuer: stable_issuer,
+            fees,
+            add,
+            remove,
+            withdrawals,
+        } = anchored_vs.into_store_update(epoch, &protocol_parameters);
 
-      let mut governance_activity = db.governance_activity()?;
-      let transaction = db.create_transaction();
-      transaction.save(
-          &era_history,
-          &protocol_parameters,
-          &mut governance_activity,
-          &stable_point,
-          Some(&stable_issuer),
-          add,
-          remove,
-          withdrawals,
-      );
-      transaction.commit()?;
+        let mut governance_activity = db.governance_activity()?;
+        let transaction = db.create_transaction();
+        transaction.save(
+            &era_history,
+            &protocol_parameters,
+            &mut governance_activity,
+            &stable_point,
+            Some(&stable_issuer),
+            add,
+            remove,
+            withdrawals,
+        );
+        transaction.commit()?;
 
-      match result {
-          Ok(()) => {
-              if success {
-                  // Ok(())
-              } else {
-                  return Err(format!("Expected failure, got success").into())
-              }
-          },
-          Err(e) => {
-              if !success {
-                  // Ok(())
-              } else {
-                  return Err(format!("Expected success, got failure: {}", e).into())
-              }
-          }
-      }
+        match result {
+            Ok(()) => {
+                if success {
+                    // Ok(())
+                } else {
+                    return Err(format!("Expected failure, got success").into());
+                }
+            }
+            Err(e) => {
+                if !success {
+                    // Ok(())
+                } else {
+                    return Err(format!("Expected success, got failure: {}", e).into());
+                }
+            }
+        }
     }
     Ok(())
 }
