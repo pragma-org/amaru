@@ -18,9 +18,9 @@ use std::env;
 fn main() {
     built::write_built_file().expect("Failed to acquire build-time information");
 
-    // Set the NETWORK environment variable based on the value from the environment or default to "preprod"
-    // This is necessary for the tests to run correctly, as they rely on the NETWORK variable to be set at build time
-    let network = env::var("NETWORK").unwrap_or_else(|_| "preprod".into());
-    println!("cargo:rerun-if-env-changed=NETWORK");
-    println!("cargo:rustc-env=NETWORK={}", network);
+    // Set the AMARU_NETWORK environment variable based on the value from the environment or default to "preprod"
+    // This is necessary for the tests to run correctly, as they rely on the AMARU_NETWORK variable to be set at build time
+    let network = env::var("AMARU_NETWORK").unwrap_or_else(|_| "preprod".into());
+    println!("cargo:rerun-if-env-changed=AMARU_NETWORK");
+    println!("cargo:rustc-env=AMARU_NETWORK={}", network);
 }

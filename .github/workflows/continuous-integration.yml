@@ -266,7 +266,7 @@ jobs:
       - name: Run tests
         if: github.event_name == 'pull_request'
         run: |
-          make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} test-e2e
+          make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} test-e2e
 
       - name: Teardown haskell node
         shell: bash
