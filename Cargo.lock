@@ -186,7 +186,6 @@ dependencies = [
  "hex",
  "num",
  "proptest",
- "pure-stage",
  "serde",
  "test-case",
  "thiserror 2.0.16",
