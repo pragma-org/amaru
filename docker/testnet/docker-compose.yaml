@@ -86,7 +86,7 @@ services:
     <<: *amaru
     environment:
       - PEER_ADDRESS=p1:3001
-      - NETWORK=testnet:42
+      - NETWORK=testnet_42
     volumes:
       - a1-state:/srv/amaru
 
@@ -94,7 +94,7 @@ services:
     <<: *amaru
     environment:
       - PEER_ADDRESS=amaru-1:3000
-      - NETWORK=testnet:42
+      - NETWORK=testnet_42
     volumes:
       - a2-state:/srv/amaru
 

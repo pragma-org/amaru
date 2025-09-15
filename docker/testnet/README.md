@@ -44,7 +44,7 @@ $ ls -alrt ledger.snapshot.*
 Convert ledger state
 
 ```bash
-amaru convert-ledger-state --network testnet:42 --snapshot ledger.snapshot.1.86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968 --snapshot ledger.snapshot.2.172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516  --snapshot ledger.snapshot.3.259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802
+amaru convert-ledger-state --network testnet_42 --snapshot ledger.snapshot.1.86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968 --snapshot ledger.snapshot.2.172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516  --snapshot ledger.snapshot.3.259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802
 ```
 
 list blocks in the DB
@@ -68,13 +68,13 @@ db-server --config p1-config/configs/configs/config.json --db db
 reading `headers.json` file using `db-server`:
 
 ```bash
-cat amaru-data/testnet\:42/headers.json | jq -r '.[] | split(".") | join(",")' | while IFS=, read -ra hdr; do  curl http://localhost:9003/blocks/${hdr[0]}/${hdr[1]}/header | xxd -r -p > "amaru-data/testnet:42/headers/header.${hdr[0]}.${hdr[1]}.cbor" ; done
+cat amaru-data/testnet\:42/headers.json | jq -r '.[] | split(".") | join(",")' | while IFS=, read -ra hdr; do  curl http://localhost:9003/blocks/${hdr[0]}/${hdr[1]}/header | xxd -r -p > "amaru-data/testnet_42/headers/header.${hdr[0]}.${hdr[1]}.cbor" ; done
 ```
 
 import headers:
 
 ```bash
-../../target/debug/amaru import-headers --config-dir amaru-data --network testnet:42
+../../target/debug/amaru import-headers --config-dir amaru-data --network testnet_42
 ```
 
 

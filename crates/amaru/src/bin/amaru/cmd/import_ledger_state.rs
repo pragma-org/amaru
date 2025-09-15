@@ -49,7 +49,7 @@ pub struct Args {
 
     /// Network the snapshots are imported from.
     ///
-    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet:<magic>' where
+    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet_<magic>' where
     /// `magic` is a 32-bits unsigned value denoting a particular testnet.
     #[arg(
         long,
