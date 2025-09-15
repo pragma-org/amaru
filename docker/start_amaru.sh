@@ -24,6 +24,10 @@ then
       --chain-dir "${CHAIN_DIR}"
 fi
 
+# keep stack traces for troubleshooting purposes
+export RUST_BACKTRACE=full
+export AMARU_LOG=amaru=trace
+
 exec cargo run --profile dev -- daemon \
       --peer-address "${PEER_ADDRESS}" \
       --ledger-dir "${LEDGER_DIR}" \

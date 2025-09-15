@@ -5,9 +5,14 @@ set -vx
 
 copy_databases() {
     target=/state/$1
+    [[ -d  "$target/ledger.db" ]] || mkdir "$target/ledger.db"
+    [[ -d  "$target/chain.db" ]] || mkdir "$target/chain.db"
 
-    cp -fr /data/ledger.testnet\:42.db "$target/ledger.db"
-    cp -fr /data/chain.testnet\:42.db "$target/chain.db"
+    cp -fr /data/ledger.testnet\:42.db/* "$target/ledger.db/"
+    cp -fr /data/chain.testnet\:42.db/* "$target/chain.db/"
+
+    # list all files for debugging purpose
+    find "$target/"
 }
 
 nodes=$(ls -d /state/*)
