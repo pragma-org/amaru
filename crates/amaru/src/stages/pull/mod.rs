@@ -19,11 +19,11 @@ use crate::{
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{Point, peer::Peer};
-use amaru_network::chain_sync_client::{RawHeader, to_traverse};
+use amaru_network::chain_sync_client::{ChainSyncClientError, RawHeader, to_traverse};
 use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
 use gasket::framework::{Stage as StageTrait, *};
 use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse};
-use tracing::{Level, Span, debug, instrument};
+use tracing::{Level, Span, error, instrument};
 
 pub mod metrics;
 
@@ -56,8 +56,8 @@ impl Stage {
         }
     }
 
-    pub async fn find_intersection(&mut self) -> Result<(), WorkerError> {
-        self.client.find_intersection().await.or_panic()
+    pub async fn find_intersection(&mut self) -> Result<Point, ChainSyncClientError> {
+        self.client.find_intersection().await
     }
 
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
@@ -128,21 +128,20 @@ impl gasket::framework::Worker<Stage> for Worker {
         let next = match unit {
             WorkUnit::Pull => stage.client.request_next().await.or_panic()?,
             WorkUnit::Await => stage.client.await_next().await.or_panic()?,
-            WorkUnit::Intersect => {
-                stage.find_intersection().await?;
-                debug!(
-                    "chain_sync {}: intersection found -> {}",
-                    stage.client.peer,
-                    stage
-                        .client
-                        .intersection()
-                        .iter()
-                        .collect::<Vec<_>>()
-                        .list_to_string(", ")
-                );
-                self.initialised = true;
-                return Ok(());
-            }
+            WorkUnit::Intersect => match stage.find_intersection().await {
+                Err(err) => {
+                    error!("No intersection found with {}: {}", stage.client.peer, err);
+                    return Err(WorkerError::Panic);
+                }
+                Ok(intersection) => {
+                    self.initialised = true;
+                    error!(
+                        "Intersection found with {}: {:?}",
+                        stage.client.peer, intersection
+                    );
+                    return Ok(());
+                }
+            },
         };
 
         match next {

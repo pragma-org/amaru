@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::point::to_network_point;
+use crate::point::{from_network_point, to_network_point};
 use amaru_kernel::{Point, peer::Peer};
 use pallas_network::miniprotocols::chainsync::{Client, ClientError, HeaderContent, NextResponse};
 use pallas_traverse::MultiEraHeader;
@@ -64,7 +64,7 @@ impl ChainSyncClient {
             intersection.slot = %self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default(),
         ),
     )]
-    pub async fn find_intersection(&mut self) -> Result<(), ChainSyncClientError> {
+    pub async fn find_intersection(&mut self) -> Result<Point, ChainSyncClientError> {
         let client = &mut self.chain_sync;
         let (point, _) = client
             .find_intersect(
@@ -77,10 +77,10 @@ impl ChainSyncClient {
             .await
             .map_err(ChainSyncClientError::NetworkError)?;
 
-        point.ok_or(ChainSyncClientError::NoIntersectionFound {
+        let intersection = point.ok_or(ChainSyncClientError::NoIntersectionFound {
             points: self.intersection.clone(),
         })?;
-        Ok(())
+        Ok(from_network_point(&intersection))
     }
 
     pub fn intersection(&self) -> &[Point] {
