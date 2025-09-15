@@ -33,8 +33,6 @@ enum Command {
     /// bootstrap configuration files in `data/${network name}/`
     /// directory to download snapshots, import those snapshots into
     /// the ledger, import nonces, and import headers.
-    ///
-    /// **NOTE**: Only `preprod` network is supported for now.
     Bootstrap(cmd::bootstrap::Args),
 
     FetchChainHeaders(cmd::fetch_chain_headers::Args),
