@@ -26,9 +26,9 @@ fi
 
 # keep stack traces for troubleshooting purposes
 export RUST_BACKTRACE=full
-export AMARU_LOG=amaru=trace
+export AMARU_LOG=trace
 
-exec cargo run --profile dev -- daemon \
+exec cargo run --profile dev -- --with-json-traces daemon \
       --peer-address "${PEER_ADDRESS}" \
       --ledger-dir "${LEDGER_DIR}" \
       --chain-dir "${CHAIN_DIR}"
