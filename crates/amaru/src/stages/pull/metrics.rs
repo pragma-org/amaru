@@ -14,10 +14,7 @@
 
 use crate::{
     send,
-    stages::{
-        metrics::{Metric, MetricsEvent},
-        pull::MetricsDownstreamPort,
-    },
+    stages::metrics::{Metric, MetricsDownstreamPort, MetricsEvent},
 };
 use gasket::framework::WorkerError;
 use opentelemetry::metrics::Counter;

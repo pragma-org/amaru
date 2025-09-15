@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{schedule, send};
+use crate::{
+    schedule, send,
+    stages::{ledger::metrics::LedgerMetrics, metrics::MetricsDownstreamPort},
+};
 use amaru_consensus::{IsHeader, span::adopt_current_span};
 use amaru_kernel::{
     EraHistory, Hasher, MintedBlock, Network, Point, RawBlock,
@@ -34,6 +37,8 @@ use anyhow::Context;
 use gasket::framework::{WorkSchedule, WorkerError};
 use tracing::{Level, Span, error, instrument};
 
+pub mod metrics;
+
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
 
@@ -44,6 +49,7 @@ where
 {
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
+    pub metrics_downstream: MetricsDownstreamPort,
     pub state: state::State<S, HS>,
 }
 
@@ -78,6 +84,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
             Self {
                 upstream: Default::default(),
                 downstream: Default::default(),
+                metrics_downstream: Default::default(),
                 state,
             },
             tip,
@@ -128,7 +135,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     }
 
     /// Returns:
-    /// * `Ok(Ok(u64))` - if no error occurred and the block is valid. `u64` is the blockheight.
+    /// * `Ok(Ok(LedgerMetrics))` - if no error occurred and the block is valid.
     /// * `Ok(Err(<InvalidBlockDetails>))` - if no error occurred but block is invalid.
     /// * `Err(_)` - if an error occurred.
     #[instrument(
@@ -140,7 +147,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         &mut self,
         point: Point,
         raw_block: RawBlock,
-    ) -> anyhow::Result<Result<u64, InvalidBlockDetails>> {
+    ) -> anyhow::Result<Result<LedgerMetrics, InvalidBlockDetails>> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
         let mut context = self.create_validation_context(&block)?;
 
@@ -161,8 +168,22 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 let state: VolatileState = context.into();
                 let block_height = &block.header.block_height();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+                let txs_processed = block.transaction_bodies.len() as u64;
+                let slot = point.slot_or_default();
+                let epoch = self.state.era_history().slot_to_epoch(slot, slot)?;
+                let slot_in_epoch = self.state.era_history().slot_in_epoch(slot, slot)?;
+                let density = self.state.chain_density(&point);
+
                 self.state.forward(state.anchor(&point, issuer))?;
-                Ok(Ok(*block_height))
+
+                Ok(Ok(LedgerMetrics {
+                    block_height: *block_height,
+                    txs_processed,
+                    slot,
+                    slot_in_epoch,
+                    epoch,
+                    density,
+                }))
             }
         }
     }
@@ -223,12 +244,20 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
                 let point = header.point();
 
                 match stage.roll_forward(point.clone(), block.clone()) {
-                    Ok(Ok(block_height)) => BlockValidationResult::BlockValidated {
-                        point,
-                        block: block.clone(),
-                        span: span.clone(),
-                        block_height,
-                    },
+                    Ok(Ok(ledger_metrics)) => {
+                        let results = BlockValidationResult::BlockValidated {
+                            point,
+                            block: block.clone(),
+                            span: span.clone(),
+                            block_height: ledger_metrics.block_height,
+                        };
+
+                        ledger_metrics
+                            .record_block_metrics(&mut stage.metrics_downstream)
+                            .await?;
+
+                        results
+                    }
                     Ok(Err(_)) => BlockValidationResult::BlockValidationFailed {
                         point,
                         span: span.clone(),

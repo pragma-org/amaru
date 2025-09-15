@@ -14,7 +14,7 @@
 
 use crate::stages::{
     consensus::clients_block_fetcher::ClientsBlockFetcher,
-    metrics::MetricsStage,
+    metrics::{MetricsEvent, MetricsStage},
     pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter},
 };
 use amaru_consensus::{
@@ -281,7 +281,7 @@ pub fn bootstrap(
         .connect(RecvAdapter(output_stage));
     store_block_stage.downstream.connect(to_ledger);
 
-    ledger_stage.connect(from_store_block, to_block_forward);
+    ledger_stage.connect(from_store_block, to_block_forward, to_metrics.clone());
 
     forward_chain_stage.upstream.connect(from_ledger);
 
@@ -374,15 +374,18 @@ impl LedgerStage {
         &mut self,
         from_store_block: gasket::messaging::tokio::ChannelRecvAdapter<ValidateBlockEvent>,
         to_block_forward: gasket::messaging::tokio::ChannelSendAdapter<BlockValidationResult>,
+        to_metrics: gasket::messaging::tokio::ChannelSendAdapter<MetricsEvent>,
     ) {
         match self {
             LedgerStage::InMemLedgerStage(validate_block_stage) => {
                 validate_block_stage.upstream.connect(from_store_block);
                 validate_block_stage.downstream.connect(to_block_forward);
+                validate_block_stage.metrics_downstream.connect(to_metrics);
             }
             LedgerStage::OnDiskLedgerStage(validate_block_stage) => {
                 validate_block_stage.upstream.connect(from_store_block);
                 validate_block_stage.downstream.connect(to_block_forward);
+                validate_block_stage.metrics_downstream.connect(to_metrics);
             }
         }
     }

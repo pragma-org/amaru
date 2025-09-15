@@ -18,6 +18,8 @@ use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use std::{ops::Deref, sync::Arc};
 
+pub type MetricsDownstreamPort = gasket::messaging::OutputPort<MetricsEvent>;
+
 pub trait Metric: Send + Sync {
     fn record(&self, meter: &Meter);
 }

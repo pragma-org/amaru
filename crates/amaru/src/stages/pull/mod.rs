@@ -14,7 +14,7 @@
 
 use crate::{
     send,
-    stages::{metrics::MetricsEvent, pull::metrics::PullMetrics},
+    stages::{metrics::MetricsDownstreamPort, pull::metrics::PullMetrics},
 };
 use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::{Point, peer::Peer};
@@ -26,7 +26,6 @@ use tracing::{Level, Span, debug, instrument};
 pub mod metrics;
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
-pub type MetricsDownstreamPort = gasket::messaging::OutputPort<MetricsEvent>;
 
 pub enum WorkUnit {
     Pull,

@@ -541,6 +541,26 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         Ok(result)
     }
 
+    /// Calcualte chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
+    /// If the `Point` is older than the oldest block in the volatileDB, density is 0
+    pub fn chain_density(&self, point: &Point) -> f64 {
+        let latest_slot = point.slot_or_default();
+        let k_slot = self
+            .volatile
+            .view_front()
+            .map(|state| &state.anchor.0)
+            .unwrap_or(&Point::Origin)
+            .slot_or_default();
+
+        if k_slot > latest_slot {
+            0f64
+        } else {
+            // Add one to the number of blocks in the volatileDB because we are including the `Point` in the chain density
+            (self.volatile.len() as f64 + 1f64)
+                / (u64::from(latest_slot) as f64 - u64::from(k_slot) as f64)
+        }
+    }
+
     /// View a stake distribution for a given epoch. Note that this *locks* the stake distribution
     /// mutext, meaning that it might block other thread awaiting to acquire this data.
     ///
