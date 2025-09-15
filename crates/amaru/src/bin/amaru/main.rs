@@ -63,6 +63,9 @@ enum Command {
 
     /// Import VRF nonces intermediate states
     ImportNonces(cmd::import_nonces::Args),
+
+    /// Dump the content of the chain database
+    DumpChainDB(cmd::dump_chain_db::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -138,6 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
         Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
+        Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook

@@ -55,11 +55,15 @@ impl RocksDBStore {
             })
             .map(|db| ReadOnlyChainDB { db })
     }
+
+    pub fn create_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
+        self.db.transaction()
+    }
 }
 
-const NONCES_PREFIX: [u8; 5] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
+pub const NONCES_PREFIX: [u8; 5] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
 
-const BLOCK_PREFIX: [u8; 5] = [0x62, 0x6c, 0x6f, 0x63, 0x6b];
+pub const BLOCK_PREFIX: [u8; 5] = [0x62, 0x6c, 0x6f, 0x63, 0x6b];
 
 macro_rules! impl_ReadOnlyChainStore {
     (for $($s:ty),+) => {
