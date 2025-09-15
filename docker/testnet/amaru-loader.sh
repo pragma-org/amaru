@@ -8,8 +8,8 @@ copy_databases() {
     [[ -d  "$target/ledger.db" ]] || mkdir "$target/ledger.db"
     [[ -d  "$target/chain.db" ]] || mkdir "$target/chain.db"
 
-    cp -fr /data/ledger.testnet\:42.db/* "$target/ledger.db/"
-    cp -fr /data/chain.testnet\:42.db/* "$target/chain.db/"
+    cp -fr /data/ledger.testnet_42.db/* "$target/ledger.db/"
+    cp -fr /data/chain.testnet_42.db/* "$target/chain.db/"
 
     # list all files for debugging purpose
     find "$target/"
