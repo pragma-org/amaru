@@ -31,7 +31,6 @@ serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 sha3.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 proptest = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
