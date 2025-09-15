@@ -23,19 +23,19 @@ COPY crates/amaru/build.rs /usr/src/amaru/crates/amaru/build.rs
 COPY crates/amaru-consensus/Cargo.toml /usr/src/amaru/crates/amaru-consensus/Cargo.toml
 RUN mkdir -p crates/amaru-consensus/benches \
     && touch crates/amaru-consensus/benches/headers_tree.rs
+COPY crates/amaru-iter-borrow/Cargo.toml /usr/src/amaru/crates/amaru-iter-borrow/Cargo.toml
 COPY crates/amaru-kernel/Cargo.toml /usr/src/amaru/crates/amaru-kernel/Cargo.toml
 COPY crates/amaru-ledger/Cargo.toml /usr/src/amaru/crates/amaru-ledger/Cargo.toml
 COPY crates/amaru-mempool/Cargo.toml /usr/src/amaru/crates/amaru-mempool/Cargo.toml
+COPY crates/amaru-minicbor-extra/Cargo.toml /usr/src/amaru/crates/amaru-minicbor-extra/Cargo.toml
 COPY crates/amaru-network/Cargo.toml /usr/src/amaru/crates/amaru-network/Cargo.toml
+COPY crates/amaru-ouroboros/Cargo.toml /usr/src/amaru/crates/amaru-ouroboros/Cargo.toml
+COPY crates/amaru-ouroboros-traits/Cargo.toml /usr/src/amaru/crates/amaru-ouroboros-traits/Cargo.toml
+COPY crates/amaru-progress-bar/Cargo.toml /usr/src/amaru/crates/amaru-progress-bar/Cargo.toml
+COPY crates/amaru-slot-arithmetic/Cargo.toml /usr/src/amaru/crates/amaru-slot-arithmetic/Cargo.toml
 COPY crates/amaru-stores/Cargo.toml /usr/src/amaru/crates/amaru-stores/Cargo.toml
-COPY crates/iter-borrow/Cargo.toml /usr/src/amaru/crates/iter-borrow/Cargo.toml
-COPY crates/minicbor-extra/Cargo.toml /usr/src/amaru/crates/minicbor-extra/Cargo.toml
-COPY crates/ouroboros-traits/Cargo.toml /usr/src/amaru/crates/ouroboros-traits/Cargo.toml
-COPY crates/ouroboros/Cargo.toml /usr/src/amaru/crates/ouroboros/Cargo.toml
-COPY crates/progress-bar/Cargo.toml /usr/src/amaru/crates/progress-bar/Cargo.toml
+COPY crates/amaru-tracing-json/Cargo.toml /usr/src/amaru/crates/amaru-tracing-json/Cargo.toml
 COPY crates/pure-stage/Cargo.toml /usr/src/amaru/crates/pure-stage/Cargo.toml
-COPY crates/slot-arithmetic/Cargo.toml /usr/src/amaru/crates/slot-arithmetic/Cargo.toml
-COPY crates/tracing-json/Cargo.toml /usr/src/amaru/crates/tracing-json/Cargo.toml
 RUN find crates -mindepth 1 -maxdepth 1 -type d \
     -exec mkdir -p {}/src \; \
     -exec sh -c 'touch {}/src/lib.rs' \;
