@@ -28,7 +28,7 @@ on the selected network (e.g. [preprod](https://book.world.dev.cardano.org/env-p
 1. Bootstrap the node:
 
 ```bash
-make NETWORK=preprod bootstrap
+make AMARU_NETWORK=preprod bootstrap
 ```
 
 2. _(Optional)_ Setup observability backends:
@@ -40,7 +40,7 @@ docker-compose -f monitoring/jaeger/docker-compose.yml up
 3. Run Amaru:
 
 ```console
-make NETWORK=preprod start
+make AMARU_NETWORK=preprod start
 ```
 
 Replace `--peer-address` with your Cardano node peer address. It can be either
@@ -51,7 +51,7 @@ multiple peers by replicating the option.
 > To ensure logs are forwarded to telemetry backend, set `AMARU_WITH_OPEN_TELEMETRY=yes`:
 >
 > ```console
-> make NETWORK=preprod AMARU_WITH_OPEN_TELEMETRY=yes start
+> make AMARU_NETWORK=preprod AMARU_WITH_OPEN_TELEMETRY=yes start
 > ```
 
 ### Monitoring
