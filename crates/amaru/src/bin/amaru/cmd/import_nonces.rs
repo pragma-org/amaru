@@ -18,7 +18,7 @@ use amaru_kernel::{
 use amaru_ouroboros_traits::{ChainStore, Nonces};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{error::Error, path::PathBuf};
 use tracing::info;
 
@@ -30,23 +30,31 @@ pub struct Args {
 
     /// Point for which nonces data is imported.
     #[arg(long, value_name = "POINT", value_parser = |s: &str| Point::try_from(s))]
-    at: Point,
+    at: Option<Point>,
 
     /// Epoch active nonce at the specified point.
     #[arg(long, value_name = "NONCE", value_parser = parse_nonce)]
-    active: Nonce,
+    active: Option<Nonce>,
 
     /// Next epoch's candidate nonce
     #[arg(long, value_name = "NONCE", value_parser = parse_nonce)]
-    candidate: Nonce,
+    candidate: Option<Nonce>,
 
     /// Protocol evolving nonce vaue at the specified point.
     #[arg(long, value_name = "NONCE", value_parser = parse_nonce)]
-    evolving: Nonce,
+    evolving: Option<Nonce>,
 
     /// The previous epoch last block header hash
     #[arg(long, value_name = "HEADER-HASH", value_parser = parse_nonce)]
-    tail: Hash<32>,
+    tail: Option<Hash<32>>,
+
+    /// JSON-formatted file with nonces details.
+    ///
+    /// If given, this argument supersedes `at`, `active`,
+    /// `candidate`, `evolving` and `tail` arguments which can then be
+    /// omitted.
+    #[arg(long, value_name = "FILE")]
+    nonces_file: Option<PathBuf>,
 
     /// Network the nonces are imported for
     ///
@@ -61,14 +69,17 @@ pub struct Args {
     network: NetworkName,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct InitialNonces {
-    #[serde(deserialize_with = "deserialize_point")]
-    at: Point,
-    active: Nonce,
-    evolving: Nonce,
-    candidate: Nonce,
-    tail: Hash<32>,
+    #[serde(
+        serialize_with = "serialize_point",
+        deserialize_with = "deserialize_point"
+    )]
+    pub at: Point,
+    pub active: Nonce,
+    pub evolving: Nonce,
+    pub candidate: Nonce,
+    pub tail: Hash<32>,
 }
 
 fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
@@ -80,22 +91,28 @@ where
         .map_err(|e| serde::de::Error::custom(format!("cannot convert vector to nonce: {:?}", e)))
 }
 
+fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&point.to_string())
+}
+
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
-    import_nonces(
-        args.network.into(),
-        &chain_dir,
-        InitialNonces {
-            at: args.at,
-            active: args.active,
-            evolving: args.evolving,
-            candidate: args.candidate,
-            tail: args.tail,
-        },
-    )
-    .await
+
+    if let Some(nonces_file) = args.nonces_file {
+        import_nonces_from_file(args.network.into(), &nonces_file, &chain_dir).await
+    } else {
+        let initial_nonce = InitialNonces {
+            at: args.at.expect("missing '--at' argument"),
+            active: args.active.expect("missing '--active' argument"),
+            evolving: args.evolving.expect("missing '--evolving' argument"),
+            candidate: args.candidate.expect("missing '--candidate' argument"),
+            tail: args.tail.expect("missing '--tail' argument"),
+        };
+
+        import_nonces(args.network.into(), &chain_dir, initial_nonce).await
+    }
 }
 
 pub(crate) async fn import_nonces(
@@ -126,5 +143,16 @@ pub(crate) async fn import_nonces(
 
     db.put_nonces(&header_hash, &nonces)?;
 
+    Ok(())
+}
+
+pub async fn import_nonces_from_file(
+    network: NetworkName,
+    nonces_file: &PathBuf,
+    chain_dir: &PathBuf,
+) -> Result<(), Box<dyn Error>> {
+    let content = tokio::fs::read_to_string(nonces_file).await?;
+    let initial_nonces: InitialNonces = serde_json::from_str(&content)?;
+    import_nonces(network.into(), chain_dir, initial_nonces).await?;
     Ok(())
 }

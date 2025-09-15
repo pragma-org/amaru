@@ -13,11 +13,9 @@
 // limitations under the License.
 
 use super::{
-    import_headers::import_headers_for_network,
-    import_ledger_state::import_all_from_directory,
-    import_nonces::{InitialNonces, import_nonces},
+    import_headers::import_headers_for_network, import_ledger_state::import_all_from_directory,
 };
-use crate::cmd::DEFAULT_NETWORK;
+use crate::cmd::{DEFAULT_NETWORK, import_nonces::import_nonces_from_file};
 use amaru::snapshots_dir;
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use async_compression::tokio::bufread::GzipDecoder;
@@ -114,9 +112,7 @@ async fn import_nonces_for_network(
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     let nonces_file: PathBuf = config_dir.join("nonces.json");
-    let content = tokio::fs::read_to_string(nonces_file).await?;
-    let initial_nonces: InitialNonces = serde_json::from_str(&content)?;
-    import_nonces(network.into(), chain_dir, initial_nonces).await?;
+    import_nonces_from_file(network, &nonces_file, chain_dir).await?;
     Ok(())
 }
 
