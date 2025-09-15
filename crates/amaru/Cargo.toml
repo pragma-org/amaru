@@ -28,7 +28,6 @@ minicbor.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
-pallas-crypto.workspace = true
 pallas-network.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -36,10 +35,10 @@ serde_json.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [
-    "fs",
-    "rt",
-    "rt-multi-thread",
-    "signal",
+  "fs",
+  "rt",
+  "rt-multi-thread",
+  "signal",
 ] }
 tokio-util.workspace = true
 tracing-opentelemetry.workspace = true

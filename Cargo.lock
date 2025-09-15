@@ -92,7 +92,6 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "pallas-crypto",
  "pallas-network",
  "proptest",
  "pure-stage",
@@ -169,7 +168,6 @@ dependencies = [
  "sha3",
  "test-case",
  "thiserror 2.0.16",
- "tracing",
 ]
 
 [[package]]
@@ -186,7 +184,6 @@ dependencies = [
  "hex",
  "num",
  "proptest",
- "pure-stage",
  "serde",
  "test-case",
  "thiserror 2.0.16",
@@ -212,30 +209,14 @@ name = "amaru-network"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
- "amaru-ouroboros",
  "amaru-ouroboros-traits",
- "amaru-slot-arithmetic",
  "anyhow",
  "async-trait",
- "hex",
- "insta",
- "minicbor",
- "pallas-crypto",
- "pallas-math",
  "pallas-network",
  "pallas-traverse",
- "proptest",
- "pure-stage",
- "rand 0.9.2",
- "rand_distr",
- "rayon",
- "serde",
- "serde_json",
- "tempfile",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
