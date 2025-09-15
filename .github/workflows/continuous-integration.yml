@@ -54,7 +54,7 @@ jobs:
 
           - runner: ubuntu-latest
             target: riscv32gc-unknown-linux-gnu
-            title: riscv32gc
+            title: riscv32
             packages: -p amaru-ledger -p amaru-slot-arithmetic
             extra-args: +nightly -Zbuild-std=std,panic_abort
             command: build
