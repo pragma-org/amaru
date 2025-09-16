@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -vxo pipefail
 
+export PATH=/usr/local/bin:$PATH
+
 # Implement sponge-like command without the need for binary nor TMPDIR environment variable
 write_file() {
     # Create temporary file
@@ -16,17 +18,21 @@ write_file() {
 copy_config () {
     POOL_ID=$1
 
-    PROTOCOL_MAGIC=$(jq .protocolConsts.protocolMagic /data/p${POOL_ID}-config/configs/configs/byron-genesis.json)
-
-    # copy database
-    cp -fr /data/db/* /state/${POOL_ID}/
-    echo -n $PROTOCOL_MAGIC > /state/${POOL_ID}/protocolMagicId
-
     # copy configuration
     cp -fr /data/p${POOL_ID}-config/configs/* /configs/${POOL_ID}/
     chmod 0600 /configs/${POOL_ID}/keys/*
 }
 
+copy_database () {
+    POOL_ID=$1
+
+    PROTOCOL_MAGIC=$(jq .protocolConsts.protocolMagic /configs/${POOL_ID}/configs/byron-genesis.json)
+
+    # copy database
+    cp -fr /data/db/* /state/${POOL_ID}/
+    echo -n $PROTOCOL_MAGIC > /state/${POOL_ID}/protocolMagicId
+
+}
 
 config_topology_json() {
     # Generate a ring topology, where pool_n is connected to pool_{n-1} and pool_{n+1}
@@ -85,7 +91,6 @@ set_start_time() {
     jq ".startTime = ${SYSTEM_START_UNIX}" "${BYRON_GENESIS_JSON}" | write_file "${BYRON_GENESIS_JSON}"
 }
 
-
 pools=$(ls -d /configs/*)
 number_of_pools=$(ls -d /configs/* | wc -l)
 echo "number_of_pools: $number_of_pools"
@@ -95,4 +100,26 @@ for pool in $pools; do
   copy_config "$pool_ix"
   config_topology_json "$pool_ix" "$number_of_pools"
   set_start_time "$pool"
+done
+
+[[ -d /data/db ]] && { echo "Generated DB exists, not generating another one. This can lead to cluster not starting up correctly, please remove the 'db/' directory before restarting" ; exit 1 ; }
+
+# collect keys
+( echo "[" ; for i in $(seq 1 5); do
+                 out="["
+                 out="${out}$(cat /configs/$i/keys/opcert.cert)"
+                 out="${out},$(cat /configs/$i/keys/vrf.skey)"
+                 out="${out},$(cat /configs/$i/keys/kes.skey)]"
+                 echo $out
+                 [[ $i -ne 5 ]] && echo ","
+             done ; echo "]" ) > bulk.json
+
+# generate DB
+db-synthesizer --config /configs/1/configs/config.json --bulk-credentials-file bulk.json -s "$(( 86400 * 4 + 1 ))" --db /data/db
+
+# copy DB
+for pool in $pools; do
+  pool_ix=$(echo "$pool" | awk -F '/' '{print $3}')
+  echo "copy db for pool: $pool ($pool_ix)"
+  copy_database "$pool_ix"
 done
