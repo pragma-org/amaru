@@ -29,7 +29,7 @@ copy_database () {
     PROTOCOL_MAGIC=$(jq .protocolConsts.protocolMagic /configs/${POOL_ID}/configs/byron-genesis.json)
 
     # copy database
-    cp -fr /data/db/* /state/${POOL_ID}/
+    cp -fr /data/generated/db/* /state/${POOL_ID}/
     echo -n $PROTOCOL_MAGIC > /state/${POOL_ID}/protocolMagicId
 
 }
@@ -102,40 +102,30 @@ for pool in $pools; do
   set_start_time "$pool"
 done
 
-[[ -d /data/db ]] && { echo "Generated DB exists, not generating another one. This can lead to cluster not starting up correctly, please remove the 'db/' directory before restarting" ; exit 0 ; }
+if [[ -d /data/generated/db ]] ; then
+    echo "Generated DB exists, not generating another one. This can lead to cluster not starting up correctly, please remove the 'db/' directory before restarting"
+else
+  # generate DB
+  # assumes /data/generated exists, should be a volume injected
+  pushd /data/generated
 
-# generate DB
-# need to create a specialised directory to contain the generated ledger states because
-# the db-synthesizer generates snapshots whose name is the slot number of the snapshot,
-# so there's no way to select only those files
-[[ -d generated ]] || mkdir generated
-pushd generated
+  # collect keys
+  ( echo "[" ; for i in $(seq 1 5); do
+                   out="["
+                   out="${out}$(cat /configs/$i/keys/opcert.cert)"
+                   out="${out},$(cat /configs/$i/keys/vrf.skey)"
+                   out="${out},$(cat /configs/$i/keys/kes.skey)]"
+                   echo $out
+                   [[ $i -ne 5 ]] && echo ","
+               done ; echo "]" ) > bulk.json
 
-# collect keys
-( echo "[" ; for i in $(seq 1 5); do
-                 out="["
-                 out="${out}$(cat /configs/$i/keys/opcert.cert)"
-                 out="${out},$(cat /configs/$i/keys/vrf.skey)"
-                 out="${out},$(cat /configs/$i/keys/kes.skey)]"
-                 echo $out
-                 [[ $i -ne 5 ]] && echo ","
-             done ; echo "]" ) > bulk.json
-
-db-synthesizer --config /configs/1/configs/config.json --bulk-credentials-file bulk.json -s "$(( 86400 * 4 ))" --db /data/db
-popd
+  db-synthesizer --config /configs/1/configs/config.json --bulk-credentials-file bulk.json -s "$(( 86400 * 4 ))" --db db
+  popd
+fi
 
 # copy DB
 for pool in $pools; do
   pool_ix=$(echo "$pool" | awk -F '/' '{print $3}')
   echo "copy db for pool: $pool ($pool_ix)"
   copy_database "$pool_ix"
-done
-
-# copy snapshots for amaru consumption
-amarus=$(ls -d /amaru/*)
-number_of_amarus=$(ls -d /amaru/* | wc -l)
-echo "number_of_amarus: $number_of_amarus"
-for amaru in $amarus; do
-  amaru_ix=$(echo "$amaru" | awk -F '/' '{print $3}')
-  cp -r generated /amaru/${amaru_ix}/
 done
