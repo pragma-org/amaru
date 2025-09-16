@@ -19,6 +19,7 @@ env:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    # Required to expose outputs to dependent jobs (unused-dependencies, licenses-compatibility)
     outputs:
       dependencies: ${{ steps.changes.outputs.dependencies }}
     steps:
