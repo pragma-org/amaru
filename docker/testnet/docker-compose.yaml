@@ -89,21 +89,21 @@ services:
        - "--config"
        - "tracer-config.yaml"
 
-  # amaru-1:
-  #   <<: *amaru
-  #   environment:
-  #     - PEER_ADDRESS=p1.example:3001
-  #     - NETWORK=testnet_42
-  #   volumes:
-  #     - a1-state:/srv/amaru
+  amaru-1:
+    <<: *amaru
+    environment:
+      - PEER_ADDRESS=p1.example:3001
+      - NETWORK=testnet_42
+    volumes:
+      - a1-state:/srv/amaru
 
-  # amaru-2:
-  #   <<: *amaru
-  #   environment:
-  #     - PEER_ADDRESS=amaru-1:3000
-  #     - NETWORK=testnet_42
-  #   volumes:
-  #     - a2-state:/srv/amaru
+  amaru-2:
+    <<: *amaru
+    environment:
+      - PEER_ADDRESS=amaru-1:3000
+      - NETWORK=testnet_42
+    volumes:
+      - a2-state:/srv/amaru
 
   p1:
     <<: *cardano-node

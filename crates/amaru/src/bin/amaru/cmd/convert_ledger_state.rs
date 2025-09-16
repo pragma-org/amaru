@@ -208,12 +208,8 @@ async fn convert_snapshot_to(
     d.u8()?;
     let active: Nonce = d.decode()?;
 
-    d.array()?;
-    d.u8()?;
-    let tail = d.decode()?;
+    d.skip()?;
 
-    // previous epoch nonce, can be defined or 0
-    // FIXME: do we use it?
     d.skip()?;
 
     let nonces = InitialNonces {
@@ -221,7 +217,7 @@ async fn convert_snapshot_to(
         active,
         evolving,
         candidate,
-        tail,
+        tail: tip_hash,
     };
 
     write_nonces(target_dir, slot, hash, nonces).await?;
