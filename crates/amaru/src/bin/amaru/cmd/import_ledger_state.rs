@@ -54,6 +54,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK",
+        env = "AMARU_NETWORK",
         default_value_t = NetworkName::Preprod,
     )]
     network: NetworkName,

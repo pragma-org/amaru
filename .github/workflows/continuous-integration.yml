@@ -177,7 +177,7 @@ jobs:
         shell: bash
         run: |
           docker pull ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}
-          make HASKELL_NODE_CONFIG_DIR=cardano-node-config NETWORK=${{ matrix.network.name }} download-haskell-config
+          make HASKELL_NODE_CONFIG_DIR=cardano-node-config AMARU_NETWORK=${{ matrix.network.name }} download-haskell-config
           docker run -d --name cardano-node \
             -v ${{ runner.temp }}/db-${{ matrix.network.name }}:/db \
             -v ${{ runner.temp }}/ipc:/ipc \
@@ -217,13 +217,13 @@ jobs:
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''
         run: |
-          make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} bootstrap
+          make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} bootstrap
 
       - name: Light bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit != ''
         run: |
-          make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} import-headers
-          make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} import-nonces
+          make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} import-headers
+          make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} import-nonces
 
       - uses: actions/cache/save@v4
         if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''

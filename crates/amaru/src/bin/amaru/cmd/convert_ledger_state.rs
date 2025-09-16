@@ -35,7 +35,13 @@ pub struct Args {
     target_dir: Option<PathBuf>,
 
     /// Network to convert snapshots for.
-    #[arg(long, value_name = "NETWORK_NAME", verbatim_doc_comment)]
+    #[arg(
+        long,
+        value_name = "NETWORK_NAME",
+        env = "AMARU_NETWORK",
+        default_value_t = NetworkName::Preprod,
+        verbatim_doc_comment
+    )]
     network: NetworkName,
 }
 

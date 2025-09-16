@@ -50,12 +50,12 @@ jobs:
       shell: bash
       working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
       run: |
-        if [ "$NETWORK" == "preprod" ]; then
+        if [ "$AMARU_NETWORK" == "preprod" ]; then
           rm -f immutable/00*.chunk immutable/01*.chunk immutable/02*.chunk immutable/030*.chunk
         fi
 
-        if [ "$NETWORK" == "preview" ]; then
+        if [ "$AMARU_NETWORK" == "preview" ]; then
           rm -f immutable/0*.chunk immutable/10*.chunk immutable/11*.chunk
         fi
       env:
-        NETWORK: ${{ matrix.network }}
+        AMARU_NETWORK: ${{ matrix.network }}

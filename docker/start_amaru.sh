@@ -14,15 +14,14 @@ LEDGER_DIR="${LEDGER_DIR:-${DATA_DIR}/ledger.db}"
 CHAIN_DIR="${CHAIN_DIR:-${DATA_DIR}/chain.db}"
 CONFIG_FOLDER="${CONFIG_FOLDER:-data}"
 
-[[ -z "${AMARU_NETWORK:-}" ]] && usage "Set NETWORK (via .env, compose, or shell) to a value supported by Amaru"
+[[ -z "${AMARU_NETWORK:-}" ]] && usage "Set AMARU_NETWORK (via .env, compose, or shell) to a value supported by Amaru"
 
 if ! [ -d "${LEDGER_DIR}" ]
 then
     cargo run --profile dev -- bootstrap \
       --config-dir "${CONFIG_FOLDER}" \
       --ledger-dir "${LEDGER_DIR}" \
-      --chain-dir "${CHAIN_DIR}" \
-      --network "${NETWORK}"
+      --chain-dir "${CHAIN_DIR}"
 fi
 
 exec cargo run --profile dev -- daemon \
