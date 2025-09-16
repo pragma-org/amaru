@@ -19,6 +19,8 @@ env:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    outputs:
+      dependencies: ${{ steps.changes.outputs.dependencies }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
