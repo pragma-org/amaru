@@ -17,6 +17,7 @@ use amaru_ouroboros_traits::ChainStore;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
+use tracing::debug;
 use std::{
     error::Error,
     path::{Path, PathBuf},
@@ -102,6 +103,7 @@ pub(crate) async fn import_headers_for_network(
             let header_from_file: Header = from_cbor(&cbor_data).unwrap();
             db.store_header(&header_from_file)
                 .map_err(|_| WorkerError::Panic)?;
+            debug!("imported {:?}", path);
         }
     }
 

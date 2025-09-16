@@ -34,7 +34,7 @@ mkdir  /data/testnet_42/headers
 jq -r '.[] | [ .slot, .hash ] | @csv'  /data/testnet_42/headers.json | tr -d '"' | while IFS=, read -ra hdr ; do
     db-server query --query "get-header ${hdr[0]}.${hdr[1]}" \
               --config /cardano/config/configs/config.json \
-              --db /cardano/state >  "/data/testnet_42/headers/${hdr[0]}.${hdr[1]}.cbor"
+              --db /cardano/state >  "/data/testnet_42/headers/header.${hdr[0]}.${hdr[1]}.cbor"
 done
 
 # import ledger state
