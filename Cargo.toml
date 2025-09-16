@@ -9,6 +9,8 @@ homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
 rust-version = "1.91"                                    # ⚠️ Also change in .cargo/rust-toolchain.toml
 
+# Test fix for CI dependencies detection
+
 [workspace]
 members = ["crates/*", "simulation/*"]
 default-members = ["crates/*"]
