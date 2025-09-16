@@ -102,7 +102,14 @@ for pool in $pools; do
   set_start_time "$pool"
 done
 
-[[ -d /data/db ]] && { echo "Generated DB exists, not generating another one. This can lead to cluster not starting up correctly, please remove the 'db/' directory before restarting" ; exit 1 ; }
+[[ -d /data/db ]] && { echo "Generated DB exists, not generating another one. This can lead to cluster not starting up correctly, please remove the 'db/' directory before restarting" ; exit 0 ; }
+
+# generate DB
+# need to create a specialised directory to contain the generated ledger states because
+# the db-synthesizer generates snapshots whose name is the slot number of the snapshot,
+# so there's no way to select only those files
+[[ -d generated ]] || mkdir generated
+pushd generated
 
 # collect keys
 ( echo "[" ; for i in $(seq 1 5); do
@@ -114,12 +121,21 @@ done
                  [[ $i -ne 5 ]] && echo ","
              done ; echo "]" ) > bulk.json
 
-# generate DB
-db-synthesizer --config /configs/1/configs/config.json --bulk-credentials-file bulk.json -s "$(( 86400 * 4 + 1 ))" --db /data/db
+db-synthesizer --config /configs/1/configs/config.json --bulk-credentials-file bulk.json -s "$(( 86400 * 4 ))" --db /data/db
+popd
 
 # copy DB
 for pool in $pools; do
   pool_ix=$(echo "$pool" | awk -F '/' '{print $3}')
   echo "copy db for pool: $pool ($pool_ix)"
   copy_database "$pool_ix"
+done
+
+# copy snapshots for amaru consumption
+amarus=$(ls -d /amaru/*)
+number_of_amarus=$(ls -d /amaru/* | wc -l)
+echo "number_of_amarus: $number_of_amarus"
+for amaru in $amarus; do
+  amaru_ix=$(echo "$amaru" | awk -F '/' '{print $3}')
+  cp -r generated /amaru/${amaru_ix}/
 done

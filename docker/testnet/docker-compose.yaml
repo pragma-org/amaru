@@ -24,7 +24,7 @@ x-cardano-node: &cardano-node
     start_period: 40s
     start_interval: 5s
   depends_on:
-      cardano-loader:
+      amaru-loader:
         condition: service_completed_successfully
 
 x-amaru: &amaru
@@ -60,6 +60,8 @@ services:
       - p3-state:/state/3
       - p4-state:/state/4
       - p5-state:/state/5
+      - a1-state:/amaru/1
+      - a2-state:/amaru/2
     command:
        - "/data/cardano-loader.sh"
 
@@ -67,10 +69,15 @@ services:
     image: ghcr.io/pragma-org/amaru/loader:latest
     container_name: amaru-loader
     volumes:
+      - p1-state:/cardano/state
+      - p1-configs:/cardano/config
       - a1-state:/state/1
       - a2-state:/state/2
     command:
        - "/data/amaru-loader.sh"
+    depends_on:
+        cardano-loader:
+          condition: service_completed_successfully
 
   tracer:
     image: ghcr.io/cardano-foundation/antithesis/tracer:latest
@@ -82,21 +89,21 @@ services:
        - "--config"
        - "tracer-config.yaml"
 
-  amaru-1:
-    <<: *amaru
-    environment:
-      - PEER_ADDRESS=p1.example:3001
-      - NETWORK=testnet_42
-    volumes:
-      - a1-state:/srv/amaru
+  # amaru-1:
+  #   <<: *amaru
+  #   environment:
+  #     - PEER_ADDRESS=p1.example:3001
+  #     - NETWORK=testnet_42
+  #   volumes:
+  #     - a1-state:/srv/amaru
 
-  amaru-2:
-    <<: *amaru
-    environment:
-      - PEER_ADDRESS=amaru-1:3000
-      - NETWORK=testnet_42
-    volumes:
-      - a2-state:/srv/amaru
+  # amaru-2:
+  #   <<: *amaru
+  #   environment:
+  #     - PEER_ADDRESS=amaru-1:3000
+  #     - NETWORK=testnet_42
+  #   volumes:
+  #     - a2-state:/srv/amaru
 
   p1:
     <<: *cardano-node
@@ -158,6 +165,9 @@ services:
       POOLS: "5"
     volumes:
       - tracer:/opt/cardano-tracer
+    depends_on:
+        cardano-loader:
+          condition: service_completed_successfully
 
 volumes:
   tracer:
