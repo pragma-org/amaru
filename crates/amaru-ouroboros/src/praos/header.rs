@@ -202,7 +202,7 @@ pub enum AssertVrfProofError {
     MalformedProof(#[from] vrf::ProofFromBytesError),
 
     #[error("Invalid VRF proof: {0}")]
-    InvalidProof(#[from] vrf::ProofVerifyError),
+    InvalidProof(vrf::ProofVerifyError, Slot, Hash<32>, Vec<u8>),
 
     #[error("could not convert slice to array")]
     TryFromSliceError,
@@ -240,7 +240,9 @@ impl PartialEq for AssertVrfProofError {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::MalformedProof(l0), Self::MalformedProof(r0)) => l0 == r0,
-            (Self::InvalidProof(l0), Self::InvalidProof(r0)) => l0 == r0,
+            (Self::InvalidProof(l0, l1, l2, l3), Self::InvalidProof(r0, r1, r2, r3)) => {
+                l0 == r0 && l1 == r1 && l2 == r2 && l3 == r3
+            }
             (Self::TryFromSliceError, Self::TryFromSliceError) => true,
             (
                 Self::ProofMismatch {
@@ -292,11 +294,12 @@ impl AssertVrfProofError {
         // Verify the VRF proof
         let vrf_proof = vrf::Proof::try_from(&block_proof)?;
         let proof_hash = vrf_proof.verify(leader_public_key, input).map_err(|e| {
-            println!(
-                "proof verification at {}, nonce: {:?}, leader_key: {:?}",
-                absolute_slot, epoch_nonce, leader_public_key
-            );
-            e
+            Self::InvalidProof(
+                e,
+                absolute_slot,
+                epoch_nonce.clone(),
+                (**leader_public_key).to_vec(),
+            )
         })?;
         if proof_hash.as_slice() != block_proof_hash {
             return Err(Self::ProofMismatch {
