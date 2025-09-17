@@ -62,7 +62,7 @@ pub fn add<DB>(
 /// Forget about any binding for a given drep, returning all known (past and present) delegations
 /// for that drep.
 #[instrument(
-    level = Level::INFO,
+    level = Level::DEBUG,
     name = "dreps_delegations.remove",
     skip_all,
     fields(
