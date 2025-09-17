@@ -126,7 +126,7 @@ impl Worker {
                     None => assert_eq!(self.our_tip.0, Point::Origin),
                 }
 
-                self.our_tip = Tip(header.point().pallas_point(), header.block_height());
+                self.our_tip = Tip(header.pallas_point(), header.block_height());
 
                 trace!(
                     target: EVENT_TARGET,
@@ -141,7 +141,7 @@ impl Worker {
 
                 stage
                     .downstream
-                    .send(ForwardEvent::Forward(header.point().pallas_point()));
+                    .send(ForwardEvent::Forward(header.pallas_point()));
                 Ok(())
             }
             BlockValidationResult::RolledBackTo {
@@ -160,9 +160,9 @@ impl Worker {
                 self.clients
                     .send(ClientMsg::Op(ClientOp::Backward(self.our_tip.clone())));
 
-                stage.downstream.send(ForwardEvent::Backward(
-                    rollback_header.point().pallas_point(),
-                ));
+                stage
+                    .downstream
+                    .send(ForwardEvent::Backward(rollback_header.pallas_point()));
 
                 Ok(())
             }
