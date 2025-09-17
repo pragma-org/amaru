@@ -23,7 +23,7 @@ use amaru_network::chain_sync_client::{ChainSyncClientError, RawHeader, to_trave
 use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
 use gasket::framework::{Stage as StageTrait, *};
 use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse};
-use tracing::{Level, Span, error, instrument};
+use tracing::{debug, error, instrument, Level, Span};
 
 pub mod metrics;
 
@@ -135,7 +135,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                 }
                 Ok(intersection) => {
                     self.initialised = true;
-                    error!(
+                    debug!(
                         "Intersection found with {}: {:?}",
                         stage.client.peer, intersection
                     );
