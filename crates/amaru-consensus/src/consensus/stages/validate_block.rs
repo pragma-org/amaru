@@ -61,7 +61,6 @@ pub async fn stage(
                         BlockValidationResult::BlockValidated {
                             peer,
                             header,
-                            block,
                             span: span.clone(),
                         },
                     )

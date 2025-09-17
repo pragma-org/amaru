@@ -116,7 +116,7 @@ impl Worker {
     ) -> Result<(), WorkerError> {
         match result {
             BlockValidationResult::BlockValidated { header, .. } => {
-                if let Some(header) = store.load_header(&header.hash()) {
+                if let Some(header) = stage.store.load_header(&header.hash()) {
                     // assert that the new tip is a direct successor of the old tip
                     assert_eq!(header.block_height(), self.our_tip.1 + 1);
                     match header.parent() {

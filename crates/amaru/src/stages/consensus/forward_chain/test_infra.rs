@@ -18,7 +18,7 @@ use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
 use amaru_consensus::consensus::events::BlockValidationResult;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{Hash, Header, RawBlock, from_cbor};
+use amaru_kernel::{Hash, Header, from_cbor};
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use gasket::{
@@ -156,7 +156,6 @@ impl Setup {
                 peer: Peer::new("test"),
                 header: header.clone(),
                 span,
-                block: RawBlock::from(&[] as &[u8]),
             }
             .into(),
         );

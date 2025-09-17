@@ -210,16 +210,14 @@ impl PartialEq for ValidateBlockEvent {
                 ValidateBlockEvent::Validated {
                     peer: p1,
                     header: h1,
-                    block: b1,
                     ..
                 },
                 ValidateBlockEvent::Validated {
                     peer: p2,
                     header: h2,
-                    block: b2,
                     ..
                 },
-            ) => p1 == p2 && h1 == h2 && b1 == b2,
+            ) => p1 == p2 && h1 == h2,
             (
                 ValidateBlockEvent::Rollback {
                     peer: p1,
@@ -242,8 +240,6 @@ pub enum BlockValidationResult {
     BlockValidated {
         peer: Peer,
         header: Header,
-        #[serde(skip, default = "default_block")]
-        block: RawBlock,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -268,16 +264,14 @@ impl PartialEq for BlockValidationResult {
                 BlockValidationResult::BlockValidated {
                     peer: p1,
                     header: hd1,
-                    block: b1,
                     ..
                 },
                 BlockValidationResult::BlockValidated {
                     peer: p2,
                     header: hd2,
-                    block: b2,
                     ..
                 },
-            ) => p1 == p2 && hd1 == hd2 && b1 == b2,
+            ) => p1 == p2 && hd1 == hd2,
             (
                 BlockValidationResult::BlockValidationFailed {
                     peer: p1,
