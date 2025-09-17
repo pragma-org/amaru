@@ -4,7 +4,7 @@ This directory contains development related docker informations.
 
 ```bash
 cd docker/cluster
-echo NETWORK=preprod >.env
+echo AMARU_NETWORK=preprod >.env
 docker compose up --build
 ```
 
@@ -46,7 +46,7 @@ the network and start the cluster:
 
 ```bash
 cd docker/cluster
-echo NETWORK=preprod >.env
+echo AMARU_NETWORK=preprod >.env
 docker compose up --build
 ```
 

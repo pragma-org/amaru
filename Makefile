@@ -36,8 +36,7 @@ bootstrap: clear-dbs ## &start Bootstrap Amaru from scratch (snapshots + headers
 	cargo run --profile $(BUILD_PROFILE) -- bootstrap \
 		--config-dir $(AMARU_CONFIG_DIR) \
 		--ledger-dir $(AMARU_LEDGER_DIR) \
-		--chain-dir $(AMARU_CHAIN_DIR) \
-		--network $(AMARU_NETWORK)
+		--chain-dir $(AMARU_CHAIN_DIR)
 
 snapshots/$(AMARU_NETWORK): ## &start Download initial snapshots
 	@if [ ! -f "${SNAPSHOTS_FILE}" ]; then echo "SNAPSHOTS_FILE not found: ${SNAPSHOTS_FILE}"; exit 1; fi;
@@ -61,14 +60,12 @@ import-ledger-state: snapshots/$(AMARU_NETWORK) ## &start Import initial ledger-
 		SNAPSHOT_ARGS="$$SNAPSHOT_ARGS --snapshot $$SNAPSHOT"; \
 	done; \
 	cargo run --profile $(BUILD_PROFILE) -- import-ledger-state \
-		--network $(AMARU_NETWORK) \
 		--ledger-dir "$(AMARU_LEDGER_DIR)" \
 		$$SNAPSHOT_ARGS
 
 import-nonces: ## &start Import initial nonces
 	@if [ ! -f "$(NONCES_FILE)" ]; then echo "NONCES_FILE not found: $(NONCES_FILE)"; exit 1; fi; \
 	cargo run --profile $(BUILD_PROFILE) -- import-nonces \
-		--network $(AMARU_NETWORK) \
 		--chain-dir $(AMARU_CHAIN_DIR) \
 		--at $$(jq -r .at $(NONCES_FILE)) \
 		--active $$(jq -r .active $(NONCES_FILE)) \
@@ -117,8 +114,7 @@ all-ci-checks: ## &test Run all CI checks
 fetch-chain-headers: $(AMARU_CONFIG_DIR)/$(AMARU_NETWORK)/ ## &test Fetch chain headers from the network
 	cargo run --profile $(BUILD_PROFILE) -- fetch-chain-headers \
 		--peer-address $(AMARU_PEER_ADDRESS) \
-		--config-dir $(AMARU_CONFIG_DIR) \
-		--network $(AMARU_NETWORK)
+		--config-dir $(AMARU_CONFIG_DIR)
 
 fetch-data: ## &test Fetch epoch data (dreps, pools, accounts, ...) from a Haskell node
 	@npm --prefix data run fetch -- "$(AMARU_NETWORK)"

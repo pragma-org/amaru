@@ -5,10 +5,10 @@ test_explains_snapshot_file_is_missing() {
 }
 
 setup() {
-	export NETWORK=preprod
+	export AMARU_NETWORK=preprod
 	export CONFIG_FOLDER=data
-	export LEDGER_DIR=./ledger.${NETWORK}.db
-	export CHAIN_DIR=./chain.${NETWORK}.db
+	export LEDGER_DIR=./ledger.${AMARU_NETWORK}.db
+	export CHAIN_DIR=./chain.${AMARU_NETWORK}.db
 	export BUILD_PROFILE=dev
 }
 
@@ -21,6 +21,5 @@ bootstrap_amaru() {
 		--config-dir ${CONFIG_FOLDER} \
 		--ledger-dir ${LEDGER_DIR} \
 		--chain-dir ${CHAIN_DIR} \
-		--network ${NETWORK} \
 		2>&1
 }
