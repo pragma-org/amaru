@@ -3,9 +3,12 @@
 
 set -vx
 
-BASEDIR=${1:-/data/generated}
-CONFIG_DIR=${2:-/cardano/config}
-CHAIN_DB_DIR=${3:-/cardano/state}
+BASEDIR=${BASEDIR:-/data/generated}
+CONFIG_DIR=${CONFIG_DIR:-/cardano/config}
+CHAIN_DB_DIR=${CHAIN_DB_DIR:-/cardano/state}
+
+# TODO: derive from cardano-node's configuration files?
+NETWORK_NAME=${NETWORK_NAME:-testnet_42}
 
 # Implement sponge-like command without the need for binary nor TMPDIR environment variable
 write_file() {
@@ -25,44 +28,54 @@ copy_databases() {
     [[ -d  "$target/ledger.db" ]] || mkdir "$target/ledger.db"
     [[ -d  "$target/chain.db" ]] || mkdir "$target/chain.db"
 
-    cp -fr ${BASEDIR}/ledger.testnet_42.db/* "$target/ledger.db/"
-    cp -fr ${BASEDIR}/chain.testnet_42.db/* "$target/chain.db/"
+    cp -fr ${BASEDIR}/ledger.${NETWORK_NAME}.db/* "$target/ledger.db/"
+    cp -fr ${BASEDIR}/chain.${NETWORK_NAME}.db/* "$target/chain.db/"
 }
 
 # convert ledger states
 for i in ${BASEDIR}/*; do
-    amaru convert-ledger-state --network testnet_42 --snapshot $i --target-dir ${BASEDIR}/testnet_42/snapshots
+    amaru convert-ledger-state --network ${NETWORK_NAME} --snapshot $i --target-dir ${BASEDIR}/${NETWORK_NAME}/snapshots
 done
 
 # find the last generated nonces file and copy it as 'nonces.json'
 last_snapshot=$(ls -1 ${BASEDIR}/ |  awk -F '/' '/[0-9]+$/ { print $1 }' | sort -n | tail -1)
-cp ${BASEDIR}/testnet_42/snapshots/nonces.${last_snapshot}.* ${BASEDIR}/testnet_42/nonces.json
+cp ${BASEDIR}/${NETWORK_NAME}/snapshots/nonces.${last_snapshot}.* ${BASEDIR}/${NETWORK_NAME}/nonces.json
 
-# retrieve 4 headers right before snapshot
+# retrieve second to last snapshot's slot to query headers later
+second_to_last_snapshot=$(ls -1 ${BASEDIR}/ |  awk -F '/' '/[0-9]+$/ { print $1 }' | sort -n | tail -2 | head -1)
+
+# update the nonces' `tail` with the last header hash of the previous epoch
+second_to_last_hash=$(ls -1 ${BASEDIR}/${NETWORK_NAME}/snapshots |  awk -F '/' '/.*.cbor$/ { print $1 }' | sort -n | cut -d '.' -f 2 | tail -2 | head -1)
+jq ".tail = \"${second_to_last_hash}\"" ${BASEDIR}/${NETWORK_NAME}/nonces.json  | write_file  ${BASEDIR}/${NETWORK_NAME}/nonces.json
+
+# list headers to retrieve 2 headers for last snapshot
 db-server query --query list-blocks \
           --config ${CONFIG_DIR}/configs/config.json \
-          --db ${CHAIN_DB_DIR} | jq -c "[ .[] | select(.slot <= $last_snapshot) ] | .[0:4]" > ${BASEDIR}/testnet_42/headers.json
+          --db ${CHAIN_DB_DIR} |  jq -rc "[ .[] | select(.slot <= $last_snapshot) ] | .[0:2] | .[] | [.slot, .hash] | @csv" > ${BASEDIR}/${NETWORK_NAME}/headers.csv
+
+# list headers to retrieve 2 headers for second to last snapshot
+# this is necessary because when epoch transition happens, we compute
+# the new active nonce for the epoch using the tail's parent hash!
+db-server query --query list-blocks \
+          --config ${CONFIG_DIR}/configs/config.json \
+          --db ${CHAIN_DB_DIR} | jq -rc "[ .[] | select(.slot <= $second_to_last_snapshot) ] | .[0:2] | .[] | [.slot, .hash] | @csv" >> ${BASEDIR}/${NETWORK_NAME}/headers.csv
 
 # retrieve actual headers content
-mkdir  ${BASEDIR}/testnet_42/headers
-jq -r '.[] | [ .slot, .hash ] | @csv'  ${BASEDIR}/testnet_42/headers.json | tr -d '"' | while IFS=, read -ra hdr ; do
+mkdir  ${BASEDIR}/${NETWORK_NAME}/headers
+cat ${BASEDIR}/${NETWORK_NAME}/headers.csv | tr -d '"' | while IFS=, read -ra hdr ; do
     db-server query --query "get-header ${hdr[0]}.${hdr[1]}" \
               --config ${CONFIG_DIR}/configs/config.json \
-              --db ${CHAIN_DB_DIR} >  "${BASEDIR}/testnet_42/headers/header.${hdr[0]}.${hdr[1]}.cbor"
+              --db ${CHAIN_DB_DIR} >  "${BASEDIR}/${NETWORK_NAME}/headers/header.${hdr[0]}.${hdr[1]}.cbor"
 done
 
-# update the nonces' tail with the grandparent of the last header of the epoch
-second_to_last_hash=$(ls -1 ${BASEDIR}/testnet_42/headers | cut -d '.' -f 2,3 | sort -n | cut -d '.' -f 2 | tail  -3 | head -1)
-jq ".tail = \"${second_to_last_hash}\"" ${BASEDIR}/testnet_42/nonces.json  | write_file  ${BASEDIR}/testnet_42/nonces.json
-
 # import ledger state
-amaru import-ledger-state --network testnet_42 --ledger-dir ${BASEDIR}/ledger.testnet_42.db --snapshot-dir ${BASEDIR}/testnet_42/snapshots/
+amaru import-ledger-state --network ${NETWORK_NAME} --ledger-dir ${BASEDIR}/ledger.${NETWORK_NAME}.db --snapshot-dir ${BASEDIR}/${NETWORK_NAME}/snapshots/
 
 # import headers
-amaru import-headers --network testnet_42 --chain-dir ${BASEDIR}/chain.testnet_42.db --config-dir ${BASEDIR}/
+amaru import-headers --network ${NETWORK_NAME} --chain-dir ${BASEDIR}/chain.${NETWORK_NAME}.db --config-dir ${BASEDIR}/
 
 # import nonces
-amaru import-nonces  --nonces-file ${BASEDIR}/testnet_42/nonces.json --network testnet_42 --chain-dir ${BASEDIR}/chain.testnet_42.db/
+amaru import-nonces  --nonces-file ${BASEDIR}/${NETWORK_NAME}/nonces.json --network ${NETWORK_NAME} --chain-dir ${BASEDIR}/chain.${NETWORK_NAME}.db/
 
 nodes=$(ls -d /state/*)
 number_of_nodes=$(ls -d /state/* | wc -l)
