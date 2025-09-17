@@ -3,6 +3,19 @@
 
 set -vx
 
+# Implement sponge-like command without the need for binary nor TMPDIR environment variable
+write_file() {
+    # Create temporary file
+    local tmp_file="${1}_$(tr </dev/urandom -dc A-Za-z0-9 | head -c16)"
+
+    # Redirect the output to the temporary file
+    cat >"${tmp_file}"
+
+    # Replace the original file
+    mv --force "${tmp_file}" "${1}"
+}
+
+
 copy_databases() {
     target=/state/$1
     [[ -d  "$target/ledger.db" ]] || mkdir "$target/ledger.db"
@@ -20,6 +33,12 @@ done
 # find the last generated nonces file and copy it as 'nonces.json'
 last_snapshot=$(ls -1 /data/generated/ |  awk -F '/' '/[0-9]+$/ { print $1 }' | sort -n | tail -1)
 cp /data/generated/testnet_42/snapshots/nonces.${last_snapshot}.* /data/generated/testnet_42/nonces.json
+
+# need the point of the second to last snapshot to update nonces.json
+second_to_last_hash=$(ls -1 /data/generated/ |  awk -F '/' '/[0-9]+$/ { print $1 }' | sort -n | tail -2 | head -1 | cut -d '.' -f 3)
+# .systemStart
+jq ".tail = \"${second_to_last_hash}\"" /data/generated/testnet_42/nonces.json  | write_file  /data/generated/testnet_42/nonces.json
+
 
 # retrieve 4 headers right before snapshot
 db-server query --query list-blocks \
