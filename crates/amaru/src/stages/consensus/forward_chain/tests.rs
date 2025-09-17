@@ -18,6 +18,7 @@ use super::{
         BRANCH_47, CHAIN_47, ClientMsg, LOST_47, Setup, TIP_47, WINNER_47, hash, mk_store,
     },
 };
+use crate::stages::consensus::forward_chain::test_infra::ChainStoreExt;
 use crate::stages::{AsTip, PallasPoint};
 use amaru_ouroboros_traits::IsHeader;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
@@ -41,7 +42,7 @@ fn find_headers_between_tip_and_tip() {
     let tip = store.get_point(TIP_47);
     let points = [store.get_point(TIP_47)];
 
-    let (ops, Tip(p, h)) = find_headers_between(&store, &tip, &points).unwrap();
+    let (ops, Tip(p, h)) = find_headers_between(store, &tip, &points).unwrap();
     assert_eq!((ops, p, h), (vec![], tip, 47));
 }
 
@@ -53,7 +54,7 @@ fn find_headers_between_tip_and_branch() {
     let points = [store.get_point(BRANCH_47)];
     let peer = store.get_point(BRANCH_47);
 
-    let (ops, Tip(p, h)) = find_headers_between(&store, &tip, &points).unwrap();
+    let (ops, Tip(p, h)) = find_headers_between(store.clone(), &tip, &points).unwrap();
     assert_eq!(
         (ops.len() as u64, p, h),
         (
@@ -78,7 +79,7 @@ fn find_headers_between_tip_and_branches() {
     ];
     let peer = store.get_point(WINNER_47);
 
-    let (ops, Tip(p, h)) = find_headers_between(&store, &tip, &points).unwrap();
+    let (ops, Tip(p, h)) = find_headers_between(store.clone(), &tip, &points).unwrap();
     assert_eq!(
         (ops.len() as u64, p, h),
         (
@@ -96,7 +97,7 @@ fn find_headers_between_tip_and_lost() {
     let tip = store.get_point(TIP_47);
     let points = [store.get_point(LOST_47)];
 
-    let result = find_headers_between(&store, &tip, &points).unwrap();
+    let result = find_headers_between(store.clone(), &tip, &points).unwrap();
     assert_eq!(result.0.len() as u64, store.get_height(TIP_47));
     assert_eq!(result.1.0, Point::Origin);
     assert_eq!(result.1.1, 0);
@@ -106,7 +107,7 @@ fn find_headers_between_tip_and_lost() {
 fn test_chain_sync() {
     let mut setup = Setup::new(LOST_47);
     let chain = setup.store.get_chain(TIP_47);
-    let lost = setup.store.get(&hash(LOST_47)).unwrap().clone();
+    let lost = setup.store.load_header(&hash(LOST_47)).unwrap().clone();
 
     let mut client = setup.connect();
 
@@ -150,7 +151,7 @@ fn test_chain_sync() {
 fn test_sync_optimising_rollback() {
     let mut setup = Setup::new(LOST_47);
     let chain = setup.store.get_chain(TIP_47);
-    let lost = setup.store.get(&hash(LOST_47)).unwrap().clone();
+    let lost = setup.store.load_header(&hash(LOST_47)).unwrap().clone();
 
     let mut client = setup.connect();
     client.find_intersect(vec![]).0.expect("no intersection");

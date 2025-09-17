@@ -31,7 +31,8 @@ use crate::consensus::stages::select_chain::{ForwardChainSelection, RollbackChai
 use amaru_kernel::Point;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::string_utils::ListToString;
-use amaru_ouroboros_traits::IsHeader;
+use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use itertools::Itertools;
 use proptest::prelude::Strategy;
 use rand::prelude::StdRng;
@@ -40,6 +41,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
 
 /// This data type models the events sent by the ChainSync mini-protocol with simplified data for the tests.
 /// The serialization is adjusted to make concise string representations when transforming
@@ -260,8 +262,9 @@ pub fn execute_actions(
     actions: &[Action],
     print: bool,
 ) -> Result<Vec<SelectionResult>, ConsensusError> {
-    let mut tree = HeadersTree::new(max_length, &None);
-    execute_actions_on_tree(&mut tree, actions, print)
+    let store = Arc::new(InMemConsensusStore::new());
+    let mut tree = HeadersTree::new(store.clone(), max_length);
+    execute_actions_on_tree(store, &mut tree, actions, print)
 }
 
 /// Execute a list of actions against a given HeadersTree.
@@ -272,6 +275,7 @@ pub fn execute_actions(
 /// the execution with before / after state when debugging.
 ///
 pub fn execute_actions_on_tree(
+    store: Arc<dyn ChainStore<TestHeader>>,
     tree: &mut HeadersTree<TestHeader>,
     actions: &[Action],
     print: bool,
@@ -281,13 +285,19 @@ pub fn execute_actions_on_tree(
 
     for (action_nb, action) in actions.iter().enumerate() {
         let result = match action {
-            Action::RollForward { peer, header } => match tree.select_roll_forward(peer, *header) {
-                Ok(result) => Forward(result.clone()),
-                Err(_) => {
-                    // Skip invalid actions like rolling forward a header that is not at the tip of a given peer
-                    Forward(ForwardChainSelection::NoChange)
+            Action::RollForward { peer, header } => {
+                // make sure that the header is in the store before rolling forward
+                if !store.has_header(&header.hash()) {
+                    store.store_header(header).unwrap();
                 }
-            },
+                match tree.select_roll_forward(peer, *header) {
+                    Ok(result) => Forward(result.clone()),
+                    Err(_) => {
+                        // Skip invalid actions like rolling forward a header that is not at the tip of a given peer
+                        Forward(ForwardChainSelection::NoChange)
+                    }
+                }
+            }
             Action::RollBack {
                 peer,
                 rollback_point,

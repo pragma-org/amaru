@@ -14,7 +14,7 @@ rust-version.workspace = true
 
 [features]
 default = []
-test-utils = ["proptest", "amaru-slot-arithmetic/test-utils"]
+test-utils = ["proptest", "amaru-slot-arithmetic/test-utils", "amaru-kernel/test-utils"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

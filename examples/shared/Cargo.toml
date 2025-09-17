@@ -15,5 +15,4 @@ publish = false
 amaru-kernel = { path = "../../crates/amaru-kernel" }
 amaru-ledger = { path = "../../crates/amaru-ledger" }
 amaru-stores = { path = "../../crates/amaru-stores", default-features = false }
-
 hex.workspace = true

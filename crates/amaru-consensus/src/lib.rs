@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub use amaru_ouroboros_traits::*;
+
 pub mod consensus;
 
 #[cfg(test)]

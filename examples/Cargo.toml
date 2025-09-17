@@ -13,5 +13,6 @@ members = ["ledger-in-nodejs"]
 resolver = "2"
 
 [workspace.dependencies]
+
 hex = "0.4.3"
 tracing = "0.1.40"

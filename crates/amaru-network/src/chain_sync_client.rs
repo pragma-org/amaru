@@ -83,6 +83,10 @@ impl ChainSyncClient {
         Ok(())
     }
 
+    pub fn intersection(&self) -> &[Point] {
+        &self.intersection
+    }
+
     pub async fn request_next(
         &mut self,
     ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {

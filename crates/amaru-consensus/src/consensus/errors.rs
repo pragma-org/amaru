@@ -16,6 +16,7 @@ use crate::consensus;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{HEADER_HASH_SIZE, Point};
 use amaru_ouroboros::praos::header::AssertHeaderError;
+use amaru_ouroboros_traits::StoreError;
 use pallas_crypto::hash::Hash;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
@@ -32,9 +33,17 @@ pub enum ConsensusError {
     #[error("Failed to validate header at {0}: {1}")]
     InvalidHeader(Point, AssertHeaderError),
     #[error("Failed to store header at {0}: {1}")]
-    StoreHeaderFailed(Point, consensus::store::StoreError),
+    StoreHeaderFailed(Hash<HEADER_HASH_SIZE>, StoreError),
+    #[error("Failed to remove header at {0}: {1}")]
+    RemoveHeaderFailed(Hash<HEADER_HASH_SIZE>, StoreError),
+    #[error("Failed to set a new anchor at {0}: {1}")]
+    SetAnchorHashFailed(Hash<HEADER_HASH_SIZE>, StoreError),
+    #[error("Failed to set a best chain at {0}: {1}")]
+    SetBestChainHashFailed(Hash<HEADER_HASH_SIZE>, StoreError),
+    #[error("Failed to update a best chain at {0}->{1}: {2}")]
+    UpdateBestChainFailed(Hash<HEADER_HASH_SIZE>, Hash<HEADER_HASH_SIZE>, StoreError),
     #[error("Failed to store block body at {0}: {1}")]
-    StoreBlockFailed(Point, consensus::store::StoreError),
+    StoreBlockFailed(Point, StoreError),
     #[error(
         "Failed to decode header at {}: {} ({})",
         point,
