@@ -3,8 +3,9 @@ FROM docker.io/debian:stable-slim AS build
 ARG BLST_VERSION="${BLST_VERSION:-0.3.11}"
 ARG BOOTSTRAP_HASKELL_CABAL_VERSION="${BOOTSTRAP_HASKELL_CABAL_VERSION:-3.12.1.0}"
 ARG BOOTSTRAP_HASKELL_GHC_VERSION="${BOOTSTRAP_HASKELL_GHC_VERSION:-9.6.7}"
-ARG CONSENSUS_REPO="${CONSENSUS_REPO:-https://github.com/IntersectMBO/ouroboros-consensus.git}"
-ARG CONSENSUS_REF="${CONSENSUS_REF:-main}"
+# TODO: should be replaced by upstream one day
+ARG CONSENSUS_REPO="${CONSENSUS_REPO:-https://github.com/abailly/ouroboros-consensus.git}"
+ARG CONSENSUS_REF="${CONSENSUS_REF:-abailly/snapshot-generator}"
 ARG DB_SERVER_REPO="${DB_SERVER_REPO:-https://github.com/pragma-org/db-server.git}"
 ARG DB_SERVER_REF="${DB_SERVER_REF:-main}"
 ARG JOBS="${JOBS:-8}"
