@@ -19,6 +19,7 @@ use amaru_kernel::{
 use clap::Parser;
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};
+use tracing::{debug, info};
 
 use crate::cmd::import_nonces::InitialNonces;
 
@@ -74,7 +75,12 @@ async fn convert_one_snapshot_file(
 
     fs::create_dir_all(target_dir).await?;
 
-    convert_snapshot_to(snapshot, target_dir, network).await
+    let converted = convert_snapshot_to(snapshot, target_dir, network).await?;
+    info!(
+        "converted ledger state from {:?} to {:?}",
+        snapshot, converted
+    );
+    Ok(converted)
 }
 
 async fn convert_snapshot_to(
@@ -220,7 +226,7 @@ async fn convert_snapshot_to(
         active,
         evolving,
         candidate,
-        tail: tip_hash,
+        tail: Hash::new([0; 32]),
     };
 
     write_nonces(target_dir, slot, hash, nonces).await?;
@@ -236,6 +242,7 @@ async fn write_era_history(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("history.{}.{}.json", slot, hash));
     fs::write(&target_path, serde_json::to_string(era_history)?).await?;
+    debug!("wrote era history {:?}", target_path);
     Ok(())
 }
 
@@ -300,6 +307,7 @@ async fn write_nonces(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("nonces.{}.{}.json", slot, hash));
     fs::write(&target_path, serde_json::to_string(&nonces)?).await?;
+    debug!("wrote nonces file {:?}", target_path);
     Ok(())
 }
 
@@ -311,6 +319,7 @@ async fn write_ledger_snapshot(
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("{}.{}.cbor", slot, hash));
     fs::write(&target_path, ledger_data).await?;
+    debug!("wrote ledger snapshot {:?}", target_path);
     Ok(target_path)
 }
 
