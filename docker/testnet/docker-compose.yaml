@@ -28,6 +28,7 @@ x-cardano-node: &cardano-node
         condition: service_completed_successfully
 
 x-amaru: &amaru
+  image: ghcr.io/pragma-org/amaru/amaru:latest
   build:
     context: ../..
     dockerfile: docker/Dockerfile.amaru
