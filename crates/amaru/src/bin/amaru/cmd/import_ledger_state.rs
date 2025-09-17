@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Point, default_ledger_dir, network::NetworkName};
+use amaru_kernel::{EraHistory, Point, default_ledger_dir, network::NetworkName};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -140,11 +140,13 @@ pub async fn import_one(
     let db = RocksDB::empty(ledger_dir)?;
     let bytes = fs::read(snapshot)?;
 
+    // TODO: if testnet, load the era history from "well-known" file
+    let era_history = <&EraHistory>::from(network);
     let epoch = import_initial_snapshot(
         &db,
         &bytes,
         &point,
-        network,
+        era_history,
         new_terminal_progress_bar,
         None,
         true,

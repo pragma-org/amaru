@@ -24,8 +24,7 @@ use amaru_kernel::{
     DRep, DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
     Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, Reward,
     ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
-    UnitInterval, Vote, Voter, cbor, heterogeneous_array, network::NetworkName,
-    protocol_parameters::ProtocolParameters,
+    UnitInterval, Vote, Voter, cbor, heterogeneous_array, protocol_parameters::ProtocolParameters,
 };
 use amaru_progress_bar::ProgressBar;
 use std::{
@@ -63,7 +62,7 @@ pub fn import_initial_snapshot(
     db: &(impl Store + 'static),
     bytes: &[u8],
     point: &Point,
-    network: NetworkName,
+    era_history: &EraHistory,
     // A way to notify progress while importing. The second argument is a template argument, which
     // follows the format described in:
     //
@@ -74,8 +73,6 @@ pub fn import_initial_snapshot(
     // Assumes the presence of fully computed rewards when set.
     has_rewards: bool,
 ) -> Result<Epoch, Box<dyn std::error::Error>> {
-    let era_history = <&EraHistory>::from(network);
-
     let mut d = cbor::Decoder::new(bytes);
 
     d.array()?;

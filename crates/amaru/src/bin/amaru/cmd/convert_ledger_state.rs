@@ -116,7 +116,8 @@ async fn convert_snapshot_to(
             slot_length: 1000,
         },
     });
-    let _history = EraHistory::new(&eras, network.default_stability_window());
+
+    let era_history = EraHistory::new(&eras, network.default_stability_window());
 
     // ledger state
     // https://github.com/abailly/ouroboros-consensus/blob/1508638f832772d21874e18e48b908fcb791cd49/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Ledger/Ledger.hs#L736
@@ -221,7 +222,19 @@ async fn convert_snapshot_to(
     };
 
     write_nonces(target_dir, slot, hash, nonces).await?;
+    write_era_history(target_dir, slot, hash, &era_history).await?;
     write_ledger_snapshot(target_dir, slot, hash, &bytes[begin..end]).await
+}
+
+async fn write_era_history(
+    target_dir: &Path,
+    slot: u64,
+    hash: Hash<32>,
+    era_history: &EraHistory,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let target_path = target_dir.join(format!("history.{}.{}.json", slot, hash));
+    fs::write(&target_path, serde_json::to_string(era_history)?).await?;
+    Ok(())
 }
 
 /// This is the number of past eras before the current era in the "standard" Cardano history, e.g
