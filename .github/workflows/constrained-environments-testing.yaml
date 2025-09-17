@@ -1,0 +1,88 @@
+name: Constrained Environments Testing
+
+on:
+  workflow_dispatch:
+
+env:
+  CARDANO_NODE_VERSION: 10.1.4
+  CARGO_TERM_COLOR: always
+  RUST_CACHE_PATH: |
+    ~/.cargo/bin/
+    ~/.cargo/registry/index/
+    ~/.cargo/registry/cache/
+    ~/.cargo/git/db/
+    target/
+
+jobs:
+  memory-limit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile amaru
+        run: cargo build --release
+
+      - name: Bootstrap amaru
+        run: ./target/release/amaru bootstrap 
+
+      - id: timestamp
+        shell: bash
+        run: |
+          echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Restore cardano-node DB
+        id: cache-cardano-node-db
+        uses: actions/cache/restore@v4
+        with:
+          # The path should match the one used for the 'Nightly Sync' workflow.
+          path: ${{ runner.temp }}/db-preprod
+          # The key should also match
+          key: cardano-node-ogmios-preprod
+          restore-keys: |
+            cardano-node-ogmios-preprod
+
+      - name: Check if cardano-node-db is available
+        if: steps.cache-cardano-node-db.outputs.cache-hit == ''
+        shell: bash
+        run: |
+          echo "Haskell node db not available, aborting job."
+          exit 1
+
+      - name: Spawn Haskell Node
+        id: spawn-cardano-node
+        shell: bash
+        run: |
+          docker pull ghcr.io/intersectmbo/cardano-node:${{ env.CARDANO_NODE_VERSION }}
+          make HASKELL_NODE_CONFIG_DIR=cardano-node-config NETWORK=preprod download-haskell-config
+          docker run -d --name cardano-node \
+            -v ${{ runner.temp }}/db-preprod:/db \
+            -v ${{ runner.temp }}/ipc:/ipc \
+            -v ./cardano-node-config:/config \
+            -v ./cardano-node-config:/genesis \
+            -p 3001:3001 \
+            ghcr.io/intersectmbo/cardano-node:preprod run \
+              --config /config/config.json \
+              --database-path /db \
+              --socket-path /ipc/node.socket \
+              --topology /config/topology.json
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-x86_64-unknown-linux-gnu
+          restore-keys: |
+            cargo-x86_64-unknown-linux-gnu
+
+      - name: Install cgroup tools
+        shell: bash
+        run: sudo apt-get install -y cgroup-tools
+
+      - name: Setup cgroup with 512MB memory limit
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          sudo mkdir -p /sys/fs/cgroup/test
+          # Limit to 512MB
+          echo $((512*1024*1024)) | sudo tee /sys/fs/cgroup/test/memory.max
+          # Run the command inside the cgroup
+          sudo cgexec -g memory:test make BUILD_PROFILE=test AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
