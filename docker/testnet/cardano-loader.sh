@@ -103,25 +103,26 @@ for pool in $pools; do
 done
 
 if [[ -d /data/generated/db ]] ; then
-    echo "Generated DB exists, not generating another one. This can lead to cluster not starting up correctly, please remove the 'db/' directory before restarting"
-else
-  # generate DB
-  # assumes /data/generated exists, should be a volume injected
-  pushd /data/generated
-
-  # collect keys
-  ( echo "[" ; for i in $(seq 1 5); do
-                   out="["
-                   out="${out}$(cat /configs/$i/keys/opcert.cert)"
-                   out="${out},$(cat /configs/$i/keys/vrf.skey)"
-                   out="${out},$(cat /configs/$i/keys/kes.skey)]"
-                   echo $out
-                   [[ $i -ne 5 ]] && echo ","
-               done ; echo "]" ) > bulk.json
-
-  db-synthesizer --config /configs/1/configs/config.json --bulk-credentials-file bulk.json -s "$(( 86400 * 4 ))" --db db
-  popd
+    echo "Generated DB exists, archiving it"
+    mv /data/generated/db /data/generated/db.old
 fi
+
+# generate DB
+# assumes /data/generated exists, should be a volume injected
+pushd /data/generated
+
+# collect keys
+( echo "[" ; for i in $(seq 1 5); do
+                 out="["
+                 out="${out}$(cat /configs/$i/keys/opcert.cert)"
+                 out="${out},$(cat /configs/$i/keys/vrf.skey)"
+                 out="${out},$(cat /configs/$i/keys/kes.skey)]"
+                 echo $out
+                 [[ $i -ne 5 ]] && echo ","
+             done ; echo "]" ) > bulk.json
+
+db-synthesizer --config /configs/1/configs/config.json --bulk-credentials-file bulk.json -s "$(( 86400 * 4 ))" --db db
+popd
 
 # copy DB
 for pool in $pools; do
