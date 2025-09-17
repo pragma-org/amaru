@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{ClientOp, hash_point};
-use crate::stages::AsTip;
+use crate::stages::{AsTip, PallasPoint};
 use amaru_kernel::Header;
 use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
@@ -44,7 +44,7 @@ impl ClientState {
             ClientOp::Backward(tip) => {
                 if let Some((index, _)) =
                     self.ops.iter().enumerate().rfind(
-                        |(_, op)| matches!(op, ClientOp::Forward(_, tip2) if tip2.0 == tip.0),
+                        |(_, op)| matches!(op, ClientOp::Forward(header2) if header2.pallas_point() == tip.0),
                     )
                 {
                     tracing::debug!("found backward op at index {index} in {:?}", self.ops);
@@ -81,10 +81,7 @@ pub(super) fn find_headers_between(
 
     // Find the first point that is in the past of start_point
     let mut current_header = start_header;
-    let mut headers = vec![ClientOp::Forward(
-        current_header.clone(),
-        current_header.as_tip(),
-    )];
+    let mut headers = vec![ClientOp::Forward(current_header.clone())];
 
     while let Some(parent_hash) = current_header.parent() {
         match store.load_header(&parent_hash) {
@@ -94,7 +91,7 @@ pub(super) fn find_headers_between(
                     headers.reverse();
                     return Some((headers, header.as_tip()));
                 }
-                headers.push(ClientOp::Forward(header.clone(), header.as_tip()));
+                headers.push(ClientOp::Forward(header.clone()));
                 current_header = header;
             }
             None => return None, // Broken chain

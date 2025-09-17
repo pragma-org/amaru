@@ -179,7 +179,7 @@ async fn chain_sync_handler(
 
         if let ActoInput::Message(op) = cell.recv().await {
             match op {
-                Some((ClientOp::Forward(header, _), tip)) => {
+                Some((ClientOp::Forward(header), tip)) => {
                     tracing::debug!("sending roll forward");
                     server
                         .send_roll_forward(to_header_content(header), tip)
@@ -196,7 +196,7 @@ async fn chain_sync_handler(
                         return Ok(());
                     };
                     match op {
-                        ClientOp::Forward(header, _) => {
+                        ClientOp::Forward(header) => {
                             server
                                 .send_roll_forward(to_header_content(header), tip)
                                 .await?;

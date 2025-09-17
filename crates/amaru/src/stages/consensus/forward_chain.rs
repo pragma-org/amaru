@@ -134,10 +134,8 @@ impl Worker {
                     "tip_changed"
                 );
 
-                self.clients.send(ClientMsg::Op(ClientOp::Forward(
-                    header.clone(),
-                    self.our_tip.clone(),
-                )));
+                self.clients
+                    .send(ClientMsg::Op(ClientOp::Forward(header.clone())));
 
                 stage
                     .downstream
@@ -188,7 +186,7 @@ enum ClientOp {
     /// the tip to go back to
     Backward(Tip),
     /// the header to go forward to and the tip we will be at after sending this header
-    Forward(Header, Tip),
+    Forward(Header),
 }
 
 impl std::fmt::Debug for ClientOp {
@@ -198,13 +196,16 @@ impl std::fmt::Debug for ClientOp {
                 .debug_struct("Backward")
                 .field("tip", &(tip.1, PrettyPoint(&tip.0)))
                 .finish(),
-            Self::Forward(header, tip) => f
+            Self::Forward(header) => f
                 .debug_struct("Forward")
                 .field(
                     "header",
                     &(header.block_height(), PrettyPoint(&header.pallas_point())),
                 )
-                .field("tip", &(tip.1, PrettyPoint(&tip.0)))
+                .field(
+                    "tip",
+                    &(header.as_tip().1, PrettyPoint(&header.pallas_point())),
+                )
                 .finish(),
         }
     }
@@ -234,9 +235,7 @@ impl PartialEq for ClientOp {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Backward(l0), Self::Backward(r0)) => (&l0.0, l0.1) == (&r0.0, r0.1),
-            (Self::Forward(l0, l1), Self::Forward(r0, r1)) => {
-                l0 == r0 && (&l1.0, l1.1) == (&r1.0, r1.1)
-            }
+            (Self::Forward(l0), Self::Forward(r0)) => l0 == r0,
             _ => false,
         }
     }
@@ -248,7 +247,7 @@ impl ClientOp {
     pub fn tip(&self) -> Tip {
         match self {
             ClientOp::Backward(tip) => tip.clone(),
-            ClientOp::Forward(_, tip) => tip.clone(),
+            ClientOp::Forward(header) => header.as_tip(),
         }
     }
 }
