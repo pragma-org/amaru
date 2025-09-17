@@ -209,8 +209,10 @@ async fn convert_snapshot_to(
     d.u8()?;
     let active: Nonce = d.decode()?;
 
+    // lab nonce
     d.skip()?;
 
+    // last epoch nonce
     d.skip()?;
 
     let nonces = InitialNonces {

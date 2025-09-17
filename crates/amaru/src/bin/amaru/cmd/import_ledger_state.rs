@@ -20,7 +20,10 @@ use amaru_ledger::{
 use amaru_progress_bar::new_terminal_progress_bar;
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -64,6 +67,8 @@ pub struct Args {
 enum Error {
     #[error("malformed date: {}", .0)]
     MalformedDate(String),
+    #[error("invalid snapshot file: {0}")]
+    InvalidSnapshotFile(PathBuf),
     #[error(
         "You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)"
     )]
@@ -139,14 +144,16 @@ pub async fn import_one(
     fs::create_dir_all(ledger_dir)?;
     let db = RocksDB::empty(ledger_dir)?;
     let bytes = fs::read(snapshot)?;
+    let dir = snapshot
+        .parent()
+        .ok_or(Error::InvalidSnapshotFile(snapshot.into()))?;
 
-    // TODO: if testnet, load the era history from "well-known" file
-    let era_history = <&EraHistory>::from(network);
+    let era_history = make_era_history(dir, &point, network)?;
     let epoch = import_initial_snapshot(
         &db,
         &bytes,
         &point,
-        era_history,
+        &era_history,
         new_terminal_progress_bar,
         None,
         true,
@@ -162,11 +169,54 @@ pub async fn import_one(
     Ok(())
 }
 
+fn make_era_history(
+    dir: &Path,
+    point: &Point,
+    network: NetworkName,
+) -> Result<EraHistory, Box<dyn std::error::Error>> {
+    match network {
+        NetworkName::Testnet(_) => {
+            let filename = format!("history.{}.{}.json", point.slot_or_default(), point.hash());
+            let history_file = dir.join(filename);
+            if !history_file.exists() || !history_file.is_file() {
+                panic!("cannot import testnet era history from {:?}", history_file);
+            };
+
+            Ok(serde_json::from_slice(&fs::read(&history_file)?)?)
+        }
+        well_known => Ok(<&EraHistory>::from(well_known).clone()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{
+        path::{ PathBuf},
+        str::FromStr,
+    };
 
-    use crate::cmd::import_ledger_state::sort_snapshots_by_slot;
+    use crate::cmd::import_ledger_state::{make_era_history, sort_snapshots_by_slot};
+    use amaru_kernel::{Hash, Point, Slot, network::NetworkName, HEADER_HASH_SIZE};
+    use amaru_slot_arithmetic::TimeMs;
+
+    #[test]
+    fn make_era_history_for_tesnet_given_file_exists() {
+        let dir = PathBuf::from("tests/data/");
+        let hash: Hash<HEADER_HASH_SIZE> =
+            Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")
+                .unwrap();
+        let point = Point::Specific(56073562, hash.to_vec());
+
+        let history = make_era_history(&dir, &point, NetworkName::Testnet(14))
+            .expect("fail to make era history");
+
+        assert_eq!(
+            TimeMs::from(5100000000),
+            history
+                .slot_to_relative_time_unchecked_horizon(Slot::from(5100000))
+                .unwrap()
+        );
+    }
 
     #[test]
     fn sort_snapshot_file_names_by_slot_number() {
