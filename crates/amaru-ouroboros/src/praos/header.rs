@@ -123,7 +123,8 @@ pub fn assert_all<'a>(
         }),
         Box::new(move || {
             AssertVrfProofError::new(
-                &vrf::Input::new(absolute_slot, epoch_nonce),
+                absolute_slot,
+                epoch_nonce,
                 &header.header_body.leader_vrf_output()[..],
                 &vrf::PublicKey::from(declared_vrf_key),
                 &header.header_body.vrf_result,
@@ -269,11 +270,13 @@ impl PartialEq for AssertVrfProofError {
 impl AssertVrfProofError {
     /// Assert that the VRF output from the block and its corresponding hash.
     pub fn new(
-        input: &vrf::Input,
+        absolute_slot: Slot,
+        epoch_nonce: &Hash<32>,
         output: &[u8],
         leader_public_key: &vrf::PublicKey,
         certificate: &VrfCert,
     ) -> Result<(), Self> {
+        let input = &vrf::Input::new(absolute_slot, epoch_nonce);
         // TODO: Pallas should have fixed size slices here.
         let block_proof_hash: [u8; vrf::Proof::HASH_SIZE] = {
             let bytes: &[u8] = certificate.0.as_ref();
@@ -288,7 +291,13 @@ impl AssertVrfProofError {
 
         // Verify the VRF proof
         let vrf_proof = vrf::Proof::try_from(&block_proof)?;
-        let proof_hash = vrf_proof.verify(leader_public_key, input)?;
+        let proof_hash = vrf_proof.verify(leader_public_key, input).map_err(|e| {
+            println!(
+                "proof verification at {}, nonce: {:?}, leader_key: {:?}",
+                absolute_slot, epoch_nonce, leader_public_key
+            );
+            e
+        })?;
         if proof_hash.as_slice() != block_proof_hash {
             return Err(Self::ProofMismatch {
                 declared: Box::new(block_proof_hash),
