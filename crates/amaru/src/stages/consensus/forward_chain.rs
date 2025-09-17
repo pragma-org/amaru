@@ -42,14 +42,14 @@ pub const EVENT_TARGET: &str = "amaru::consensus::chain_forward";
 #[derive(Stage)]
 #[stage(name = "consensus.forward", unit = "Unit", worker = "Worker")]
 pub struct ForwardChainStage {
-    pub store: Arc<dyn ChainStore<Header> + Send + Sync>,
+    store: Arc<dyn ChainStore<Header> + Send + Sync>,
     pub upstream: UpstreamPort,
-    pub network_magic: u64,
-    pub runtime: AcTokio,
-    pub listen_address: String,
-    pub downstream: ActoRef<ForwardEvent>,
-    pub max_peers: usize,
-    pub our_tip: Tip,
+    network_magic: u64,
+    runtime: AcTokio,
+    listen_address: String,
+    downstream: ActoRef<ForwardEvent>,
+    max_peers: usize,
+    our_tip: Tip,
 }
 
 #[derive(Debug, Clone)]
