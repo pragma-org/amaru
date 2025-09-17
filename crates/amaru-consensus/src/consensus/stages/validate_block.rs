@@ -55,7 +55,7 @@ pub async fn stage(
                 .external(ValidateBlockEffect::new(&peer, &point, block.clone()))
                 .await
             {
-                Ok(Ok(block_height)) => {
+                Ok(Ok(_)) => {
                     eff.send(
                         &downstream,
                         BlockValidationResult::BlockValidated {
@@ -63,7 +63,6 @@ pub async fn stage(
                             header,
                             block,
                             span: span.clone(),
-                            block_height,
                         },
                     )
                     .await
