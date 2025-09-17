@@ -63,6 +63,16 @@ enum Command {
 
     /// Import VRF nonces intermediate states
     ImportNonces(cmd::import_nonces::Args),
+
+    /// Dump the content of the chain database for troubleshooting purposes.
+    /// This command dumps the _whole_ content of the chain database in a human-readable format:
+    ///  - Headers (hash + hex-encoded body)
+    ///  - Parent-child relationships between headers
+    ///  - Nonces
+    ///  - Blocks
+    ///  - Best chain anchor, tip and length
+    ///
+    DumpChainDB(cmd::dump_chain_db::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -79,13 +89,16 @@ struct Cli {
     #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
 
-    #[arg(long, value_name = "STRING", env("AMARU_SERVICE_NAME"), default_value_t = DEFAULT_SERVICE_NAME.to_string())]
+    #[arg(long, value_name = "STRING", env("AMARU_SERVICE_NAME"), default_value_t = DEFAULT_SERVICE_NAME.to_string()
+    )]
     service_name: String,
 
-    #[arg(long, value_name = "URL", env("AMARU_OTLP_SPAN_URL"), default_value_t = DEFAULT_OTLP_SPAN_URL.to_string())]
+    #[arg(long, value_name = "URL", env("AMARU_OTLP_SPAN_URL"), default_value_t = DEFAULT_OTLP_SPAN_URL.to_string()
+    )]
     otlp_span_url: String,
 
-    #[arg(long, value_name = "URL", env("AMARU_OTLP_METRIC_URL"), default_value_t = DEFAULT_OTLP_METRIC_URL.to_string())]
+    #[arg(long, value_name = "URL", env("AMARU_OTLP_METRIC_URL"), default_value_t = DEFAULT_OTLP_METRIC_URL.to_string()
+    )]
     otlp_metric_url: String,
 }
 
@@ -138,6 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
         Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
+        Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
