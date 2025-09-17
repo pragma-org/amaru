@@ -148,7 +148,7 @@ pub enum ValidateHeaderEvent {
     },
     Rollback {
         peer: Peer,
-        rollback_point: Point,
+        rollback_header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -166,7 +166,7 @@ pub enum ValidateBlockEvent {
     },
     Rollback {
         peer: Peer,
-        rollback_point: Point,
+        rollback_header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -192,7 +192,7 @@ impl Debug for ValidateBlockEvent {
                 .finish(),
             ValidateBlockEvent::Rollback {
                 peer,
-                rollback_point,
+                rollback_header: rollback_point,
                 ..
             } => f
                 .debug_struct("Rollback")
@@ -221,12 +221,12 @@ impl PartialEq for ValidateBlockEvent {
             (
                 ValidateBlockEvent::Rollback {
                     peer: p1,
-                    rollback_point: rp1,
+                    rollback_header: rp1,
                     ..
                 },
                 ValidateBlockEvent::Rollback {
                     peer: p2,
-                    rollback_point: rp2,
+                    rollback_header: rp2,
                     ..
                 },
             ) => p1 == p2 && rp1 == rp2,
@@ -251,7 +251,7 @@ pub enum BlockValidationResult {
     },
     RolledBackTo {
         peer: Peer,
-        rollback_point: Point,
+        rollback_header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -287,12 +287,12 @@ impl PartialEq for BlockValidationResult {
             (
                 BlockValidationResult::RolledBackTo {
                     peer: p1,
-                    rollback_point: rp1,
+                    rollback_header: rp1,
                     ..
                 },
                 BlockValidationResult::RolledBackTo {
                     peer: p2,
-                    rollback_point: rp2,
+                    rollback_header: rp2,
                     ..
                 },
             ) => p1 == p2 && rp1 == rp2,

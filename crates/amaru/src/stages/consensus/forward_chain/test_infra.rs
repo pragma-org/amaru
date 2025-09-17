@@ -170,12 +170,12 @@ impl Setup {
     }
 
     pub fn send_backward(&mut self, s: &str) {
-        let point = self.store.load_header(&hash(s)).unwrap().point();
+        let rollback_header = self.store.load_header(&hash(s)).unwrap();
         let span = tracing::debug_span!("whatever");
         let f = self.block.send(
             BlockValidationResult::RolledBackTo {
                 peer: Peer::new("test"),
-                rollback_point: point.clone(),
+                rollback_header: rollback_header.clone(),
                 span,
             }
             .into(),
@@ -187,7 +187,7 @@ impl Setup {
         let ForwardEvent::Backward(p) = p else {
             panic!("expected backward event, got {:?}", p);
         };
-        assert_eq!(p, point.pallas_point());
+        assert_eq!(p, rollback_header.point().pallas_point());
     }
 
     pub fn connect(&self) -> Client {
