@@ -149,7 +149,6 @@ impl Setup {
     pub fn send_validated(&mut self, s: &str) {
         let header = self.store.load_header(&hash(s)).unwrap();
         let point = header.point();
-        let block_height = header.block_height();
         let span = tracing::debug_span!("whatever");
 
         let f = self.block.send(
@@ -158,7 +157,6 @@ impl Setup {
                 header: header.clone(),
                 span,
                 block: RawBlock::from(&[] as &[u8]),
-                block_height,
             }
             .into(),
         );

@@ -246,7 +246,6 @@ pub enum BlockValidationResult {
         block: RawBlock,
         #[serde(skip, default = "Span::none")]
         span: Span,
-        block_height: u64,
     },
     BlockValidationFailed {
         peer: Peer,
@@ -270,17 +269,15 @@ impl PartialEq for BlockValidationResult {
                     peer: p1,
                     header: hd1,
                     block: b1,
-                    block_height: bh1,
                     ..
                 },
                 BlockValidationResult::BlockValidated {
                     peer: p2,
                     header: hd2,
                     block: b2,
-                    block_height: bh2,
                     ..
                 },
-            ) => p1 == p2 && hd1 == hd2 && b1 == b2 && bh1 == bh2,
+            ) => p1 == p2 && hd1 == hd2 && b1 == b2,
             (
                 BlockValidationResult::BlockValidationFailed {
                     peer: p1,
