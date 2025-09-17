@@ -116,35 +116,32 @@ impl Worker {
     ) -> Result<(), WorkerError> {
         match result {
             BlockValidationResult::BlockValidated { header, .. } => {
-                if let Some(header) = stage.store.load_header(&header.hash()) {
-                    // assert that the new tip is a direct successor of the old tip
-                    assert_eq!(header.block_height(), self.our_tip.1 + 1);
-                    match header.parent() {
-                        Some(parent) => assert_eq!(
-                            Point::new(self.our_tip.0.slot_or_default(), parent.as_ref().to_vec()),
-                            self.our_tip.0
-                        ),
-                        None => assert_eq!(self.our_tip.0, Point::Origin),
-                    }
-
-                    self.our_tip = Tip(header.point().pallas_point(), header.block_height());
-
-                    trace!(
-                        target: EVENT_TARGET,
-                        tip = %header.point(),
-                        "tip_changed"
-                    );
-
-                    self.clients.send(ClientMsg::Op(ClientOp::Forward(
-                        header.clone(),
-                        self.our_tip.clone(),
-                    )));
-
-                    stage
-                        .downstream
-                        .send(ForwardEvent::Forward(header.point().pallas_point()));
+                // assert that the new tip is a direct successor of the old tip
+                assert_eq!(header.block_height(), self.our_tip.1 + 1);
+                match header.parent() {
+                    Some(parent) => assert_eq!(
+                        Point::new(self.our_tip.0.slot_or_default(), parent.as_ref().to_vec()),
+                        self.our_tip.0
+                    ),
+                    None => assert_eq!(self.our_tip.0, Point::Origin),
                 }
 
+                self.our_tip = Tip(header.point().pallas_point(), header.block_height());
+
+                trace!(
+                    target: EVENT_TARGET,
+                    tip = %header.point(),
+                    "tip_changed"
+                );
+
+                self.clients.send(ClientMsg::Op(ClientOp::Forward(
+                    header.clone(),
+                    self.our_tip.clone(),
+                )));
+
+                stage
+                    .downstream
+                    .send(ForwardEvent::Forward(header.point().pallas_point()));
                 Ok(())
             }
             BlockValidationResult::RolledBackTo { rollback_point, .. } => {
