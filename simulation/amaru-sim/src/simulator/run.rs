@@ -167,15 +167,15 @@ fn spawn_node(
                 )),
                 BlockValidationResult::RolledBackTo {
                     peer,
-                    rollback_point,
+                    rollback_header,
                     ..
                 } => Some((
                     peer,
                     ChainSyncMessage::Bck {
                         msg_id,
-                        slot: rollback_point.slot_or_default(),
+                        slot: rollback_header.point().slot_or_default(),
                         hash: Bytes {
-                            bytes: Hash::from(&rollback_point).as_slice().to_vec(),
+                            bytes: rollback_header.hash().as_slice().to_vec(),
                         },
                     },
                 )),

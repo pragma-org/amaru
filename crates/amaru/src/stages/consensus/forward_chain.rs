@@ -144,23 +144,25 @@ impl Worker {
                     .send(ForwardEvent::Forward(header.point().pallas_point()));
                 Ok(())
             }
-            BlockValidationResult::RolledBackTo { rollback_point, .. } => {
+            BlockValidationResult::RolledBackTo {
+                rollback_header, ..
+            } => {
                 info!(
                     target: EVENT_TARGET,
-                    point = %rollback_point,
+                    point = %rollback_header.point(),
                     "rolled_back_to"
                 );
 
-                // FIXME: block height should be part of BlockValidated message
-                if let Some(header) = stage.store.load_header(&Hash::from(rollback_point)) {
-                    self.our_tip = Tip(rollback_point.pallas_point(), header.block_height());
-                    self.clients
-                        .send(ClientMsg::Op(ClientOp::Backward(self.our_tip.clone())));
+                self.our_tip = Tip(
+                    rollback_header.point().pallas_point(),
+                    rollback_header.block_height(),
+                );
+                self.clients
+                    .send(ClientMsg::Op(ClientOp::Backward(self.our_tip.clone())));
 
-                    stage
-                        .downstream
-                        .send(ForwardEvent::Backward(rollback_point.pallas_point()));
-                }
+                stage.downstream.send(ForwardEvent::Backward(
+                    rollback_header.point().pallas_point(),
+                ));
 
                 Ok(())
             }
