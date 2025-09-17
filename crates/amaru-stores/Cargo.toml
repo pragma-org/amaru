@@ -20,7 +20,6 @@ tracing.workspace = true
 rand = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru-consensus.workspace = true
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-iter-borrow.workspace = true
@@ -38,6 +37,7 @@ amaru-ledger = { workspace = true, features = ["test-utils"] }
 [features]
 default = ["rocksdb"]
 rocksdb = ["dep:rocksdb", "dep:rand"]
+test-utils = ["amaru-kernel/test-utils", "amaru-ouroboros-traits/test-utils"]
 
 [package.metadata.cargo-machete]
 ignored = ["rand"]

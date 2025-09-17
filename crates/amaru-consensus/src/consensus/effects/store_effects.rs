@@ -13,17 +13,16 @@
 // limitations under the License.
 
 use crate::consensus::errors::{ConsensusError, ProcessingFailed};
-use crate::consensus::store::ChainStore;
+use crate::consensus::store::PraosChainStore;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Header, Point, RawBlock, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{IsHeader, Praos};
-use amaru_ouroboros_traits::{HasStakeDistribution, Nonces};
+use amaru_ouroboros_traits::{ChainStore, HasStakeDistribution, Nonces};
 use anyhow::anyhow;
 use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
-pub type ResourceHeaderStore = Arc<Mutex<dyn ChainStore<Header>>>;
+pub type ResourceHeaderStore = Arc<dyn ChainStore<Header>>;
 pub type ResourceHeaderValidation = Arc<dyn HasStakeDistribution>;
 pub type ResourceParameters = GlobalParameters;
 
@@ -53,10 +52,8 @@ impl ExternalEffect for StoreHeaderEffect {
                 .get::<ResourceHeaderStore>()
                 .expect("StoreHeaderEffect requires a chain store")
                 .clone();
-            let mut store = store.lock().await;
-            let result: <Self as ExternalEffectAPI>::Response = store
-                .store_header(&self.header.hash(), &self.header)
-                .map_err(|e| {
+            let result: <Self as ExternalEffectAPI>::Response =
+                store.store_header(&self.header).map_err(|e| {
                     ProcessingFailed::new(
                         &self.peer,
                         anyhow!("Cannot store the header at {}: {e}", self.header.point()),
@@ -99,7 +96,6 @@ impl ExternalEffect for StoreBlockEffect {
                 .get::<ResourceHeaderStore>()
                 .expect("StoreBlockEffect requires a chain store")
                 .clone();
-            let mut store = store.lock().await;
             let result: <Self as ExternalEffectAPI>::Response = store
                 .store_block(&self.point.hash(), &self.block)
                 .map_err(|e| {
@@ -143,11 +139,10 @@ impl ExternalEffect for EvolveNonceEffect {
                 .get::<ResourceHeaderStore>()
                 .expect("EvolveNonceEffect requires a chain store")
                 .clone();
-            let mut store = store.lock().await;
             let global_parameters = resources
                 .get::<ResourceParameters>()
                 .expect("EvolveNonceEffect requires global parameters");
-            let result: <Self as ExternalEffectAPI>::Response = store
+            let result: <Self as ExternalEffectAPI>::Response = PraosChainStore::new(store)
                 .evolve_nonce(&self.header, &global_parameters)
                 .map_err(ConsensusError::NoncesError);
             Box::new(result) as Box<dyn pure_stage::SendData>

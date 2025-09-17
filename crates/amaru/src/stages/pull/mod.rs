@@ -17,6 +17,7 @@ use crate::{
     stages::{metrics::MetricsEvent, pull::metrics::PullMetrics},
 };
 use amaru_consensus::consensus::events::ChainSyncEvent;
+use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{Point, peer::Peer};
 use amaru_network::chain_sync_client::{RawHeader, to_traverse};
 use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
@@ -129,7 +130,16 @@ impl gasket::framework::Worker<Stage> for Worker {
             WorkUnit::Await => stage.client.await_next().await.or_panic()?,
             WorkUnit::Intersect => {
                 stage.find_intersection().await?;
-                debug!("chain_sync {}: intersection found", stage.client.peer);
+                debug!(
+                    "chain_sync {}: intersection found -> {}",
+                    stage.client.peer,
+                    stage
+                        .client
+                        .intersection()
+                        .iter()
+                        .collect::<Vec<_>>()
+                        .list_to_string(", ")
+                );
                 self.initialised = true;
                 return Ok(());
             }

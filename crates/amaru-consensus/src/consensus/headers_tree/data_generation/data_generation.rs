@@ -25,12 +25,15 @@ use crate::consensus::headers_tree::data_generation::{Ratio, TestHeader};
 use crate::consensus::headers_tree::tree::Tree;
 use amaru_kernel::HEADER_HASH_SIZE;
 use amaru_kernel::peer::Peer;
-use amaru_ouroboros_traits::IsHeader;
+use amaru_kernel::tests::random_hash;
+use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use pallas_crypto::hash::Hash;
 use proptest::prelude::Strategy;
 use rand::prelude::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_distr::{Distribution, Exp};
+use std::sync::Arc;
 
 impl Tree<TestHeader> {
     /// This function is used to give incrementing slot numbers to `TestHeader`s and help test failures
@@ -118,33 +121,56 @@ pub fn generate_header() -> TestHeader {
 }
 
 /// Generate a random `HeadersTree` initialized with a single chain of `TestHeader`s
-pub fn create_headers_tree(size: usize) -> HeadersTree<TestHeader> {
+pub fn create_headers_tree_with_store(
+    store: Arc<dyn ChainStore<TestHeader>>,
+    size: usize,
+) -> HeadersTree<TestHeader> {
     let headers = generate_headers_chain(size);
-    let mut tree = HeadersTree::new(10, &None);
-    tree.insert_headers(&headers).unwrap();
-    tree
+    for header in &headers {
+        store.store_header(header).unwrap();
+    }
+    store.set_anchor_hash(&headers[0].hash()).unwrap();
+    store
+        .set_best_chain_hash(&headers[headers.len() - 1].hash())
+        .unwrap();
+    HeadersTree::new(store.clone(), 10)
+}
+
+/// Generate a random `HeadersTree` initialized with a single chain of `TestHeader`s
+pub fn create_headers_tree(size: usize) -> HeadersTree<TestHeader> {
+    create_headers_tree_with_store(Arc::new(InMemConsensusStore::new()), size)
 }
 
 /// Generate a `HeadersTree` with one chain and a peer at the tip.
 pub fn initialize_with_peer(size: usize, peer: &Peer) -> HeadersTree<TestHeader> {
-    let mut tree = create_headers_tree(size);
+    initialize_with_store_and_peer(Arc::new(InMemConsensusStore::new()), size, peer)
+}
+
+/// Generate a `HeadersTree` with one chain and a peer at the tip.
+pub fn initialize_with_store_and_peer(
+    store: Arc<dyn ChainStore<TestHeader>>,
+    size: usize,
+    peer: &Peer,
+) -> HeadersTree<TestHeader> {
+    let mut tree = create_headers_tree_with_store(store, size);
     tree.initialize_peer(peer, &tree.best_chain_tip().hash())
         .unwrap();
     tree
 }
 
-/// Generate a random `TestHeader`, child of the `parent` one.
-pub fn make_header_with_parent(parent: &TestHeader) -> TestHeader {
-    TestHeader {
+/// Generate a random `TestHeader`, child of the `parent` one
+/// and store it in the provided store.
+pub fn store_header_with_parent(
+    store: Arc<dyn ChainStore<TestHeader>>,
+    parent: &TestHeader,
+) -> TestHeader {
+    let header = TestHeader {
         hash: random_hash(),
         slot: parent.slot + 1,
         parent: Some(parent.hash()),
-    }
-}
-
-/// Generate a random Hash that could be the hash of a `H: IsHeader` value.
-pub fn random_hash() -> Hash<HEADER_HASH_SIZE> {
-    Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice())
+    };
+    store.store_header(&header).unwrap();
+    header
 }
 
 // IMPLEMENTATION
@@ -176,11 +202,6 @@ fn generate_test_header(rng: &mut StdRng) -> TestHeader {
         slot: 0,
         parent: None,
     }
-}
-
-/// Very simple function to generate random sequence of bytes of given length.
-fn random_bytes(arg: usize) -> Vec<u8> {
-    random_bytes_with_rng(arg, &mut StdRng::from_os_rng())
 }
 
 /// Very simple function to generate random sequence of bytes of given length.

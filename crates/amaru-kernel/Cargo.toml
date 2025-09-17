@@ -14,7 +14,7 @@ rust-version.workspace = true
 
 [features]
 default = []
-test-utils = ["proptest", "dep:rand"]
+test-utils = ["dep:proptest", "dep:rand"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

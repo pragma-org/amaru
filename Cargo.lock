@@ -119,6 +119,7 @@ dependencies = [
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
+ "amaru-stores",
  "anyhow",
  "async-trait",
  "hex",
@@ -134,6 +135,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
@@ -256,7 +258,9 @@ dependencies = [
  "async-trait",
  "hex",
  "proptest",
+ "rand 0.9.2",
  "serde",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -275,7 +279,6 @@ dependencies = [
  "amaru-kernel",
  "amaru-ouroboros",
  "amaru-slot-arithmetic",
- "amaru-stores",
  "anyhow",
  "async-trait",
  "built",
@@ -320,7 +323,6 @@ dependencies = [
 name = "amaru-stores"
 version = "0.1.0"
 dependencies = [
- "amaru-consensus",
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",

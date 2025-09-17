@@ -22,7 +22,7 @@ use std::{
 };
 
 /// Basic `Header` implementation for testing purposes.
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub struct FakeHeader {
     pub block_number: u64,
     pub slot: u64,
@@ -169,7 +169,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for FakeHeader {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
     use proptest::prelude::*;
@@ -177,7 +177,16 @@ pub mod tests {
 
     /// Create a list of arbitrary fake headers starting from a root, and where chain[i] is the parent of chain[i+1]
     pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<FakeHeader>> {
-        prop::collection::vec(any_fake_header(), 1..(max(n, 2))).prop_map(|mut headers| {
+        prop::collection::vec(any_fake_header(), 1..(max(n, 2))).prop_map(make_fake_header())
+    }
+
+    /// Create a list of arbitrary fake headers starting from a root, and where chain[i] is the parent of chain[i+1]
+    pub fn any_headers_chain_sized(n: usize) -> impl Strategy<Value = Vec<FakeHeader>> {
+        prop::collection::vec(any_fake_header(), n).prop_map(make_fake_header())
+    }
+
+    fn make_fake_header() -> impl Fn(Vec<FakeHeader>) -> Vec<FakeHeader> {
+        |mut headers| {
             let mut parent = None;
             for (i, h) in headers.iter_mut().enumerate() {
                 h.block_number = i as u64;
@@ -186,7 +195,7 @@ pub mod tests {
                 parent = Some(h.hash())
             }
             headers
-        })
+        }
     }
 
     /// Create an arbitrary header hash with the right number of bytes

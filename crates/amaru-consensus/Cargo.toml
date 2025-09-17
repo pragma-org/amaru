@@ -50,11 +50,15 @@ proptest.workspace = true
 rand.workspace = true
 rand_distr.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
+amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
+amaru-stores = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(unix)'.dependencies]
 pprof = { version = "0.15", features = ["flamegraph"], optional = true }
+amaru-stores.workspace = true
 
 [[bench]]
 name = "headers_tree"
