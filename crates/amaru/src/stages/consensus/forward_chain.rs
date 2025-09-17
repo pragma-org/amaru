@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::PallasPoint;
+use crate::stages::{AsTip, PallasPoint};
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
 use amaru_consensus::consensus::events::BlockValidationResult;
 use amaru_consensus::consensus::span::adopt_current_span;
@@ -126,7 +126,7 @@ impl Worker {
                     None => assert_eq!(self.our_tip.0, Point::Origin),
                 }
 
-                self.our_tip = Tip(header.pallas_point(), header.block_height());
+                self.our_tip = header.as_tip();
 
                 trace!(
                     target: EVENT_TARGET,
@@ -153,10 +153,7 @@ impl Worker {
                     "rolled_back_to"
                 );
 
-                self.our_tip = Tip(
-                    rollback_header.point().pallas_point(),
-                    rollback_header.block_height(),
-                );
+                self.our_tip = rollback_header.as_tip();
                 self.clients
                     .send(ClientMsg::Op(ClientOp::Backward(self.our_tip.clone())));
 
