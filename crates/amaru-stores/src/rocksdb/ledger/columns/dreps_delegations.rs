@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use crate::rocksdb::{PREFIX_LEN, as_value};
-use ::rocksdb::{Direction, Error as RocksDBError, IteratorMode, ReadOptions, Transaction};
+use ::rocksdb::{Direction, IteratorMode, ReadOptions, Transaction};
 use amaru_kernel::{
     DRep, StakeCredential, StakeCredentialType, display_collection, stake_credential_hash,
 };
 use amaru_ledger::store::{StoreError, columns::unsafe_decode};
-use std::{collections::BTreeSet, fmt};
-use tracing::{Level, instrument};
+use std::collections::BTreeSet;
+use tracing::{Level, debug, instrument};
 
 /// Name prefixed used for storing Account -> DRep & DRep -> Account entries. UTF-8 encoding for
 /// "dlg".
@@ -69,46 +69,60 @@ pub fn add<DB>(
         drep.hash = %stake_credential_hash(drep),
         drep.type = %StakeCredentialType::from(drep),
     )
-    ret(Display),
 )]
-pub fn remove<DB>(db: &Transaction<'_, DB>, drep: &StakeCredential) -> RemoveResult {
-    let action = || -> Result<BTreeSet<StakeCredential>, RocksDBError> {
-        let mut to_delete = vec![];
-        let mut delegators = BTreeSet::new();
+pub fn remove<DB>(
+    db: &Transaction<'_, DB>,
+    drep: &StakeCredential,
+) -> Result<BTreeSet<StakeCredential>, StoreError> {
+    let mut to_delete = vec![];
+    let mut delegators = BTreeSet::new();
 
-        let mut prefix = PREFIX.to_vec();
-        prefix.extend_from_slice(as_value(drep).as_slice());
+    let mut prefix = PREFIX.to_vec();
+    prefix.extend_from_slice(as_value(drep).as_slice());
 
-        // NOTE: The invariant is preserved because the first 3 bytes are PREFIX, which is
-        // not all 0xFF.
-        let upper_bound = into_next_prefix(prefix.clone());
+    // NOTE: The invariant is preserved because the first 3 bytes are PREFIX, which is
+    // not all 0xFF.
+    let upper_bound = into_next_prefix(prefix.clone());
 
-        // NOTE: We must set an explicit upper bound on this one, without what we end up sometimes
-        // yielding values from other columns? I do not fully comprehend *why* (and more
-        // particularly, why it doesn't happen when we iterate in other places);
-        let mut opts = ReadOptions::default();
-        opts.set_prefix_same_as_start(true);
-        opts.set_iterate_upper_bound(upper_bound); // NOTE: is exclusive
+    // NOTE: We must set an explicit upper bound on this one, without what we end up sometimes
+    // yielding values from other columns? I do not fully comprehend *why* (and more
+    // particularly, why it doesn't happen when we iterate in other places);
+    let mut opts = ReadOptions::default();
+    opts.set_prefix_same_as_start(true);
+    opts.set_iterate_upper_bound(upper_bound); // NOTE: is exclusive
 
-        db.iterator_opt(IteratorMode::From(&prefix[..], Direction::Forward), opts)
-            .try_for_each(|item| {
-                item.map(|(key, _)| {
-                    let (_, right) = key.split_at(prefix.len());
-                    let delegator = unsafe_decode::<StakeCredential>(right.to_vec());
-                    to_delete.push(key);
-                    delegators.insert(delegator);
-                })
-            })?;
+    db.iterator_opt(IteratorMode::From(&prefix[..], Direction::Forward), opts)
+        .try_for_each(|item| {
+            item.map(|(key, _)| {
+                let (_, right) = key.split_at(prefix.len());
+                let delegator = unsafe_decode::<StakeCredential>(right.to_vec());
+                to_delete.push(key);
+                delegators.insert(delegator);
+            })
+        })
+        .map_err(|err| StoreError::Internal(err.into()))?;
 
-        to_delete.iter().try_for_each(|key| db.delete(key))?;
+    to_delete
+        .iter()
+        .try_for_each(|key| db.delete(key))
+        .map_err(|err| StoreError::Internal(err.into()))?;
 
-        Ok(delegators)
-    };
+    if !delegators.is_empty() {
+        debug!(
+            delegators = format!(
+                "[{}]",
+                display_collection(
+                    delegators
+                        .iter()
+                        .map(stake_credential_hash)
+                        .collect::<Vec<_>>()
+                )
+            ),
+            "clearing present (and past) delegators"
+        )
+    }
 
-    // NOTE: This is a bit weird, but that's the only 'clean' way I've found to instrument this
-    // function and nicely return the result as part of the same event. This requires an extra
-    // wrapping of the type that feels somewhat artificial.
-    RemoveResult(action().map_err(|err| StoreError::Internal(err.into())))
+    Ok(delegators)
 }
 
 /// Smallest byte-string of equal length, strictly after 'bytes'. e.g.

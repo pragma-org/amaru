@@ -21,14 +21,11 @@ use amaru_kernel::{
     CertificatePointer, DRepRegistration, Epoch, PROTOCOL_VERSION_9, ProtocolVersion,
     StakeCredential,
 };
-use amaru_ledger::{
-    state::diff_bind::Resettable,
-    store::{
-        StoreError,
-        columns::{
-            dreps::{EVENT_TARGET, Key, Row, Value},
-            unsafe_decode,
-        },
+use amaru_ledger::store::{
+    StoreError,
+    columns::{
+        dreps::{EVENT_TARGET, Key, Row, Value},
+        unsafe_decode,
     },
 };
 use rocksdb::Transaction;
@@ -163,19 +160,10 @@ pub fn remove<DB>(
         // the DRep being removed, it yields back all the accounts that have been delegated to the
         // DRep during its lifetime. And we unbind all of them.
         if protocol_version <= PROTOCOL_VERSION_9 {
-            let delegators_updates = dreps_delegations::remove(db, &credential)
-                .0?
+            let resets = dreps_delegations::remove(db, &credential)?
                 .into_iter()
-                .map(|delegator| {
-                    (
-                        delegator,
-                        (Resettable::Unchanged, Resettable::Reset, None, 0),
-                    )
-                });
-
-            // NOTE: Ignoring any previous delegation here; as we are in fact clearing up the
-            // account entirely.
-            let _previous_delegation = accounts::add(db, delegators_updates, protocol_version)?;
+                .map(|delegator| (delegator, pointer));
+            accounts::reset_delegation(db, resets)?;
         }
 
         if let Some(mut row) = db

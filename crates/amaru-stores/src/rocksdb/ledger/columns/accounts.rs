@@ -14,14 +14,17 @@
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 use amaru_kernel::{
-    DRep, Lovelace, PROTOCOL_VERSION_9, ProtocolVersion, StakeCredential, StakeCredentialType,
-    stake_credential_hash,
+    CertificatePointer, DRep, Lovelace, PROTOCOL_VERSION_9, ProtocolVersion, StakeCredential,
+    StakeCredentialType, stake_credential_hash,
 };
-use amaru_ledger::store::{
-    StoreError,
-    columns::{
-        accounts::{EVENT_TARGET, Key, Row, Value},
-        unsafe_decode,
+use amaru_ledger::{
+    state::diff_bind::Resettable,
+    store::{
+        StoreError,
+        columns::{
+            accounts::{EVENT_TARGET, Key, Row, Value},
+            unsafe_decode,
+        },
     },
 };
 use rocksdb::Transaction;
@@ -29,6 +32,36 @@ use tracing::{debug, error};
 
 /// Name prefixed used for storing Account entries. UTF-8 encoding for "acct"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
+
+/// A special handler to reproduce the v9 bug that is (wrongly) removing delegations of past
+/// delegators when unregistering a drep. However, we pass in the the certificate pointer of the
+/// drep de-registration to check for cases where unregistration and re-delegation happen within
+/// the same block. When they happen in the same transaction, the delegation always take precedence
+/// over the unregistration.
+pub fn reset_delegation<DB>(
+    db: &Transaction<'_, DB>,
+    rows: impl Iterator<Item = (Key, CertificatePointer)>,
+) -> Result<(), StoreError> {
+    for (credential, unregistered_at) in rows {
+        let key = as_key(&PREFIX, &credential);
+
+        let entry = db
+            .get(&key)
+            .map_err(|err| StoreError::Internal(err.into()))?
+            .map(unsafe_decode::<Row>);
+
+        if let Some(mut row) = entry
+            && let Some((_, delegated_since)) = row.drep
+            && delegated_since.transaction < unregistered_at.transaction
+        {
+            row.drep = None;
+            db.put(key, as_value(row))
+                .map_err(|err| StoreError::Internal(err.into()))?;
+        }
+    }
+
+    Ok(())
+}
 
 /// Register a new credential, with or without a stake pool.
 pub fn add<DB>(
@@ -75,18 +108,22 @@ pub fn add<DB>(
 
             Ok(previous_drep)
         } else {
-            // NOTE:
-            // Might occur when a stake credential has been unregistered, but was previously
-            // delegated to a DRep that is now unregistering. When unregistering, the DRep will
-            // clear its delegations, and in the case of protocol version 9, it will also clear
-            // past delegation.
-            Ok(None)
+            unreachable!(
+                "attempted to create an account without a deposit: account={:?}",
+                credential
+            );
         }?;
 
+        // NOTE:
+        // In protocol version 9, a subtle bug causes registered DRep to retain their past
+        // delegators (then causing a cascade of downstream inconsistencies).
+        //
+        // So, we do keep track of past delegations in v9, but only when the new DRep isn't a
+        // pre-defined DRep. In this particular case, the bug doesn't apply. Joy.
         if protocol_version <= PROTOCOL_VERSION_9
-            && let Some((drep, _ptr)) = previous_drep
+            && let Some((previous_drep, _ptr)) = previous_drep
         {
-            previous_delegations.push((credential, drep));
+            previous_delegations.push((credential, previous_drep));
         }
     }
 
