@@ -52,7 +52,7 @@ pub fn reset_delegation<DB>(
 
         if let Some(mut row) = entry
             && let Some((_, delegated_since)) = row.drep
-            && delegated_since.transaction < unregistered_at.transaction
+            && delegated_since < unregistered_at
         {
             row.drep = None;
             db.put(key, as_value(row))
