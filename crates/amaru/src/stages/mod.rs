@@ -13,13 +13,15 @@
 // limitations under the License.
 
 use crate::stages::build_stage_graph::build_stage_graph;
+use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
 use crate::stages::{
     metrics::MetricsStage,
-    pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter},
+    pure_stage_util::{PureStageSim, SendAdapter},
 };
 use amaru_consensus::consensus::effects::block_effects::{
     ResourceBlockFetcher, ResourceParameters,
 };
+use amaru_consensus::consensus::effects::network_effects::ResourceForwardEventListener;
 use amaru_consensus::consensus::effects::store_effects::ResourceHeaderStore;
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
@@ -27,6 +29,7 @@ use amaru_consensus::consensus::headers_tree::HeadersTree;
 use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
 use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
+use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::HEADER_HASH_SIZE;
 use amaru_kernel::{
     EraHistory, Hash, Header, ORIGIN_HASH, Point, network::NetworkName, peer::Peer,
@@ -43,7 +46,6 @@ use amaru_stores::{
     rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore},
 };
 use anyhow::Context;
-use consensus::forward_chain::ForwardChainStage;
 use gasket::{
     messaging::OutputPort,
     runtime::{self, Tether, spawn_stage},
@@ -209,6 +211,10 @@ pub fn bootstrap(
         .collect::<Vec<_>>();
 
     let chain_store = make_chain_store(&config, era_history, &tip.hash())?;
+    let our_tip = chain_store
+        .load_header(&tip.hash())
+        .map(|h| h.as_header_tip())
+        .unwrap_or(HeaderTip::new(Point::Origin, 0));
 
     let chain_selector = make_chain_selector(
         chain_store.clone(),
@@ -216,27 +222,26 @@ pub fn bootstrap(
         global_parameters.consensus_security_param,
     )?;
 
-    let mut forward_chain_stage = ForwardChainStage::new(
-        None,
+    let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
+    let forward_event_listener = Arc::new(TcpForwardChainServer::new(
         chain_store.clone(),
+        config.listen_address.clone(),
         config.network_magic as u64,
-        &config.listen_address,
         config.max_downstream_peers,
-        &tip.hash(),
-    );
+        our_tip.clone(),
+    )?);
 
     let mut metrics_stage = MetricsStage::new(metrics_provider);
 
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
-    let (output_ref, output_stage) = network.output("output", 50);
 
     let graph_input = build_stage_graph(
         global_parameters,
         ledger.get_stake_distribution(),
         chain_selector,
+        our_tip,
         &mut network,
-        output_ref,
     );
     let graph_input = network.input(&graph_input);
 
@@ -250,8 +255,10 @@ pub fn bootstrap(
     network
         .resources()
         .put::<ResourceBlockValidation>(ledger.get_block_validation());
+    network
+        .resources()
+        .put::<ResourceForwardEventListener>(forward_event_listener);
 
-    let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
     let pure_stages = PureStageSim::new(network, rt, exit);
 
@@ -263,10 +270,6 @@ pub fn bootstrap(
     for output in outputs {
         output.connect(SendAdapter(graph_input.clone()));
     }
-
-    forward_chain_stage
-        .upstream
-        .connect(RecvAdapter(output_stage));
 
     let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
     stages.iter_mut().for_each(|stage| {
@@ -285,15 +288,10 @@ pub fn bootstrap(
         .collect::<Vec<_>>();
 
     let pure_stages = spawn_stage(pure_stages, policy.clone());
-    let block_forward = spawn_stage(forward_chain_stage, policy.clone());
-
     let metrics = spawn_stage(metrics_stage, policy.clone());
 
     stages.push(pure_stages);
-    stages.push(block_forward);
-
     stages.push(metrics);
-
     Ok(stages)
 }
 
@@ -466,7 +464,7 @@ mod tests {
 
         let stages = bootstrap(config, vec![], CancellationToken::new(), None).unwrap();
 
-        assert_eq!(3, stages.len());
+        assert_eq!(2, stages.len());
     }
 
     #[test]

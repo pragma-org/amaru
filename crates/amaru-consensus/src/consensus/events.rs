@@ -257,6 +257,16 @@ pub enum BlockValidationResult {
     },
 }
 
+impl BlockValidationResult {
+    pub fn peer(&self) -> Peer {
+        match self {
+            BlockValidationResult::BlockValidated { peer, .. } => peer.clone(),
+            BlockValidationResult::BlockValidationFailed { peer, .. } => peer.clone(),
+            BlockValidationResult::RolledBackTo { peer, .. } => peer.clone(),
+        }
+    }
+}
+
 impl PartialEq for BlockValidationResult {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
