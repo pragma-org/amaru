@@ -27,7 +27,7 @@ fi
 # keep stack traces for troubleshooting purposes
 export RUST_BACKTRACE=full
 export AMARU_LOG=debug
-export AMARU_TRACE=debug
+export AMARU_TRACE=gasket=error,debug
 
 exec cargo run --profile dev -- --with-json-traces daemon \
       --peer-address "${AMARU_PEER_ADDRESS}" \
