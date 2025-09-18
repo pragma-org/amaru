@@ -74,6 +74,11 @@ pub fn add<DB>(
     for (credential, (pool, drep, deposit, rewards)) in rows {
         let key = as_key(&PREFIX, &credential);
 
+        let is_predefined_drep = matches!(
+            drep,
+            Resettable::Set((DRep::Abstain, _)) | Resettable::Set((DRep::NoConfidence, _))
+        );
+
         // In case where a registration already exists, then we must only update the underlying
         // entry, while preserving the reward amount.
         let previous_drep = if let Some(mut row) = db
@@ -121,6 +126,7 @@ pub fn add<DB>(
         // So, we do keep track of past delegations in v9, but only when the new DRep isn't a
         // pre-defined DRep. In this particular case, the bug doesn't apply. Joy.
         if protocol_version <= PROTOCOL_VERSION_9
+            && !is_predefined_drep
             && let Some((previous_drep, _ptr)) = previous_drep
         {
             previous_delegations.push((credential, previous_drep));
