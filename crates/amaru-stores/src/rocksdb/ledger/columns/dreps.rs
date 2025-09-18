@@ -30,7 +30,7 @@ use amaru_ledger::store::{
 };
 use rocksdb::Transaction;
 use std::collections::BTreeSet;
-use tracing::error;
+use tracing::{error, warn};
 
 /// Name prefixed used for storing DReps entries. UTF-8 encoding for "drep"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
@@ -132,7 +132,7 @@ pub fn set_valid_until<DB>(
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else {
-            error!(
+            warn!(
                 target: EVENT_TARGET,
                 ?credential,
                 "set_valid_until.unknown_drep",

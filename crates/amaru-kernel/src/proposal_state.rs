@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Epoch, Proposal, ProposalId, cbor};
+use crate::{Epoch, PoolId, Proposal, ProposalId, StakeCredential, Vote, cbor};
+use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub struct ProposalState {
@@ -20,15 +21,18 @@ pub struct ProposalState {
     pub procedure: Proposal,
     pub proposed_in: Epoch,
     pub expires_after: Epoch,
+    pub committee_votes: BTreeMap<StakeCredential, Vote>,
+    pub dreps_votes: BTreeMap<StakeCredential, Vote>,
+    pub pools_votes: BTreeMap<PoolId, Vote>,
 }
 
 impl<'b, C> cbor::decode::Decode<'b, C> for ProposalState {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         let id = d.decode_with(ctx)?;
-        d.skip()?; // CC Votes
-        d.skip()?; // DRep Votes
-        d.skip()?; // SPO Votes
+        let committee_votes = d.decode_with(ctx)?;
+        let dreps_votes = d.decode_with(ctx)?;
+        let pools_votes = d.decode_with(ctx)?;
         let procedure = d.decode_with(ctx)?;
         let proposed_in = d.decode_with(ctx)?;
         let expires_after = d.decode_with(ctx)?;
@@ -38,6 +42,9 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProposalState {
             procedure,
             proposed_in,
             expires_after,
+            dreps_votes,
+            pools_votes,
+            committee_votes,
         })
     }
 }
