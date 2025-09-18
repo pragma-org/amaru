@@ -1,6 +1,5 @@
 # Amaru Testnet
 
-> [!WARNING]
 >
 > This is extremely rough on the edges and brittle. Most notably, the
 > configuration of the network is fixed (5 block producers, epoch
