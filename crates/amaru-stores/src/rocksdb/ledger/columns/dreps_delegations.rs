@@ -111,14 +111,23 @@ pub fn remove<DB>(db: &Transaction<'_, DB>, drep: &StakeCredential) -> RemoveRes
     RemoveResult(action().map_err(|err| StoreError::Internal(err.into())))
 }
 
-// Smallest byte-string strictly after 'bytes'. e.g.
-//
-// [0x12, 0x45, 0x34] -> [0x12, 0x45, 0x35]
-// [0x12, 0x45, 0xFF] -> [0x12, 0x46, 0xFF]
-//
-// Pre-condition: the given byte string is not empty or all 0xFF.
-fn into_next_prefix(mut bytes: Vec<u8>) -> Vec<u8> {
+/// Smallest byte-string of equal length, strictly after 'bytes'. e.g.
+///
+/// ```rust
+/// use amaru_stores::rocksdb::ledger::columns::dreps_delegations::into_next_prefix;
+///
+/// into_next_prefix(vec![0x12, 0x45, 0x34]) == vec![0x12, 0x45, 0x35];
+/// into_next_prefix(vec![0x12, 0x45, 0xFF]) == vec![0x12, 0x46, 0xFF];
+/// ```
+///
+/// Pre-condition: the given byte string is not empty or all 0xFF.
+pub fn into_next_prefix(mut bytes: Vec<u8>) -> Vec<u8> {
     let mut i = bytes.len();
+
+    debug_assert!(
+        !bytes.is_empty(),
+        "into_next_prefix called with empty bytes"
+    );
 
     while i > 0 {
         i -= 1;
@@ -128,26 +137,10 @@ fn into_next_prefix(mut bytes: Vec<u8>) -> Vec<u8> {
         }
     }
 
+    debug_assert!(
+        i > 0,
+        "into_next_prefix called with saturated bytes (i.e. all 0xFF)"
+    );
+
     bytes
-}
-
-#[derive(Debug)]
-pub struct RemoveResult(pub Result<BTreeSet<StakeCredential>, StoreError>);
-
-impl fmt::Display for RemoveResult {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            Ok(credentials) => write!(
-                f,
-                "[{}]",
-                display_collection(
-                    credentials
-                        .iter()
-                        .map(stake_credential_hash)
-                        .collect::<Vec<_>>()
-                )
-            ),
-            Err(err) => write!(f, "error: {err}"),
-        }
-    }
 }
