@@ -174,9 +174,8 @@ impl RocksDB {
     }
 
     pub fn empty(dir: &Path) -> Result<RocksDB, StoreError> {
-        let mut opts = Options::default();
+        let mut opts = default_opts_with_prefix();
         opts.create_if_missing(true);
-        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
         OptimisticTransactionDB::open(&opts, dir.join("live"))
             .map(|db| Self {
                 dir: dir.to_path_buf(),

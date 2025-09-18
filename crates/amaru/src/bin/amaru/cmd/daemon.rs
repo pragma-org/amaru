@@ -19,8 +19,11 @@ use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, time::Duration};
+use thiserror::Error;
 use tokio_util::sync::CancellationToken;
+use tracing::error;
 use tracing::trace;
+use tracing::warn;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -78,6 +81,8 @@ pub async fn run(
     meter_provider: Option<SdkMeterProvider>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = parse_args(args)?;
+
+    pre_flight_checks()?;
 
     let metrics = meter_provider
         .clone()
@@ -141,4 +146,48 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         max_downstream_peers: args.max_downstream_peers,
         max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
     })
+}
+
+#[derive(Debug, Error)]
+pub enum PreFlightError {
+    #[error("File descriptors limit too low: minimum required {0}, available {1}")]
+    NotEnoughFileDescriptors(u64, u64),
+}
+
+#[cfg(unix)]
+fn pre_flight_checks() -> Result<(), PreFlightError> {
+    use rlimit::{Resource, getrlimit};
+    /// We can follow mainnet with the following amount of FDs but could crash with less.
+    /// RocksDB can consume some amount of FDs for its internal operations.
+    /// System metrics collection with sysinfo also consumes FDs.
+    /// And of course we still need some FDs for network connections and so on.
+    const MIN_FD_LIMIT: u64 = 1_000;
+
+    match getrlimit(Resource::NOFILE) {
+        Ok((soft_fd_limit, hard_fd_limit)) => {
+            if soft_fd_limit < MIN_FD_LIMIT {
+                error!(
+                    %soft_fd_limit,
+                    %hard_fd_limit,
+                    %MIN_FD_LIMIT,
+                    "Increase the limit for open files before starting Amaru. See ulimit -n",
+                );
+                Err(PreFlightError::NotEnoughFileDescriptors(
+                    MIN_FD_LIMIT,
+                    soft_fd_limit,
+                ))
+            } else {
+                Ok(())
+            }
+        }
+        Err(_err) => {
+            warn!(%MIN_FD_LIMIT, "Unable to query rlimit for max open files.");
+            Ok(())
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn pre_flight_checks() -> Result<(), PreFlightError> {
+    Ok(())
 }
