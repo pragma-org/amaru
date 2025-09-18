@@ -17,7 +17,7 @@ x-cardano-node: &cardano-node
   restart:
     always
   healthcheck:
-    test: ["CMD", "bash", "-c", "cardano-cli ping -j --magic 42 --host localhost --port 3000 --tip --quiet -c1" ]
+    test: ["CMD", "bash", "-c", "cardano-cli ping -j --magic 42 --host localhost --port 3001 --tip --quiet -c1" ]
     interval: 1m30s
     timeout: 10s
     retries: 100
@@ -38,10 +38,10 @@ x-amaru: &amaru
     amaru-loader:
       condition: service_completed_successfully
   environment:
-    - NETWORK
-    - LEDGER_DIR
+    - AMARU_NETWORK
+    - AMARU_LEDGER_DIR
     - CONFIG_FOLDER
-    - CHAIN_DIR
+    - AMARU_CHAIN_DIR
 
 services:
   cardano-loader:
@@ -95,16 +95,16 @@ services:
   amaru-1:
     <<: *amaru
     environment:
-      - PEER_ADDRESS=p1.example:3001
-      - NETWORK=testnet_42
+      - AMARU_PEER_ADDRESS=p1.example:3001
+      - AMARU_NETWORK=testnet_42
     volumes:
       - a1-state:/srv/amaru
 
   amaru-2:
     <<: *amaru
     environment:
-      - PEER_ADDRESS=amaru-1:3000
-      - NETWORK=testnet_42
+      - AMARU_PEER_ADDRESS=amaru-1:3000
+      - AMARU_NETWORK=testnet_42
     volumes:
       - a2-state:/srv/amaru
 

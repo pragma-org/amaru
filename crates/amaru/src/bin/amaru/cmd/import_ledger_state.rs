@@ -106,8 +106,9 @@ pub(crate) async fn import_all_from_directory(
 fn sort_snapshots_by_slot(snapshots: &mut [PathBuf]) {
     // Sort by parsed slot number from filename
     snapshots.sort_by_key(|path| {
-        path.file_prefix()
+        path.file_name()
             .and_then(|s| s.to_str())
+            .and_then(|s| s.split('.').next())
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(u64::MAX)
     });
@@ -178,25 +179,26 @@ fn make_era_history(
         NetworkName::Testnet(_) => {
             let filename = format!("history.{}.{}.json", point.slot_or_default(), point.hash());
             let history_file = dir.join(filename);
-            if !history_file.exists() || !history_file.is_file() {
-                panic!("cannot import testnet era history from {:?}", history_file);
+            if !history_file.is_file() {
+                return Err(
+                    format!("cannot import testnet era history from {:?}", history_file).into(),
+                );
             };
 
             Ok(serde_json::from_slice(&fs::read(&history_file)?)?)
         }
-        well_known => Ok(<&EraHistory>::from(well_known).clone()),
+        NetworkName::Mainnet | NetworkName::Preprod | NetworkName::Preview => {
+            Ok(<&EraHistory>::from(network).clone())
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        path::{ PathBuf},
-        str::FromStr,
-    };
+    use std::{path::PathBuf, str::FromStr};
 
     use crate::cmd::import_ledger_state::{make_era_history, sort_snapshots_by_slot};
-    use amaru_kernel::{Hash, Point, Slot, network::NetworkName, HEADER_HASH_SIZE};
+    use amaru_kernel::{HEADER_HASH_SIZE, Hash, Point, Slot, network::NetworkName};
     use amaru_slot_arithmetic::TimeMs;
 
     #[test]

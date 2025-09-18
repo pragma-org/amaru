@@ -17,12 +17,12 @@ use amaru_ouroboros_traits::ChainStore;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
-use tracing::debug;
 use std::{
     error::Error,
     path::{Path, PathBuf},
 };
 use tokio::{fs::File, io::AsyncReadExt};
+use tracing::debug;
 
 #[derive(Debug, Parser)]
 pub struct Args {

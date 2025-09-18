@@ -65,7 +65,7 @@
   "TraceOptionForwarder": {
     "connQueueSize": 64,
     "disconnQueueSize": 128,
-    "maxReconnectDeplay": 30
+    "maxReconnectDelay": 30
   },
   "TraceOptions": {
     "": {
@@ -170,7 +170,7 @@
   "defaultScribes": [
     [
       "FileSK",
-      "/tmp/testnet/deployment/node.4.log"
+      "/state/node.4.log"
     ]
   ],
   "hasPrometheus": [
@@ -197,7 +197,7 @@
     {
       "scFormat": "ScJson",
       "scKind": "FileSK",
-      "scName": "/tmp/testnet/deployment/node.4.log",
+      "scName": "/state/node.4.log",
       "scRotation": null
     }
   ],

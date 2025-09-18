@@ -112,7 +112,7 @@ fi
 pushd /data/generated
 
 # collect keys
-( echo "[" ; for i in $(seq 1 5); do
+( echo "[" ; for i in $(seq 1 "$number_of_pools"); do
                  out="["
                  out="${out}$(cat /configs/$i/keys/opcert.cert)"
                  out="${out},$(cat /configs/$i/keys/vrf.skey)"

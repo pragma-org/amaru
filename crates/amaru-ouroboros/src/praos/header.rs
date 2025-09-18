@@ -297,8 +297,8 @@ impl AssertVrfProofError {
             Self::InvalidProof(
                 e,
                 absolute_slot,
-                epoch_nonce.clone(),
-                (**leader_public_key).to_vec(),
+                *epoch_nonce,
+                leader_public_key.as_ref().to_vec(),
             )
         })?;
         if proof_hash.as_slice() != block_proof_hash {

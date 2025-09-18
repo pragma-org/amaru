@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # copy data for amaru nodes
 
+set -euo pipefail
+# TODO: remove once we have enough experience running this
 set -vx
 
 BASEDIR=${BASEDIR:-/data/generated}
@@ -24,12 +26,10 @@ write_file() {
 
 
 copy_databases() {
-    target=/state/$1
-    [[ -d  "$target/ledger.db" ]] || mkdir "$target/ledger.db"
-    [[ -d  "$target/chain.db" ]] || mkdir "$target/chain.db"
-
-    cp -fr ${BASEDIR}/ledger.${NETWORK_NAME}.db/* "$target/ledger.db/"
-    cp -fr ${BASEDIR}/chain.${NETWORK_NAME}.db/* "$target/chain.db/"
+    local target="/state/$1"
+    mkdir -p "$target/ledger.db" "$target/chain.db"
+    (shopt -s dotglob nullglob; cp -a "${BASEDIR}/ledger.${NETWORK_NAME}.db/"* "$target/ledger.db/";)
+    (shopt -s dotglob nullglob; cp -a "${BASEDIR}/chain.${NETWORK_NAME}.db/"* "$target/chain.db/";)
 }
 
 # convert ledger states

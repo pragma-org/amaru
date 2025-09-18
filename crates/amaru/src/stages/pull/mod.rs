@@ -17,13 +17,12 @@ use crate::{
     stages::{metrics::MetricsEvent, pull::metrics::PullMetrics},
 };
 use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{Point, peer::Peer};
 use amaru_network::chain_sync_client::{ChainSyncClientError, RawHeader, to_traverse};
 use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
 use gasket::framework::{Stage as StageTrait, *};
 use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse};
-use tracing::{debug, error, instrument, Level, Span};
+use tracing::{Level, Span, debug, error, instrument};
 
 pub mod metrics;
 

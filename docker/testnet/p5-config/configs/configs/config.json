@@ -170,7 +170,7 @@
   "defaultScribes": [
     [
       "FileSK",
-      "/tmp/testnet/deployment/node.5.log"
+      "/state/node.5.log"
     ]
   ],
   "hasPrometheus": [
@@ -197,7 +197,7 @@
     {
       "scFormat": "ScJson",
       "scKind": "FileSK",
-      "scName": "/tmp/testnet/deployment/node.5.log",
+      "scName": "/state/node.5.log",
       "scRotation": null
     }
   ],

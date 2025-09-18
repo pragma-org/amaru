@@ -95,13 +95,18 @@ fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error
     s.serialize_str(&point.to_string())
 }
 
+#[expect(clippy::expect_used)]
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
 
+    // FIXME: import nonces function takes an EraHistory which we
+    // construct from NetworkName. In the case of testnets this can be
+    // problematic hence why we have started writing and reading such
+    // files in import_ledger_state.
     if let Some(nonces_file) = args.nonces_file {
-        import_nonces_from_file(args.network.into(), &nonces_file, &chain_dir).await
+        import_nonces_from_file(args.network, &nonces_file, &chain_dir).await
     } else {
         let initial_nonce = InitialNonces {
             at: args.at.expect("missing '--at' argument"),

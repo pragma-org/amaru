@@ -2,7 +2,6 @@
   "AlonzoGenesisFile": "alonzo-genesis.json",
   "ByronGenesisFile": "byron-genesis.json",
   "ConwayGenesisFile": "conway-genesis.json",
-  "DijkstraGenesisFile": "dijkstra-genesis.json",
   "EnableP2P": true,
   "ExperimentalHardForksEnabled": true,
   "ExperimentalProtocolsEnabled": true,
@@ -172,7 +171,7 @@
   "defaultScribes": [
     [
       "FileSK",
-      "/tmp/testnet/deployment/node.1.log"
+      "/state/node.1.log"
     ]
   ],
   "hasPrometheus": [
@@ -199,7 +198,7 @@
     {
       "scFormat": "ScJson",
       "scKind": "FileSK",
-      "scName": "/tmp/testnet/deployment/node.1.log",
+      "scName": "/state/node.1.log",
       "scRotation": null
     }
   ],
