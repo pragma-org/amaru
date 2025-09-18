@@ -36,7 +36,7 @@ use std::{
 };
 use tracing::info;
 
-const BATCH_SIZE: usize = 5000;
+const BATCH_SIZE: usize = 50000;
 
 static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> =
     LazyLock::new(|| CertificatePointer {
