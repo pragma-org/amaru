@@ -99,6 +99,11 @@ services:
       - AMARU_NETWORK=testnet_42
     volumes:
       - a1-state:/srv/amaru
+    depends_on:
+      cardano-loader:
+        condition: service_completed_successfully
+      p1:
+        condition: service_healthy
 
   amaru-2:
     <<: *amaru
@@ -107,6 +112,11 @@ services:
       - AMARU_NETWORK=testnet_42
     volumes:
       - a2-state:/srv/amaru
+    depends_on:
+      cardano-loader:
+        condition: service_completed_successfully
+      amaru-1:
+        condition: service_started
 
   p1:
     <<: *cardano-node
