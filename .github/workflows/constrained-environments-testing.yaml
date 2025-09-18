@@ -14,6 +14,45 @@ env:
     target/
 
 jobs:
+  fs-limit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile amaru
+        run: cargo build --release
+
+      - name: Bootstrap amaru
+        run: ./target/release/amaru bootstrap 
+
+      - id: timestamp
+        shell: bash
+        run: |
+          echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Restore cardano-node DB
+        id: cache-cardano-node-db
+        uses: actions/cache/restore@v4
+        with:
+          # The path should match the one used for the 'Nightly Sync' workflow.
+          path: ${{ runner.temp }}/db-preprod
+          # The key should also match
+          key: cardano-node-ogmios-preprod
+          restore-keys: |
+            cardano-node-ogmios-preprod
+
+      - name: Create small tmpfs
+        run: |
+          mkdir /tmp/sandbox
+          sudo mount -t tmpfs -o size=10M tmpfs /tmp/sandbox
+
+      - name: Run program in limited disk
+        run: |
+          set +e
+          /path/to/your/program --output-dir /tmp/sandbox
+          echo "exit code: $?"
+          exit $?
+
   memory-limit-test:
     runs-on: ubuntu-latest
     steps:
