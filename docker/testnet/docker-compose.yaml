@@ -16,13 +16,6 @@ x-cardano-node: &cardano-node
       +RTS -N -A16m -qg -qb -RTS
   restart:
     always
-  healthcheck:
-    test: ["CMD", "bash", "-c", "cardano-cli ping -j --magic 42 --host localhost --port 3001 --tip --quiet -c1" ]
-    interval: 1m30s
-    timeout: 10s
-    retries: 100
-    start_period: 40s
-    start_interval: 5s
   depends_on:
       amaru-loader:
         condition: service_completed_successfully
