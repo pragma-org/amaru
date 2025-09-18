@@ -1,0 +1,195 @@
+x-cardano-node: &cardano-node
+  image: ghcr.io/intersectmbo/cardano-node:10.5.1
+  environment:
+    CARDANO_BLOCK_PRODUCER: true
+  command: >
+    run --topology /configs/configs/topology.json
+      --config /configs/configs/config.json
+      --database-path /state
+      --socket-path /state/node.socket
+      --tracer-socket-path-connect /tracer/tracer.socket
+      --shelley-operational-certificate /configs/keys/opcert.cert
+      --shelley-kes-key /configs/keys/kes.skey
+      --shelley-vrf-key /configs/keys/vrf.skey
+      --port 3001
+      --host-addr 0.0.0.0
+      +RTS -N -A16m -qg -qb -RTS
+  restart:
+    always
+  healthcheck:
+    test: ["CMD", "bash", "-c", "cardano-cli ping -j --magic 42 --host localhost --port 3001 --tip --quiet -c1" ]
+    interval: 1m30s
+    timeout: 10s
+    retries: 100
+    start_period: 40s
+    start_interval: 5s
+  depends_on:
+      amaru-loader:
+        condition: service_completed_successfully
+
+x-amaru: &amaru
+  image: ghcr.io/pragma-org/amaru/amaru:latest
+  build:
+    context: ../..
+    dockerfile: docker/Dockerfile.amaru
+  restart:
+    always
+  depends_on:
+    amaru-loader:
+      condition: service_completed_successfully
+  environment:
+    - AMARU_NETWORK
+    - AMARU_LEDGER_DIR
+    - CONFIG_FOLDER
+    - AMARU_CHAIN_DIR
+
+services:
+  cardano-loader:
+    image: ghcr.io/pragma-org/amaru/loader:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.loader
+    container_name: cardano-loader
+    volumes:
+      - initial-data:/data/generated
+      - p1-configs:/configs/1
+      - p2-configs:/configs/2
+      - p3-configs:/configs/3
+      - p4-configs:/configs/4
+      - p5-configs:/configs/5
+      - p1-state:/state/1
+      - p2-state:/state/2
+      - p3-state:/state/3
+      - p4-state:/state/4
+      - p5-state:/state/5
+      - a1-state:/amaru/1
+      - a2-state:/amaru/2
+    command:
+       - "/data/cardano-loader.sh"
+
+  amaru-loader:
+    image: ghcr.io/pragma-org/amaru/loader:latest
+    container_name: amaru-loader
+    volumes:
+      - initial-data:/data/generated
+      - p1-state:/cardano/state
+      - p1-configs:/cardano/config
+      - a1-state:/state/1
+      - a2-state:/state/2
+    command:
+       - "/data/amaru-loader.sh"
+    depends_on:
+        cardano-loader:
+          condition: service_completed_successfully
+
+  tracer:
+    image: ghcr.io/cardano-foundation/antithesis/tracer:latest
+    hostname: tracer.example
+    container_name: tracer
+    volumes:
+      - tracer:/opt/cardano-tracer
+    command:
+       - "--config"
+       - "tracer-config.yaml"
+
+  amaru-1:
+    <<: *amaru
+    environment:
+      - AMARU_PEER_ADDRESS=p1.example:3001
+      - AMARU_NETWORK=testnet_42
+    volumes:
+      - a1-state:/srv/amaru
+
+  amaru-2:
+    <<: *amaru
+    environment:
+      - AMARU_PEER_ADDRESS=amaru-1:3000
+      - AMARU_NETWORK=testnet_42
+    volumes:
+      - a2-state:/srv/amaru
+
+  p1:
+    <<: *cardano-node
+    container_name: p1
+    hostname: p1.example
+    ports:
+      - 9003:3001
+    volumes:
+      - p1-configs:/configs
+      - p1-state:/state
+      - tracer:/tracer
+  p2:
+    <<: *cardano-node
+    container_name: p2
+    hostname: p2.example
+    volumes:
+      - p2-configs:/configs
+      - p2-state:/state
+      - tracer:/tracer
+  p3:
+    <<: *cardano-node
+    container_name: p3
+    hostname: p3.example
+    volumes:
+      - p3-configs:/configs
+      - p3-state:/state
+      - tracer:/tracer
+
+  p4:
+    <<: *cardano-node
+    container_name: p4
+    hostname: p4.example
+    volumes:
+      - p4-configs:/configs
+      - p4-state:/state
+      - tracer:/tracer
+
+  p5:
+    <<: *cardano-node
+    container_name: p5
+    hostname: p5.example
+    volumes:
+      - p5-configs:/configs
+      - p5-state:/state
+      - tracer:/tracer
+
+  sidecar:
+    image: ghcr.io/cardano-foundation/antithesis/sidecar:latest
+    container_name: sidecar
+    hostname: sidecar.example
+    environment:
+      POOLS: "5" # FIXME: could remove
+
+  tracer-sidecar:
+    image: ghcr.io/cardano-foundation/antithesis/tracer-sidecar:latest
+    container_name: tracer-sidecar
+    hostname: tracer-sidecar.example
+    environment:
+      POOLS: "5"
+    volumes:
+      - tracer:/opt/cardano-tracer
+    depends_on:
+        cardano-loader:
+          condition: service_completed_successfully
+
+volumes:
+  tracer:
+  initial-data:
+  p1-configs:
+  p2-configs:
+  p3-configs:
+  p4-configs:
+  p5-configs:
+  p1-state:
+  p2-state:
+  p3-state:
+  p4-state:
+  p5-state:
+  a1-state:
+  a2-state:
+
+networks:
+  default:
+    name: cardano-node-testnet
+    driver: bridge
+    internal: ${INTERNAL_NETWORK}

@@ -13,20 +13,22 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Bound, EraHistory, EraParams, HEADER_HASH_SIZE, Hash, Nonce, Summary, cbor,
+    Bound, EraHistory, EraParams, HEADER_HASH_SIZE, Hash, Nonce, Point, Summary, cbor,
     network::NetworkName,
 };
-use amaru_ouroboros_traits::Nonces;
 use clap::Parser;
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};
+use tracing::{debug, info};
+
+use crate::cmd::import_nonces::InitialNonces;
 
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path to the CBOR encoded ledger state snapshot as serialised by Haskell
     /// node.
-    #[arg(long, value_name = "SNAPSHOT", verbatim_doc_comment, num_args(0..))]
-    snapshot: Vec<PathBuf>,
+    #[arg(long, value_name = "SNAPSHOT", verbatim_doc_comment)]
+    snapshot: PathBuf,
 
     /// Directory to store converted snapshots into.
     ///
@@ -55,10 +57,7 @@ pub enum Error {
 
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let target_dir = args.target_dir.unwrap_or(PathBuf::from("."));
-    for snapshot in args.snapshot {
-        convert_one_snapshot_file(&target_dir, &snapshot, &args.network).await?;
-    }
-
+    convert_one_snapshot_file(&target_dir, &args.snapshot, &args.network).await?;
     Ok(())
 }
 
@@ -76,7 +75,12 @@ async fn convert_one_snapshot_file(
 
     fs::create_dir_all(target_dir).await?;
 
-    convert_snapshot_to(snapshot, target_dir, network).await
+    let converted = convert_snapshot_to(snapshot, target_dir, network).await?;
+    info!(
+        "converted ledger state from {:?} to {:?}",
+        snapshot, converted
+    );
+    Ok(converted)
 }
 
 async fn convert_snapshot_to(
@@ -118,7 +122,8 @@ async fn convert_snapshot_to(
             slot_length: 1000,
         },
     });
-    let history = EraHistory::new(&eras, network.default_stability_window());
+
+    let era_history = EraHistory::new(&eras, network.default_stability_window());
 
     // ledger state
     // https://github.com/abailly/ouroboros-consensus/blob/1508638f832772d21874e18e48b908fcb791cd49/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Ledger/Ledger.hs#L736
@@ -160,7 +165,7 @@ async fn convert_snapshot_to(
     d.array()?;
     // NOTE: The encoding of an AnnTip is not consistent with the encoding of a Tip
     let tip_slot = d.u64()?;
-    let _tip_hash: Hash<HEADER_HASH_SIZE> = d.decode()?;
+    let tip_hash: Hash<HEADER_HASH_SIZE> = d.decode()?;
     let _tip_height = d.u64()?;
 
     // ChainDepState for Praos
@@ -210,24 +215,35 @@ async fn convert_snapshot_to(
     d.u8()?;
     let active: Nonce = d.decode()?;
 
-    d.array()?;
-    d.u8()?;
-    let tail = d.decode()?;
-
-    // previous epoch nonce, can be defined or 0
-    // FIXME: do we use it?
+    // lab nonce
     d.skip()?;
 
-    let nonces = Nonces {
+    // last epoch nonce
+    d.skip()?;
+
+    let nonces = InitialNonces {
+        at: Point::Specific(tip_slot, tip_hash.to_vec()),
         active,
         evolving,
         candidate,
-        epoch: history.slot_to_epoch(tip_slot.into(), tip_slot.into())?,
-        tail,
+        tail: Hash::new([0; 32]),
     };
 
     write_nonces(target_dir, slot, hash, nonces).await?;
+    write_era_history(target_dir, slot, hash, &era_history).await?;
     write_ledger_snapshot(target_dir, slot, hash, &bytes[begin..end]).await
+}
+
+async fn write_era_history(
+    target_dir: &Path,
+    slot: u64,
+    hash: Hash<32>,
+    era_history: &EraHistory,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let target_path = target_dir.join(format!("history.{}.{}.json", slot, hash));
+    fs::write(&target_path, serde_json::to_string(era_history)?).await?;
+    debug!("wrote era history {:?}", target_path);
+    Ok(())
 }
 
 /// This is the number of past eras before the current era in the "standard" Cardano history, e.g
@@ -287,10 +303,11 @@ async fn write_nonces(
     target_dir: &Path,
     slot: u64,
     hash: Hash<HEADER_HASH_SIZE>,
-    nonces: Nonces,
+    nonces: InitialNonces,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("nonces.{}.{}.json", slot, hash));
     fs::write(&target_path, serde_json::to_string(&nonces)?).await?;
+    debug!("wrote nonces file {:?}", target_path);
     Ok(())
 }
 
@@ -302,6 +319,7 @@ async fn write_ledger_snapshot(
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("{}.{}.cbor", slot, hash));
     fs::write(&target_path, ledger_data).await?;
+    debug!("wrote ledger snapshot {:?}", target_path);
     Ok(target_path)
 }
 
@@ -326,7 +344,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn generates_converted_snapshots_in_given_target_dir() {
+    async fn generates_converted_snapshot_in_given_target_dir() {
         let network = NetworkName::Testnet(42);
         let tempdir = tempfile::tempdir().unwrap();
         let expected_paths = vec![
@@ -341,15 +359,19 @@ mod test {
             ),
         ];
 
-        let args = super::Args {
-            snapshot: dir_content(Path::new("tests/data/convert")).await.unwrap(),
-            target_dir: Some(tempdir.path().to_path_buf()),
-            network,
-        };
+        let snapshots = dir_content(Path::new("tests/data/convert")).await.unwrap();
 
-        run(args)
-            .await
-            .expect("unexpected error in conversion test");
+        for snapshot in snapshots {
+            let args = super::Args {
+                snapshot,
+                target_dir: Some(tempdir.path().to_path_buf()),
+                network,
+            };
+
+            run(args)
+                .await
+                .expect("unexpected error in conversion test");
+        }
 
         assert!(
             expected_paths.iter().all(|p| p.exists()),
@@ -389,15 +411,19 @@ mod test {
             ),
         ];
 
-        let args = super::Args {
-            snapshot: dir_content(Path::new("tests/data/convert")).await.unwrap(),
-            target_dir: Some(target_dir.clone()),
-            network,
-        };
+        let snapshots = dir_content(Path::new("tests/data/convert")).await.unwrap();
 
-        run(args)
-            .await
-            .expect("unexpected error in conversion test");
+        for snapshot in snapshots {
+            let args = super::Args {
+                snapshot,
+                target_dir: Some(target_dir.clone()),
+                network,
+            };
+
+            run(args)
+                .await
+                .expect("unexpected error in conversion test");
+        }
 
         assert!(
             expected_paths.iter().all(|p| p.exists()),

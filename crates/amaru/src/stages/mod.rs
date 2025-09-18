@@ -98,7 +98,7 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             ledger_store: StorePath::OnDisk(PathBuf::from("./ledger.db")),
-            chain_store: StorePath::OnDisk(PathBuf::from("./chain.db.1")),
+            chain_store: StorePath::OnDisk(PathBuf::from("./chain.db")),
             upstream_peers: vec![],
             network: NetworkName::Preprod,
             network_magic: 1,

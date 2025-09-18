@@ -22,12 +22,13 @@ use std::{
     path::{Path, PathBuf},
 };
 use tokio::{fs::File, io::AsyncReadExt};
+use tracing::debug;
 
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Network for which we are importing headers.
     ///
-    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet:<magic>' where
+    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet_<magic>' where
     /// `magic` is a 32-bits unsigned value denoting a particular testnet.
     #[arg(
         long,
@@ -102,6 +103,7 @@ pub(crate) async fn import_headers_for_network(
             let header_from_file: Header = from_cbor(&cbor_data).unwrap();
             db.store_header(&header_from_file)
                 .map_err(|_| WorkerError::Panic)?;
+            debug!("imported {:?}", path);
         }
     }
 

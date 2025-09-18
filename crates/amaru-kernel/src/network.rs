@@ -460,7 +460,7 @@ impl std::fmt::Display for NetworkName {
             Self::Mainnet => write!(f, "mainnet"),
             Self::Preprod => write!(f, "preprod"),
             Self::Preview => write!(f, "preview"),
-            Self::Testnet(magic) => write!(f, "testnet:{}", magic),
+            Self::Testnet(magic) => write!(f, "testnet_{}", magic),
         }
     }
 }
@@ -475,7 +475,7 @@ impl std::str::FromStr for NetworkName {
             "preview" => Ok(Self::Preview),
             _ => {
                 let magic = s
-                    .strip_prefix("testnet:")
+                    .strip_prefix("testnet_")
                     .ok_or(format!("Invalid network name {}", s))?;
 
                 magic

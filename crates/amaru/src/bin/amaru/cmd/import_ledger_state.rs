@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Point, default_ledger_dir, network::NetworkName};
+use amaru_kernel::{EraHistory, Point, default_ledger_dir, network::NetworkName};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -20,7 +20,10 @@ use amaru_ledger::{
 use amaru_progress_bar::new_terminal_progress_bar;
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -49,7 +52,7 @@ pub struct Args {
 
     /// Network the snapshots are imported from.
     ///
-    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet:<magic>' where
+    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet_<magic>' where
     /// `magic` is a 32-bits unsigned value denoting a particular testnet.
     #[arg(
         long,
@@ -64,6 +67,8 @@ pub struct Args {
 enum Error {
     #[error("malformed date: {}", .0)]
     MalformedDate(String),
+    #[error("invalid snapshot file: {0}")]
+    InvalidSnapshotFile(PathBuf),
     #[error(
         "You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)"
     )]
@@ -101,14 +106,12 @@ pub(crate) async fn import_all_from_directory(
 fn sort_snapshots_by_slot(snapshots: &mut [PathBuf]) {
     // Sort by parsed slot number from filename
     snapshots.sort_by_key(|path| {
-        path.file_stem()
+        path.file_name()
             .and_then(|s| s.to_str())
             .and_then(|s| s.split('.').next())
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(u64::MAX)
     });
-
-    snapshots.sort();
 }
 
 pub async fn import_all(
@@ -142,12 +145,16 @@ pub async fn import_one(
     fs::create_dir_all(ledger_dir)?;
     let db = RocksDB::empty(ledger_dir)?;
     let bytes = fs::read(snapshot)?;
+    let dir = snapshot
+        .parent()
+        .ok_or(Error::InvalidSnapshotFile(snapshot.into()))?;
 
+    let era_history = make_era_history(dir, &point, network)?;
     let epoch = import_initial_snapshot(
         &db,
         &bytes,
         &point,
-        network,
+        &era_history,
         new_terminal_progress_bar,
         None,
         true,
@@ -161,4 +168,79 @@ pub async fn import_one(
 
     info!("Imported snapshot for epoch {}", epoch);
     Ok(())
+}
+
+fn make_era_history(
+    dir: &Path,
+    point: &Point,
+    network: NetworkName,
+) -> Result<EraHistory, Box<dyn std::error::Error>> {
+    match network {
+        NetworkName::Testnet(_) => {
+            let filename = format!("history.{}.{}.json", point.slot_or_default(), point.hash());
+            let history_file = dir.join(filename);
+            if !history_file.is_file() {
+                return Err(
+                    format!("cannot import testnet era history from {:?}", history_file).into(),
+                );
+            };
+
+            Ok(serde_json::from_slice(&fs::read(&history_file)?)?)
+        }
+        NetworkName::Mainnet | NetworkName::Preprod | NetworkName::Preview => {
+            Ok(<&EraHistory>::from(network).clone())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{path::PathBuf, str::FromStr};
+
+    use crate::cmd::import_ledger_state::{make_era_history, sort_snapshots_by_slot};
+    use amaru_kernel::{HEADER_HASH_SIZE, Hash, Point, Slot, network::NetworkName};
+    use amaru_slot_arithmetic::TimeMs;
+
+    #[test]
+    fn make_era_history_for_tesnet_given_file_exists() {
+        let dir = PathBuf::from("tests/data/");
+        let hash: Hash<HEADER_HASH_SIZE> =
+            Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")
+                .unwrap();
+        let point = Point::Specific(56073562, hash.to_vec());
+
+        let history = make_era_history(&dir, &point, NetworkName::Testnet(14))
+            .expect("fail to make era history");
+
+        assert_eq!(
+            TimeMs::from(5100000000),
+            history
+                .slot_to_relative_time_unchecked_horizon(Slot::from(5100000))
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn sort_snapshot_file_names_by_slot_number() {
+        let mut paths = [
+            PathBuf::from(
+                "172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.cbor",
+            ),
+            PathBuf::from(
+                "259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.cbor",
+            ),
+            PathBuf::from(
+                "86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor",
+            ),
+        ];
+
+        sort_snapshots_by_slot(&mut paths);
+
+        assert_eq!(
+            PathBuf::from(
+                "86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor"
+            ),
+            paths[0]
+        );
+    }
 }
