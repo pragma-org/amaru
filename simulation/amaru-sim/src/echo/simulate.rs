@@ -29,7 +29,7 @@ struct State(u64, StageRef<Envelope<EchoMessage>>);
 /// Start a node that has just one "echo" stage.
 /// The regular echo behavior is to respond with the same message that was sent.
 /// However we simulate a bug here where every 5th message is uppercased.
-pub fn spawn_echo_node() -> NodeHandle<EchoMessage> {
+pub fn spawn_echo_node(_node_id: String) -> NodeHandle<EchoMessage> {
     let mut network = SimulationBuilder::default();
     let stage = network.stage(
         "echo",
@@ -59,11 +59,14 @@ pub fn spawn_echo_node() -> NodeHandle<EchoMessage> {
         },
     );
     let (output, rx) = network.output("output", 10);
+
+    // This output is not used, but we need to wire it up to make the stage.
+    let (_, init) = network.output("init", 10);
     let stage = network.wire_up(stage, State(0, output));
     let rt = tokio::runtime::Runtime::new().unwrap();
     let running = network.run(rt.handle().clone());
 
-    NodeHandle::from_pure_stage(stage.without_state(), rx, running).unwrap()
+    NodeHandle::from_pure_stage(stage.without_state(), init, rx, running).unwrap()
 }
 
 /// Generate some input echo messages at different arrival times.

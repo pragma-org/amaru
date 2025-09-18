@@ -54,11 +54,13 @@ impl<Msg> NodeHandle<Msg> {
     /// Create a stateful function that can be used to send messages to node and receive messages from it.
     ///
     ///  * `input` is a handle used to send messages to the node.
+    ///  * `init_message` is a handle used to receive the chain sync initialization message.
     ///  * `output` is a handle used to receive messages from the node.
     ///  * `running` is the simulated node, waiting for messages to arrive.
     ///
     pub fn from_pure_stage(
         input: StageRef<Envelope<Msg>>,
+        mut init_messages: Receiver<Envelope<Msg>>,
         mut output: Receiver<Envelope<Msg>>,
         mut running: SimulationRunning,
     ) -> anyhow::Result<NodeHandle<Msg>>
@@ -69,7 +71,9 @@ impl<Msg> NodeHandle<Msg> {
             info!(msg = ?msg, "enqueuing");
             running.enqueue_msg(&input, [msg]);
             running.run_until_blocked().assert_idle();
-            Ok(output.drain().collect::<Vec<_>>())
+            let mut result = init_messages.drain().collect::<Vec<_>>();
+            result.extend(output.drain().collect::<Vec<_>>());
+            Ok(result)
         });
 
         let close = Box::new(move || ());

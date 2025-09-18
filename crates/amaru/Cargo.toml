@@ -36,6 +36,7 @@ sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [
   "fs",
+  "net",
   "rt",
   "rt-multi-thread",
   "signal",

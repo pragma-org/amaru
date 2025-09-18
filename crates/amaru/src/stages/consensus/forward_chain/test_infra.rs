@@ -13,18 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
-use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
-use amaru_consensus::consensus::events::BlockValidationResult;
-use amaru_kernel::peer::Peer;
+use crate::stages::consensus::forward_chain::client_protocol::PrettyPoint;
+use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
+use amaru_consensus::consensus::effects::network_effects::{ForwardEvent, ForwardEventListener};
+use amaru_consensus::consensus::tip::AsHeaderTip;
 use amaru_kernel::{Hash, Header, from_cbor};
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{ChainStore, IsHeader};
-use gasket::{
-    messaging::tokio::ChannelRecvAdapter,
-    runtime::{Tether, spawn_stage},
-};
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::{
@@ -32,8 +28,8 @@ use pallas_network::{
         chainsync::{NextResponse, Tip},
     },
 };
-use std::{fs::File, future::Future, path::Path, str::FromStr, sync::Arc, time::Duration};
-use tokio::{sync::mpsc, time::timeout};
+use std::{fs::File, path::Path, str::FromStr, sync::Arc};
+use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
 pub const CHAIN_47: &str = "tests/data/chain41.json";
@@ -85,121 +81,61 @@ pub fn amaru_point(slot: u64, hash: &str) -> amaru_kernel::Point {
 
 pub struct Setup {
     pub store: Arc<dyn ChainStore<Header>>,
-    runtime: AcTokio,
-    event: mpsc::Receiver<ForwardEvent>,
-    block: mpsc::Sender<gasket::messaging::Message<BlockValidationResult>>,
-    _tether: Tether,
+    listener: TcpForwardChainServer,
     port: u16,
 }
 
 impl Setup {
-    pub fn new(our_tip: &str) -> Setup {
+    pub async fn new(our_tip: &str) -> anyhow::Result<Setup> {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .with_test_writer()
             .try_init();
 
         let store = mk_store(CHAIN_47);
-        let runtime = AcTokio::new("test", 1).unwrap();
-        let (port_tx, mut port_rx) = mpsc::channel(8);
-        let downstream = runtime
-            .spawn_actor(
-                "test",
-                |mut cell: ActoCell<ForwardEvent, AcTokioRuntime>| async move {
-                    while let ActoInput::Message(msg) = cell.recv().await {
-                        port_tx.send(msg).await.unwrap();
-                    }
-                },
-            )
-            .me;
-        let (block_tx, block_rx) = mpsc::channel(8);
-        let mut stage = ForwardChainStage::new(
-            Some(downstream),
+        let header = store.load_header(&hash(our_tip)).unwrap();
+
+        let tcp_listener = TcpListener::bind("127.0.0.1:0").await?;
+
+        let port = tcp_listener.local_addr()?.port();
+        let listener = TcpForwardChainServer::create(
             store.clone(),
+            tcp_listener,
             42,
-            "127.0.0.1:0",
             1,
-            &hash(our_tip),
-        );
-        stage.upstream.connect(ChannelRecvAdapter::Mpsc(block_rx));
-        let tether = spawn_stage(stage, Default::default());
+            header.as_header_tip(),
+        )?;
 
-        tracing::info!("stage state: {:?}", tether.check_state());
-        let port = block_on(&runtime, port_rx.recv()).unwrap();
-        let ForwardEvent::Listening(port) = port else {
-            panic!("expected listening event, got {:?}", port);
-        };
-        assert_ne!(port, 0);
-        tracing::info!(
-            "stage ({:?}) listening on port {}",
-            tether.check_state(),
-            port
-        );
-
-        Setup {
+        Ok(Setup {
             store,
-            runtime,
-            event: port_rx,
-            block: block_tx,
-            _tether: tether,
+            listener,
             port,
-        }
+        })
     }
 
-    pub fn send_validated(&mut self, s: &str) {
+    pub async fn send_forward(&mut self, s: &str) {
         let header = self.store.load_header(&hash(s)).unwrap();
-        let point = header.point();
-        let span = tracing::debug_span!("whatever");
-
-        let f = self.block.send(
-            BlockValidationResult::BlockValidated {
-                peer: Peer::new("test"),
-                header: header.clone(),
-                span,
-            }
-            .into(),
-        );
-        tracing::info!("sending block validated");
-        block_on(&self.runtime, f).unwrap();
-        tracing::info!("waiting for forward event");
-        let p = block_on(&self.runtime, self.event.recv()).unwrap();
-        let ForwardEvent::Forward(p) = p else {
-            panic!("expected forward event, got {:?}", p);
-        };
-        assert_eq!(p, point.pallas_point());
+        tracing::info!("sending forward event");
+        self.listener
+            .send(ForwardEvent::Forward(header))
+            .await
+            .unwrap();
     }
 
-    pub fn send_backward(&mut self, s: &str) {
+    pub async fn send_backward(&mut self, s: &str) {
         let rollback_header = self.store.load_header(&hash(s)).unwrap();
-        let span = tracing::debug_span!("whatever");
-        let f = self.block.send(
-            BlockValidationResult::RolledBackTo {
-                peer: Peer::new("test"),
-                rollback_header: rollback_header.clone(),
-                span,
-            }
-            .into(),
-        );
-        tracing::info!("sending block roll backward");
-        block_on(&self.runtime, f).unwrap();
-        tracing::info!("waiting for backward event");
-        let p = block_on(&self.runtime, self.event.recv()).unwrap();
-        let ForwardEvent::Backward(p) = p else {
-            panic!("expected backward event, got {:?}", p);
-        };
-        assert_eq!(p, rollback_header.point().pallas_point());
+        tracing::info!("sending rollback event");
+        self.listener
+            .send(ForwardEvent::Backward(rollback_header.as_header_tip()))
+            .await
+            .unwrap();
     }
 
-    pub fn connect(&self) -> Client {
-        let client = block_on(
-            &self.runtime,
-            PeerClient::connect(&format!("127.0.0.1:{}", self.port), 42),
-        )
-        .unwrap();
-        Client {
-            runtime: self.runtime.clone(),
-            client,
-        }
+    pub async fn connect(&self) -> Client {
+        let client = PeerClient::connect(&format!("127.0.0.1:{}", self.port), 42)
+            .await
+            .unwrap();
+        Client { client }
     }
 
     pub fn check_header(&self, s: &str, h: &Header) {
@@ -208,77 +144,22 @@ impl Setup {
     }
 }
 
-/// This trait extends ChainStore with some useful methods for tests.
-pub trait ChainStoreExt {
-    fn len(&self) -> usize;
-
-    fn get_all_children(&self, hash: &Hash<32>) -> Vec<Header>;
-
-    fn get_chain(&self, h: &str) -> Vec<Header>;
-
-    fn get_point(&self, h: &str) -> Point;
-
-    fn get_height(&self, h: &str) -> u64;
-}
-
-impl ChainStoreExt for Arc<dyn ChainStore<Header>> {
-    fn len(&self) -> usize {
-        self.get_all_children(&self.get_anchor_hash()).len()
-    }
-
-    fn get_all_children(&self, hash: &Hash<32>) -> Vec<Header> {
-        let mut result = vec![];
-        if let Some(header) = self.load_header(hash) {
-            result.push(header);
-        }
-        for child in self.get_children(hash) {
-            result.extend(self.get_all_children(&child))
-        }
-        result
-    }
-
-    fn get_chain(&self, h: &str) -> Vec<Header> {
-        let mut chain = Vec::new();
-        let mut current = hash(h);
-        while let Some(header) = self.load_header(&current) {
-            chain.push(header.clone());
-            let Some(parent) = header.parent() else {
-                break;
-            };
-            current = parent;
-        }
-        chain.reverse();
-        chain
-    }
-
-    fn get_point(&self, h: &str) -> Point {
-        let header = self.load_header(&hash(h)).unwrap();
-        header.pallas_point()
-    }
-
-    fn get_height(&self, h: &str) -> u64 {
-        let header = self.load_header(&hash(h)).unwrap();
-        header.block_height()
-    }
-}
-
 pub struct Client {
-    runtime: AcTokioRuntime,
     client: PeerClient,
 }
 
 impl Client {
-    pub fn find_intersect(&mut self, points: Vec<Point>) -> (Option<Point>, Tip) {
-        block_on(
-            &self.runtime,
-            self.client.chainsync().find_intersect(points),
-        )
-        .unwrap()
+    pub async fn find_intersect(&mut self, points: Vec<Point>) -> (Option<Point>, Tip) {
+        self.client
+            .chainsync()
+            .find_intersect(points)
+            .await
+            .unwrap()
     }
 
-    pub fn recv_until_await(&mut self) -> Vec<ClientMsg> {
+    pub async fn recv_until_await(&mut self) -> Vec<ClientMsg> {
         let mut ops = Vec::new();
-        while let Ok(response) = block_on(&self.runtime, self.client.chainsync().request_next()) {
+        while let Ok(response) = self.client.chainsync().request_next().await {
             match response {
                 NextResponse::RollForward(header, tip) => {
                     ops.push(ClientMsg::Forward(from_cbor(&header.cbor).unwrap(), tip))
@@ -290,10 +171,10 @@ impl Client {
         ops
     }
 
-    pub fn recv_n<const N: usize>(&mut self) -> [ClientMsg; N] {
+    pub async fn recv_n<const N: usize>(&mut self) -> [ClientMsg; N] {
         let mut ops = Vec::new();
         for _ in 0..N {
-            let msg = block_on(&self.runtime, self.client.chainsync().request_next()).unwrap();
+            let msg = self.client.chainsync().request_next().await.unwrap();
             match msg {
                 NextResponse::RollForward(header, tip) => {
                     ops.push(ClientMsg::Forward(from_cbor(&header.cbor).unwrap(), tip))
@@ -305,12 +186,13 @@ impl Client {
         ops.try_into().unwrap()
     }
 
-    pub fn recv_after_await(&mut self) -> ClientMsg {
-        let msg = block_on(
-            &self.runtime,
-            self.client.chainsync().recv_while_can_await(),
-        )
-        .unwrap();
+    pub async fn recv_after_await(&mut self) -> ClientMsg {
+        let msg = self
+            .client
+            .chainsync()
+            .recv_while_can_await()
+            .await
+            .unwrap();
         match msg {
             NextResponse::RollForward(header, tip) => {
                 ClientMsg::Forward(from_cbor(&header.cbor).unwrap(), tip)
@@ -360,12 +242,13 @@ impl PartialEq for ClientMsg {
         }
     }
 }
-fn block_on<F: Future>(runtime: &AcTokioRuntime, f: F) -> F::Output {
-    runtime
-        .with_rt(|rt| {
-            let _x = rt.enter();
-            rt.block_on(timeout(Duration::from_secs(1), f))
-        })
-        .unwrap()
-        .unwrap()
-}
+
+// fn block_on<F: Future>(runtime: Arc<AcTokio>, f: F) -> F::Output {
+//     runtime
+//         .with_rt(|rt| {
+//             let _x = rt.enter();
+//             rt.block_on(timeout(Duration::from_secs(1), f))
+//         })
+//         .unwrap()
+//         .unwrap()
+// }

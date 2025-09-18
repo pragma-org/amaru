@@ -1,5 +1,5 @@
 title: {
-  label: "internal design of the chain_forward stage"
+  label: "Internal design of the TcpForwardChainServer"
   near: top-center
   shape: text
   style.font-size: 24
@@ -39,7 +39,7 @@ classes: {
 
 prev: {
   class: component
-  label: "BlockValidationResult"
+  label: "ForwardEvent"
 }
 
 chain_forward: {
@@ -48,14 +48,14 @@ chain_forward: {
 
   accept: {
     class: component
-    label: "TcpListener accept task"
+    label: "TcpListener accepts task"
   }
 
   stage: {
     class: component
     label: ""
     t: |md
-      ### ForwardStage / Worker
+      ### TcpForwardChainServer
       tracks current `tip`
     |
   }

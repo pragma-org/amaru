@@ -56,7 +56,8 @@ pub struct Args {
     chain_dir: Option<PathBuf>,
 
     /// The address to listen on for incoming connections.
-    #[arg(long, value_name = "LISTEN_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS)]
+    #[arg(long, value_name = "LISTEN_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS
+    )]
     listen_address: String,
 
     /// The maximum number of downstream peers to connect to.
@@ -98,7 +99,7 @@ pub async fn run(
 
     let exit = amaru::exit::hook_exit_token();
 
-    let sync = bootstrap(config, clients, exit.clone(), meter_provider)?;
+    let sync = bootstrap(config, clients, exit.clone(), meter_provider).await?;
 
     run_pipeline(gasket::daemon::Daemon::new(sync), exit).await;
 
