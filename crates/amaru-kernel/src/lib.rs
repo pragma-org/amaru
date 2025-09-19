@@ -52,7 +52,7 @@ pub use pallas_crypto::{
 pub use pallas_primitives::{
     AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,
     PlutusScript, PolicyId, Port, PositiveCoin,
-    babbage::{Header, MintedHeader},
+    babbage::{Header, MintedHeader, PseudoHeader},
     conway::{
         AddrKeyhash, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, Constitution,
         CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices, ExUnits,

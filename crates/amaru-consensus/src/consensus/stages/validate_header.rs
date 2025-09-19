@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::store_effects::EvolveNonceEffect;
-use crate::consensus::errors::{ConsensusError, ValidationFailed};
-use crate::consensus::events::DecodedChainSyncEvent;
-use crate::consensus::span::adopt_current_span;
+use crate::consensus::{
+    effects::store_effects::Store,
+    errors::{ConsensusError, ValidationFailed},
+    events::DecodedChainSyncEvent,
+    span::adopt_current_span,
+    store::StoreOps,
+};
 use amaru_kernel::{
     Hash, Header, Nonce, Point, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
@@ -118,17 +121,15 @@ impl ValidateHeader {
             point.hash = %Hash::<32>::from(point),
         )
     )]
-    pub async fn handle_roll_forward<M>(
+    pub async fn handle_roll_forward(
         &mut self,
-        eff: &mut Effects<M>,
+        mut store: impl StoreOps,
         peer: &Peer,
         point: &Point,
         header: &Header,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
-        let nonces = eff
-            .external(EvolveNonceEffect::new(peer, header.clone()))
-            .await?;
+        let nonces = store.evolve_nonce(peer, header).await?;
         let epoch_nonce = &nonces.active;
 
         header_is_valid(
@@ -146,27 +147,6 @@ impl ValidateHeader {
             header: header.clone(),
             span: Span::current(),
         })
-    }
-
-    pub async fn validate_header<M>(
-        &mut self,
-        eff: &mut Effects<M>,
-        chain_sync: DecodedChainSyncEvent,
-        global_parameters: &GlobalParameters,
-    ) -> Result<DecodedChainSyncEvent, ValidationFailed> {
-        match chain_sync {
-            DecodedChainSyncEvent::RollForward {
-                peer,
-                point,
-                header,
-                ..
-            } => self
-                .handle_roll_forward(eff, &peer, &point, &header, global_parameters)
-                .await
-                .map_err(|e| ValidationFailed::new(&peer, e)),
-            DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
-            DecodedChainSyncEvent::CaughtUp { .. } => Ok(chain_sync),
-        }
     }
 }
 
@@ -192,10 +172,10 @@ type State = (
 pub async fn stage(
     state: State,
     msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent>,
+    mut eff: Effects<DecodedChainSyncEvent>,
 ) -> State {
     adopt_current_span(&msg);
-    let (state, global, downstream, errors) = state;
+    let (mut state, global, downstream, errors) = state;
 
     let (peer, point, header) = match &msg {
         DecodedChainSyncEvent::RollForward {
@@ -220,41 +200,198 @@ pub async fn stage(
         point.hash = %Hash::<32>::from(point),
     );
 
-    let send_downstream = async {
-        let nonces = match eff
-            .external(EvolveNonceEffect::new(peer, header.clone()))
+    async {
+        match state
+            .handle_roll_forward(Store(&mut eff), peer, point, header, &global)
             .await
         {
-            Ok(nonces) => nonces,
+            Ok(msg) => eff.send(&downstream, msg).await,
             Err(error) => {
-                tracing::error!(%peer, %error, "evolve nonce failed");
-                eff.send(&errors, ValidationFailed::new(peer, error)).await;
-                return false;
+                tracing::error!(%peer, %error, "failed to handle roll forward");
+                eff.send(&errors, ValidationFailed::new(peer, error)).await
             }
-        };
-        let epoch_nonce = &nonces.active;
-
-        if let Err(error) = header_is_valid(
-            point,
-            header,
-            to_cbor(&header.header_body).as_slice(),
-            epoch_nonce,
-            state.ledger.as_ref(),
-            &global,
-        ) {
-            tracing::info!(%peer, %error, "invalid header");
-            eff.send(&errors, ValidationFailed::new(peer, error)).await;
-            false
-        } else {
-            true
         }
     }
     .instrument(span)
     .await;
 
-    if send_downstream {
-        eff.send(&downstream, msg).await;
+    (state, global, downstream, errors)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::consensus::errors::ProcessingFailed;
+    use crate::consensus::store::NoncesError;
+    use amaru_kernel::{
+        Bytes, Epoch, Header, HeaderBody, Point, PseudoHeader,
+        peer::Peer,
+        protocol_parameters::{GlobalParameters, TESTNET_GLOBAL_PARAMETERS},
+    };
+    use amaru_ouroboros::{Nonces, OperationalCert, VrfCert, praos::header::AssertHeaderError};
+    use pallas_crypto::hash::Hash;
+    use std::sync::Arc;
+
+    // Fake store that returns errors for each operation
+    struct FailingStore {
+        fail_on_evolve_nonce: bool,
     }
 
-    (state, global, downstream, errors)
+    impl FailingStore {
+        fn new() -> Self {
+            Self {
+                fail_on_evolve_nonce: false,
+            }
+        }
+
+        fn fail_on_evolve_nonce(mut self) -> Self {
+            self.fail_on_evolve_nonce = true;
+            self
+        }
+    }
+
+    impl StoreOps for FailingStore {
+        async fn store_header(
+            &mut self,
+            _peer: &Peer,
+            _header: &Header,
+        ) -> Result<(), ProcessingFailed> {
+            Ok(())
+        }
+
+        async fn store_block(
+            &mut self,
+            _peer: &Peer,
+            _point: &Point,
+            _block: &amaru_kernel::RawBlock,
+        ) -> Result<(), ProcessingFailed> {
+            Ok(())
+        }
+
+        async fn evolve_nonce(
+            &mut self,
+            _peer: &Peer,
+            _header: &Header,
+        ) -> Result<Nonces, ConsensusError> {
+            if self.fail_on_evolve_nonce {
+                Err(ConsensusError::NoncesError(NoncesError::UnknownParent {
+                    header: Hash::<32>::from([0u8; 32]),
+                    parent: Hash::<32>::from([1u8; 32]),
+                }))
+            } else {
+                // Return a dummy nonces for successful case
+                Ok(Nonces {
+                    epoch: Epoch::from(0),
+                    active: Hash::<32>::from([0u8; 32]),
+                    evolving: Hash::<32>::from([1u8; 32]),
+                    candidate: Hash::<32>::from([2u8; 32]),
+                    tail: Hash::<32>::from([3u8; 32]),
+                })
+            }
+        }
+    }
+
+    // Helper function to create test data
+    fn create_test_data() -> (
+        Peer,
+        Point,
+        Header,
+        &'static GlobalParameters,
+        Arc<dyn HasStakeDistribution>,
+    ) {
+        let peer = Peer::new("test-peer");
+        let point = Point::Origin;
+
+        // Create a minimal valid header using the default constructor
+        let header = PseudoHeader {
+            header_body: HeaderBody {
+                block_number: 0,
+                slot: 1,
+                prev_hash: None,
+                issuer_vkey: Bytes::from(vec![]),
+                vrf_vkey: Bytes::from(vec![]),
+                vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
+                block_body_size: 0,
+                block_body_hash: Hash::<32>::from([0u8; 32]),
+                operational_cert: OperationalCert {
+                    operational_cert_hot_vkey: Bytes::from(vec![]),
+                    operational_cert_sequence_number: 0,
+                    operational_cert_kes_period: 0,
+                    operational_cert_sigma: Bytes::from(vec![]),
+                },
+                protocol_version: (1, 2),
+            },
+            body_signature: Bytes::from(vec![]),
+        };
+
+        // Create a simple global parameters for testing
+        let global_parameters = &*TESTNET_GLOBAL_PARAMETERS;
+
+        // Create a simple fake ledger
+        struct FakeLedger;
+        impl HasStakeDistribution for FakeLedger {
+            fn get_pool(
+                &self,
+                _slot: amaru_kernel::Slot,
+                _pool: &amaru_kernel::PoolId,
+            ) -> Option<amaru_ouroboros::PoolSummary> {
+                None
+            }
+
+            fn slot_to_kes_period(&self, _slot: amaru_kernel::Slot) -> u64 {
+                0
+            }
+
+            fn max_kes_evolutions(&self) -> u64 {
+                0
+            }
+
+            fn latest_opcert_sequence_number(&self, _pool: &amaru_kernel::PoolId) -> Option<u64> {
+                None
+            }
+        }
+        let ledger = Arc::new(FakeLedger);
+
+        (peer, point, header, global_parameters, ledger)
+    }
+
+    #[tokio::test]
+    async fn test_handle_roll_forward_evolve_nonce_error() {
+        let (peer, point, header, global_parameters, ledger) = create_test_data();
+        let mut validate_header = ValidateHeader::new(ledger);
+        let failing_store = FailingStore::new().fail_on_evolve_nonce();
+
+        let result = validate_header
+            .handle_roll_forward(failing_store, &peer, &point, &header, global_parameters)
+            .await;
+
+        #[allow(clippy::wildcard_enum_match_arm)]
+        match result.unwrap_err() {
+            ConsensusError::NoncesError(NoncesError::UnknownParent { .. }) => {
+                // Expected error
+            }
+            other => panic!("Expected NoncesError with UnknownParent, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_roll_forward_fake_error() {
+        let (peer, point, header, global_parameters, ledger) = create_test_data();
+        let mut validate_header = ValidateHeader::new(ledger);
+        let failing_store = FailingStore::new();
+
+        let result = validate_header
+            .handle_roll_forward(failing_store, &peer, &point, &header, global_parameters)
+            .await;
+
+        #[allow(clippy::wildcard_enum_match_arm)]
+        match result.unwrap_err() {
+            ConsensusError::InvalidHeader(p, AssertHeaderError::TryFromSliceError)
+                if p == point =>
+            {
+                // Expected error
+            }
+            other => panic!("Expected NoncesError with UnknownParent, got: {:?}", other),
+        }
+    }
 }
