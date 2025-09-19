@@ -98,6 +98,11 @@ mod internals {
         /// It includes physical RAM, allocated but not used regions, swapped-out regions, and even
         /// memory associated with memory-mapped files.
         memory_available_virtual_bytes: Gauge<u64>,
+
+        /// The total number of opened file descriptors.
+        ///
+        /// On Windows, this metric is not available as file descriptors per se do not exist.
+        open_files: Gauge<u64>,
     }
 
     impl ProcessMetrics {
@@ -154,6 +159,11 @@ mod internals {
                 .with_unit("bytes")
                 .build();
 
+            let open_files = meter
+                .u64_gauge("process_open_files")
+                .with_description("Total number of file descriptors.")
+                .build();
+
             Self {
                 number_of_cpus,
                 runtime_seconds,
@@ -164,6 +174,7 @@ mod internals {
                 cpu_live_percent,
                 memory_live_resident_bytes,
                 memory_available_virtual_bytes,
+                open_files,
             }
         }
 
@@ -186,6 +197,9 @@ mod internals {
 
             self.memory_available_virtual_bytes
                 .record(proc.virtual_memory(), &[]);
+
+            self.open_files
+                .record(proc.open_files().map_or(0, |files| files as u64), &[]);
         }
     }
 }
