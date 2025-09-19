@@ -59,7 +59,26 @@ pub fn add<DB>(
     Ok(())
 }
 
-/// Forget about any binding for a given drep, returning all known (past and present) delegations
+/// Forget about a past link between a drep and its delegator, if any.
+pub fn remove<DB>(
+    db: &Transaction<'_, DB>,
+    drep: &DRep,
+    delegator: &StakeCredential,
+) -> Result<(), StoreError> {
+    let drep = match drep {
+        DRep::Key(hash) => StakeCredential::AddrKeyhash(*hash),
+        DRep::Script(hash) => StakeCredential::ScriptHash(*hash),
+        DRep::Abstain | DRep::NoConfidence => return Ok(()),
+    };
+
+    let mut key = PREFIX.to_vec();
+    key.extend_from_slice(as_value(drep).as_slice());
+    key.extend_from_slice(as_value(delegator).as_slice());
+    db.delete(key)
+        .map_err(|err| StoreError::Internal(err.into()))
+}
+
+/// Forget about ALL bindings for a given drep, returning all known (past and present) delegations
 /// for that drep.
 #[instrument(
     level = Level::DEBUG,
@@ -70,7 +89,7 @@ pub fn add<DB>(
         drep.type = %StakeCredentialType::from(drep),
     )
 )]
-pub fn remove<DB>(
+pub fn drop<DB>(
     db: &Transaction<'_, DB>,
     drep: &StakeCredential,
 ) -> Result<BTreeSet<StakeCredential>, StoreError> {
