@@ -141,7 +141,7 @@ fn import_vector(
     transaction.commit()?;
 
     for entry in record.transactions {
-        let (tx_bytes, success): (pallas_codec::utils::Bytes, bool) =
+        let (tx_bytes, success, slot): (pallas_codec::utils::Bytes, bool, minicbor::data::Int) =
             minicbor::decode(entry.raw_bytes())?;
         let tx: MintedTx<'_> = minicbor::decode(&*tx_bytes)?;
 

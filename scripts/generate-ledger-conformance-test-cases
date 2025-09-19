@@ -16,13 +16,9 @@ if [[ ! -d "$SNAPSHOTS_ROOT" ]]; then
     exit 1
 fi
 
-# Iterate through network directories
-for FILE_PATH in "$SNAPSHOTS_ROOT"/*; do
-    if [[ -f "$FILE_PATH" ]]; then
-        FILE_NAME=$(basename "$FILE_PATH")
-        TEST_CASES+=("$FILE_PATH")
-    fi
-done
+while read line; do
+  TEST_CASES+=("$line")
+done < <(find $SNAPSHOTS_ROOT -name pparams-by-hash -prune -o -type f -print)
 
 # Sort test cases
 IFS=$'\n' TEST_CASES=($(sort <<<"${TEST_CASES[*]}"))
