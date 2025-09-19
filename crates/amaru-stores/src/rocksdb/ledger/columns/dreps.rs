@@ -149,8 +149,8 @@ pub fn remove<DB>(
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
     protocol_version: ProtocolVersion,
 ) -> Result<(), StoreError> {
-    for (credential, pointer) in rows {
-        let key = as_key(&PREFIX, &credential);
+    for (drep, pointer) in rows {
+        let key = as_key(&PREFIX, &drep);
 
         // NOTE: Due to a bug in protocol version 9, we need to clear any delegation relation that
         // *ever* existed between this DRep and its delegators. That is the case even if the
@@ -160,7 +160,7 @@ pub fn remove<DB>(
         // the DRep being removed, it yields back all the accounts that have been delegated to the
         // DRep during its lifetime. And we unbind all of them.
         if protocol_version <= PROTOCOL_VERSION_9 {
-            let resets = dreps_delegations::remove(db, &credential)?
+            let resets = dreps_delegations::drop(db, &drep)?
                 .into_iter()
                 .map(|delegator| (delegator, pointer));
             accounts::reset_delegation(db, resets)?;
@@ -177,7 +177,7 @@ pub fn remove<DB>(
         } else {
             error!(
                 target: EVENT_TARGET,
-                ?credential,
+                ?drep,
                 "remove.unknown_drep",
             )
         }

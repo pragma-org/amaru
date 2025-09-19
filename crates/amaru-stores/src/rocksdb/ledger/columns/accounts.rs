@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
+use crate::rocksdb::{
+    common::{PREFIX_LEN, as_key, as_value},
+    dreps_delegations,
+};
 use amaru_kernel::{
     CertificatePointer, DRep, Lovelace, PROTOCOL_VERSION_9, ProtocolVersion, StakeCredential,
     StakeCredentialType, stake_credential_hash,
@@ -126,10 +129,13 @@ pub fn add<DB>(
         // So, we do keep track of past delegations in v9, but only when the new DRep isn't a
         // pre-defined DRep. In this particular case, the bug doesn't apply. Joy.
         if protocol_version <= PROTOCOL_VERSION_9
-            && !is_predefined_drep
             && let Some((previous_drep, _ptr)) = previous_drep
         {
-            previous_delegations.push((credential, previous_drep));
+            if is_predefined_drep {
+                dreps_delegations::remove(db, &previous_drep, &credential)?;
+            } else {
+                previous_delegations.push((credential, previous_drep));
+            }
         }
     }
 
