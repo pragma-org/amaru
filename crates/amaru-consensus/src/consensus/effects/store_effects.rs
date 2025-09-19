@@ -13,21 +13,53 @@
 // limitations under the License.
 
 use crate::consensus::errors::{ConsensusError, ProcessingFailed};
-use crate::consensus::store::PraosChainStore;
+use crate::consensus::store::{PraosChainStore, StoreOps};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Header, Point, RawBlock, protocol_parameters::GlobalParameters};
 use amaru_ouroboros::{IsHeader, Praos};
 use amaru_ouroboros_traits::{ChainStore, HasStakeDistribution, Nonces};
 use anyhow::anyhow;
-use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
+use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources};
 use std::sync::Arc;
+
+pub struct Store<'a, T>(pub &'a mut Effects<T>);
+
+impl<T> StoreOps for Store<'_, T> {
+    fn store_header(
+        &mut self,
+        peer: &Peer,
+        header: &Header,
+    ) -> impl std::future::Future<Output = Result<(), ProcessingFailed>> + Send {
+        self.0
+            .external(StoreHeaderEffect::new(peer, header.clone()))
+    }
+
+    fn store_block(
+        &mut self,
+        peer: &Peer,
+        point: &Point,
+        block: &RawBlock,
+    ) -> impl std::future::Future<Output = Result<(), ProcessingFailed>> + Send {
+        self.0
+            .external(StoreBlockEffect::new(peer, point, block.clone()))
+    }
+
+    fn evolve_nonce(
+        &mut self,
+        peer: &Peer,
+        header: &Header,
+    ) -> impl std::future::Future<Output = Result<Nonces, ConsensusError>> + Send {
+        self.0
+            .external(EvolveNonceEffect::new(peer, header.clone()))
+    }
+}
 
 pub type ResourceHeaderStore = Arc<dyn ChainStore<Header>>;
 pub type ResourceHeaderValidation = Arc<dyn HasStakeDistribution>;
 pub type ResourceParameters = GlobalParameters;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StoreHeaderEffect {
+struct StoreHeaderEffect {
     peer: Peer,
     header: Header,
 }
@@ -67,7 +99,7 @@ impl ExternalEffectAPI for StoreHeaderEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StoreBlockEffect {
+struct StoreBlockEffect {
     peer: Peer,
     point: Point,
     block: RawBlock,
@@ -111,7 +143,7 @@ impl ExternalEffectAPI for StoreBlockEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct EvolveNonceEffect {
+struct EvolveNonceEffect {
     peer: Peer,
     header: Header,
 }

@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::store_effects::StoreBlockEffect;
-use crate::consensus::errors::ProcessingFailed;
-use crate::consensus::events::ValidateBlockEvent;
-use crate::consensus::span::adopt_current_span;
+use crate::consensus::effects::store_effects::Store;
+use crate::consensus::store::StoreOps;
+use crate::consensus::{
+    errors::ProcessingFailed, events::ValidateBlockEvent, span::adopt_current_span,
+};
 use amaru_ouroboros_traits::IsHeader;
 use pure_stage::{Effects, StageRef};
 use tracing::Level;
@@ -33,7 +34,7 @@ type State = (StageRef<ValidateBlockEvent>, StageRef<ProcessingFailed>);
 pub async fn stage(
     (downstream, errors): State,
     msg: ValidateBlockEvent,
-    eff: Effects<ValidateBlockEvent>,
+    mut eff: Effects<ValidateBlockEvent>,
 ) -> State {
     adopt_current_span(&msg);
     match msg {
@@ -42,8 +43,8 @@ pub async fn stage(
             ref block,
             ref peer,
             ..
-        } => match eff
-            .external(StoreBlockEffect::new(peer, &header.point(), block.clone()))
+        } => match Store(&mut eff)
+            .store_block(peer, &header.point(), block)
             .await
         {
             Ok(_) => eff.send(&downstream, msg).await,

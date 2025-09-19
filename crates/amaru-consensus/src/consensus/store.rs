@@ -12,13 +12,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Nonce, Point, protocol_parameters::GlobalParameters};
+use crate::consensus::errors::{ConsensusError, ProcessingFailed};
+use amaru_kernel::{
+    Header, Nonce, Point, RawBlock, peer::Peer, protocol_parameters::GlobalParameters,
+};
 use amaru_ouroboros::{Nonces, praos::nonce};
 use amaru_ouroboros_traits::{ChainStore, IsHeader, Praos, StoreError};
 use amaru_slot_arithmetic::EraHistoryError;
 use pallas_crypto::hash::Hash;
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 use thiserror::Error;
+
+/// Operations that can be performed on the store.
+///
+/// The main implementation is in terms of [`Effects`](pure_stage::Effects), but other implementations
+/// are used e.g. for testing.
+pub trait StoreOps {
+    fn store_header(
+        &mut self,
+        peer: &Peer,
+        header: &Header,
+    ) -> impl Future<Output = Result<(), ProcessingFailed>> + Send;
+
+    fn store_block(
+        &mut self,
+        peer: &Peer,
+        point: &Point,
+        block: &RawBlock,
+    ) -> impl Future<Output = Result<(), ProcessingFailed>> + Send;
+
+    fn evolve_nonce(
+        &mut self,
+        peer: &Peer,
+        header: &Header,
+    ) -> impl Future<Output = Result<Nonces, ConsensusError>> + Send;
+}
 
 /// A wrapper around a `ChainStore` that implements the `Praos` trait, supporting nonce evolution.
 pub struct PraosChainStore<H> {
