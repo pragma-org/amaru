@@ -230,6 +230,19 @@ pub trait ExternalEffect: SendData {
     ///
     /// This can be overridden in simulation using [`SimulationRunning::handle_effect`](crate::simulation::SimulationRunning::handle_effect).
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>>;
+
+    /// Helper method for implementers of ExternalEffect.
+    fn wrap(
+        f: impl Future<Output = <Self as ExternalEffectAPI>::Response> + Send + 'static,
+    ) -> BoxFuture<'static, Box<dyn SendData>>
+    where
+        Self: Sized + ExternalEffectAPI,
+    {
+        Box::pin(async move {
+            let response = f.await;
+            Box::new(response) as Box<dyn SendData>
+        })
+    }
 }
 
 /// Separate trait for fixing the response type of an external effect.

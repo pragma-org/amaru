@@ -47,19 +47,17 @@ impl ExternalEffect for StoreHeaderEffect {
         self: Box<Self>,
         resources: Resources,
     ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
-        Box::pin(async move {
+        Self::wrap(async move {
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("StoreHeaderEffect requires a chain store")
                 .clone();
-            let result: <Self as ExternalEffectAPI>::Response =
-                store.store_header(&self.header).map_err(|e| {
-                    ProcessingFailed::new(
-                        &self.peer,
-                        anyhow!("Cannot store the header at {}: {e}", self.header.point()),
-                    )
-                });
-            Box::new(result) as Box<dyn pure_stage::SendData>
+            store.store_header(&self.header).map_err(|e| {
+                ProcessingFailed::new(
+                    &self.peer,
+                    anyhow!("Cannot store the header at {}: {e}", self.header.point()),
+                )
+            })
         })
     }
 }
@@ -91,20 +89,19 @@ impl ExternalEffect for StoreBlockEffect {
         self: Box<Self>,
         resources: Resources,
     ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
-        Box::pin(async move {
+        Self::wrap(async move {
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("StoreBlockEffect requires a chain store")
                 .clone();
-            let result: <Self as ExternalEffectAPI>::Response = store
+            store
                 .store_block(&self.point.hash(), &self.block)
                 .map_err(|e| {
                     ProcessingFailed::new(
                         &self.peer,
                         anyhow!("Cannot store the block at {}: {e}", self.point.clone()),
                     )
-                });
-            Box::new(result) as Box<dyn pure_stage::SendData>
+                })
         })
     }
 }
@@ -134,7 +131,7 @@ impl ExternalEffect for EvolveNonceEffect {
         self: Box<Self>,
         resources: Resources,
     ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
-        Box::pin(async move {
+        Self::wrap(async move {
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("EvolveNonceEffect requires a chain store")
@@ -142,10 +139,9 @@ impl ExternalEffect for EvolveNonceEffect {
             let global_parameters = resources
                 .get::<ResourceParameters>()
                 .expect("EvolveNonceEffect requires global parameters");
-            let result: <Self as ExternalEffectAPI>::Response = PraosChainStore::new(store)
+            PraosChainStore::new(store)
                 .evolve_nonce(&self.header, &global_parameters)
-                .map_err(ConsensusError::NoncesError);
-            Box::new(result) as Box<dyn pure_stage::SendData>
+                .map_err(ConsensusError::NoncesError)
         })
     }
 }
