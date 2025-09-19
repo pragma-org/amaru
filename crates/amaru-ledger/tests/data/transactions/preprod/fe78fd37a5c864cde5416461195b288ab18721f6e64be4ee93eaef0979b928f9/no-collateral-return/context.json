@@ -1,0 +1,86 @@
+{
+  "utxo": [
+    [
+      {
+        "transaction_id": "0467e983d10300bedad3a63d034a85da4a9623ef1b04010d0fa63a19f5766526",
+        "index": 0
+      },
+      {
+        "address": "70fdd6640d1c9a4392dd7e829f0cc4e26766539c48b2cf594959e33559",
+        "value": { "Coin": 10000000 },
+        "datum": {
+          "Data": "d8799f581c9fc430ea1f3adc20eebb813b2649e85c934ea5bc13d7b7fbe2b24e50ff"
+        },
+        "script": null
+      }
+    ],
+    [
+      {
+        "transaction_id": "0467e983d10300bedad3a63d034a85da4a9623ef1b04010d0fa63a19f5766526",
+        "index": 2
+      },
+      {
+        "address": "009fc430ea1f3adc20eebb813b2649e85c934ea5bc13d7b7fbe2b24e505064b671634d14cb8d543e71dd8eb437a47efb47b0b22882866c420d",
+        "value": {
+          "Multiasset": [
+            7887642927,
+            [
+              [
+                "1C05CAED08DDD5C9F233F4CB497EEB6E5F685E8E7B842B08897D1DFE",
+                [["4D794D696E746564546F6B656E", 1]]
+              ],
+              [
+                "22691D3D969ECF5802226290C2FB98E2BC08522D5B726C1F5F400105",
+                [["54657374", 21]]
+              ],
+              [
+                "501B8B9DCE8D7C1247A14BB69D416C621267DAA72EBD6C8194293192",
+                [["4D794D696E746564546F6B656E", 1]]
+              ],
+              [
+                "665D4DBEA856001B880D5749E94384CC486D8C4EE99540D2F65D1570",
+                [["4D794D696E746564546F6B656E", 1]]
+              ],
+              [
+                "CAC67DD80F706E084B2AAC605288B2FF793475EA43B2313E1ED384AB",
+                [
+                  ["4275726E61626C65546F6B656E506C75747573", 1],
+                  ["54657374", 42],
+                  [
+                    "ACCBFB633F637E3BB1ABEE40C9539D1EFFD742CD2716B3B1DB9DE3AAF3F37794",
+                    1
+                  ]
+                ]
+              ],
+              [
+                "EB8B660CF939281C277264389C4086E7C79BAF78E08D0C48668420AB",
+                [["4D794D696E746564546F6B656E", 1]]
+              ],
+              [
+                "EF6ED47A6917A3CBBEB46561E8853DA969343794D66128598A34AF2C",
+                [
+                  ["4275726E61626C65546F6B656E", 70],
+                  ["4275726E61626C65546F6B656E32", 192],
+                  [
+                    "ACCBFB633F637E3BB1ABEE40C9539D1EFFD742CD2716B3B1DB9DE3AAF3F37794",
+                    1
+                  ]
+                ]
+              ],
+              [
+                "F654F6A31F6C4CC2C39A169F2C022404AA9F19D43137B0448B219A3E",
+                [["54657374", 18]]
+              ]
+            ]
+          ]
+        },
+        "script": null,
+        "datum": null
+      }
+    ]
+  ],
+  "required_scripts": [],
+  "known_scripts": {},
+  "required_signers": [],
+  "required_bootstrap_signers": []
+}
