@@ -348,10 +348,8 @@ async function fetchDReps(ws, stakePools = {}) {
   let dreps = await ws.queryLedgerState("delegateRepresentatives");
 
   let abstain = dreps.find((drep) => drep.type === "abstain") ?? { stake: { ada: { lovelace: 0 } } };
-  abstain.delegators = [];
 
   let noConfidence = dreps.find((drep) => drep.type === "noConfidence") ?? { stake: { ada: { lovelace: 0 } } };
-  noConfidence.delegators = [];
 
   // TODO: Fix Ledger-State Query protocol...
   //
