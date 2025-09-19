@@ -426,12 +426,12 @@ pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Chain> 
             | Back(RollbackChainSelection::SwitchToFork(fork)) => {
                 let rollback_position = current_best_chain
                     .iter()
-                    .position(|h| h.hash() == fork.rollback_point.hash());
+                    .position(|h| h.hash() == fork.rollback_header.hash());
                 assert!(
                     rollback_position.is_some(),
                     "after the action {}, we have a rollback position that does not exist with hash {}",
                     i + 1,
-                    fork.rollback_point.hash()
+                    fork.rollback_header.hash()
                 );
                 current_best_chain.truncate(rollback_position.unwrap() + 1);
                 current_best_chain.extend(fork.fork.clone())

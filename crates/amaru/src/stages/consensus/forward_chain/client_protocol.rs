@@ -14,13 +14,12 @@
 
 use crate::point::from_network_point;
 
-use super::{
-    ClientOp,
-    client_state::{ClientState, find_headers_between},
-};
+use super::client_state::{ClientState, find_headers_between};
+use crate::stages::{AsTip, PallasPoint};
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_consensus::ChainStore;
 use amaru_kernel::{Hash, Header, to_cbor};
+use amaru_ouroboros_traits::IsHeader;
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{
@@ -48,7 +47,87 @@ pub enum ClientError {
     CannotServeRange(Point, Point),
 }
 
+#[derive(Clone)]
+pub enum ClientOp {
+    /// the tip to go back to
+    Backward(Tip),
+    /// the header to go forward to and the tip we will be at after sending this header
+    Forward(Header),
+}
+
+impl PartialEq for ClientOp {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Backward(l0), Self::Backward(r0)) => (&l0.0, l0.1) == (&r0.0, r0.1),
+            (Self::Forward(l0), Self::Forward(r0)) => l0 == r0,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ClientOp {}
+
+impl std::fmt::Debug for ClientOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Backward(tip) => f
+                .debug_struct("Backward")
+                .field("tip", &(tip.1, PrettyPoint(&tip.0)))
+                .finish(),
+            Self::Forward(header) => f
+                .debug_struct("Forward")
+                .field(
+                    "header",
+                    &(header.block_height(), PrettyPoint(&header.pallas_point())),
+                )
+                .field(
+                    "tip",
+                    &(header.as_tip().1, PrettyPoint(&header.pallas_point())),
+                )
+                .finish(),
+        }
+    }
+}
+
+impl ClientOp {
+    pub fn tip(&self) -> Tip {
+        match self {
+            ClientOp::Backward(tip) => tip.clone(),
+            ClientOp::Forward(header) => header.as_tip(),
+        }
+    }
+}
+
 pub enum ClientProtocolMsg {
+    Op(ClientOp),
+}
+
+pub struct PrettyPoint<'a>(pub &'a Point);
+
+impl std::fmt::Debug for PrettyPoint<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "({}, {})",
+            self.0.slot_or_default(),
+            hex::encode(hash_point(self.0))
+        )
+    }
+}
+
+pub(crate) fn hash_point(point: &Point) -> Hash<32> {
+    match point {
+        Point::Origin => Hash::from([0; 32]),
+        Point::Specific(_slot, hash) => Hash::from(hash.as_slice()),
+    }
+}
+
+pub enum ClientMsg {
+    /// A new peer has connected to us.
+    ///
+    /// Our tip is included to get the connection handlers started correctly.
+    Peer(PeerServer, Tip),
+    /// An operation to be executed on all clients.
     Op(ClientOp),
 }
 
@@ -179,7 +258,7 @@ async fn chain_sync_handler(
 
         if let ActoInput::Message(op) = cell.recv().await {
             match op {
-                Some((ClientOp::Forward(header, _), tip)) => {
+                Some((ClientOp::Forward(header), tip)) => {
                     tracing::debug!("sending roll forward");
                     server
                         .send_roll_forward(to_header_content(header), tip)
@@ -196,7 +275,7 @@ async fn chain_sync_handler(
                         return Ok(());
                     };
                     match op {
-                        ClientOp::Forward(header, _) => {
+                        ClientOp::Forward(header) => {
                             server
                                 .send_roll_forward(to_header_content(header), tip)
                                 .await?;

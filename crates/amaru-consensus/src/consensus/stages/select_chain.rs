@@ -78,12 +78,12 @@ impl SelectChain {
 
     fn switch_to_fork(
         peer: Peer,
-        rollback_point: Point,
+        rollback_header: Header,
         fork: Vec<Header>,
         span: Span,
     ) -> Vec<ValidateHeaderEvent> {
         let mut result = vec![ValidateHeaderEvent::Rollback {
-            rollback_point,
+            rollback_header,
             peer: peer.clone(),
             span: span.clone(),
         }];
@@ -118,11 +118,11 @@ impl SelectChain {
             }
             ForwardChainSelection::SwitchToFork(Fork {
                 peer,
-                rollback_point,
+                rollback_header,
                 fork,
             }) => {
-                info!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
-                SelectChain::switch_to_fork(peer, rollback_point, fork, span)
+                info!(target: EVENT_TARGET, rollback = %rollback_header.point(), length = fork.len(), "switching to fork");
+                SelectChain::switch_to_fork(peer, rollback_header, fork, span)
             }
             ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, "no change");
@@ -146,13 +146,13 @@ impl SelectChain {
         match result {
             RollbackChainSelection::SwitchToFork(Fork {
                 peer,
-                rollback_point,
+                rollback_header,
                 fork,
             }) => {
-                info!(target: EVENT_TARGET, rollback = %rollback_point, length = fork.len(), "switching to fork");
+                info!(target: EVENT_TARGET, rollback = %rollback_header.point(), length = fork.len(), "switching to fork");
                 Ok(SelectChain::switch_to_fork(
                     peer,
-                    rollback_point,
+                    rollback_header,
                     fork,
                     span,
                 ))
@@ -201,7 +201,7 @@ impl SelectChain {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Fork<H: IsHeader> {
     pub peer: Peer,
-    pub rollback_point: Point,
+    pub rollback_header: H,
     pub fork: Vec<H>,
 }
 
@@ -228,7 +228,7 @@ impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
             ForwardChainSelection::NoChange => f.write_str("NoChange"),
             ForwardChainSelection::SwitchToFork(Fork {
                 peer,
-                rollback_point,
+                rollback_header: rollback_point,
                 fork,
             }) => write!(
                 f,
@@ -264,7 +264,7 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
             RollbackChainSelection::NoChange => f.write_str("NoChange"),
             RollbackChainSelection::SwitchToFork(Fork {
                 peer,
-                rollback_point,
+                rollback_header: rollback_point,
                 fork,
             }) => write!(
                 f,

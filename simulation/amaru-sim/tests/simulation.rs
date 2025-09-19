@@ -35,6 +35,10 @@ fn run_simulator() {
             "AMARU_NUMBER_OF_UPSTREAM_PEERS",
             defaults.number_of_upstream_peers,
         ),
+        number_of_downstream_peers: get_env_var(
+            "AMARU_NUMBER_OF_DOWNSTREAM_PEERS",
+            defaults.number_of_downstream_peers,
+        ),
         disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true("AMARU_PERSIST_ON_SUCCESS"),

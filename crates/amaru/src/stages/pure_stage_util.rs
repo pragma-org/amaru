@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use futures_util::StreamExt;
 use gasket::{
     framework::{Stage, WorkSchedule, WorkerError},
     messaging,
 };
-use pure_stage::{BoxFuture, Receiver, SendData, Sender, StageGraphRunning, tokio::TokioRunning};
+use pure_stage::{BoxFuture, SendData, Sender, StageGraphRunning, tokio::TokioRunning};
 use std::time::Duration;
 use tokio::{runtime::Runtime, select, time::sleep};
 use tokio_util::sync::CancellationToken;
@@ -83,18 +82,5 @@ impl<Msg: SendData> messaging::SendAdapter<Msg> for SendAdapter<Msg> {
             .send(msg.payload)
             .await
             .map_err(|_| gasket::error::Error::NotConnected)
-    }
-}
-
-pub struct RecvAdapter<Msg>(pub Receiver<Msg>);
-
-#[async_trait::async_trait]
-impl<Msg: Send + Sync + Clone> messaging::RecvAdapter<Msg> for RecvAdapter<Msg> {
-    async fn recv(&mut self) -> Result<messaging::Message<Msg>, gasket::error::Error> {
-        self.0
-            .next()
-            .await
-            .ok_or(gasket::error::Error::NotConnected)
-            .map(|msg| msg.into())
     }
 }

@@ -148,7 +148,7 @@ pub enum ValidateHeaderEvent {
     },
     Rollback {
         peer: Peer,
-        rollback_point: Point,
+        rollback_header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -166,7 +166,7 @@ pub enum ValidateBlockEvent {
     },
     Rollback {
         peer: Peer,
-        rollback_point: Point,
+        rollback_header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -192,7 +192,7 @@ impl Debug for ValidateBlockEvent {
                 .finish(),
             ValidateBlockEvent::Rollback {
                 peer,
-                rollback_point,
+                rollback_header: rollback_point,
                 ..
             } => f
                 .debug_struct("Rollback")
@@ -210,25 +210,23 @@ impl PartialEq for ValidateBlockEvent {
                 ValidateBlockEvent::Validated {
                     peer: p1,
                     header: h1,
-                    block: b1,
                     ..
                 },
                 ValidateBlockEvent::Validated {
                     peer: p2,
                     header: h2,
-                    block: b2,
                     ..
                 },
-            ) => p1 == p2 && h1 == h2 && b1 == b2,
+            ) => p1 == p2 && h1 == h2,
             (
                 ValidateBlockEvent::Rollback {
                     peer: p1,
-                    rollback_point: rp1,
+                    rollback_header: rp1,
                     ..
                 },
                 ValidateBlockEvent::Rollback {
                     peer: p2,
-                    rollback_point: rp2,
+                    rollback_header: rp2,
                     ..
                 },
             ) => p1 == p2 && rp1 == rp2,
@@ -242,11 +240,8 @@ pub enum BlockValidationResult {
     BlockValidated {
         peer: Peer,
         header: Header,
-        #[serde(skip, default = "default_block")]
-        block: RawBlock,
         #[serde(skip, default = "Span::none")]
         span: Span,
-        block_height: u64,
     },
     BlockValidationFailed {
         peer: Peer,
@@ -256,10 +251,20 @@ pub enum BlockValidationResult {
     },
     RolledBackTo {
         peer: Peer,
-        rollback_point: Point,
+        rollback_header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
+}
+
+impl BlockValidationResult {
+    pub fn peer(&self) -> Peer {
+        match self {
+            BlockValidationResult::BlockValidated { peer, .. } => peer.clone(),
+            BlockValidationResult::BlockValidationFailed { peer, .. } => peer.clone(),
+            BlockValidationResult::RolledBackTo { peer, .. } => peer.clone(),
+        }
+    }
 }
 
 impl PartialEq for BlockValidationResult {
@@ -269,18 +274,14 @@ impl PartialEq for BlockValidationResult {
                 BlockValidationResult::BlockValidated {
                     peer: p1,
                     header: hd1,
-                    block: b1,
-                    block_height: bh1,
                     ..
                 },
                 BlockValidationResult::BlockValidated {
                     peer: p2,
                     header: hd2,
-                    block: b2,
-                    block_height: bh2,
                     ..
                 },
-            ) => p1 == p2 && hd1 == hd2 && b1 == b2 && bh1 == bh2,
+            ) => p1 == p2 && hd1 == hd2,
             (
                 BlockValidationResult::BlockValidationFailed {
                     peer: p1,
@@ -296,12 +297,12 @@ impl PartialEq for BlockValidationResult {
             (
                 BlockValidationResult::RolledBackTo {
                     peer: p1,
-                    rollback_point: rp1,
+                    rollback_header: rp1,
                     ..
                 },
                 BlockValidationResult::RolledBackTo {
                     peer: p2,
-                    rollback_point: rp2,
+                    rollback_header: rp2,
                     ..
                 },
             ) => p1 == p2 && rp1 == rp2,

@@ -14,13 +14,14 @@
 
 use amaru_consensus::consensus::effects::store_effects::ResourceHeaderValidation;
 use amaru_consensus::consensus::errors::{ProcessingFailed, ValidationFailed};
-use amaru_consensus::consensus::events::{BlockValidationResult, ChainSyncEvent};
+use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
 use amaru_consensus::consensus::stages::validate_header::ValidateHeader;
 use amaru_consensus::consensus::stages::{
-    fetch_block, receive_header, select_chain, store_block, store_header, validate_block,
-    validate_header,
+    fetch_block, forward_chain, receive_header, select_chain, store_block, store_header,
+    validate_block, validate_header,
 };
+use amaru_consensus::consensus::tip::HeaderTip;
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use pure_stage::{StageGraph, StageRef};
 
@@ -31,8 +32,8 @@ pub fn build_stage_graph(
     global_parameters: &GlobalParameters,
     header_validation: ResourceHeaderValidation,
     chain_selector: SelectChain,
+    our_tip: HeaderTip,
     network: &mut impl StageGraph,
-    outputs: StageRef<BlockValidationResult>,
 ) -> StageRef<ChainSyncEvent> {
     let receive_header_stage = network.stage("receive_header", receive_header::stage);
     let store_header_stage = network.stage("store_header", store_header::stage);
@@ -41,6 +42,7 @@ pub fn build_stage_graph(
     let fetch_block_stage = network.stage("fetch_block", fetch_block::stage);
     let store_block_stage = network.stage("store_block", store_block::stage);
     let validate_block_stage = network.stage("validate_block", validate_block::stage);
+    let forward_chain_stage = network.stage("forward_chain", forward_chain::stage);
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
     let validation_errors_stage = network.stage(
@@ -65,10 +67,18 @@ pub fn build_stage_graph(
     let validation_errors_stage = network.wire_up(validation_errors_stage, ());
     let processing_errors_stage = network.wire_up(processing_errors_stage, ());
 
+    let forward_chain_stage = network.wire_up(
+        forward_chain_stage,
+        (
+            our_tip,
+            validation_errors_stage.clone().without_state(),
+            processing_errors_stage.clone().without_state(),
+        ),
+    );
     let validate_block_stage = network.wire_up(
         validate_block_stage,
         (
-            outputs,
+            forward_chain_stage.without_state(),
             validation_errors_stage.clone().without_state(),
             processing_errors_stage.clone().without_state(),
         ),
