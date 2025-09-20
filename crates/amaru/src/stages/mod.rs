@@ -12,34 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::build_stage_graph::build_stage_graph;
-use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
 use crate::stages::{
+    build_stage_graph::build_stage_graph,
+    consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
     metrics::MetricsStage,
     pure_stage_util::{PureStageSim, SendAdapter},
 };
-use amaru_consensus::consensus::effects::block_effects::{
-    ResourceBlockFetcher, ResourceParameters,
+use amaru_consensus::consensus::{
+    effects::{
+        block_effects::{ResourceBlockFetcher, ResourceParameters},
+        network_effects::ResourceForwardEventListener,
+        store_effects::ResourceHeaderStore,
+    },
+    errors::ConsensusError,
+    events::ChainSyncEvent,
+    headers_tree::HeadersTree,
+    stages::{
+        fetch_block::ClientsBlockFetcher, select_chain::SelectChain,
+        validate_block::ResourceBlockValidation,
+    },
+    tip::{AsHeaderTip, HeaderTip},
 };
-use amaru_consensus::consensus::effects::network_effects::ResourceForwardEventListener;
-use amaru_consensus::consensus::effects::store_effects::ResourceHeaderStore;
-use amaru_consensus::consensus::errors::ConsensusError;
-use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_consensus::consensus::headers_tree::HeadersTree;
-use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
-use amaru_consensus::consensus::stages::select_chain::SelectChain;
-use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
-use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
-use amaru_kernel::HEADER_HASH_SIZE;
 use amaru_kernel::{
-    EraHistory, Hash, Header, ORIGIN_HASH, Point, network::NetworkName, peer::Peer,
-    protocol_parameters::GlobalParameters,
+    EraHistory, HEADER_HASH_SIZE, Hash, Header, ORIGIN_HASH, Point, network::NetworkName,
+    peer::Peer, protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_network::block_fetch_client::PallasBlockFetchClient;
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{
     CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
+    in_memory_consensus_store::InMemConsensusStore,
 };
 use amaru_stores::{
     in_memory::MemoryStore,
@@ -55,10 +57,15 @@ use pallas_network::{
     miniprotocols::chainsync::{Client, HeaderContent, Tip},
 };
 use pure_stage::{StageGraph, tokio::TokioBuilder};
-use std::fmt::Debug;
-use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
+use std::{
+    error::Error,
+    fmt::{Debug, Display},
+    path::PathBuf,
+    sync::Arc,
+};
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 pub mod build_stage_graph;
 pub mod common;
@@ -205,6 +212,13 @@ pub async fn bootstrap(
         .collect();
 
     let tip = ledger.get_tip();
+
+    info!(
+        tip.hash = %tip.hash(),
+        tip.slot = u64::from(tip.slot_or_default()),
+        "starting"
+    );
+
     let mut stages = chain_syncs
         .into_iter()
         .map(|session| pull::Stage::new(session.0, session.1, vec![tip.clone()]))

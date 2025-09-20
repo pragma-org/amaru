@@ -28,7 +28,7 @@ use amaru_kernel::{
 };
 use amaru_slot_arithmetic::Epoch;
 use serde::ser::SerializeStruct;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use tracing::info;
 
 const EVENT_TARGET: &str = "amaru::ledger::state::stake_distribution";
@@ -84,7 +84,6 @@ impl StakeDistribution {
     ) -> Result<Self, StoreError> {
         let epoch = db.epoch();
 
-        let mut retiring_pools = BTreeSet::new();
         let mut refunds = BTreeMap::new();
         let mut pools = db
             .iter_pools()?
@@ -98,7 +97,6 @@ impl StakeDistribution {
                 pools::Row::tick(
                     Box::new(BorrowableProxy::new(Some(row.clone()), |dropped| {
                         if dropped.is_none() {
-                            retiring_pools.insert(pool);
                             // FIXME: Store the deposit with the pool, and ensures the same deposit
                             // it returned back.
                             //
@@ -236,20 +234,16 @@ impl StakeDistribution {
                     return match pools.get_mut(&pool_id) {
                         None => false,
                         Some(pool) => {
+                            let stake = account.lovelace;
                             // NOTE: Governance deposits do not count towards the pools' stake.
                             // They are only counted as part of the voting power.
-                            active_stake += &account.lovelace;
-                            pool.stake += &account.lovelace;
+                            active_stake += &stake;
+                            pool.stake += &stake;
 
-                            // NOTE: Because votes are ratified with an epoch delay and using the
-                            // stake distribution _at the beginning of an epoch_ (so, after pool
-                            // reap), any pool retiring in the next epoch is considered having no
-                            // voting power whatsoever.
-                            if !retiring_pools.contains(&pool_id) {
-                                let delta = account.lovelace + pool_deposits;
-                                pool.voting_stake += delta;
-                                pools_voting_stake += delta;
-                            }
+                            let voting_stake = stake + pool_deposits;
+                            pool.voting_stake += voting_stake;
+                            pools_voting_stake += voting_stake;
+
                             true
                         }
                     };
