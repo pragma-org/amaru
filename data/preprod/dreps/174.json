@@ -99,7 +99,12 @@
       "url": "https://raw.githubusercontent.com/Sadeghg/drep-repo/refs/heads/main/GovCircleCommitt.jsonld",
       "hash": "be2c1c4c312e2ff2e551bef8b2424645e3147ce278b1bfdf5476f048e9f2b2d9"
     },
-    "delegators": []
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "b962564daa46a8b822e8dcffd7ac63850598e5c84104140b42444162"
+      }
+    ]
   },
   {
     "type": "registered",
@@ -783,6 +788,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "228f93fe92eda028f3e16a3135c2896247d358c784f0cb08ca84fee5"
+      },
+      {
+        "from": "verificationKey",
         "credential": "272d0b87fb7b9561d4d3dee46b8d422a8a8ec555c514e2b15f072934"
       },
       {
@@ -940,6 +949,10 @@
       {
         "from": "verificationKey",
         "credential": "ecc24f3292b23884c2644aa09f9c66282642225737a845c7f143fc28"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "efdddff01d5b44cd6336a35785374adad488c9467645ce95a3cc1c67"
       },
       {
         "from": "verificationKey",

@@ -4618,6 +4618,14 @@
       }
     }
   },
+  "pool1fk2nr88fk4ql8mf2rmex4qfxakakzhg2htmwcx2sd2y0yrdt0he": {
+    "id": "pool1fk2nr88fk4ql8mf2rmex4qfxakakzhg2htmwcx2sd2y0yrdt0he",
+    "stake": {
+      "ada": {
+        "lovelace": 9496075446
+      }
+    }
+  },
   "pool1fec6npl7y4qxt4dwvmlgd48488mm4uu6kcdy2yth7kcskmxry7g": {
     "id": "pool1fec6npl7y4qxt4dwvmlgd48488mm4uu6kcdy2yth7kcskmxry7g",
     "vrfVerificationKeyHash": "dea2b7646d31ac628fd17256d545c31a776ca47906ca4d41a02572fe4d64767b",
@@ -10095,6 +10103,14 @@
       }
     }
   },
+  "pool14n9p0r4fppd7l64g9jfgtxala9vz7fpswq4juq60dy5mz8s5w0v": {
+    "id": "pool14n9p0r4fppd7l64g9jfgtxala9vz7fpswq4juq60dy5mz8s5w0v",
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool144pedg8hc3lr660w30te9jqv5zllaesegh8vt3ptft5s7qu45re": {
     "id": "pool144pedg8hc3lr660w30te9jqv5zllaesegh8vt3ptft5s7qu45re",
     "vrfVerificationKeyHash": "ef8b7d8610ec49c189729f32273735d249c302d1ee3c42eca018c3f89fcff822",
@@ -11266,6 +11282,14 @@
     "stake": {
       "ada": {
         "lovelace": 447634194
+      }
+    }
+  },
+  "pool1c5fgvzm8c4c2y4duzyuakmdef6cena5gx4u00xt3tcsw2z3e3qr": {
+    "id": "pool1c5fgvzm8c4c2y4duzyuakmdef6cena5gx4u00xt3tcsw2z3e3qr",
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
