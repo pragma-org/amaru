@@ -17,8 +17,9 @@ use crate::in_memory::ledger::columns::{
 };
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{
-    ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, EraHistory, Lovelace, Point,
-    PoolId, Slot, StakeCredential, TransactionInput, protocol_parameters::ProtocolParameters,
+    ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep, EraHistory, Lovelace,
+    Point, PoolId, Slot, StakeCredential, TransactionInput,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
@@ -603,6 +604,13 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         Id: Deref<Target = ComparableProposalId> + 'iter,
     {
         unimplemented!("remove_proposals");
+    }
+
+    fn add_drep_delegations(
+        &self,
+        _delegations: impl IntoIterator<Item = (StakeCredential, DRep)>,
+    ) -> Result<(), StoreError> {
+        unimplemented!("add_drep_delegations");
     }
 
     fn save(

@@ -47,6 +47,10 @@ const dreps = drepsInfo
   .reduce((accum, drep) => {
     const drepId = toDrepId(drep.id, drep.from, drep.type);
 
+    if (drep.mandate === undefined && drepId != "abstain" && drepId != "no_confidence") {
+      return accum;
+    }
+
     drep.delegators.forEach((delegator) => {
       accum[delegator.from][delegator.credential] = drepId;
     });
@@ -93,6 +97,7 @@ const poolIds = Object.keys(distr.stakePools).sort();
 withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
+  stream.write(`assertion_line: 100\n`)
   stream.write(`expression: "stake_distr.for_network(network.into())"\n`)
   stream.write("---\n")
   stream.write("{");

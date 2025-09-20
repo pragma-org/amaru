@@ -162,7 +162,12 @@
       "url": "https://raw.githubusercontent.com/Sadeghg/drep-repo/refs/heads/main/GovCircleCommitt.jsonld",
       "hash": "be2c1c4c312e2ff2e551bef8b2424645e3147ce278b1bfdf5476f048e9f2b2d9"
     },
-    "delegators": []
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "b962564daa46a8b822e8dcffd7ac63850598e5c84104140b42444162"
+      }
+    ]
   },
   {
     "type": "registered",
@@ -185,7 +190,12 @@
       "url": "https://metadata.cardanoapi.io/data/test",
       "hash": "9a553483f48f246a31a68cd6d23607a4607197421d0e123c8f4bc0dccc4c4f70"
     },
-    "delegators": []
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c2f45a16a6685616e566c00fc081fe59f8bd7ab679ee15e9ce203446"
+      }
+    ]
   },
   {
     "type": "registered",
@@ -428,7 +438,12 @@
       "url": "https://raw.githubusercontent.com/m-i-k-e/meta_test/refs/heads/main/asdfasdf%20(1).jsonld",
       "hash": "2a6efdba965ff4d333d84fee3491edbbe6b8348edc6f07e307a6a1afec101b46"
     },
-    "delegators": []
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "79bb181ab55772b961a883a2a24e73a5416e163375817c898993f120"
+      }
+    ]
   },
   {
     "type": "registered",
@@ -906,7 +921,12 @@
       "url": "https://metadata.cardanoapi.io/data/IAmATestDRepMan",
       "hash": "26804e1e72aa765c990cb2d4f0aca008cd9f3cf37d3810f33174ce200bc148a7"
     },
-    "delegators": []
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c2e32e6ab787a646760cb376646256db93e116e383409e721f279cb9"
+      }
+    ]
   },
   {
     "type": "registered",
@@ -1194,6 +1214,10 @@
       {
         "from": "verificationKey",
         "credential": "224109ac03b255e5486e942d7e2adb28c6a954cd1b1fa3c9ef2fce0c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "228f93fe92eda028f3e16a3135c2896247d358c784f0cb08ca84fee5"
       },
       {
         "from": "verificationKey",
@@ -1798,6 +1822,10 @@
       {
         "from": "verificationKey",
         "credential": "ef5537a1fb28880f1b7e021f26f7b681e46267dc1448d0df1bc03ec4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "efdddff01d5b44cd6336a35785374adad488c9467645ce95a3cc1c67"
       },
       {
         "from": "verificationKey",

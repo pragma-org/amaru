@@ -54,9 +54,14 @@ use pallas_network::{
     miniprotocols::chainsync::{Client, HeaderContent, Tip},
 };
 use pure_stage::{StageGraph, tokio::TokioBuilder};
-use std::fmt::Debug;
-use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
+use std::{
+    error::Error,
+    fmt::{Debug, Display},
+    path::PathBuf,
+    sync::Arc,
+};
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 pub mod build_stage_graph;
 pub mod common;
@@ -203,6 +208,13 @@ pub fn bootstrap(
         .collect();
 
     let tip = ledger.get_tip();
+
+    info!(
+        tip.hash = %tip.hash(),
+        tip.slot = u64::from(tip.slot_or_default()),
+        "starting"
+    );
+
     let mut stages = chain_syncs
         .into_iter()
         .map(|session| pull::Stage::new(session.0, session.1, vec![tip.clone()]))

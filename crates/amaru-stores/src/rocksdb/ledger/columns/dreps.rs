@@ -12,8 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
-use amaru_kernel::{CertificatePointer, DRepRegistration, Epoch, StakeCredential};
+use crate::rocksdb::{
+    accounts,
+    common::{PREFIX_LEN, as_key, as_value},
+    dreps_delegations,
+};
+use amaru_kernel::{
+    CertificatePointer, DRepRegistration, Epoch, PROTOCOL_VERSION_9, ProtocolVersion,
+    StakeCredential,
+};
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -23,7 +30,7 @@ use amaru_ledger::store::{
 };
 use rocksdb::Transaction;
 use std::collections::BTreeSet;
-use tracing::error;
+use tracing::{error, warn};
 
 /// Name prefixed used for storing DReps entries. UTF-8 encoding for "drep"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
@@ -125,7 +132,7 @@ pub fn set_valid_until<DB>(
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else {
-            error!(
+            warn!(
                 target: EVENT_TARGET,
                 ?credential,
                 "set_valid_until.unknown_drep",
@@ -140,9 +147,24 @@ pub fn set_valid_until<DB>(
 pub fn remove<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
+    protocol_version: ProtocolVersion,
 ) -> Result<(), StoreError> {
-    for (credential, pointer) in rows {
-        let key = as_key(&PREFIX, &credential);
+    for (drep, pointer) in rows {
+        let key = as_key(&PREFIX, &drep);
+
+        // NOTE: Due to a bug in protocol version 9, we need to clear any delegation relation that
+        // *ever* existed between this DRep and its delegators. That is the case even if the
+        // delegators are no longer delegated to the drep, but were at some point in the past.
+        //
+        // The `dreps_delegators` column remembers exactly this information. When we clean it from
+        // the DRep being removed, it yields back all the accounts that have been delegated to the
+        // DRep during its lifetime. And we unbind all of them.
+        if protocol_version <= PROTOCOL_VERSION_9 {
+            let resets = dreps_delegations::drop(db, &drep)?
+                .into_iter()
+                .map(|delegator| (delegator, pointer));
+            accounts::reset_delegation(db, resets)?;
+        }
 
         if let Some(mut row) = db
             .get(&key)
@@ -155,7 +177,7 @@ pub fn remove<DB>(
         } else {
             error!(
                 target: EVENT_TARGET,
-                ?credential,
+                ?drep,
                 "remove.unknown_drep",
             )
         }
