@@ -47,6 +47,10 @@ const dreps = drepsInfo
   .reduce((accum, drep) => {
     const drepId = toDrepId(drep.id, drep.from, drep.type);
 
+    if (drep.mandate === undefined && drepId != "abstain" && drepId != "no_confidence") {
+      return accum;
+    }
+
     drep.delegators.forEach((delegator) => {
       accum[delegator.from][delegator.credential] = drepId;
     });
