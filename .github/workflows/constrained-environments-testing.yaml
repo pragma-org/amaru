@@ -14,55 +14,16 @@ env:
     target/
 
 jobs:
-  fs-limit-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Compile amaru
-        run: cargo build --release
-
-      - name: Bootstrap amaru
-        run: ./target/release/amaru bootstrap 
-
-      - id: timestamp
-        shell: bash
-        run: |
-          echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-
-      - name: Restore cardano-node DB
-        id: cache-cardano-node-db
-        uses: actions/cache/restore@v4
-        with:
-          # The path should match the one used for the 'Nightly Sync' workflow.
-          path: ${{ runner.temp }}/db-preprod
-          # The key should also match
-          key: cardano-node-ogmios-preprod
-          restore-keys: |
-            cardano-node-ogmios-preprod
-
-      - name: Create small tmpfs
-        run: |
-          mkdir /tmp/sandbox
-          sudo mount -t tmpfs -o size=10M tmpfs /tmp/sandbox
-
-      - name: Run program in limited disk
-        run: |
-          set +e
-          /path/to/your/program --output-dir /tmp/sandbox
-          echo "exit code: $?"
-          exit $?
-
   memory-limit-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Compile amaru
-        run: cargo build --release
+        run: cargo build --profile test
 
       - name: Bootstrap amaru
-        run: ./target/release/amaru bootstrap 
+        run: make BUILD_PROFILE=test bootstrap 
 
       - id: timestamp
         shell: bash
@@ -99,7 +60,7 @@ jobs:
             -v ./cardano-node-config:/config \
             -v ./cardano-node-config:/genesis \
             -p 3001:3001 \
-            ghcr.io/intersectmbo/cardano-node:preprod run \
+            ghcr.io/intersectmbo/cardano-node:${{ env.CARDANO_NODE_VERSION }} run \
               --config /config/config.json \
               --database-path /db \
               --socket-path /ipc/node.socket \
@@ -116,12 +77,12 @@ jobs:
         shell: bash
         run: sudo apt-get install -y cgroup-tools
 
-      - name: Setup cgroup with 512MB memory limit
+      - name: Setup cgroup with memory limit
         timeout-minutes: 10
         shell: bash
         run: |
-          sudo mkdir -p /sys/fs/cgroup/test
-          # Limit to 512MB
-          echo $((512*1024*1024)) | sudo tee /sys/fs/cgroup/test/memory.max
+          sudo mkdir -p /sys/fs/cgroup/limited
+          echo $((512*1024*1024)) | sudo tee /sys/fs/cgroup/limited/memory.max
+          echo $((512*1024*1024)) | sudo tee /sys/fs/cgroup/limited/memory.swap.max
           # Run the command inside the cgroup
-          sudo cgexec -g memory:test make BUILD_PROFILE=test AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
+          sudo cgexec -g memory:limited env PATH=$PATH stdbuf -oL -eL make BUILD_PROFILE=test AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
