@@ -59,7 +59,7 @@ impl TcpForwardChainServer {
     }
 
     /// Creates a new TcpForwardChainServer instance with a provided Acto runtime and TcpListener.
-    #[expect(clippy::unwrap_used)]
+    #[expect(clippy::expect_used)]
     pub fn create(
         store: Arc<dyn ChainStore<Header>>,
         tcp_listener: TcpListener,
@@ -92,7 +92,10 @@ impl TcpForwardChainServer {
                 // in particular, it isn’t possible to poll for new peers within the `schedule` method
                 match PeerServer::accept(&tcp_listener, network_magic).await {
                     Ok(peer) => {
-                        let our_tip = our_tip_clone.lock().unwrap().clone();
+                        let our_tip = our_tip_clone
+                            .lock()
+                            .expect("poisoned lock for our tip")
+                            .clone();
                         clients_clone.send(ClientMsg::Peer(
                             peer,
                             Tip(our_tip.point().pallas_point(), our_tip.block_height()),
@@ -123,11 +126,14 @@ impl ForwardEventListener for TcpForwardChainServer {
     async fn send(&self, event: ForwardEvent) -> anyhow::Result<()> {
         match event {
             ForwardEvent::Forward(header) => {
-                let mut our_tip = self
-                    .our_tip
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
-                *our_tip = header.as_header_tip();
+                {
+                    let mut our_tip = self
+                        .our_tip
+                        .lock()
+                        .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
+                    *our_tip = header.as_header_tip();
+                };
+
                 self.clients.send(ClientMsg::Op(ClientOp::Forward(header)));
                 Ok(())
             }

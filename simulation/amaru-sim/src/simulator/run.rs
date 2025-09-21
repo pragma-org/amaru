@@ -51,9 +51,10 @@ use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::runtime::Runtime;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use tracing::{Span, info};
 
 /// Run the full simulation:
@@ -294,7 +295,7 @@ pub struct MockForwardEventListener {
     node_id: String,
     number_of_downstream_peers: u8,
     sender: mpsc::Sender<Envelope<ChainSyncMessage>>,
-    msg_id: Arc<Mutex<u64>>,
+    msg_id: Arc<AtomicU64>,
 }
 
 impl MockForwardEventListener {
@@ -306,7 +307,7 @@ impl MockForwardEventListener {
         Self {
             node_id,
             number_of_downstream_peers,
-            msg_id: Arc::new(Mutex::new(0)),
+            msg_id: Arc::new(AtomicU64::new(0)),
             sender,
         }
     }
@@ -337,16 +338,20 @@ impl ForwardEventListener for MockForwardEventListener {
             }
         }
 
+        // This allocates a range of message ids from
+        // self.msg_id to self.msg_id + number_of_downstream_peers
+        let base_msg_id = self
+            .msg_id
+            .fetch_add(self.number_of_downstream_peers as u64, Ordering::Relaxed);
+
         for i in 1..=self.number_of_downstream_peers {
-            let envelope = {
-                let mut msg_id = self.msg_id.lock().await;
-                let envelope = Envelope {
-                    src: self.node_id.clone(),
-                    dest: format!("c{}", i),
-                    body: message(&event, *msg_id),
-                };
-                *msg_id += 1;
-                envelope
+            let dest = format!("c{}", i);
+            let msg_id = base_msg_id + i as u64;
+            println!("msg id {}", msg_id);
+            let envelope = Envelope {
+                src: self.node_id.clone(),
+                dest,
+                body: message(&event, msg_id),
             };
             self.sender.send(envelope).await?;
         }
