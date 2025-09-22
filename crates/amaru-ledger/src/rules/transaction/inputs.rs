@@ -61,13 +61,13 @@ where
         for reference_input in reference_inputs {
             // Non-disjoint reference inputs
             if inputs.contains(reference_input) {
-                intersection.push(reference_input.into());
+                intersection.push(reference_input.clone().into());
                 continue;
             }
 
             let output = context
                 .lookup(reference_input)
-                .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.into()))?;
+                .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone().into()))?;
 
             let script_ref = output.script.as_ref().map(|s| s.script_hash());
 
@@ -105,7 +105,7 @@ where
 
         let output = context
             .lookup(input)
-            .ok_or_else(|| InvalidInputs::UnknownInput(input.into()))?;
+            .ok_or_else(|| InvalidInputs::UnknownInput(input.clone().into()))?;
 
         let script = output.script.as_ref().map(|script| script.script_hash());
 

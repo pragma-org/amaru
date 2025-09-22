@@ -292,12 +292,6 @@ impl From<TransactionInput> for TransactionInputAdapter {
     }
 }
 
-impl From<&TransactionInput> for TransactionInputAdapter {
-    fn from(value: &TransactionInput) -> Self {
-        value.clone().into()
-    }
-}
-
 pub type TransactionId = Hash<32>;
 
 pub type PoolId = Hash<28>;

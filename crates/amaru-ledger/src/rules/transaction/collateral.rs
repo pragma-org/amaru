@@ -26,20 +26,17 @@ use thiserror::Error;
 use crate::context::UtxoSlice;
 
 /*
- * CollateralBalance is used to track difference in collateral input vlaue and collateral return value.
- * The value of everything should be zero in this struct, otherwise value is not conserved.
- * We allow negative values here so that we are able to display them in an error message
- *
- * i64 has a lower maximum than u64 due to the data structure, but the value for coins must always be in the range:
- *  [-9223372036854775808, 18446744073709551615]
- * Which is within the bounds of an i64, so conversions are safe i64<->u64
- */
+* CollateralBalance is used to track difference in collateral input vlaue and collateral return value.
+* The value of everything should be zero in this struct, otherwise value is not conserved.
+* We allow negative values here so that we are able to display them in an error message
+*/
+#[derive(Debug)]
 pub struct CollateralBalance {
     pub coin: i64,
     pub multiasset: BTreeMap<Vec<u8>, i64>,
 }
 
-impl fmt::Debug for CollateralBalance {
+impl fmt::Display for CollateralBalance {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -55,20 +52,64 @@ impl fmt::Debug for CollateralBalance {
 }
 
 impl CollateralBalance {
+    fn empty() -> Self {
+        Self {
+            coin: 0,
+            multiasset: BTreeMap::new(),
+        }
+    }
+
     fn sub(&mut self, other: Self) {
         self.coin -= other.coin;
+
         for (key, value) in other.multiasset {
-            match self.multiasset.get_mut(&key) {
-                Some(v) => {
-                    *v -= value;
-                    if *v == 0 {
-                        self.multiasset.remove(&key);
-                    }
+            self.multiasset
+                .entry(key)
+                .and_modify(|v| *v -= value)
+                .or_insert(-value);
+        }
+
+        self.multiasset.retain(|_, v| *v != 0);
+    }
+
+    fn add_output_value(&mut self, output: &MemoizedTransactionOutput) {
+        let output_balance: CollateralBalance = (&output.value).into();
+
+        self.coin += output_balance.coin;
+        for (key, value) in output_balance.multiasset {
+            self.multiasset
+                .entry(key)
+                .and_modify(|v| *v += value)
+                .or_insert(value);
+        }
+    }
+
+    /// This method returns `True` if the `CollateralBalance` is considered "valid".
+    ///
+    /// A `True` return value doesn't mean that other related checks (IncorrectTotalCollateral, InsufficientBalance) can be skipped.
+    ///
+    ///
+    /// In order for `CollateralBalance` to be "valid" it must:
+    ///    - have no multiassets and,
+    ///    - have a nonnegative coin value.
+    fn is_valid(&self) -> bool {
+        !self.multiasset.is_empty() || self.coin > 0
+    }
+}
+
+impl From<Option<&MintedTransactionOutput<'_>>> for CollateralBalance {
+    fn from(value: Option<&MintedTransactionOutput<'_>>) -> Self {
+        match value {
+            Some(output) => match output {
+                amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
+                    CollateralBalance::from(&output.amount)
                 }
-                None => {
-                    self.multiasset.insert(key, -value);
+
+                amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
+                    CollateralBalance::from(&output.value)
                 }
-            };
+            },
+            None => CollateralBalance::empty(),
         }
     }
 }
@@ -145,7 +186,7 @@ pub enum InvalidCollateral {
     IncorrectTotalCollateral { provided: u64, expected: u64 },
     #[error("No collateral was provided, but collateral is required")]
     NoCollateral,
-    #[error("collateral has non-zero delta: {0:?}")]
+    #[error("collateral has non-zero delta: {0}")]
     ValueNotConserved(CollateralBalance),
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("uncategorized error: {0}")]
@@ -171,10 +212,7 @@ where
         .filter(|c| !c.is_empty())
         .ok_or(InvalidCollateral::NoCollateral)?;
 
-    let mut balance = CollateralBalance {
-        coin: 0,
-        multiasset: BTreeMap::new(),
-    };
+    let mut balance = CollateralBalance::empty();
 
     let allowed = protocol_parameters.max_collateral_inputs as usize;
     let provided = collaterals.len();
@@ -185,46 +223,30 @@ where
     for collateral in collaterals.iter() {
         let output = context
             .lookup(collateral)
-            .ok_or_else(|| InvalidCollateral::UnknownInput(collateral.into()))?;
+            .ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone().into()))?;
 
         if output.address.has_script() {
-            return Err(InvalidCollateral::LockedAtScriptAddress(collateral.into()));
+            return Err(InvalidCollateral::LockedAtScriptAddress(
+                collateral.clone().into(),
+            ));
         }
 
-        add_value_to_balance(&mut balance, output);
+        balance.add_output_value(output);
     }
 
-    let collateral_return_balance = match collateral_return {
-        Some(output) => match output {
-            amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                CollateralBalance::from(&output.amount)
-            }
-
-            amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
-                CollateralBalance::from(&output.value)
-            }
-        },
-        None => CollateralBalance {
-            coin: 0,
-            multiasset: BTreeMap::new(),
-        },
-    };
+    let collateral_return_balance = collateral_return.into();
 
     balance.sub(collateral_return_balance);
 
-    if !balance.multiasset.is_empty() || balance.coin < 0 {
+    if !balance.is_valid() {
         return Err(InvalidCollateral::ValueNotConserved(balance));
     }
 
-    // We're avoiding floating points and truncating values (exactly what the Haskell node does)
-    // so we check that balance * 100 = fee * collPercentage
-    // When we display to the user, we want to display minimum_collateral in lovelace, not in 100ths of a lovelace,
-    // so we divide by 100 and round up
-    let minimum_collateral = fee * protocol_parameters.collateral_percentage as u64;
-    if balance.coin * 100 < minimum_collateral as i64 {
+    let required = fee * protocol_parameters.collateral_percentage as u64;
+    if balance.coin as i128 * 100 < required as i128 {
         return Err(InvalidCollateral::InsufficientBalance {
             provided: balance.coin as u64,
-            required: minimum_collateral.div_ceil(100),
+            required,
         });
     }
 
@@ -238,19 +260,6 @@ where
     }
 
     Ok(())
-}
-
-fn add_value_to_balance(balance: &mut CollateralBalance, output: &MemoizedTransactionOutput) {
-    let output_balance: CollateralBalance = (&output.value).into();
-
-    balance.coin += output_balance.coin;
-    for (key, value) in output_balance.multiasset {
-        balance
-            .multiasset
-            .entry(key)
-            .and_modify(|v| *v += value)
-            .or_insert(value);
-    }
 }
 
 #[cfg(test)]
