@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    send,
-    stages::{metrics::MetricsEvent, pull::metrics::PullMetrics},
-};
+use crate::{send, stages::pull::metrics::PullMetrics};
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_kernel::{Point, peer::Peer};
+use amaru_metrics::MetricsEvent;
 use amaru_network::chain_sync_client::{ChainSyncClientError, RawHeader, to_traverse};
 use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
 use gasket::framework::{Stage as StageTrait, *};

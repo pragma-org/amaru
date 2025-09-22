@@ -12,13 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    send,
-    stages::{
-        metrics::{Metric, MetricsEvent},
-        pull::MetricsDownstreamPort,
-    },
-};
+use crate::{send, stages::pull::MetricsDownstreamPort};
+use amaru_metrics::{Metric, MetricsEvent};
 use gasket::framework::WorkerError;
 use opentelemetry::metrics::Counter;
 use std::sync::{Arc, OnceLock};
@@ -36,12 +31,7 @@ impl PullMetrics {
     ) -> Result<(), WorkerError> {
         let sample = PullMetrics { header_size_bytes };
 
-        send!(
-            downstream,
-            MetricsEvent {
-                metric: Arc::new(sample)
-            }
-        )?;
+        send!(downstream, MetricsEvent(Arc::new(sample)))?;
 
         Ok(())
     }

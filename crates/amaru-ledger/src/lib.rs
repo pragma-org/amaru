@@ -18,6 +18,7 @@ pub mod block_validator;
 pub mod bootstrap;
 pub mod context;
 pub mod governance;
+pub mod metrics;
 pub mod rules;
 pub mod state;
 pub mod store;

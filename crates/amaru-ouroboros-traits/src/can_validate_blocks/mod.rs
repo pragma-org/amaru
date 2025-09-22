@@ -13,16 +13,19 @@
 // limitations under the License.
 
 use amaru_kernel::{Point, RawBlock};
+use amaru_metrics::MetricsPort;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 
 pub mod mock;
 
+#[async_trait::async_trait]
 pub trait CanValidateBlocks: Send + Sync {
-    fn roll_forward_block(
+    async fn roll_forward_block(
         &self,
         point: &Point,
         block: &RawBlock,
+        metrics_port: &mut MetricsPort,
     ) -> Result<Result<u64, BlockValidationError>, BlockValidationError>;
 
     fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError>;

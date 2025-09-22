@@ -72,6 +72,7 @@ dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",
+ "amaru-metrics",
  "amaru-network",
  "amaru-ouroboros-traits",
  "amaru-progress-bar",
@@ -117,6 +118,7 @@ name = "amaru-consensus"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-metrics",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
@@ -179,11 +181,13 @@ version = "0.1.0"
 dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
+ "amaru-metrics",
  "amaru-ouroboros-traits",
  "amaru-progress-bar",
  "amaru-slot-arithmetic",
  "amaru-tracing-json",
  "anyhow",
+ "async-trait",
  "hex",
  "num",
  "proptest",
@@ -198,6 +202,16 @@ name = "amaru-mempool"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+]
+
+[[package]]
+name = "amaru-metrics"
+version = "0.1.0"
+dependencies = [
+ "gasket",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "tracing",
 ]
 
 [[package]]
@@ -254,6 +268,7 @@ name = "amaru-ouroboros-traits"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-metrics",
  "amaru-slot-arithmetic",
  "anyhow",
  "async-trait",

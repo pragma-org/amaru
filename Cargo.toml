@@ -79,6 +79,7 @@ amaru-iter-borrow = { path = "crates/amaru-iter-borrow" }
 amaru-kernel = { path = "crates/amaru-kernel" }
 amaru-ledger = { path = "crates/amaru-ledger" }
 amaru-mempool = { path = "crates/amaru-mempool" }
+amaru-metrics = { path = "crates/amaru-metrics" }
 amaru-minicbor-extra = { path = "crates/amaru-minicbor-extra" }
 amaru-network = { path = "crates/amaru-network" }
 amaru-ouroboros = { path = "crates/amaru-ouroboros" }

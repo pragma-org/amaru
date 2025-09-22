@@ -38,6 +38,7 @@ use amaru_kernel::{
     peer::Peer, protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::block_validator::BlockValidator;
+use amaru_metrics::MetricsPort;
 use amaru_network::block_fetch_client::PallasBlockFetchClient;
 use amaru_ouroboros_traits::{
     CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
@@ -251,6 +252,11 @@ pub async fn bootstrap(
 
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
+
+    let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
+
+    let mut metrics_downstream: MetricsPort = Default::default();
+    metrics_downstream.connect(to_metrics.clone());
 
     let graph_input = build_stage_graph(
         global_parameters,
