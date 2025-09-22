@@ -93,7 +93,7 @@ impl CollateralBalance {
     ///    - have no multiassets and,
     ///    - have a nonnegative coin value.
     fn is_valid(&self) -> bool {
-        !self.multiasset.is_empty() || self.coin > 0
+        self.multiasset.is_empty() && self.coin >= 0
     }
 }
 
@@ -246,7 +246,7 @@ where
     if balance.coin as i128 * 100 < required as i128 {
         return Err(InvalidCollateral::InsufficientBalance {
             provided: balance.coin as u64,
-            required,
+            required: required.div_ceil(100),
         });
     }
 
