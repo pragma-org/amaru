@@ -13,27 +13,10 @@
 // limitations under the License.
 
 use crate::schedule;
+use amaru_metrics::MetricsEvent;
 use gasket::framework::{WorkSchedule, WorkerError};
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use std::{ops::Deref, sync::Arc};
-
-pub trait Metric: Send + Sync {
-    fn record(&self, meter: &Meter);
-}
-
-#[derive(Clone)]
-pub struct MetricsEvent {
-    pub metric: Arc<dyn Metric>,
-}
-
-impl Deref for MetricsEvent {
-    type Target = dyn Metric;
-
-    fn deref(&self) -> &Self::Target {
-        &*self.metric
-    }
-}
 
 pub type UpstreamPort = gasket::messaging::InputPort<MetricsEvent>;
 
@@ -88,7 +71,7 @@ impl gasket::framework::Worker<MetricsStage> for Worker {
         stage: &mut MetricsStage,
     ) -> Result<(), WorkerError> {
         if let Some(meter) = &stage.meter {
-            unit.metric.record(meter);
+            unit.record(meter);
         }
 
         Ok(())

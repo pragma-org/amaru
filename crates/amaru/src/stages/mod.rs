@@ -33,6 +33,7 @@ use amaru_kernel::{
     protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::block_validator::BlockValidator;
+use amaru_metrics::MetricsPort;
 use amaru_network::block_fetch_client::PallasBlockFetchClient;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{
@@ -231,6 +232,11 @@ pub fn bootstrap(
     let mut network = TokioBuilder::default();
     let (output_ref, output_stage) = network.output("output", 50);
 
+    let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
+
+    let mut metrics_downstream: MetricsPort = Default::default();
+    metrics_downstream.connect(to_metrics.clone());
+
     let graph_input = build_stage_graph(
         global_parameters,
         ledger.get_stake_distribution(),
@@ -250,6 +256,7 @@ pub fn bootstrap(
     network
         .resources()
         .put::<ResourceBlockValidation>(ledger.get_block_validation());
+    network.resources().put::<MetricsPort>(metrics_downstream);
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
@@ -268,7 +275,6 @@ pub fn bootstrap(
         .upstream
         .connect(RecvAdapter(output_stage));
 
-    let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
     stages.iter_mut().for_each(|stage| {
         // These channels are meant to be cloned so they can be shared between threads
         stage.metrics_downstream.connect(to_metrics.clone());

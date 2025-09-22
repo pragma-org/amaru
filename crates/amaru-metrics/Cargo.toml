@@ -1,0 +1,21 @@
+lints.workspace = true
+
+
+[package]
+name = "amaru-metrics"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# External Dependencies
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+gasket.workspace = true
+tracing.workspace = true
