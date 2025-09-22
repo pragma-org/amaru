@@ -31,7 +31,8 @@ pub struct Args {
     ///
     /// This option can be specified multiple times to connect to multiple peers.
     /// At least one peer address must be specified.
-    #[arg(long, value_name = "NETWORK_ADDRESS", env = "AMARU_PEER_ADDRESS", action = ArgAction::Append, required = true)]
+    #[arg(long, value_name = "NETWORK_ADDRESS", env = "AMARU_PEER_ADDRESS",
+        action = ArgAction::Append, required = true, value_delimiter = ',')]
     peer_address: Vec<String>,
 
     /// The target network to choose from.
