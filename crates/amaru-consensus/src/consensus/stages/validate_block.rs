@@ -144,7 +144,6 @@ impl ExternalEffect for ValidateBlockEffect {
         resources: Resources,
     ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
         Box::pin(async move {
-            dbg!("I'm here! 1");
             let validator = resources
                 .get::<ResourceBlockValidation>()
                 .expect("ValidateBlockEffect requires a CanValidateBlock resource")
@@ -164,7 +163,6 @@ impl ExternalEffect for ValidateBlockEffect {
                     ))
                 })
             };
-            dbg!("I'm here! 2");
 
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
