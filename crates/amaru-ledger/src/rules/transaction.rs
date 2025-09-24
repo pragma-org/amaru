@@ -30,6 +30,9 @@ pub use fees::InvalidFees;
 pub mod inputs;
 pub use inputs::InvalidInputs;
 
+pub mod collateral;
+pub use collateral::InvalidCollateral;
+
 pub mod metadata;
 pub use metadata::InvalidTransactionMetadata;
 
@@ -73,6 +76,9 @@ pub enum InvalidTransaction {
 
     #[error("invalid transaction scripts: {0}")]
     Scripts(#[from] InvalidScripts),
+
+    #[error("invalid collateral: {0}")]
+    Collateral(#[from] InvalidCollateral),
 
     #[error("invalid transaction metadata: {0}")]
     Metadata(#[from] InvalidTransactionMetadata),
@@ -124,11 +130,21 @@ where
             .reference_inputs
             .as_deref()
             .map(|vec| vec.as_slice()),
-        transaction_body
-            .collateral
-            .as_deref()
-            .map(|vec| vec.as_slice()),
     )?;
+
+    if transaction_witness_set.redeemer.is_some() {
+        collateral::execute(
+            context,
+            transaction_body
+                .collateral
+                .as_deref()
+                .map(|vec| vec.as_slice()),
+            transaction_body.collateral_return.as_ref(),
+            transaction_body.total_collateral,
+            transaction_body.fee,
+            protocol_parameters,
+        )?;
+    }
 
     mint::execute(context, transaction_body.mint.as_ref());
 
