@@ -293,11 +293,9 @@ pub async fn bootstrap(
         output.connect(SendAdapter(graph_input.clone()));
     }
 
-    let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
-    stages.iter_mut().for_each(|stage| {
-        // These channels are meant to be cloned so they can be shared between threads
-        stage.metrics_downstream.connect(to_metrics.clone());
-    });
+    forward_chain_stage
+        .upstream
+        .connect(RecvAdapter(output_stage));
 
     metrics_stage.upstream.connect(from_stages);
 
