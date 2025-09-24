@@ -12,18 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::Deref, pin::Pin, sync::Arc};
+use std::{ops::Deref, sync::Arc};
 
 use gasket::framework::WorkerError;
 pub use opentelemetry::metrics::{Counter, Gauge, Meter};
-
-// TODO: this shouldn't exist here. `amaru-metrics` should have no dependency on `gasket`.
-// Ultimately, this is a "quick fix" solution to get things wired up. A better architecture is almost certainly needed though
-pub type MetricsHandler = Box<
-    dyn Fn(MetricsEvent) -> Pin<Box<dyn Future<Output = Result<(), WorkerError>> + Send>>
-        + Send
-        + Sync,
->;
 
 pub type MetricsPort = gasket::messaging::OutputPort<MetricsEvent>;
 
