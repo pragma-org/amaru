@@ -47,14 +47,12 @@ impl ExternalEffect for FetchBlockEffect {
         self: Box<Self>,
         resources: Resources,
     ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
-        Box::pin(async move {
+        Self::wrap(async move {
             let block_fetcher = resources
                 .get::<ResourceBlockFetcher>()
                 .expect("FetchBlockEffect requires a BlockFetcher")
                 .clone();
-            let result: <Self as ExternalEffectAPI>::Response =
-                block_fetcher.fetch_block(&self.peer, &self.point).await;
-            Box::new(result) as Box<dyn pure_stage::SendData>
+            block_fetcher.fetch_block(&self.peer, &self.point).await
         })
     }
 }
