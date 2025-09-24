@@ -38,6 +38,7 @@ amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-consensus.workspace = true
 amaru-ouroboros.workspace = true
 amaru-slot-arithmetic.workspace = true
+amaru-metrics.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

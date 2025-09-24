@@ -47,7 +47,7 @@ use std::{
 /// or a mutex.
 #[derive(Default, Clone)]
 #[expect(clippy::disallowed_types)]
-pub struct Resources(Arc<RwLock<HashMap<TypeId, Box<dyn Any + Send + Sync>>>>);
+pub struct Resources(pub Arc<RwLock<HashMap<TypeId, Box<dyn Any + Send + Sync>>>>);
 
 impl Resources {
     /// Put a resource into the resources collection.
