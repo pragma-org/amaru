@@ -44,3 +44,5 @@ lcov.info
 .aider*
 
 **/proptest-regressions/**
+
+heaptrack.*.gz
