@@ -20,6 +20,9 @@ use crate::simulator::simulate::simulate;
 use crate::simulator::{Args, Chain, History, NodeHandle, SimulateConfig};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
+use amaru_consensus::consensus::effects::ResourceBlockFetcher;
+use amaru_consensus::consensus::effects::{
+    ResourceBlockValidation, ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
 use amaru_consensus::consensus::effects::block_effects::ResourceBlockFetcher;
 use amaru_consensus::consensus::effects::network_effects::{
     ForwardEvent, ForwardEventListener, ResourceForwardEventListener,

@@ -12,10 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::effects::LedgerOps;
+use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::effects::metrics_effects::RecordMetricsEffect;
 use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
 use crate::consensus::events::{BlockValidationResult, ValidateBlockEvent};
 use crate::consensus::span::adopt_current_span;
+use amaru_ouroboros_traits::IsHeader;
+use anyhow::anyhow;
+use pure_stage::StageRef;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Header, Point, RawBlock};
 use amaru_metrics::ledger::LedgerMetrics;
@@ -40,7 +45,7 @@ type State = (
 pub async fn stage(
     (downstream, validation_errors, processing_errors): State,
     msg: ValidateBlockEvent,
-    eff: Effects<ValidateBlockEvent>,
+    eff: impl ConsensusOps,
 ) -> State {
     adopt_current_span(&msg);
     match msg {
@@ -54,12 +59,12 @@ pub async fn stage(
             let point = header.point();
 
             match eff
-                .external(ValidateBlockEffect::new(&peer, &point, block.clone()))
+                .ledger().validate(&peer, &point, block.clone())
                 .await
             {
                 Ok(Ok(metrics)) => {
                     eff.external(RecordMetricsEffect::new(metrics.into())).await;
-                    eff.send(
+                    eff.base().send(
                         &downstream,
                         BlockValidationResult::BlockValidated {
                             peer,
@@ -67,29 +72,31 @@ pub async fn stage(
                             span: span.clone(),
                         },
                     )
-                    .await
+                        .await
                 }
                 Ok(Err(err)) => {
                     error!(?err, "Failed to validate a block");
-                    eff.send(
-                        &validation_errors,
-                        ValidationFailed::new(
-                            &peer,
-                            ConsensusError::InvalidBlock {
-                                peer: peer.clone(),
-                                point: header.point(),
-                            },
-                        ),
-                    )
-                    .await;
+                    eff.base()
+                        .send(
+                            &validation_errors,
+                            ValidationFailed::new(
+                                &peer,
+                                ConsensusError::InvalidBlock {
+                                    peer: peer.clone(),
+                                    point: header.point(),
+                                },
+                            ),
+                        )
+                        .await;
                 }
                 Err(err) => {
                     error!(?err, "Failed to roll forward block");
-                    eff.send(
-                        &processing_errors,
-                        ProcessingFailed::new(&peer, err.to_anyhow()),
-                    )
-                    .await;
+                    eff.base()
+                        .send(
+                            &processing_errors,
+                            ProcessingFailed::new(&peer, anyhow!(err)),
+                        )
+                        .await;
                 }
             }
         }
@@ -99,105 +106,22 @@ pub async fn stage(
             span,
             ..
         } => {
-            if let Err(err) = eff
-                .external(RollbackBlockEffect::new(&peer, &rollback_header))
-                .await
-            {
+            if let Err(err) = eff.ledger().rollback(&peer, &rollback_header).await {
                 error!(?err, "Failed to rollback");
-                eff.send(&processing_errors, err).await;
+                eff.base().send(&processing_errors, err).await;
             } else {
-                eff.send(
-                    &downstream,
-                    BlockValidationResult::RolledBackTo {
-                        peer,
-                        rollback_header,
-                        span,
-                    },
-                )
-                .await
+                eff.base()
+                    .send(
+                        &downstream,
+                        BlockValidationResult::RolledBackTo {
+                            peer,
+                            rollback_header,
+                            span,
+                        },
+                    )
+                    .await
             }
         }
     };
     (downstream, validation_errors, processing_errors)
-}
-
-pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ValidateBlockEffect {
-    peer: Peer,
-    point: Point,
-    block: RawBlock,
-}
-
-impl ValidateBlockEffect {
-    pub fn new(peer: &Peer, point: &Point, block: RawBlock) -> Self {
-        Self {
-            peer: peer.clone(),
-            point: point.clone(),
-            block,
-        }
-    }
-}
-
-impl ExternalEffect for ValidateBlockEffect {
-    #[expect(clippy::expect_used)]
-    fn run(
-        self: Box<Self>,
-        resources: Resources,
-    ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
-        Box::pin(async move {
-            let validator = resources
-                .get::<ResourceBlockValidation>()
-                .expect("ValidateBlockEffect requires a CanValidateBlock resource")
-                .clone();
-
-            let result: <Self as ExternalEffectAPI>::Response =
-                validator.roll_forward_block(&self.point, &self.block).await;
-
-            Box::new(result) as Box<dyn pure_stage::SendData>
-        })
-    }
-}
-
-impl ExternalEffectAPI for ValidateBlockEffect {
-    type Response = Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RollbackBlockEffect {
-    peer: Peer,
-    point: Point,
-}
-
-impl RollbackBlockEffect {
-    pub fn new(peer: &Peer, header: &Header) -> Self {
-        Self {
-            peer: peer.clone(),
-            point: header.point(),
-        }
-    }
-}
-
-impl ExternalEffect for RollbackBlockEffect {
-    #[expect(clippy::expect_used)]
-    fn run(
-        self: Box<Self>,
-        resources: Resources,
-    ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
-        Box::pin(async move {
-            let validator = resources
-                .get::<ResourceBlockValidation>()
-                .expect("ValidateBlockEffect requires a HasBlockValidation resource")
-                .clone();
-            let result: <Self as ExternalEffectAPI>::Response = validator
-                .rollback_block(&self.point)
-                .map_err(|e| ProcessingFailed::new(&self.peer, e.to_anyhow()));
-            Box::new(result) as Box<dyn pure_stage::SendData>
-        })
-    }
-}
-
-impl ExternalEffectAPI for RollbackBlockEffect {
-    type Response = anyhow::Result<(), ProcessingFailed>;
 }

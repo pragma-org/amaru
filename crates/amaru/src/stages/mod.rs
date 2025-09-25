@@ -17,22 +17,10 @@ use crate::stages::{
     consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
     pure_stage_util::{PureStageSim, SendAdapter},
 };
-use amaru_consensus::consensus::{
-    effects::{
-        block_effects::{ResourceBlockFetcher, ResourceParameters},
-        metrics_effects::ResourceMeter,
-        network_effects::ResourceForwardEventListener,
-        store_effects::ResourceHeaderStore,
-    },
-    errors::ConsensusError,
-    events::ChainSyncEvent,
-    headers_tree::HeadersTree,
-    stages::{
-        fetch_block::ClientsBlockFetcher, select_chain::SelectChain,
-        validate_block::ResourceBlockValidation,
-    },
-    tip::{AsHeaderTip, HeaderTip},
+use amaru_consensus::consensus::effects::{
+    ResourceBlockFetcher, ResourceBlockValidation, ResourceHeaderStore, ResourceParameters,
 };
+use amaru_consensus::consensus::effects::metrics_effects::ResourceMeter;
 use amaru_kernel::{
     EraHistory, HEADER_HASH_SIZE, Hash, Header, ORIGIN_HASH, Point, network::NetworkName,
     peer::Peer, protocol_parameters::GlobalParameters,

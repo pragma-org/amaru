@@ -12,17 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
-    EVENT_TARGET,
-    errors::{ConsensusError, ValidationFailed},
-    events::{DecodedChainSyncEvent, ValidateHeaderEvent},
-    headers_tree::HeadersTree,
-    span::adopt_current_span,
-};
+use crate::consensus::effects::{BaseOps, ConsensusOps};
+use crate::consensus::errors::{ConsensusError, ValidationFailed};
+use crate::consensus::events::{DecodedChainSyncEvent, ValidateHeaderEvent};
+use crate::consensus::span::adopt_current_span;
+use crate::consensus::{EVENT_TARGET, headers_tree::HeadersTree};
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer, string_utils::ListToString};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
-use pure_stage::{Effects, StageRef};
+use pure_stage::StageRef;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -301,7 +299,7 @@ type State = (
 pub async fn stage(
     (mut select_chain, downstream, errors): State,
     msg: DecodedChainSyncEvent,
-    eff: Effects<DecodedChainSyncEvent>,
+    eff: impl ConsensusOps,
 ) -> State {
     adopt_current_span(&msg);
     let peer = msg.peer();
@@ -309,13 +307,15 @@ pub async fn stage(
     let events = match select_chain.handle_chain_sync(msg).await {
         Ok(events) => events,
         Err(e) => {
-            eff.send(&errors, ValidationFailed::new(&peer, e)).await;
+            eff.base()
+                .send(&errors, ValidationFailed::new(&peer, e))
+                .await;
             return (select_chain, downstream, errors);
         }
     };
 
     for event in events {
-        eff.send(&downstream, event).await;
+        eff.base().send(&downstream, event).await;
     }
 
     (select_chain, downstream, errors)
