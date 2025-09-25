@@ -77,6 +77,10 @@ impl<Msg> StageRef<Msg> {
         }
     }
 
+    pub fn named(name: &str) -> StageRef<Msg> {
+        StageRef::new(Name::from(name))
+    }
+
     pub fn name(&self) -> &Name {
         &self.name
     }

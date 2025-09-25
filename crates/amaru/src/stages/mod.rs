@@ -17,16 +17,14 @@ use crate::stages::{
     metrics::MetricsStage,
     pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter},
 };
-use amaru_consensus::consensus::effects::block_effects::{
-    ResourceBlockFetcher, ResourceParameters,
+use amaru_consensus::consensus::effects::{
+    ResourceBlockFetcher, ResourceBlockValidation, ResourceHeaderStore, ResourceParameters,
 };
-use amaru_consensus::consensus::effects::store_effects::ResourceHeaderStore;
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::headers_tree::HeadersTree;
 use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
-use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
 use amaru_kernel::HEADER_HASH_SIZE;
 use amaru_kernel::{
     EraHistory, Hash, Header, ORIGIN_HASH, Point, network::NetworkName, peer::Peer,

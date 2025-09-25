@@ -14,6 +14,7 @@
 
 use crate::can_fetch_block::{BlockFetchClientError, CanFetchBlock};
 use amaru_kernel::Point;
+use amaru_kernel::peer::Peer;
 use async_trait::async_trait;
 
 /// A block fetcher.
@@ -22,7 +23,11 @@ pub struct MockCanFetchBlock;
 
 #[async_trait]
 impl CanFetchBlock for MockCanFetchBlock {
-    async fn fetch_block(&self, _point: &Point) -> Result<Vec<u8>, BlockFetchClientError> {
+    async fn fetch_block(
+        &self,
+        _peer: &Peer,
+        _point: &Point,
+    ) -> Result<Vec<u8>, BlockFetchClientError> {
         Ok(vec![])
     }
 }

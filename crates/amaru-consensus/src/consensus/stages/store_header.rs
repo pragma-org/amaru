@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
-    effects::store_effects::Store, events::DecodedChainSyncEvent, span::adopt_current_span,
-    store::StoreOps,
-};
+use crate::consensus::effects::StoreOps;
+use crate::consensus::effects::{BaseOps, ConsensusOps};
+use crate::consensus::{events::DecodedChainSyncEvent, span::adopt_current_span};
 use amaru_ouroboros_traits::IsHeader;
-use pure_stage::{Effects, StageRef};
+use pure_stage::StageRef;
 use tracing::{Level, instrument};
 
 #[instrument(
@@ -28,20 +27,21 @@ use tracing::{Level, instrument};
 pub async fn stage(
     downstream: StageRef<DecodedChainSyncEvent>,
     msg: DecodedChainSyncEvent,
-    mut eff: Effects<DecodedChainSyncEvent>,
+    mut eff: impl ConsensusOps,
 ) -> StageRef<DecodedChainSyncEvent> {
     adopt_current_span(&msg);
     match &msg {
         DecodedChainSyncEvent::RollForward { peer, header, .. } => {
-            if let Err(error) = Store(&mut eff).store_header(peer, header).await {
+            let result = eff.store().store_header(peer, header).await;
+            if let Err(error) = result {
                 tracing::error!(%error, %peer, "Failed to store header at {}", header.point());
                 // FIXME what should be the consequence of this?
-                return eff.terminate().await;
+                eff.base().terminate().await;
             };
-            eff.send(&downstream, msg).await
+            eff.base().send(&downstream, msg).await
         }
-        DecodedChainSyncEvent::Rollback { .. } => eff.send(&downstream, msg).await,
-        DecodedChainSyncEvent::CaughtUp { .. } => eff.send(&downstream, msg).await,
+        DecodedChainSyncEvent::Rollback { .. } => eff.base().send(&downstream, msg).await,
+        DecodedChainSyncEvent::CaughtUp { .. } => eff.base().send(&downstream, msg).await,
     }
     downstream
 }

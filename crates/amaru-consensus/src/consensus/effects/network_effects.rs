@@ -14,13 +14,38 @@
 
 use crate::consensus::errors::ConsensusError;
 use crate::consensus::stages::fetch_block::BlockFetcher;
+use amaru_kernel::Point;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{Point, protocol_parameters::GlobalParameters};
-use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
+use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 
 pub type ResourceBlockFetcher = Arc<dyn BlockFetcher + Send + Sync>;
-pub type ResourceParameters = GlobalParameters;
+
+pub struct Network<'a, T>(&'a Effects<T>);
+
+impl<'a, T> Network<'a, T> {
+    pub fn new(eff: &'a Effects<T>) -> Network<'a, T> {
+        Network(eff)
+    }
+}
+
+pub trait NetworkOps {
+    fn fetch_block(
+        &self,
+        peer: &Peer,
+        point: &Point,
+    ) -> impl Future<Output = Result<Vec<u8>, ConsensusError>> + Send;
+}
+
+impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
+    fn fetch_block(
+        &self,
+        peer: &Peer,
+        point: &Point,
+    ) -> impl Future<Output = Result<Vec<u8>, ConsensusError>> + Send {
+        self.0.external(FetchBlockEffect::new(peer, point))
+    }
+}
 
 /// This effect is used to fetch a block from a peer given a point (hash + slot).
 /// The effect response is either a vector of bytes representing the block,
@@ -36,8 +61,11 @@ impl ExternalEffectAPI for FetchBlockEffect {
 }
 
 impl FetchBlockEffect {
-    pub fn new(peer: Peer, point: Point) -> Self {
-        Self { peer, point }
+    pub fn new(peer: &Peer, point: &Point) -> Self {
+        Self {
+            peer: peer.clone(),
+            point: point.clone(),
+        }
     }
 }
 
@@ -46,7 +74,7 @@ impl ExternalEffect for FetchBlockEffect {
     fn run(
         self: Box<Self>,
         resources: Resources,
-    ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
+    ) -> pure_stage::BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             let block_fetcher = resources
                 .get::<ResourceBlockFetcher>()

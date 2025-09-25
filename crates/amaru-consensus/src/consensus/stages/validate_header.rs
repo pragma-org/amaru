@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::effects::StoreOps;
+use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::{
-    effects::store_effects::Store,
     errors::{ConsensusError, ValidationFailed},
     events::DecodedChainSyncEvent,
     span::adopt_current_span,
-    store::StoreOps,
 };
 use amaru_kernel::{
     Hash, Header, Nonce, Point, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
@@ -25,7 +25,7 @@ use amaru_kernel::{
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
 use pallas_math::math::FixedDecimal;
-use pure_stage::{Effects, StageRef};
+use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
 use tracing::{Instrument, Level, Span, instrument};
 
@@ -169,11 +169,7 @@ type State = (
     skip_all,
     name = "stage.validate_header",
 )]
-pub async fn stage(
-    state: State,
-    msg: DecodedChainSyncEvent,
-    mut eff: Effects<DecodedChainSyncEvent>,
-) -> State {
+pub async fn stage(state: State, msg: DecodedChainSyncEvent, mut eff: impl ConsensusOps) -> State {
     adopt_current_span(&msg);
     let (mut state, global, downstream, errors) = state;
 
@@ -185,11 +181,11 @@ pub async fn stage(
             ..
         } => (peer, point, header),
         DecodedChainSyncEvent::Rollback { .. } => {
-            eff.send(&downstream, msg).await;
+            eff.base().send(&downstream, msg).await;
             return (state, global, downstream, errors);
         }
         DecodedChainSyncEvent::CaughtUp { .. } => {
-            eff.send(&downstream, msg).await;
+            eff.base().send(&downstream, msg).await;
             return (state, global, downstream, errors);
         }
     };
@@ -202,13 +198,15 @@ pub async fn stage(
 
     async {
         match state
-            .handle_roll_forward(Store(&mut eff), peer, point, header, &global)
+            .handle_roll_forward(eff.store(), peer, point, header, &global)
             .await
         {
-            Ok(msg) => eff.send(&downstream, msg).await,
+            Ok(msg) => eff.base().send(&downstream, msg).await,
             Err(error) => {
                 tracing::error!(%peer, %error, "failed to handle roll forward");
-                eff.send(&errors, ValidationFailed::new(peer, error)).await
+                eff.base()
+                    .send(&errors, ValidationFailed::new(peer, error))
+                    .await
             }
         }
     }
