@@ -1,3 +1,19 @@
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#![allow(clippy::disallowed_types)]
+
 use crate::protocol::{Erased, ProtocolId};
 use acto::{ActoCell, ActoRef, ActoRuntime};
 use anyhow::Context;
@@ -102,6 +118,7 @@ pub async fn actor(
             res = task2 => {
                 write = Some(res.context("writing to socket")?);
                 task = muxer.next_segment().map(|(proto_id, bytes)| {
+                    #[allow(clippy::expect_used)]
                     let mut write = write.take().expect("write half has just been put back");
                     Box::pin(async move {
                         write_segment(&mut write, proto_id, &bytes).await?;
@@ -115,10 +132,10 @@ pub async fn actor(
         let msg = match msg {
             acto::ActoInput::NoMoreSenders => return Ok(()),
             acto::ActoInput::Supervision { result, .. } => {
-                return Ok(result
+                return result
                     .map_err(|e| anyhow::Error::msg(e.to_string()))
                     .and_then(|x| x)
-                    .context("reader failed")?);
+                    .context("reader failed");
             }
             acto::ActoInput::Message(msg) => msg,
         };
@@ -177,6 +194,7 @@ const HEADER_LEN: usize = 8;
 
 impl Header {
     pub fn new(proto_id: ProtocolId<Erased>, bytes: &Bytes) -> Self {
+        #[allow(clippy::expect_used)]
         Self {
             timestamp: Timestamp::now(),
             proto_id,
@@ -220,7 +238,7 @@ pub async fn write_segment(
     bytes: &Bytes,
 ) -> anyhow::Result<()> {
     let mut header = Cursor::new([0u8; HEADER_LEN]);
-    Header::new(proto_id, &bytes).write(&mut header)?;
+    Header::new(proto_id, bytes).write(&mut header)?;
     let header = header.into_inner();
 
     write.write_all(header.as_slice()).await?;
@@ -298,10 +316,11 @@ impl Muxer {
     #[instrument(level = Level::DEBUG, skip_all, fields(proto_id))]
     pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: ActoRef<Sent>) {
         tracing::trace!(proto = %proto_id, bytes = bytes.len(), "enqueueing send");
+        #[allow(clippy::expect_used)]
         self.protocols
             .get_mut(&proto_id)
             .ok_or_else(|| anyhow::anyhow!("protocol {} not registered", proto_id))
-            .unwrap()
+            .expect("internal error")
             .enqueue_send(bytes, sent);
     }
 
@@ -310,7 +329,11 @@ impl Muxer {
         tracing::trace!(next = self.next_out, "next segment");
         for idx in (self.next_out..self.outgoing.len()).chain(0..self.next_out) {
             let proto_id = self.outgoing[idx];
-            let proto = self.protocols.get_mut(&proto_id).unwrap();
+            #[allow(clippy::expect_used)]
+            let proto = self
+                .protocols
+                .get_mut(&proto_id)
+                .expect("invariant violation");
             let Some(bytes) = proto.next_segment() else {
                 tracing::trace!(proto = %proto_id, idx, "no segment");
                 continue;
@@ -337,10 +360,11 @@ impl Muxer {
     }
 
     pub fn want_next(&mut self, proto_id: ProtocolId<Erased>) -> anyhow::Result<()> {
+        #[allow(clippy::expect_used)]
         self.protocols
             .get_mut(&proto_id)
             .ok_or_else(|| anyhow::anyhow!("protocol {} not registered", proto_id))
-            .unwrap()
+            .expect("internal error")
             .want_next()?;
         Ok(())
     }
@@ -497,9 +521,10 @@ mod tests {
 
     impl Protocol for TestProtocol {
         fn try_consume(&mut self, buffer: &mut BytesMut) -> anyhow::Result<bool> {
+            #[allow(clippy::len_zero)]
             if buffer.len() >= 1 {
                 let byte = buffer.get_u8();
-                if byte >= 1 && byte <= 10 {
+                if (1..=10).contains(&byte) {
                     let (bytes, send, _) = &mut *self.0.lock().unwrap();
                     bytes.push(byte);
                     if let Some(tx) = send.take() {
@@ -610,9 +635,9 @@ mod tests {
     where
         F: Future<Output = Option<T>>,
     {
-        Ok(timeout(SAFE_SLEEP, f)
+        timeout(SAFE_SLEEP, f)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("empty Option"))?)
+            .ok_or_else(|| anyhow::anyhow!("empty Option"))
     }
 
     #[track_caller]
