@@ -16,7 +16,7 @@ use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFaile
 use crate::consensus::events::{BlockValidationResult, ValidateBlockEvent};
 use crate::consensus::span::adopt_current_span;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{Point, RawBlock};
+use amaru_kernel::{Header, Point, RawBlock};
 use amaru_ouroboros_traits::can_validate_blocks::BlockValidationError;
 use amaru_ouroboros_traits::{CanValidateBlocks, IsHeader};
 use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources, StageRef};
@@ -55,15 +55,13 @@ pub async fn stage(
                 .external(ValidateBlockEffect::new(&peer, &point, block.clone()))
                 .await
             {
-                Ok(Ok(block_height)) => {
+                Ok(Ok(_)) => {
                     eff.send(
                         &downstream,
                         BlockValidationResult::BlockValidated {
                             peer,
                             header,
-                            block,
                             span: span.clone(),
-                            block_height,
                         },
                     )
                     .await
@@ -94,12 +92,12 @@ pub async fn stage(
         }
         ValidateBlockEvent::Rollback {
             peer,
-            rollback_point,
+            rollback_header,
             span,
             ..
         } => {
             if let Err(err) = eff
-                .external(RollbackBlockEffect::new(&peer, &rollback_point))
+                .external(RollbackBlockEffect::new(&peer, &rollback_header))
                 .await
             {
                 error!(?err, "Failed to rollback");
@@ -109,7 +107,7 @@ pub async fn stage(
                     &downstream,
                     BlockValidationResult::RolledBackTo {
                         peer,
-                        rollback_point,
+                        rollback_header,
                         span,
                     },
                 )
@@ -168,10 +166,10 @@ pub struct RollbackBlockEffect {
 }
 
 impl RollbackBlockEffect {
-    pub fn new(peer: &Peer, point: &Point) -> Self {
+    pub fn new(peer: &Peer, header: &Header) -> Self {
         Self {
             peer: peer.clone(),
-            point: point.clone(),
+            point: header.point(),
         }
     }
 }

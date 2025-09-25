@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HEADER_HASH_SIZE, ORIGIN_HASH, Point, cbor};
+use amaru_kernel::{HEADER_HASH_SIZE, Header, ORIGIN_HASH, Point, cbor};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
@@ -50,12 +50,19 @@ impl<H: IsHeader + Display> Display for Tip<H> {
     }
 }
 
-impl<H> Tip<H> {
+impl<H: IsHeader> Tip<H> {
     /// Return the header for this Tip if the Tip doesn't represent the Genesis header.
     pub fn to_header(&self) -> Option<&H> {
         match self {
             Tip::Genesis => None,
             Tip::Hdr(h) => Some(h),
+        }
+    }
+
+    pub fn block_height(&self) -> u64 {
+        match self {
+            Tip::Genesis => 0,
+            Tip::Hdr(h) => h.block_height(),
         }
     }
 }
@@ -135,5 +142,47 @@ impl<H: IsHeader> From<Option<H>> for Tip<H> {
             Some(header) => Tip::from(header),
             None => Tip::Genesis,
         }
+    }
+}
+
+/// This is equivalent to pallas_network::miniprotocols::chainsync::protocol::Tip
+/// but does not incur the dependency on pallas_network.
+///
+/// This can also replace Tip<Header> in places where we only need the Point and block height,
+/// without needing the full Header.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeaderTip(Point, u64);
+
+impl Display for HeaderTip {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.1, self.0.hash())
+    }
+}
+
+impl HeaderTip {
+    pub fn new(point: Point, block_height: u64) -> Self {
+        Self(point, block_height)
+    }
+
+    pub fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+        self.0.hash()
+    }
+
+    pub fn point(&self) -> Point {
+        self.0.clone()
+    }
+
+    pub fn block_height(&self) -> u64 {
+        self.1
+    }
+}
+
+pub trait AsHeaderTip {
+    fn as_header_tip(&self) -> HeaderTip;
+}
+
+impl AsHeaderTip for Header {
+    fn as_header_tip(&self) -> HeaderTip {
+        HeaderTip::new(self.point(), self.block_height())
     }
 }

@@ -473,7 +473,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
 
         Fork {
             peer: best_peer.clone(),
-            rollback_point: self.unsafe_get_header(&intersection_hash).point(),
+            rollback_header: self.unsafe_get_header(&intersection_hash),
             fork: fork_fragment,
         }
     }
@@ -953,7 +953,7 @@ mod tests {
         let fork: Vec<TestHeader> = new_bob_headers;
         let fork = Fork {
             peer: bob.clone(),
-            rollback_point: middle.point(),
+            rollback_header: middle,
             fork,
         };
 
@@ -981,7 +981,7 @@ mod tests {
         bob_headers.push(bob_new_tip);
         let fork = Fork {
             peer: bob.clone(),
-            rollback_point: anchor.point(),
+            rollback_header: *anchor,
             fork: bob_headers,
         };
 

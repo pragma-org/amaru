@@ -54,6 +54,10 @@ pub struct Args {
     #[arg(long, default_value = "2")]
     pub number_of_upstream_peers: u8,
 
+    /// Number of downstream peers to simulate
+    #[arg(long, default_value = "1")]
+    pub number_of_downstream_peers: u8,
+
     #[arg(long)]
     pub disable_shrinking: bool,
 

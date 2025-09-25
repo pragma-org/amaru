@@ -21,17 +21,21 @@ use crate::simulator::{Args, Chain, History, NodeHandle, SimulateConfig};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
 use amaru_consensus::consensus::effects::block_effects::ResourceBlockFetcher;
+use amaru_consensus::consensus::effects::network_effects::{
+    ForwardEvent, ForwardEventListener, ResourceForwardEventListener,
+};
 use amaru_consensus::consensus::effects::store_effects::{
     ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
 };
 use amaru_consensus::consensus::errors::ConsensusError;
-use amaru_consensus::consensus::events::{BlockValidationResult, ChainSyncEvent};
+use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::headers_tree::HeadersTree;
 use amaru_consensus::consensus::stages::fetch_block::BlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::{
     DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain,
 };
 use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
+use amaru_consensus::consensus::tip::HeaderTip;
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_parameters::GlobalParameters;
@@ -41,15 +45,16 @@ use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros::{ChainStore, IsHeader};
 use amaru_slot_arithmetic::Slot;
 use async_trait::async_trait;
-use pallas_crypto::hash::Hash;
 use pallas_primitives::babbage::Header;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 use tracing::{Span, info};
 
 /// Run the full simulation:
@@ -59,12 +64,13 @@ use tracing::{Span, info};
 pub fn run(rt: Runtime, args: Args) {
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
 
-    let spawn = || {
+    let spawn = |node_id: String| {
         let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
-        let (input, output) = spawn_node(args.clone(), &mut network);
+        let (input, init_messages, output) = spawn_node(node_id, args.clone(), &mut network);
         let running = network.run(rt.handle().clone());
-        NodeHandle::from_pure_stage(input, output, running).unwrap()
+        NodeHandle::from_pure_stage(input, init_messages, output, running).unwrap()
     };
+
     let config = SimulateConfig::from(args.clone());
     simulate(
         &config,
@@ -86,20 +92,25 @@ pub fn run(rt: Runtime, args: Args) {
 /// Return:
 ///
 ///  * A handle to send messages to the node
-///  * A handle to receive messages from the node
-///
+///  * A handle to receive init messages executed on the node
+///  * A handle to receive output messages from the node
 ///
 fn spawn_node(
+    node_id: String,
     args: Args,
     network: &mut SimulationBuilder,
 ) -> (
     StageRef<Envelope<ChainSyncMessage>>,
     Receiver<Envelope<ChainSyncMessage>>,
+    Receiver<Envelope<ChainSyncMessage>>,
 ) {
     info!("Spawning node!");
+    let config = SimulateConfig::from(args.clone());
 
     let (global_parameters, select_chain, validate_header, chain_ref) = init_node(&args);
 
+    // The receiver replies ok to init messages from the sender (via 'output', the only output of the graph)
+    // and forwards chain sync messages to the rest of the processing graph
     let receiver = network.stage(
         "receiver",
         async |(downstream, output), msg: Envelope<ChainSyncMessage>, eff| {
@@ -107,6 +118,7 @@ fn spawn_node(
                 ChainSyncMessage::Init { msg_id, .. } => {
                     eff.send(
                         &output,
+                        // Reply with InitOk
                         Envelope {
                             src: msg.dest,
                             dest: msg.src,
@@ -148,66 +160,21 @@ fn spawn_node(
         },
     );
 
-    let propagate_header_stage = network.stage(
-        "propagate_header",
-        async |(msg_id, downstream), msg: BlockValidationResult, eff| {
-            if let Some((peer, chain_sync_message)) = match msg {
-                BlockValidationResult::BlockValidated { peer, header, .. } => Some((
-                    peer,
-                    ChainSyncMessage::Fwd {
-                        msg_id,
-                        slot: header.point().slot_or_default(),
-                        hash: Bytes {
-                            bytes: Hash::from(&header.point()).as_slice().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: to_cbor(&header),
-                        },
-                    },
-                )),
-                BlockValidationResult::RolledBackTo {
-                    peer,
-                    rollback_point,
-                    ..
-                } => Some((
-                    peer,
-                    ChainSyncMessage::Bck {
-                        msg_id,
-                        slot: rollback_point.slot_or_default(),
-                        hash: Bytes {
-                            bytes: Hash::from(&rollback_point).as_slice().to_vec(),
-                        },
-                    },
-                )),
-                BlockValidationResult::BlockValidationFailed { .. } => None,
-            } {
-                eff.send(
-                    &downstream,
-                    Envelope {
-                        // FIXME: do we have the name of the node stored somewhere?
-                        src: "n1".to_string(),
-                        // XXX: this should be broadcast to ALL followers
-                        dest: peer.name,
-                        body: chain_sync_message,
-                    },
-                )
-                .await;
-            }
-            (msg_id + 1, downstream)
-        },
-    );
-
+    let our_tip = HeaderTip::new(Point::Origin, 0);
     let receive_header_ref = build_stage_graph(
         &global_parameters,
         validate_header,
         select_chain,
+        our_tip,
         network,
-        propagate_header_stage.sender(),
     );
 
-    let (output, rx) = network.output("output", 10);
+    let (output, rx1) = network.output("output", 10);
+    let (sender, rx2) = mpsc::channel(10);
+    let listener =
+        MockForwardEventListener::new(node_id, config.number_of_downstream_peers, sender);
+
     let receiver = network.wire_up(receiver, (receive_header_ref, output.clone()));
-    network.wire_up(propagate_header_stage, (0, output));
 
     network.resources().put::<ResourceHeaderStore>(chain_ref);
     network
@@ -219,8 +186,11 @@ fn spawn_node(
     network
         .resources()
         .put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
+    network
+        .resources()
+        .put::<ResourceForwardEventListener>(Arc::new(listener));
 
-    (receiver.without_state(), rx)
+    (receiver.without_state(), rx1, Receiver::new(rx2))
 }
 
 fn init_node(
@@ -313,5 +283,78 @@ pub struct FakeBlockFetcher;
 impl BlockFetcher for FakeBlockFetcher {
     async fn fetch_block(&self, _peer: &Peer, _point: &Point) -> Result<Vec<u8>, ConsensusError> {
         Ok(vec![])
+    }
+}
+
+/// This implementation of ForwardEventListener sends the received events a Sender that can collect them
+/// to check them later.
+///
+/// A message id is maintained for each received event and each message is duplicated to the number of downstream peers.
+#[derive(Clone, Debug)]
+pub struct MockForwardEventListener {
+    node_id: String,
+    number_of_downstream_peers: u8,
+    sender: mpsc::Sender<Envelope<ChainSyncMessage>>,
+    msg_id: Arc<AtomicU64>,
+}
+
+impl MockForwardEventListener {
+    pub fn new(
+        node_id: String,
+        number_of_downstream_peers: u8,
+        sender: mpsc::Sender<Envelope<ChainSyncMessage>>,
+    ) -> Self {
+        Self {
+            node_id,
+            number_of_downstream_peers,
+            msg_id: Arc::new(AtomicU64::new(0)),
+            sender,
+        }
+    }
+}
+
+#[async_trait]
+impl ForwardEventListener for MockForwardEventListener {
+    async fn send(&self, event: ForwardEvent) -> anyhow::Result<()> {
+        fn message(event: &ForwardEvent, msg_id: u64) -> ChainSyncMessage {
+            match event {
+                ForwardEvent::Forward(header) => ChainSyncMessage::Fwd {
+                    msg_id,
+                    slot: header.point().slot_or_default(),
+                    hash: Bytes {
+                        bytes: header.hash().as_slice().to_vec(),
+                    },
+                    header: Bytes {
+                        bytes: to_cbor(&header),
+                    },
+                },
+                ForwardEvent::Backward(tip) => ChainSyncMessage::Bck {
+                    msg_id,
+                    slot: tip.point().slot_or_default(),
+                    hash: Bytes {
+                        bytes: tip.hash().as_slice().to_vec(),
+                    },
+                },
+            }
+        }
+
+        // This allocates a range of message ids from
+        // self.msg_id to self.msg_id + number_of_downstream_peers
+        let base_msg_id = self
+            .msg_id
+            .fetch_add(self.number_of_downstream_peers as u64, Ordering::Relaxed);
+
+        for i in 1..=self.number_of_downstream_peers {
+            let dest = format!("c{}", i);
+            let msg_id = base_msg_id + i as u64;
+            println!("msg id {}", msg_id);
+            let envelope = Envelope {
+                src: self.node_id.clone(),
+                dest,
+                body: message(&event, msg_id),
+            };
+            self.sender.send(envelope).await?;
+        }
+        Ok(())
     }
 }

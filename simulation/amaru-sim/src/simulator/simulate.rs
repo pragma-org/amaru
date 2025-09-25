@@ -56,7 +56,7 @@ pub fn simulate<Msg, F>(
 ) -> Result<(), String>
 where
     Msg: Debug + PartialEq + Clone + Serialize,
-    F: Fn() -> NodeHandle<Msg>,
+    F: Fn(String) -> NodeHandle<Msg>,
 {
     let mut rng = StdRng::seed_from_u64(config.seed);
 
@@ -111,11 +111,14 @@ fn test_nodes<Msg, F>(
 ) -> impl Fn(&[Reverse<Entry<Msg>>]) -> (History<Msg>, Result<(), String>)
 where
     Msg: Debug + PartialEq + Clone,
-    F: Fn() -> NodeHandle<Msg>,
+    F: Fn(String) -> NodeHandle<Msg>,
 {
     move |entries| {
         let node_handles: Vec<_> = (1..=number_of_nodes)
-            .map(|i| (format!("n{}", i), spawn()))
+            .map(|i| {
+                let node_id = format!("n{}", i);
+                (node_id.clone(), spawn(node_id))
+            })
             .collect();
 
         let mut world = World::new(entries.to_vec(), node_handles);
@@ -265,7 +268,7 @@ mod tests {
             .with_number_of_nodes(1)
             .disable_shrinking();
 
-        let spawn: fn() -> NodeHandle<EchoMessage> = || {
+        let spawn: fn(String) -> NodeHandle<EchoMessage> = |_node_id| {
             NodeHandle::from_executable(Path::new("../../target/debug/echo"), &[])
                 .expect("node handle failed")
         };

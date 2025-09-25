@@ -29,7 +29,7 @@ pub struct Receiver<T> {
 }
 
 impl<T> Receiver<T> {
-    pub(crate) fn new(rx: mpsc::Receiver<T>) -> Self {
+    pub fn new(rx: mpsc::Receiver<T>) -> Self {
         Self { rx }
     }
 

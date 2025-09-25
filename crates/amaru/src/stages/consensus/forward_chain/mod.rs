@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod block_effects;
-pub mod network_effects;
-pub mod store_effects;
+pub mod client_protocol;
+pub mod client_state;
+pub mod tcp_forward_chain_server;
+
+#[cfg(test)]
+mod test_infra;
+#[cfg(test)]
+mod tests;
