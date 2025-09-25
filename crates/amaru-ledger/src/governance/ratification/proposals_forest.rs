@@ -30,6 +30,7 @@ use std::{
     fmt,
     rc::Rc,
 };
+use tracing::debug;
 
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 
@@ -253,7 +254,6 @@ impl ProposalsForest {
 
     /// Get the current roots of the forest.
     pub fn roots(&self) -> ProposalsRootsRc {
-        // NOTE: clone are cheap here, because everything is an `Rc`.
         ProposalsRootsRc {
             protocol_parameters: self.protocol_parameters.root(),
             hard_fork: self.hard_fork.root(),
@@ -421,14 +421,15 @@ impl ProposalsForestCompass {
         //   or nice polls; but as soon as one of the other is encountered; EVERYTHING (including
         //   treasury withdrawals and parameters changes) is postponed until the next epoch.
         if forest.is_interrupted {
+            debug!("high-impact proposal was enacted; pausing ratification for this epoch");
             return None;
         }
 
         loop {
-            let result: Option<(
+            let mut process_next = || -> Option<(
                 Rc<ComparableProposalId>,
                 (&'forest ProposalEnum, &'forest ProposalPointer),
-            )> = {
+            )> {
                 let id = forest.sequence.get(self.cursor)?.clone();
 
                 let ProposedIn {
@@ -453,6 +454,7 @@ impl ProposalsForestCompass {
                 // for ratification. If a proposal was submitted in the epoch that just ended, we
                 // skip it.
                 if proposed_in >= &forest.current_epoch {
+                    debug!(id = %id, reason = "too fresh; ratification will begin next epoch", "skipping proposal");
                     return None;
                 }
 
@@ -465,6 +467,7 @@ impl ProposalsForestCompass {
                         .values()
                         .fold(0_u64, |total, n| total.saturating_add(*n));
                     if total_withdrawn > forest.treasury() {
+                        debug!(id = %id, reason = "impossible withdrawal; treasury is depleted", "skipping proposal");
                         return None;
                     }
                 }
@@ -477,6 +480,7 @@ impl ProposalsForestCompass {
                     let is_now_invalid =
                         |valid_until| valid_until > &(forest.current_epoch + max_term_length);
                     if added.values().any(is_now_invalid) {
+                        debug!(id = %id, reason = "new committee has invalid members; term length beyond limit", "skipping proposal");
                         return None;
                     }
                 }
@@ -493,9 +497,12 @@ impl ProposalsForestCompass {
                 if forest.matching_root(proposal) {
                     Some((id, (proposal, pointer)))
                 } else {
+                    debug!(id = %id, reason = "non-matching root", "skipping proposal");
                     None
                 }
             };
+
+            let result = process_next();
 
             if result.is_some() || self.cursor >= self.original_len {
                 return result;

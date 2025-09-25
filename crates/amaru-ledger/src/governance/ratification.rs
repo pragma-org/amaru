@@ -27,7 +27,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
 };
-use tracing::{Span, debug_span, field, info, info_span, trace_span};
+use tracing::{Level, Span, debug_span, field, info, info_span, instrument, trace_span};
 
 mod constitutional_committee;
 pub use constitutional_committee::ConstitutionalCommittee;
@@ -88,14 +88,22 @@ pub type StoreUpdate<'distr, S> =
     Box<dyn FnOnce(&S, &RatificationContext<'distr>) -> Result<(), StoreError>>;
 
 impl<'distr> RatificationContext<'distr> {
+    #[instrument(
+        level = Level::INFO,
+        skip_all,
+        fields(
+            roots.protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
+            roots.hard_fork = opt_root(roots.hard_fork.as_deref()),
+            roots.constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
+            roots.constitution = opt_root(roots.constitution.as_deref()),
+        ),
+    )]
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
         era_history: &EraHistory,
         proposals: Vec<(ComparableProposalId, proposals::Row)>,
         roots: ProposalsRootsRc,
     ) -> Result<RatificationResult<'distr, S>, RatificationInternalError> {
-        info_roots(&roots);
-
         // A forest (i.e. a multitude of trees) that tracks what proposals needs to be ratified,
         // in what order and what are the relationships between proposals; such that, when a
         // proposal is enacted, conflicting proposals (those pointing at the same parent) are
@@ -168,7 +176,6 @@ impl<'distr> RatificationContext<'distr> {
         // Finally, replace the roots in the store. Note that this is pretty much a no-op when no
         // proposals are ratified; but it's just one db key/value update.
         let new_roots = forest.roots();
-        info_roots(&new_roots);
         store_updates.push(Box::new(move |db, _ctx| db.set_proposals_roots(&new_roots)));
 
         Ok(RatificationResult {
@@ -544,18 +551,9 @@ fn partition_votes(
     )
 }
 
-fn info_roots(roots: &ProposalsRootsRc) {
-    fn opt_root(opt: Option<&ComparableProposalId>) -> String {
-        opt.map(|r| r.to_compact_string())
-            .unwrap_or_else(|| "none".to_string())
-    }
-
-    info!(
-        "roots.protocol_parameters" = opt_root(roots.protocol_parameters.as_deref()),
-        "roots.hard_fork" = opt_root(roots.hard_fork.as_deref()),
-        "roots.constitutional_committee" = opt_root(roots.constitutional_committee.as_deref()),
-        "roots.constitution" = opt_root(roots.constitution.as_deref()),
-    );
+fn opt_root(opt: Option<&ComparableProposalId>) -> String {
+    opt.map(|r| r.to_compact_string())
+        .unwrap_or_else(|| "none".to_string())
 }
 
 // Tests
