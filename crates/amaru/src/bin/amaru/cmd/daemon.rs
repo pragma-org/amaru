@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::pid::PIDFile;
 use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
@@ -22,9 +23,7 @@ use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, time::Duration};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-use tracing::error;
-use tracing::trace;
-use tracing::warn;
+use tracing::{debug, error, trace, warn};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -77,14 +76,29 @@ pub struct Args {
         default_value_t = MaxExtraLedgerSnapshots::default(),
     )]
     max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
+
+    /// Path to the PID file, managed by Amaru.
+    #[arg(long, value_name = "DIR", env = "AMARU_PID_FILE")]
+    pid_file: Option<PathBuf>,
 }
 
 pub async fn run(
     args: Args,
     meter_provider: Option<SdkMeterProvider>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let config = parse_args(args)?;
+    let _pid_file = args.pid_file.as_ref().map(|path| {
+        PIDFile::new(path)
+            .inspect(|pid_file| {
+                debug!(
+                    "created PID File {}, current PID: {}",
+                    pid_file,
+                    pid_file.pid()
+                )
+            })
+            .inspect_err(|e| warn!("failed to create or write to PID file: {} ", e))
+    });
 
+    let config = parse_args(args)?;
     pre_flight_checks()?;
 
     let metrics = meter_provider
