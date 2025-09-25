@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::block_effects::FetchBlockEffect;
+use crate::consensus::effects::NetworkOps;
+use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::events::{ValidateBlockEvent, ValidateHeaderEvent};
 use crate::consensus::span::adopt_current_span;
 use amaru_kernel::{Point, RawBlock, peer::Peer};
 use amaru_ouroboros_traits::{CanFetchBlock, IsHeader};
 use async_trait::async_trait;
-use pure_stage::{Effects, StageRef};
+use pure_stage::StageRef;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -37,30 +38,32 @@ type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
 pub async fn stage(
     (downstream, errors): State,
     msg: ValidateHeaderEvent,
-    eff: Effects<ValidateHeaderEvent>,
+    eff: impl ConsensusOps,
 ) -> State {
     adopt_current_span(&msg);
     match msg {
         ValidateHeaderEvent::Validated { peer, header, span } => {
             let point = header.point();
-            match eff
-                .external(FetchBlockEffect::new(peer.clone(), point.clone()))
-                .await
-            {
+            match eff.network().fetch_block(&peer, &point).await {
                 Ok(block) => {
                     let block = RawBlock::from(&*block);
-                    eff.send(
-                        &downstream,
-                        ValidateBlockEvent::Validated {
-                            peer,
-                            header,
-                            block,
-                            span,
-                        },
-                    )
-                    .await
+                    eff.base()
+                        .send(
+                            &downstream,
+                            ValidateBlockEvent::Validated {
+                                peer,
+                                header,
+                                block,
+                                span,
+                            },
+                        )
+                        .await
                 }
-                Err(e) => eff.send(&errors, ValidationFailed::new(&peer, e)).await,
+                Err(e) => {
+                    eff.base()
+                        .send(&errors, ValidationFailed::new(&peer, e))
+                        .await
+                }
             }
         }
         ValidateHeaderEvent::Rollback {
@@ -69,7 +72,7 @@ pub async fn stage(
             span,
             ..
         } => {
-            eff.send(
+            eff.base().send(
                 &downstream,
                 ValidateBlockEvent::Rollback {
                     peer,
@@ -108,7 +111,7 @@ impl ClientsBlockFetcher {
                 .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?
         };
         client
-            .fetch_block(point)
+            .fetch_block(peer, point)
             .await
             .map_err(|e| {
                 error!(target: "amaru::consensus", "failed to fetch block from peer {}: {}", peer.name, e);

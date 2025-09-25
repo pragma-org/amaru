@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::effects::store_effects::ResourceHeaderValidation;
+use amaru_consensus::consensus::effects::{ConsensusEffects, ResourceHeaderValidation};
 use amaru_consensus::consensus::errors::{ProcessingFailed, ValidationFailed};
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
@@ -23,7 +23,7 @@ use amaru_consensus::consensus::stages::{
 };
 use amaru_consensus::consensus::tip::HeaderTip;
 use amaru_kernel::protocol_parameters::GlobalParameters;
-use pure_stage::{StageGraph, StageRef};
+use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the consensus protocol.
 /// The output of the graph is passed as a parameter, allowing the caller to
@@ -35,14 +35,14 @@ pub fn build_stage_graph(
     our_tip: HeaderTip,
     network: &mut impl StageGraph,
 ) -> StageRef<ChainSyncEvent> {
-    let receive_header_stage = network.stage("receive_header", receive_header::stage);
-    let store_header_stage = network.stage("store_header", store_header::stage);
-    let validate_header_stage = network.stage("validate_header", validate_header::stage);
-    let select_chain_stage = network.stage("select_chain", select_chain::stage);
-    let fetch_block_stage = network.stage("fetch_block", fetch_block::stage);
-    let store_block_stage = network.stage("store_block", store_block::stage);
-    let validate_block_stage = network.stage("validate_block", validate_block::stage);
-    let forward_chain_stage = network.stage("forward_chain", forward_chain::stage);
+    let receive_header_stage = network.stage("receive_header", consensus(receive_header::stage));
+    let store_header_stage = network.stage("store_header", consensus(store_header::stage));
+    let validate_header_stage = network.stage("validate_header", consensus(validate_header::stage));
+    let select_chain_stage = network.stage("select_chain", consensus(select_chain::stage));
+    let fetch_block_stage = network.stage("fetch_block", consensus(fetch_block::stage));
+    let store_block_stage = network.stage("store_block", consensus(store_block::stage));
+    let validate_block_stage = network.stage("validate_block", consensus(validate_block::stage));
+    let forward_chain_stage = network.stage("forward_chain", consensus(forward_chain::stage));
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
     let validation_errors_stage = network.stage(
@@ -125,4 +125,16 @@ pub fn build_stage_graph(
     );
 
     receive_header_stage.without_state()
+}
+
+fn consensus<Msg, St, F1, Fut>(
+    mut f: F1,
+) -> impl FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send
+where
+    F1: FnMut(St, Msg, ConsensusEffects<Msg>) -> Fut + 'static + Send,
+    Fut: Future<Output = St> + 'static + Send,
+    Msg: SendData + serde::de::DeserializeOwned + Sync,
+    St: SendData,
+{
+    move |state, message, effects| f(state, message, ConsensusEffects::new(effects))
 }

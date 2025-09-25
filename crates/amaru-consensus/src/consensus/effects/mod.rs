@@ -12,7 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod block_effects;
-pub mod metrics_effects;
-pub mod network_effects;
-pub mod store_effects;
+mod base_effects;
+mod consensus_effects;
+mod metrics_effects;
+mod ledger_effects;
+mod network_effects;
+mod store_effects;
+
+pub use base_effects::BaseOps;
+pub use consensus_effects::{ConsensusEffects, ConsensusOps};
+pub use ledger_effects::{LedgerOps, ResourceBlockValidation, ResourceHeaderValidation};
+pub use network_effects::{NetworkOps, ResourceBlockFetcher};
+pub use store_effects::{ResourceHeaderStore, ResourceParameters, StoreOps};
+
+#[cfg(test)]
+pub use consensus_effects::tests::*;
