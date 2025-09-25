@@ -663,7 +663,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     fn add_drep_delegations(
         &self,
-        delegations: impl IntoIterator<Item = (StakeCredential, DRep)>,
+        delegations: impl IntoIterator<Item = (StakeCredential, DRep, CertificatePointer)>,
     ) -> Result<(), StoreError> {
         dreps_delegations::add(&self.db, delegations.into_iter())
     }

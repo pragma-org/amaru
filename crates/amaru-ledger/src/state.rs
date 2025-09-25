@@ -53,9 +53,10 @@ use thiserror::Error;
 use tracing::{Level, Span, debug, error, info, instrument, trace, warn};
 use volatile_db::AnchoredVolatileState;
 
-use crate::context::DefaultValidationContext;
-use crate::rules::block::BlockValidation;
-use crate::rules::parse_block;
+use crate::{
+    context::DefaultValidationContext,
+    rules::{block::BlockValidation, parse_block},
+};
 pub use volatile_db::VolatileState;
 
 pub mod diff_bind;

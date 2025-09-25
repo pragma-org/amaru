@@ -35,6 +35,18 @@ use tracing::{error, warn};
 /// Name prefixed used for storing DReps entries. UTF-8 encoding for "drep"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
 
+/// Retrieve a single DRep
+pub fn get<DB>(
+    db: &Transaction<'_, DB>,
+    credential: &StakeCredential,
+) -> Result<Option<Row>, StoreError> {
+    let key = as_key(&PREFIX, credential);
+    Ok(db
+        .get(&key)
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(unsafe_decode::<Row>))
+}
+
 /// Register a new DRep.
 pub fn add<DB>(
     db: &Transaction<'_, DB>,

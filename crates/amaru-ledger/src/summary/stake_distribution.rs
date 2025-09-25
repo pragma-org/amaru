@@ -23,7 +23,7 @@ use crate::{
 };
 use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
 use amaru_kernel::{
-    DRep, HasLovelace, Lovelace, Network, PROTOCOL_VERSION_9, PoolId, StakeCredential,
+    DRep, HasLovelace, Lovelace, Network, PROTOCOL_VERSION_9, PoolId, Slot, StakeCredential,
     expect_stake_credential, output_stake_credential, protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Epoch;

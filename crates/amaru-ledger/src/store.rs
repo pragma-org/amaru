@@ -338,7 +338,7 @@ pub trait TransactionalContext<'a>: ReadStore {
     /// Import delegation relationships between delegators and dreps.
     fn add_drep_delegations(
         &self,
-        delegations: impl IntoIterator<Item = (StakeCredential, DRep)>,
+        delegations: impl IntoIterator<Item = (StakeCredential, DRep, CertificatePointer)>,
     ) -> Result<()>;
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.

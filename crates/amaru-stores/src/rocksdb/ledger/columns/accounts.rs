@@ -45,7 +45,7 @@ pub fn reset_delegation<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
 ) -> Result<(), StoreError> {
-    for (credential, unregistered_at) in rows {
+    for (credential, _unregistered_at) in rows {
         let key = as_key(&PREFIX, &credential);
 
         let entry = db
@@ -53,10 +53,7 @@ pub fn reset_delegation<DB>(
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(unsafe_decode::<Row>);
 
-        if let Some(mut row) = entry
-            && let Some((_, delegated_since)) = row.drep
-            && delegated_since < unregistered_at
-        {
+        if let Some(mut row) = entry {
             row.drep = None;
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
@@ -71,7 +68,7 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
     protocol_version: ProtocolVersion,
-) -> Result<Vec<(StakeCredential, DRep)>, StoreError> {
+) -> Result<Vec<(StakeCredential, DRep, CertificatePointer)>, StoreError> {
     let mut previous_delegations = Vec::new();
 
     for (credential, (pool, drep, deposit, rewards)) in rows {
@@ -129,12 +126,12 @@ pub fn add<DB>(
         // So, we do keep track of past delegations in v9, but only when the new DRep isn't a
         // pre-defined DRep. In this particular case, the bug doesn't apply. Joy.
         if protocol_version <= PROTOCOL_VERSION_9
-            && let Some((previous_drep, _ptr)) = previous_drep
+            && let Some((previous_drep, since)) = previous_drep
         {
             if is_predefined_drep {
                 dreps_delegations::remove(db, &previous_drep, &credential)?;
             } else {
-                previous_delegations.push((credential, previous_drep));
+                previous_delegations.push((credential, previous_drep, since));
             }
         }
     }

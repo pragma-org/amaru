@@ -512,7 +512,7 @@ fn import_dreps<S: Store>(
 
     info!(size = dreps.len(), "dreps");
 
-    let mut delegations: Vec<(StakeCredential, DRep)> = Vec::new();
+    let mut delegations: Vec<(StakeCredential, DRep, CertificatePointer)> = Vec::new();
 
     transaction.save(
         era_history,
@@ -549,6 +549,7 @@ fn import_dreps<S: Store>(
                             StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
                             StakeCredential::ScriptHash(hash) => DRep::Script(hash),
                         },
+                        registered_at,
                     ))
                 });
 
@@ -772,10 +773,18 @@ fn import_accounts(
                                 .map(|pool| (pool, *DEFAULT_CERTIFICATE_POINTER)),
                         ),
                         //No slot to retrieve. All registrations coming from snapshot are considered valid.
-                        Resettable::from(
-                            Option::<DRep>::from(drep)
-                                .map(|drep| (drep, *DEFAULT_CERTIFICATE_POINTER)),
-                        ),
+                        Resettable::from(Option::<DRep>::from(drep).map(|drep| {
+                            (
+                                drep,
+                                CertificatePointer {
+                                    transaction: TransactionPointer {
+                                        slot: point.slot_or_default(),
+                                        ..TransactionPointer::default()
+                                    },
+                                    ..CertificatePointer::default()
+                                },
+                            )
+                        })),
                         Some(deposit),
                         rewards + rewards_update,
                     ),
