@@ -110,7 +110,16 @@ if (fs.existsSync(configFile)) {
 
   await fetchSpecificPoints(points, snapshots, additionalStakeKeys, additionalStakeScripts);
 } else {
-  await fetchContinuously();
+  const run = async (retry) => {
+    try {
+      await retry();
+    } catch (e) {
+      console.log(e);
+      await run(retry);
+    }
+  };
+
+  await run(fetchContinuously);
 }
 
 async function fetchContinuously() {
@@ -345,86 +354,7 @@ function fetchRewardsProvenance(ws) {
 }
 
 async function fetchDReps(ws, stakePools = {}) {
-  let dreps = await ws.queryLedgerState("delegateRepresentatives");
-
-  let abstain = dreps.find((drep) => drep.type === "abstain") ?? { stake: { ada: { lovelace: 0 } } };
-
-  let noConfidence = dreps.find((drep) => drep.type === "noConfidence") ?? { stake: { ada: { lovelace: 0 } } };
-
-  // TODO: Fix Ledger-State Query protocol...
-  //
-  // 'abstain' and 'noConfidence' do not contain their delegators. So we do a
-  // best attempt at resolving them. We can't easily obtain a list of all
-  // registered stake account either; so we instead use all the
-  // delegators we know to pools and look amongst them.
-  //
-  // We add 'additionalStakeKeys' and 'additionalStakeScripts' for those
-  // delegators that would be:
-  //
-  // a. Not delegating to any pool
-  // b. Delegating to an abstain or noConfidence drep
-  //
-  // These additions are very much empiric; they will first manifest as a
-  // snapshot mismatch when we test. The generated snapshots will
-  // indicate a `null` drep, whereas Amaru would yield `abstain` or
-  // `noConfidence`.
-  //
-  // Note that this is far from ideal, because cases where we (amaru) fail to
-  // correctly identify a delegation will simply go unnoticed. But this
-  // isn't easily fixable without altering the state query client
-  // protocol at the node's level -- or, by resorting to using a debug
-  // new epoch state snapshot.
-  let { verificationKey: keys, script: scripts } = Object.keys(stakePools).reduce((accum, pool) => {
-    stakePools[pool].delegators?.forEach((delegator) => {
-      accum[delegator.from].add(delegator.credential);
-    });
-
-    return accum;
-  }, { verificationKey: new Set(), script: new Set() });
-
-  const drepsMap = dreps.reduce((accum, drep) => {
-    drep.delegators?.forEach((delegator) => {
-      if (delegator.from === "verificationKey") {
-        keys.add(delegator.credential);
-      } else {
-        scripts.add(delegator.credential);
-      }
-    });
-
-    drep.delegators = [];
-
-    if (drep.type === "registered") {
-      accum[drep.from][drep.id] = drep;
-    }
-
-    return accum;
-  }, { verificationKey: {}, script: {} });
-
-
-  const summaries = await ws.queryLedgerState("rewardAccountSummaries", {
-    keys: Array.from(keys).concat(additionalStakeKeys),
-    scripts: Array.from(scripts).concat(additionalStakeScripts),
-  });
-
-  // There's also a bug in the ledger where the DRep state may still contain
-  // now-removed delegations. So we cannot trust the data coming from the
-  // `delegateRepresentatives` endpoint when it comes to delegators
-  // (as it's always a superset).
-  //
-  // But we can trust the one from 'rewardAccountSummaries'. So we aren't only
-  // recovering delegators for abstain and no-confidence roles, but also repairing
-  // the drep delegators altogether.
-  summaries.forEach(({ from, credential, delegateRepresentative: drep }) => {
-    if (drep?.type === "abstain") {
-      abstain.delegators.push({ from, credential });
-    } else if (drep?.type === "noConfidence") {
-      noConfidence.delegators.push({ from, credential });
-    } else if (drep) {
-      drepsMap[drep.from][drep.id]?.delegators.push({ from, credential });
-    }
-  });
-
-  return dreps;
+  return ws.queryLedgerState("delegateRepresentatives");
 }
 
 function findEra(eraSummaries, slot) {
