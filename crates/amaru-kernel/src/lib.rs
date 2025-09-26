@@ -176,8 +176,7 @@ pub mod tests {
         vote::tests::*,
     };
     use proptest::prelude::*;
-    use rand::SeedableRng;
-    use rand::prelude::StdRng;
+    use rand::{SeedableRng, prelude::StdRng};
 
     prop_compose! {
         pub fn any_key_hash()(bytes in any::<[u8; 28]>()) -> Hash<28> {
