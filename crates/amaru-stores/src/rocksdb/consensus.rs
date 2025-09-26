@@ -143,7 +143,7 @@ macro_rules! impl_ReadOnlyChainStore {
                 for kv in self
                     .db
                     .prefix_iterator(&CHILD_PREFIX) {
-                    let (k, _v) = kv.expect("error iterating over children CF");
+                    let (k, _v) = kv.expect("error iterating over children keys");
 
                     // Stop once we exit the "child" namespace
                     if !k.starts_with(&CHILD_PREFIX) {
