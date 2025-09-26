@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::network_effects::{ForwardEvent, ForwardEventEffect};
+use crate::consensus::effects::BaseOps;
+use crate::consensus::effects::ConsensusEffects;
+use crate::consensus::effects::NetworkOps;
 use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
 use crate::consensus::events::BlockValidationResult;
 use crate::consensus::span::adopt_current_span;
@@ -20,7 +22,7 @@ use crate::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::Point;
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
-use pure_stage::{Effects, StageRef};
+use pure_stage::StageRef;
 use tracing::{Level, error, info, instrument, trace};
 
 pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
@@ -42,7 +44,7 @@ type State = (
 pub async fn stage(
     state: State,
     msg: BlockValidationResult,
-    eff: Effects<BlockValidationResult>,
+    eff: ConsensusEffects<BlockValidationResult>,
 ) -> State {
     adopt_current_span(&msg);
     let (mut our_tip, validation_errors, processing_errors) = state;
@@ -62,10 +64,8 @@ pub async fn stage(
             );
 
             if let Err(e) = eff
-                .external(ForwardEventEffect::new(
-                    &peer,
-                    ForwardEvent::Forward(header.clone()),
-                ))
+                .network()
+                .send_forward_event(&peer, header.clone())
                 .await
             {
                 error!(
@@ -73,7 +73,8 @@ pub async fn stage(
                     %e,
                     "failed to send forward event"
                 );
-                eff.send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
+                eff.base()
+                    .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
                     .await
             }
         }
@@ -90,10 +91,8 @@ pub async fn stage(
 
             our_tip = rollback_header.as_header_tip();
             if let Err(e) = eff
-                .external(ForwardEventEffect::new(
-                    &peer,
-                    ForwardEvent::Backward(rollback_header.as_header_tip()),
-                ))
+                .network()
+                .send_backward_event(&peer, rollback_header.as_header_tip())
                 .await
             {
                 error!(
@@ -101,7 +100,8 @@ pub async fn stage(
                     %e,
                     "failed to send backward event"
                 );
-                eff.send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
+                eff.base()
+                    .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
                     .await
             }
         }

@@ -20,16 +20,11 @@ use crate::simulator::simulate::simulate;
 use crate::simulator::{Args, Chain, History, NodeHandle, SimulateConfig};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
-use amaru_consensus::consensus::effects::ResourceBlockFetcher;
 use amaru_consensus::consensus::effects::{
-    ResourceBlockValidation, ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
-use amaru_consensus::consensus::effects::block_effects::ResourceBlockFetcher;
-use amaru_consensus::consensus::effects::network_effects::{
-    ForwardEvent, ForwardEventListener, ResourceForwardEventListener,
+    ForwardEvent, ForwardEventListener, ResourceForwardEventListener, ResourceHeaderStore,
+    ResourceHeaderValidation, ResourceParameters,
 };
-use amaru_consensus::consensus::effects::store_effects::{
-    ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
-};
+use amaru_consensus::consensus::effects::{ResourceBlockFetcher, ResourceBlockValidation};
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::headers_tree::HeadersTree;
@@ -37,7 +32,6 @@ use amaru_consensus::consensus::stages::fetch_block::BlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::{
     DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain,
 };
-use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
 use amaru_consensus::consensus::tip::HeaderTip;
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;

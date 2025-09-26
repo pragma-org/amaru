@@ -72,15 +72,16 @@ pub async fn stage(
             span,
             ..
         } => {
-            eff.base().send(
-                &downstream,
-                ValidateBlockEvent::Rollback {
-                    peer,
-                    rollback_header: rollback_point,
-                    span,
-                },
-            )
-            .await
+            eff.base()
+                .send(
+                    &downstream,
+                    ValidateBlockEvent::Rollback {
+                        peer,
+                        rollback_header: rollback_point,
+                        span,
+                    },
+                )
+                .await
         }
     }
     (downstream, errors)
