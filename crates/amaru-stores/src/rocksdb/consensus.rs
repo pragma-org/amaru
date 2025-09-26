@@ -36,6 +36,9 @@ impl RocksDBStore {
     pub fn new(basedir: &PathBuf, era_history: &EraHistory) -> Result<Self, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
+        opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
+            CONSENSUS_PREFIX_LEN,
+        ));
         Ok(Self {
             db: OptimisticTransactionDB::open(&opts, basedir).map_err(|e| {
                 StoreError::OpenError {
@@ -145,17 +148,11 @@ macro_rules! impl_ReadOnlyChainStore {
                     .prefix_iterator(&CHILD_PREFIX) {
                     let (k, _v) = kv.expect("error iterating over children keys");
 
-                    // Stop once we exit the "child" namespace
-                    if !k.starts_with(&CHILD_PREFIX) {
-                        break;
-                    }
-
                     // Key layout: [CHILD_PREFIX][parent][child]
                     let parent_start = CONSENSUS_PREFIX_LEN;
                     let parent_end = parent_start + HEADER_HASH_SIZE;
                     let child_start = parent_end;
                     let child_end = child_start + HEADER_HASH_SIZE;
-                    if k.len() < child_end { continue; }
 
                     let mut parent_arr = [0u8; HEADER_HASH_SIZE];
                     parent_arr.copy_from_slice(&k[parent_start..parent_end]);
@@ -194,7 +191,9 @@ macro_rules! impl_ReadOnlyChainStore {
                 for res in self.db.prefix_iterator(&prefix) {
                     match res {
                         Ok((key, _value)) => {
-                            // Stop once we get keys that don't start with the required prefix
+                            // Stop once we get keys that don't start with the required prefix.
+                            // prefix_iterator is set to a fixed CONSENSUS_PREFIX_LEN length prefix,
+                            // so it may return keys that are not strictly within the desired range.
                             if !key.starts_with(&prefix) {
                                 break;
                             }
