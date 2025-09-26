@@ -17,10 +17,7 @@ use amaru_kernel::{HEADER_HASH_SIZE, Hash, RawBlock, cbor, from_cbor, to_cbor};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use amaru_slot_arithmetic::EraHistory;
-use rocksdb::{
-    ColumnFamilyDescriptor, DB, Direction, IteratorMode, OptimisticTransactionDB, Options,
-    SliceTransform,
-};
+use rocksdb::{DB, OptimisticTransactionDB, Options};
 use std::ops::Deref;
 use std::path::PathBuf;
 use tracing::{Level, instrument};
@@ -37,36 +34,17 @@ pub struct ReadOnlyChainDB {
 
 impl RocksDBStore {
     pub fn new(basedir: &PathBuf, era_history: &EraHistory) -> Result<Self, StoreError> {
-        // Default CF options (namespaced keys: blocks, nonces, anchor, best_chain)
-        let mut default_opts = Options::default();
-        default_opts.create_if_missing(true);
-        default_opts
-            .set_prefix_extractor(SliceTransform::create_fixed_prefix(CONSENSUS_PREFIX_LEN));
-
-        // Children CF options (keys: "child" || parent_hash || child_hash)
-        let mut children_opts = Options::default();
-        children_opts.create_if_missing(true);
-        children_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(
-            CONSENSUS_PREFIX_LEN + HEADER_HASH_SIZE,
-        ));
-
-        let cfs = vec![
-            ColumnFamilyDescriptor::new(DEFAULT_CF, default_opts),
-            ColumnFamilyDescriptor::new(CHILDREN_CF, children_opts),
-        ];
-
         let mut opts = Options::default();
         opts.create_if_missing(true);
-        opts.create_missing_column_families(true);
-        let db =
-            OptimisticTransactionDB::open_cf_descriptors(&opts, basedir, cfs).map_err(|e| {
+        opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
+            CONSENSUS_PREFIX_LEN,
+        ));
+        Ok(Self {
+            db: OptimisticTransactionDB::open(&opts, basedir).map_err(|e| {
                 StoreError::OpenError {
                     error: e.to_string(),
                 }
-            })?;
-
-        Ok(Self {
-            db,
+            })?,
             basedir: basedir.clone(),
             era_history: era_history.clone(),
         })
@@ -75,23 +53,17 @@ impl RocksDBStore {
     pub fn open_for_readonly(basedir: &PathBuf) -> Result<ReadOnlyChainDB, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(false);
-        let cf_names = vec![DEFAULT_CF, CHILDREN_CF];
-        let db = DB::open_cf_for_read_only(&opts, basedir, cf_names, false).map_err(|e| {
-            StoreError::OpenError {
+        DB::open_for_read_only(&opts, basedir, false)
+            .map_err(|e| StoreError::OpenError {
                 error: e.to_string(),
-            }
-        })?;
-        Ok(ReadOnlyChainDB { db })
+            })
+            .map(|db| ReadOnlyChainDB { db })
     }
 
     pub fn create_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
         self.db.transaction()
     }
 }
-
-const DEFAULT_CF: &str = "default";
-
-const CHILDREN_CF: &str = "children";
 
 const CONSENSUS_PREFIX_LEN: usize = 5;
 
@@ -167,29 +139,20 @@ macro_rules! impl_ReadOnlyChainStore {
             }
 
             fn load_parents_children(&self) -> Box<dyn Iterator<Item=(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_> {
-                let cf = self.db.cf_handle(CHILDREN_CF).expect("missing children CF");
-                let iter = self
-                    .db
-                    .iterator_cf(&cf, IteratorMode::From(&CHILD_PREFIX, Direction::Forward));
-
                 let mut groups: Vec<(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> = Vec::new();
                 let mut current_parent: Option<Hash<HEADER_HASH_SIZE>> = None;
                 let mut current_children: Vec<Hash<HEADER_HASH_SIZE>> = Vec::new();
 
-                for kv in iter {
-                    let (k, _v) = kv.expect("error iterating over children CF");
-
-                    // Stop once we exit the "child" namespace
-                    if !k.starts_with(&CHILD_PREFIX) {
-                        break;
-                    }
+                for kv in self
+                    .db
+                    .prefix_iterator(&CHILD_PREFIX) {
+                    let (k, _v) = kv.expect("error iterating over children keys");
 
                     // Key layout: [CHILD_PREFIX][parent][child]
                     let parent_start = CONSENSUS_PREFIX_LEN;
                     let parent_end = parent_start + HEADER_HASH_SIZE;
                     let child_start = parent_end;
                     let child_end = child_start + HEADER_HASH_SIZE;
-                    if k.len() < child_end { continue; }
 
                     let mut parent_arr = [0u8; HEADER_HASH_SIZE];
                     parent_arr.copy_from_slice(&k[parent_start..parent_end]);
@@ -225,10 +188,15 @@ macro_rules! impl_ReadOnlyChainStore {
             fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>> {
                 let mut result = Vec::new();
                 let prefix = [&CHILD_PREFIX[..], &hash[..]].concat();
-                let cf = self.db.cf_handle(CHILDREN_CF).expect("missing children CF");
-                for res in self.db.prefix_iterator_cf(&cf, &prefix) {
+                for res in self.db.prefix_iterator(&prefix) {
                     match res {
                         Ok((key, _value)) => {
+                            // Stop once we get keys that don't start with the required prefix.
+                            // prefix_iterator is set to a fixed CONSENSUS_PREFIX_LEN length prefix,
+                            // so it may return keys that are not strictly within the desired range.
+                            if !key.starts_with(&prefix) {
+                                break;
+                            }
                             let mut arr = [0u8; HEADER_HASH_SIZE];
                             arr.copy_from_slice(&key[(CONSENSUS_PREFIX_LEN + HEADER_HASH_SIZE)..]);
                             result.push(Hash::from(arr));
@@ -306,17 +274,11 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();
         let tx = self.db.transaction();
-        if let Some(parent) = header.parent()
-            && let Some(cf) = self.db.cf_handle(CHILDREN_CF)
-        {
-            tx.put_cf(
-                &cf,
-                [&CHILD_PREFIX[..], &parent[..], &hash[..]].concat(),
-                [],
-            )
-            .map_err(|e| StoreError::WriteError {
-                error: e.to_string(),
-            })?;
+        if let Some(parent) = header.parent() {
+            tx.put([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat(), [])
+                .map_err(|e| StoreError::WriteError {
+                    error: e.to_string(),
+                })?;
         };
         tx.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header))
             .map_err(|e| StoreError::WriteError {
