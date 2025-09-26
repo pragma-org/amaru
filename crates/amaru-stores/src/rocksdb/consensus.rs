@@ -416,11 +416,9 @@ pub mod test {
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
     use amaru_kernel::{Nonce, ORIGIN_HASH};
-    use amaru_ouroboros_traits::fake::tests::{any_fake_header, any_headers_chain_sized};
+    use amaru_ouroboros_traits::fake::tests::{any_fake_header, any_headers_chain_sized, run};
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use amaru_ouroboros_traits::is_header::fake::FakeHeader;
-    use proptest::strategy::{Strategy, ValueTree};
-    use proptest::test_runner::TestRunner;
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
@@ -665,10 +663,6 @@ pub mod test {
     }
 
     // HELPERS
-    fn run<T>(s: impl Strategy<Value = T>) -> T {
-        let mut runner = TestRunner::default();
-        s.new_tree(&mut runner).unwrap().current()
-    }
 
     fn with_db(f: impl Fn(Arc<dyn ChainStore<FakeHeader>>)) {
         // try first with in-memory store

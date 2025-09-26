@@ -172,7 +172,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for FakeHeader {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
+    use amaru_kernel::{Bytes, HeaderBody, PseudoHeader};
+    use pallas_primitives::VrfCert;
+    use pallas_primitives::babbage::OperationalCert;
     use proptest::prelude::*;
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
     use std::cmp::max;
 
     /// Create a list of arbitrary fake headers starting from a root, and where chain[i] is the parent of chain[i+1]
@@ -217,5 +222,40 @@ pub mod tests {
                 parent,
                 body_hash,
             })
+    }
+
+    pub fn any_header() -> impl Strategy<Value = Header> {
+        (
+            0u64..=1_000_000,
+            0u64..=1_000_000,
+            prop::option::weighted(0.01, any_header_hash()),
+        )
+            .prop_map(|(block_number, slot, prev_hash)| PseudoHeader {
+                header_body: HeaderBody {
+                    block_number,
+                    slot,
+                    prev_hash,
+                    issuer_vkey: Bytes::from(vec![]),
+                    vrf_vkey: Bytes::from(vec![]),
+                    vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
+                    block_body_size: 0,
+                    block_body_hash: Hash::<32>::from([0u8; 32]),
+                    operational_cert: OperationalCert {
+                        operational_cert_hot_vkey: Bytes::from(vec![]),
+                        operational_cert_sequence_number: 0,
+                        operational_cert_kes_period: 0,
+                        operational_cert_sigma: Bytes::from(vec![]),
+                    },
+                    protocol_version: (1, 2),
+                },
+                body_signature: Bytes::from(vec![]),
+            })
+    }
+
+    /// Run a strategy and return the generated value, panicking if generation fails.
+    #[expect(clippy::unwrap_used)]
+    pub fn run<T>(s: impl Strategy<Value = T>) -> T {
+        let mut runner = TestRunner::default();
+        s.new_tree(&mut runner).unwrap().current()
     }
 }
