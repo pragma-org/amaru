@@ -533,7 +533,7 @@ fn import_dreps<S: Store>(
                                 slot: point.slot_or_default(),
                                 ..TransactionPointer::default()
                             },
-                            ..CertificatePointer::default()
+                            certificate_index: 0,
                         });
 
                 let registration = DRepRegistration {
@@ -781,7 +781,10 @@ fn import_accounts(
                                         slot: point.slot_or_default(),
                                         ..TransactionPointer::default()
                                     },
-                                    ..CertificatePointer::default()
+                                    // NOTE: We use an index strictly larger than DRep registration
+                                    // certificates, to ensure that the imported delegations are
+                                    // considered valid (happened after DRep existence).
+                                    certificate_index: 1,
                                 },
                             )
                         })),

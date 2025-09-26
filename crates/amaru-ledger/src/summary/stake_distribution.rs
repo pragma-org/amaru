@@ -23,8 +23,8 @@ use crate::{
 };
 use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
 use amaru_kernel::{
-    DRep, HasLovelace, Lovelace, Network, PROTOCOL_VERSION_9, PoolId, Slot, StakeCredential,
-    expect_stake_credential, output_stake_credential, protocol_parameters::ProtocolParameters,
+    DRep, HasLovelace, Lovelace, Network, PoolId, StakeCredential, expect_stake_credential,
+    output_stake_credential, protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Epoch;
 use serde::ser::SerializeStruct;
@@ -147,18 +147,27 @@ impl StakeDistribution {
                             DRep::Abstain | DRep::NoConfidence => Some(drep),
                             DRep::Key { .. } | DRep::Script { .. } => {
                                 let DRepState {
-                                    registered_at,
                                     previous_deregistration,
                                     ..
                                 } = dreps.get(&drep)?;
 
-                                if protocol_parameters.protocol_version <= PROTOCOL_VERSION_9 {
-                                    if &Some(since) > previous_deregistration {
-                                        Some(drep)
-                                    } else {
-                                        None
-                                    }
-                                } else if &since >= registered_at {
+                                // NOTE: This is subtle. Delegation to a non-existing DRep was
+                                // authorized in PROTOCOL_VERSION_9.
+                                //
+                                // It became correctly validated by ledger rules after.
+                                //
+                                // This means that there are cases where a delegation starts
+                                // *before* a drep even existed. So we cannot simply check:
+                                //
+                                // 'if since > registered_at'
+                                //
+                                // It's also not correct to gate this condition by protocol version
+                                // because invalid such delegation may pre-exist in the database,
+                                // even when under PROTOCOL_VERSION_10.
+                                //
+                                // So we fallback to checking that no de-registration happened
+                                // post-delegation.
+                                if &Some(since) > previous_deregistration {
                                     Some(drep)
                                 } else {
                                     None

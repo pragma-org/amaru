@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::{PREFIX_LEN, as_value, dreps};
+use crate::rocksdb::{PREFIX_LEN, as_value};
 use ::rocksdb::{Direction, IteratorMode, ReadOptions, Transaction};
 use amaru_kernel::{
     CertificatePointer, DRep, StakeCredential, StakeCredentialType, display_collection,
@@ -41,7 +41,7 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (StakeCredential, DRep, CertificatePointer)>,
 ) -> Result<(), StoreError> {
-    for (delegator, drep, delegator_since) in rows {
+    for (delegator, drep, _delegator_since) in rows {
         let drep = match drep {
             DRep::Key(hash) => StakeCredential::AddrKeyhash(hash),
             DRep::Script(hash) => StakeCredential::ScriptHash(hash),
@@ -49,46 +49,12 @@ pub fn add<DB>(
             DRep::Abstain | DRep::NoConfidence => continue,
         };
 
-        // Check whether the DRep still exists and if the existing delegation is still ongoing. The
-        // latter is quite important in situation where one would
-        //
-        // - delegate to a DRep A
-        // - DRep A retires
-        // - re-delegate to a DRep B
-        // - DRep A re-registers
-        // - Drep A retires (again)
-        //
-        // At this point, the second retirement of A shouldn't affect the delegator; because that
-        // links was already cleared up when A retired.
-        if let Some(row) = dreps::get(db, &drep)? {
-            if let Some(previous_deregistration) = row.previous_deregistration
-                && previous_deregistration > delegator_since
-            {
-                debug!(
-                    drep.type = %StakeCredentialType::from(&drep),
-                    drep.hash = %stake_credential_hash(&drep),
-                    delegator.type = %StakeCredentialType::from(&delegator),
-                    delegator.hash = %stake_credential_hash(&delegator),
-                    "drep has unregistered since delegation; skipping mapping",
-                );
-                continue;
-            }
+        let mut key = PREFIX.to_vec();
+        key.extend_from_slice(as_value(&drep).as_slice());
+        key.extend_from_slice(as_value(&delegator).as_slice());
 
-            let mut key = PREFIX.to_vec();
-            key.extend_from_slice(as_value(&drep).as_slice());
-            key.extend_from_slice(as_value(&delegator).as_slice());
-
-            db.put(key, vec![])
-                .map_err(|err| StoreError::Internal(err.into()))?;
-        } else {
-            warn!(
-                drep.type = %StakeCredentialType::from(&drep),
-                drep.hash = %stake_credential_hash(&drep),
-                delegator.type = %StakeCredentialType::from(&delegator),
-                delegator.hash = %stake_credential_hash(&delegator),
-                "delegator was delegated to unknown drep",
-            );
-        }
+        db.put(key, vec![])
+            .map_err(|err| StoreError::Internal(err.into()))?;
     }
 
     Ok(())
