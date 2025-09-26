@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::{PREFIX_LEN, as_value};
+use crate::rocksdb::{PREFIX_LEN, as_value, dreps};
 use ::rocksdb::{Direction, IteratorMode, ReadOptions, Transaction};
 use amaru_kernel::{
     CertificatePointer, DRep, StakeCredential, StakeCredentialType, display_collection,
@@ -41,7 +41,7 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (StakeCredential, DRep, CertificatePointer)>,
 ) -> Result<(), StoreError> {
-    for (delegator, drep, _delegator_since) in rows {
+    for (delegator, drep, delegator_since) in rows {
         let drep = match drep {
             DRep::Key(hash) => StakeCredential::AddrKeyhash(hash),
             DRep::Script(hash) => StakeCredential::ScriptHash(hash),
@@ -49,12 +49,60 @@ pub fn add<DB>(
             DRep::Abstain | DRep::NoConfidence => continue,
         };
 
-        let mut key = PREFIX.to_vec();
-        key.extend_from_slice(as_value(&drep).as_slice());
-        key.extend_from_slice(as_value(&delegator).as_slice());
+        // Check whether the DRep still exists and if the existing delegation is still ongoing.
+        // This is, again, not intuitive but take the following scenario:
+        //
+        // - account delegates to Alice
+        // - Alices unregisters
+        // - Account delegates to Bob
+        // - Alices re-registers
+        // - Alice unregisters (again)
+        //
+        // When Alice first unregisters, we do not go and clean up all accounts from their existing
+        // delegation to Alice, we instead record certificate pointers. So when the account
+        // delegates to Bob, a binding Account -> Alice will percolate up to here.
+        //
+        // However, Alice unregistration has already happened and so, we must not record this
+        // binding. It suffices to check whether Alice's last de-registration pointer, if any,
+        // came after the delegation. In which case, we have technically already cleared up the
+        // DRep relation due to the v9 bug. Note that:
+        //
+        // 1. We never reset the last de-registration pointer to None. Even when the DRep
+        //    re-registered. So even the case where Alice only re-register prior to the delegation
+        //    to Bob, we would not retain the link.
+        //
+        // 2. It doesn't matter if Alice re-regiters and unregisters multiple times since any new
+        //    unregistration will be after the first one, and thus, will not invalidate the
+        //    inequality.
+        if let Some(row) = dreps::get(db, &drep)? {
+            if let Some(previous_deregistration) = row.previous_deregistration
+                && previous_deregistration > delegator_since
+            {
+                debug!(
+                    drep.type = %StakeCredentialType::from(&drep),
+                    drep.hash = %stake_credential_hash(&drep),
+                    delegator.type = %StakeCredentialType::from(&delegator),
+                    delegator.hash = %stake_credential_hash(&delegator),
+                    "drep has unregistered since delegation; skipping mapping",
+                );
+                continue;
+            }
 
-        db.put(key, vec![])
-            .map_err(|err| StoreError::Internal(err.into()))?;
+            let mut key = PREFIX.to_vec();
+            key.extend_from_slice(as_value(&drep).as_slice());
+            key.extend_from_slice(as_value(&delegator).as_slice());
+
+            db.put(key, vec![])
+                .map_err(|err| StoreError::Internal(err.into()))?;
+        } else {
+            warn!(
+                drep.type = %StakeCredentialType::from(&drep),
+                drep.hash = %stake_credential_hash(&drep),
+                delegator.type = %StakeCredentialType::from(&delegator),
+                delegator.hash = %stake_credential_hash(&delegator),
+                "delegator was delegated to non-existing drep",
+            );
+        }
     }
 
     Ok(())
