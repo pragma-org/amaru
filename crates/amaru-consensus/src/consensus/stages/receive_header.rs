@@ -20,26 +20,6 @@ use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
 use pure_stage::StageRef;
 use tracing::{Level, instrument};
 
-#[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "consensus.receive_header",
-        fields(
-            point.slot = %point.slot_or_default(),
-            point.hash = %Hash::<32>::from(point),
-        )
-)]
-pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, ConsensusError> {
-    let header: MintedHeader<'_> =
-        cbor::decode(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
-            point: point.clone(),
-            header: raw_header.into(),
-            reason: reason.to_string(),
-        })?;
-
-    Ok(Header::from(header))
-}
-
 type State = (StageRef<DecodedChainSyncEvent>, StageRef<ValidationFailed>);
 
 #[instrument(
@@ -60,7 +40,7 @@ pub async fn stage(
             raw_header,
             span,
         } => {
-            let header = match receive_header(&point, raw_header.as_slice()) {
+            let header = match decode_header(&point, raw_header.as_slice()) {
                 Ok(header) => header,
                 Err(error) => {
                     tracing::error!(%error, %point, %peer, "Failed to decode header");
@@ -107,6 +87,26 @@ pub async fn stage(
     (downstream, errors)
 }
 
+#[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "consensus.decode_header",
+        fields(
+            point.slot = %point.slot_or_default(),
+            point.hash = %Hash::<32>::from(point),
+        )
+)]
+pub fn decode_header(point: &Point, raw_header: &[u8]) -> Result<Header, ConsensusError> {
+    let header: MintedHeader<'_> =
+        cbor::decode(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
+            point: point.clone(),
+            header: raw_header.into(),
+            reason: reason.to_string(),
+        })?;
+
+    Ok(Header::from(header))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,9 +114,65 @@ mod tests {
     use crate::consensus::errors::ValidationFailed;
     use crate::consensus::events::DecodedChainSyncEvent;
     use amaru_kernel::peer::Peer;
+    use amaru_ouroboros_traits::fake::tests::{any_header, run};
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;
+
+    #[tokio::test]
+    async fn a_header_that_can_be_decoded_is_sent_downstream() -> anyhow::Result<()> {
+        let peer = Peer::new("name");
+        let header = run(any_header());
+        let message = ChainSyncEvent::RollForward {
+            peer: peer.clone(),
+            point: Point::Origin,
+            span: Span::current(),
+            raw_header: cbor::to_vec(header.clone())?,
+        };
+        let mut consensus_ops = mock_consensus_ops();
+
+        stage(make_state(), message, &mut consensus_ops).await;
+
+        let forwarded = DecodedChainSyncEvent::RollForward {
+            peer: peer.clone(),
+            point: Point::Origin,
+            header,
+            span: Span::current(),
+        };
+        assert_eq!(
+            consensus_ops.base().received(),
+            BTreeMap::from_iter(vec![("downstream".to_string(), format!("{forwarded:?}"))])
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_header_that_cannot_be_decoded_sends_an_error() -> anyhow::Result<()> {
+        let peer = Peer::new("name");
+        let message = ChainSyncEvent::RollForward {
+            peer: peer.clone(),
+            point: Point::Origin,
+            span: Span::current(),
+            raw_header: vec![1, 2, 3],
+        };
+        let mut consensus_ops = mock_consensus_ops();
+
+        stage(make_state(), message.clone(), &mut consensus_ops).await;
+
+        let error = ValidationFailed::new(
+            &peer,
+            ConsensusError::CannotDecodeHeader {
+                point: Point::Origin,
+                header: vec![1, 2, 3],
+                reason: "unexpected type u8 at position 0: expected array".to_string(),
+            },
+        );
+        assert_eq!(
+            consensus_ops.base().received(),
+            BTreeMap::from_iter(vec![("errors".to_string(), format!("{error:?}"))])
+        );
+        Ok(())
+    }
 
     #[tokio::test]
     async fn rollback_is_just_sent_downstream() -> anyhow::Result<()> {
