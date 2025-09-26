@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
-use amaru::stages::{Config, MaxExtraLedgerSnapshots, StorePath, bootstrap};
+use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
+use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
@@ -139,8 +140,8 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(network).into());
     Ok(Config {
-        ledger_store: StorePath::OnDisk(ledger_dir),
-        chain_store: StorePath::OnDisk(chain_dir),
+        ledger_store: StoreType::RocksDb(RocksDbConfig::new(ledger_dir).with_shared_env()),
+        chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
         upstream_peers: args.peer_address,
         network: args.network,
         network_magic: args.network.to_network_magic(),

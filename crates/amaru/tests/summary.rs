@@ -24,7 +24,7 @@ use amaru_ledger::{
     },
 };
 use amaru_slot_arithmetic::Epoch;
-use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot};
+use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -51,7 +51,10 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
         .or_insert_with(|| {
             Arc::new(
                 RocksDBHistoricalStores::for_epoch_with(
-                    &PathBuf::from(format!("../../{}", default_ledger_dir(network))),
+                    RocksDbConfig::new(PathBuf::from(format!(
+                        "../../{}",
+                        default_ledger_dir(network)
+                    ))),
                     epoch,
                 )
                 .unwrap_or_else(|err| {

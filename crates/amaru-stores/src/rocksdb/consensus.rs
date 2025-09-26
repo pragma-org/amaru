@@ -22,6 +22,8 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use tracing::{Level, instrument};
 
+use crate::rocksdb::RocksDbConfig;
+
 pub struct RocksDBStore {
     pub basedir: PathBuf,
     era_history: EraHistory,
@@ -33,25 +35,27 @@ pub struct ReadOnlyChainDB {
 }
 
 impl RocksDBStore {
-    pub fn new(basedir: &PathBuf, era_history: &EraHistory) -> Result<Self, StoreError> {
-        let mut opts = Options::default();
+    pub fn new(config: RocksDbConfig, era_history: &EraHistory) -> Result<Self, StoreError> {
+        let basedir = config.dir.clone();
+        let mut opts: Options = config.into();
         opts.create_if_missing(true);
         opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
             CONSENSUS_PREFIX_LEN,
         ));
         Ok(Self {
-            db: OptimisticTransactionDB::open(&opts, basedir).map_err(|e| {
+            db: OptimisticTransactionDB::open(&opts, &basedir).map_err(|e| {
                 StoreError::OpenError {
                     error: e.to_string(),
                 }
             })?,
-            basedir: basedir.clone(),
+            basedir,
             era_history: era_history.clone(),
         })
     }
 
-    pub fn open_for_readonly(basedir: &PathBuf) -> Result<ReadOnlyChainDB, StoreError> {
-        let mut opts = Options::default();
+    pub fn open_for_readonly(config: RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
+        let basedir = config.dir.clone();
+        let mut opts: Options = config.into();
         opts.create_if_missing(false);
         DB::open_for_read_only(&opts, basedir, false)
             .map_err(|e| StoreError::OpenError {
@@ -353,7 +357,8 @@ pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
     use std::fs::create_dir_all;
     let (basedir, era_history) = init_dir_and_era(path);
     create_dir_all(&basedir).unwrap();
-    RocksDBStore::new(&basedir, &era_history).expect("fail to initialise RocksDB")
+    RocksDBStore::new(RocksDbConfig::new(basedir), &era_history)
+        .expect("fail to initialise RocksDB")
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -362,7 +367,7 @@ pub fn initialise_test_ro_store(path: &std::path::Path) -> Result<ReadOnlyChainD
     use std::fs::create_dir_all;
     let (basedir, _) = init_dir_and_era(path);
     create_dir_all(&basedir).unwrap();
-    RocksDBStore::open_for_readonly(&basedir)
+    RocksDBStore::open_for_readonly(RocksDbConfig::new(basedir))
 }
 
 #[cfg(any(test, feature = "test-utils"))]
