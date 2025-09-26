@@ -12,31 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{ops::Deref, sync::Arc};
-
-use gasket::framework::WorkerError;
 pub use opentelemetry::metrics::{Counter, Gauge, Meter};
 
-pub type MetricsPort = gasket::messaging::OutputPort<MetricsEvent>;
+use crate::ledger::LedgerMetrics;
 
-pub async fn send_event(port: &mut MetricsPort, event: MetricsEvent) -> Result<(), WorkerError> {
-    port.send(event.into()).await.map_err(|e| {
-        tracing::error!(error=%e, "failed to send event");
-        gasket::framework::WorkerError::Send
-    })
+pub mod ledger;
+
+pub const METRICS_METER_NAME: &str = "cardano_node_metrics";
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum MetricsEvent {
+    LedgerMetrics(LedgerMetrics),
 }
 
-pub trait Metric: Send + Sync {
-    fn record(&self, meter: &Meter);
+pub trait MetricRecorder {
+    fn record_to_meter(&self, meter: &opentelemetry::metrics::Meter);
 }
 
-#[derive(Clone)]
-pub struct MetricsEvent(pub Arc<dyn Metric>);
-
-impl Deref for MetricsEvent {
-    type Target = dyn Metric;
-
-    fn deref(&self) -> &Self::Target {
-        &*self.0
+impl MetricRecorder for MetricsEvent {
+    fn record_to_meter(&self, meter: &opentelemetry::metrics::Meter) {
+        match self {
+            MetricsEvent::LedgerMetrics(ledger_metrics) => ledger_metrics.record_to_meter(meter),
+        }
     }
 }

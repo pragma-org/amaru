@@ -40,7 +40,6 @@ use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use amaru_kernel::{Point, to_cbor};
-use amaru_metrics::MetricsPort;
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateBlocks;
 use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros::{ChainStore, IsHeader};

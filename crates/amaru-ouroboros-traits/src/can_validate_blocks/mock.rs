@@ -15,7 +15,7 @@
 use crate::CanValidateBlocks;
 use crate::can_validate_blocks::BlockValidationError;
 use amaru_kernel::{Point, RawBlock};
-use amaru_metrics::MetricsPort;
+use amaru_metrics::ledger::LedgerMetrics;
 
 /// A fake block validator that always returns the same height.
 #[derive(Clone, Debug, Default)]
@@ -27,9 +27,8 @@ impl CanValidateBlocks for MockCanValidateBlocks {
         &self,
         _point: &Point,
         _block: &RawBlock,
-        _metrics_port: &mut MetricsPort,
-    ) -> Result<Result<u64, BlockValidationError>, BlockValidationError> {
-        Ok(Ok(1))
+    ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
+        Ok(Ok(Default::default()))
     }
 
     fn rollback_block(&self, _to: &Point) -> Result<(), BlockValidationError> {

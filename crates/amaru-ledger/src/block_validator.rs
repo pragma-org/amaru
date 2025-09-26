@@ -18,12 +18,11 @@ use crate::store::{HistoricalStores, Store};
 use amaru_kernel::{
     EraHistory, Point, RawBlock, network::NetworkName, protocol_parameters::GlobalParameters,
 };
-use amaru_metrics::{MetricsPort, send_event};
+use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::CanValidateBlocks;
 use amaru_ouroboros_traits::can_validate_blocks::BlockValidationError;
 use anyhow::anyhow;
 use std::sync::{Arc, Mutex};
-use tracing::warn;
 
 /// This data type encapsulate the ledger state in order to implement the `CanValidateBlocks` trait.
 /// and be able to validate blocks (including rollback).
@@ -67,20 +66,10 @@ where
         &self,
         point: &Point,
         raw_block: &RawBlock,
-        metrics_port: &mut MetricsPort,
-    ) -> Result<Result<u64, BlockValidationError>, BlockValidationError> {
-        let validation_result = {
-            let mut state = self.state.lock().unwrap();
-            state.roll_forward(point, raw_block)
-        };
-        match validation_result {
-            BlockValidation::Valid(metrics) => {
-                let block_height = metrics.block_height;
-                let _ = send_event(metrics_port, metrics.into())
-                    .await
-                    .inspect_err(|e| warn!("failed to send ledger metrics {e}"));
-                Ok(Ok(block_height))
-            }
+    ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
+        let mut state = self.state.lock().unwrap();
+        match state.roll_forward(point, raw_block) {
+            BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
             BlockValidation::Invalid(_, _, details) => Ok(Err(BlockValidationError::new(anyhow!(
                 "Invalid block: {details}"
             )))),

@@ -15,7 +15,6 @@
 use crate::{
     context,
     governance::ratification::{self, RatificationContext},
-    metrics::LedgerMetrics,
     rules,
     state::{
         ratification::{ProposalsRoots, ProposalsRootsRc, RatificationResult},
@@ -41,6 +40,7 @@ use amaru_kernel::{
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     stake_credential_hash,
 };
+use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, PoolSummary};
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use anyhow::{Context, anyhow};
@@ -637,11 +637,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 let epoch = match self.era_history().slot_to_epoch(slot, slot) {
                     Ok(epoch) => epoch,
                     Err(_) => 0.into(),
-                };
+                }
+                .into();
                 let slot_in_epoch = match self.era_history().slot_in_epoch(slot, slot) {
                     Ok(slot) => slot,
                     Err(_) => 0.into(),
-                };
+                }
+                .into();
+
+                let slot = slot.into();
 
                 let density = self.chain_density(point);
 

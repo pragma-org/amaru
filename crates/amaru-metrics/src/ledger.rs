@@ -11,35 +11,45 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+use std::sync::OnceLock;
 
-use amaru_kernel::{Epoch, Slot};
-use amaru_metrics::{Counter, Gauge, Meter, Metric, MetricsEvent};
-use std::sync::{Arc, OnceLock};
+use opentelemetry::metrics::{Counter, Gauge, Meter};
 
-static BLOCK_HEIGHT: OnceLock<Gauge<u64>> = OnceLock::new();
-static TXS_PROCESSED: OnceLock<Counter<u64>> = OnceLock::new();
-static SLOT_NUM: OnceLock<Gauge<u64>> = OnceLock::new();
-static SLOT_IN_EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
-static EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
-static DENSITY: OnceLock<Gauge<f64>> = OnceLock::new();
+use crate::{MetricRecorder, MetricsEvent};
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LedgerMetrics {
     pub block_height: u64,
     pub txs_processed: u64,
-    pub slot: Slot,
-    pub slot_in_epoch: Slot,
-    pub epoch: Epoch,
+    pub slot: u64,
+    pub slot_in_epoch: u64,
+    pub epoch: u64,
     pub density: f64,
 }
 
-impl From<LedgerMetrics> for MetricsEvent {
-    fn from(value: LedgerMetrics) -> Self {
-        Self(Arc::new(value))
+impl Default for LedgerMetrics {
+    fn default() -> Self {
+        Self {
+            block_height: 1,
+            txs_processed: Default::default(),
+            slot: Default::default(),
+            slot_in_epoch: Default::default(),
+            epoch: Default::default(),
+            density: Default::default(),
+        }
     }
 }
 
-impl Metric for LedgerMetrics {
-    fn record(&self, meter: &Meter) {
+impl MetricRecorder for LedgerMetrics {
+    fn record_to_meter(&self, meter: &Meter) {
+        static BLOCK_HEIGHT: OnceLock<Gauge<u64>> = OnceLock::new();
+        static TXS_PROCESSED: OnceLock<Counter<u64>> = OnceLock::new();
+        static SLOT_NUM: OnceLock<Gauge<u64>> = OnceLock::new();
+        static SLOT_IN_EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
+        static EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
+        static DENSITY: OnceLock<Gauge<f64>> = OnceLock::new();
+
         let block_height = BLOCK_HEIGHT.get_or_init(|| {
             meter
                 .u64_gauge("cardano_node_metrics_blockNum_int")
@@ -87,9 +97,15 @@ impl Metric for LedgerMetrics {
 
         block_height.record(self.block_height, &[]);
         txs_processed.add(self.txs_processed, &[]);
-        slot_num.record(self.slot.into(), &[]);
-        epoch.record(self.epoch.into(), &[]);
-        slot_in_epoch.record(self.slot_in_epoch.into(), &[]);
+        slot_num.record(self.slot, &[]);
+        epoch.record(self.epoch, &[]);
+        slot_in_epoch.record(self.slot_in_epoch, &[]);
         density.record(self.density, &[]);
+    }
+}
+
+impl From<LedgerMetrics> for MetricsEvent {
+    fn from(value: LedgerMetrics) -> Self {
+        MetricsEvent::LedgerMetrics(value)
     }
 }
