@@ -13,22 +13,21 @@
 // limitations under the License.
 
 use crate::consensus::errors::ConsensusError;
-use crate::consensus::stages::fetch_block::BlockFetcher;
-use amaru_kernel::Point;
 use crate::consensus::errors::ProcessingFailed;
+use crate::consensus::stages::fetch_block::BlockFetcher;
 use crate::consensus::tip::HeaderTip;
 use amaru_kernel::peer::Peer;
-use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use amaru_kernel::{Header, Point};
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use async_trait::async_trait;
-use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
+use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::sync::Arc;
 
 pub type ResourceBlockFetcher = Arc<dyn BlockFetcher + Send + Sync>;
+pub type ResourceForwardEventListener = Arc<dyn ForwardEventListener + Send + Sync>;
 
 pub struct Network<'a, T>(&'a Effects<T>);
 
@@ -44,6 +43,18 @@ pub trait NetworkOps {
         peer: &Peer,
         point: &Point,
     ) -> impl Future<Output = Result<Vec<u8>, ConsensusError>> + Send;
+
+    fn send_forward_event(
+        &self,
+        peer: &Peer,
+        header: Header,
+    ) -> impl Future<Output = Result<(), ProcessingFailed>> + Send;
+
+    fn send_backward_event(
+        &self,
+        peer: &Peer,
+        header_tip: HeaderTip,
+    ) -> impl Future<Output = Result<(), ProcessingFailed>> + Send;
 }
 
 impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
@@ -53,6 +64,26 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
         point: &Point,
     ) -> impl Future<Output = Result<Vec<u8>, ConsensusError>> + Send {
         self.0.external(FetchBlockEffect::new(peer, point))
+    }
+
+    fn send_forward_event(
+        &self,
+        peer: &Peer,
+        header: Header,
+    ) -> impl Future<Output = Result<(), ProcessingFailed>> + Send {
+        self.0
+            .external(ForwardEventEffect::new(peer, ForwardEvent::Forward(header)))
+    }
+
+    fn send_backward_event(
+        &self,
+        peer: &Peer,
+        header_tip: HeaderTip,
+    ) -> impl Future<Output = Result<(), ProcessingFailed>> + Send {
+        self.0.external(ForwardEventEffect::new(
+            peer,
+            ForwardEvent::Backward(header_tip),
+        ))
     }
 }
 
@@ -93,8 +124,6 @@ impl ExternalEffect for FetchBlockEffect {
         })
     }
 }
-
-pub type ResourceForwardEventListener = Arc<dyn ForwardEventListener + Send + Sync>;
 
 /// A listener interface for forward events (new headers or rollbacks).
 /// These events are either caught for tests or forwarded to downstream peers (see the TcpForwardEventListener implementation).

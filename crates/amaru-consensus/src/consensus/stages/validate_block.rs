@@ -21,14 +21,6 @@ use crate::consensus::span::adopt_current_span;
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use pure_stage::StageRef;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::{Header, Point, RawBlock};
-use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::can_validate_blocks::BlockValidationError;
-use amaru_ouroboros_traits::{CanValidateBlocks, IsHeader};
-use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources, StageRef};
-use std::fmt::Debug;
-use std::sync::Arc;
 use tracing::{Level, error, instrument};
 
 type State = (

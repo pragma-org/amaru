@@ -73,6 +73,7 @@ impl<T: SendData + Sync> ConsensusOps for ConsensusEffects<T> {
 pub mod tests {
     use super::*;
     use crate::consensus::errors::{ConsensusError, ProcessingFailed};
+    use crate::consensus::tip::HeaderTip;
     use amaru_kernel::peer::Peer;
     use amaru_kernel::{Header, Point, RawBlock};
     use amaru_ouroboros_traits::{BlockValidationError, Nonces};
@@ -195,6 +196,22 @@ pub mod tests {
                 Err(_) => Err(ConsensusError::FetchBlockFailed(point.clone())),
             }
         }
+
+        async fn send_forward_event(
+            &self,
+            _peer: &Peer,
+            _header: Header,
+        ) -> Result<(), ProcessingFailed> {
+            Ok(())
+        }
+
+        async fn send_backward_event(
+            &self,
+            _peer: &Peer,
+            _header_tip: HeaderTip,
+        ) -> Result<(), ProcessingFailed> {
+            Ok(())
+        }
     }
 
     pub struct MockLedgerOps;
@@ -212,7 +229,7 @@ pub mod tests {
         async fn rollback(
             &self,
             _peer: &Peer,
-            _point: &Point,
+            _rollback_header: &Header,
         ) -> anyhow::Result<(), ProcessingFailed> {
             Ok(())
         }

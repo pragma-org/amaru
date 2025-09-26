@@ -22,7 +22,10 @@ mod store_effects;
 pub use base_effects::BaseOps;
 pub use consensus_effects::{ConsensusEffects, ConsensusOps};
 pub use ledger_effects::{LedgerOps, ResourceBlockValidation, ResourceHeaderValidation};
-pub use network_effects::{NetworkOps, ResourceBlockFetcher};
+pub use network_effects::{
+    ForwardEvent, ForwardEventListener, NetworkOps, ResourceBlockFetcher,
+    ResourceForwardEventListener,
+};
 pub use store_effects::{ResourceHeaderStore, ResourceParameters, StoreOps};
 
 #[cfg(test)]

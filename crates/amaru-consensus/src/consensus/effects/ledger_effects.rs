@@ -14,8 +14,10 @@
 
 use crate::consensus::errors::ProcessingFailed;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{Point, RawBlock};
-use amaru_ouroboros_traits::{BlockValidationError, CanValidateBlocks, HasStakeDistribution};
+use amaru_kernel::{Header, Point, RawBlock};
+use amaru_ouroboros_traits::{
+    BlockValidationError, CanValidateBlocks, HasStakeDistribution, IsHeader,
+};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 use amaru_metrics::ledger::LedgerMetrics;
@@ -39,8 +41,8 @@ pub trait LedgerOps {
     fn rollback(
         &self,
         peer: &Peer,
-        point: &Point,
-    ) -> impl Future<Output=anyhow::Result<(), ProcessingFailed>> + Send;
+        rollback_header: &Header,
+    ) -> impl Future<Output = anyhow::Result<(), ProcessingFailed>> + Send;
 }
 
 impl<T: SendData + Sync> LedgerOps for Ledger<'_, T> {
@@ -58,9 +60,10 @@ impl<T: SendData + Sync> LedgerOps for Ledger<'_, T> {
     fn rollback(
         &self,
         peer: &Peer,
-        point: &Point,
-    ) -> impl Future<Output=anyhow::Result<(), ProcessingFailed>> + Send {
-        self.0.external(RollbackBlockEffect::new(peer, point))
+        rollback_header: &Header,
+    ) -> impl Future<Output = anyhow::Result<(), ProcessingFailed>> + Send {
+        self.0
+            .external(RollbackBlockEffect::new(peer, &rollback_header.point()))
     }
 }
 
