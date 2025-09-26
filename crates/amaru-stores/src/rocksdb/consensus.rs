@@ -33,6 +33,28 @@ pub struct ReadOnlyChainDB {
 }
 
 impl RocksDBStore {
+    /// Open (creating if missing) an OptimisticTransactionDB at `basedir` and return a `RocksDBStore`
+    /// configured with the provided `era_history`.
+    ///
+    /// # Returns
+    ///
+    /// On success, a `RocksDBStore` containing an opened `OptimisticTransactionDB`, a cloned
+    /// `basedir`, and a clone of `era_history`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError::OpenError` if the RocksDB instance cannot be opened.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::PathBuf;
+    /// // Assume `EraHistory` and `RocksDBStore` are in scope.
+    /// let basedir = PathBuf::from("/tmp/rocksdb_example");
+    /// let era_history = /* construct or obtain an EraHistory instance */;
+    /// let store = RocksDBStore::new(&basedir, &era_history)
+    ///     .expect("failed to open/create RocksDBStore");
+    /// ```
     pub fn new(basedir: &PathBuf, era_history: &EraHistory) -> Result<Self, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
@@ -50,6 +72,18 @@ impl RocksDBStore {
         })
     }
 
+    /// Opens a read-only RocksDB at the given base directory and returns a `ReadOnlyChainDB`.
+    ///
+    /// The database is opened with creation disabled; if the directory does not contain a valid
+    /// RocksDB instance or opening fails, the error is returned as `StoreError::OpenError`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::PathBuf;
+    /// let path = PathBuf::from("/path/to/db");
+    /// let ro_db = open_for_readonly(&path).unwrap();
+    /// ```
     pub fn open_for_readonly(basedir: &PathBuf) -> Result<ReadOnlyChainDB, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(false);
@@ -60,6 +94,19 @@ impl RocksDBStore {
             .map(|db| ReadOnlyChainDB { db })
     }
 
+    /// Create a new optimistic transaction bound to this store's RocksDB instance.
+    ///
+    /// The returned transaction can be used to perform multiple read/write operations atomically
+    /// and then commit or roll back them as a unit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // `store` is a `RocksDBStore`.
+    /// let mut tx = store.create_transaction();
+    /// tx.put(b"key", b"value").unwrap();
+    /// tx.commit().unwrap();
+    /// ```
     pub fn create_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
         self.db.transaction()
     }
@@ -270,6 +317,25 @@ macro_rules! impl_ReadOnlyChainStore {
 impl_ReadOnlyChainStore!(for ReadOnlyChainDB, RocksDBStore);
 
 impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
+    /// Store the given header and, if it has a parent, record the parent->child relation.
+    ///
+    /// Stores the header under the HEADER prefix keyed by its hash. If the header has a parent,
+    /// a child-entry keyed by CHILD_PREFIX || parent_hash || child_hash is also written. The
+    /// operation is committed atomically; partial writes are not left on success.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success, or `Err(StoreError::WriteError)` if any RocksDB write or commit fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use your_crate::{RocksDBStore, Header, StoreError};
+    /// # fn example(store: &RocksDBStore, header: &Header) -> Result<(), StoreError> {
+    /// store.store_header(header)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     #[instrument(level = Level::TRACE, skip_all, fields(header = header.hash().to_string()))]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();
