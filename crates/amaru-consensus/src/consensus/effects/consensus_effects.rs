@@ -163,15 +163,37 @@ pub mod tests {
         }
     }
 
-    pub struct MockNetworkOps;
+    pub struct MockNetworkOps {
+        block_to_return: Arc<Mutex<Result<Vec<u8>, ConsensusError>>>,
+    }
+
+    impl Default for MockNetworkOps {
+        fn default() -> Self {
+            Self {
+                block_to_return: Arc::new(Mutex::new(Ok(vec![]))),
+            }
+        }
+    }
+
+    impl MockNetworkOps {
+        pub fn return_block(&self, block: Result<Vec<u8>, ConsensusError>) -> &Self {
+            let mut self_block_to_return = self.block_to_return.lock().unwrap();
+            *self_block_to_return = block;
+            self
+        }
+    }
 
     impl NetworkOps for &MockNetworkOps {
         async fn fetch_block(
             &self,
             _peer: &Peer,
-            _point: &Point,
+            point: &Point,
         ) -> Result<Vec<u8>, ConsensusError> {
-            Ok(vec![])
+            let self_block_to_return = self.block_to_return.lock().unwrap();
+            match *self_block_to_return {
+                Ok(ref block) => Ok(block.clone()),
+                Err(_) => Err(ConsensusError::FetchBlockFailed(point.clone())),
+            }
         }
     }
 
@@ -234,7 +256,7 @@ pub mod tests {
     pub fn mock_consensus_ops() -> MockConsensusOps {
         MockConsensusOps {
             mock_store: MockStoreOps,
-            mock_network: MockNetworkOps,
+            mock_network: MockNetworkOps::default(),
             mock_ledger: MockLedgerOps,
             mock_base: MockBaseOps::default(),
         }

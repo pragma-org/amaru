@@ -138,3 +138,51 @@ impl BlockFetcher for ClientsBlockFetcher {
         self.fetch(peer, point).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::consensus::effects::mock_consensus_ops;
+    use crate::consensus::errors::ValidationFailed;
+    use amaru_kernel::peer::Peer;
+    use amaru_ouroboros_traits::fake::tests::{any_header, run};
+    use pure_stage::StageRef;
+    use std::collections::BTreeMap;
+    use tracing::Span;
+
+    #[tokio::test]
+    async fn a_block_that_can_be_fetched_is_sent_downstream() -> anyhow::Result<()> {
+        let peer = Peer::new("name");
+        let header = run(any_header());
+        let message = ValidateHeaderEvent::Validated {
+            peer: peer.clone(),
+            header: header.clone(),
+            span: Span::current(),
+        };
+        let block = vec![1u8; 128];
+        let mut consensus_ops = mock_consensus_ops();
+        consensus_ops.network().return_block(Ok(block.clone()));
+
+        stage(make_state(), message, &mut consensus_ops).await;
+
+        let forwarded = ValidateBlockEvent::Validated {
+            peer: peer.clone(),
+            header,
+            block: RawBlock::from(block.as_slice()),
+            span: Span::current(),
+        };
+        assert_eq!(
+            consensus_ops.base().received(),
+            BTreeMap::from_iter(vec![("downstream".to_string(), format!("{forwarded:?}"))])
+        );
+        Ok(())
+    }
+
+    // HELPERS
+
+    fn make_state() -> State {
+        let downstream: StageRef<ValidateBlockEvent> = StageRef::named("downstream");
+        let errors: StageRef<ValidationFailed> = StageRef::named("errors");
+        (downstream, errors)
+    }
+}
