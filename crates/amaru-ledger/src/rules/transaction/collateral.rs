@@ -14,8 +14,9 @@
 
 use crate::context::UtxoSlice;
 use amaru_kernel::{
-    Address, AlonzoValue, MemoizedTransactionOutput, MintedTransactionOutput, TransactionInput,
-    TransactionInputAdapter, Value, protocol_parameters::ProtocolParameters,
+    Address, AlonzoValue, HasOwnership, MemoizedTransactionOutput, MintedTransactionOutput,
+    StakeCredential, TransactionInput, TransactionInputAdapter, Value,
+    protocol_parameters::ProtocolParameters,
 };
 use std::{
     collections::BTreeMap,
@@ -261,10 +262,7 @@ where
 }
 
 pub fn is_locked_by_script(address: &Address) -> bool {
-    match address {
-        Address::Byron(_) | Address::Stake(_) => false,
-        Address::Shelley(shelley) => shelley.payment().is_script(),
-    }
+    matches!(address.credential(), Some(StakeCredential::ScriptHash(_)))
 }
 
 #[cfg(test)]
@@ -311,6 +309,9 @@ mod tests {
     #[test_case(
         fixture!("fe78fd37a5c864cde5416461195b288ab18721f6e64be4ee93eaef0979b928f9");
         "happy path - assets in collateral with return"
+    )]
+    #[test_case(fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "delegation-script");
+        "happy path - script hash delegation part"
     )]
     #[test_case(
         fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "max-collateral-inputs") =>
