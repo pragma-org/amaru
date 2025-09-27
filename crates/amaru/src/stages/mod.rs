@@ -477,7 +477,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(2, stages.len());
+        assert_eq!(1, stages.len());
     }
 
     #[test]
