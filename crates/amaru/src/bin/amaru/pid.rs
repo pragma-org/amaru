@@ -19,12 +19,12 @@ use std::{
     process::{self, Command},
 };
 
-pub struct PIDFile {
+pub struct ProcessIdHandle {
     path: PathBuf,
     pid: u32,
 }
 
-impl PIDFile {
+impl ProcessIdHandle {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
         let path = path.as_ref().to_path_buf();
         let pid = process::id();
@@ -55,13 +55,13 @@ impl PIDFile {
     }
 }
 
-impl Drop for PIDFile {
+impl Drop for ProcessIdHandle {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
     }
 }
 
-impl Display for PIDFile {
+impl Display for ProcessIdHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.path.display())
     }

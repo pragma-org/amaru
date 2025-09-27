@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::pid::PIDFile;
+use crate::pid::ProcessIdHandle;
 use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StorePath, bootstrap};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
@@ -77,7 +77,7 @@ pub struct Args {
     max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
 
     /// Path to the PID file, managed by Amaru.
-    #[arg(long, value_name = "DIR", env = "AMARU_PID_FILE")]
+    #[arg(long, value_name = "FILE", env = "AMARU_PID_FILE")]
     pid_file: Option<PathBuf>,
 }
 
@@ -86,7 +86,7 @@ pub async fn run(
     meter_provider: Option<SdkMeterProvider>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let _pid_file = args.pid_file.as_ref().map(|path| {
-        PIDFile::new(path)
+        ProcessIdHandle::new(path)
             .inspect(|pid_file| {
                 debug!(
                     "created PID File {}, current PID: {}",
