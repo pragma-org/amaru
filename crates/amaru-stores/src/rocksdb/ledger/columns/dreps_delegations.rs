@@ -31,7 +31,7 @@ use tracing::{Level, debug, instrument, warn};
 /// little expensive.
 ///
 /// With this extra byte, we should have amortised performances equivalent to iterating over ~1K
-/// entrie, which seems much more reasonable. Besides, that work is *bounded* anyway, because it
+/// entries, which seems much more reasonable. Besides, that work is *bounded* anyway, because it
 /// only happens during the 'bootstrapping phase of Conway'  (i.e. ProtocolVersion == 9).
 pub const PREFIX: [u8; PREFIX_LEN - 1] = [0x64, 0x6c, 0x67];
 
@@ -45,7 +45,7 @@ pub fn add<DB>(
         let drep = match drep {
             DRep::Key(hash) => StakeCredential::AddrKeyhash(hash),
             DRep::Script(hash) => StakeCredential::ScriptHash(hash),
-            // NOTE: We only need to keep track of this binding for registered dreps.
+            // We only need to keep track of this binding for registered dreps.
             DRep::Abstain | DRep::NoConfidence => continue,
         };
 
@@ -71,7 +71,7 @@ pub fn add<DB>(
         //    re-registered. So even the case where Alice only re-register prior to the delegation
         //    to Bob, we would not retain the link.
         //
-        // 2. It doesn't matter if Alice re-regiters and unregisters multiple times since any new
+        // 2. It doesn't matter if Alice re-registers and unregisters multiple times since any new
         //    unregistration will be after the first one, and thus, will not invalidate the
         //    inequality.
         if let Some(row) = dreps::get(db, &drep)? {
@@ -88,11 +88,7 @@ pub fn add<DB>(
                 continue;
             }
 
-            let mut key = PREFIX.to_vec();
-            key.extend_from_slice(as_value(&drep).as_slice());
-            key.extend_from_slice(as_value(&delegator).as_slice());
-
-            db.put(key, vec![])
+            db.put(new_key(&drep, &delegator), vec![])
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else {
             warn!(
@@ -120,10 +116,7 @@ pub fn remove<DB>(
         DRep::Abstain | DRep::NoConfidence => return Ok(()),
     };
 
-    let mut key = PREFIX.to_vec();
-    key.extend_from_slice(as_value(drep).as_slice());
-    key.extend_from_slice(as_value(delegator).as_slice());
-    db.delete(key)
+    db.delete(new_key(&drep, delegator))
         .map_err(|err| StoreError::Internal(err.into()))
 }
 
@@ -142,36 +135,19 @@ pub fn drop<DB>(
     db: &Transaction<'_, DB>,
     drep: &StakeCredential,
 ) -> Result<BTreeSet<StakeCredential>, StoreError> {
-    let mut to_delete = vec![];
     let mut delegators = BTreeSet::new();
 
-    let mut prefix = PREFIX.to_vec();
-    prefix.extend_from_slice(as_value(drep).as_slice());
-
-    // NOTE: The invariant is preserved because the first 3 bytes are PREFIX, which is
-    // not all 0xFF.
-    let upper_bound = into_next_prefix(prefix.clone());
-
-    // NOTE: We must set an explicit upper bound on this one, without what we end up sometimes
-    // yielding values from other columns? I do not fully comprehend *why* (and more
-    // particularly, why it doesn't happen when we iterate in other places);
-    let mut opts = ReadOptions::default();
-    opts.set_prefix_same_as_start(true);
-    opts.set_iterate_upper_bound(upper_bound); // NOTE: is exclusive
-
-    db.iterator_opt(IteratorMode::From(&prefix[..], Direction::Forward), opts)
-        .try_for_each(|item| {
-            item.map(|(key, _)| {
-                let (_, right) = key.split_at(prefix.len());
-                let delegator = unsafe_decode::<StakeCredential>(right.to_vec());
-                to_delete.push(key);
+    let keys = iter_drep(db, drep)
+        .map(|item| {
+            item.map(|(key, delegator)| {
                 delegators.insert(delegator);
+                key
             })
         })
+        .collect::<Result<Vec<_>, _>>()
         .map_err(|err| StoreError::Internal(err.into()))?;
 
-    to_delete
-        .iter()
+    keys.iter()
         .try_for_each(|key| db.delete(key))
         .map_err(|err| StoreError::Internal(err.into()))?;
 
@@ -193,6 +169,47 @@ pub fn drop<DB>(
     Ok(delegators)
 }
 
+fn iter_drep<DB>(
+    db: &Transaction<'_, DB>,
+    drep: &StakeCredential,
+) -> impl Iterator<Item = Result<(Box<[u8]>, StakeCredential), rocksdb::Error>> {
+    let mut prefix = PREFIX.to_vec();
+    prefix.extend_from_slice(as_value(drep).as_slice());
+
+    // The invariant is preserved because the first 3 bytes are PREFIX, which is not all 0xFF.
+    let upper_bound = into_next_prefix(prefix.clone());
+
+    // NOTE(ROCKSDB):
+    // We must set an explicit upper bound on this one, without what we end up sometimes yielding
+    // values from other columns? I do not fully comprehend *why* (and more particularly, why it
+    // doesn't happen when we iterate in other places);
+    let mut opts = ReadOptions::default();
+    opts.set_prefix_same_as_start(true);
+    opts.set_iterate_upper_bound(upper_bound); // is exclusive
+
+    db.iterator_opt(IteratorMode::From(&prefix[..], Direction::Forward), opts)
+        .map(move |item| {
+            item.map(|(key, _)| {
+                let (_, right) = key.split_at(prefix.len());
+                let delegator = unsafe_decode::<StakeCredential>(right.to_vec());
+                (key, delegator)
+            })
+        })
+}
+
+/// Construct a drep delegation key from the drep and delegator respective stake credentials:
+///
+/// ┌──────────────────┬──────────────────┬───────────────────────┐
+/// │ <PREFIX = "dlg"> │ <drep .bytes 30> │ <delegator .bytes 30> │
+/// └──────────────────┴──────────────────┴───────────────────────┘
+///
+fn new_key(drep: &StakeCredential, delegator: &StakeCredential) -> Vec<u8> {
+    let mut key = PREFIX.to_vec();
+    key.extend_from_slice(as_value(drep).as_slice());
+    key.extend_from_slice(as_value(delegator).as_slice());
+    key
+}
+
 /// Smallest byte-string of equal length, strictly after 'bytes'. e.g.
 ///
 /// ```rust
@@ -202,13 +219,13 @@ pub fn drop<DB>(
 /// into_next_prefix(vec![0x12, 0x45, 0xFF]) == vec![0x12, 0x46, 0xFF];
 /// ```
 ///
-/// Pre-condition: the given byte string is not empty or all 0xFF.
+/// Pre-condition: the given byte string is at least 2 bytes and not all 0xFF.
 pub fn into_next_prefix(mut bytes: Vec<u8>) -> Vec<u8> {
     let mut i = bytes.len();
 
     debug_assert!(
-        !bytes.is_empty(),
-        "into_next_prefix called with empty bytes"
+        i > 1,
+        "into_next_prefix called with empty or singleton bytes"
     );
 
     while i > 0 {

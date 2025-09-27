@@ -85,11 +85,11 @@ pub fn import_initial_snapshot(
     // Previous blocks made
     d.skip()?;
 
-    // Current blocks made
-    // NOTE: We use the current blocks made here as we assume that users are providing snapshots of
-    // the last block of the epoch. We have no intrinsic ways to check that this is the case since
-    // we do not know what the last block of an epoch is, and we can't reliably look at the number
-    // of blocks either.
+    // NOTE(INITIAL_BOOTSTRAP):
+    // We use the current blocks made here as we assume that users are providing snapshots of the
+    // last block of the epoch. We have no intrinsic ways to check that this is the case since we
+    // do not know what the last block of an epoch is, and we can't reliably look at the number of
+    // blocks either.
     let block_issuers = d.decode()?;
 
     // Epoch State
@@ -318,8 +318,10 @@ pub fn import_initial_snapshot(
 
     import_votes(db, point, era_history, &protocol_parameters, proposals)?;
 
-    // NOTE: It's important to import dreps *after* votes, because voting dreps from imported votes
-    // will be get their expiry updated, However:
+    // NOTE(INITIAL_BOOTSTRAP):
+    //
+    // It's important to import dreps *after* votes, because voting dreps from imported votes
+    // will get their expiry updated, However:
     //
     // 1. Votes here contain ALL votes up to the snapshot; not just the ones from the ongoing
     //    epoch. So we might wrongly reset the expiry of DReps that voted in a previous epoch.
@@ -542,16 +544,16 @@ fn import_dreps<S: Store>(
                     registered_at,
                 };
 
-                state.delegators.to_vec().into_iter().for_each(|delegator| {
-                    delegations.push((
+                delegations.extend(state.delegators.to_vec().into_iter().map(|delegator| {
+                    (
                         delegator,
                         match credential {
                             StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
                             StakeCredential::ScriptHash(hash) => DRep::Script(hash),
                         },
                         registered_at,
-                    ))
-                });
+                    )
+                }));
 
                 (
                     credential,
@@ -781,7 +783,9 @@ fn import_accounts(
                                         slot: point.slot_or_default(),
                                         ..TransactionPointer::default()
                                     },
-                                    // NOTE: We use an index strictly larger than DRep registration
+                                    // NOTE(INITIAL_BOOTSTRAP):
+                                    //
+                                    // We use an index strictly larger than DRep registration
                                     // certificates, to ensure that the imported delegations are
                                     // considered valid (happened after DRep existence).
                                     certificate_index: 1,

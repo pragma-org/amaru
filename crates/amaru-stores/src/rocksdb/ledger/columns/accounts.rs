@@ -36,11 +36,13 @@ use tracing::{debug, error};
 /// Name prefixed used for storing Account entries. UTF-8 encoding for "acct"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
 
-/// A special handler to reproduce the v9 bug that is (wrongly) removing delegations of past
-/// delegators when unregistering a drep. However, we pass in the the certificate pointer of the
-/// drep de-registration to check for cases where unregistration and re-delegation happen within
-/// the same block. When they happen in the same transaction, the delegation always take precedence
-/// over the unregistration.
+/// A special handler to reproduce the PROTOCOL_VERSION_9 bug that is (wrongly) removing
+/// delegations of past delegators when unregistering a drep. However, we pass in the the
+/// certificate pointer of the drep de-registration to check for cases where unregistration and
+/// re-delegation happen within the same block. When they happen in the same transaction, the
+/// delegation always take precedence over the unregistration.
+///
+/// This function is only needed for PROTOCOL_VERSION_9.
 pub fn reset_delegation<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
@@ -170,7 +172,7 @@ pub fn add<DB>(
             );
         }?;
 
-        // NOTE:
+        // NOTE(PROTOCOL_VERSION_9):
         // In protocol version 9, a subtle bug causes registered DRep to retain their past
         // delegators (then causing a cascade of downstream inconsistencies).
         //

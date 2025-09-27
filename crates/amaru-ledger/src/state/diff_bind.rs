@@ -41,6 +41,11 @@ pub enum Resettable<A> {
 }
 
 impl<A> Resettable<A> {
+    /// Apply this change to `value`, returning the previous content when a change occurred.
+    ///
+    /// - `Unchanged` => returns `None` and leaves `value` as-is
+    /// - `Set(new)`  => replaces `value` with `Some(new)` and returns the old `Option<A>`
+    /// - `Reset`     => sets `value` to `None` and returns the old `Option<A>`
     pub fn set_or_reset(self, value: &mut Option<A>) -> Option<A> {
         match self {
             Resettable::Unchanged => None,
