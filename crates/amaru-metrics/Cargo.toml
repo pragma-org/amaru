@@ -17,4 +17,3 @@ rust-version.workspace = true
 # External Dependencies
 opentelemetry.workspace = true
 serde.workspace = true
-tracing.workspace = true
