@@ -13,11 +13,22 @@
 // limitations under the License.
 
 use crate::{Slot, cbor, heterogeneous_array};
+use std::fmt;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
 pub struct TransactionPointer {
     pub slot: Slot,
     pub transaction_index: usize,
+}
+
+impl fmt::Display for TransactionPointer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "slot={},transaction={}",
+            &self.slot, &self.transaction_index
+        )
+    }
 }
 
 impl<C> cbor::encode::Encode<C> for TransactionPointer {

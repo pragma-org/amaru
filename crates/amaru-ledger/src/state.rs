@@ -53,9 +53,10 @@ use thiserror::Error;
 use tracing::{Level, Span, debug, error, info, instrument, trace, warn};
 use volatile_db::AnchoredVolatileState;
 
-use crate::context::DefaultValidationContext;
-use crate::rules::block::BlockValidation;
-use crate::rules::parse_block;
+use crate::{
+    context::DefaultValidationContext,
+    rules::{block::BlockValidation, parse_block},
+};
 pub use volatile_db::VolatileState;
 
 pub mod diff_bind;
@@ -690,6 +691,13 @@ pub fn initial_stake_distributions(
     Ok(stake_distributions)
 }
 
+#[instrument(
+    level = Level::INFO,
+    skip_all,
+    fields(
+        epoch = %snapshot.epoch(),
+    ),
+)]
 pub fn recover_stake_distribution(
     snapshot: &impl Snapshot,
     era_history: &EraHistory,
@@ -851,7 +859,14 @@ pub fn tick_pools<'store>(
     )
 }
 
-#[instrument(level = Level::INFO, name = "tick.proposals", skip_all)]
+#[instrument(
+    level = Level::INFO,
+    name = "tick.proposals",
+    skip_all,
+    fields(
+        proposals.count = proposals.len(),
+    ),
+)]
 pub fn tick_proposals<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
@@ -1038,6 +1053,7 @@ impl HasStakeDistribution for StakeDistributionObserver {
     #[expect(clippy::unwrap_used)]
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
         let view = self.view.lock().unwrap();
+
         let epoch = self
             .era_history
             // NOTE: This function is called by the consensus when validating block headers. So in
@@ -1049,6 +1065,7 @@ impl HasStakeDistribution for StakeDistributionObserver {
             .slot_to_epoch_unchecked_horizon(slot)
             .ok()?
             - 2;
+
         view.iter().find(|s| s.epoch == epoch).and_then(|s| {
             s.pools.get(pool).map(|st| PoolSummary {
                 vrf: st.parameters.vrf,

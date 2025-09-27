@@ -752,6 +752,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "228f93fe92eda028f3e16a3135c2896247d358c784f0cb08ca84fee5"
+      },
+      {
+        "from": "verificationKey",
         "credential": "272d0b87fb7b9561d4d3dee46b8d422a8a8ec555c514e2b15f072934"
       },
       {

@@ -36,7 +36,7 @@ use std::{
 };
 use tracing::info;
 
-const BATCH_SIZE: usize = 5000;
+const BATCH_SIZE: usize = 50000;
 
 static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> =
     LazyLock::new(|| CertificatePointer {
@@ -85,11 +85,11 @@ pub fn import_initial_snapshot(
     // Previous blocks made
     d.skip()?;
 
-    // Current blocks made
-    // NOTE: We use the current blocks made here as we assume that users are providing snapshots of
-    // the last block of the epoch. We have no intrinsic ways to check that this is the case since
-    // we do not know what the last block of an epoch is, and we can't reliably look at the number
-    // of blocks either.
+    // NOTE(INITIAL_BOOTSTRAP):
+    // We use the current blocks made here as we assume that users are providing snapshots of the
+    // last block of the epoch. We have no intrinsic ways to check that this is the case since we
+    // do not know what the last block of an epoch is, and we can't reliably look at the number of
+    // blocks either.
     let block_issuers = d.decode()?;
 
     // Epoch State
@@ -205,8 +205,7 @@ pub fn import_initial_snapshot(
 
     d.array()?; // Pulsing Snapshot
 
-    let votes = d.decode()?;
-
+    d.skip()?; // Last epoch votes
     d.skip()?; // DRep distr
     d.skip()?; // DRep state
     d.skip()?; // Pool distr
@@ -315,11 +314,23 @@ pub fn import_initial_snapshot(
         cc_members,
     )?;
 
+    import_proposals(db, point, era_history, &protocol_parameters, &proposals)?;
+
+    import_votes(db, point, era_history, &protocol_parameters, proposals)?;
+
+    // NOTE(INITIAL_BOOTSTRAP):
+    //
+    // It's important to import dreps *after* votes, because voting dreps from imported votes
+    // will get their expiry updated, However:
+    //
+    // 1. Votes here contain ALL votes up to the snapshot; not just the ones from the ongoing
+    //    epoch. So we might wrongly reset the expiry of DReps that voted in a previous epoch.
+    //
+    // 2. The DRep expiry is anyway stored in the drep's state, in the snapshot. So it'll be set
+    //    accordingly on import.
+    //
+    // This may cause a few warnings on import, but they can be safely ignored.
     import_dreps(db, point, era_history, &protocol_parameters, epoch, dreps)?;
-
-    import_proposals(db, point, era_history, &protocol_parameters, proposals)?;
-
-    import_votes(db, point, era_history, &protocol_parameters, votes)?;
 
     import_utxo(
         db,
@@ -503,6 +514,8 @@ fn import_dreps<S: Store>(
 
     info!(size = dreps.len(), "dreps");
 
+    let mut delegations: Vec<(StakeCredential, DRep, CertificatePointer)> = Vec::new();
+
     transaction.save(
         era_history,
         protocol_parameters,
@@ -522,7 +535,7 @@ fn import_dreps<S: Store>(
                                 slot: point.slot_or_default(),
                                 ..TransactionPointer::default()
                             },
-                            ..CertificatePointer::default()
+                            certificate_index: 0,
                         });
 
                 let registration = DRepRegistration {
@@ -530,6 +543,17 @@ fn import_dreps<S: Store>(
                     valid_until: state.expiry,
                     registered_at,
                 };
+
+                delegations.extend(state.delegators.to_vec().into_iter().map(|delegator| {
+                    (
+                        delegator,
+                        match credential {
+                            StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
+                            StakeCredential::ScriptHash(hash) => DRep::Script(hash),
+                        },
+                        registered_at,
+                    )
+                }));
 
                 (
                     credential,
@@ -547,6 +571,10 @@ fn import_dreps<S: Store>(
         iter::empty(),
     )?;
 
+    info!(size = delegations.len(), "dreps delegations");
+
+    transaction.add_drep_delegations(delegations.into_iter())?;
+
     transaction.commit()
 }
 
@@ -555,7 +583,7 @@ fn import_proposals(
     point: &Point,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
-    proposals: Vec<ProposalState>,
+    proposals: &[ProposalState],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_proposals(|iterator| {
@@ -579,11 +607,11 @@ fn import_proposals(
             dreps: iter::empty(),
             cc_members: iter::empty(),
             proposals: proposals
-                .into_iter()
+                .iter()
                 .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
                     let proposal_index = proposal.id.action_index as usize;
                     Ok((
-                        ComparableProposalId::from(proposal.id),
+                        ComparableProposalId::from(proposal.id.clone()),
                         proposals::Value {
                             proposed_in: ProposalPointer {
                                 transaction: TransactionPointer {
@@ -594,7 +622,7 @@ fn import_proposals(
                             },
                             valid_until: proposal.proposed_in
                                 + protocol_parameters.gov_action_lifetime,
-                            proposal: proposal.procedure,
+                            proposal: proposal.procedure.clone(),
                         },
                     ))
                 })
@@ -747,10 +775,23 @@ fn import_accounts(
                                 .map(|pool| (pool, *DEFAULT_CERTIFICATE_POINTER)),
                         ),
                         //No slot to retrieve. All registrations coming from snapshot are considered valid.
-                        Resettable::from(
-                            Option::<DRep>::from(drep)
-                                .map(|drep| (drep, *DEFAULT_CERTIFICATE_POINTER)),
-                        ),
+                        Resettable::from(Option::<DRep>::from(drep).map(|drep| {
+                            (
+                                drep,
+                                CertificatePointer {
+                                    transaction: TransactionPointer {
+                                        slot: point.slot_or_default(),
+                                        ..TransactionPointer::default()
+                                    },
+                                    // NOTE(INITIAL_BOOTSTRAP):
+                                    //
+                                    // We use an index strictly larger than DRep registration
+                                    // certificates, to ensure that the imported delegations are
+                                    // considered valid (happened after DRep existence).
+                                    certificate_index: 1,
+                                },
+                            )
+                        })),
                         Some(deposit),
                         rewards + rewards_update,
                     ),
@@ -925,7 +966,7 @@ fn import_votes(
     point: &Point,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
-    actions: Vec<GovActionState>,
+    actions: Vec<ProposalState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let votes = actions
         .into_iter()

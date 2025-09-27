@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::errors::{ConsensusError, ValidationFailed};
-use crate::consensus::events::{DecodedChainSyncEvent, ValidateHeaderEvent};
-use crate::consensus::span::adopt_current_span;
-use crate::consensus::{EVENT_TARGET, headers_tree::HeadersTree};
+use crate::consensus::{
+    EVENT_TARGET,
+    errors::{ConsensusError, ValidationFailed},
+    events::{DecodedChainSyncEvent, ValidateHeaderEvent},
+    headers_tree::HeadersTree,
+    span::adopt_current_span,
+};
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer, string_utils::ListToString};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
@@ -25,7 +28,7 @@ use std::{
     collections::BTreeSet,
     fmt::{Debug, Display, Formatter},
 };
-use tracing::{Level, Span, debug, info, instrument, trace, warn};
+use tracing::{Level, Span, debug, info, instrument, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -47,9 +50,7 @@ impl SyncTracker {
     }
 
     pub fn caught_up(&mut self, peer: &Peer) {
-        if !self.syncing_peers.remove(peer) {
-            warn!("unknown caught-up peer {}", peer);
-        }
+        self.syncing_peers.remove(peer);
     }
 
     pub fn is_caught_up(&self) -> bool {

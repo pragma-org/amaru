@@ -30,6 +30,7 @@ use std::{
     fmt,
     rc::Rc,
 };
+use tracing::debug;
 
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 
@@ -253,7 +254,6 @@ impl ProposalsForest {
 
     /// Get the current roots of the forest.
     pub fn roots(&self) -> ProposalsRootsRc {
-        // NOTE: clone are cheap here, because everything is an `Rc`.
         ProposalsRootsRc {
             protocol_parameters: self.protocol_parameters.root(),
             hard_fork: self.hard_fork.root(),
@@ -394,15 +394,13 @@ impl ProposalsForestCompass {
         Rc<ComparableProposalId>,
         (&'forest ProposalEnum, &'forest ProposalPointer),
     )> {
-        use CommitteeUpdate::*;
-        use OrphanProposal::*;
-        use ProposalEnum::*;
-
         assert!(
             forest.sequence.len() == self.original_len,
             "compass re-used on a forest that has changed; you should have created a new compass."
         );
 
+        // NOTE(RATIFICATION_INTERRUPTION):
+        //
         // == TL; DR;
         //   A high-priority/high-impact proposal has already been enacted; so we prevent the
         //   ratification of any new proposal from then on.
@@ -421,85 +419,108 @@ impl ProposalsForestCompass {
         //   or nice polls; but as soon as one of the other is encountered; EVERYTHING (including
         //   treasury withdrawals and parameters changes) is postponed until the next epoch.
         if forest.is_interrupted {
+            debug!("high-impact proposal was enacted; pausing ratification for this epoch");
             return None;
         }
 
         loop {
-            let result: Option<(
-                Rc<ComparableProposalId>,
-                (&'forest ProposalEnum, &'forest ProposalPointer),
-            )> = {
-                let id = forest.sequence.get(self.cursor)?.clone();
-
-                let ProposedIn {
-                    epoch: proposed_in,
-                    proposal,
-                    pointer,
-                } = forest.proposals.get(&id).unwrap_or_else(|| {
-                    unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
-                });
-
-                self.cursor += 1;
-
-                // Proposals are ratified with an epoch of delay. So
-                //
-                // - if a proposal is submitted in epoch e, it musn't be ratified in the
-                // transition from e -> e + 1, but from the transition from e + 1 -> e + 2.
-                //
-                // - Yet, the forest will always include ALL proposals, since we must potentially
-                // prune recent proposals due to the enactment of older proposals.
-                //
-                // - `forest.current_epoch` contains the minimum epoch for which we might consider
-                // for ratification. If a proposal was submitted in the epoch that just ended, we
-                // skip it.
-                if proposed_in >= &forest.current_epoch {
-                    return None;
-                }
-
-                // On treasury withdrawals, we must ensure there's still enough money in the
-                // treasury. This is necessary since there can be an arbitrary number of
-                // withdrawals that have been ratified and enacted just before; possibly depleting
-                // the treasury.
-                if let Orphan(TreasuryWithdrawal(withdrawals)) = proposal {
-                    let total_withdrawn = withdrawals
-                        .values()
-                        .fold(0_u64, |total, n| total.saturating_add(*n));
-                    if total_withdrawn > forest.treasury() {
-                        return None;
-                    }
-                }
-
-                // On constitutional committee updates, we should ensure that any term limit is still
-                // valid. This can happen if a protocol parameter change that changes the max term limit
-                // is ratified *before* a committee update, possibly rendering it invalid.
-                if let ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
-                    let max_term_length = protocol_parameters.max_committee_term_length;
-                    let is_now_invalid =
-                        |valid_until| valid_until > &(forest.current_epoch + max_term_length);
-                    if added.values().any(is_now_invalid) {
-                        return None;
-                    }
-                }
-
-                // Ensures that the next proposal points to an active root. Not being the case isn't
-                // necessarily an issue or a sign that something went wrong.
-                //
-                // In fact, since proposals can form arbitrarily long chain, it is very plausible that a
-                // proposal points to another that isn't ratified just yet.
-                //
-                // Encountering a non-matching root also doesn't mean we shouldn't process other proposals.
-                // The order is given by their point of submission; and thus, proposals submitted later may
-                // points to totally different (and active) roots. So we just skip those proposals.
-                if forest.matching_root(proposal) {
-                    Some((id, (proposal, pointer)))
-                } else {
-                    None
-                }
-            };
-
-            if result.is_some() || self.cursor >= self.original_len {
-                return result;
+            let step = self.step(forest, protocol_parameters);
+            self.cursor += 1;
+            if step.is_some() || self.cursor >= self.original_len {
+                return step;
             }
+        }
+    }
+
+    fn step<'forest>(
+        &self,
+        forest: &'forest ProposalsForest,
+        protocol_parameters: &'_ ProtocolParameters,
+    ) -> Option<(
+        Rc<ComparableProposalId>,
+        (&'forest ProposalEnum, &'forest ProposalPointer),
+    )> {
+        use CommitteeUpdate::*;
+        use OrphanProposal::*;
+        use ProposalEnum::*;
+
+        let id = forest.sequence.get(self.cursor)?.clone();
+
+        let ProposedIn {
+            epoch: proposed_in,
+            proposal,
+            pointer,
+        } = forest.proposals.get(&id).unwrap_or_else(|| {
+            unreachable!(
+                "forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table"
+            );
+        });
+
+        // NOTE(SKIP_PROPOSALS):
+        //
+        // Proposals are ratified with an epoch of delay. So
+        //
+        // - if a proposal is submitted in epoch e, it musn't be ratified in the
+        // transition from e -> e + 1, but from the transition from e + 1 -> e + 2.
+        //
+        // - Yet, the forest will always include ALL proposals, since we must potentially
+        // prune recent proposals due to the enactment of older proposals.
+        //
+        // - `forest.current_epoch` contains the minimum epoch for which we might consider
+        // for ratification. If a proposal was submitted in the epoch that just ended, we
+        // skip it.
+        if proposed_in >= &forest.current_epoch {
+            debug!(id = %id, reason = "too fresh; ratification will begin next epoch", "skipping proposal");
+            return None;
+        }
+
+        // NOTE(SKIP_PROPOSALS):
+        //
+        // On treasury withdrawals, we must ensure there's still enough money in the
+        // treasury. This is necessary since there can be an arbitrary number of
+        // withdrawals that have been ratified and enacted just before; possibly depleting
+        // the treasury.
+        if let Orphan(TreasuryWithdrawal(withdrawals)) = proposal {
+            let total_withdrawn = withdrawals
+                .values()
+                .fold(0_u64, |total, n| total.saturating_add(*n));
+            if total_withdrawn > forest.treasury() {
+                debug!(id = %id, reason = "impossible withdrawal; treasury is depleted", "skipping proposal");
+                return None;
+            }
+        }
+
+        // NOTE(SKIP_PROPOSALS):
+        //
+        // On constitutional committee updates, we should ensure that any term limit is still
+        // valid. This can happen if a protocol parameter change that changes the max term limit
+        // is ratified *before* a committee update, possibly rendering it invalid.
+        if let ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
+            let max_term_length = protocol_parameters.max_committee_term_length;
+            let is_now_invalid =
+                |valid_until| valid_until > &(forest.current_epoch + max_term_length);
+            if added.values().any(is_now_invalid) {
+                debug!(id = %id, reason = "new committee has invalid members; term length beyond limit", "skipping proposal");
+                return None;
+            }
+        }
+
+        // NOTE(SKIP_PROPOSALS):
+        //
+        // Ensures that the next proposal points to an active root. Not being the case isn't
+        // necessarily an issue or a sign that something went wrong.
+        //
+        // In fact, since proposals can form arbitrarily long chain, it is very plausible that a
+        // proposal points to another that isn't ratified just yet.
+        //
+        // Encountering a non-matching root also doesn't mean we shouldn't process other proposals.
+        // The order is given by their point of submission; and thus, proposals submitted later may
+        // points to totally different (and active) roots. So we just skip those proposals.
+        if forest.matching_root(proposal) {
+            Some((id, (proposal, pointer)))
+        } else {
+            debug!(id = %id, reason = "non-matching root", "skipping proposal");
+            None
         }
     }
 }

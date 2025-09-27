@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::{Slot, TransactionPointer, cbor, heterogeneous_array};
+use std::fmt;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
 pub struct CertificatePointer {
@@ -23,6 +24,16 @@ pub struct CertificatePointer {
 impl CertificatePointer {
     pub fn slot(&self) -> Slot {
         self.transaction.slot
+    }
+}
+
+impl fmt::Display for CertificatePointer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{},certificate={}",
+            &self.transaction, &self.certificate_index
+        )
     }
 }
 

@@ -14,7 +14,7 @@
 
 use amaru::snapshots_dir;
 use amaru_kernel::{
-    default_ledger_dir, network::NetworkName, protocol_parameters::GlobalParameters,
+    EraHistory, default_ledger_dir, network::NetworkName, protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::{
     store::{ReadStore, Snapshot},
@@ -89,7 +89,9 @@ fn compare_snapshot(epoch: Epoch) {
 
     let protocol_parameters = snapshot.as_ref().protocol_parameters().unwrap();
 
-    let dreps = GovernanceSummary::new(snapshot.as_ref(), network.into()).unwrap();
+    let era_history = <&EraHistory>::from(network);
+
+    let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history).unwrap();
 
     let stake_distr =
         StakeDistribution::new(snapshot.as_ref(), &protocol_parameters, dreps).unwrap();

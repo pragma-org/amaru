@@ -11395,6 +11395,14 @@
       }
     }
   },
+  "pool1egfg26w0syqly9qc65hz33gqv2qrzyka8tfue3ccsk3c73a56jp": {
+    "id": "pool1egfg26w0syqly9qc65hz33gqv2qrzyka8tfue3ccsk3c73a56jp",
+    "stake": {
+      "ada": {
+        "lovelace": 2044249695377
+      }
+    }
+  },
   "pool1egu0kaxmv3zu54xd80p9u0dcalnywmfru0qnm43hjvfzqa5zw5x": {
     "id": "pool1egu0kaxmv3zu54xd80p9u0dcalnywmfru0qnm43hjvfzqa5zw5x",
     "vrfVerificationKeyHash": "7a2035a6aafad80d255100a0fe72a3cd77d387cd6d39d5f1a470273f62dc9dfe",

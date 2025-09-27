@@ -1752,17 +1752,6 @@
   {
     "type": "registered",
     "from": "verificationKey",
-    "id": "fa6a8dc2635dddcf9af495cb144f7eb4ff845866fe48695ad7cb65d3",
-    "stake": {
-      "ada": {
-        "lovelace": 23608181664
-      }
-    },
-    "delegators": []
-  },
-  {
-    "type": "registered",
-    "from": "verificationKey",
     "id": "fd034960b06ac6598732e23c4941e5e675940fb41a1ff6e049024ac1",
     "mandate": {
       "epoch": 210
@@ -1993,6 +1982,10 @@
       },
       {
         "from": "script",
+        "credential": "babd430a06795d53e7e997fb4dfd1a8d4bf86dd153e20f9751ea4452"
+      },
+      {
+        "from": "script",
         "credential": "c9a0104461c7da6140da1918f4ab821442b8df17b5c216672113e200"
       },
       {
@@ -2021,6 +2014,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "011e263ea45e0addc31cdc464a9310e786461589c70834ba27e36655"
+      },
+      {
+        "from": "verificationKey",
         "credential": "013f77ba45f9e542316040787077122395e5607c96f316fcb13603df"
       },
       {
@@ -2038,6 +2035,10 @@
       {
         "from": "verificationKey",
         "credential": "026898e030a3f76f3dc6eaea436dd9321de772660b8e1ed08e9ba983"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "0309b75bab192e3b85891e3ea65576aae49e6cf64662b5bc2893ad51"
       },
       {
         "from": "verificationKey",
@@ -2078,6 +2079,10 @@
       {
         "from": "verificationKey",
         "credential": "097220c100786f198a1af0722101ccd0dd97886eaee7539c9be181ae"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "098cefb43656cbd8e0a254636876a532bdf470b818ece3012a9cd5a3"
       },
       {
         "from": "verificationKey",
@@ -2133,6 +2138,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "0daaf772e94823bfa6aeac597112ad000a3d9bffc92a41e915c2da49"
+      },
+      {
+        "from": "verificationKey",
         "credential": "0dd198382f1ae3ae16358d29070de0cfba653dd19e4abb39e373a3db"
       },
       {
@@ -2174,6 +2183,14 @@
       {
         "from": "verificationKey",
         "credential": "16922d5732ac3b5e06a471efb84cbedc608e80775089e7369994dec0"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "175602c888f529e8c641c4df98086c33e57a679f487d267011bdd59b"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "177741ff3682ca3bb0da2d6837bb7ae5001d83d70d88b9eb987d031a"
       },
       {
         "from": "verificationKey",
@@ -2285,7 +2302,15 @@
       },
       {
         "from": "verificationKey",
+        "credential": "21fc4b52052b7ac0848962470aefb668a14d8ac30f902869c7a23579"
+      },
+      {
+        "from": "verificationKey",
         "credential": "224109ac03b255e5486e942d7e2adb28c6a954cd1b1fa3c9ef2fce0c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "228f93fe92eda028f3e16a3135c2896247d358c784f0cb08ca84fee5"
       },
       {
         "from": "verificationKey",
@@ -2298,6 +2323,10 @@
       {
         "from": "verificationKey",
         "credential": "23b799d83ea8675b4fcfcdaef8981ad744f5b62ced6f01c0164fd747"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "23c839d932727b8c65119b595d6016511b79923689d428370ce9ae6e"
       },
       {
         "from": "verificationKey",
@@ -2354,6 +2383,10 @@
       {
         "from": "verificationKey",
         "credential": "27804e991c360d5f5139b7feed0774a27dc6a6453301c24594c80da7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "27ce10b87147e3e19a5dc622b6a535ab9ce01cb2d586a3a690a74c0e"
       },
       {
         "from": "verificationKey",
@@ -2470,6 +2503,10 @@
       {
         "from": "verificationKey",
         "credential": "33b67781e96b48cbe34a9ba75043f963c613c8d5115218fa5efac5f8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "349c50667917041b9f2111c61a5d52baea6a7da7efb68c2a07443443"
       },
       {
         "from": "verificationKey",
@@ -2681,6 +2718,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "4708de6d46ea8c9af98c27b294c212d921c7a6a17a6b7d93a611d8a0"
+      },
+      {
+        "from": "verificationKey",
         "credential": "47389f5197c46ec04668b59415f0437e5487a12b59a0263f799dcd26"
       },
       {
@@ -2725,11 +2766,19 @@
       },
       {
         "from": "verificationKey",
+        "credential": "4b20c8a01dde95428c968bde112f4e7abab4e0ca0caf3a7de4441cb7"
+      },
+      {
+        "from": "verificationKey",
         "credential": "4b3002c66c149c68d173301718ec14b8026c8a467d3c7472c574e9cf"
       },
       {
         "from": "verificationKey",
         "credential": "4b74460da0a99b9448b2888d44fce9cd8c7bcc835a099556f5427449"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4c0ec23eba3aa27a4b8d61107f59f3e0d24b7bb6d7ae1a4bbd689c8d"
       },
       {
         "from": "verificationKey",
@@ -2805,6 +2854,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "521da955ad8f24bdff8d3cb8f5a155c49870037019fcdf20949e7e5e"
+      },
+      {
+        "from": "verificationKey",
         "credential": "5272ed3deee5e0796e05e78168c64ca76f27a6d287ba2eb1f21458f0"
       },
       {
@@ -2814,6 +2867,10 @@
       {
         "from": "verificationKey",
         "credential": "52e8d0ee8751b1771ec62281fc99235e6075bebaaffa9dc31828aa17"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "533e717b1af07c4ec22002634d9b62cef93c7388b7b4a68476e360c0"
       },
       {
         "from": "verificationKey",
@@ -2874,6 +2931,10 @@
       {
         "from": "verificationKey",
         "credential": "58dea83f0ced2bc2094ad28ad736eb00e71920d0f282b027a5c19309"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "590702d6caf796fcdd58ee6deda731df0012b7ca30ef9a8fe29483b7"
       },
       {
         "from": "verificationKey",
@@ -3029,6 +3090,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "686f569a8fb29a3e531917d9fdc8f4f047177bd7502fc2e60b983037"
+      },
+      {
+        "from": "verificationKey",
         "credential": "689100282c3e4faa7888ca5a5aaa9b7ab445be3f11c9005250c9a539"
       },
       {
@@ -3102,6 +3167,10 @@
       {
         "from": "verificationKey",
         "credential": "6f34b1fbba06a13dd7601bf7041d326c66181338b26a841e5b40f0e3"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6f7c030bbae718047e577258608ef14a3aba93b92f6f17fcc35ef774"
       },
       {
         "from": "verificationKey",
@@ -3449,6 +3518,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "9652808e704a65cc351568ad7a0f247be2bc06ba741ccb9a9687f9bd"
+      },
+      {
+        "from": "verificationKey",
         "credential": "9692010edf58228f6bc435a537d55989f6985028a2081bb23651f5cd"
       },
       {
@@ -3649,6 +3722,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "ae3d4f9b4b402a30031816f7af02ef3563ea63bced28fa9aca4c61b8"
+      },
+      {
+        "from": "verificationKey",
         "credential": "aef023534f7c79de6502896526015fdd0f8dd7626d1536d5e7c1eb8c"
       },
       {
@@ -3710,6 +3787,14 @@
       {
         "from": "verificationKey",
         "credential": "b3abc064ffbcef783512bc66df912606ac5eec6569399cc6b7db9309"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b3ba8678f053b46897581e4e89d071aba0d498e24c35e732014f3453"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b422458f8a07735222fc60e91347bca6d2406a83a8aa67d5346fc4b1"
       },
       {
         "from": "verificationKey",
@@ -3809,6 +3894,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "c3844a0cddae92417f13a759441e82b4a9b40458b1559b07ecb12439"
+      },
+      {
+        "from": "verificationKey",
         "credential": "c3efda3ac26f6bda5d358825da28b961c70e3a4260e054b6840182a3"
       },
       {
@@ -3818,6 +3907,10 @@
       {
         "from": "verificationKey",
         "credential": "c53d2e579fa2b549fd41a3642b014af3348e65186260191bc9d14409"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "c58d6675b05316d0cb25599b9e8e83cc603051495f6fff97a1b97107"
       },
       {
         "from": "verificationKey",
@@ -3858,6 +3951,10 @@
       {
         "from": "verificationKey",
         "credential": "c9b00cb75279469d0efa07ce329189a53019cc915bca945de27d4f48"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ca3ae3debe492bf91b1533668abaf0d634d775f33d4501b12c822350"
       },
       {
         "from": "verificationKey",
@@ -3957,11 +4054,19 @@
       },
       {
         "from": "verificationKey",
+        "credential": "d1039fc78da7c00d7b8d7f6e53610223dcac33a56409f1e6203e1f48"
+      },
+      {
+        "from": "verificationKey",
         "credential": "d282da4d36e774b2e998fac1e7eab7d24a07731744b973e39ee2f5de"
       },
       {
         "from": "verificationKey",
         "credential": "d2c773c3e15d7b6fdedeaa2fe40746c4d299a930f5b8297448757be0"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d2e93889d4e9fb3fc15011516ed43276725253517c19a3796a21d762"
       },
       {
         "from": "verificationKey",
@@ -4069,6 +4174,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "dc8d5b2b924804e8db2cdcfb9515d3bc44c92d1c67adcac5bb02bfd4"
+      },
+      {
+        "from": "verificationKey",
         "credential": "dcf34c2b7f884d22111cffa100473be0cfdc83228d6f3870c17a922b"
       },
       {
@@ -4086,6 +4195,10 @@
       {
         "from": "verificationKey",
         "credential": "e075be10ec5c575caffb68b08c31470666d4fe1aeea07c16d6473903"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e0c40d826bf0ccff57ba33503bf8173bc687246e55c9858475f8b821"
       },
       {
         "from": "verificationKey",
@@ -4118,6 +4231,10 @@
       {
         "from": "verificationKey",
         "credential": "e4445cde4ebac9f8e501b6ad195a7c5f77234c8915934fe3ac36ef45"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e480ea1e4893bb24a13031eb367aa6ae090379121da7bcd619e99536"
       },
       {
         "from": "verificationKey",
@@ -4189,6 +4306,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "ec90913a03afd2a4542fcf7e47114170872fb26d5887aa6bd7bae8bd"
+      },
+      {
+        "from": "verificationKey",
         "credential": "ecc24f3292b23884c2644aa09f9c66282642225737a845c7f143fc28"
       },
       {
@@ -4241,6 +4362,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "efdddff01d5b44cd6336a35785374adad488c9467645ce95a3cc1c67"
+      },
+      {
+        "from": "verificationKey",
         "credential": "efecc4aff909a590dd1cfdb3040d6e31fc6e44c1ee73c56c3878928c"
       },
       {
@@ -4286,6 +4411,10 @@
       {
         "from": "verificationKey",
         "credential": "f57047219638ed70161f2616f92fcebae7ecc134c07d48f67c26d4ad"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f588c147df3ee2c0fefca108b58cd9d911ff58f8f7de4f7ecc02830d"
       },
       {
         "from": "verificationKey",
@@ -4353,6 +4482,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "fdcecb17775fed2f60f15705c84bb78d411bb54f0651868e93ecd710"
+      },
+      {
+        "from": "verificationKey",
         "credential": "ffdecfb64970e5e3e29b1f76084c3c41a448276d02a41bab158acfaf"
       }
     ]
@@ -4367,7 +4500,23 @@
     "delegators": [
       {
         "from": "verificationKey",
+        "credential": "06c10ad9fc008c00eb00ec24320b9a5065ef5e098bfaf346f6ebb324"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "0833141f7d1e2ec244596eaa221eeca92f787217529ab4ca1b98c64d"
+      },
+      {
+        "from": "verificationKey",
         "credential": "13c5038ccf8f129f35e9f28d2316f906c2a83b612660e973dbbbf983"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "2d5709375e5626be0932063831e994fd088fd05f12a29eee0656db6f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3fb5c11fa8b80255df9383f51d4acf17a689c51e53648f299fa592e3"
       },
       {
         "from": "verificationKey",
@@ -4376,6 +4525,10 @@
       {
         "from": "verificationKey",
         "credential": "618a2fde36fb4f636261d4935855a7e56c10c1a53ba1c5dee201fc46"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "70acba9719ea5353e1d70f315180630bc19b52197c4ace436e120638"
       },
       {
         "from": "verificationKey",
@@ -4388,6 +4541,14 @@
       {
         "from": "verificationKey",
         "credential": "98e012b0fa642173b52ddf6f977bd1e42078179d974dcca694098b8f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a4b4179900f705045a69378f88420963ae22e186badabc810ab9a730"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b57450f77392a7ac30688ff0f33ac47b35864c04b8ee840d9d3978a2"
       },
       {
         "from": "verificationKey",

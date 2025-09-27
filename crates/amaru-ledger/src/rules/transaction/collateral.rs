@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::context::UtxoSlice;
+use amaru_kernel::{
+    Address, AlonzoValue, HasOwnership, MemoizedTransactionOutput, MintedTransactionOutput,
+    StakeCredential, TransactionInput, TransactionInputAdapter, Value,
+    protocol_parameters::ProtocolParameters,
+};
 use std::{
     collections::BTreeMap,
     fmt::{self},
 };
-
-use amaru_kernel::{
-    AlonzoValue, MemoizedTransactionOutput, MintedTransactionOutput, TransactionInput,
-    TransactionInputAdapter, Value, protocol_parameters::ProtocolParameters,
-};
 use thiserror::Error;
-
-use crate::context::UtxoSlice;
 
 /*
 * CollateralBalance is used to track difference in collateral input vlaue and collateral return value.
@@ -225,7 +224,7 @@ where
             .lookup(collateral)
             .ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone().into()))?;
 
-        if output.address.has_script() {
+        if is_locked_by_script(&output.address) {
             return Err(InvalidCollateral::LockedAtScriptAddress(
                 collateral.clone().into(),
             ));
@@ -262,14 +261,17 @@ where
     Ok(())
 }
 
+pub fn is_locked_by_script(address: &Address) -> bool {
+    matches!(address.credential(), Some(StakeCredential::ScriptHash(_)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::InvalidCollateral;
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-    use amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS;
     use amaru_kernel::{
         KeepRaw, MintedTransactionBody, include_cbor, include_json,
-        protocol_parameters::ProtocolParameters,
+        protocol_parameters::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters},
     };
     use test_case::test_case;
 
@@ -307,6 +309,9 @@ mod tests {
     #[test_case(
         fixture!("fe78fd37a5c864cde5416461195b288ab18721f6e64be4ee93eaef0979b928f9");
         "happy path - assets in collateral with return"
+    )]
+    #[test_case(fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "delegation-script");
+        "happy path - script hash delegation part"
     )]
     #[test_case(
         fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "max-collateral-inputs") =>

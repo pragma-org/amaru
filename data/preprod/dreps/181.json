@@ -1603,6 +1603,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "228f93fe92eda028f3e16a3135c2896247d358c784f0cb08ca84fee5"
+      },
+      {
+        "from": "verificationKey",
         "credential": "22c19e74e654a761f6bc4a9343ae52d7a6a809192685f8700cebdf1c"
       },
       {
@@ -1652,6 +1656,10 @@
       {
         "from": "verificationKey",
         "credential": "274905a837e016a7f091a1220e23f5695b685d4d1a41b1629b1a029f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "27eabf5296962a50b9647a5185fe48dfab4e723f58ef41230b12b233"
       },
       {
         "from": "verificationKey",
@@ -1840,6 +1848,10 @@
       {
         "from": "verificationKey",
         "credential": "3f5a7c0b9cf421461626899a8781672d98067af6ebd79636c8eba672"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3fb5c11fa8b80255df9383f51d4acf17a689c51e53648f299fa592e3"
       },
       {
         "from": "verificationKey",
@@ -2631,6 +2643,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "a6219834e01485810ee3dd60c39823b10e63f4bfadbc6fa0120db279"
+      },
+      {
+        "from": "verificationKey",
         "credential": "a64cd991d128aaf7b71593b8d5545b9cde405a2cd37cfa47984a32e2"
       },
       {
@@ -2872,6 +2888,10 @@
       {
         "from": "verificationKey",
         "credential": "ca8363cd3b9742698edb9715667f1ae230570c3cfc44ed8486465445"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ca9fab7d0fffc885308bceecac13ef2fec62d28259ac908953abf803"
       },
       {
         "from": "verificationKey",
@@ -3207,6 +3227,10 @@
       },
       {
         "from": "verificationKey",
+        "credential": "efdddff01d5b44cd6336a35785374adad488c9467645ce95a3cc1c67"
+      },
+      {
+        "from": "verificationKey",
         "credential": "efecc4aff909a590dd1cfdb3040d6e31fc6e44c1ee73c56c3878928c"
       },
       {
@@ -3300,6 +3324,10 @@
       {
         "from": "verificationKey",
         "credential": "fc2d12a000f09d2f200915b0ca24801f80397f6b45ae772026723ed4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "fdcecb17775fed2f60f15705c84bb78d411bb54f0651868e93ecd710"
       },
       {
         "from": "verificationKey",
