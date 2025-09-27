@@ -55,6 +55,7 @@ amaru-stores.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-slot-arithmetic.workspace = true
+amaru-metrics.workspace = true
 pure-stage.workspace = true
 
 [target.'cfg(unix)'.dependencies]

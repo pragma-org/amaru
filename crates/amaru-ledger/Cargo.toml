@@ -25,6 +25,7 @@ proptest = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+async-trait.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
@@ -32,6 +33,8 @@ amaru-iter-borrow.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-progress-bar.workspace = true
 amaru-slot-arithmetic.workspace = true
+amaru-metrics.workspace = true
+
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

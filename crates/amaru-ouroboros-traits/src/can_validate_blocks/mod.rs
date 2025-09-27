@@ -13,17 +13,19 @@
 // limitations under the License.
 
 use amaru_kernel::{Point, RawBlock};
+use amaru_metrics::ledger::LedgerMetrics;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 
 pub mod mock;
 
+#[async_trait::async_trait]
 pub trait CanValidateBlocks: Send + Sync {
-    fn roll_forward_block(
+    async fn roll_forward_block(
         &self,
         point: &Point,
         block: &RawBlock,
-    ) -> Result<Result<u64, BlockValidationError>, BlockValidationError>;
+    ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
     fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError>;
 }

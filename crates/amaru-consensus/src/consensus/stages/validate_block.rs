@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::effects::metrics_effects::RecordMetricsEffect;
 use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
 use crate::consensus::events::{BlockValidationResult, ValidateBlockEvent};
 use crate::consensus::span::adopt_current_span;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Header, Point, RawBlock};
+use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::can_validate_blocks::BlockValidationError;
 use amaru_ouroboros_traits::{CanValidateBlocks, IsHeader};
 use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources, StageRef};
@@ -55,7 +57,8 @@ pub async fn stage(
                 .external(ValidateBlockEffect::new(&peer, &point, block.clone()))
                 .await
             {
-                Ok(Ok(_)) => {
+                Ok(Ok(metrics)) => {
+                    eff.external(RecordMetricsEffect::new(metrics.into())).await;
                     eff.send(
                         &downstream,
                         BlockValidationResult::BlockValidated {
@@ -148,15 +151,17 @@ impl ExternalEffect for ValidateBlockEffect {
                 .get::<ResourceBlockValidation>()
                 .expect("ValidateBlockEffect requires a CanValidateBlock resource")
                 .clone();
+
             let result: <Self as ExternalEffectAPI>::Response =
-                validator.roll_forward_block(&self.point, &self.block);
+                validator.roll_forward_block(&self.point, &self.block).await;
+
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
     }
 }
 
 impl ExternalEffectAPI for ValidateBlockEffect {
-    type Response = Result<Result<u64, BlockValidationError>, BlockValidationError>;
+    type Response = Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

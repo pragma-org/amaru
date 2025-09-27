@@ -63,6 +63,10 @@ impl VolatileDB {
         self.sequence.back()
     }
 
+    pub fn view_front(&self) -> Option<&AnchoredVolatileState> {
+        self.sequence.front()
+    }
+
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         self.cache.utxo.produced.get(input)
     }

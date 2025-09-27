@@ -13,5 +13,6 @@
 // limitations under the License.
 
 pub mod block_effects;
+pub mod metrics_effects;
 pub mod network_effects;
 pub mod store_effects;
