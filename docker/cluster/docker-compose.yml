@@ -35,7 +35,7 @@ services:
   cardano:
     image: ghcr.io/blinklabs-io/cardano-node
     environment:
-      - AMARU_NETWORK
+      - NETWORK=${AMARU_NETWORK}
     volumes:
       - cardano_data:/data/db
     healthcheck:
