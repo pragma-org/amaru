@@ -16,4 +16,4 @@ rust-version.workspace = true
 [dependencies]
 # External Dependencies
 opentelemetry.workspace = true
-serde.workspace = true
+serde = {workspace = true, features = ["derive"]}
