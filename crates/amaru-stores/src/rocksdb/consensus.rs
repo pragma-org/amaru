@@ -17,7 +17,7 @@ use amaru_kernel::{HEADER_HASH_SIZE, Hash, RawBlock, cbor, from_cbor, to_cbor};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use amaru_slot_arithmetic::EraHistory;
-use rocksdb::{DB, OptimisticTransactionDB, Options};
+use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
 use std::ops::Deref;
 use std::path::PathBuf;
 use tracing::{Level, instrument};
@@ -39,6 +39,7 @@ impl RocksDBStore {
         opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
             CONSENSUS_PREFIX_LEN,
         ));
+
         Ok(Self {
             db: OptimisticTransactionDB::open(&opts, basedir).map_err(|e| {
                 StoreError::OpenError {
@@ -187,16 +188,12 @@ macro_rules! impl_ReadOnlyChainStore {
 
             fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>> {
                 let mut result = Vec::new();
-                let prefix = [&CHILD_PREFIX[..], &hash[..]].concat();
-                for res in self.db.prefix_iterator(&prefix) {
+                let mut opts = ReadOptions::default();
+                opts.set_iterate_range(PrefixRange([&CHILD_PREFIX[..], &hash[..]].concat()));
+
+                for res in self.db.iterator_opt(IteratorMode::Start, opts) {
                     match res {
                         Ok((key, _value)) => {
-                            // Stop once we get keys that don't start with the required prefix.
-                            // prefix_iterator is set to a fixed CONSENSUS_PREFIX_LEN length prefix,
-                            // so it may return keys that are not strictly within the desired range.
-                            if !key.starts_with(&prefix) {
-                                break;
-                            }
                             let mut arr = [0u8; HEADER_HASH_SIZE];
                             arr.copy_from_slice(&key[(CONSENSUS_PREFIX_LEN + HEADER_HASH_SIZE)..]);
                             result.push(Hash::from(arr));
