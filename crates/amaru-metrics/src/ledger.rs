@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
 
-use opentelemetry::metrics::{Counter, Gauge, Meter};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::{Counter, Gauge};
+
+use crate::Meter;
 
 use crate::{MetricRecorder, MetricsEvent};
 
@@ -41,6 +45,15 @@ impl Default for LedgerMetrics {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+impl MetricRecorder for LedgerMetrics {
+    fn record_to_meter(&self, _meter: &Meter) {
+        // no-op  in wasm32 environment, because of `opentelemetry` dependency on `js-sys`:
+        // https://github.com/open-telemetry/opentelemetry-rust/blob/main/opentelemetry/src/lib.rs#L296-L301
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for LedgerMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static BLOCK_HEIGHT: OnceLock<Gauge<u64>> = OnceLock::new();

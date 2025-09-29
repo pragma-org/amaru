@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use opentelemetry::metrics::{Counter, Gauge, Meter};
-
 use crate::ledger::LedgerMetrics;
-
+pub use crate::metrics::{Counter, Gauge, Meter};
 pub mod ledger;
+pub mod metrics;
 
 pub const METRICS_METER_NAME: &str = "cardano_node_metrics";
 
@@ -26,11 +25,11 @@ pub enum MetricsEvent {
 }
 
 pub trait MetricRecorder {
-    fn record_to_meter(&self, meter: &opentelemetry::metrics::Meter);
+    fn record_to_meter(&self, meter: &Meter);
 }
 
 impl MetricRecorder for MetricsEvent {
-    fn record_to_meter(&self, meter: &opentelemetry::metrics::Meter) {
+    fn record_to_meter(&self, meter: &Meter) {
         match self {
             MetricsEvent::LedgerMetrics(ledger_metrics) => ledger_metrics.record_to_meter(meter),
         }
