@@ -43,6 +43,7 @@ use amaru_ouroboros_traits::{
     CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
     in_memory_consensus_store::InMemConsensusStore,
 };
+use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore},
@@ -78,23 +79,23 @@ pub type BlockHash = Hash<32>;
 
 /// Whether or not data is stored on disk or in memory.
 #[derive(Clone)]
-pub enum StorePath<S> {
+pub enum StoreType<S> {
     InMem(S),
-    OnDisk(PathBuf),
+    RocksDb(RocksDbConfig),
 }
 
-impl<S> Display for StorePath<S> {
+impl<S> Display for StoreType<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StorePath::InMem(..) => write!(f, "<mem>"),
-            StorePath::OnDisk(path) => write!(f, "{}", path.display()),
+            StoreType::InMem(..) => write!(f, "<mem>"),
+            StoreType::RocksDb(config) => write!(f, "{}", config),
         }
     }
 }
 
 pub struct Config {
-    pub ledger_store: StorePath<MemoryStore>,
-    pub chain_store: StorePath<()>,
+    pub ledger_store: StoreType<MemoryStore>,
+    pub chain_store: StoreType<()>,
     pub upstream_peers: Vec<String>,
     pub network: NetworkName,
     pub network_magic: u32,
@@ -106,8 +107,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            ledger_store: StorePath::OnDisk(PathBuf::from("./ledger.db")),
-            chain_store: StorePath::OnDisk(PathBuf::from("./chain.db")),
+            ledger_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./ledger.db"))),
+            chain_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./chain.db"))),
             upstream_peers: vec![],
             network: NetworkName::Preprod,
             network_magic: 1,
@@ -318,8 +319,10 @@ fn make_chain_store(
     tip: &Hash<HEADER_HASH_SIZE>,
 ) -> Result<Arc<dyn ChainStore<Header>>, Box<dyn Error>> {
     let chain_store: Arc<dyn ChainStore<Header>> = match config.chain_store {
-        StorePath::InMem(()) => Arc::new(InMemConsensusStore::new()),
-        StorePath::OnDisk(ref chain_dir) => Arc::new(RocksDBStore::new(chain_dir, era_history)?),
+        StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
+        StoreType::RocksDb(ref rocks_db_config) => {
+            Arc::new(RocksDBStore::new(rocks_db_config.clone(), era_history)?)
+        }
     };
 
     if *tip != ORIGIN_HASH && chain_store.load_header(tip).is_none() {
@@ -376,7 +379,7 @@ fn make_ledger(
     global_parameters: GlobalParameters,
 ) -> anyhow::Result<LedgerStage> {
     match &config.ledger_store {
-        StorePath::InMem(store) => {
+        StoreType::InMem(store) => {
             let ledger = BlockValidator::new(
                 store.clone(),
                 store.clone(),
@@ -386,11 +389,11 @@ fn make_ledger(
             )?;
             Ok(LedgerStage::InMemLedgerStage(ledger))
         }
-        StorePath::OnDisk(ledger_dir) => {
+        StoreType::RocksDb(rocks_db_config) => {
             let ledger = BlockValidator::new(
-                RocksDB::new(ledger_dir)?,
+                RocksDB::new(rocks_db_config.clone())?,
                 RocksDBHistoricalStores::new(
-                    ledger_dir,
+                    rocks_db_config.clone(),
                     u64::from(config.max_extra_ledger_snapshots),
                 ),
                 network,
@@ -456,11 +459,11 @@ mod tests {
     use amaru_kernel::{
         EraHistory, network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
     };
-    use amaru_stores::in_memory::MemoryStore;
+    use amaru_stores::{in_memory::MemoryStore, rocksdb::RocksDbConfig};
     use std::path::PathBuf;
     use tokio_util::sync::CancellationToken;
 
-    use super::{Config, StorePath, StorePath::*, bootstrap};
+    use super::{Config, StoreType, StoreType::*, bootstrap};
 
     #[tokio::test]
     async fn bootstrap_all_stages() {
@@ -487,24 +490,27 @@ mod tests {
 
     #[test]
     fn test_store_path_display() {
-        assert_eq!(format!("{}", StorePath::InMem(())), "<mem>");
+        assert_eq!(format!("{}", StoreType::InMem(())), "<mem>");
         assert_eq!(
             format!(
                 "{}",
-                StorePath::<()>::OnDisk(PathBuf::from("/path/to/store"))
+                StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("/path/to/store")))
             ),
-            "/path/to/store"
+            "RocksDbConfig { dir: /path/to/store }"
         );
         assert_eq!(
             format!(
                 "{}",
-                StorePath::<()>::OnDisk(PathBuf::from("./relative/path"))
+                StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("./relative/path")))
             ),
-            "./relative/path"
+            "RocksDbConfig { dir: ./relative/path }"
         );
         assert_eq!(
-            format!("{}", StorePath::<()>::OnDisk(PathBuf::from(""))),
-            ""
+            format!(
+                "{}",
+                StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("")))
+            ),
+            "RocksDbConfig { dir:  }"
         );
     }
 }

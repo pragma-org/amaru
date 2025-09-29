@@ -16,6 +16,7 @@ use amaru_kernel::network::NetworkName;
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{Header, to_cbor};
 use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::{Parser, arg};
 use std::fmt::Display;
@@ -44,7 +45,10 @@ pub struct Args {
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir;
     let era_history = args.network.into();
-    let db: Arc<dyn ChainStore<Header>> = Arc::new(RocksDBStore::new(&chain_dir, era_history)?);
+    let db: Arc<dyn ChainStore<Header>> = Arc::new(RocksDBStore::new(
+        RocksDbConfig::new(chain_dir),
+        era_history,
+    )?);
 
     print_iterator(
         "headers",
