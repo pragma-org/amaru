@@ -274,10 +274,10 @@ pub async fn bootstrap(
         .resources()
         .put::<ResourceForwardEventListener>(forward_event_listener);
 
-    meter_provider.inspect(|provider| {
+    if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);
         network.resources().put::<Arc<Meter>>(Arc::new(meter));
-    });
+    };
 
     let network = network.run(Handle::current().clone());
     let pure_stages = PureStageSim::new(network, exit);
