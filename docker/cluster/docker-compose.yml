@@ -8,9 +8,10 @@ services:
         condition: service_healthy
     environment:
       - AMARU_NETWORK
-      - LEDGER_DIR
+      - AMARU_LEDGER_DIR
       - CONFIG_FOLDER
-      - CHAIN_DIR
+      - AMARU_CHAIN_DIR
+      - AMARU_PEER_ADDRESS=cardano:3001
     volumes:
       - amaru_data:/srv/amaru
   
@@ -25,10 +26,10 @@ services:
         condition: service_started
     environment:
       - AMARU_NETWORK
-      - LEDGER_DIR
+      - AMARU_LEDGER_DIR
       - CONFIG_FOLDER
-      - CHAIN_DIR
-      - PEER_ADDRESS=amaru:3000
+      - AMARU_CHAIN_DIR
+      - AMARU_PEER_ADDRESS=amaru:3000
     volumes:
       - amaru_2_data:/srv/amaru
 
