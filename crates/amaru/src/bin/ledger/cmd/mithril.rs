@@ -57,6 +57,8 @@ impl IndicatifFeedbackReceiver {
 }
 
 #[async_trait]
+#[allow(clippy::wildcard_enum_match_arm)]
+#[allow(clippy::unwrap_used)]
 impl FeedbackReceiver for IndicatifFeedbackReceiver {
     async fn handle_event(&self, event: MithrilEvent) {
         match event {
@@ -66,7 +68,6 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
                     total_immutable_files,
                     include_ancillary,
                 } => {
-                    println!("Starting download of artifact files...");
                     let size = match include_ancillary {
                         true => 1 + total_immutable_files,
                         false => total_immutable_files,
@@ -101,7 +102,6 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
             MithrilEvent::CertificateChainValidationStarted {
                 certificate_chain_validation_id: _,
             } => {
-                println!("Validating certificate chain...");
                 let pb = ProgressBar::new_spinner();
                 self.progress_bar.add(pb.clone());
                 let mut certificate_validation_pb = self.certificate_validation_pb.write().await;
@@ -134,7 +134,7 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let network = args.network;
+    let _network = args.network;
 
     const AGGREGATOR_ENDPOINT: &str =
         "https://aggregator.release-preprod.api.mithril.network/aggregator";
