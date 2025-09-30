@@ -1,0 +1,31 @@
+shell: |
+  # assumes rust has been installed globally through rustup with
+  # RUST_HOME set to /opt/rust
+  export RUSTUP_HOME=/opt/rust
+  export CARGO_HOME=/opt/rust
+  export PATH=${CARGO_HOME}/bin:$PATH
+
+  USER=$(id -un)
+  HOME=$(getent passwd "$USER" | cut -d: -f6)
+
+  cargo --version
+
+  cargo test --workspace
+
+  HEAD=$(git rev-parse HEAD)
+  EXE=target/release/amaru
+
+  # restart service only if building main branch
+  if git branch --column=never --no-color --contains $HEAD | grep main | tr -d ' ' 2>&1 > /dev/null; then
+    [[ -d ${HOME}/.local/bin ]] || mkdir -p ${HOME}/.local/bin
+
+    # build binary
+    cargo build --release
+
+    # install binary
+    # TODO: use install program
+    [[ -f ${HOME}/.local/bin/amaru ]] && rm ${HOME}/.local/bin/amaru
+    cp "$EXE" ${HOME}/.local/bin/
+
+    sudo systemctl restart amaru
+  fi
