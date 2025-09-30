@@ -15,6 +15,7 @@
 use pure_stage::{BoxFuture, Effects, Instant, SendData, StageRef};
 use std::time::Duration;
 
+#[derive(Clone)]
 pub struct Base<'a, T>(&'a Effects<T>);
 
 impl<'a, T> Base<'a, T> {
@@ -23,8 +24,8 @@ impl<'a, T> Base<'a, T> {
     }
 }
 
-pub trait BaseOps {
-    fn send<Msg: SendData + Sync>(
+pub trait BaseOps: Clone + Send {
+    fn send<Msg: SendData + 'static>(
         &self,
         target: &StageRef<Msg>,
         msg: Msg,
@@ -34,8 +35,8 @@ pub trait BaseOps {
     fn terminate(&self) -> BoxFuture<'static, ()>;
 }
 
-impl<T> BaseOps for Base<'_, T> {
-    fn send<Msg: SendData + Sync>(
+impl<T: Clone + SendData + Sync> BaseOps for Base<'_, T> {
+    fn send<Msg: SendData + 'static>(
         &self,
         target: &StageRef<Msg>,
         msg: Msg,

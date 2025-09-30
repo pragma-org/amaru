@@ -128,7 +128,7 @@ impl ValidationFailed {
 /// fails due to an unexpected error (e.g. database error).
 #[derive(Debug, Error)]
 pub struct ProcessingFailed {
-    pub peer: Peer,
+    pub peer: Option<Peer>,
     pub error: anyhow::Error,
 }
 
@@ -157,7 +157,7 @@ impl<'de> Deserialize<'de> for ProcessingFailed {
     {
         #[derive(Deserialize)]
         struct ProcessingFailedHelper {
-            peer: Peer,
+            peer: Option<Peer>,
             error: String,
         }
 
@@ -174,7 +174,11 @@ impl Display for ProcessingFailed {
         write!(
             f,
             "validation failed for peer {}: {}",
-            self.peer.name, self.error
+            self.peer
+                .clone()
+                .map(|p| p.name)
+                .unwrap_or("n/a".to_string()),
+            self.error
         )
     }
 }
@@ -182,8 +186,12 @@ impl Display for ProcessingFailed {
 impl ProcessingFailed {
     pub fn new(peer: &Peer, error: anyhow::Error) -> Self {
         Self {
-            peer: peer.clone(),
+            peer: Some(peer.clone()),
             error,
         }
+    }
+
+    pub fn from(error: anyhow::Error) -> Self {
+        Self { peer: None, error }
     }
 }

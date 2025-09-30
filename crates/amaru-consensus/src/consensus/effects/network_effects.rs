@@ -21,7 +21,7 @@ use amaru_kernel::{Header, Point};
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use async_trait::async_trait;
-use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::sync::Arc;
@@ -42,19 +42,19 @@ pub trait NetworkOps {
         &self,
         peer: &Peer,
         point: &Point,
-    ) -> impl Future<Output = Result<Vec<u8>, ConsensusError>> + Send;
+    ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>>;
 
     fn send_forward_event(
         &self,
         peer: &Peer,
         header: Header,
-    ) -> impl Future<Output = Result<(), ProcessingFailed>> + Send;
+    ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 
     fn send_backward_event(
         &self,
         peer: &Peer,
         header_tip: HeaderTip,
-    ) -> impl Future<Output = Result<(), ProcessingFailed>> + Send;
+    ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 }
 
 impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
@@ -62,7 +62,7 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
         &self,
         peer: &Peer,
         point: &Point,
-    ) -> impl Future<Output = Result<Vec<u8>, ConsensusError>> + Send {
+    ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>> {
         self.0.external(FetchBlockEffect::new(peer, point))
     }
 
@@ -70,7 +70,7 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
         &self,
         peer: &Peer,
         header: Header,
-    ) -> impl Future<Output = Result<(), ProcessingFailed>> + Send {
+    ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
         self.0
             .external(ForwardEventEffect::new(peer, ForwardEvent::Forward(header)))
     }
@@ -79,7 +79,7 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
         &self,
         peer: &Peer,
         header_tip: HeaderTip,
-    ) -> impl Future<Output = Result<(), ProcessingFailed>> + Send {
+    ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
         self.0.external(ForwardEventEffect::new(
             peer,
             ForwardEvent::Backward(header_tip),

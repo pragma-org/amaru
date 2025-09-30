@@ -23,7 +23,7 @@ use amaru_consensus::consensus::effects::{
 };
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_consensus::consensus::headers_tree::HeadersTree;
+use amaru_consensus::consensus::headers_tree::HeadersTreeState;
 use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
 use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
@@ -250,6 +250,7 @@ pub async fn bootstrap(
 
     let graph_input = build_stage_graph(
         global_parameters,
+        era_history,
         ledger.get_stake_distribution(),
         chain_selector,
         our_tip,
@@ -401,13 +402,14 @@ fn make_chain_selector(
     peers: &Vec<Peer>,
     consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
-    let mut tree = HeadersTree::new(chain_store.clone(), consensus_security_parameter);
+    let mut tree_state = HeadersTreeState::new(consensus_security_parameter);
 
+    let anchor = chain_store.get_anchor_hash();
     for peer in peers {
-        tree.initialize_peer(peer, &chain_store.get_anchor_hash())?;
+        tree_state.initialize_peer(chain_store.clone(), peer, &anchor)?;
     }
 
-    Ok(SelectChain::new(tree, peers))
+    Ok(SelectChain::new(tree_state, peers))
 }
 
 pub trait PallasPoint {

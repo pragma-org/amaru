@@ -19,14 +19,14 @@ mod ledger_effects;
 mod network_effects;
 mod store_effects;
 
-pub use base_effects::BaseOps;
+pub use base_effects::{Base, BaseOps};
 pub use consensus_effects::{ConsensusEffects, ConsensusOps};
-pub use ledger_effects::{LedgerOps, ResourceBlockValidation, ResourceHeaderValidation};
+pub use ledger_effects::{Ledger, LedgerOps, ResourceBlockValidation, ResourceHeaderValidation};
 pub use network_effects::{
-    ForwardEvent, ForwardEventListener, NetworkOps, ResourceBlockFetcher,
+    ForwardEvent, ForwardEventListener, Network, NetworkOps, ResourceBlockFetcher,
     ResourceForwardEventListener,
 };
-pub use store_effects::{ResourceHeaderStore, ResourceParameters, StoreOps};
+pub use store_effects::{HeaderHash, ResourceHeaderStore, ResourceParameters, Store};
 
 #[cfg(test)]
 pub use consensus_effects::tests::*;

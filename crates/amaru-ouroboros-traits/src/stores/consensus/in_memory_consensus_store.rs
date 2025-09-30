@@ -18,11 +18,12 @@ use amaru_kernel::network::NetworkName;
 use amaru_kernel::{HEADER_HASH_SIZE, Hash, ORIGIN_HASH, RawBlock};
 use amaru_slot_arithmetic::EraHistory;
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// An in-memory implementation of a ChainStore used by the consensus stages.
+#[derive(Clone)]
 pub struct InMemConsensusStore<H> {
-    inner: Mutex<InMemConsensusStoreInner<H>>,
+    inner: Arc<Mutex<InMemConsensusStoreInner<H>>>,
 }
 
 impl<H> Default for InMemConsensusStore<H> {
@@ -34,7 +35,7 @@ impl<H> Default for InMemConsensusStore<H> {
 impl<H> InMemConsensusStore<H> {
     pub fn new() -> InMemConsensusStore<H> {
         InMemConsensusStore {
-            inner: Mutex::new(InMemConsensusStoreInner::new()),
+            inner: Arc::new(Mutex::new(InMemConsensusStoreInner::new())),
         }
     }
 }
@@ -67,9 +68,7 @@ impl<H> InMemConsensusStoreInner<H> {
     }
 }
 
-impl<H: IsHeader + Clone + Send + Sync + Clone + 'static> ReadOnlyChainStore<H>
-    for InMemConsensusStore<H>
-{
+impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMemConsensusStore<H> {
     #[expect(clippy::unwrap_used)]
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         let inner = self.inner.lock().unwrap();

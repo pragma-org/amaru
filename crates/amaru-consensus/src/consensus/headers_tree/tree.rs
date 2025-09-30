@@ -12,14 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::HEADER_HASH_SIZE;
+use crate::consensus::effects::HeaderHash;
 use amaru_ouroboros_traits::IsHeader;
-use pallas_crypto::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
-
-/// Type alias for a Header hash
-type HeaderHash = Hash<HEADER_HASH_SIZE>;
 
 /// This tree structure implements parent-child relationships between nodes of type `H`.
 #[derive(Clone, PartialEq, Eq)]

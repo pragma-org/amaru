@@ -133,7 +133,7 @@ pub fn create_headers_tree_with_store(
     store
         .set_best_chain_hash(&headers[headers.len() - 1].hash())
         .unwrap();
-    HeadersTree::new(store.clone(), 10)
+    HeadersTree::new_with_store(store.clone(), 10)
 }
 
 /// Generate a random `HeadersTree` initialized with a single chain of `TestHeader`s

@@ -263,7 +263,7 @@ pub fn execute_actions(
     print: bool,
 ) -> Result<Vec<SelectionResult>, ConsensusError> {
     let store = Arc::new(InMemConsensusStore::new());
-    let mut tree = HeadersTree::new(store.clone(), max_length);
+    let mut tree = HeadersTree::new_with_store(store.clone(), max_length);
     execute_actions_on_tree(store, &mut tree, actions, print)
 }
 

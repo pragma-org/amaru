@@ -161,10 +161,10 @@ mod tests {
             span: Span::current(),
         };
         let block = vec![1u8; 128];
-        let mut consensus_ops = mock_consensus_ops();
-        consensus_ops.network().return_block(Ok(block.clone()));
+        let consensus_ops = mock_consensus_ops();
+        consensus_ops.mock_network.return_block(Ok(block.clone()));
 
-        stage(make_state(), message, &mut consensus_ops).await;
+        stage(make_state(), message, consensus_ops.clone()).await;
 
         let forwarded = ValidateBlockEvent::Validated {
             peer: peer.clone(),
@@ -173,7 +173,7 @@ mod tests {
             span: Span::current(),
         };
         assert_eq!(
-            consensus_ops.base().received(),
+            consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![("downstream".to_string(), format!("{forwarded:?}"))])
         );
         Ok(())

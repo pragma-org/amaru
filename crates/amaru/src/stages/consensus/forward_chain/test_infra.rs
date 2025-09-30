@@ -242,13 +242,3 @@ impl PartialEq for ClientMsg {
         }
     }
 }
-
-// fn block_on<F: Future>(runtime: Arc<AcTokio>, f: F) -> F::Output {
-//     runtime
-//         .with_rt(|rt| {
-//             let _x = rt.enter();
-//             rt.block_on(timeout(Duration::from_secs(1), f))
-//         })
-//         .unwrap()
-//         .unwrap()
-// }

@@ -24,11 +24,25 @@ use serde::de::DeserializeOwned;
 use std::{
     any::{Any, type_name},
     fmt::Debug,
+    future,
     marker::PhantomData,
     sync::Arc,
     time::Duration,
 };
+use futures_util::FutureExt;
 use tokio::sync::oneshot;
+
+impl<M> Clone for Effects<M> {
+    fn clone(&self) -> Self {
+        Self {
+            me: self.me.clone(),
+            effect: self.effect.clone(),
+            clock: self.clock.clone(),
+            self_sender: self.self_sender.clone(),
+            resources: self.resources.clone(),
+        }
+    }
+}
 
 /// A handle for performing effects on the current stage.
 ///
@@ -41,17 +55,7 @@ pub struct Effects<M> {
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     self_sender: Sender<M>,
-}
-
-impl<M> Clone for Effects<M> {
-    fn clone(&self) -> Self {
-        Self {
-            me: self.me.clone(),
-            effect: self.effect.clone(),
-            clock: self.clock.clone(),
-            self_sender: self.self_sender.clone(),
-        }
-    }
+    resources: Resources,
 }
 
 impl<M: Debug> Debug for Effects<M> {
@@ -69,12 +73,14 @@ impl<M: SendData> Effects<M> {
         effect: EffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
         self_sender: Sender<M>,
+        resources: Resources,
     ) -> Self {
         Self {
             me,
             effect,
             clock,
             self_sender,
+            resources,
         }
     }
 
@@ -197,6 +203,15 @@ impl<M> Effects<M> {
         )
     }
 
+    /// Run an effect that is not part of the StageGraph.
+    pub fn external_sync<T: ExternalEffectAPI>(&self, effect: T) -> T::Response {
+        Box::new(effect).run(self.resources.clone())
+            .now_or_never()
+            .expect("an external sync effect must complete immediately in sync context")
+            .cast_deserialize::<T::Response>()
+            .expect("internal messaging type error")
+    }
+
     /// Terminate this stage
     ///
     /// This will terminate this stage graph if done from a stage that was created before running the graph.
@@ -233,7 +248,7 @@ pub trait ExternalEffect: SendData {
 
     /// Helper method for implementers of ExternalEffect.
     fn wrap(
-        f: impl Future<Output = <Self as ExternalEffectAPI>::Response> + Send + 'static,
+        f: impl Future<Output=<Self as ExternalEffectAPI>::Response> + Send + 'static,
     ) -> BoxFuture<'static, Box<dyn SendData>>
     where
         Self: Sized + ExternalEffectAPI,
@@ -242,6 +257,16 @@ pub trait ExternalEffect: SendData {
             let response = f.await;
             Box::new(response) as Box<dyn SendData>
         })
+    }
+
+    /// Helper method for implementers of ExternalEffect.
+    fn wrap_sync(
+        response: <Self as ExternalEffectAPI>::Response,
+    ) -> BoxFuture<'static, Box<dyn SendData>>
+    where
+        Self: Sized + ExternalEffectAPI,
+    {
+        Box::pin(future::ready(Box::new(response) as Box<dyn SendData>))
     }
 }
 

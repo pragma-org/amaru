@@ -82,7 +82,7 @@ fn main() {
         store
     };
 
-    let mut headers_tree = HeadersTree::new(store.clone(), max_length);
+    let mut headers_tree = HeadersTree::new_with_store(store.clone(), max_length);
     for header in tree.nodes() {
         store.store_header(&header).unwrap();
     }
