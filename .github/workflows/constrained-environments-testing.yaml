@@ -13,6 +13,9 @@ env:
     ~/.cargo/git/db/
     target/
 
+permissions:
+  contents: read
+
 jobs:
   memory-limit-test:
     runs-on: ubuntu-latest
