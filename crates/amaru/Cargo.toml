@@ -66,6 +66,8 @@ amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-slot-arithmetic.workspace = true
 amaru-metrics.workspace = true
 pure-stage.workspace = true
+tar = "0.4.44"
+flate2 = "1.1.2"
 
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.10.2"

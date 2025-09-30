@@ -13,19 +13,23 @@
 // limitations under the License.
 
 use clap::Parser;
-use std::{fs::read_dir, path::PathBuf};
+use std::{collections::BTreeSet, fs, io::Read, path::PathBuf};
 use tracing::info;
 
-use amaru::stages::ledger::ValidateBlockStage;
 use amaru::{
     observability::{self, OpenTelemetryConfig},
     panic::panic_handler,
 };
 use amaru_kernel::{
-    EraHistory, Point, default_ledger_dir, network::NetworkName,
+    EraHistory, Point, RawBlock, default_ledger_dir, network::NetworkName,
     protocol_parameters::GlobalParameters,
 };
-use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores};
+use amaru_ledger::block_validator::BlockValidator;
+use amaru_ouroboros_traits::can_validate_blocks::CanValidateBlocks;
+use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
+
+use flate2::read::GzDecoder;
+use tar::Archive;
 
 #[derive(Debug, Parser)]
 #[clap(name = "Amaru")]
@@ -84,27 +88,28 @@ pub fn filter_points(
     low: u64,
     high: Option<u64>,
     max_count: Option<usize>,
-) -> &[Point] {
-    // Lower bound: first element with slot > low
-    let start = points
+) -> Vec<Point> {
+    let mut sorted = points.to_vec();
+    sorted.sort_by_key(|p| p.slot_or_default());
+
+    let start = sorted
         .binary_search_by_key(&(low + 1), |p| p.slot_or_default().into())
         .unwrap_or_else(|pos| pos);
 
-    // Upper bound: first element with slot > high
     let mut end = if let Some(high) = high {
-        points
+        sorted
             .binary_search_by_key(&high, |p| p.slot_or_default().into())
             .map(|pos| pos + 1)
             .unwrap_or_else(|pos| pos)
     } else {
-        points.len()
+        sorted.len()
     };
 
     if let Some(max) = max_count {
         end = end.min(start.saturating_add(max));
     }
 
-    points.get(start..end).unwrap_or(&[])
+    sorted[start..end].to_vec()
 }
 
 #[allow(clippy::unwrap_used)]
@@ -116,10 +121,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut subscriber = observability::TracingSubscriber::new();
 
-    let observability::OpenTelemetryHandle {
-        metrics: _,
-        teardown,
-    } = if args.with_open_telemetry {
+    let (
+        observability::OpenTelemetryHandle {
+            metrics: _,
+            teardown,
+        },
+        _,
+    ) = if args.with_open_telemetry {
         observability::setup_open_telemetry(
             &OpenTelemetryConfig {
                 service_name: args.service_name,
@@ -129,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &mut subscriber,
         )
     } else {
-        observability::OpenTelemetryHandle::default()
+        (observability::OpenTelemetryHandle::default(), None)
     };
 
     if args.with_json_traces {
@@ -145,56 +153,99 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let era_history: &EraHistory = network.into();
     let global_parameters: &GlobalParameters = network.into();
-    let store = RocksDBHistoricalStores::new(&ledger_dir, u64::MAX);
-    let (mut ledger, tip) = ValidateBlockStage::new(
-        RocksDB::new(&ledger_dir)?,
+    let config = RocksDbConfig::new(ledger_dir);
+    let store = RocksDBHistoricalStores::new(config.clone(), u64::MAX);
+    let ledger = BlockValidator::new(
+        RocksDB::new(config)?,
         store,
         network,
         era_history.clone(),
         global_parameters.clone(),
     )?;
 
-    // Read all file names in data/blocks. File name format is POINT.HASH
-    let mut points: Vec<_> = read_dir(format!("data/{}/blocks", network))?
-        .map(|file| {
-            let file = file.unwrap();
-            let file_name = file.file_name();
-            let (point, hash) = file_name
-                .to_str()
-                .unwrap_or_default()
-                .split_once(".")
-                .unwrap_or_default();
-            Point::Specific(
-                point.parse().unwrap_or_default(),
-                hex::decode(hash).unwrap(),
-            )
+    // Collect .tar.gz files
+    let mut archives: Vec<_> = fs::read_dir(format!("data/{}/blocks", network))?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension()? == "gz" {
+                Some(path)
+            } else {
+                None
+            }
         })
         .collect();
 
-    // Sort them by slot number
-    // External sorting is required because `read_dir` does not guarantee any order
-    points.sort_by_key(|point1| point1.slot_or_default());
+    archives.sort();
 
-    // Then filter them to only keep those with a slot number greater than the tip's slot number
-    // And considering CLI arguments
-    let subset: &[Point] = filter_points(
-        &points,
+    let tip = ledger.get_tip();
+
+    // Collect all points
+    let mut all_points = Vec::new();
+    for archive_path in &archives {
+        let file = fs::File::open(archive_path)?;
+        let gz = GzDecoder::new(file);
+        let mut archive = Archive::new(gz);
+
+        for entry in archive.entries()? {
+            let entry = entry?;
+            let path = entry.path()?;
+            if path.extension().map(|ext| ext == "cbor").unwrap_or(false) {
+                let file_name = path.file_name().unwrap().to_string_lossy();
+                let (slot_str, hash_str) = file_name.split_once('.').unwrap_or(("0", ""));
+                let point = Point::Specific(
+                    slot_str.parse().unwrap_or_default(),
+                    hex::decode(hash_str).unwrap_or_default(),
+                );
+                if point.slot_or_default() > tip.slot_or_default() {
+                    all_points.push(point);
+                }
+            }
+        }
+    }
+
+    // Filter according to CLI args
+    let subset = filter_points(
+        &all_points,
         tip.slot_or_default().into(),
         args.ingest_until_slot,
         args.ingest_maximum_blocks,
     );
 
-    for point in subset {
-        let file_path = format!(
-            "data/{}/blocks/{}.{}",
-            network,
-            point.slot_or_default(),
-            hex::encode(point.hash())
-        );
-        let raw_block = std::fs::read(&file_path)?;
-        if let Err(err) = ledger.roll_forward(point.clone(), raw_block)? {
-            panic!("Error processing block at point {:?}: {:?}", point, err);
-        };
+    let subset_set: BTreeSet<_> = subset.iter().cloned().collect();
+
+    // Process relevant points
+    for archive_path in &archives {
+        let file = fs::File::open(archive_path)?;
+        let gz = GzDecoder::new(file);
+        let mut archive = Archive::new(gz);
+
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let path = entry.path()?;
+            if path.extension().map(|ext| ext == "cbor").unwrap_or(false) {
+                let file_name = path.file_name().unwrap().to_string_lossy();
+                let (slot_str, hash_str) = file_name.split_once('.').unwrap_or(("0", ""));
+                let point = Point::Specific(
+                    slot_str.parse().unwrap_or_default(),
+                    hex::decode(hash_str).unwrap_or_default(),
+                );
+
+                if !subset_set.contains(&point) {
+                    continue;
+                }
+
+                let mut block_data = Vec::new();
+                entry.read_to_end(&mut block_data)?;
+
+                if let Err(err) = ledger
+                    .roll_forward_block(&point, &RawBlock::from(&*block_data))
+                    .unwrap()
+                {
+                    panic!("Error processing block at point {:?}: {:?}", point, err);
+                }
+            }
+        }
     }
 
     info!(
@@ -202,11 +253,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         subset.len(),
         subset
             .first()
-            .map(|point| point.slot_or_default())
+            .map(|p| p.slot_or_default())
             .unwrap_or_default(),
         subset
             .last()
-            .map(|point| point.slot_or_default())
+            .map(|p| p.slot_or_default())
             .unwrap_or_default()
     );
 
