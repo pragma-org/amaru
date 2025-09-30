@@ -57,28 +57,7 @@ pub struct Args {
     /// If not provided, will ingest all available blocks.
     #[arg(long, value_name = "INGEST_MAXIMUM_BLOCKS")]
     ingest_maximum_blocks: Option<usize>,
-
-    #[clap(long, action, env("AMARU_WITH_OPEN_TELEMETRY"))]
-    with_open_telemetry: bool,
-
-    #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
-    with_json_traces: bool,
-
-    #[arg(long, value_name = "STRING", env("AMARU_SERVICE_NAME"), default_value_t = DEFAULT_SERVICE_NAME.to_string())]
-    service_name: String,
-
-    #[arg(long, value_name = "URL", env("AMARU_OTLP_SPAN_URL"), default_value_t = DEFAULT_OTLP_SPAN_URL.to_string())]
-    otlp_span_url: String,
-
-    #[arg(long, value_name = "URL", env("AMARU_OTLP_METRIC_URL"), default_value_t = DEFAULT_OTLP_METRIC_URL.to_string())]
-    otlp_metric_url: String,
 }
-
-const DEFAULT_SERVICE_NAME: &str = "amaru-ledger";
-
-const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
-
-const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
 pub fn filter_points(
     points: &[Point],
