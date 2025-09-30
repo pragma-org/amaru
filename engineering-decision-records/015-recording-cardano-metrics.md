@@ -13,10 +13,10 @@ nView reads Prometheus metrics from a `/metrics` endpoint, so if we collect and 
 
 ## Decision
 
-We will propogate metrics via a stage effect instead of passing around a large record to each stage to be mutated. There is a new `amaru-metrics` crate that holds the structs and enums relevant for the metrics collection.There is a `MetricsEvent` enum, with a variant for each specific type of metric (`LedgerMetrics`, `ConsensusMetrics`, etc.). Each of those metrics implements a `MetricRecorder` trait, which is called from `RecordMetricsEffect` effect.
+We will propogate metrics via a stage effect instead of passing around a large record to each stage to be mutated. There is a new `amaru-metrics` crate that holds the structs and enums relevant for the metrics collection. There is a `MetricsEvent` enum, with a variant for each specific type of metric (`LedgerMetrics`, `ConsensusMetrics`, etc.). Each of those metrics implements a `MetricRecorder` trait, which is called from `RecordMetricsEffect` effect.
 
 ## Discussion
 
-We had previously discused using a generic `Metric` trait that a metrics stage could consume without carying about specifics using dynamic dispatch. This allowed the metrics to be owned by the relevant stage and modifying said metrics required no changes to any other pieces of logic.
+We had previously discussed using a generic `Metric` trait that a metrics stage could consume without caring about specifics using dynamic dispatch. This allowed the metrics to be owned by the relevant stage and modifying said metrics required no changes to any other pieces of logic.
 
 While this worked well with the `gasket` framework, it was incompatible with `Pure Stage` due to the required `pure_stage::SendData` trait. As a result, we had to compromise and fallback to the `MetricsEvent` enum solution, which still limits the amount of changes needed to add/remove metrics.

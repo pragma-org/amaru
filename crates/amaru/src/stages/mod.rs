@@ -20,6 +20,7 @@ use crate::stages::{
 use amaru_consensus::consensus::{
     effects::{
         block_effects::{ResourceBlockFetcher, ResourceParameters},
+        metrics_effects::ResourceMeter,
         network_effects::ResourceForwardEventListener,
         store_effects::ResourceHeaderStore,
     },
@@ -38,7 +39,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::block_validator::BlockValidator;
 
-use amaru_metrics::{METRICS_METER_NAME, Meter};
+use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::block_fetch_client::PallasBlockFetchClient;
 use amaru_ouroboros_traits::{
     CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
@@ -276,7 +277,7 @@ pub async fn bootstrap(
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);
-        network.resources().put::<Arc<Meter>>(Arc::new(meter));
+        network.resources().put::<ResourceMeter>(Arc::new(meter));
     };
 
     let network = network.run(Handle::current().clone());

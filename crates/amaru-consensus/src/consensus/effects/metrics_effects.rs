@@ -28,15 +28,15 @@ impl RecordMetricsEffect {
     }
 }
 
+pub type ResourceMeter = Arc<Meter>;
+
 impl ExternalEffect for RecordMetricsEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
-            if let Ok(meter) = resources.get::<Arc<Meter>>() {
+            if let Ok(meter) = resources.get::<ResourceMeter>() {
                 self.event.record_to_meter(&meter);
             }
             // No-op if there is no meter, since metrics collecting is optional
-            // TODO: do we want to have some state so we can error
-            // if there is no meter when we expect to have one?
         })
     }
 }
