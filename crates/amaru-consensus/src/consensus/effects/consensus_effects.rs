@@ -12,23 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::base_effects::{Base, BaseOps};
-use crate::consensus::effects::ledger_effects::{Ledger, LedgerOps};
-use crate::consensus::effects::network_effects::{Network, NetworkOps};
-use crate::consensus::effects::store_effects::{Store, StoreOps};
+use crate::consensus::effects::Store;
+use crate::consensus::effects::{Base, BaseOps};
+use crate::consensus::effects::{Ledger, LedgerOps};
+use crate::consensus::effects::{Network, NetworkOps};
+use amaru_kernel::Header;
+use amaru_ouroboros_traits::ChainStore;
+use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{Effects, SendData};
+use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct ConsensusEffects<T> {
     effects: Effects<T>,
+    era_history: EraHistory,
 }
 
-impl<T: SendData + Sync> ConsensusEffects<T> {
-    pub fn new(effects: Effects<T>) -> ConsensusEffects<T> {
-        ConsensusEffects { effects }
+impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
+    pub fn new(effects: Effects<T>, era_history: &EraHistory) -> ConsensusEffects<T> {
+        ConsensusEffects {
+            effects,
+            era_history: era_history.clone(),
+        }
     }
 
-    pub fn store(&mut self) -> impl StoreOps {
-        Store::new(&mut self.effects)
+    pub fn store(&self) -> Arc<dyn ChainStore<Header>> {
+        Arc::new(Store::new(self.effects.clone(), self.era_history.clone()))
     }
 
     pub fn network(&self) -> impl NetworkOps {
@@ -44,15 +53,15 @@ impl<T: SendData + Sync> ConsensusEffects<T> {
     }
 }
 
-pub trait ConsensusOps {
-    fn store(&mut self) -> impl StoreOps;
+pub trait ConsensusOps: Send + Sync + Clone {
+    fn store(&self) -> Arc<dyn ChainStore<Header>>;
     fn network(&self) -> impl NetworkOps;
     fn ledger(&self) -> impl LedgerOps;
     fn base(&self) -> impl BaseOps;
 }
 
-impl<T: SendData + Sync> ConsensusOps for ConsensusEffects<T> {
-    fn store(&mut self) -> impl StoreOps {
+impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
+    fn store(&self) -> Arc<dyn ChainStore<Header>> {
         self.store()
     }
 
@@ -76,94 +85,41 @@ pub mod tests {
     use crate::consensus::tip::HeaderTip;
     use amaru_kernel::peer::Peer;
     use amaru_kernel::{Header, Point, RawBlock};
-    use amaru_ouroboros_traits::{BlockValidationError, Nonces};
-    use amaru_slot_arithmetic::Epoch;
-    use pallas_crypto::hash::Hash;
+    use amaru_ouroboros_traits::BlockValidationError;
+    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use pure_stage::{BoxFuture, Instant, StageRef};
     use std::collections::BTreeMap;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
+    #[derive(Clone)]
     pub struct MockConsensusOps {
-        mock_store: MockStoreOps,
-        mock_network: MockNetworkOps,
-        mock_ledger: MockLedgerOps,
-        mock_base: MockBaseOps,
-    }
-
-    #[allow(refining_impl_trait)]
-    impl ConsensusOps for &mut MockConsensusOps {
-        fn store(&mut self) -> &mut MockStoreOps {
-            &mut self.mock_store
-        }
-
-        fn network(&self) -> &MockNetworkOps {
-            &self.mock_network
-        }
-
-        fn ledger(&self) -> &MockLedgerOps {
-            &self.mock_ledger
-        }
-
-        fn base(&self) -> &MockBaseOps {
-            &self.mock_base
-        }
+        pub mock_store: InMemConsensusStore<Header>,
+        pub mock_network: MockNetworkOps,
+        pub mock_ledger: MockLedgerOps,
+        pub mock_base: MockBaseOps,
     }
 
     #[allow(refining_impl_trait)]
     impl ConsensusOps for MockConsensusOps {
-        fn store(&mut self) -> &mut MockStoreOps {
-            &mut self.mock_store
+        fn store(&self) -> Arc<dyn ChainStore<Header>> {
+            Arc::new(self.mock_store.clone())
         }
 
-        fn network(&self) -> &MockNetworkOps {
-            &self.mock_network
+        fn network(&self) -> impl NetworkOps {
+            self.mock_network.clone()
         }
 
-        fn ledger(&self) -> &MockLedgerOps {
-            &self.mock_ledger
+        fn ledger(&self) -> impl LedgerOps {
+            self.mock_ledger.clone()
         }
 
-        fn base(&self) -> &MockBaseOps {
-            &self.mock_base
-        }
-    }
-
-    pub struct MockStoreOps;
-
-    impl StoreOps for &mut MockStoreOps {
-        async fn store_header(
-            &mut self,
-            _peer: &Peer,
-            _header: &Header,
-        ) -> Result<(), ProcessingFailed> {
-            Ok(())
-        }
-
-        async fn store_block(
-            &mut self,
-            _peer: &Peer,
-            _point: &Point,
-            _block: &RawBlock,
-        ) -> Result<(), ProcessingFailed> {
-            Ok(())
-        }
-
-        async fn evolve_nonce(
-            &mut self,
-            _peer: &Peer,
-            _header: &Header,
-        ) -> Result<Nonces, ConsensusError> {
-            Ok(Nonces {
-                active: Hash::new([0; 32]),
-                evolving: Hash::new([0; 32]),
-                candidate: Hash::new([0; 32]),
-                tail: Hash::new([0; 32]),
-                epoch: Epoch::from(0),
-            })
+        fn base(&self) -> impl BaseOps {
+            self.mock_base.clone()
         }
     }
 
+    #[derive(Clone)]
     pub struct MockNetworkOps {
         block_to_return: Arc<Mutex<Result<Vec<u8>, ConsensusError>>>,
     }
@@ -184,58 +140,63 @@ pub mod tests {
         }
     }
 
-    impl NetworkOps for &MockNetworkOps {
-        async fn fetch_block(
+    impl NetworkOps for MockNetworkOps {
+        fn fetch_block(
             &self,
             _peer: &Peer,
             point: &Point,
-        ) -> Result<Vec<u8>, ConsensusError> {
-            let self_block_to_return = self.block_to_return.lock().unwrap();
-            match *self_block_to_return {
-                Ok(ref block) => Ok(block.clone()),
-                Err(_) => Err(ConsensusError::FetchBlockFailed(point.clone())),
-            }
+        ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>> {
+            let point_clone = point.clone();
+            Box::pin(async move {
+                let self_block_to_return = self.block_to_return.lock().unwrap();
+                match *self_block_to_return {
+                    Ok(ref block) => Ok(block.clone()),
+                    Err(_) => Err(ConsensusError::FetchBlockFailed(point_clone)),
+                }
+            })
         }
 
-        async fn send_forward_event(
+        fn send_forward_event(
             &self,
             _peer: &Peer,
             _header: Header,
-        ) -> Result<(), ProcessingFailed> {
-            Ok(())
+        ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+            Box::pin(async { Ok(()) })
         }
 
-        async fn send_backward_event(
+        fn send_backward_event(
             &self,
             _peer: &Peer,
             _header_tip: HeaderTip,
-        ) -> Result<(), ProcessingFailed> {
-            Ok(())
+        ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+            Box::pin(async { Ok(()) })
         }
     }
 
+    #[derive(Default, Clone)]
     pub struct MockLedgerOps;
 
-    impl LedgerOps for &MockLedgerOps {
-        async fn validate(
+    impl LedgerOps for MockLedgerOps {
+        fn validate(
             &self,
             _peer: &Peer,
             _point: &Point,
             _block: RawBlock,
-        ) -> Result<Result<u64, BlockValidationError>, BlockValidationError> {
-            Ok(Ok(0))
+        ) -> BoxFuture<'_, Result<Result<u64, BlockValidationError>, BlockValidationError>>
+        {
+            Box::pin(async { Ok(Ok(0)) })
         }
 
-        async fn rollback(
+        fn rollback(
             &self,
             _peer: &Peer,
             _rollback_header: &Header,
-        ) -> anyhow::Result<(), ProcessingFailed> {
-            Ok(())
+        ) -> BoxFuture<'static, anyhow::Result<(), ProcessingFailed>> {
+            Box::pin(async { Ok(()) })
         }
     }
 
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     pub struct MockBaseOps {
         messages: Arc<Mutex<BTreeMap<String, String>>>,
     }
@@ -246,8 +207,32 @@ pub mod tests {
         }
     }
 
+    impl BaseOps for MockBaseOps {
+        fn send<Msg: SendData + 'static>(
+            &self,
+            target: &StageRef<Msg>,
+            msg: Msg,
+        ) -> BoxFuture<'static, ()> {
+            let mut messages = self.messages.lock().unwrap();
+            messages.insert(target.name().to_string(), format!("{msg:?}"));
+            Box::pin(async move {})
+        }
+
+        fn clock(&self) -> BoxFuture<'static, Instant> {
+            Box::pin(async { Instant::at_offset(Duration::from_millis(0)) })
+        }
+
+        fn wait(&self, duration: Duration) -> BoxFuture<'static, Instant> {
+            Box::pin(async move { Instant::at_offset(duration) })
+        }
+
+        fn terminate(&self) -> BoxFuture<'static, ()> {
+            Box::pin(async {})
+        }
+    }
+
     impl BaseOps for &MockBaseOps {
-        fn send<Msg: SendData + Sync>(
+        fn send<Msg: SendData + 'static>(
             &self,
             target: &StageRef<Msg>,
             msg: Msg,
@@ -272,7 +257,7 @@ pub mod tests {
 
     pub fn mock_consensus_ops() -> MockConsensusOps {
         MockConsensusOps {
-            mock_store: MockStoreOps,
+            mock_store: InMemConsensusStore::new(),
             mock_network: MockNetworkOps::default(),
             mock_ledger: MockLedgerOps,
             mock_base: MockBaseOps::default(),

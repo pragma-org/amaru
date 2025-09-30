@@ -17,10 +17,9 @@ use crate::protocol_parameters::{
     PREVIEW_GLOBAL_PARAMETERS, TESTNET_GLOBAL_PARAMETERS,
 };
 use amaru_slot_arithmetic::TimeMs;
+pub use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 use pallas_addresses::Network;
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
-
-pub use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 
 /// Era history for Mainnet retrieved with:
 ///

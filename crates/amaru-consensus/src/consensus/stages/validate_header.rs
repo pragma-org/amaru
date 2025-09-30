@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::StoreOps;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
+use crate::consensus::store::PraosChainStore;
 use crate::consensus::{
     errors::{ConsensusError, ValidationFailed},
     events::DecodedChainSyncEvent,
@@ -23,9 +23,9 @@ use amaru_kernel::{
     Hash, Header, Nonce, Point, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
 use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::HasStakeDistribution;
+use amaru_ouroboros_traits::{ChainStore, HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
-use pure_stage::StageRef;
+use pure_stage::{BoxFuture, StageRef};
 use std::{fmt, sync::Arc};
 use tracing::{Instrument, Level, Span, instrument};
 
@@ -123,13 +123,13 @@ impl ValidateHeader {
     )]
     pub async fn handle_roll_forward(
         &mut self,
-        mut store: impl StoreOps,
+        store: Arc<dyn ChainStore<Header>>,
         peer: &Peer,
         point: &Point,
         header: &Header,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
-        let nonces = store.evolve_nonce(peer, header).await?;
+        let nonces = PraosChainStore::new(store).evolve_nonce(header, global_parameters)?;
         let epoch_nonce = &nonces.active;
 
         header_is_valid(
@@ -169,76 +169,89 @@ type State = (
     skip_all,
     name = "stage.validate_header",
 )]
-pub async fn stage(state: State, msg: DecodedChainSyncEvent, mut eff: impl ConsensusOps) -> State {
-    adopt_current_span(&msg);
-    let (mut state, global, downstream, errors) = state;
+pub fn stage(
+    state: State,
+    msg: DecodedChainSyncEvent,
+    eff: impl ConsensusOps + 'static,
+) -> BoxFuture<'static, State> {
+    let store = eff.store();
+    Box::pin(async move {
+        adopt_current_span(&msg);
+        let (mut state, global, downstream, errors) = state;
 
-    let (peer, point, header) = match &msg {
-        DecodedChainSyncEvent::RollForward {
-            peer,
-            point,
-            header,
-            ..
-        } => (peer, point, header),
-        DecodedChainSyncEvent::Rollback { .. } => {
-            eff.base().send(&downstream, msg).await;
-            return (state, global, downstream, errors);
-        }
-        DecodedChainSyncEvent::CaughtUp { .. } => {
-            eff.base().send(&downstream, msg).await;
-            return (state, global, downstream, errors);
-        }
-    };
+        let (peer, point, header) = match &msg {
+            DecodedChainSyncEvent::RollForward {
+                peer,
+                point,
+                header,
+                ..
+            } => (peer, point, header),
+            DecodedChainSyncEvent::Rollback { .. } => {
+                eff.base().send(&downstream, msg).await;
+                return (state, global, downstream, errors);
+            }
+            DecodedChainSyncEvent::CaughtUp { .. } => {
+                eff.base().send(&downstream, msg).await;
+                return (state, global, downstream, errors);
+            }
+        };
 
-    let span = tracing::trace_span!(
-        "consensus.roll_forward",
-        point.slot = %point.slot_or_default(),
-        point.hash = %Hash::<32>::from(point),
-    );
+        let span = tracing::trace_span!(
+            "consensus.roll_forward",
+            point.slot = %point.slot_or_default(),
+            point.hash = %Hash::<32>::from(point),
+        );
 
-    async {
-        match state
-            .handle_roll_forward(eff.store(), peer, point, header, &global)
-            .await
-        {
-            Ok(msg) => eff.base().send(&downstream, msg).await,
-            Err(error) => {
-                tracing::error!(%peer, %error, "failed to handle roll forward");
-                eff.base()
-                    .send(&errors, ValidationFailed::new(peer, error))
-                    .await
+        async {
+            match state
+                .handle_roll_forward(store, peer, point, header, &global)
+                .await
+            {
+                Ok(msg) => eff.base().send(&downstream, msg).await,
+                Err(error) => {
+                    tracing::error!(%peer, %error, "failed to handle roll forward");
+                    eff.base()
+                        .send(&errors, ValidationFailed::new(peer, error))
+                        .await
+                }
             }
         }
-    }
-    .instrument(span)
-    .await;
+        .instrument(span)
+        .await;
 
-    (state, global, downstream, errors)
+        (state, global, downstream, errors)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::errors::ProcessingFailed;
-    use crate::consensus::store::NoncesError;
+    use crate::consensus;
+    use crate::consensus::effects::HeaderHash;
+    use crate::consensus::errors::ConsensusError::NoncesError;
     use amaru_kernel::{
-        Bytes, Epoch, Header, HeaderBody, Point, PseudoHeader,
+        Bytes, HEADER_HASH_SIZE, Header, HeaderBody, Point, PseudoHeader, RawBlock,
         peer::Peer,
         protocol_parameters::{GlobalParameters, TESTNET_GLOBAL_PARAMETERS},
     };
-    use amaru_ouroboros::{Nonces, OperationalCert, VrfCert, praos::header::AssertHeaderError};
+    use amaru_ouroboros::{Nonces, OperationalCert, VrfCert};
+    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+    use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
+    use amaru_slot_arithmetic::EraHistory;
     use pallas_crypto::hash::Hash;
     use std::sync::Arc;
 
     // Fake store that returns errors for each operation
     struct FailingStore {
         fail_on_evolve_nonce: bool,
+        store: InMemConsensusStore<Header>,
     }
 
     impl FailingStore {
         fn new() -> Self {
             Self {
                 fail_on_evolve_nonce: false,
+                store: InMemConsensusStore::new(),
             }
         }
 
@@ -248,44 +261,90 @@ mod tests {
         }
     }
 
-    impl StoreOps for FailingStore {
-        async fn store_header(
-            &mut self,
-            _peer: &Peer,
-            _header: &Header,
-        ) -> Result<(), ProcessingFailed> {
-            Ok(())
+    impl ReadOnlyChainStore<Header> for FailingStore {
+        fn has_header(&self, hash: &HeaderHash) -> bool {
+            self.store.has_header(hash)
         }
 
-        async fn store_block(
-            &mut self,
-            _peer: &Peer,
-            _point: &Point,
-            _block: &amaru_kernel::RawBlock,
-        ) -> Result<(), ProcessingFailed> {
-            Ok(())
+        fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
+            self.store.load_header(hash)
         }
 
-        async fn evolve_nonce(
-            &mut self,
-            _peer: &Peer,
-            _header: &Header,
-        ) -> Result<Nonces, ConsensusError> {
-            if self.fail_on_evolve_nonce {
-                Err(ConsensusError::NoncesError(NoncesError::UnknownParent {
-                    header: Hash::<32>::from([0u8; 32]),
-                    parent: Hash::<32>::from([1u8; 32]),
-                }))
-            } else {
-                // Return a dummy nonces for successful case
-                Ok(Nonces {
-                    epoch: Epoch::from(0),
-                    active: Hash::<32>::from([0u8; 32]),
-                    evolving: Hash::<32>::from([1u8; 32]),
-                    candidate: Hash::<32>::from([2u8; 32]),
-                    tail: Hash::<32>::from([3u8; 32]),
-                })
-            }
+        fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+            self.store.get_children(hash)
+        }
+
+        fn get_anchor_hash(&self) -> HeaderHash {
+            self.store.get_anchor_hash()
+        }
+
+        fn get_best_chain_hash(&self) -> HeaderHash {
+            self.store.get_best_chain_hash()
+        }
+
+        fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+            self.store.load_block(hash)
+        }
+
+        fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_> {
+            self.store.load_headers()
+        }
+
+        fn load_nonces(&self) -> Box<dyn Iterator<Item = (Hash<32>, Nonces)> + '_> {
+            self.store.load_nonces()
+        }
+
+        fn load_blocks(&self) -> Box<dyn Iterator<Item = (Hash<32>, RawBlock)> + '_> {
+            self.store.load_blocks()
+        }
+
+        fn load_parents_children(
+            &self,
+        ) -> Box<dyn Iterator<Item = (Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_>
+        {
+            self.store.load_parents_children()
+        }
+
+        fn get_nonces(&self, hash: &Hash<32>) -> Option<Nonces> {
+            self.store.get_nonces(hash)
+        }
+    }
+
+    impl ChainStore<Header> for FailingStore {
+        fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+            self.store.set_anchor_hash(hash)
+        }
+
+        fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+            self.store.set_best_chain_hash(hash)
+        }
+
+        fn update_best_chain(
+            &self,
+            anchor: &HeaderHash,
+            tip: &HeaderHash,
+        ) -> Result<(), StoreError> {
+            self.store.update_best_chain(anchor, tip)
+        }
+
+        fn store_header(&self, header: &Header) -> Result<(), StoreError> {
+            self.store.store_header(header)
+        }
+
+        fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
+            self.store.store_block(hash, block)
+        }
+
+        fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+            self.store.remove_header(hash)
+        }
+
+        fn put_nonces(&self, hash: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
+            self.store.put_nonces(hash, nonces)
+        }
+
+        fn era_history(&self) -> &EraHistory {
+            self.store.era_history()
         }
     }
 
@@ -360,12 +419,20 @@ mod tests {
         let failing_store = FailingStore::new().fail_on_evolve_nonce();
 
         let result = validate_header
-            .handle_roll_forward(failing_store, &peer, &point, &header, global_parameters)
+            .handle_roll_forward(
+                Arc::new(failing_store),
+                &peer,
+                &point,
+                &header,
+                global_parameters,
+            )
             .await;
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
-            ConsensusError::NoncesError(NoncesError::UnknownParent { .. }) => {
+            ConsensusError::NoncesError(consensus::store::NoncesError::UnknownParent {
+                ..
+            }) => {
                 // Expected error
             }
             other => panic!("Expected NoncesError with UnknownParent, got: {:?}", other),
@@ -379,13 +446,20 @@ mod tests {
         let failing_store = FailingStore::new();
 
         let result = validate_header
-            .handle_roll_forward(failing_store, &peer, &point, &header, global_parameters)
+            .handle_roll_forward(
+                Arc::new(failing_store),
+                &peer,
+                &point,
+                &header,
+                global_parameters,
+            )
             .await;
 
+        //        println!("error is: {:?}", result.unwrap_err());
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
-            ConsensusError::InvalidHeader(p, AssertHeaderError::TryFromSliceError)
-                if p == point =>
+            NoncesError(consensus::store::NoncesError::UnknownParent { parent, .. })
+                if parent == point.hash() =>
             {
                 // Expected error
             }

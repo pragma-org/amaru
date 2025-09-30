@@ -12,16 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::EVENT_TARGET;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::events::{DecodedChainSyncEvent, ValidateHeaderEvent};
+use crate::consensus::headers_tree::{HeadersTree, HeadersTreeState};
 use crate::consensus::span::adopt_current_span;
-use crate::consensus::{EVENT_TARGET, headers_tree::HeadersTree};
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer, string_utils::ListToString};
 use amaru_ouroboros::IsHeader;
+use amaru_ouroboros_traits::ChainStore;
 use pallas_crypto::hash::Hash;
-use pure_stage::StageRef;
+use pure_stage::{BoxFuture, StageRef};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::{
     collections::BTreeSet,
     fmt::{Debug, Display, Formatter},
@@ -30,9 +33,9 @@ use tracing::{Level, Span, debug, info, instrument, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct SelectChain {
-    chain_selector: HeadersTree<Header>,
+    tree_state: HeadersTreeState,
     sync_tracker: SyncTracker,
 }
 
@@ -63,10 +66,10 @@ pub enum SyncState {
 }
 
 impl SelectChain {
-    pub fn new(chain_selector: HeadersTree<Header>, peers: &[Peer]) -> Self {
+    pub fn new(tree_state: HeadersTreeState, peers: &[Peer]) -> Self {
         let sync_tracker = SyncTracker::new(peers);
         SelectChain {
-            chain_selector,
+            tree_state,
             sync_tracker,
         }
     }
@@ -100,11 +103,13 @@ impl SelectChain {
 
     pub async fn select_chain(
         &mut self,
+        store: Arc<dyn ChainStore<Header>>,
         peer: Peer,
         header: Header,
         span: Span,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        let result = self.chain_selector.select_roll_forward(&peer, header)?;
+        let mut headers_tree = HeadersTree::new(store, self.tree_state.clone());
+        let result = headers_tree.select_roll_forward(&peer, header)?;
 
         let events = match result {
             ForwardChainSelection::NewTip { peer, tip } => {
@@ -134,13 +139,13 @@ impl SelectChain {
 
     pub async fn select_rollback(
         &mut self,
+        store: Arc<dyn ChainStore<Header>>,
         peer: Peer,
         rollback_point: Point,
         span: Span,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        let result = self
-            .chain_selector
-            .select_rollback(&peer, &rollback_point.hash())?;
+        let mut headers_tree = HeadersTree::new(store, self.tree_state.clone());
+        let result = headers_tree.select_rollback(&peer, &rollback_point.hash())?;
 
         match result {
             RollbackChainSelection::SwitchToFork(Fork {
@@ -169,21 +174,27 @@ impl SelectChain {
         }
     }
 
-    pub async fn handle_chain_sync(
+    pub fn handle_chain_sync(
         &mut self,
+        store: Arc<dyn ChainStore<Header>>,
         chain_sync: DecodedChainSyncEvent,
-    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        match chain_sync {
-            DecodedChainSyncEvent::RollForward {
-                peer, header, span, ..
-            } => self.select_chain(peer, header, span).await,
-            DecodedChainSyncEvent::Rollback {
-                peer,
-                rollback_point,
-                span,
-            } => self.select_rollback(peer, rollback_point, span).await,
-            DecodedChainSyncEvent::CaughtUp { peer, .. } => self.caught_up(&peer),
-        }
+    ) -> BoxFuture<'_, Result<Vec<ValidateHeaderEvent>, ConsensusError>> {
+        Box::pin(async move {
+            match chain_sync {
+                DecodedChainSyncEvent::RollForward {
+                    peer, header, span, ..
+                } => self.select_chain(store, peer, header, span).await,
+                DecodedChainSyncEvent::Rollback {
+                    peer,
+                    rollback_point,
+                    span,
+                } => {
+                    self.select_rollback(store, peer, rollback_point, span)
+                        .await
+                }
+                DecodedChainSyncEvent::CaughtUp { peer, .. } => self.caught_up(&peer),
+            }
+        })
     }
 
     fn caught_up(&mut self, peer: &Peer) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
@@ -296,29 +307,33 @@ type State = (
     skip_all,
     name = "stage.select_chain",
 )]
-pub async fn stage(
+pub fn stage(
     (mut select_chain, downstream, errors): State,
     msg: DecodedChainSyncEvent,
-    eff: impl ConsensusOps,
-) -> State {
-    adopt_current_span(&msg);
-    let peer = msg.peer();
+    eff: impl ConsensusOps + 'static,
+) -> BoxFuture<'static, State> {
+    Box::pin({
+        let store = eff.store();
+        async move {
+            let peer = msg.peer();
+            adopt_current_span(&msg);
+            let events = match select_chain.handle_chain_sync(store, msg).await {
+                Ok(events) => events,
+                Err(e) => {
+                    eff.base()
+                        .send(&errors, ValidationFailed::new(&peer, e))
+                        .await;
+                    return (select_chain, downstream, errors);
+                }
+            };
 
-    let events = match select_chain.handle_chain_sync(msg).await {
-        Ok(events) => events,
-        Err(e) => {
-            eff.base()
-                .send(&errors, ValidationFailed::new(&peer, e))
-                .await;
-            return (select_chain, downstream, errors);
+            for event in events {
+                eff.base().send(&downstream, event).await;
+            }
+
+            (select_chain, downstream, errors)
         }
-    };
-
-    for event in events {
-        eff.base().send(&downstream, event).await;
-    }
-
-    (select_chain, downstream, errors)
+    })
 }
 
 #[cfg(test)]

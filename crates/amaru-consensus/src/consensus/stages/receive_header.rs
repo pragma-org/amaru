@@ -129,9 +129,9 @@ mod tests {
             span: Span::current(),
             raw_header: cbor::to_vec(header.clone())?,
         };
-        let mut consensus_ops = mock_consensus_ops();
+        let consensus_ops = mock_consensus_ops();
 
-        stage(make_state(), message, &mut consensus_ops).await;
+        stage(make_state(), message, consensus_ops.clone()).await;
 
         let forwarded = DecodedChainSyncEvent::RollForward {
             peer: peer.clone(),
@@ -140,7 +140,7 @@ mod tests {
             span: Span::current(),
         };
         assert_eq!(
-            consensus_ops.base().received(),
+            consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![("downstream".to_string(), format!("{forwarded:?}"))])
         );
         Ok(())
@@ -155,9 +155,9 @@ mod tests {
             span: Span::current(),
             raw_header: vec![1, 2, 3],
         };
-        let mut consensus_ops = mock_consensus_ops();
+        let consensus_ops = mock_consensus_ops();
 
-        stage(make_state(), message.clone(), &mut consensus_ops).await;
+        stage(make_state(), message.clone(), consensus_ops.clone()).await;
 
         let error = ValidationFailed::new(
             &peer,
@@ -168,7 +168,7 @@ mod tests {
             },
         );
         assert_eq!(
-            consensus_ops.base().received(),
+            consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![("errors".to_string(), format!("{error:?}"))])
         );
         Ok(())
@@ -181,11 +181,11 @@ mod tests {
             rollback_point: Point::Origin,
             span: Span::current(),
         };
-        let mut consensus_ops = mock_consensus_ops();
+        let consensus_ops = mock_consensus_ops();
 
-        stage(make_state(), message.clone(), &mut consensus_ops).await;
+        stage(make_state(), message.clone(), consensus_ops.clone()).await;
         assert_eq!(
-            consensus_ops.base().received(),
+            consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![("downstream".to_string(), format!("{message:?}"))])
         );
         Ok(())
@@ -197,11 +197,11 @@ mod tests {
             peer: Peer::new("name"),
             span: Span::current(),
         };
-        let mut consensus_ops = mock_consensus_ops();
+        let consensus_ops = mock_consensus_ops();
 
-        stage(make_state(), message.clone(), &mut consensus_ops).await;
+        stage(make_state(), message.clone(), consensus_ops.clone()).await;
         assert_eq!(
-            consensus_ops.base().received(),
+            consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![("downstream".to_string(), format!("{message:?}"))])
         );
         Ok(())

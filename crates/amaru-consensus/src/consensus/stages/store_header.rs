@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::StoreOps;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::{events::DecodedChainSyncEvent, span::adopt_current_span};
 use amaru_ouroboros_traits::IsHeader;
@@ -27,12 +26,12 @@ use tracing::{Level, instrument};
 pub async fn stage(
     downstream: StageRef<DecodedChainSyncEvent>,
     msg: DecodedChainSyncEvent,
-    mut eff: impl ConsensusOps,
+    eff: impl ConsensusOps + 'static,
 ) -> StageRef<DecodedChainSyncEvent> {
     adopt_current_span(&msg);
     match &msg {
         DecodedChainSyncEvent::RollForward { peer, header, .. } => {
-            let result = eff.store().store_header(peer, header).await;
+            let result = eff.store().store_header(header);
             if let Err(error) = result {
                 tracing::error!(%error, %peer, "Failed to store header at {}", header.point());
                 // FIXME what should be the consequence of this?

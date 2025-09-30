@@ -36,13 +36,13 @@ pub trait LedgerOps {
         peer: &Peer,
         point: &Point,
         block: RawBlock,
-    ) -> impl Future<Output=Result<Result<u64, BlockValidationError>, BlockValidationError>> + Send;
+    ) -> BoxFuture<'_, Result<Result<u64, BlockValidationError>, BlockValidationError>>;
 
     fn rollback(
         &self,
         peer: &Peer,
         rollback_header: &Header,
-    ) -> impl Future<Output = anyhow::Result<(), ProcessingFailed>> + Send;
+    ) -> BoxFuture<'_, anyhow::Result<(), ProcessingFailed>>;
 }
 
 impl<T: SendData + Sync> LedgerOps for Ledger<'_, T> {
@@ -51,8 +51,7 @@ impl<T: SendData + Sync> LedgerOps for Ledger<'_, T> {
         peer: &Peer,
         point: &Point,
         block: RawBlock,
-    ) -> impl Future<Output=Result<Result<u64, BlockValidationError>, BlockValidationError>> + Send
-    {
+    ) -> BoxFuture<'_, Result<Result<u64, BlockValidationError>, BlockValidationError>> {
         self.0
             .external(ValidateBlockEffect::new(peer, point, block))
     }
@@ -61,7 +60,7 @@ impl<T: SendData + Sync> LedgerOps for Ledger<'_, T> {
         &self,
         peer: &Peer,
         rollback_header: &Header,
-    ) -> impl Future<Output = anyhow::Result<(), ProcessingFailed>> + Send {
+    ) -> BoxFuture<'_, anyhow::Result<(), ProcessingFailed>> {
         self.0
             .external(RollbackBlockEffect::new(peer, &rollback_header.point()))
     }

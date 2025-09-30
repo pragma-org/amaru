@@ -18,11 +18,12 @@ use crate::{IsHeader, Nonces};
 use amaru_kernel::{HEADER_HASH_SIZE, Hash, RawBlock};
 use amaru_slot_arithmetic::EraHistory;
 use std::fmt::Display;
+use std::iter::successors;
 use thiserror::Error;
 
 pub trait ReadOnlyChainStore<H>
 where
-    H: IsHeader,
+    H: IsHeader + Clone + 'static,
 {
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
     fn load_headers(&self) -> Box<dyn Iterator<Item = H> + '_>;
@@ -56,9 +57,34 @@ where
         best_chain.reverse();
         best_chain
     }
+
+    /// Return the ancestors of the header, including the header itself.
+    /// Stop at the anchor of the tree.
+    fn ancestors(&self, start: &H) -> Box<dyn Iterator<Item = H> + '_> {
+        let anchor = self.get_anchor_hash();
+        Box::new(successors(Some((*start).clone()), move |h| {
+            if h.hash() == anchor {
+                None
+            } else {
+                h.parent().and_then(|p| self.load_header(&p))
+            }
+        }))
+    }
+
+    /// Return the hashes of the ancestors of the header, including the header hash itself.
+    fn ancestors_hashes(
+        &self,
+        hash: &Hash<HEADER_HASH_SIZE>,
+    ) -> Box<dyn Iterator<Item = Hash<HEADER_HASH_SIZE>> + '_> {
+        if let Some(header) = self.load_header(hash) {
+            Box::new(self.ancestors(&header).map(|h| h.hash()))
+        } else {
+            Box::new(std::iter::empty())
+        }
+    }
 }
 
-impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
+impl<H: IsHeader + Clone + 'static> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         self.as_ref().load_header(hash)
     }
@@ -109,7 +135,7 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
 /// A simple chain store interface that can store and retrieve headers indexed by their hash.
 pub trait ChainStore<H>: ReadOnlyChainStore<H> + Send + Sync
 where
-    H: IsHeader,
+    H: IsHeader + Clone + 'static,
 {
     fn store_header(&self, header: &H) -> Result<(), StoreError>;
     fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError>;
