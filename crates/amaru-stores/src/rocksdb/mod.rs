@@ -153,11 +153,11 @@ impl RocksDbConfig {
     }
 }
 
-impl From<RocksDbConfig> for Options {
-    fn from(config: RocksDbConfig) -> Self {
+impl From<&RocksDbConfig> for Options {
+    fn from(config: &RocksDbConfig) -> Self {
         let mut opts = Options::default();
-        if let Some(env) = config.env {
-            opts.set_env(&env);
+        if let Some(env) = &config.env {
+            opts.set_env(env);
         }
         opts
     }
@@ -208,7 +208,7 @@ impl RocksDB {
         Ok(snapshots)
     }
 
-    pub fn new(config: RocksDbConfig) -> Result<Self, StoreError> {
+    pub fn new(config: &RocksDbConfig) -> Result<Self, StoreError> {
         let dir = config.dir.clone();
         assert_sufficient_snapshots(&dir)?;
         let mut opts = set_default_opts(config.into());
@@ -223,7 +223,7 @@ impl RocksDB {
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
-    pub fn empty(config: RocksDbConfig) -> Result<RocksDB, StoreError> {
+    pub fn empty(config: &RocksDbConfig) -> Result<RocksDB, StoreError> {
         let dir = config.dir.clone();
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
@@ -252,7 +252,7 @@ pub struct ReadOnlyRocksDB {
 }
 
 impl ReadOnlyRocksDB {
-    pub fn new(config: RocksDbConfig) -> Result<Self, StoreError> {
+    pub fn new(config: &RocksDbConfig) -> Result<Self, StoreError> {
         let dir = config.dir.clone();
         assert_sufficient_snapshots(&dir)?;
         let opts = set_default_opts(config.into());
@@ -327,7 +327,7 @@ pub struct RocksDBHistoricalStores {
 
 impl RocksDBHistoricalStores {
     pub fn for_epoch_with(
-        config: RocksDbConfig,
+        config: &RocksDbConfig,
         epoch: Epoch,
     ) -> Result<RocksDBSnapshot, StoreError> {
         let base_dir = config.dir.clone();
@@ -337,9 +337,9 @@ impl RocksDBHistoricalStores {
             .map(|db| RocksDBSnapshot { epoch, db })
     }
 
-    pub fn new(config: RocksDbConfig, max_extra_ledger_snapshots: u64) -> Self {
+    pub fn new(config: &RocksDbConfig, max_extra_ledger_snapshots: u64) -> Self {
         RocksDBHistoricalStores {
-            config,
+            config: config.clone(),
             max_extra_ledger_snapshots,
         }
     }
@@ -371,7 +371,7 @@ impl HistoricalStores for RocksDBHistoricalStores {
         Ok(snapshots)
     }
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
-        RocksDBHistoricalStores::for_epoch_with(self.config.clone(), epoch)
+        RocksDBHistoricalStores::for_epoch_with(&self.config, epoch)
     }
 }
 
@@ -1076,7 +1076,7 @@ mod tests {
             (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let tmp_dir = TempDir::new().expect("failed to create temp dir");
 
-        let store = RocksDB::empty(RocksDbConfig::new(tmp_dir.path().into()))
+        let store = RocksDB::empty(&RocksDbConfig::new(tmp_dir.path().into()))
             .map_err(|e| StoreError::Internal(e.into()))?;
 
         let fixture = add_test_data_to_store(&store, &era_history, runner)?;
@@ -1092,11 +1092,11 @@ mod tests {
         let file_path = dir.path().join("0");
         let _fake_snapshot = File::create(&file_path).unwrap();
 
-        let rw_db = RocksDB::new(RocksDbConfig::new(dir.path().into()))
+        let rw_db = RocksDB::new(&RocksDbConfig::new(dir.path().into()))
             .inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(rw_db, Ok(..)));
 
-        let ro_db = ReadOnlyRocksDB::new(RocksDbConfig::new(dir.path().into()))
+        let ro_db = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into()))
             .inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
     }

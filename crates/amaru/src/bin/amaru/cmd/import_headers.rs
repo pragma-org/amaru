@@ -84,7 +84,7 @@ pub(crate) async fn import_headers_for_network(
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     let era_history = network.into();
-    let db = RocksDBStore::new(RocksDbConfig::new(chain_dir.into()), era_history)?;
+    let db = RocksDBStore::new(&RocksDbConfig::new(chain_dir.into()), era_history)?;
 
     for entry in std::fs::read_dir(config_dir.join("headers"))? {
         let entry = entry?;

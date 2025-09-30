@@ -154,9 +154,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let era_history: &EraHistory = network.into();
     let global_parameters: &GlobalParameters = network.into();
     let config = RocksDbConfig::new(ledger_dir);
-    let store = RocksDBHistoricalStores::new(config.clone(), u64::MAX);
+    let store = RocksDBHistoricalStores::new(&config, u64::MAX);
     let ledger = BlockValidator::new(
-        RocksDB::new(config)?,
+        RocksDB::new(&config)?,
         store,
         network,
         era_history.clone(),

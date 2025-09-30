@@ -312,7 +312,7 @@ fn make_chain_store(
     let chain_store: Arc<dyn ChainStore<Header>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
         StoreType::RocksDb(ref rocks_db_config) => {
-            Arc::new(RocksDBStore::new(rocks_db_config.clone(), era_history)?)
+            Arc::new(RocksDBStore::new(rocks_db_config, era_history)?)
         }
     };
 
@@ -382,9 +382,9 @@ fn make_ledger(
         }
         StoreType::RocksDb(rocks_db_config) => {
             let ledger = BlockValidator::new(
-                RocksDB::new(rocks_db_config.clone())?,
+                RocksDB::new(rocks_db_config)?,
                 RocksDBHistoricalStores::new(
-                    rocks_db_config.clone(),
+                    rocks_db_config,
                     u64::from(config.max_extra_ledger_snapshots),
                 ),
                 network,
