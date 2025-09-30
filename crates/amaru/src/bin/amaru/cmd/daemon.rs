@@ -86,6 +86,10 @@ pub async fn run(
     args: Args,
     meter_provider: Option<SdkMeterProvider>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // This is being kept-alive so that the `drop` function
+    // is called when the `ProcessIdHandler` goes out of scope.
+    // That allows the file to be cleaned up before Amaru gracefully exits.
+    // It is not vital that this cleanup happens, but it's nice to have :)
     let _pid_file = args.pid_file.as_ref().map(|path| {
         ProcessIdHandle::new(path)
             .inspect(|pid_file| {
