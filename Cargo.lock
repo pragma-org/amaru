@@ -87,6 +87,7 @@ dependencies = [
  "futures-util",
  "gasket",
  "hex",
+ "indicatif",
  "indoc",
  "insta",
  "minicbor",

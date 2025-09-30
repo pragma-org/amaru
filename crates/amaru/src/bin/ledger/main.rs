@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = match args.command {
         Command::Bootstrap(args) => cmd::bootstrap::run(args),
-        Command::Mithril(args) => cmd::mithril::run(args),
+        Command::Mithril(args) => cmd::mithril::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook

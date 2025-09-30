@@ -32,6 +32,7 @@ clap.workspace = true
 futures-util.workspace = true
 gasket.workspace = true
 hex.workspace = true
+indicatif.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
 mithril-client.workspace = true

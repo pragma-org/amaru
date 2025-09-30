@@ -25,6 +25,9 @@ target/
 # Files downloaded for the demo
 /snapshots/
 
+# Files downloaded by mithril
+/mithril-snapshots/
+
 # Files for local coverage reports
 coverage/
 
