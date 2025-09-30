@@ -21,22 +21,15 @@ mod cmd;
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Bootstrap the node with needed data.
+    /// Bootstrap the ledger with local blocks.
     ///
-    /// This command simplifies the process of bootstrapping an Amaru
-    /// node for a given network.
-    ///
-    /// In its current form, given a network name, a target directory
-    /// and possibly a peer to connect to, it will lookup for
-    /// bootstrap configuration files in `data/${network name}/`
-    /// directory to download snapshots, import those snapshots into
-    /// the ledger, import nonces, and import headers.
+    /// The ledger state must be in an already bootstrapped state (e.g. via a snapshot).
     Bootstrap(cmd::bootstrap::Args),
 
 }
  #[derive(Debug, Parser)]
-#[clap(name = "Amaru")]
-#[clap(bin_name = "amaru")]
+#[clap(name = "Amaru Ledger")]
+#[clap(bin_name = "amaru-ledger")]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]

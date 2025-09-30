@@ -27,11 +27,7 @@ use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
 use flate2::read::GzDecoder;
 use tar::Archive;
 
-
 #[derive(Debug, Parser)]
-#[clap(name = "Amaru")]
-#[clap(bin_name = "amaru")]
-#[clap(author, version, about, long_about = None)]
 pub struct Args {
     /// The target network to choose from.
     ///
