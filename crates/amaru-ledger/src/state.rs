@@ -40,11 +40,13 @@ use amaru_kernel::{
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     stake_credential_hash,
 };
+use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, PoolSummary};
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use anyhow::{Context, anyhow};
 use std::{
     borrow::Cow,
+    cmp::max,
     collections::{BTreeMap, BTreeSet, VecDeque, btree_map},
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
@@ -605,7 +607,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &mut self,
         point: &Point,
         raw_block: &RawBlock,
-    ) -> BlockValidation<u64, anyhow::Error> {
+    ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
         let block = match parse_block(&raw_block[..]) {
             Ok(block) => block,
             Err(e) => return BlockValidation::Err(anyhow!(e)),
@@ -630,8 +632,34 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 let state: VolatileState = context.into();
                 let block_height = &block.header.block_height();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+                let txs_processed = block.transaction_bodies.len() as u64;
+                let slot = point.slot_or_default();
+                let epoch = match self.era_history().slot_to_epoch(slot, slot) {
+                    Ok(epoch) => epoch,
+                    Err(_) => 0.into(),
+                }
+                .into();
+                let slot_in_epoch = match self.era_history().slot_in_epoch(slot, slot) {
+                    Ok(slot) => slot,
+                    Err(_) => 0.into(),
+                }
+                .into();
+
+                let slot = slot.into();
+
+                let density = self.chain_density(point);
+
+                let metrics = LedgerMetrics {
+                    block_height: *block_height,
+                    txs_processed,
+                    slot,
+                    slot_in_epoch,
+                    epoch,
+                    density,
+                };
+
                 match self.forward(state.anchor(point, issuer)) {
-                    Ok(()) => BlockValidation::Valid(*block_height),
+                    Ok(()) => BlockValidation::Valid(metrics),
                     Err(e) => {
                         error!(%e, "Failed to roll forward the ledger state");
                         BlockValidation::Err(anyhow!(e))
@@ -656,6 +684,23 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         self.volatile.rollback_to(to, |point| {
             BackwardError::UnknownRollbackPoint(point.clone())
         })
+    }
+    /// Calculate chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
+    /// If the `Point` is older than the oldest block in the volatileDB, density is 0
+    pub fn chain_density(&self, point: &Point) -> f64 {
+        let latest_slot = point.slot_or_default();
+        let k_slot = self
+            .volatile
+            .view_front()
+            .map(|state| &state.anchor.0)
+            .unwrap_or(&Point::Origin)
+            .slot_or_default();
+
+        if k_slot >= latest_slot {
+            0f64
+        } else {
+            max(1, self.volatile.len()) as f64 / (u64::from(latest_slot) - u64::from(k_slot)) as f64
+        }
     }
 }
 

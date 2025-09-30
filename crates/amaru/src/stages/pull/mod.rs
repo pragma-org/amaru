@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    send,
-    stages::{metrics::MetricsEvent, pull::metrics::PullMetrics},
-};
+use crate::send;
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_kernel::{Point, peer::Peer};
 use amaru_network::chain_sync_client::{ChainSyncClientError, RawHeader, to_traverse};
@@ -24,10 +21,7 @@ use gasket::framework::{Stage as StageTrait, *};
 use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse};
 use tracing::{Level, Span, debug, error, instrument};
 
-pub mod metrics;
-
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
-pub type MetricsDownstreamPort = gasket::messaging::OutputPort<MetricsEvent>;
 
 pub enum WorkUnit {
     Pull,
@@ -41,7 +35,6 @@ pub struct Stage {
     pub peer: Peer,
     pub client: ChainSyncClient,
     pub downstream: DownstreamPort,
-    pub metrics_downstream: MetricsDownstreamPort,
 }
 
 impl Stage {
@@ -51,7 +44,6 @@ impl Stage {
             peer,
             client,
             downstream: Default::default(),
-            metrics_downstream: MetricsDownstreamPort::default(),
         }
     }
 
@@ -146,7 +138,6 @@ impl gasket::framework::Worker<Stage> for Worker {
         match next {
             NextResponse::RollForward(header, _tip) => {
                 stage.roll_forward(&header).await?;
-                PullMetrics::record_header_size_bytes(&mut stage.metrics_downstream, 1).await?;
             }
             NextResponse::RollBackward(point, _tip) => {
                 stage.roll_back(from_network_point(&point)).await?;

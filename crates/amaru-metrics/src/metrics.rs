@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import fs from "node:fs/promises";
+#[cfg(not(target_arch = "wasm32"))]
+pub use opentelemetry::metrics::{Counter, Gauge, Meter};
 
-const wasmBuffer = await fs.readFile(
-  "assets/amaru_example_ledger_in_nodejs.wasm",
-);
-const wasm = await WebAssembly.instantiate(wasmBuffer, {});
+#[cfg(target_arch = "wasm32")]
+mod wasm {
+    pub type Meter = ();
+    pub type Gauge = ();
+    pub type Counter = ();
+}
 
-wasm.instance.exports.ledger();
-
-console.log("Done");
+#[cfg(target_arch = "wasm32")]
+pub use wasm::*;

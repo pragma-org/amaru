@@ -15,12 +15,12 @@
 use crate::stages::{
     build_stage_graph::build_stage_graph,
     consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
-    metrics::MetricsStage,
     pure_stage_util::{PureStageSim, SendAdapter},
 };
 use amaru_consensus::consensus::{
     effects::{
         block_effects::{ResourceBlockFetcher, ResourceParameters},
+        metrics_effects::ResourceMeter,
         network_effects::ResourceForwardEventListener,
         store_effects::ResourceHeaderStore,
     },
@@ -38,6 +38,8 @@ use amaru_kernel::{
     peer::Peer, protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::block_validator::BlockValidator;
+
+use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::block_fetch_client::PallasBlockFetchClient;
 use amaru_ouroboros_traits::{
     CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
@@ -52,6 +54,7 @@ use gasket::{
     messaging::OutputPort,
     runtime::{self, Tether, spawn_stage},
 };
+use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::{
     facades::PeerClient,
@@ -71,7 +74,6 @@ use tracing::info;
 pub mod build_stage_graph;
 pub mod common;
 pub mod consensus;
-pub mod metrics;
 pub mod pull;
 mod pure_stage_util;
 
@@ -169,7 +171,7 @@ pub async fn bootstrap(
     config: Config,
     clients: Vec<(String, PeerClient)>,
     exit: CancellationToken,
-    metrics_provider: Option<SdkMeterProvider>,
+    meter_provider: Option<SdkMeterProvider>,
 ) -> Result<Vec<Tether>, Box<dyn Error>> {
     let era_history: &EraHistory = config.network.into();
 
@@ -248,8 +250,6 @@ pub async fn bootstrap(
         .await?,
     );
 
-    let mut metrics_stage = MetricsStage::new(metrics_provider);
-
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
 
@@ -276,6 +276,11 @@ pub async fn bootstrap(
         .resources()
         .put::<ResourceForwardEventListener>(forward_event_listener);
 
+    if let Some(provider) = meter_provider {
+        let meter = provider.meter(METRICS_METER_NAME);
+        network.resources().put::<ResourceMeter>(Arc::new(meter));
+    };
+
     let network = network.run(Handle::current().clone());
     let pure_stages = PureStageSim::new(network, exit);
 
@@ -288,14 +293,6 @@ pub async fn bootstrap(
         output.connect(SendAdapter(graph_input.clone()));
     }
 
-    let (to_metrics, from_stages) = gasket::messaging::tokio::mpsc_channel(50);
-    stages.iter_mut().for_each(|stage| {
-        // These channels are meant to be cloned so they can be shared between threads
-        stage.metrics_downstream.connect(to_metrics.clone());
-    });
-
-    metrics_stage.upstream.connect(from_stages);
-
     // No retry, crash on panics.
     let policy = runtime::Policy::default();
 
@@ -305,10 +302,9 @@ pub async fn bootstrap(
         .collect::<Vec<_>>();
 
     let pure_stages = spawn_stage(pure_stages, policy.clone());
-    let metrics = spawn_stage(metrics_stage, policy.clone());
 
     stages.push(pure_stages);
-    stages.push(metrics);
+
     Ok(stages)
 }
 
@@ -485,7 +481,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(2, stages.len());
+        assert_eq!(1, stages.len());
     }
 
     #[test]

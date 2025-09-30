@@ -28,6 +28,7 @@ thiserror.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
 amaru-slot-arithmetic.workspace = true
+amaru-metrics.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

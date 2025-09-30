@@ -18,6 +18,7 @@ use crate::store::{HistoricalStores, Store};
 use amaru_kernel::{
     EraHistory, Point, RawBlock, network::NetworkName, protocol_parameters::GlobalParameters,
 };
+use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::CanValidateBlocks;
 use amaru_ouroboros_traits::can_validate_blocks::BlockValidationError;
 use anyhow::anyhow;
@@ -54,20 +55,21 @@ impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
     }
 }
 
+#[async_trait::async_trait]
 impl<S, HS> CanValidateBlocks for BlockValidator<S, HS>
 where
     S: Store + Send,
     HS: HistoricalStores + Send,
 {
     #[expect(clippy::unwrap_used)]
-    fn roll_forward_block(
+    async fn roll_forward_block(
         &self,
         point: &Point,
         raw_block: &RawBlock,
-    ) -> Result<Result<u64, BlockValidationError>, BlockValidationError> {
+    ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         let mut state = self.state.lock().unwrap();
         match state.roll_forward(point, raw_block) {
-            BlockValidation::Valid(block_height) => Ok(Ok(block_height)),
+            BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
             BlockValidation::Invalid(_, _, details) => Ok(Err(BlockValidationError::new(anyhow!(
                 "Invalid block: {details}"
             )))),
