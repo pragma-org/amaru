@@ -32,9 +32,9 @@ indicatif = "0.18.0"
 indoc = "2.0"
 itertools = "0.14.0"
 minicbor = { version = "0.25.1", features = ["std", "half", "derive"] } # Must match the version used by pallas
+mithril-client = { version = "0.12.11", default-features = false, features = ["fs", "num-integer-backend", "rustls-tls"] }
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 opentelemetry = "0.30.0"
-reqwest = { version = "0.12.20", default-features = false, features = ["json", "stream", "rustls-tls"] }
 opentelemetry-otlp = { version = "0.30.0", features = [
   "grpc-tonic",
   "http-proto",
@@ -50,6 +50,7 @@ pallas-primitives = "0.33.0"
 pallas-traverse = "0.33.0"
 parking_lot = "0.12.3"
 rayon = "1.10"
+reqwest = { version = "0.12.20", default-features = false, features = ["json", "stream", "rustls-tls"] }
 rocksdb = { version = "0.24.0", default-features = false, features = [
   "bindgen-runtime",
   "snappy",

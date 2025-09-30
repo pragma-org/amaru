@@ -12,5 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub(crate) mod bootstrap;
-pub(crate) mod mithril;
+use clap::Parser;
+
+#[derive(Debug, Parser)]
+pub struct Args {
+
+}
+
+pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+
+    Ok(())
+}

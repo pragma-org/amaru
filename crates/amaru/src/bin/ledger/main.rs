@@ -26,6 +26,8 @@ enum Command {
     /// The ledger state must be in an already bootstrapped state (e.g. via a snapshot).
     Bootstrap(cmd::bootstrap::Args),
 
+    Mithril(cmd::mithril::Args),
+
 }
  #[derive(Debug, Parser)]
 #[clap(name = "Amaru Ledger")]
@@ -97,6 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = match args.command {
         Command::Bootstrap(args) => cmd::bootstrap::run(args),
+        Command::Mithril(args) => cmd::mithril::run(args),
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
