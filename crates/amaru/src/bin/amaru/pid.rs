@@ -15,6 +15,7 @@
 use std::{
     fmt::Display,
     fs,
+    io::Write,
     path::{Path, PathBuf},
     process::{self, Command},
 };
@@ -33,20 +34,37 @@ impl ProcessIdHandle {
             fs::create_dir_all(parent)?;
         }
 
-        if path.exists()
-            && let Ok(existing_pid) = fs::read_to_string(&path)
-            && let Ok(existing_pid) = existing_pid.trim().parse::<u32>()
-            && process_exists(existing_pid)
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
         {
-            return Err(format!(
-                "process {} is already running. Consider using a different PID file.",
-                existing_pid
-            )
-            .into());
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                if let Some(existing_pid) = fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|content| content.trim().parse::<u32>().ok())
+                {
+                    if process_exists(existing_pid) {
+                        return Err(format!(
+                            "process {} is already running. Consider using a different PID file.",
+                            existing_pid
+                        )
+                        .into());
+                    }
+                    fs::remove_file(&path)?;
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&path)?
+                } else {
+                    return Err(err.into());
+                }
+            }
+            Err(err) => return Err(err.into()),
         };
 
-        fs::write(&path, pid.to_string())?;
-
+        write!(file, "{pid}")?;
         Ok(Self { path, pid })
     }
 
