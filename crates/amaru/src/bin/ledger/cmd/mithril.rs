@@ -17,10 +17,14 @@ use std::{fmt::Write, fs, path::PathBuf, sync::Arc};
 use amaru_kernel::network::NetworkName;
 use async_trait::async_trait;
 use clap::Parser;
-use mithril_client::{cardano_database_client::{DownloadUnpackOptions, ImmutableFileRange}, feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase}, ClientBuilder, MessageBuilder};
+use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
+use mithril_client::{
+    ClientBuilder, MessageBuilder,
+    cardano_database_client::{DownloadUnpackOptions, ImmutableFileRange},
+    feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
+};
 use tokio::sync::RwLock;
 use tracing::info;
-use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -165,17 +169,19 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let target_dir = PathBuf::from("mithril-snapshots");
     fs::create_dir_all(&target_dir)?;
     database_client
-        .download_unpack(&snapshot, &immutable_file_range, &target_dir, download_unpack_options)
+        .download_unpack(
+            &snapshot,
+            &immutable_file_range,
+            &target_dir,
+            download_unpack_options,
+        )
         .await?;
 
     info!("Snapshot unpacked to: {:?}", target_dir);
 
     let verified_digests = client
         .cardano_database_v2()
-        .download_and_verify_digests(
-            &certificate,
-            &snapshot
-        )
+        .download_and_verify_digests(&certificate, &snapshot)
         .await?;
 
     let allow_missing_immutables_files = false;
@@ -187,9 +193,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             &immutable_file_range,
             allow_missing_immutables_files,
             &target_dir,
-            &verified_digests
+            &verified_digests,
         )
-    .await?;
+        .await?;
 
     let message = MessageBuilder::new()
         .compute_cardano_database_message(&certificate, &merkle_proof)
@@ -199,8 +205,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     info!("Snapshot verified against certificate");
 
     let _immutable_dir = target_dir.join("immutable");
-
-
 
     Ok(())
 }
