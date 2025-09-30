@@ -13,7 +13,7 @@ nView reads Prometheus metrics from a `/metrics` endpoint, so if we collect and 
 
 ## Decision
 
-We will propogate metrics via a stage effect instead of passing around a large record to each stage to be mutated. There is a new `amaru-metrics` crate that holds the structs and enums relevant for the metrics collection. There is a `MetricsEvent` enum, with a variant for each specific type of metric (`LedgerMetrics`, `ConsensusMetrics`, etc.). Each of those metrics implements a `MetricRecorder` trait, which is called from `RecordMetricsEffect` effect.
+We will propagate metrics via a stage effect instead of passing around a large record to each stage to be mutated. There is a new `amaru-metrics` crate that holds the structs and enums relevant for the metrics collection. There is a `MetricsEvent` enum, with a variant for each specific type of metric (`LedgerMetrics`, `ConsensusMetrics`, etc.). Each of those metrics implements a `MetricRecorder` trait, which is called from `RecordMetricsEffect` effect.
 
 ## Discussion
 
