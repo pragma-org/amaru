@@ -147,6 +147,7 @@ impl SelectChain {
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let mut headers_tree = HeadersTree::new(store, self.tree_state.clone());
         let result = headers_tree.select_rollback(&peer, &rollback_point.hash())?;
+        self.tree_state = headers_tree.tree_state();
 
         match result {
             RollbackChainSelection::SwitchToFork(Fork {
