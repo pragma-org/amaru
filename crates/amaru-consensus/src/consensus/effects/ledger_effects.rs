@@ -15,12 +15,12 @@
 use crate::consensus::errors::ProcessingFailed;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Header, Point, RawBlock};
+use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks, HasStakeDistribution, IsHeader,
 };
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
-use amaru_metrics::ledger::LedgerMetrics;
 
 pub struct Ledger<'a, T>(&'a Effects<T>);
 
@@ -36,7 +36,7 @@ pub trait LedgerOps {
         peer: &Peer,
         point: &Point,
         block: RawBlock,
-    ) -> BoxFuture<'_, Result<Result<u64, BlockValidationError>, BlockValidationError>>;
+    ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
     fn rollback(
         &self,
@@ -51,7 +51,8 @@ impl<T: SendData + Sync> LedgerOps for Ledger<'_, T> {
         peer: &Peer,
         point: &Point,
         block: RawBlock,
-    ) -> BoxFuture<'_, Result<Result<u64, BlockValidationError>, BlockValidationError>> {
+    ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>
+    {
         self.0
             .external(ValidateBlockEffect::new(peer, point, block))
     }
@@ -88,17 +89,14 @@ impl ValidateBlockEffect {
 
 impl ExternalEffect for ValidateBlockEffect {
     #[expect(clippy::expect_used)]
-    fn run(
-        self: Box<Self>,
-        resources: Resources,
-    ) -> BoxFuture<'static, Box<dyn SendData>> {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Box::pin(async move {
             let validator = resources
                 .get::<ResourceBlockValidation>()
                 .expect("ValidateBlockEffect requires a CanValidateBlock resource")
                 .clone();
             let result: <Self as ExternalEffectAPI>::Response =
-                validator.roll_forward_block(&self.point, &self.block);
+                validator.roll_forward_block(&self.point, &self.block).await;
             Box::new(result) as Box<dyn SendData>
         })
     }

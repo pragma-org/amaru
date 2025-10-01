@@ -62,21 +62,21 @@ impl<T: SendData + Sync> ReadOnlyChainStore<Header> for Store<T> {
         self.external(LoadBlockEffect::new(*hash))
     }
 
-    fn load_headers(&self) -> Box<dyn Iterator<Item=Header> + '_> {
+    fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_> {
         Box::new(self.external(LoadHeadersEffect::new()).into_iter())
     }
 
-    fn load_nonces(&self) -> Box<dyn Iterator<Item=(HeaderHash, Nonces)> + '_> {
+    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
         Box::new(self.external(LoadNoncesEffect::new()).into_iter())
     }
 
-    fn load_blocks(&self) -> Box<dyn Iterator<Item=(HeaderHash, RawBlock)> + '_> {
+    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
         Box::new(self.external(LoadBlocksEffect::new()).into_iter())
     }
 
     fn load_parents_children(
         &self,
-    ) -> Box<dyn Iterator<Item=(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_> {
+    ) -> Box<dyn Iterator<Item = (Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_> {
         Box::new(self.external(LoadParentsChildrenEffect::new()).into_iter())
     }
 

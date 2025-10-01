@@ -351,7 +351,6 @@ impl ForwardEventListener for MockForwardEventListener {
         for i in 1..=self.number_of_downstream_peers {
             let dest = format!("c{}", i);
             let msg_id = base_msg_id + i as u64;
-            println!("msg id {}", msg_id);
             let envelope = Envelope {
                 src: self.node_id.clone(),
                 dest,
