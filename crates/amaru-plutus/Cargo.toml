@@ -1,0 +1,18 @@
+[package]
+name = "amaru-plutus"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Internal dependencies
+amaru-kernel.workspace = true
+
+[lints]
+workspace = true
