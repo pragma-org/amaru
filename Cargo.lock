@@ -277,6 +277,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "amaru-plutus"
+version = "0.1.0"
+dependencies = [
+ "amaru-kernel",
+]
+
+[[package]]
 name = "amaru-progress-bar"
 version = "0.1.0"
 dependencies = [
