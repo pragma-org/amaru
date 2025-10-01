@@ -149,7 +149,7 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
 #[allow(clippy::unwrap_used)]
 async fn package_blocks(
     network: &NetworkName,
-    blocks: &BTreeMap<u64, &Vec<u8>>,
+    blocks: &BTreeMap<String, &Vec<u8>>,
     index: usize,
 ) -> std::io::Result<Vec<u8>> {
     use flate2::{Compression, write::GzEncoder};
@@ -161,7 +161,7 @@ async fn package_blocks(
     // Give ownership of the encoder to the tar builder so it can write into it
     let mut tar = Builder::new(encoder);
 
-    for (slot, data) in blocks {
+    for (name, data) in blocks {
         let mut header = Header::new_gnu();
         header.set_size(data.len() as u64);
         header.set_mode(0o644);
@@ -178,7 +178,7 @@ async fn package_blocks(
         header.set_cksum();
 
         // Append the data (Cursor implements Read)
-        tar.append_data(&mut header, format!("{}.cbor", slot), Cursor::new(data))?;
+        tar.append_data(&mut header, name, Cursor::new(data))?;
     }
 
     // Extract the inner encoder (GzEncoder<Vec<u8>>)
@@ -280,8 +280,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .filter_map(|cbor| {
                 let block = MultiEraBlock::decode(cbor).ok()?;
-                let slot = block.header().slot();
-                Some((slot, cbor))
+                let header = block.header();
+                let name = format!("{}.{}.cbor", header.slot(), header.hash());
+                Some((name, cbor))
             })
             .collect();
         package_blocks(&network, &map, index).await?;

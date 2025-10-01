@@ -133,7 +133,11 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             let path = entry.path()?;
             if path.extension().map(|ext| ext == "cbor").unwrap_or(false) {
                 let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-                let (slot_str, hash_str) = file_name.split_once('.').unwrap_or(("0", ""));
+                let (slot_str, hash_str) = file_name
+                    .strip_suffix(".cbor")
+                    .unwrap_or(&file_name)
+                    .split_once('.')
+                    .unwrap_or(("0", ""));
                 let point = Point::Specific(
                     slot_str.parse().unwrap_or_default(),
                     hex::decode(hash_str).unwrap_or_default(),
