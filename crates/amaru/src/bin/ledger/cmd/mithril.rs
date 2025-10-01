@@ -150,7 +150,6 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
 async fn package_blocks(
     network: &NetworkName,
     blocks: &BTreeMap<String, &Vec<u8>>,
-    index: usize,
 ) -> std::io::Result<Vec<u8>> {
     use flate2::{Compression, write::GzEncoder};
     use tar::Header;
@@ -189,8 +188,12 @@ async fn package_blocks(
 
     let dir = format!("data/{}/blocks", network);
     tokio::fs::create_dir_all(&dir).await?;
-
-    let archive_path = format!("{}/batch-{}.tar.gz", dir, index);
+    let first_block = blocks
+        .first_key_value()
+        .map(|kv| kv.0)
+        .cloned()
+        .unwrap_or_default();
+    let archive_path = format!("{}/{}.tar.gz", dir, first_block);
     let mut f = File::create(archive_path).await?;
 
     f.write_all(&compressed).await?;
@@ -271,10 +274,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let immutable_dir = target_dir.join("immutable");
 
-    for (index, chunk) in read_blocks_from_point(&immutable_dir, Point::new(103444000, vec![]))?
+    for chunk in read_blocks_from_point(&immutable_dir, Point::new(103444000, vec![]))?
         .map_while(Result::ok)
         .array_chunks::<1000>()
-        .enumerate()
     {
         let map: BTreeMap<_, _> = chunk
             .iter()
@@ -285,7 +287,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 Some((name, cbor))
             })
             .collect();
-        package_blocks(&network, &map, index).await?;
+        package_blocks(&network, &map).await?;
     }
 
     Ok(())
