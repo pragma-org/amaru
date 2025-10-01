@@ -12,7 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Write, fs, path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fmt::Write,
+    fs,
+    io::Cursor,
+    path::PathBuf,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use amaru_kernel::network::NetworkName;
 use async_trait::async_trait;
@@ -23,6 +31,11 @@ use mithril_client::{
     cardano_database_client::{DownloadUnpackOptions, ImmutableFileRange},
     feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
 };
+use pallas_hardano::storage::immutable::{Point, read_blocks_from_point};
+use pallas_traverse::MultiEraBlock;
+use tar::Builder;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use tracing::info;
 
@@ -133,8 +146,60 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
     }
 }
 
+#[allow(clippy::unwrap_used)]
+async fn package_blocks(
+    network: &NetworkName,
+    blocks: &BTreeMap<u64, &Vec<u8>>,
+    index: usize,
+) -> std::io::Result<Vec<u8>> {
+    use flate2::{Compression, write::GzEncoder};
+    use tar::Header;
+
+    // Create a GzEncoder that will write compressed bytes to an in-memory Vec<u8>
+    let encoder = GzEncoder::new(Vec::new(), Compression::default());
+
+    // Give ownership of the encoder to the tar builder so it can write into it
+    let mut tar = Builder::new(encoder);
+
+    for (slot, data) in blocks {
+        let mut header = Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_mtime(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        );
+        header.set_uid(0);
+        header.set_gid(0);
+        // Set current mtime (seconds since UNIX epoch)
+        header.set_cksum();
+
+        // Append the data (Cursor implements Read)
+        tar.append_data(&mut header, format!("{}.cbor", slot), Cursor::new(data))?;
+    }
+
+    // Extract the inner encoder (GzEncoder<Vec<u8>>)
+    let encoder = tar.into_inner()?;
+
+    // Finish compression and obtain the inner Vec<u8>
+    let compressed = encoder.finish()?;
+
+    let dir = format!("data/{}/blocks", network);
+    tokio::fs::create_dir_all(&dir).await?;
+
+    let archive_path = format!("{}/batch-{}.tar.gz", dir, index);
+    let mut f = File::create(archive_path).await?;
+
+    f.write_all(&compressed).await?;
+
+    Ok(compressed)
+}
+
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let _network = args.network;
+    let network = args.network;
 
     const AGGREGATOR_ENDPOINT: &str =
         "https://aggregator.release-preprod.api.mithril.network/aggregator";
@@ -204,7 +269,23 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Snapshot verified against certificate");
 
-    let _immutable_dir = target_dir.join("immutable");
+    let immutable_dir = target_dir.join("immutable");
+
+    for (index, chunk) in read_blocks_from_point(&immutable_dir, Point::new(103444000, vec![]))?
+        .map_while(Result::ok)
+        .array_chunks::<1000>()
+        .enumerate()
+    {
+        let map: BTreeMap<_, _> = chunk
+            .iter()
+            .filter_map(|cbor| {
+                let block = MultiEraBlock::decode(cbor).ok()?;
+                let slot = block.header().slot();
+                Some((slot, cbor))
+            })
+            .collect();
+        package_blocks(&network, &map, index).await?;
+    }
 
     Ok(())
 }
