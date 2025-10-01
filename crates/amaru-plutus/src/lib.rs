@@ -93,8 +93,10 @@ impl<const V: u8> ToPlutusData<V> for u64
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
+    #[allow(clippy::unwrap_used)]
     fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::BigInt(BigInt::Int(Int::from(*self as i64)))
+        // Unwrap is safe here, u64 cannot possible be too big for the `Int` structure
+        PlutusData::BigInt(BigInt::Int(Int::try_from(*self as i128).unwrap()))
     }
 }
 
@@ -102,8 +104,10 @@ impl<const V: u8> ToPlutusData<V> for usize
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
+    #[allow(clippy::unwrap_used)]
     fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::BigInt(BigInt::Int(Int::from(*self as i64)))
+        // Unwrap is safe here, usize cannot possible be too big for the `Int` structure
+        PlutusData::BigInt(BigInt::Int(Int::try_from(*self as i128).unwrap()))
     }
 }
 
