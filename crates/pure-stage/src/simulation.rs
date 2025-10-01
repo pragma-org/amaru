@@ -32,7 +32,7 @@ use crate::{
     time::Clock,
     trace_buffer::TraceBuffer,
 };
-pub use blocked::Blocked;
+pub use blocked::{Blocked, SendBlock};
 use either::Either;
 use parking_lot::Mutex;
 pub use replay::Replay;
