@@ -31,7 +31,7 @@ mod impls {
     /// thread boundaries.
     pub fn adopt_current_span(has_span: &impl HasSpan) -> Span {
         let span = Span::current();
-        span.set_parent(has_span.context());
+        let _ = span.set_parent(has_span.context());
         span
     }
 
