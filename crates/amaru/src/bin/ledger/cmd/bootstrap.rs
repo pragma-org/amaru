@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use clap::Parser;
-use std::{collections::BTreeSet, fs, io::Read, path::PathBuf};
+use std::{collections::BTreeSet, fs, io::Read, path::PathBuf, time::Instant};
 use tracing::info;
 
 use amaru_kernel::{
@@ -160,6 +160,7 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let subset_set: BTreeSet<_> = subset.iter().cloned().collect();
 
     // Process relevant points
+    let before = Instant::now();
     for archive_path in &archives {
         let file = fs::File::open(archive_path)?;
         let gz = GzDecoder::new(file);
@@ -194,7 +195,7 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!(
-        "Processed {} blocks from slot {} to slot {}",
+        "Processed {} blocks from slot {} to slot {} in {} seconds",
         subset.len(),
         subset
             .first()
@@ -203,7 +204,8 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         subset
             .last()
             .map(|p| p.slot_or_default())
-            .unwrap_or_default()
+            .unwrap_or_default(),
+        Instant::now().saturating_duration_since(before.into()).as_secs()
     );
 
     Ok(())
