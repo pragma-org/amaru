@@ -32,6 +32,7 @@ use crate::{
     time::Clock,
     trace_buffer::TraceBuffer,
 };
+pub use blocked::{Blocked, SendBlock};
 use either::Either;
 use parking_lot::Mutex;
 use std::{
@@ -43,7 +44,6 @@ use std::{
 };
 use tokio::runtime::Handle;
 
-pub use blocked::Blocked;
 pub use replay::Replay;
 pub use running::{OverrideResult, SimulationRunning};
 

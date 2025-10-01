@@ -22,12 +22,21 @@ pub enum Blocked {
     /// The simulation is waiting for a wakeup.
     Sleeping { next_wakeup: Instant },
     /// All stages are suspended on either [`Effect::Receive`] or [`Effect::Send`].
-    Deadlock(Vec<Name>),
+    Deadlock(Vec<SendBlock>),
     /// The given breakpoint was hit.
     Breakpoint(Name, Effect),
     /// The given stages are suspended on effects other than [`Effect::Receive`]
     /// while none are suspended on [`Effect::Send`].
     Busy(Vec<Name>),
+    /// The given stage has terminated.
+    Terminated(Name),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct SendBlock {
+    pub from: Name,
+    pub to: Name,
+    pub is_call: bool,
 }
 
 impl Blocked {
@@ -54,7 +63,8 @@ impl Blocked {
             .map(|n| Name::from(n.as_ref()))
             .collect::<Vec<_>>();
         match self {
-            Blocked::Deadlock(deadlock) if names.iter().all(|n| deadlock.contains(n)) => {}
+            Blocked::Deadlock(deadlock)
+                if deadlock.iter().all(|send| names.contains(&send.from)) => {}
             _ => panic!("expected deadlock by {:?}, got {:?}", names, self),
         }
     }
