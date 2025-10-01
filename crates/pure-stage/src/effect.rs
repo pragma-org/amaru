@@ -20,6 +20,7 @@ use crate::{
     time::Clock,
 };
 use cbor4ii::{core::Value, serde::from_slice};
+use futures_util::FutureExt;
 use serde::de::DeserializeOwned;
 use std::{
     any::{Any, type_name},
@@ -29,7 +30,6 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use futures_util::FutureExt;
 use tokio::sync::oneshot;
 
 impl<M> Clone for Effects<M> {
@@ -205,7 +205,8 @@ impl<M> Effects<M> {
 
     /// Run an effect that is not part of the StageGraph.
     pub fn external_sync<T: ExternalEffectAPI>(&self, effect: T) -> T::Response {
-        Box::new(effect).run(self.resources.clone())
+        Box::new(effect)
+            .run(self.resources.clone())
             .now_or_never()
             .expect("an external sync effect must complete immediately in sync context")
             .cast_deserialize::<T::Response>()
@@ -248,7 +249,7 @@ pub trait ExternalEffect: SendData {
 
     /// Helper method for implementers of ExternalEffect.
     fn wrap(
-        f: impl Future<Output=<Self as ExternalEffectAPI>::Response> + Send + 'static,
+        f: impl Future<Output = <Self as ExternalEffectAPI>::Response> + Send + 'static,
     ) -> BoxFuture<'static, Box<dyn SendData>>
     where
         Self: Sized + ExternalEffectAPI,

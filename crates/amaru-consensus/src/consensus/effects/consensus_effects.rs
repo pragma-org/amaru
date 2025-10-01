@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::consensus::effects::Store;
+use crate::consensus::effects::metrics_effects::{Metrics, MetricsOps};
 use crate::consensus::effects::{Base, BaseOps};
 use crate::consensus::effects::{Ledger, LedgerOps};
 use crate::consensus::effects::{Network, NetworkOps};
@@ -51,6 +52,10 @@ impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
     pub fn base(&self) -> impl BaseOps {
         Base::new(&self.effects)
     }
+
+    pub fn metrics(&self) -> impl MetricsOps {
+        Metrics::new(&self.effects)
+    }
 }
 
 pub trait ConsensusOps: Send + Sync + Clone {
@@ -58,6 +63,8 @@ pub trait ConsensusOps: Send + Sync + Clone {
     fn network(&self) -> impl NetworkOps;
     fn ledger(&self) -> impl LedgerOps;
     fn base(&self) -> impl BaseOps;
+
+    fn metrics(&self) -> impl MetricsOps;
 }
 
 impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
@@ -76,6 +83,10 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
     fn base(&self) -> impl BaseOps {
         self.base()
     }
+
+    fn metrics(&self) -> impl MetricsOps {
+        self.metrics()
+    }
 }
 
 #[cfg(test)]
@@ -85,6 +96,8 @@ pub mod tests {
     use crate::consensus::tip::HeaderTip;
     use amaru_kernel::peer::Peer;
     use amaru_kernel::{Header, Point, RawBlock};
+    use amaru_metrics::MetricsEvent;
+    use amaru_metrics::ledger::LedgerMetrics;
     use amaru_ouroboros_traits::BlockValidationError;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use pure_stage::{BoxFuture, Instant, StageRef};
@@ -98,6 +111,7 @@ pub mod tests {
         pub mock_network: MockNetworkOps,
         pub mock_ledger: MockLedgerOps,
         pub mock_base: MockBaseOps,
+        pub mock_metrics: MockMetricsOps,
     }
 
     #[allow(refining_impl_trait)]
@@ -116,6 +130,10 @@ pub mod tests {
 
         fn base(&self) -> impl BaseOps {
             self.mock_base.clone()
+        }
+
+        fn metrics(&self) -> impl MetricsOps {
+            self.mock_metrics.clone()
         }
     }
 
@@ -182,9 +200,9 @@ pub mod tests {
             _peer: &Peer,
             _point: &Point,
             _block: RawBlock,
-        ) -> BoxFuture<'_, Result<Result<u64, BlockValidationError>, BlockValidationError>>
+        ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>
         {
-            Box::pin(async { Ok(Ok(0)) })
+            Box::pin(async { Ok(Ok(LedgerMetrics::default())) })
         }
 
         fn rollback(
@@ -255,12 +273,28 @@ pub mod tests {
         }
     }
 
+    #[derive(Default, Clone)]
+    pub struct MockMetricsOps;
+
+    impl MetricsOps for MockMetricsOps {
+        fn record(&self, _event: MetricsEvent) -> BoxFuture<'static, ()> {
+            Box::pin(async {})
+        }
+    }
+
+    impl MetricsOps for &MockMetricsOps {
+        fn record(&self, _event: MetricsEvent) -> BoxFuture<'static, ()> {
+            Box::pin(async {})
+        }
+    }
+
     pub fn mock_consensus_ops() -> MockConsensusOps {
         MockConsensusOps {
             mock_store: InMemConsensusStore::new(),
             mock_network: MockNetworkOps::default(),
             mock_ledger: MockLedgerOps,
             mock_base: MockBaseOps::default(),
+            mock_metrics: MockMetricsOps,
         }
     }
 }

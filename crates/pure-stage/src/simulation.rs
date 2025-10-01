@@ -59,7 +59,7 @@ mod running;
 mod state;
 
 pub(crate) type EffectBox =
-Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
+    Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
 
 pub(crate) fn airlock_effect<Out>(
     eb: &EffectBox,
@@ -214,7 +214,7 @@ impl super::StageGraph for SimulationBuilder {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output=St> + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
@@ -222,7 +222,13 @@ impl super::StageGraph for SimulationBuilder {
         let name = Name::from(&*format!("{}-{}", name.as_ref(), self.stages.len()));
         let me = StageRef::new(name.clone());
         let self_sender = self.inputs.sender(&me);
-        let effects = Effects::new(me, self.effect.clone(), self.clock.clone(), self_sender, self.resources.clone());
+        let effects = Effects::new(
+            me,
+            self.effect.clone(),
+            self.clock.clone(),
+            self_sender,
+            self.resources.clone(),
+        );
         let transition: Transition =
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = state.cast::<St>().expect("internal state type error");

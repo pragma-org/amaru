@@ -47,6 +47,12 @@ pub struct HeadersTree<H> {
     store: Arc<dyn ChainStore<H>>,
 }
 
+impl<H> HeadersTree<H> {
+    pub fn tree_state(self) -> HeadersTreeState {
+        self.tree_state
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct HeadersTreeState {
     max_length: usize,

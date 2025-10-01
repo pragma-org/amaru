@@ -19,7 +19,7 @@ use crate::stages::{
 };
 use amaru_consensus::consensus::effects::{
     ResourceBlockFetcher, ResourceBlockValidation, ResourceForwardEventListener,
-    ResourceHeaderStore, ResourceParameters,
+    ResourceHeaderStore, ResourceMeter, ResourceParameters,
 };
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
@@ -27,7 +27,6 @@ use amaru_consensus::consensus::headers_tree::HeadersTreeState;
 use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
 use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
-use amaru_consensus::consensus::effects::metrics_effects::ResourceMeter;
 use amaru_kernel::{
     EraHistory, HEADER_HASH_SIZE, Hash, Header, ORIGIN_HASH, Point, network::NetworkName,
     peer::Peer, protocol_parameters::GlobalParameters,

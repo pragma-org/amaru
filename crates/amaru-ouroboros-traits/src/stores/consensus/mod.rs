@@ -79,7 +79,7 @@ where
         if let Some(header) = self.load_header(hash) {
             Box::new(self.ancestors(&header).map(|h| h.hash()))
         } else {
-            Box::new(std::iter::empty())
+            Box::new(vec![*hash].into_iter())
         }
     }
 }

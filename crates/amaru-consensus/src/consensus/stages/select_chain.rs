@@ -110,6 +110,7 @@ impl SelectChain {
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let mut headers_tree = HeadersTree::new(store, self.tree_state.clone());
         let result = headers_tree.select_roll_forward(&peer, header)?;
+        self.tree_state = headers_tree.tree_state();
 
         let events = match result {
             ForwardChainSelection::NewTip { peer, tip } => {

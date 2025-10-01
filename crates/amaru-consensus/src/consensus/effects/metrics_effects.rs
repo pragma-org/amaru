@@ -12,10 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 
-use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
-use pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+pub trait MetricsOps: Clone + Send {
+    fn record(&self, event: MetricsEvent) -> BoxFuture<'static, ()>;
+}
+
+#[derive(Clone)]
+pub struct Metrics<'a, T>(&'a Effects<T>);
+
+impl<'a, T> Metrics<'a, T> {
+    pub fn new(eff: &'a Effects<T>) -> Metrics<'a, T> {
+        Metrics(eff)
+    }
+}
+
+impl<T: Clone + SendData + Sync> MetricsOps for Metrics<'_, T> {
+    fn record(&self, event: MetricsEvent) -> BoxFuture<'static, ()> {
+        self.0.external(RecordMetricsEffect::new(event))
+    }
+}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordMetricsEffect {
