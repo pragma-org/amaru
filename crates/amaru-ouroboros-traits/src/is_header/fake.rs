@@ -178,15 +178,9 @@ pub mod tests {
     use proptest::prelude::*;
     use proptest::strategy::ValueTree;
     use proptest::test_runner::TestRunner;
-    use std::cmp::max;
 
     /// Create a list of arbitrary fake headers starting from a root, and where chain[i] is the parent of chain[i+1]
-    pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<FakeHeader>> {
-        prop::collection::vec(any_fake_header(), 1..(max(n, 2))).prop_map(make_fake_header())
-    }
-
-    /// Create a list of arbitrary fake headers starting from a root, and where chain[i] is the parent of chain[i+1]
-    pub fn any_headers_chain_sized(n: usize) -> impl Strategy<Value = Vec<FakeHeader>> {
+    pub fn any_fake_headers_chain(n: usize) -> impl Strategy<Value = Vec<FakeHeader>> {
         prop::collection::vec(any_fake_header(), n).prop_map(make_fake_header())
     }
 
@@ -222,6 +216,24 @@ pub mod tests {
                 parent,
                 body_hash,
             })
+    }
+
+    /// Create a list of arbitrary headers starting from a root, and where chain[i] is the parent of chain[i+1]
+    pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<Header>> {
+        prop::collection::vec(any_header(), n).prop_map(make_header())
+    }
+
+    fn make_header() -> impl Fn(Vec<Header>) -> Vec<Header> {
+        |mut headers| {
+            let mut parent = None;
+            for (i, h) in headers.iter_mut().enumerate() {
+                h.header_body.block_number = i as u64;
+                h.header_body.slot = i as u64;
+                h.header_body.prev_hash = parent;
+                parent = Some(h.hash())
+            }
+            headers
+        }
     }
 
     pub fn any_header() -> impl Strategy<Value = Header> {

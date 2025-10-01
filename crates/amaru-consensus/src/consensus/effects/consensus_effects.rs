@@ -216,11 +216,11 @@ pub mod tests {
 
     #[derive(Default, Clone)]
     pub struct MockBaseOps {
-        messages: Arc<Mutex<BTreeMap<String, String>>>,
+        messages: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
     }
 
     impl MockBaseOps {
-        pub fn received(&self) -> BTreeMap<String, String> {
+        pub fn received(&self) -> BTreeMap<String, Vec<String>> {
             self.messages.lock().unwrap().clone()
         }
     }
@@ -232,7 +232,10 @@ pub mod tests {
             msg: Msg,
         ) -> BoxFuture<'static, ()> {
             let mut messages = self.messages.lock().unwrap();
-            messages.insert(target.name().to_string(), format!("{msg:?}"));
+            messages
+                .entry(target.name().to_string())
+                .or_default()
+                .push(format!("{msg:?}"));
             Box::pin(async move {})
         }
 
@@ -256,7 +259,10 @@ pub mod tests {
             msg: Msg,
         ) -> BoxFuture<'static, ()> {
             let mut messages = self.messages.lock().unwrap();
-            messages.insert(target.name().to_string(), format!("{msg:?}"));
+            messages
+                .entry(target.name().to_string())
+                .or_default()
+                .push(format!("{msg:?}"));
             Box::pin(async move {})
         }
 

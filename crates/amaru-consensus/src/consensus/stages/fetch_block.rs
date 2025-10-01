@@ -174,7 +174,10 @@ mod tests {
         };
         assert_eq!(
             consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![("downstream".to_string(), format!("{forwarded:?}"))])
+            BTreeMap::from_iter(vec![(
+                "downstream".to_string(),
+                vec![format!("{forwarded:?}")]
+            )])
         );
         Ok(())
     }

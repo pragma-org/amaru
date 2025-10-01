@@ -380,7 +380,7 @@ pub mod test {
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
     use amaru_kernel::{Nonce, ORIGIN_HASH};
-    use amaru_ouroboros_traits::fake::tests::{any_fake_header, any_headers_chain_sized, run};
+    use amaru_ouroboros_traits::fake::tests::{any_fake_header, any_fake_headers_chain, run};
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use amaru_ouroboros_traits::is_header::fake::FakeHeader;
     use std::collections::BTreeMap;
@@ -486,7 +486,7 @@ pub mod test {
             // h0 -> h1 -> h2
             //      \
             //       -> h3
-            let mut chain = run(any_headers_chain_sized(3));
+            let mut chain = run(any_fake_headers_chain(3));
             let mut h3 = run(any_fake_header());
             h3.parent = Some(chain[1].hash());
             chain.push(h3);
@@ -534,7 +534,7 @@ pub mod test {
             // h0 -> h1 -> h2
             //      \
             //       -> h3 -> h4
-            let mut chain = run(any_headers_chain_sized(3));
+            let mut chain = run(any_fake_headers_chain(3));
             let mut h3 = run(any_fake_header());
             h3.parent = Some(chain[1].hash());
             chain.push(h3);
@@ -563,7 +563,7 @@ pub mod test {
     #[test]
     fn load_nonces() {
         with_db(|db| {
-            let chain = run(any_headers_chain_sized(3));
+            let chain = run(any_fake_headers_chain(3));
             let mut expected = BTreeMap::new();
             for header in &chain {
                 let nonces = Nonces {
@@ -588,7 +588,7 @@ pub mod test {
     #[test]
     fn load_blocks() {
         with_db(|db| {
-            let chain = run(any_headers_chain_sized(3));
+            let chain = run(any_fake_headers_chain(3));
             let mut expected = BTreeMap::new();
             for header in &chain {
                 let block = RawBlock::from(random_bytes(32).as_slice());
@@ -609,7 +609,7 @@ pub mod test {
         with_db(|db| {
             // create a chain and store it as the best chain
             // with its anchor and tip.
-            let chain = run(any_headers_chain_sized(15));
+            let chain = run(any_fake_headers_chain(15));
             for header in &chain {
                 db.store_header(header).unwrap();
             }

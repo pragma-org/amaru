@@ -23,7 +23,7 @@ use thiserror::Error;
 
 pub trait ReadOnlyChainStore<H>
 where
-    H: IsHeader + Clone + 'static,
+    H: IsHeader + Clone,
 {
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
     fn load_headers(&self) -> Box<dyn Iterator<Item = H> + '_>;
@@ -60,7 +60,10 @@ where
 
     /// Return the ancestors of the header, including the header itself.
     /// Stop at the anchor of the tree.
-    fn ancestors(&self, start: &H) -> Box<dyn Iterator<Item = H> + '_> {
+    fn ancestors<'a>(&'a self, start: &H) -> Box<dyn Iterator<Item = H> + 'a>
+    where
+        H: 'a,
+    {
         let anchor = self.get_anchor_hash();
         Box::new(successors(Some((*start).clone()), move |h| {
             if h.hash() == anchor {
@@ -72,10 +75,13 @@ where
     }
 
     /// Return the hashes of the ancestors of the header, including the header hash itself.
-    fn ancestors_hashes(
-        &self,
+    fn ancestors_hashes<'a>(
+        &'a self,
         hash: &Hash<HEADER_HASH_SIZE>,
-    ) -> Box<dyn Iterator<Item = Hash<HEADER_HASH_SIZE>> + '_> {
+    ) -> Box<dyn Iterator<Item = Hash<HEADER_HASH_SIZE>> + 'a>
+    where
+        H: 'a,
+    {
         if let Some(header) = self.load_header(hash) {
             Box::new(self.ancestors(&header).map(|h| h.hash()))
         } else {

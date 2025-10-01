@@ -28,6 +28,7 @@ use std::sync::Arc;
 use std::{
     collections::BTreeSet,
     fmt::{Debug, Display, Formatter},
+    mem,
 };
 use tracing::{Level, Span, debug, info, instrument, trace};
 
@@ -108,9 +109,11 @@ impl SelectChain {
         header: Header,
         span: Span,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        let mut headers_tree = HeadersTree::new(store, self.tree_state.clone());
+        // Temporarily take the tree state out of self, to avoid borrowing self
+        let tree_state = mem::take(&mut self.tree_state);
+        let mut headers_tree = HeadersTree::create(store, tree_state);
         let result = headers_tree.select_roll_forward(&peer, header)?;
-        self.tree_state = headers_tree.tree_state();
+        self.tree_state = headers_tree.into_tree_state();
 
         let events = match result {
             ForwardChainSelection::NewTip { peer, tip } => {
@@ -145,8 +148,11 @@ impl SelectChain {
         rollback_point: Point,
         span: Span,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        let mut headers_tree = HeadersTree::new(store, self.tree_state.clone());
+        // Temporarily take the tree state out of self, to avoid borrowing self
+        let tree_state = mem::take(&mut self.tree_state);
+        let mut headers_tree = HeadersTree::create(store, tree_state);
         let result = headers_tree.select_rollback(&peer, &rollback_point.hash())?;
+        self.tree_state = headers_tree.into_tree_state();
 
         match result {
             RollbackChainSelection::SwitchToFork(Fork {
@@ -339,8 +345,19 @@ pub fn stage(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::consensus::effects::mock_consensus_ops;
+    use crate::consensus::errors::ValidationFailed;
+    use crate::consensus::events::DecodedChainSyncEvent;
+    use crate::consensus::headers_tree::Tracker;
+    use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
     use crate::consensus::stages::select_chain::SyncTracker;
     use amaru_kernel::peer::Peer;
+    use amaru_ouroboros_traits::fake::tests::{any_header, any_headers_chain, run};
+    use pure_stage::StageRef;
+    use std::collections::BTreeMap;
+    use std::slice;
+    use tracing::Span;
 
     #[tokio::test]
     async fn is_caught_up_when_all_peers_are_caught_up() {
@@ -365,5 +382,118 @@ mod tests {
         tracker.caught_up(&alice);
 
         assert!(!tracker.is_caught_up());
+    }
+
+    #[tokio::test]
+    async fn a_roll_forward_updates_the_tree_state() -> anyhow::Result<()> {
+        let peer = Peer::new("name");
+        let header = run(any_header());
+        let message = make_roll_forward_message(&peer, &header);
+        let consensus_ops = mock_consensus_ops();
+
+        let (select_chain, _, _) =
+            stage(make_state(&peer), message.clone(), consensus_ops.clone()).await;
+        let output = make_validated_event(&peer, &header);
+
+        assert_eq!(
+            consensus_ops.mock_base.received(),
+            BTreeMap::from_iter(vec![(
+                "downstream".to_string(),
+                vec![format!("{:?}", output)]
+            )])
+        );
+
+        check_peers(
+            select_chain,
+            vec![
+                (Me, vec![header.hash()]),
+                (SomePeer(peer), vec![header.hash()]),
+            ],
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_rollback_updates_the_tree_state() -> anyhow::Result<()> {
+        let peer = Peer::new("name");
+        let headers = run(any_headers_chain(2));
+        let header1 = headers[0].clone();
+        let header2 = headers[1].clone();
+
+        let message1 = make_roll_forward_message(&peer, &header1);
+        let message2 = make_roll_forward_message(&peer, &header2);
+        let message3 = make_rollback_message(&peer, &header1);
+
+        let consensus_ops = mock_consensus_ops();
+        let state = stage(make_state(&peer), message1, consensus_ops.clone()).await;
+        let state = stage(state, message2, consensus_ops.clone()).await;
+        let (select_chain, _, _) = stage(state, message3.clone(), consensus_ops.clone()).await;
+
+        let output1 = make_validated_event(&peer, &header1);
+        let output2 = make_validated_event(&peer, &header2);
+
+        assert_eq!(
+            consensus_ops.mock_base.received(),
+            BTreeMap::from_iter(vec![(
+                "downstream".to_string(),
+                vec![format!("{:?}", output1), format!("{:?}", output2)]
+            )])
+        );
+
+        check_peers(
+            select_chain,
+            vec![
+                (Me, vec![header1.hash(), header2.hash()]),
+                (SomePeer(peer), vec![header1.hash()]),
+            ],
+        );
+        Ok(())
+    }
+
+    // HELPERS
+
+    fn make_state(peer: &Peer) -> State {
+        let downstream: StageRef<ValidateHeaderEvent> = StageRef::named("downstream");
+        let errors: StageRef<ValidationFailed> = StageRef::named("errors");
+        (
+            SelectChain::new(HeadersTreeState::new(10), slice::from_ref(peer)),
+            downstream,
+            errors,
+        )
+    }
+
+    fn make_roll_forward_message(peer: &Peer, header: &Header) -> DecodedChainSyncEvent {
+        DecodedChainSyncEvent::RollForward {
+            peer: peer.clone(),
+            point: header.point(),
+            header: header.clone(),
+            span: Span::current(),
+        }
+    }
+
+    fn make_rollback_message(peer: &Peer, header: &Header) -> DecodedChainSyncEvent {
+        DecodedChainSyncEvent::Rollback {
+            peer: peer.clone(),
+            rollback_point: header.point(),
+            span: Span::current(),
+        }
+    }
+
+    fn make_validated_event(peer: &Peer, header: &Header) -> ValidateHeaderEvent {
+        ValidateHeaderEvent::Validated {
+            peer: peer.clone(),
+            header: header.clone(),
+            span: Span::current(),
+        }
+    }
+
+    fn check_peers(select_chain: SelectChain, expected: Vec<(Tracker, Vec<Hash<32>>)>) {
+        let actual = select_chain
+            .tree_state
+            .peers()
+            .iter()
+            .map(|(k, vs)| (k.clone(), vs.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
     }
 }

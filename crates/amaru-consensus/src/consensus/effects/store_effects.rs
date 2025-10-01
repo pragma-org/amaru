@@ -39,54 +39,57 @@ impl<T> Store<T> {
 
 impl<T: SendData + Sync> ReadOnlyChainStore<Header> for Store<T> {
     fn has_header(&self, hash: &HeaderHash) -> bool {
-        self.external(HasHeaderEffect::new(*hash))
+        self.external_sync(HasHeaderEffect::new(*hash))
     }
 
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
-        self.external(LoadHeaderEffect::new(*hash))
+        self.external_sync(LoadHeaderEffect::new(*hash))
     }
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
-        self.external(GetChildrenEffect::new(*hash))
+        self.external_sync(GetChildrenEffect::new(*hash))
     }
 
     fn get_anchor_hash(&self) -> HeaderHash {
-        self.external(GetAnchorHashEffect::new())
+        self.external_sync(GetAnchorHashEffect::new())
     }
 
     fn get_best_chain_hash(&self) -> HeaderHash {
-        self.external(GetBestChainHashEffect::new())
+        self.external_sync(GetBestChainHashEffect::new())
     }
 
     fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
-        self.external(LoadBlockEffect::new(*hash))
+        self.external_sync(LoadBlockEffect::new(*hash))
     }
 
     fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_> {
-        Box::new(self.external(LoadHeadersEffect::new()).into_iter())
+        Box::new(self.external_sync(LoadHeadersEffect::new()).into_iter())
     }
 
     fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
-        Box::new(self.external(LoadNoncesEffect::new()).into_iter())
+        Box::new(self.external_sync(LoadNoncesEffect::new()).into_iter())
     }
 
     fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
-        Box::new(self.external(LoadBlocksEffect::new()).into_iter())
+        Box::new(self.external_sync(LoadBlocksEffect::new()).into_iter())
     }
 
     fn load_parents_children(
         &self,
     ) -> Box<dyn Iterator<Item = (Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_> {
-        Box::new(self.external(LoadParentsChildrenEffect::new()).into_iter())
+        Box::new(
+            self.external_sync(LoadParentsChildrenEffect::new())
+                .into_iter(),
+        )
     }
 
     fn get_nonces(&self, hash: &HeaderHash) -> Option<Nonces> {
-        self.external(GetNoncesEffect::new(*hash))
+        self.external_sync(GetNoncesEffect::new(*hash))
     }
 }
 
 impl<T> Store<T> {
-    pub fn external<E: ExternalEffectAPI + 'static>(&self, effect: E) -> E::Response
+    pub fn external_sync<E: ExternalEffectAPI + 'static>(&self, effect: E) -> E::Response
     where
         T: SendData + Sync,
     {
@@ -96,31 +99,31 @@ impl<T> Store<T> {
 
 impl<T: SendData + Sync> ChainStore<Header> for Store<T> {
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
-        self.external(SetAnchorHashEffect::new(*hash))
+        self.external_sync(SetAnchorHashEffect::new(*hash))
     }
 
     fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
-        self.external(SetBestChainHashEffect::new(*hash))
+        self.external_sync(SetBestChainHashEffect::new(*hash))
     }
 
     fn update_best_chain(&self, anchor: &HeaderHash, tip: &HeaderHash) -> Result<(), StoreError> {
-        self.external(UpdateBestChainEffect::new(*anchor, *tip))
+        self.external_sync(UpdateBestChainEffect::new(*anchor, *tip))
     }
 
     fn store_header(&self, header: &Header) -> Result<(), StoreError> {
-        self.external(StoreHeaderEffect::new(header.clone()))
+        self.external_sync(StoreHeaderEffect::new(header.clone()))
     }
 
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
-        self.external(StoreBlockEffect::new(hash, block.clone()))
+        self.external_sync(StoreBlockEffect::new(hash, block.clone()))
     }
 
     fn remove_header(&self, hash: &HeaderHash) -> Result<(), StoreError> {
-        self.external(RemoveHeaderEffect::new(*hash))
+        self.external_sync(RemoveHeaderEffect::new(*hash))
     }
 
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
-        self.external(PutNoncesEffect::new(*header, nonces.clone()))
+        self.external_sync(PutNoncesEffect::new(*header, nonces.clone()))
     }
 
     fn era_history(&self) -> &EraHistory {

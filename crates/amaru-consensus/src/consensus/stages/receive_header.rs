@@ -141,7 +141,10 @@ mod tests {
         };
         assert_eq!(
             consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![("downstream".to_string(), format!("{forwarded:?}"))])
+            BTreeMap::from_iter(vec![(
+                "downstream".to_string(),
+                vec![format!("{forwarded:?}")]
+            )])
         );
         Ok(())
     }
@@ -169,7 +172,7 @@ mod tests {
         );
         assert_eq!(
             consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![("errors".to_string(), format!("{error:?}"))])
+            BTreeMap::from_iter(vec![("errors".to_string(), vec![format!("{error:?}")])])
         );
         Ok(())
     }
@@ -186,7 +189,10 @@ mod tests {
         stage(make_state(), message.clone(), consensus_ops.clone()).await;
         assert_eq!(
             consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![("downstream".to_string(), format!("{message:?}"))])
+            BTreeMap::from_iter(vec![(
+                "downstream".to_string(),
+                vec![format!("{message:?}")]
+            )])
         );
         Ok(())
     }
@@ -202,7 +208,10 @@ mod tests {
         stage(make_state(), message.clone(), consensus_ops.clone()).await;
         assert_eq!(
             consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![("downstream".to_string(), format!("{message:?}"))])
+            BTreeMap::from_iter(vec![(
+                "downstream".to_string(),
+                vec![format!("{message:?}")]
+            )])
         );
         Ok(())
     }
