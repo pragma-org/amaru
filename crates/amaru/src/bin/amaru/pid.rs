@@ -20,6 +20,8 @@ use std::{
     process::{self, Command},
 };
 
+use tracing::{debug, warn};
+
 pub struct ProcessIdHandle {
     path: PathBuf,
     pid: u32,
@@ -101,4 +103,29 @@ fn process_exists(pid: u32) -> bool {
         .output()
         .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
         .unwrap_or(false)
+}
+
+pub async fn with_optional_pid_file<P: AsRef<Path>, F, Fut, R>(
+    maybe_path: Option<P>,
+    f: F,
+) -> Result<R, Box<dyn std::error::Error>>
+where
+    F: FnOnce(Option<ProcessIdHandle>) -> Fut,
+    Fut: std::future::Future<Output = Result<R, Box<dyn std::error::Error>>>,
+{
+    let guard = maybe_path
+        .map(|path| {
+            ProcessIdHandle::new(path)
+                .inspect(|pid_file| {
+                    debug!(
+                        "created PID File {}, current PID: {}",
+                        pid_file,
+                        pid_file.pid()
+                    )
+                })
+                .inspect_err(|e| warn!("failed to create or write to PID file: {} ", e))
+        })
+        .and_then(|result| result.ok());
+
+    f(guard).await
 }

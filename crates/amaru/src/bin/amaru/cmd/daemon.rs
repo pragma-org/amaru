@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::pid::ProcessIdHandle;
+use crate::pid::with_optional_pid_file;
 use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
@@ -23,7 +23,7 @@ use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, time::Duration};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, trace, warn};
+use tracing::{error, trace, warn};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -86,47 +86,34 @@ pub async fn run(
     args: Args,
     meter_provider: Option<SdkMeterProvider>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // This is being kept-alive so that the `drop` function
-    // is called when the `ProcessIdHandler` goes out of scope.
-    // That allows the file to be cleaned up before Amaru gracefully exits.
-    // It is not vital that this cleanup happens, but it's nice to have :)
-    let _pid_file = args.pid_file.as_ref().map(|path| {
-        ProcessIdHandle::new(path)
-            .inspect(|pid_file| {
-                debug!(
-                    "created PID File {}, current PID: {}",
-                    pid_file,
-                    pid_file.pid()
-                )
-            })
-            .inspect_err(|e| warn!("failed to create or write to PID file: {} ", e))
-    });
+    with_optional_pid_file(args.pid_file.clone(), async |_pid_file| {
+        let config = parse_args(args)?;
+        pre_flight_checks()?;
 
-    let config = parse_args(args)?;
-    pre_flight_checks()?;
+        let metrics = meter_provider
+            .clone()
+            .map(track_system_metrics)
+            .transpose()?;
 
-    let metrics = meter_provider
-        .clone()
-        .map(track_system_metrics)
-        .transpose()?;
+        let mut clients: Vec<(String, PeerClient)> = vec![];
+        for peer in &config.upstream_peers {
+            let client = connect_to_peer(peer, &config.network).await?;
+            clients.push((peer.clone(), client));
+        }
 
-    let mut clients: Vec<(String, PeerClient)> = vec![];
-    for peer in &config.upstream_peers {
-        let client = connect_to_peer(peer, &config.network).await?;
-        clients.push((peer.clone(), client));
-    }
+        let exit = amaru::exit::hook_exit_token();
 
-    let exit = amaru::exit::hook_exit_token();
+        let sync = bootstrap(config, clients, exit.clone(), meter_provider).await?;
 
-    let sync = bootstrap(config, clients, exit.clone(), meter_provider).await?;
+        run_pipeline(gasket::daemon::Daemon::new(sync), exit).await;
 
-    run_pipeline(gasket::daemon::Daemon::new(sync), exit).await;
+        if let Some(handle) = metrics {
+            handle.abort();
+        }
 
-    if let Some(handle) = metrics {
-        handle.abort();
-    }
-
-    Ok(())
+        Ok(())
+    })
+    .await
 }
 
 pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationToken) {
