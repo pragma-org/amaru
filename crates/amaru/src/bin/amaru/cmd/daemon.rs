@@ -164,27 +164,27 @@ fn pre_flight_checks() -> Result<(), PreFlightError> {
     /// RocksDB can consume some amount of FDs for its internal operations.
     /// System metrics collection with sysinfo also consumes FDs.
     /// And of course we still need some FDs for network connections and so on.
-    const MIN_FD_LIMIT: u64 = 1_000;
+    const EXPECTED_MIN_FOR_SOFT_FD_LIMIT: u64 = 1_000;
 
     match getrlimit(Resource::NOFILE) {
-        Ok((soft_fd_limit, hard_fd_limit)) => {
-            if soft_fd_limit < MIN_FD_LIMIT {
+        Ok((current_soft_fd_limit, current_hard_fd_limit)) => {
+            if current_soft_fd_limit < EXPECTED_MIN_FOR_SOFT_FD_LIMIT {
                 error!(
-                    %soft_fd_limit,
-                    %hard_fd_limit,
-                    %MIN_FD_LIMIT,
-                    "Increase the limit for open files before starting Amaru. See ulimit -n",
+                    %current_soft_fd_limit,
+                    %current_hard_fd_limit,
+                    %EXPECTED_MIN_FOR_SOFT_FD_LIMIT,
+                    "Increase the limit for open files before starting Amaru (see ulimit -n).",
                 );
                 Err(PreFlightError::NotEnoughFileDescriptors(
-                    MIN_FD_LIMIT,
-                    soft_fd_limit,
+                    EXPECTED_MIN_FOR_SOFT_FD_LIMIT,
+                    current_soft_fd_limit,
                 ))
             } else {
                 Ok(())
             }
         }
         Err(_err) => {
-            warn!(%MIN_FD_LIMIT, "Unable to query rlimit for max open files.");
+            warn!(%EXPECTED_MIN_FOR_SOFT_FD_LIMIT, "Unable to query rlimit for max open files.");
             Ok(())
         }
     }
