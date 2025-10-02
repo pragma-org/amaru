@@ -188,7 +188,7 @@ impl<M> Effects<M> {
         )
     }
 
-    /// Run an effect that is not part of the StageGraph.
+    /// Run an effect that is not part of the StageGraph, as an asynchronous effect.
     pub fn external<T: ExternalEffectAPI>(&self, effect: T) -> BoxFuture<'static, T::Response> {
         airlock_effect(
             &self.effect,
@@ -203,7 +203,10 @@ impl<M> Effects<M> {
         )
     }
 
-    /// Run an effect that is not part of the StageGraph.
+    /// Run an effect that is not part of the StageGraph as a synchronous effect.
+    /// In that case we return the response directly.
+    ///
+    /// TODO: the call to this effect is not traced so we won't see it executed in the TraceBuffer.
     pub fn external_sync<T: ExternalEffectAPI>(&self, effect: T) -> T::Response {
         Box::new(effect)
             .run(self.resources.clone())
@@ -260,7 +263,7 @@ pub trait ExternalEffect: SendData {
         })
     }
 
-    /// Helper method for implementers of ExternalEffect.
+    /// Helper method for implementers of ExternalEffect that have a synchronous response.
     fn wrap_sync(
         response: <Self as ExternalEffectAPI>::Response,
     ) -> BoxFuture<'static, Box<dyn SendData>>

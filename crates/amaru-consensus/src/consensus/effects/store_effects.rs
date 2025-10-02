@@ -22,6 +22,7 @@ use std::sync::Arc;
 /// Type alias for a header hash to improve readability
 pub type HeaderHash = Hash<HEADER_HASH_SIZE>;
 
+/// Implementation of ChainStore using pure_stage::Effects.
 #[derive(Clone)]
 pub struct Store<T> {
     effects: Effects<T>,
@@ -35,31 +36,19 @@ impl<T> Store<T> {
             era_history,
         }
     }
+
+    /// This function runs an external effect synchronously.
+    pub fn external_sync<E: ExternalEffectAPI + 'static>(&self, effect: E) -> E::Response
+    where
+        T: SendData + Sync,
+    {
+        self.effects.external_sync(effect)
+    }
 }
 
 impl<T: SendData + Sync> ReadOnlyChainStore<Header> for Store<T> {
-    fn has_header(&self, hash: &HeaderHash) -> bool {
-        self.external_sync(HasHeaderEffect::new(*hash))
-    }
-
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.external_sync(LoadHeaderEffect::new(*hash))
-    }
-
-    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
-        self.external_sync(GetChildrenEffect::new(*hash))
-    }
-
-    fn get_anchor_hash(&self) -> HeaderHash {
-        self.external_sync(GetAnchorHashEffect::new())
-    }
-
-    fn get_best_chain_hash(&self) -> HeaderHash {
-        self.external_sync(GetBestChainHashEffect::new())
-    }
-
-    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
-        self.external_sync(LoadBlockEffect::new(*hash))
     }
 
     fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_> {
@@ -83,17 +72,28 @@ impl<T: SendData + Sync> ReadOnlyChainStore<Header> for Store<T> {
         )
     }
 
+    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+        self.external_sync(GetChildrenEffect::new(*hash))
+    }
+
+    fn get_anchor_hash(&self) -> HeaderHash {
+        self.external_sync(GetAnchorHashEffect::new())
+    }
+
+    fn get_best_chain_hash(&self) -> HeaderHash {
+        self.external_sync(GetBestChainHashEffect::new())
+    }
+
+    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+        self.external_sync(LoadBlockEffect::new(*hash))
+    }
+
     fn get_nonces(&self, hash: &HeaderHash) -> Option<Nonces> {
         self.external_sync(GetNoncesEffect::new(*hash))
     }
-}
 
-impl<T> Store<T> {
-    pub fn external_sync<E: ExternalEffectAPI + 'static>(&self, effect: E) -> E::Response
-    where
-        T: SendData + Sync,
-    {
-        self.effects.external_sync(effect)
+    fn has_header(&self, hash: &HeaderHash) -> bool {
+        self.external_sync(HasHeaderEffect::new(*hash))
     }
 }
 
@@ -130,6 +130,8 @@ impl<T: SendData + Sync> ChainStore<Header> for Store<T> {
         &self.era_history
     }
 }
+
+// EXTERNAL EFFECTS DEFINITIONS
 
 pub type ResourceHeaderStore = Arc<dyn ChainStore<Header>>;
 pub type ResourceParameters = GlobalParameters;
@@ -236,7 +238,7 @@ impl ExternalEffect for SetBestChainHashEffect {
         Self::wrap(async move {
             let store = resources
                 .get::<ResourceHeaderStore>()
-                .expect("SetBestChainEffect requires a chain store")
+                .expect("SetBestChainHashEffect requires a chain store")
                 .clone();
             store.set_best_chain_hash(&self.hash)
         })
@@ -265,7 +267,7 @@ impl ExternalEffect for UpdateBestChainEffect {
         Self::wrap(async move {
             let store = resources
                 .get::<ResourceHeaderStore>()
-                .expect("UpdateChainEffect requires a chain store")
+                .expect("UpdateBestChainEffect requires a chain store")
                 .clone();
             store.update_best_chain(&self.anchor, &self.tip)
         })
@@ -350,7 +352,7 @@ impl ExternalEffect for HasHeaderEffect {
         Self::wrap(async move {
             let store = resources
                 .get::<ResourceHeaderStore>()
-                .expect("HashHeaderEffect requires a chain store")
+                .expect("HasHeaderEffect requires a chain store")
                 .clone();
             store.has_header(&self.hash)
         })

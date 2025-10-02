@@ -39,27 +39,35 @@ pub fn build_stage_graph(
 ) -> StageRef<ChainSyncEvent> {
     let receive_header_stage = network.stage(
         "receive_header",
-        consensus(era_history, receive_header::stage),
+        with_consensus_effects(era_history, receive_header::stage),
     );
-    let store_header_stage =
-        network.stage("store_header", consensus(era_history, store_header::stage));
+    let store_header_stage = network.stage(
+        "store_header",
+        with_consensus_effects(era_history, store_header::stage),
+    );
     let validate_header_stage = network.stage(
         "validate_header",
-        consensus(era_history, validate_header::stage),
+        with_consensus_effects(era_history, validate_header::stage),
     );
-    let select_chain_stage =
-        network.stage("select_chain", consensus(era_history, select_chain::stage));
-    let fetch_block_stage =
-        network.stage("fetch_block", consensus(era_history, fetch_block::stage));
-    let store_block_stage =
-        network.stage("store_block", consensus(era_history, store_block::stage));
+    let select_chain_stage = network.stage(
+        "select_chain",
+        with_consensus_effects(era_history, select_chain::stage),
+    );
+    let fetch_block_stage = network.stage(
+        "fetch_block",
+        with_consensus_effects(era_history, fetch_block::stage),
+    );
+    let store_block_stage = network.stage(
+        "store_block",
+        with_consensus_effects(era_history, store_block::stage),
+    );
     let validate_block_stage = network.stage(
         "validate_block",
-        consensus(era_history, validate_block::stage),
+        with_consensus_effects(era_history, validate_block::stage),
     );
     let forward_chain_stage = network.stage(
         "forward_chain",
-        consensus(era_history, forward_chain::stage),
+        with_consensus_effects(era_history, forward_chain::stage),
     );
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
@@ -145,7 +153,13 @@ pub fn build_stage_graph(
     receive_header_stage.without_state()
 }
 
-fn consensus<Msg, St, F1, Fut>(
+/// Wrap a function taking `ConsensusEffects` so that it can be used in a stage graph that provides
+/// the `Effects` type. The `ConsensusEffects` provide a higher-level API for executing external effects
+/// during the consensus stages.
+///
+/// Note: the EraHistory reference must be passed to be able to build a ChainStore that can reference
+/// the correct era history. That ChainStore is returned by the ConsensusEffects::store() function.
+fn with_consensus_effects<Msg, St, F1, Fut>(
     era_history: &'static EraHistory,
     mut f: F1,
 ) -> impl FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send

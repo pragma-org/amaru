@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use amaru_kernel::Point;
-use amaru_kernel::peer::Peer;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
@@ -22,11 +21,7 @@ pub mod mock;
 
 #[async_trait]
 pub trait CanFetchBlock: Send + Sync {
-    async fn fetch_block(
-        &self,
-        peer: &Peer,
-        point: &Point,
-    ) -> Result<Vec<u8>, BlockFetchClientError>;
+    async fn fetch_block(&self, point: &Point) -> Result<Vec<u8>, BlockFetchClientError>;
 }
 
 #[derive(Debug)]

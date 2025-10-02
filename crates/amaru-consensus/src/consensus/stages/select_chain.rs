@@ -314,33 +314,29 @@ type State = (
     skip_all,
     name = "stage.select_chain",
 )]
-pub fn stage(
+pub async fn stage(
     (mut select_chain, downstream, errors): State,
     msg: DecodedChainSyncEvent,
-    eff: impl ConsensusOps + 'static,
-) -> BoxFuture<'static, State> {
-    Box::pin({
-        let store = eff.store();
-        async move {
-            let peer = msg.peer();
-            adopt_current_span(&msg);
-            let events = match select_chain.handle_chain_sync(store, msg).await {
-                Ok(events) => events,
-                Err(e) => {
-                    eff.base()
-                        .send(&errors, ValidationFailed::new(&peer, e))
-                        .await;
-                    return (select_chain, downstream, errors);
-                }
-            };
-
-            for event in events {
-                eff.base().send(&downstream, event).await;
-            }
-
-            (select_chain, downstream, errors)
+    eff: impl ConsensusOps,
+) -> State {
+    let store = eff.store();
+    let peer = msg.peer();
+    adopt_current_span(&msg);
+    let events = match select_chain.handle_chain_sync(store, msg).await {
+        Ok(events) => events,
+        Err(e) => {
+            eff.base()
+                .send(&errors, ValidationFailed::new(&peer, e))
+                .await;
+            return (select_chain, downstream, errors);
         }
-    })
+    };
+
+    for event in events {
+        eff.base().send(&downstream, event).await;
+    }
+
+    (select_chain, downstream, errors)
 }
 
 #[cfg(test)]
@@ -352,8 +348,9 @@ mod tests {
     use crate::consensus::headers_tree::Tracker;
     use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
     use crate::consensus::stages::select_chain::SyncTracker;
+    use crate::consensus::tests::{any_header, any_headers_chain};
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::fake::tests::{any_header, any_headers_chain, run};
+    use amaru_ouroboros_traits::fake::tests::run;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use std::slice;

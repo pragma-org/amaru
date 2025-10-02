@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::NetworkOps;
-use crate::consensus::effects::{BaseOps, ConsensusOps};
+use crate::consensus::effects::{BaseOps, ConsensusOps, NetworkOps};
 use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::events::{ValidateBlockEvent, ValidateHeaderEvent};
 use crate::consensus::span::adopt_current_span;
@@ -112,7 +111,7 @@ impl ClientsBlockFetcher {
                 .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?
         };
         client
-            .fetch_block(peer, point)
+            .fetch_block(point)
             .await
             .map_err(|e| {
                 error!(target: "amaru::consensus", "failed to fetch block from peer {}: {}", peer.name, e);
@@ -145,8 +144,9 @@ mod tests {
     use super::*;
     use crate::consensus::effects::mock_consensus_ops;
     use crate::consensus::errors::ValidationFailed;
+    use crate::consensus::tests::any_header;
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::fake::tests::{any_header, run};
+    use amaru_ouroboros_traits::fake::tests::run;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;

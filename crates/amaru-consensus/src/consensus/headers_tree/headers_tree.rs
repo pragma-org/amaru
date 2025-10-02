@@ -135,7 +135,7 @@ impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display f
     }
 }
 
-impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
+impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
     /// Common function to format the headers tree either for Debug or Display
     fn format(
         &self,
@@ -371,7 +371,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
     }
 }
 
-impl<H: IsHeader + Clone + 'static + Debug + PartialEq + Eq> HeadersTree<H> {
+impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// Return the length of the best chain currently known.
     pub fn best_length(&self) -> usize {
         self.tree_state
@@ -679,7 +679,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
     pub fn best_chain_fragment(&self) -> Vec<H> {
         let mut fragment: Vec<_> = self
             .chain_store
-            .ancestors(&self.unsafe_get_header(&self.best_chain()))
+            .ancestors(self.unsafe_get_header(&self.best_chain()))
             .collect();
         fragment.reverse();
         fragment

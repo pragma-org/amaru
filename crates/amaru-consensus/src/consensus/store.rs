@@ -25,13 +25,13 @@ pub struct PraosChainStore<H> {
     store: Arc<dyn ChainStore<H>>,
 }
 
-impl<H: IsHeader + Clone + 'static> PraosChainStore<H> {
+impl<H: IsHeader> PraosChainStore<H> {
     pub fn new(store: Arc<dyn ChainStore<H>>) -> Self {
         PraosChainStore { store }
     }
 }
 
-impl<H: IsHeader + Clone + 'static> Praos<H> for PraosChainStore<H> {
+impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
     type Error = NoncesError;
 
     fn get_nonce(&self, header: &Hash<32>) -> Option<Nonce> {

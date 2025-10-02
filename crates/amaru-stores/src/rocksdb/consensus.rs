@@ -92,7 +92,7 @@ const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x63, 0x68, 0x69, 0x6c, 0x64];
 
 macro_rules! impl_ReadOnlyChainStore {
     (for $($s:ty),+) => {
-        $(impl<H: IsHeader + Clone + 'static + for<'d> cbor::Decode<'d, ()>> ReadOnlyChainStore<H> for $s {
+        $(impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ReadOnlyChainStore<H> for $s {
             fn load_header(&self, hash: &Hash<32>) -> Option<H> {
                 let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
                 self.db
@@ -270,7 +270,7 @@ macro_rules! impl_ReadOnlyChainStore {
 
 impl_ReadOnlyChainStore!(for ReadOnlyChainDB, RocksDBStore);
 
-impl<H: IsHeader + Clone + 'static + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
+impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     #[instrument(level = Level::TRACE, skip_all, fields(header = header.hash().to_string()))]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();

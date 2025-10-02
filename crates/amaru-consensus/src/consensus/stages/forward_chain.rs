@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::BaseOps;
-use crate::consensus::effects::ConsensusEffects;
 use crate::consensus::effects::NetworkOps;
+use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
 use crate::consensus::events::BlockValidationResult;
 use crate::consensus::span::adopt_current_span;
@@ -41,11 +40,7 @@ type State = (
     skip_all,
     name = "stage.forward_chain",
 )]
-pub async fn stage(
-    state: State,
-    msg: BlockValidationResult,
-    eff: ConsensusEffects<BlockValidationResult>,
-) -> State {
+pub async fn stage(state: State, msg: BlockValidationResult, eff: impl ConsensusOps) -> State {
     adopt_current_span(&msg);
     let (mut our_tip, validation_errors, processing_errors) = state;
     match msg {

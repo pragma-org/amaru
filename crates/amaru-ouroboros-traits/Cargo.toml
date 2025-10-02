@@ -20,7 +20,6 @@ test-utils = ["proptest", "dep:rand"]
 anyhow.workspace = true
 async-trait.workspace = true
 hex.workspace = true
-pallas-primitives.workspace = true
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }

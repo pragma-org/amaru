@@ -26,17 +26,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::sync::Arc;
 
-pub type ResourceBlockFetcher = Arc<dyn BlockFetcher + Send + Sync>;
-pub type ResourceForwardEventListener = Arc<dyn ForwardEventListener + Send + Sync>;
-
-pub struct Network<'a, T>(&'a Effects<T>);
-
-impl<'a, T> Network<'a, T> {
-    pub fn new(eff: &'a Effects<T>) -> Network<'a, T> {
-        Network(eff)
-    }
-}
-
+/// Network operations available to a stage: fetch block and forward events to peers.
+/// This trait can have mock implementations for unit testing a stage.
 pub trait NetworkOps {
     fn fetch_block(
         &self,
@@ -55,6 +46,15 @@ pub trait NetworkOps {
         peer: &Peer,
         header_tip: HeaderTip,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
+}
+
+/// Implementation of NetworkOps using pure_stage::Effects.
+pub struct Network<'a, T>(&'a Effects<T>);
+
+impl<'a, T> Network<'a, T> {
+    pub fn new(eff: &'a Effects<T>) -> Network<'a, T> {
+        Network(eff)
+    }
 }
 
 impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
@@ -86,6 +86,11 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
         ))
     }
 }
+
+// EXTERNAL EFFECTS DEFINITIONS
+
+pub type ResourceBlockFetcher = Arc<dyn BlockFetcher + Send + Sync>;
+pub type ResourceForwardEventListener = Arc<dyn ForwardEventListener + Send + Sync>;
 
 /// This effect is used to fetch a block from a peer given a point (hash + slot).
 /// The effect response is either a vector of bytes representing the block,

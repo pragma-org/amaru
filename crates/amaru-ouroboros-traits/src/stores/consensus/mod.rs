@@ -23,7 +23,7 @@ use thiserror::Error;
 
 pub trait ReadOnlyChainStore<H>
 where
-    H: IsHeader + Clone,
+    H: IsHeader,
 {
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
     fn load_headers(&self) -> Box<dyn Iterator<Item = H> + '_>;
@@ -60,12 +60,12 @@ where
 
     /// Return the ancestors of the header, including the header itself.
     /// Stop at the anchor of the tree.
-    fn ancestors<'a>(&'a self, start: &H) -> Box<dyn Iterator<Item = H> + 'a>
+    fn ancestors<'a>(&'a self, start: H) -> Box<dyn Iterator<Item = H> + 'a>
     where
         H: 'a,
     {
         let anchor = self.get_anchor_hash();
-        Box::new(successors(Some((*start).clone()), move |h| {
+        Box::new(successors(Some(start), move |h| {
             if h.hash() == anchor {
                 None
             } else {
@@ -83,14 +83,14 @@ where
         H: 'a,
     {
         if let Some(header) = self.load_header(hash) {
-            Box::new(self.ancestors(&header).map(|h| h.hash()))
+            Box::new(self.ancestors(header).map(|h| h.hash()))
         } else {
             Box::new(vec![*hash].into_iter())
         }
     }
 }
 
-impl<H: IsHeader + Clone + 'static> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
+impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         self.as_ref().load_header(hash)
     }
@@ -141,7 +141,7 @@ impl<H: IsHeader + Clone + 'static> ReadOnlyChainStore<H> for Box<dyn ChainStore
 /// A simple chain store interface that can store and retrieve headers indexed by their hash.
 pub trait ChainStore<H>: ReadOnlyChainStore<H> + Send + Sync
 where
-    H: IsHeader + Clone + 'static,
+    H: IsHeader,
 {
     fn store_header(&self, header: &H) -> Result<(), StoreError>;
     fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError>;

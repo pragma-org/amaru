@@ -25,7 +25,7 @@ use amaru_kernel::{
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{ChainStore, HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
-use pure_stage::{BoxFuture, StageRef};
+use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
 use tracing::{Instrument, Level, Span, instrument};
 
@@ -169,58 +169,52 @@ type State = (
     skip_all,
     name = "stage.validate_header",
 )]
-pub fn stage(
-    state: State,
-    msg: DecodedChainSyncEvent,
-    eff: impl ConsensusOps + 'static,
-) -> BoxFuture<'static, State> {
+pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl ConsensusOps) -> State {
     let store = eff.store();
-    Box::pin(async move {
-        adopt_current_span(&msg);
-        let (mut state, global, downstream, errors) = state;
+    adopt_current_span(&msg);
+    let (mut state, global, downstream, errors) = state;
 
-        let (peer, point, header) = match &msg {
-            DecodedChainSyncEvent::RollForward {
-                peer,
-                point,
-                header,
-                ..
-            } => (peer, point, header),
-            DecodedChainSyncEvent::Rollback { .. } => {
-                eff.base().send(&downstream, msg).await;
-                return (state, global, downstream, errors);
-            }
-            DecodedChainSyncEvent::CaughtUp { .. } => {
-                eff.base().send(&downstream, msg).await;
-                return (state, global, downstream, errors);
-            }
-        };
+    let (peer, point, header) = match &msg {
+        DecodedChainSyncEvent::RollForward {
+            peer,
+            point,
+            header,
+            ..
+        } => (peer, point, header),
+        DecodedChainSyncEvent::Rollback { .. } => {
+            eff.base().send(&downstream, msg).await;
+            return (state, global, downstream, errors);
+        }
+        DecodedChainSyncEvent::CaughtUp { .. } => {
+            eff.base().send(&downstream, msg).await;
+            return (state, global, downstream, errors);
+        }
+    };
 
-        let span = tracing::trace_span!(
-            "consensus.roll_forward",
-            point.slot = %point.slot_or_default(),
-            point.hash = %Hash::<32>::from(point),
-        );
+    let span = tracing::trace_span!(
+        "consensus.roll_forward",
+        point.slot = %point.slot_or_default(),
+        point.hash = %Hash::<32>::from(point),
+    );
 
-        async {
-            match state
-                .handle_roll_forward(store, peer, point, header, &global)
-                .await
-            {
-                Ok(msg) => eff.base().send(&downstream, msg).await,
-                Err(error) => {
-                    tracing::error!(%peer, %error, "failed to handle roll forward");
-                    eff.base()
-                        .send(&errors, ValidationFailed::new(peer, error))
-                        .await
-                }
+    async {
+        match state
+            .handle_roll_forward(store, peer, point, header, &global)
+            .await
+        {
+            Ok(msg) => eff.base().send(&downstream, msg).await,
+            Err(error) => {
+                tracing::error!(%peer, %error, "failed to handle roll forward");
+                eff.base()
+                    .send(&errors, ValidationFailed::new(peer, error))
+                    .await
             }
         }
-        .instrument(span)
-        .await;
+    }
+    .instrument(span)
+    .await;
 
-        (state, global, downstream, errors)
-    })
+    (state, global, downstream, errors)
 }
 
 #[cfg(test)]
@@ -229,12 +223,14 @@ mod tests {
     use crate::consensus;
     use crate::consensus::effects::HeaderHash;
     use crate::consensus::errors::ConsensusError::NoncesError;
+    use crate::consensus::tests::any_header;
     use amaru_kernel::{
-        Bytes, HEADER_HASH_SIZE, Header, HeaderBody, Point, PseudoHeader, RawBlock,
+        HEADER_HASH_SIZE, Header, Point, RawBlock,
         peer::Peer,
         protocol_parameters::{GlobalParameters, TESTNET_GLOBAL_PARAMETERS},
     };
-    use amaru_ouroboros::{Nonces, OperationalCert, VrfCert};
+    use amaru_ouroboros::Nonces;
+    use amaru_ouroboros_traits::fake::tests::run;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
     use amaru_slot_arithmetic::EraHistory;
@@ -360,27 +356,7 @@ mod tests {
         let point = Point::Origin;
 
         // Create a minimal valid header using the default constructor
-        let header = PseudoHeader {
-            header_body: HeaderBody {
-                block_number: 0,
-                slot: 1,
-                prev_hash: None,
-                issuer_vkey: Bytes::from(vec![]),
-                vrf_vkey: Bytes::from(vec![]),
-                vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
-                block_body_size: 0,
-                block_body_hash: Hash::<32>::from([0u8; 32]),
-                operational_cert: OperationalCert {
-                    operational_cert_hot_vkey: Bytes::from(vec![]),
-                    operational_cert_sequence_number: 0,
-                    operational_cert_kes_period: 0,
-                    operational_cert_sigma: Bytes::from(vec![]),
-                },
-                protocol_version: (1, 2),
-            },
-            body_signature: Bytes::from(vec![]),
-        };
-
+        let header = run(any_header());
         // Create a simple global parameters for testing
         let global_parameters = &*TESTNET_GLOBAL_PARAMETERS;
 

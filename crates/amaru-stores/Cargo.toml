@@ -23,8 +23,8 @@ rand = { workspace = true, optional = true }
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-iter-borrow.workspace = true
-amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 amaru-slot-arithmetic.workspace = true
+amaru-ouroboros-traits = { workspace = true, features = [] }
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -34,6 +34,7 @@ tempfile.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-ledger = { workspace = true, features = ["test-utils"] }
+amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 
 [features]
 default = ["rocksdb"]

@@ -64,11 +64,7 @@ impl PallasBlockFetchClient {
 
 #[async_trait]
 impl CanFetchBlock for PallasBlockFetchClient {
-    async fn fetch_block(
-        &self,
-        _peer: &Peer,
-        point: &Point,
-    ) -> Result<Vec<u8>, BlockFetchClientError> {
+    async fn fetch_block(&self, point: &Point) -> Result<Vec<u8>, BlockFetchClientError> {
         self.fetch_block(point).await
     }
 }

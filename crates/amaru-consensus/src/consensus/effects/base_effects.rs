@@ -15,15 +15,8 @@
 use pure_stage::{BoxFuture, Effects, Instant, SendData, StageRef};
 use std::time::Duration;
 
-#[derive(Clone)]
-pub struct Base<'a, T>(&'a Effects<T>);
-
-impl<'a, T> Base<'a, T> {
-    pub fn new(eff: &'a Effects<T>) -> Base<'a, T> {
-        Base(eff)
-    }
-}
-
+/// Base operations available to a stage: send message, get current time, wait, terminate.
+/// This trait can have mock implementations for unit testing a stage.
 pub trait BaseOps: Clone + Send {
     fn send<Msg: SendData + 'static>(
         &self,
@@ -33,6 +26,16 @@ pub trait BaseOps: Clone + Send {
     fn clock(&self) -> BoxFuture<'static, Instant>;
     fn wait(&self, duration: Duration) -> BoxFuture<'static, Instant>;
     fn terminate(&self) -> BoxFuture<'static, ()>;
+}
+
+/// Implementation of BaseOps using pure_stage::Effects.
+#[derive(Clone)]
+pub struct Base<'a, T>(&'a Effects<T>);
+
+impl<'a, T> Base<'a, T> {
+    pub fn new(eff: &'a Effects<T>) -> Base<'a, T> {
+        Base(eff)
+    }
 }
 
 impl<T: Clone + SendData + Sync> BaseOps for Base<'_, T> {

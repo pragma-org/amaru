@@ -26,7 +26,7 @@ use tracing::{Level, instrument};
 pub async fn stage(
     downstream: StageRef<DecodedChainSyncEvent>,
     msg: DecodedChainSyncEvent,
-    eff: impl ConsensusOps + 'static,
+    eff: impl ConsensusOps,
 ) -> StageRef<DecodedChainSyncEvent> {
     adopt_current_span(&msg);
     match &msg {

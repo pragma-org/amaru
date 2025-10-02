@@ -22,14 +22,8 @@ use amaru_ouroboros_traits::{
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 
-pub struct Ledger<'a, T>(&'a Effects<T>);
-
-impl<'a, T> Ledger<'a, T> {
-    pub fn new(eff: &'a Effects<T>) -> Ledger<'a, T> {
-        Ledger(eff)
-    }
-}
-
+/// Ledger operations available to a stage.
+/// This trait can have mock implementations for unit testing a stage.
 pub trait LedgerOps {
     fn validate(
         &self,
@@ -43,6 +37,15 @@ pub trait LedgerOps {
         peer: &Peer,
         rollback_header: &Header,
     ) -> BoxFuture<'_, anyhow::Result<(), ProcessingFailed>>;
+}
+
+/// Implementation of LedgerOps using pure_stage::Effects.
+pub struct Ledger<'a, T>(&'a Effects<T>);
+
+impl<'a, T> Ledger<'a, T> {
+    pub fn new(eff: &'a Effects<T>) -> Ledger<'a, T> {
+        Ledger(eff)
+    }
 }
 
 impl<T: SendData + Sync> LedgerOps for Ledger<'_, T> {
@@ -67,6 +70,9 @@ impl<T: SendData + Sync> LedgerOps for Ledger<'_, T> {
     }
 }
 
+// EXTERNAL EFFECTS DEFINITIONS
+
+/// Resource types for ledger operations.
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub type ResourceHeaderValidation = Arc<dyn HasStakeDistribution>;
 
@@ -93,7 +99,7 @@ impl ExternalEffect for ValidateBlockEffect {
         Box::pin(async move {
             let validator = resources
                 .get::<ResourceBlockValidation>()
-                .expect("ValidateBlockEffect requires a CanValidateBlock resource")
+                .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
                 .clone();
             let result: <Self as ExternalEffectAPI>::Response =
                 validator.roll_forward_block(&self.point, &self.block).await;
@@ -127,7 +133,7 @@ impl ExternalEffect for RollbackBlockEffect {
         Box::pin(async move {
             let validator = resources
                 .get::<ResourceBlockValidation>()
-                .expect("ValidateBlockEffect requires a HasBlockValidation resource")
+                .expect("RollbackBlockEffect requires a ResourceBlockValidation resource")
                 .clone();
             let result: <Self as ExternalEffectAPI>::Response = validator
                 .rollback_block(&self.point)

@@ -113,8 +113,9 @@ mod tests {
     use crate::consensus::effects::mock_consensus_ops;
     use crate::consensus::errors::ValidationFailed;
     use crate::consensus::events::DecodedChainSyncEvent;
+    use crate::consensus::tests::any_header;
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::fake::tests::{any_header, run};
+    use amaru_ouroboros_traits::fake::tests::run;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;

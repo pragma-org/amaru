@@ -23,6 +23,23 @@ use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{Effects, SendData};
 use std::sync::Arc;
 
+/// This trait provides access to all effectful operations needed by consensus stages.
+pub trait ConsensusOps: Send + Sync + Clone {
+    /// Return a ChainStore implementation to store headers, get the best chain tip etc...
+    fn store(&self) -> Arc<dyn ChainStore<Header>>;
+    /// Return a NetworkOps implementation to access network operations, like fetch_block
+    fn network(&self) -> impl NetworkOps;
+    /// Return a LedgerOps implementation to access ledger operations, considering that it is a sub-system
+    /// external to consensus.
+    fn ledger(&self) -> impl LedgerOps;
+    /// Return a BaseOps implementation to access basic operations, like sending messages to other stages.
+    fn base(&self) -> impl BaseOps;
+    /// Return a MetricsOps implementation to record metrics events.
+    fn metrics(&self) -> impl MetricsOps;
+}
+
+/// Implementation of ConsensusOps using pure_stage::Effects.
+/// The EraHistory is needed to create the ChainStore.
 #[derive(Clone)]
 pub struct ConsensusEffects<T> {
     effects: Effects<T>,
@@ -58,15 +75,6 @@ impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
     }
 }
 
-pub trait ConsensusOps: Send + Sync + Clone {
-    fn store(&self) -> Arc<dyn ChainStore<Header>>;
-    fn network(&self) -> impl NetworkOps;
-    fn ledger(&self) -> impl LedgerOps;
-    fn base(&self) -> impl BaseOps;
-
-    fn metrics(&self) -> impl MetricsOps;
-}
-
 impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
     fn store(&self) -> Arc<dyn ChainStore<Header>> {
         self.store()
@@ -89,6 +97,7 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
     }
 }
 
+/// This module provides mock implementations of ConsensusOps and its sub-traits for unit testing.
 #[cfg(test)]
 pub mod tests {
     use super::*;
