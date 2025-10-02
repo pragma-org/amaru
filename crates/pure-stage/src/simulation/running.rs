@@ -436,14 +436,9 @@ impl SimulationRunning {
         match effect {
             Effect::Receive { at_stage: to } => {
                 let data_to = self.stages.get_mut(&to).unwrap();
-                let Ok(()) = resume_receive_internal(&mut self.trace_buffer.lock(), data_to, run)
-                else {
-                    return None;
-                };
+                resume_receive_internal(&mut self.trace_buffer.lock(), data_to, run).ok()?;
                 // resuming receive has removed one message from the mailbox, so check for blocked senders
-                let Some((from, msg)) = data_to.senders.pop_front() else {
-                    return None;
-                };
+                let (from, msg) = data_to.senders.pop_front()?;
                 post_message(data_to, self.mailbox_size, msg).expect("mailbox is not full");
                 let data_from = self.stages.get_mut(&from).unwrap();
                 let call = resume_send_internal(data_from, run, to.clone())
