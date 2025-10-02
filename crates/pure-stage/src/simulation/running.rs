@@ -15,6 +15,7 @@
 use super::{
     EffectBox, Instant, StageData, StageEffect, StageResponse, StageState, inputs::Inputs,
 };
+use crate::simulation::SendBlock;
 use crate::stage_ref::StageStateRef;
 use crate::{
     BoxFuture, CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
@@ -415,7 +416,9 @@ impl SimulationRunning {
                 }
             }
 
-            self.handle_effect(effect);
+            if let Some(blocked) = self.handle_effect(effect) {
+                return blocked;
+            }
         }
     }
 
@@ -424,7 +427,7 @@ impl SimulationRunning {
     ///
     /// Inputs to this method can be obtained from [`Self::effect`], [`Self::try_effect`]
     /// or [`Blocked::assert_breakpoint`].
-    pub fn handle_effect(&mut self, effect: Effect) {
+    pub fn handle_effect(&mut self, effect: Effect) -> Option<Blocked> {
         let runnable = &mut self.runnable;
         let run = &mut |name, response| {
             runnable.push_back((name, response));
@@ -433,14 +436,9 @@ impl SimulationRunning {
         match effect {
             Effect::Receive { at_stage: to } => {
                 let data_to = self.stages.get_mut(&to).unwrap();
-                let Ok(()) = resume_receive_internal(&mut self.trace_buffer.lock(), data_to, run)
-                else {
-                    return;
-                };
+                resume_receive_internal(&mut self.trace_buffer.lock(), data_to, run).ok()?;
                 // resuming receive has removed one message from the mailbox, so check for blocked senders
-                let Some((from, msg)) = data_to.senders.pop_front() else {
-                    return;
-                };
+                let (from, msg) = data_to.senders.pop_front()?;
                 post_message(data_to, self.mailbox_size, msg).expect("mailbox is not full");
                 let data_from = self.stages.get_mut(&from).unwrap();
                 let call = resume_send_internal(data_from, run, to.clone())
@@ -537,8 +535,10 @@ impl SimulationRunning {
             Effect::Terminate { at_stage } => {
                 tracing::info!(stage = %at_stage, "terminated");
                 self.terminate.send_replace(true);
+                return Some(Blocked::Terminated(at_stage));
             }
         }
+        None
     }
 
     /// If a stage is Idle, it is waiting for Receive and NOT runnable.
@@ -912,7 +912,11 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
         .filter_map(|(k, d)| d.waiting.as_ref().map(|w| (k, w)))
     {
         match v {
-            StageEffect::Send(..) => send.push(k.clone()),
+            StageEffect::Send(name, _msg, call) => send.push(SendBlock {
+                from: k.clone(),
+                to: name.clone(),
+                is_call: call.is_some(),
+            }),
             StageEffect::Receive => {}
             StageEffect::Wait(..) => sleep.push(k.clone()),
             _ => busy.push(k.clone()),
