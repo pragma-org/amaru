@@ -159,6 +159,7 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let subset_set: BTreeSet<_> = subset.iter().cloned().collect();
 
+    let mut processed = 0;
     // Process relevant points
     let before = Instant::now();
     for archive_path in &archives {
@@ -171,7 +172,11 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             let path = entry.path()?;
             if path.extension().map(|ext| ext == "cbor").unwrap_or(false) {
                 let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-                let (slot_str, hash_str) = file_name.split_once('.').unwrap_or(("0", ""));
+                let (slot_str, hash_str) = file_name
+                    .strip_suffix(".cbor")
+                    .unwrap_or(&file_name)
+                    .split_once('.')
+                    .unwrap_or(("0", ""));
                 let point = Point::Specific(
                     slot_str.parse().unwrap_or_default(),
                     hex::decode(hash_str).unwrap_or_default(),
@@ -180,6 +185,8 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 if !subset_set.contains(&point) {
                     continue;
                 }
+
+                processed += 1;
 
                 let mut block_data = Vec::new();
                 entry.read_to_end(&mut block_data)?;
@@ -196,7 +203,7 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     info!(
         "Processed {} blocks from slot {} to slot {} in {} seconds",
-        subset.len(),
+        processed,
         subset
             .first()
             .map(|p| p.slot_or_default())
