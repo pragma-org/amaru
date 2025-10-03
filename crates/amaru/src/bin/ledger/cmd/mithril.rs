@@ -14,15 +14,16 @@
 
 use std::{
     collections::BTreeMap,
-    fmt::Write,
-    fs,
-    io::Cursor,
+    fmt,
+    fs::{self, File},
+    io::{Cursor, Write},
     path::PathBuf,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use amaru_kernel::network::NetworkName;
+use amaru::point::to_network_point;
+use amaru_kernel::{default_ledger_dir, network::NetworkName};
 use async_trait::async_trait;
 use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
@@ -31,13 +32,13 @@ use mithril_client::{
     cardano_database_client::{DownloadUnpackOptions, ImmutableFileRange},
     feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
 };
-use pallas_hardano::storage::immutable::{Point, read_blocks_from_point};
+use pallas_hardano::storage::immutable::read_blocks_from_point;
 use pallas_traverse::MultiEraBlock;
 use tar::Builder;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use tracing::info;
+
+use crate::cmd::new_block_validator;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -51,6 +52,14 @@ pub struct Args {
         default_value_t = NetworkName::Preprod,
     )]
     network: NetworkName,
+
+    /// Path of the ledger on-disk storage.
+    #[arg(long, value_name = "DIR")]
+    ledger_dir: Option<PathBuf>,
+
+    /// Path of the ledger on-disk storage.
+    #[arg(long, value_name = "DIR", default_value = Some("mithril-snapshots".into()))]
+    snapshots_dir: PathBuf,
 }
 
 pub struct IndicatifFeedbackReceiver {
@@ -88,7 +97,7 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
                     let pb = ProgressBar::new(size);
                     pb.set_style(ProgressStyle::with_template("{spinner:.green} {elapsed_precise}] [{wide_bar:.cyan/blue}] Files: {human_pos}/{human_len} ({eta})")
                         .unwrap()
-                        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
+                        .with_key("eta", |state: &ProgressState, w: &mut dyn fmt::Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
                         .progress_chars("#>-"));
                     self.progress_bar.add(pb.clone());
                     let mut cardano_database_pb = self.cardano_database_pb.write().await;
@@ -173,10 +182,8 @@ async fn package_blocks(
         );
         header.set_uid(0);
         header.set_gid(0);
-        // Set current mtime (seconds since UNIX epoch)
         header.set_cksum();
 
-        // Append the data (Cursor implements Read)
         tar.append_data(&mut header, name, Cursor::new(data))?;
     }
 
@@ -187,22 +194,25 @@ async fn package_blocks(
     let compressed = encoder.finish()?;
 
     let dir = format!("data/{}/blocks", network);
-    tokio::fs::create_dir_all(&dir).await?;
+    fs::create_dir_all(&dir)?;
     let first_block = blocks
         .first_key_value()
         .map(|kv| kv.0)
         .cloned()
         .unwrap_or_default();
     let archive_path = format!("{}/{}.tar.gz", dir, first_block);
-    let mut f = File::create(archive_path).await?;
+    let mut f = File::create(archive_path)?;
 
-    f.write_all(&compressed).await?;
+    f.write_all(&compressed)?;
 
     Ok(compressed)
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
+    let ledger_dir = args
+        .ledger_dir
+        .unwrap_or_else(|| default_ledger_dir(network).into());
 
     const AGGREGATOR_ENDPOINT: &str =
         "https://aggregator.release-preprod.api.mithril.network/aggregator";
@@ -220,13 +230,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let snapshot = database_client
         .get(&snapshot_list_item.hash)
         .await?
-        .ok_or("no snapshot found")?;
+        .ok_or(format!("snapshot not found {}", snapshot_list_item.hash))?;
 
     let certificate = client
         .certificate()
         .verify_chain(&snapshot.certificate_hash)
         .await?;
 
+    let ledger = new_block_validator(network, ledger_dir)?;
+    let tip = ledger.get_tip();
+
+    // TODO how to get the right number here?
+    // TODO also looks like everything is downloaded again each time
     let immutable_file_range = ImmutableFileRange::From(1500);
     let download_unpack_options = DownloadUnpackOptions {
         allow_override: true,
@@ -234,7 +249,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         ..DownloadUnpackOptions::default()
     };
 
-    let target_dir = PathBuf::from("mithril-snapshots");
+    let target_dir = PathBuf::from(args.snapshots_dir);
     fs::create_dir_all(&target_dir)?;
     database_client
         .download_unpack(
@@ -245,7 +260,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
 
-    info!("Snapshot unpacked to: {:?}", target_dir);
+    info!("Snapshot unpacked to {:?}", target_dir);
 
     let verified_digests = client
         .cardano_database_v2()
@@ -274,9 +289,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let immutable_dir = target_dir.join("immutable");
 
-    for chunk in read_blocks_from_point(&immutable_dir, Point::new(103444000, vec![]))?
+    for chunk in read_blocks_from_point(&immutable_dir, to_network_point(tip))?
         .map_while(Result::ok)
-        .array_chunks::<1000>()
+        .skip(1) // Exculde the tip itself
+        .array_chunks::<20000>()
     {
         let map: BTreeMap<_, _> = chunk
             .iter()
