@@ -13,19 +13,18 @@
 // limitations under the License.
 
 use clap::Parser;
-use std::{collections::BTreeSet, fs, io::Read, path::PathBuf, time::Instant};
+use std::{fs, io::Read, path::PathBuf, time::Instant};
 use tracing::info;
 
 use amaru_kernel::{
-    EraHistory, Point, RawBlock, default_ledger_dir, network::NetworkName,
-    protocol_parameters::GlobalParameters,
+    Point, RawBlock, default_ledger_dir, network::NetworkName,
 };
-use amaru_ledger::block_validator::BlockValidator;
 use amaru_ouroboros_traits::can_validate_blocks::CanValidateBlocks;
-use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
 
 use flate2::read::GzDecoder;
 use tar::Archive;
+
+use crate::cmd::new_block_validator;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -55,35 +54,6 @@ pub struct Args {
     ingest_maximum_blocks: Option<usize>,
 }
 
-pub fn filter_points(
-    points: &[Point],
-    low: u64,
-    high: Option<u64>,
-    max_count: Option<usize>,
-) -> Vec<Point> {
-    let mut sorted = points.to_vec();
-    sorted.sort_by_key(|p| p.slot_or_default());
-
-    let start = sorted
-        .binary_search_by_key(&(low + 1), |p| p.slot_or_default().into())
-        .unwrap_or_else(|pos| pos);
-
-    let mut end = if let Some(high) = high {
-        sorted
-            .binary_search_by_key(&high, |p| p.slot_or_default().into())
-            .map(|pos| pos + 1)
-            .unwrap_or_else(|pos| pos)
-    } else {
-        sorted.len()
-    };
-
-    if let Some(max) = max_count {
-        end = end.min(start.saturating_add(max));
-    }
-
-    sorted[start..end].to_vec()
-}
-
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::panic)]
 pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -92,17 +62,7 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .ledger_dir
         .unwrap_or_else(|| default_ledger_dir(network).into());
 
-    let era_history: &EraHistory = network.into();
-    let global_parameters: &GlobalParameters = network.into();
-    let config = RocksDbConfig::new(ledger_dir);
-    let store = RocksDBHistoricalStores::new(&config, u64::MAX);
-    let ledger = BlockValidator::new(
-        RocksDB::new(&config)?,
-        store,
-        network,
-        era_history.clone(),
-        global_parameters.clone(),
-    )?;
+    let ledger = new_block_validator(network, ledger_dir)?;
 
     // Collect .tar.gz files
     let mut archives: Vec<_> = fs::read_dir(format!("data/{}/blocks", network))?
@@ -110,68 +70,38 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             let entry = entry.ok()?;
             let path = entry.path();
             if path.extension()? == "gz" {
-                Some(path)
+                Some(path.file_name()?.to_os_string().to_string_lossy().to_string())
             } else {
                 None
             }
         })
         .collect();
 
-    archives.sort();
+    archives.sort_by(|a, b| {
+        let a = a.split_once(".").unwrap_or_default().0;
+        let b = b.split_once(".").unwrap_or_default().0;
+        a.parse::<u32>().unwrap_or_default()
+            .cmp(&b.parse::<u32>().unwrap_or_default())
+    });
 
     let tip = ledger.get_tip();
-
-    // Collect all points
-    let mut all_points = Vec::new();
-    for archive_path in &archives {
-        let file = fs::File::open(archive_path)?;
-        let gz = GzDecoder::new(file);
-        let mut archive = Archive::new(gz);
-
-        for entry in archive.entries()? {
-            let entry = entry?;
-            let path = entry.path()?;
-            if path.extension().map(|ext| ext == "cbor").unwrap_or(false) {
-                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-                let (slot_str, hash_str) = file_name
-                    .strip_suffix(".cbor")
-                    .unwrap_or(&file_name)
-                    .split_once('.')
-                    .unwrap_or(("0", ""));
-                let point = Point::Specific(
-                    slot_str.parse().unwrap_or_default(),
-                    hex::decode(hash_str).unwrap_or_default(),
-                );
-                if point.slot_or_default() > tip.slot_or_default() {
-                    all_points.push(point);
-                }
-            }
-        }
-    }
-
-    // Filter according to CLI args
-    let subset = filter_points(
-        &all_points,
-        tip.slot_or_default().into(),
-        args.ingest_until_slot,
-        args.ingest_maximum_blocks,
-    );
-
-    let subset_set: BTreeSet<_> = subset.iter().cloned().collect();
 
     let mut processed = 0;
     // Process relevant points
     let before = Instant::now();
     for archive_path in &archives {
-        let file = fs::File::open(archive_path)?;
+        let file = fs::File::open(format!("data/{}/blocks/{}", network, archive_path))?;
         let gz = GzDecoder::new(file);
         let mut archive = Archive::new(gz);
 
+        let mut entries_with_keys: Vec<(_, _)> = Vec::with_capacity(archive.entries()?.size_hint().0);
+
         for entry in archive.entries()? {
             let mut entry = entry?;
-            let path = entry.path()?;
-            if path.extension().map(|ext| ext == "cbor").unwrap_or(false) {
-                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+            let path = entry.path()?.into_owned();
+
+            if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+                //let file_name = path.file_name().unwrap_or_default().to_string_lossy();
                 let (slot_str, hash_str) = file_name
                     .strip_suffix(".cbor")
                     .unwrap_or(&file_name)
@@ -181,38 +111,37 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                     slot_str.parse().unwrap_or_default(),
                     hex::decode(hash_str).unwrap_or_default(),
                 );
-
-                if !subset_set.contains(&point) {
-                    continue;
-                }
-
-                processed += 1;
-
                 let mut block_data = Vec::new();
                 entry.read_to_end(&mut block_data)?;
+                entries_with_keys.push((point, RawBlock::from(&*block_data)));
+            }
+        }
 
-                if let Err(err) = ledger
-                    .roll_forward_block(&point, &RawBlock::from(&*block_data))
-                    .unwrap()
-                {
-                    panic!("Error processing block at point {:?}: {:?}", point, err);
-                }
+        // Sort by numeric key
+        entries_with_keys.sort_by_key(|(num, _)| num.clone());
+
+        for (point, block) in entries_with_keys.iter_mut() {
+            // Do not process points already in the ledger
+            if point.slot_or_default() <= tip.slot_or_default() {
+                continue;
+            }
+            processed += 1;
+
+            if let Err(err) = ledger
+                .roll_forward_block(&point, block)
+                .unwrap()
+            {
+                panic!("Error processing block at point {:?}: {:?}", point, err);
             }
         }
     }
 
+    let duration = Instant::now().saturating_duration_since(before.into());
     info!(
-        "Processed {} blocks from slot {} to slot {} in {} seconds",
+        "Processed {} blocks in {} seconds ({} blocks/s)",
         processed,
-        subset
-            .first()
-            .map(|p| p.slot_or_default())
-            .unwrap_or_default(),
-        subset
-            .last()
-            .map(|p| p.slot_or_default())
-            .unwrap_or_default(),
-        Instant::now().saturating_duration_since(before.into()).as_secs()
+        duration.as_secs(),
+        processed / duration.as_secs()
     );
 
     Ok(())

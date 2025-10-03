@@ -12,5 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{error::Error, path::PathBuf};
+
+use amaru_kernel::{network::NetworkName, protocol_parameters::GlobalParameters, EraHistory};
+use amaru_ledger::block_validator::BlockValidator;
+use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
+
 pub(crate) mod bootstrap;
 pub(crate) mod mithril;
+
+pub fn new_block_validator(network: NetworkName, ledger_dir: PathBuf) -> Result<BlockValidator<RocksDB, RocksDBHistoricalStores>, Box<dyn Error>> {
+    let era_history: &EraHistory = network.into();
+    let global_parameters: &GlobalParameters = network.into();
+    let config = RocksDbConfig::new(ledger_dir);
+    let store = RocksDBHistoricalStores::new(&config, u64::MAX);
+    let ledger = BlockValidator::new(
+        RocksDB::new(&config)?,
+        store,
+        network,
+        era_history.clone(),
+        global_parameters.clone(),
+    )?;
+    Ok(ledger)
+}
