@@ -93,7 +93,7 @@ where
     stable: Arc<Mutex<S>>,
 
     /// A handle to the stable store, shared across all ledger instances.
-    snapshots: HS,
+    pub snapshots: HS,
 
     /// Our own in-memory vector of volatile deltas to apply onto the stable store in due time.
     volatile: VolatileDB,
