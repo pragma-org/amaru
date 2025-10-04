@@ -35,7 +35,7 @@ pub struct ReadOnlyChainDB {
 }
 
 impl RocksDBStore {
-    pub fn new(config: RocksDbConfig, era_history: &EraHistory) -> Result<Self, StoreError> {
+    pub fn new(config: &RocksDbConfig, era_history: &EraHistory) -> Result<Self, StoreError> {
         let basedir = config.dir.clone();
         let mut opts: Options = config.into();
         opts.create_if_missing(true);
@@ -54,7 +54,7 @@ impl RocksDBStore {
         })
     }
 
-    pub fn open_for_readonly(config: RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
+    pub fn open_for_readonly(config: &RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
         let basedir = config.dir.clone();
         let mut opts: Options = config.into();
         opts.create_if_missing(false);
@@ -354,7 +354,7 @@ pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
     use std::fs::create_dir_all;
     let (basedir, era_history) = init_dir_and_era(path);
     create_dir_all(&basedir).unwrap();
-    RocksDBStore::new(RocksDbConfig::new(basedir), &era_history)
+    RocksDBStore::new(&RocksDbConfig::new(basedir), &era_history)
         .expect("fail to initialise RocksDB")
 }
 
@@ -364,7 +364,7 @@ pub fn initialise_test_ro_store(path: &std::path::Path) -> Result<ReadOnlyChainD
     use std::fs::create_dir_all;
     let (basedir, _) = init_dir_and_era(path);
     create_dir_all(&basedir).unwrap();
-    RocksDBStore::open_for_readonly(RocksDbConfig::new(basedir))
+    RocksDBStore::open_for_readonly(&RocksDbConfig::new(basedir))
 }
 
 #[cfg(any(test, feature = "test-utils"))]

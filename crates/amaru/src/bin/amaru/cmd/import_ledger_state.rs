@@ -143,7 +143,7 @@ pub async fn import_one(
     .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
-    let db = RocksDB::empty(RocksDbConfig::new(ledger_dir.into()))?;
+    let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.into()))?;
     let bytes = fs::read(snapshot)?;
     let dir = snapshot
         .parent()
