@@ -20,21 +20,18 @@ use crate::simulator::simulate::simulate;
 use crate::simulator::{Args, Chain, History, NodeHandle, SimulateConfig};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
-use amaru_consensus::consensus::effects::block_effects::ResourceBlockFetcher;
-use amaru_consensus::consensus::effects::network_effects::{
-    ForwardEvent, ForwardEventListener, ResourceForwardEventListener,
+use amaru_consensus::consensus::effects::{
+    ForwardEvent, ForwardEventListener, ResourceForwardEventListener, ResourceHeaderStore,
+    ResourceHeaderValidation, ResourceParameters,
 };
-use amaru_consensus::consensus::effects::store_effects::{
-    ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
-};
+use amaru_consensus::consensus::effects::{ResourceBlockFetcher, ResourceBlockValidation};
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_consensus::consensus::headers_tree::HeadersTree;
+use amaru_consensus::consensus::headers_tree::HeadersTreeState;
 use amaru_consensus::consensus::stages::fetch_block::BlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::{
     DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain,
 };
-use amaru_consensus::consensus::stages::validate_block::ResourceBlockValidation;
 use amaru_consensus::consensus::tip::HeaderTip;
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
@@ -43,7 +40,7 @@ use amaru_kernel::{Point, to_cbor};
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateBlocks;
 use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros::{ChainStore, IsHeader};
-use amaru_slot_arithmetic::Slot;
+use amaru_slot_arithmetic::{EraHistory, Slot};
 use async_trait::async_trait;
 use pallas_primitives::babbage::Header;
 use pure_stage::simulation::SimulationBuilder;
@@ -107,7 +104,8 @@ fn spawn_node(
     info!("Spawning node!");
     let config = SimulateConfig::from(args.clone());
 
-    let (global_parameters, select_chain, validate_header, chain_ref) = init_node(&args);
+    let (global_parameters, network_name, select_chain, validate_header, chain_ref) =
+        init_node(&args);
 
     // The receiver replies ok to init messages from the sender (via 'output', the only output of the graph)
     // and forwards chain sync messages to the rest of the processing graph
@@ -161,8 +159,10 @@ fn spawn_node(
     );
 
     let our_tip = HeaderTip::new(Point::Origin, 0);
+    let era_history: &EraHistory = network_name.into();
     let receive_header_ref = build_stage_graph(
         &global_parameters,
+        era_history,
         validate_header,
         select_chain,
         our_tip,
@@ -197,6 +197,7 @@ fn init_node(
     args: &Args,
 ) -> (
     GlobalParameters,
+    NetworkName,
     SelectChain,
     ResourceHeaderValidation,
     ResourceHeaderStore,
@@ -224,6 +225,7 @@ fn init_node(
 
     (
         global_parameters.clone(),
+        network_name,
         select_chain,
         Arc::new(stake_distribution),
         chain_store,
@@ -231,12 +233,14 @@ fn init_node(
 }
 
 fn make_chain_selector(chain_store: Arc<dyn ChainStore<Header>>, peers: &Vec<Peer>) -> SelectChain {
-    let mut tree = HeadersTree::new(chain_store.clone(), DEFAULT_MAXIMUM_FRAGMENT_LENGTH);
+    let mut tree_state = HeadersTreeState::new(DEFAULT_MAXIMUM_FRAGMENT_LENGTH);
+    let anchor = chain_store.get_anchor_hash();
     for peer in peers {
-        tree.initialize_peer(peer, &chain_store.get_anchor_hash())
+        tree_state
+            .initialize_peer(chain_store.clone(), peer, &anchor)
             .expect("the root node is guaranteed to already be in the tree")
     }
-    SelectChain::new(tree, peers)
+    SelectChain::new(tree_state, peers)
 }
 
 /// Property: at the end of the simulation, the tip of the chain from the last block must
@@ -347,7 +351,6 @@ impl ForwardEventListener for MockForwardEventListener {
         for i in 1..=self.number_of_downstream_peers {
             let dest = format!("c{}", i);
             let msg_id = base_msg_id + i as u64;
-            println!("msg id {}", msg_id);
             let envelope = Envelope {
                 src: self.node_id.clone(),
                 dest,

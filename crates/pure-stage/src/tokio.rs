@@ -143,12 +143,14 @@ impl StageGraph for TokioBuilder {
             _ph,
         } = stage;
         let stage_name = name.clone();
+        let resources = self.inner.resources.clone();
         self.tasks.push(Box::new(move |inner| {
             Box::pin(async move {
                 let me = StageRef::new(stage_name.clone());
                 let effect = Arc::new(Mutex::new(None));
                 let sender = mk_sender(&stage_name, &inner);
-                let effects = Effects::new(me, effect.clone(), inner.clock.clone(), sender);
+                let effects =
+                    Effects::new(me, effect.clone(), inner.clock.clone(), sender, resources);
                 while let Some(msg) = rx.recv().await {
                     let result = interpreter(
                         &inner,

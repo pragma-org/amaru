@@ -17,22 +17,16 @@ use crate::stages::{
     consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
     pure_stage_util::{PureStageSim, SendAdapter},
 };
-use amaru_consensus::consensus::{
-    effects::{
-        block_effects::{ResourceBlockFetcher, ResourceParameters},
-        metrics_effects::ResourceMeter,
-        network_effects::ResourceForwardEventListener,
-        store_effects::ResourceHeaderStore,
-    },
-    errors::ConsensusError,
-    events::ChainSyncEvent,
-    headers_tree::HeadersTree,
-    stages::{
-        fetch_block::ClientsBlockFetcher, select_chain::SelectChain,
-        validate_block::ResourceBlockValidation,
-    },
-    tip::{AsHeaderTip, HeaderTip},
+use amaru_consensus::consensus::effects::{
+    ResourceBlockFetcher, ResourceBlockValidation, ResourceForwardEventListener,
+    ResourceHeaderStore, ResourceMeter, ResourceParameters,
 };
+use amaru_consensus::consensus::errors::ConsensusError;
+use amaru_consensus::consensus::events::ChainSyncEvent;
+use amaru_consensus::consensus::headers_tree::HeadersTreeState;
+use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
+use amaru_consensus::consensus::stages::select_chain::SelectChain;
+use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::{
     EraHistory, HEADER_HASH_SIZE, Hash, Header, ORIGIN_HASH, Point, network::NetworkName,
     peer::Peer, protocol_parameters::GlobalParameters,
@@ -255,6 +249,7 @@ pub async fn bootstrap(
 
     let graph_input = build_stage_graph(
         global_parameters,
+        era_history,
         ledger.get_stake_distribution(),
         chain_selector,
         our_tip,
@@ -406,13 +401,14 @@ fn make_chain_selector(
     peers: &Vec<Peer>,
     consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
-    let mut tree = HeadersTree::new(chain_store.clone(), consensus_security_parameter);
+    let mut tree_state = HeadersTreeState::new(consensus_security_parameter);
 
+    let anchor = chain_store.get_anchor_hash();
     for peer in peers {
-        tree.initialize_peer(peer, &chain_store.get_anchor_hash())?;
+        tree_state.initialize_peer(chain_store.clone(), peer, &anchor)?;
     }
 
-    Ok(SelectChain::new(tree, peers))
+    Ok(SelectChain::new(tree_state, peers))
 }
 
 pub trait PallasPoint {

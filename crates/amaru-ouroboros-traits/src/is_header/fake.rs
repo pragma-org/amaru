@@ -173,15 +173,11 @@ impl<'b, C> cbor::decode::Decode<'b, C> for FakeHeader {
 pub mod tests {
     use super::*;
     use proptest::prelude::*;
-    use std::cmp::max;
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
 
     /// Create a list of arbitrary fake headers starting from a root, and where chain[i] is the parent of chain[i+1]
-    pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<FakeHeader>> {
-        prop::collection::vec(any_fake_header(), 1..(max(n, 2))).prop_map(make_fake_header())
-    }
-
-    /// Create a list of arbitrary fake headers starting from a root, and where chain[i] is the parent of chain[i+1]
-    pub fn any_headers_chain_sized(n: usize) -> impl Strategy<Value = Vec<FakeHeader>> {
+    pub fn any_fake_headers_chain(n: usize) -> impl Strategy<Value = Vec<FakeHeader>> {
         prop::collection::vec(any_fake_header(), n).prop_map(make_fake_header())
     }
 
@@ -217,5 +213,12 @@ pub mod tests {
                 parent,
                 body_hash,
             })
+    }
+
+    /// Run a strategy and return the generated value, panicking if generation fails.
+    #[expect(clippy::unwrap_used)]
+    pub fn run<T>(s: impl Strategy<Value = T>) -> T {
+        let mut runner = TestRunner::default();
+        s.new_tree(&mut runner).unwrap().current()
     }
 }

@@ -12,19 +12,123 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::errors::ConsensusError;
 use crate::consensus::errors::ProcessingFailed;
+use crate::consensus::stages::fetch_block::BlockFetcher;
 use crate::consensus::tip::HeaderTip;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Header, Point};
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use async_trait::async_trait;
-use pure_stage::{ExternalEffect, ExternalEffectAPI, Resources};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::sync::Arc;
 
+/// Network operations available to a stage: fetch block and forward events to peers.
+/// This trait can have mock implementations for unit testing a stage.
+pub trait NetworkOps {
+    fn fetch_block(
+        &self,
+        peer: &Peer,
+        point: &Point,
+    ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>>;
+
+    fn send_forward_event(
+        &self,
+        peer: &Peer,
+        header: Header,
+    ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
+
+    fn send_backward_event(
+        &self,
+        peer: &Peer,
+        header_tip: HeaderTip,
+    ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
+}
+
+/// Implementation of NetworkOps using pure_stage::Effects.
+pub struct Network<'a, T>(&'a Effects<T>);
+
+impl<'a, T> Network<'a, T> {
+    pub fn new(eff: &'a Effects<T>) -> Network<'a, T> {
+        Network(eff)
+    }
+}
+
+impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
+    fn fetch_block(
+        &self,
+        peer: &Peer,
+        point: &Point,
+    ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>> {
+        self.0.external(FetchBlockEffect::new(peer, point))
+    }
+
+    fn send_forward_event(
+        &self,
+        peer: &Peer,
+        header: Header,
+    ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+        self.0
+            .external(ForwardEventEffect::new(peer, ForwardEvent::Forward(header)))
+    }
+
+    fn send_backward_event(
+        &self,
+        peer: &Peer,
+        header_tip: HeaderTip,
+    ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+        self.0.external(ForwardEventEffect::new(
+            peer,
+            ForwardEvent::Backward(header_tip),
+        ))
+    }
+}
+
+// EXTERNAL EFFECTS DEFINITIONS
+
+pub type ResourceBlockFetcher = Arc<dyn BlockFetcher + Send + Sync>;
 pub type ResourceForwardEventListener = Arc<dyn ForwardEventListener + Send + Sync>;
+
+/// This effect is used to fetch a block from a peer given a point (hash + slot).
+/// The effect response is either a vector of bytes representing the block,
+/// or a ConsensusError if the block could not be fetched.
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FetchBlockEffect {
+    peer: Peer,
+    point: Point,
+}
+
+impl ExternalEffectAPI for FetchBlockEffect {
+    type Response = Result<Vec<u8>, ConsensusError>;
+}
+
+impl FetchBlockEffect {
+    pub fn new(peer: &Peer, point: &Point) -> Self {
+        Self {
+            peer: peer.clone(),
+            point: point.clone(),
+        }
+    }
+}
+
+impl ExternalEffect for FetchBlockEffect {
+    #[expect(clippy::expect_used)]
+    fn run(
+        self: Box<Self>,
+        resources: Resources,
+    ) -> pure_stage::BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let block_fetcher = resources
+                .get::<ResourceBlockFetcher>()
+                .expect("FetchBlockEffect requires a BlockFetcher")
+                .clone();
+            block_fetcher.fetch_block(&self.peer, &self.point).await
+        })
+    }
+}
 
 /// A listener interface for forward events (new headers or rollbacks).
 /// These events are either caught for tests or forwarded to downstream peers (see the TcpForwardEventListener implementation).

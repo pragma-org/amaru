@@ -18,6 +18,7 @@ use crate::{IsHeader, Nonces};
 use amaru_kernel::{HEADER_HASH_SIZE, Hash, RawBlock};
 use amaru_slot_arithmetic::EraHistory;
 use std::fmt::Display;
+use std::iter::successors;
 use thiserror::Error;
 
 pub trait ReadOnlyChainStore<H>
@@ -55,6 +56,37 @@ where
         }
         best_chain.reverse();
         best_chain
+    }
+
+    /// Return the ancestors of the header, including the header itself.
+    /// Stop at the anchor of the tree.
+    fn ancestors<'a>(&'a self, start: H) -> Box<dyn Iterator<Item = H> + 'a>
+    where
+        H: 'a,
+    {
+        let anchor = self.get_anchor_hash();
+        Box::new(successors(Some(start), move |h| {
+            if h.hash() == anchor {
+                None
+            } else {
+                h.parent().and_then(|p| self.load_header(&p))
+            }
+        }))
+    }
+
+    /// Return the hashes of the ancestors of the header, including the header hash itself.
+    fn ancestors_hashes<'a>(
+        &'a self,
+        hash: &Hash<HEADER_HASH_SIZE>,
+    ) -> Box<dyn Iterator<Item = Hash<HEADER_HASH_SIZE>> + 'a>
+    where
+        H: 'a,
+    {
+        if let Some(header) = self.load_header(hash) {
+            Box::new(self.ancestors(header).map(|h| h.hash()))
+        } else {
+            Box::new(vec![*hash].into_iter())
+        }
     }
 }
 

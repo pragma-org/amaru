@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::store_effects::Store;
-use crate::consensus::store::StoreOps;
+use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::{
     errors::ProcessingFailed, events::ValidateBlockEvent, span::adopt_current_span,
 };
 use amaru_ouroboros_traits::IsHeader;
-use pure_stage::{Effects, StageRef};
+use anyhow::anyhow;
+use pure_stage::StageRef;
 use tracing::Level;
 use tracing::instrument;
 
@@ -34,7 +34,7 @@ type State = (StageRef<ValidateBlockEvent>, StageRef<ProcessingFailed>);
 pub async fn stage(
     (downstream, errors): State,
     msg: ValidateBlockEvent,
-    mut eff: Effects<ValidateBlockEvent>,
+    eff: impl ConsensusOps,
 ) -> State {
     adopt_current_span(&msg);
     match msg {
@@ -43,14 +43,18 @@ pub async fn stage(
             ref block,
             ref peer,
             ..
-        } => match Store(&mut eff)
-            .store_block(peer, &header.point(), block)
-            .await
-        {
-            Ok(_) => eff.send(&downstream, msg).await,
-            Err(e) => eff.send(&errors, e).await,
-        },
-        ValidateBlockEvent::Rollback { .. } => eff.send(&downstream, msg).await,
+        } => {
+            let result = eff.store().store_block(&header.hash(), block);
+            match result {
+                Ok(_) => eff.base().send(&downstream, msg).await,
+                Err(e) => {
+                    eff.base()
+                        .send(&errors, ProcessingFailed::new(peer, anyhow!(e)))
+                        .await
+                }
+            }
+        }
+        ValidateBlockEvent::Rollback { .. } => eff.base().send(&downstream, msg).await,
     }
     (downstream, errors)
 }

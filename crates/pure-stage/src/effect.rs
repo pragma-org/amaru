@@ -20,15 +20,29 @@ use crate::{
     time::Clock,
 };
 use cbor4ii::{core::Value, serde::from_slice};
+use futures_util::FutureExt;
 use serde::de::DeserializeOwned;
 use std::{
     any::{Any, type_name},
     fmt::Debug,
+    future,
     marker::PhantomData,
     sync::Arc,
     time::Duration,
 };
 use tokio::sync::oneshot;
+
+impl<M> Clone for Effects<M> {
+    fn clone(&self) -> Self {
+        Self {
+            me: self.me.clone(),
+            effect: self.effect.clone(),
+            clock: self.clock.clone(),
+            self_sender: self.self_sender.clone(),
+            resources: self.resources.clone(),
+        }
+    }
+}
 
 /// A handle for performing effects on the current stage.
 ///
@@ -41,17 +55,7 @@ pub struct Effects<M> {
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     self_sender: Sender<M>,
-}
-
-impl<M> Clone for Effects<M> {
-    fn clone(&self) -> Self {
-        Self {
-            me: self.me.clone(),
-            effect: self.effect.clone(),
-            clock: self.clock.clone(),
-            self_sender: self.self_sender.clone(),
-        }
-    }
+    resources: Resources,
 }
 
 impl<M: Debug> Debug for Effects<M> {
@@ -69,12 +73,14 @@ impl<M: SendData> Effects<M> {
         effect: EffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
         self_sender: Sender<M>,
+        resources: Resources,
     ) -> Self {
         Self {
             me,
             effect,
             clock,
             self_sender,
+            resources,
         }
     }
 
@@ -182,7 +188,7 @@ impl<M> Effects<M> {
         )
     }
 
-    /// Run an effect that is not part of the StageGraph.
+    /// Run an effect that is not part of the StageGraph, as an asynchronous effect.
     pub fn external<T: ExternalEffectAPI>(&self, effect: T) -> BoxFuture<'static, T::Response> {
         airlock_effect(
             &self.effect,
@@ -195,6 +201,19 @@ impl<M> Effects<M> {
                 _ => None,
             },
         )
+    }
+
+    /// Run an effect that is not part of the StageGraph as a synchronous effect.
+    /// In that case we return the response directly.
+    ///
+    /// TODO: the call to this effect is not traced so we won't see it executed in the TraceBuffer.
+    pub fn external_sync<T: ExternalEffectAPI>(&self, effect: T) -> T::Response {
+        Box::new(effect)
+            .run(self.resources.clone())
+            .now_or_never()
+            .expect("an external sync effect must complete immediately in sync context")
+            .cast_deserialize::<T::Response>()
+            .expect("internal messaging type error")
     }
 
     /// Terminate this stage
@@ -242,6 +261,16 @@ pub trait ExternalEffect: SendData {
             let response = f.await;
             Box::new(response) as Box<dyn SendData>
         })
+    }
+
+    /// Helper method for implementers of ExternalEffect that have a synchronous response.
+    fn wrap_sync(
+        response: <Self as ExternalEffectAPI>::Response,
+    ) -> BoxFuture<'static, Box<dyn SendData>>
+    where
+        Self: Sized + ExternalEffectAPI,
+    {
+        Box::pin(future::ready(Box::new(response) as Box<dyn SendData>))
     }
 }
 

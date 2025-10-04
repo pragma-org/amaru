@@ -12,10 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 
-use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
-use pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+/// Metrics operations available to a stage. This allows a stage to record a MetricsEvent that
+/// will be collected via OpenTelemetry.
+/// This trait can have mock implementations for unit testing a stage.
+pub trait MetricsOps: Clone + Send {
+    fn record(&self, event: MetricsEvent) -> BoxFuture<'static, ()>;
+}
+
+/// Implementation of MetricsOps using pure_stage::Effects.
+#[derive(Clone)]
+pub struct Metrics<'a, T>(&'a Effects<T>);
+
+impl<'a, T> Metrics<'a, T> {
+    pub fn new(eff: &'a Effects<T>) -> Metrics<'a, T> {
+        Metrics(eff)
+    }
+}
+
+impl<T: Clone + SendData + Sync> MetricsOps for Metrics<'_, T> {
+    fn record(&self, event: MetricsEvent) -> BoxFuture<'static, ()> {
+        self.0.external(RecordMetricsEffect::new(event))
+    }
+}
+
+// EXTERNAL EFFECTS DEFINITIONS
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordMetricsEffect {

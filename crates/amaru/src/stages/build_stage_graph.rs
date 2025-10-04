@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::effects::store_effects::ResourceHeaderValidation;
+use amaru_consensus::consensus::effects::{ConsensusEffects, ResourceHeaderValidation};
 use amaru_consensus::consensus::errors::{ProcessingFailed, ValidationFailed};
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
@@ -23,26 +23,52 @@ use amaru_consensus::consensus::stages::{
 };
 use amaru_consensus::consensus::tip::HeaderTip;
 use amaru_kernel::protocol_parameters::GlobalParameters;
-use pure_stage::{StageGraph, StageRef};
+use amaru_slot_arithmetic::EraHistory;
+use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the consensus protocol.
 /// The output of the graph is passed as a parameter, allowing the caller to
 /// decide what to do with the results the graph processing.
 pub fn build_stage_graph(
     global_parameters: &GlobalParameters,
+    era_history: &'static EraHistory,
     header_validation: ResourceHeaderValidation,
     chain_selector: SelectChain,
     our_tip: HeaderTip,
     network: &mut impl StageGraph,
 ) -> StageRef<ChainSyncEvent> {
-    let receive_header_stage = network.stage("receive_header", receive_header::stage);
-    let store_header_stage = network.stage("store_header", store_header::stage);
-    let validate_header_stage = network.stage("validate_header", validate_header::stage);
-    let select_chain_stage = network.stage("select_chain", select_chain::stage);
-    let fetch_block_stage = network.stage("fetch_block", fetch_block::stage);
-    let store_block_stage = network.stage("store_block", store_block::stage);
-    let validate_block_stage = network.stage("validate_block", validate_block::stage);
-    let forward_chain_stage = network.stage("forward_chain", forward_chain::stage);
+    let receive_header_stage = network.stage(
+        "receive_header",
+        with_consensus_effects(era_history, receive_header::stage),
+    );
+    let store_header_stage = network.stage(
+        "store_header",
+        with_consensus_effects(era_history, store_header::stage),
+    );
+    let validate_header_stage = network.stage(
+        "validate_header",
+        with_consensus_effects(era_history, validate_header::stage),
+    );
+    let select_chain_stage = network.stage(
+        "select_chain",
+        with_consensus_effects(era_history, select_chain::stage),
+    );
+    let fetch_block_stage = network.stage(
+        "fetch_block",
+        with_consensus_effects(era_history, fetch_block::stage),
+    );
+    let store_block_stage = network.stage(
+        "store_block",
+        with_consensus_effects(era_history, store_block::stage),
+    );
+    let validate_block_stage = network.stage(
+        "validate_block",
+        with_consensus_effects(era_history, validate_block::stage),
+    );
+    let forward_chain_stage = network.stage(
+        "forward_chain",
+        with_consensus_effects(era_history, forward_chain::stage),
+    );
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
     let validation_errors_stage = network.stage(
@@ -125,4 +151,23 @@ pub fn build_stage_graph(
     );
 
     receive_header_stage.without_state()
+}
+
+/// Wrap a function taking `ConsensusEffects` so that it can be used in a stage graph that provides
+/// the `Effects` type. The `ConsensusEffects` provide a higher-level API for executing external effects
+/// during the consensus stages.
+///
+/// Note: the EraHistory reference must be passed to be able to build a ChainStore that can reference
+/// the correct era history. That ChainStore is returned by the ConsensusEffects::store() function.
+fn with_consensus_effects<Msg, St, F1, Fut>(
+    era_history: &'static EraHistory,
+    mut f: F1,
+) -> impl FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send
+where
+    F1: FnMut(St, Msg, ConsensusEffects<Msg>) -> Fut + 'static + Send,
+    Fut: Future<Output = St> + 'static + Send,
+    Msg: SendData + serde::de::DeserializeOwned + Sync + Clone,
+    St: SendData,
+{
+    move |state, message, effects| f(state, message, ConsensusEffects::new(effects, era_history))
 }

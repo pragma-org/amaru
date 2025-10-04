@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::effects::HeaderHash;
 use crate::consensus::errors::ConsensusError::UnknownPoint;
 use crate::consensus::errors::{ConsensusError, InvalidHeaderParentData};
 use crate::consensus::headers_tree::headers_tree::Tracker::{Me, SomePeer};
@@ -19,20 +20,16 @@ use crate::consensus::headers_tree::tree::Tree;
 use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
 use crate::consensus::stages::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
 use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::{HEADER_HASH_SIZE, ORIGIN_HASH, Point, peer::Peer};
+use amaru_kernel::{ORIGIN_HASH, Point, peer::Peer};
+#[cfg(any(test, feature = "test-utils"))]
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use itertools::Itertools;
-use pallas_crypto::hash::Hash;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display, Formatter};
-use std::iter::successors;
 use std::sync::Arc;
 use tracing::instrument;
-
-/// Type alias for a header hash to improve readability
-type HeaderHash = Hash<HEADER_HASH_SIZE>;
 
 /// This data type stores the chains of headers known from different peers:
 ///
@@ -44,68 +41,55 @@ type HeaderHash = Hash<HEADER_HASH_SIZE>;
 ///
 #[derive(Clone)]
 pub struct HeadersTree<H> {
-    /// Maximum size allowed for a given chain
-    max_length: usize,
-    /// This map maintains the hashes of the headers of each peer chain, starting from the root.
-    peers: BTreeMap<Tracker, Vec<HeaderHash>>,
-    /// Store containing headers data
+    /// Transient state of the headers tree with peers and max length
+    tree_state: HeadersTreeState,
+    /// Persistent state of the headers tree within the chain store
     chain_store: Arc<dyn ChainStore<H>>,
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> PartialEq
-    for HeadersTree<H>
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.max_length == other.max_length
-            && self.peers == other.peers
-            && self.anchor() == other.anchor()
-            && self.best_chain() == other.best_chain()
+impl<H> HeadersTree<H> {
+    /// Consume the headers tree and return its transient state
+    pub fn into_tree_state(self) -> HeadersTreeState {
+        self.tree_state
     }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Eq for HeadersTree<H> {}
-
-/// For now this data type is only used to implement Serialize and Deserialize for HeadersTree
-/// by avoiding serializing the chain_store field.
-///
-/// This will be revisited when the store effects will all be available in pure-stage.
-#[derive(Clone, Serialize, Deserialize)]
-struct HeadersTreeState {
+/// Transient state of the headers tree with peers and max length
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
+pub struct HeadersTreeState {
     max_length: usize,
     peers: BTreeMap<Tracker, Vec<HeaderHash>>,
 }
 
-impl<H> From<&HeadersTree<H>> for HeadersTreeState {
-    fn from(tree: &HeadersTree<H>) -> Self {
-        HeadersTreeState {
-            max_length: tree.max_length,
-            peers: tree.peers.clone(),
+impl HeadersTreeState {
+    pub fn new(max_length: usize) -> Self {
+        Self {
+            max_length,
+            peers: BTreeMap::new(),
         }
     }
-}
 
-impl<H: IsHeader + Clone + Send + Sync + 'static> Serialize for HeadersTree<H> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        HeadersTreeState::from(self).serialize(serializer)
+    /// Return the peers and their current chain tips for testing.
+    #[cfg(test)]
+    pub(crate) fn peers(&self) -> &BTreeMap<Tracker, Vec<HeaderHash>> {
+        &self.peers
     }
-}
 
-impl<'de, H: IsHeader + Clone + Send + Sync + 'static> Deserialize<'de> for HeadersTree<H> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let data = HeadersTreeState::deserialize(deserializer)?;
-
-        // When deserializing we create a new in-memory store. This is just a stop-gap implementation for now.
-        Ok(HeadersTree {
-            max_length: data.max_length,
-            peers: data.peers,
-            chain_store: Arc::new(InMemConsensusStore::new()),
-        })
+    /// Add a peer and its current chain tip to initialize the current headers tree state.
+    pub fn initialize_peer<H: IsHeader + Clone + 'static>(
+        &mut self,
+        store: Arc<dyn ChainStore<H>>,
+        peer: &Peer,
+        hash: &HeaderHash,
+    ) -> Result<(), ConsensusError> {
+        if store.has_header(hash) || hash == &ORIGIN_HASH {
+            let mut peer_chain: Vec<_> = store.ancestors_hashes(hash).collect();
+            peer_chain.reverse();
+            self.peers.insert(SomePeer(peer.clone()), peer_chain);
+            Ok(())
+        } else {
+            Err(UnknownPoint(*hash))
+        }
     }
 }
 
@@ -139,13 +123,13 @@ impl Display for Tracker {
     }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Debug for HeadersTree<H> {
+impl<H: IsHeader + Clone + Debug + PartialEq + Eq + 'static> Debug for HeadersTree<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f, |tip| format!("{tip:?}"))
     }
 }
 
-impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq> Display for HeadersTree<H> {
+impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display for HeadersTree<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f, |tip| format!("{tip}"))
     }
@@ -171,6 +155,7 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
             f,
             "  peers: {}",
             &self
+                .tree_state
                 .peers
                 .iter()
                 .map(|(p, hs)| format!("{} -> [{}]", p, hs.list_to_string(", ")))
@@ -183,7 +168,7 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
             &self.best_chains().list_to_string(", ")
         )?;
         writeln!(f, "  best_length: {}", &self.best_length())?;
-        writeln!(f, "  max_length: {}", &self.max_length)?;
+        writeln!(f, "  max_length: {}", &self.tree_state.max_length)?;
         f.write_str("}\n")
     }
 
@@ -197,7 +182,7 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Load all the headers in the subtree rooted at the given hash
-    fn load_headers(&self, root: &Hash<HEADER_HASH_SIZE>) -> Vec<H> {
+    fn load_headers(&self, root: &HeaderHash) -> Vec<H> {
         let mut headers = vec![];
         if let Some(header) = self.chain_store.load_header(root) {
             headers.push(header);
@@ -211,9 +196,17 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
 }
 
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
-    /// Initialize a HeadersTree as a tree rooted in the Genesis header
-    pub fn new(chain_store: Arc<dyn ChainStore<H>>, max_length: usize) -> HeadersTree<H> {
-        HeadersTree::create(chain_store.clone(), max_length)
+    /// Create a new HeadersTree with a given store and maximum chain length.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn new(store: Arc<dyn ChainStore<H>>, max_length: usize) -> HeadersTree<H> {
+        assert!(
+            max_length >= 2,
+            "Cannot create a headers tree with maximum chain length lower than 2"
+        );
+        let mut peers = BTreeMap::new();
+        peers.insert(Me, store.retrieve_best_chain());
+        let tree_state = HeadersTreeState { max_length, peers };
+        HeadersTree::create(store, tree_state)
     }
 
     /// Create a new HeadersTree with an in-memory store for testing purposes.
@@ -223,19 +216,12 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
     }
 
     /// Create a new HeadersTree
-    fn create(chain_store: Arc<dyn ChainStore<H>>, max_length: usize) -> HeadersTree<H> {
-        assert!(
-            max_length >= 2,
-            "Cannot create a headers tree with maximum chain length lower than 2"
-        );
-
-        let best_chain = chain_store.retrieve_best_chain();
-        let mut peers = BTreeMap::new();
-        peers.insert(Me, best_chain);
-
+    pub(crate) fn create(
+        chain_store: Arc<dyn ChainStore<H>>,
+        tree_state: HeadersTreeState,
+    ) -> HeadersTree<H> {
         HeadersTree {
-            max_length,
-            peers,
+            tree_state,
             chain_store,
         }
     }
@@ -251,7 +237,9 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
         if self.chain_store.has_header(hash) || hash == &ORIGIN_HASH {
             let mut peer_chain: Vec<_> = self.ancestors_hashes(hash).collect();
             peer_chain.reverse();
-            self.peers.insert(SomePeer(peer.clone()), peer_chain);
+            self.tree_state
+                .peers
+                .insert(SomePeer(peer.clone()), peer_chain);
             Ok(())
         } else {
             Err(UnknownPoint(*hash))
@@ -261,7 +249,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
     /// Add a new header coming from an upstream peer to the tree.
     /// The result will be an event describing:
     ///   - No change (if the header is already known for example).
-    ///   - A NewTip .
+    ///   - A NewTip.
     ///   - A Fork if the chain that ends with this new header becomes the longest one.
     ///
     /// There will be errors if:
@@ -386,7 +374,8 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// Return the length of the best chain currently known.
     pub fn best_length(&self) -> usize {
-        self.peers
+        self.tree_state
+            .peers
             .values()
             .map(|chain| chain.len())
             .max()
@@ -396,7 +385,8 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// Return the tracker of the best chain, or "Me" if no peer is tracking it.
     fn best_tracker(&self) -> &Tracker {
         let best_chain = self.best_chain();
-        self.peers
+        self.tree_state
+            .peers
             .iter()
             .find(|(p, chain)| p != &&Me && chain.last() == Some(&best_chain))
             .map(|pc| pc.0)
@@ -412,7 +402,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     fn best_chains(&self) -> Vec<&HeaderHash> {
         let mut best_length = 0;
         let mut best_chains = vec![];
-        for chain in self.peers.values() {
+        for chain in self.tree_state.peers.values() {
             if let Some(last) = chain.last() {
                 if chain.len() > best_length {
                     best_length = chain.len();
@@ -432,7 +422,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the root of the tree
-    fn anchor(&self) -> Hash<HEADER_HASH_SIZE> {
+    fn anchor(&self) -> HeaderHash {
         self.chain_store.get_anchor_hash()
     }
 
@@ -443,7 +433,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         peer: &Peer,
         hash: &HeaderHash,
     ) -> Result<(), ConsensusError> {
-        if let Some(chain) = self.peers.get_mut(&SomePeer(peer.clone())) {
+        if let Some(chain) = self.tree_state.peers.get_mut(&SomePeer(peer.clone())) {
             if let Some(rollback_index) = chain.iter().position(|h| h == hash) {
                 // keep everything up to and including the rollback hash
                 chain.truncate(rollback_index + 1);
@@ -481,10 +471,10 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// Update the peer chain with the new tip
     fn update_peer(&mut self, peer: &Peer, tip: &H) {
         let tracker = SomePeer(peer.clone());
-        if let Some(chain) = self.peers.get_mut(&tracker) {
+        if let Some(chain) = self.tree_state.peers.get_mut(&tracker) {
             chain.push(tip.hash());
         } else {
-            self.peers.insert(tracker, vec![tip.hash()]);
+            self.tree_state.peers.insert(tracker, vec![tip.hash()]);
         }
     }
 
@@ -501,26 +491,9 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         self.chain_store.load_header(hash)
     }
 
-    /// Return the ancestors of the header, including the header itself.
-    /// Stop at the anchor of the tree.
-    fn ancestors(&self, start: &H) -> impl Iterator<Item = H> + use<'_, H> {
-        let anchor = self.anchor();
-        successors(Some(start.clone()), move |h| {
-            if h.hash() == anchor {
-                None
-            } else {
-                h.parent().and_then(|p| self.get_header(&p))
-            }
-        })
-    }
-
     /// Return the hashes of the ancestors of the header, including the header hash itself.
     fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + '_> {
-        if let Some(header) = self.get_header(hash) {
-            Box::new(self.ancestors(&header).map(|h| h.hash()))
-        } else {
-            Box::new(std::iter::empty())
-        }
+        self.chain_store.ancestors_hashes(hash)
     }
 
     /// Return true if the parent of the header is the tip of the peer chain
@@ -545,7 +518,8 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the tip of the chain for a given peer, or None if the peer is unknown.
     fn get_peer_tip(&self, peer: &Peer) -> Option<&HeaderHash> {
-        self.peers
+        self.tree_state
+            .peers
             .get(&SomePeer(peer.clone()))
             .and_then(|hs| hs.last())
     }
@@ -561,7 +535,9 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
             .set_best_chain_hash(hash)
             .map_err(|e| ConsensusError::SetBestChainHashFailed(*hash, e))?;
         // update "Me" so that it points to the best chain, as given by the the best chain tip
-        self.peers.insert(Me, self.best_chain_fragment_hashes());
+        self.tree_state
+            .peers
+            .insert(Me, self.best_chain_fragment_hashes());
         Ok(())
     }
 
@@ -576,7 +552,9 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
                 self.chain_store
                     .update_best_chain(&anchor, &tip)
                     .map_err(|e| ConsensusError::UpdateBestChainFailed(anchor, tip, e))?;
-                self.peers.insert(Me, self.best_chain_fragment_hashes());
+                self.tree_state
+                    .peers
+                    .insert(Me, self.best_chain_fragment_hashes());
                 Ok(())
             }
             (Some(anchor), _) => {
@@ -630,7 +608,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// remove the peers that do not contain the new anchor.
     #[instrument(level = "trace", skip_all)]
     fn trim_chain(&mut self) -> Result<Option<HeaderHash>, ConsensusError> {
-        if self.best_length() <= self.max_length {
+        if self.best_length() <= self.tree_state.max_length {
             return Ok(None);
         }
 
@@ -644,14 +622,14 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         // If we have at least two headers, we can move the anchor up one level
         // We remove all the peers which do not contain the new anchor
         if let Some(second) = second {
-            self.peers.iter_mut().for_each(|(_p, hs)| {
+            self.tree_state.peers.iter_mut().for_each(|(_p, hs)| {
                 if !hs.contains(&second) {
                     hs.drain(0..);
                 } else {
                     hs.remove(0);
                 }
             });
-            self.peers.retain(|_p, hs| !hs.is_empty());
+            self.tree_state.peers.retain(|_p, hs| !hs.is_empty());
             Ok(Some(second))
         } else {
             Ok(None)
@@ -662,7 +640,8 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// The list starts from the root.
     fn best_chain_fragment_hashes(&self) -> Vec<HeaderHash> {
         let best_chain = self.best_chain();
-        self.peers
+        self.tree_state
+            .peers
             .values()
             .find(|chain| chain.last() == Some(&best_chain))
             .cloned()
@@ -673,7 +652,8 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// The list starts from the root.
     fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item = HeaderHash> {
         let best_chain = self.best_chain();
-        self.peers
+        self.tree_state
+            .peers
             .values()
             .find(|chain| chain.last() == Some(&best_chain))
             .map(|chain| chain.iter().cloned())
@@ -686,7 +666,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
     /// Return true if the peer is known
     pub fn has_peer(&self, peer: &Peer) -> bool {
-        self.peers.contains_key(&SomePeer(peer.clone()))
+        self.tree_state.peers.contains_key(&SomePeer(peer.clone()))
     }
 
     /// Return the tip of the best chain that currently known as a header
@@ -698,7 +678,8 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
     /// The list starts from the root.
     pub fn best_chain_fragment(&self) -> Vec<H> {
         let mut fragment: Vec<_> = self
-            .ancestors(&self.unsafe_get_header(&self.best_chain()))
+            .chain_store
+            .ancestors(self.unsafe_get_header(&self.best_chain()))
             .collect();
         fragment.reverse();
         fragment
@@ -722,17 +703,19 @@ mod tests {
     use amaru_kernel::ORIGIN_HASH;
     use amaru_kernel::string_utils::{ListDebug, ListsToString};
     use amaru_kernel::tests::random_hash;
+    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use proptest::{prop_assert, proptest};
     use std::assert_matches::assert_matches;
 
     #[test]
     fn initialize_peer_on_empty_tree() {
-        let store = Arc::new(InMemConsensusStore::new());
-        let mut tree: HeadersTree<TestHeader> = HeadersTree::new(store.clone(), 10);
+        let store: Arc<dyn ChainStore<TestHeader>> = Arc::new(InMemConsensusStore::new());
         let peer = Peer::new("alice");
         let mut header = generate_header();
         header.parent = Some(ORIGIN_HASH);
         store.store_header(&header).unwrap();
+        let mut tree: HeadersTree<TestHeader> =
+            HeadersTree::create(store, HeadersTreeState::new(10));
         tree.initialize_peer(&peer, &Point::Origin.hash()).unwrap();
 
         tree.select_roll_forward(&peer, header).unwrap();
@@ -747,7 +730,8 @@ mod tests {
     fn single_chain_is_best_chain() {
         let headers = generate_headers_chain(5);
         let store = Arc::new(InMemConsensusStore::new());
-        let tree: HeadersTree<TestHeader> = HeadersTree::new(store.clone(), 10);
+        let tree: HeadersTree<TestHeader> =
+            HeadersTree::create(store.clone(), HeadersTreeState::new(10));
         for header in &headers {
             store.store_header(header).unwrap();
         }
