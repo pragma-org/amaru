@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let result = match args.command {
-        Command::Bootstrap(args) => cmd::bootstrap::run(args),
+        Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
         Command::Mithril(args) => cmd::mithril::run(args).await,
     };
 

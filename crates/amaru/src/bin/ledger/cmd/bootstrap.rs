@@ -57,7 +57,7 @@ pub struct Args {
 
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::panic)]
-pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let ledger_dir = args
         .ledger_dir
@@ -135,7 +135,11 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             }
             processed += 1;
 
-            if let Err(err) = block_validator.roll_forward_block(point, block).unwrap() {
+            if let Err(err) = block_validator
+                .roll_forward_block(point, block)
+                .await
+                .unwrap()
+            {
                 panic!("Error processing block at point {:?}: {:?}", point, err);
             }
         }
