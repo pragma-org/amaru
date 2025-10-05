@@ -222,7 +222,10 @@ fn ger_latest_chunk(immutable_dir: &PathBuf) -> Result<Option<u64>, io::Error> {
         return Ok(fs::read_dir(immutable_dir)?
             .filter_map(Result::ok)
             .filter_map(|entry| entry.path().file_name()?.to_str().map(|s| s.to_owned()))
-            .filter_map(|name| name.strip_suffix(".chunk").and_then(|id| id.parse::<u64>().ok()))
+            .filter_map(|name| {
+                name.strip_suffix(".chunk")
+                    .and_then(|id| id.parse::<u64>().ok())
+            })
             .max()
             .map(|n| n - 1));
     }
@@ -262,12 +265,11 @@ fn aggregator_details(network: NetworkName) -> AggregatorDetails {
     }
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let network = args.network;
-    let ledger_dir = args
-        .ledger_dir
-        .unwrap_or_else(|| default_ledger_dir(network).into());
-
+async fn download_from_mithril(
+    network: NetworkName,
+    target_dir: PathBuf,
+    latest_chunk: Option<u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let progress_bar = indicatif::MultiProgress::new();
     let AggregatorDetails {
         endpoint,
@@ -279,7 +281,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .set_ancillary_verification_key(ancillary_verification_key.to_string())
         .add_feedback_receiver(Arc::new(IndicatifFeedbackReceiver::new(&progress_bar)))
         .build()?;
-
     let database_client = client.cardano_database_v2();
     let snapshots = database_client.list().await?;
     let snapshot_list_item = snapshots.first().ok_or("no snapshot found")?;
@@ -287,32 +288,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .get(&snapshot_list_item.hash)
         .await?
         .ok_or(format!("snapshot not found {}", snapshot_list_item.hash))?;
-
     let certificate = client
         .certificate()
         .verify_chain(&snapshot.certificate_hash)
         .await?;
-
-    let ledger = new_block_validator(network, ledger_dir)?;
-    let tip = ledger.get_tip();
-
-    let target_dir = args.snapshots_dir.join(network.to_string());
-    fs::create_dir_all(&target_dir)?;
-
-    let immutable_dir = target_dir.join("immutable");
-    let latest_chunk = ger_latest_chunk(&immutable_dir)?;
     let from_chunk = latest_chunk.unwrap_or(initial_chunk);
-
     info!("Downloading mithril immutabe starting chunk {}", from_chunk);
-
-    // TODO how to get the right initial number from tip here?
     let immutable_file_range = ImmutableFileRange::From(from_chunk);
     let download_unpack_options = DownloadUnpackOptions {
         allow_override: true,
         include_ancillary: false,
         ..DownloadUnpackOptions::default()
     };
-
     database_client
         .download_unpack(
             &snapshot,
@@ -321,14 +308,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             download_unpack_options,
         )
         .await?;
-
     info!("Snapshot unpacked to {:?}", target_dir);
-
     let verified_digests = client
         .cardano_database_v2()
         .download_and_verify_digests(&certificate, &snapshot)
         .await?;
-
     let allow_missing_immutables_files = false;
     let merkle_proof = client
         .cardano_database_v2()
@@ -341,13 +325,31 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             &verified_digests,
         )
         .await?;
-
     let message = MessageBuilder::new()
         .compute_cardano_database_message(&certificate, &merkle_proof)
         .await?;
     assert!(certificate.match_message(&message));
-
     info!("Snapshot verified against certificate");
+    Ok(())
+}
+
+pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let network = args.network;
+    let ledger_dir = args
+        .ledger_dir
+        .unwrap_or_else(|| default_ledger_dir(network).into());
+
+    let target_dir = args.snapshots_dir.join(network.to_string());
+    fs::create_dir_all(&target_dir)?;
+
+    let immutable_dir = target_dir.join("immutable");
+
+    let ledger = new_block_validator(network, ledger_dir)?;
+    let tip = ledger.get_tip();
+
+    let latest_chunk = ger_latest_chunk(&immutable_dir)?;
+
+    download_from_mithril(network, target_dir, latest_chunk).await?;
 
     for chunk in read_blocks_from_point(&immutable_dir, to_network_point(tip))?
         .map_while(Result::ok)
