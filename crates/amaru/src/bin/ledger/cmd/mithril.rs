@@ -16,7 +16,7 @@ use std::{
     collections::BTreeMap,
     fmt,
     fs::{self, File},
-    io::{Cursor, Write},
+    io::{self, Cursor, Write},
     path::PathBuf,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
@@ -215,6 +215,20 @@ async fn package_blocks(
     Ok(compressed)
 }
 
+/// Returns the latest chunk number present in the given immutable directory.
+/// If no chunk files are found, returns None.
+fn ger_latest_chunk(immutable_dir: &PathBuf) -> Result<Option<u64>, io::Error> {
+    if immutable_dir.try_exists()? {
+        return Ok(fs::read_dir(immutable_dir)?
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.path().file_name()?.to_str().map(|s| s.to_owned()))
+            .filter_map(|name| name.strip_suffix(".chunk").and_then(|id| id.parse::<u64>().ok()))
+            .max()
+            .map(|n| n - 1));
+    }
+    Ok(None)
+}
+
 struct AggregatorDetails {
     endpoint: &'static str,
     verification_key: &'static str,
@@ -282,17 +296,23 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger = new_block_validator(network, ledger_dir)?;
     let tip = ledger.get_tip();
 
-    // TODO how to get the right number here?
-    // TODO also looks like everything is downloaded again each time
-    let immutable_file_range = ImmutableFileRange::From(initial_chunk);
+    let target_dir = args.snapshots_dir.join(network.to_string());
+    fs::create_dir_all(&target_dir)?;
+
+    let immutable_dir = target_dir.join("immutable");
+    let latest_chunk = ger_latest_chunk(&immutable_dir)?;
+    let from_chunk = latest_chunk.unwrap_or(initial_chunk);
+
+    info!("Downloading mithril immutabe starting chunk {}", from_chunk);
+
+    // TODO how to get the right initial number from tip here?
+    let immutable_file_range = ImmutableFileRange::From(from_chunk);
     let download_unpack_options = DownloadUnpackOptions {
         allow_override: true,
         include_ancillary: false,
         ..DownloadUnpackOptions::default()
     };
 
-    let target_dir = args.snapshots_dir.join(network.to_string());
-    fs::create_dir_all(&target_dir)?;
     database_client
         .download_unpack(
             &snapshot,
@@ -328,8 +348,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     assert!(certificate.match_message(&message));
 
     info!("Snapshot verified against certificate");
-
-    let immutable_dir = target_dir.join("immutable");
 
     for chunk in read_blocks_from_point(&immutable_dir, to_network_point(tip))?
         .map_while(Result::ok)
