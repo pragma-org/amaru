@@ -217,7 +217,7 @@ async fn package_blocks(
 
 /// Returns the latest chunk number present in the given immutable directory.
 /// If no chunk files are found, returns None.
-fn ger_latest_chunk(immutable_dir: &PathBuf) -> Result<Option<u64>, io::Error> {
+fn get_latest_chunk(immutable_dir: &PathBuf) -> Result<Option<u64>, io::Error> {
     if immutable_dir.try_exists()? {
         return Ok(fs::read_dir(immutable_dir)?
             .filter_map(Result::ok)
@@ -227,16 +227,19 @@ fn ger_latest_chunk(immutable_dir: &PathBuf) -> Result<Option<u64>, io::Error> {
                     .and_then(|id| id.parse::<u64>().ok())
             })
             .max()
-            .map(|n| n - 1));
+            .map(|n| n - 1)); // Last immutable might not be finalized (hint from JP from Mithril team)
     }
     Ok(None)
+}
+
+fn infer_chunk_from_slot(slot: u64) -> u64 {
+    slot / 21_600
 }
 
 struct AggregatorDetails {
     endpoint: &'static str,
     verification_key: &'static str,
     ancillary_verification_key: &'static str,
-    initial_chunk: u64,
 }
 
 // See https://github.com/input-output-hk/mithril/blob/main/networks.json
@@ -247,19 +250,16 @@ fn aggregator_details(network: NetworkName) -> AggregatorDetails {
             endpoint: "https://aggregator.release-mainnet.api.mithril.network/aggregator",
             verification_key: "5b3139312c36362c3134302c3138352c3133382c31312c3233372c3230372c3235302c3134342c32372c322c3138382c33302c31322c38312c3135352c3230342c31302c3137392c37352c32332c3133382c3139362c3231372c352c31342c32302c35372c37392c33392c3137365d",
             ancillary_verification_key: "5b32332c37312c39362c3133332c34372c3235332c3232362c3133362c3233352c35372c3136342c3130362c3138362c322c32312c32392c3132302c3136332c38392c3132312c3137372c3133382c3230382c3133382c3231342c39392c35382c32322c302c35382c332c36395d",
-            initial_chunk: 4500,
         },
         NetworkName::Preprod => AggregatorDetails {
             endpoint: "https://aggregator.release-preprod.api.mithril.network/aggregator",
             verification_key: "5b3132372c37332c3132342c3136312c362c3133372c3133312c3231332c3230372c3131372c3139382c38352c3137362c3139392c3136322c3234312c36382c3132332c3131392c3134352c31332c3233322c3234332c34392c3232392c322c3234392c3230352c3230352c33392c3233352c34345d",
             ancillary_verification_key: "5b3138392c3139322c3231362c3135302c3131342c3231362c3233372c3231302c34352c31382c32312c3139362c3230382c3234362c3134362c322c3235322c3234332c3235312c3139372c32382c3135372c3230342c3134352c33302c31342c3232382c3136382c3132392c38332c3133362c33365d",
-            initial_chunk: 4500,
         },
         NetworkName::Preview => AggregatorDetails {
             endpoint: "https://aggregator.testing-preview.api.mithril.network/aggregator",
             verification_key: "5b3132372c37332c3132342c3136312c362c3133372c3133312c3231332c3230372c3131372c3139382c38352c3137362c3139392c3136322c3234312c36382c3132332c3131392c3134352c31332c3233322c3234332c34392c3232392c322c3234392c3230352c3230352c33392c3233352c34345d",
             ancillary_verification_key: "5b3138392c3139322c3231362c3135302c3131342c3231362c3233372c3231302c34352c31382c32312c3139362c3230382c3234362c3134362c322c3235322c3234332c3235312c3139372c32382c3135372c3230342c3134352c33302c31342c3232382c3136382c3132392c38332c3133362c33365d",
-            initial_chunk: 4500,
         },
         NetworkName::Testnet(_) => panic!("Mithril not supported on testnets"),
     }
@@ -268,14 +268,13 @@ fn aggregator_details(network: NetworkName) -> AggregatorDetails {
 async fn download_from_mithril(
     network: NetworkName,
     target_dir: PathBuf,
-    latest_chunk: Option<u64>,
+    from_chunk: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let progress_bar = indicatif::MultiProgress::new();
     let AggregatorDetails {
         endpoint,
         verification_key,
         ancillary_verification_key,
-        initial_chunk,
     } = aggregator_details(network);
     let client = ClientBuilder::aggregator(endpoint, verification_key)
         .set_ancillary_verification_key(ancillary_verification_key.to_string())
@@ -284,6 +283,12 @@ async fn download_from_mithril(
     let database_client = client.cardano_database_v2();
     let snapshots = database_client.list().await?;
     let snapshot_list_item = snapshots.first().ok_or("no snapshot found")?;
+
+    info!(
+        "Downloading and verifying mithril snapshot {}",
+        snapshot_list_item.hash
+    );
+
     let snapshot = database_client
         .get(&snapshot_list_item.hash)
         .await?
@@ -292,8 +297,7 @@ async fn download_from_mithril(
         .certificate()
         .verify_chain(&snapshot.certificate_hash)
         .await?;
-    let from_chunk = latest_chunk.unwrap_or(initial_chunk);
-    info!("Downloading mithril immutabe starting chunk {}", from_chunk);
+
     let immutable_file_range = ImmutableFileRange::From(from_chunk);
     let download_unpack_options = DownloadUnpackOptions {
         allow_override: true,
@@ -308,7 +312,9 @@ async fn download_from_mithril(
             download_unpack_options,
         )
         .await?;
+
     info!("Snapshot unpacked to {:?}", target_dir);
+
     let verified_digests = client
         .cardano_database_v2()
         .download_and_verify_digests(&certificate, &snapshot)
@@ -329,7 +335,9 @@ async fn download_from_mithril(
         .compute_cardano_database_message(&certificate, &merkle_proof)
         .await?;
     assert!(certificate.match_message(&message));
+
     info!("Snapshot verified against certificate");
+
     Ok(())
 }
 
@@ -347,14 +355,26 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger = new_block_validator(network, ledger_dir)?;
     let tip = ledger.get_tip();
 
-    let latest_chunk = ger_latest_chunk(&immutable_dir)?;
+    // Determine the chunk to start from
+    let latest_chunk = get_latest_chunk(&immutable_dir)?;
+    let from_chunk =
+        latest_chunk.unwrap_or(infer_chunk_from_slot(tip.slot_or_default().into()) - 1);
 
-    download_from_mithril(network, target_dir, latest_chunk).await?;
+    info!(
+        "Downloading mithril immutabe starting chunk {} (tip {})",
+        from_chunk, tip
+    );
 
+    download_from_mithril(network, target_dir, from_chunk).await?;
+
+    info!("Packaging blocks into .tar.gz files");
+
+    // Read blocks from the immutable storage and package them into .tar.gz files
+    const BLOCKS_PER_ARCHIVE: usize = 20000;
     for chunk in read_blocks_from_point(&immutable_dir, to_network_point(tip))?
         .map_while(Result::ok)
         .skip(1) // Exclude the tip itself
-        .array_chunks::<20000>()
+        .array_chunks::<BLOCKS_PER_ARCHIVE>()
     {
         let map: BTreeMap<_, _> = chunk
             .iter()
