@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_consensus::consensus::store::PraosChainStore;
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use std::{fs, io::Read, path::PathBuf, sync::Arc, time::Instant};
 use tracing::info;
 
 use amaru_kernel::{
-    EraHistory, HeaderBody, Point, PseudoHeader, RawBlock, default_chain_dir, default_ledger_dir,
-    network::NetworkName,
+    default_chain_dir, default_ledger_dir, network::NetworkName, protocol_parameters::GlobalParameters, EraHistory, HeaderBody, Point, PseudoHeader, RawBlock
 };
 use amaru_ledger::{rules::parse_block, store::HistoricalStores};
-use amaru_ouroboros_traits::{ChainStore, can_validate_blocks::CanValidateBlocks};
+use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
 
 use flate2::read::GzDecoder;
 use tar::Archive;
@@ -75,6 +75,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| default_chain_dir(network).into());
 
     let era_history: &EraHistory = network.into();
+    let global_parameters: &GlobalParameters = network.into();
     let block_validator = new_block_validator(network, ledger_dir)?;
     let chain_store: Arc<dyn ChainStore<PseudoHeader<HeaderBody>>> = Arc::new(RocksDBStore::new(
         &RocksDbConfig::new(chain_dir),
@@ -152,8 +153,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             processed += 1;
 
             let block = parse_block(raw_block)?;
-            chain_store.store_header(&block.header.unwrap().into())?;
+            let header = block.header.unwrap().into();
+            chain_store.store_header(&header)?;
             chain_store.store_block(&point.hash(), raw_block)?;
+            PraosChainStore::new(chain_store.clone()).evolve_nonce(&header, &global_parameters)?;
 
             if let Err(err) = block_validator
                 .roll_forward_block(point, raw_block)
