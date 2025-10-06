@@ -146,7 +146,7 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
 
         if set_has_duplicates(&tx_body.inputs) {
             return Err(Error::message(
-                "TransactionBody inputs has duplicates".to_string()
+                "TransactionBody inputs has duplicates".to_string(),
             ));
         }
 
@@ -157,22 +157,20 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
         }
 
         if tx_body.mint.as_ref().is_some_and(|x| x.is_empty()) {
-            return Err(Error::message("mint must be non-empty if present".to_string()));
+            return Err(Error::message(
+                "mint must be non-empty if present".to_string(),
+            ));
         }
 
-        if tx_body
-            .certificates
-            .as_ref()
-            .is_some_and(|x| x.is_empty())
-        {
+        if tx_body.certificates.as_ref().is_some_and(|x| x.is_empty()) {
             return Err(Error::message(
-                "TransactionBody certificates are empty".to_string()
+                "TransactionBody certificates are empty".to_string(),
             ));
         }
 
         if tx_body.withdrawals.as_ref().is_some_and(|x| x.is_empty()) {
             return Err(Error::message(
-                "withdrawals must be non-empty if present".to_string()
+                "withdrawals must be non-empty if present".to_string(),
             ));
         }
 
@@ -182,7 +180,7 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             .is_some_and(|x| x.is_empty())
         {
             return Err(Error::message(
-                "voting procedures must be non-empty if present".to_string()
+                "voting procedures must be non-empty if present".to_string(),
             ));
         }
 
@@ -192,13 +190,13 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             .is_some_and(|x| x.is_empty())
         {
             return Err(Error::message(
-                "proposal procedures must be non-empty if present".to_string()
+                "proposal procedures must be non-empty if present".to_string(),
             ));
         }
 
         if tx_body.collateral.as_ref().is_some_and(|x| x.is_empty()) {
             return Err(Error::message(
-                "collaterals must be non-empty if present".to_string()
+                "collaterals must be non-empty if present".to_string(),
             ));
         }
 
@@ -208,7 +206,7 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             .is_some_and(nonempty_set_has_duplicates)
         {
             return Err(Error::message(
-                "TransactionBody collaterals has duplicates".to_string()
+                "TransactionBody collaterals has duplicates".to_string(),
             ));
         }
 
@@ -218,7 +216,7 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             .is_some_and(|r| r.is_empty())
         {
             return Err(Error::message(
-                "required signers must be non-empty if present".to_string()
+                "required signers must be non-empty if present".to_string(),
             ));
         }
 
@@ -228,7 +226,7 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             .is_some_and(nonempty_set_has_duplicates)
         {
             return Err(Error::message(
-                "TransactionBody required signers has duplicates".to_string()
+                "TransactionBody required signers has duplicates".to_string(),
             ));
         }
 
@@ -238,7 +236,7 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             .is_some_and(|r| r.is_empty())
         {
             return Err(Error::message(
-                "reference inputs must be non-empty if present".to_string()
+                "reference inputs must be non-empty if present".to_string(),
             ));
         }
 
@@ -248,7 +246,7 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             .is_some_and(|v| v.is_empty())
         {
             return Err(Error::message(
-                "voting procedures must be non-empty if present".to_string()
+                "voting procedures must be non-empty if present".to_string(),
             ));
         }
 
@@ -258,13 +256,13 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             .is_some_and(|p| p.is_empty())
         {
             return Err(Error::message(
-                "proposal procedures must be non-empty if present".to_string()
+                "proposal procedures must be non-empty if present".to_string(),
             ));
         }
 
         if tx_body.treasury_value.as_ref().is_some_and(|t| *t == 0) {
             return Err(Error::message(
-                "TransactionBody treasury donation is zero".to_string()
+                "TransactionBody treasury donation is zero".to_string(),
             ));
         }
 
