@@ -23,8 +23,6 @@ pub struct MockLedgerState {
     pub stake: Lovelace,
     pub active_stake: Lovelace,
     pub op_certs: BTreeMap<PoolId, u64>,
-    pub slots_per_kes_period: u64,
-    pub max_kes_evolutions: u64,
 }
 
 impl MockLedgerState {
@@ -35,8 +33,6 @@ impl MockLedgerState {
             stake,
             active_stake,
             op_certs: Default::default(),
-            slots_per_kes_period: 129600, // (1.5 days in seconds)
-            max_kes_evolutions: 62,
         }
     }
 }
@@ -48,17 +44,5 @@ impl HasStakeDistribution for MockLedgerState {
             stake: self.stake,
             active_stake: self.active_stake,
         })
-    }
-
-    fn slot_to_kes_period(&self, slot: Slot) -> u64 {
-        u64::from(slot) / self.slots_per_kes_period
-    }
-
-    fn max_kes_evolutions(&self) -> u64 {
-        self.max_kes_evolutions
-    }
-
-    fn latest_opcert_sequence_number(&self, pool: &PoolId) -> Option<u64> {
-        self.op_certs.get(pool).copied()
     }
 }

@@ -14,7 +14,6 @@
 
 use amaru_kernel::{HEADER_HASH_SIZE, Header, RawBlock, protocol_parameters::GlobalParameters};
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use amaru_slot_arithmetic::EraHistory;
 use pallas_crypto::hash::Hash;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
@@ -26,15 +25,11 @@ pub type HeaderHash = Hash<HEADER_HASH_SIZE>;
 #[derive(Clone)]
 pub struct Store<T> {
     effects: Effects<T>,
-    era_history: EraHistory,
 }
 
 impl<T> Store<T> {
-    pub fn new(effects: Effects<T>, era_history: EraHistory) -> Store<T> {
-        Store {
-            effects,
-            era_history,
-        }
+    pub fn new(effects: Effects<T>) -> Store<T> {
+        Store { effects }
     }
 
     /// This function runs an external effect synchronously.
@@ -124,10 +119,6 @@ impl<T: SendData + Sync> ChainStore<Header> for Store<T> {
 
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
         self.external_sync(PutNoncesEffect::new(*header, nonces.clone()))
-    }
-
-    fn era_history(&self) -> &EraHistory {
-        &self.era_history
     }
 }
 

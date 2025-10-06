@@ -16,7 +16,6 @@ pub mod in_memory_consensus_store;
 
 use crate::{IsHeader, Nonces};
 use amaru_kernel::{HEADER_HASH_SIZE, Hash, RawBlock};
-use amaru_slot_arithmetic::EraHistory;
 use std::fmt::Display;
 use std::iter::successors;
 use thiserror::Error;
@@ -150,7 +149,6 @@ where
     fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError>;
     fn store_block(&self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError>;
     fn put_nonces(&self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError>;
-    fn era_history(&self) -> &EraHistory;
 }
 
 #[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]

@@ -14,17 +14,18 @@
 
 use crate::consensus::errors::ProcessingFailed;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{Header, Point, RawBlock};
+use amaru_kernel::{Header, Point, PoolId, RawBlock};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, HasStakeDistribution, IsHeader,
+    BlockValidationError, CanValidateBlocks, HasStakeDistribution, IsHeader, PoolSummary,
 };
+use amaru_slot_arithmetic::Slot;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
-pub trait LedgerOps {
+pub trait LedgerOps: HasStakeDistribution {
     fn validate(
         &self,
         peer: &Peer,
@@ -40,15 +41,15 @@ pub trait LedgerOps {
 }
 
 /// Implementation of LedgerOps using pure_stage::Effects.
-pub struct Ledger<'a, T>(&'a Effects<T>);
+pub struct Ledger<T>(Effects<T>);
 
-impl<'a, T> Ledger<'a, T> {
-    pub fn new(eff: &'a Effects<T>) -> Ledger<'a, T> {
-        Ledger(eff)
+impl<T> Ledger<T> {
+    pub fn new(effects: Effects<T>) -> Ledger<T> {
+        Ledger(effects)
     }
 }
 
-impl<T: SendData + Sync> LedgerOps for Ledger<'_, T> {
+impl<T: SendData + Sync> LedgerOps for Ledger<T> {
     fn validate(
         &self,
         peer: &Peer,
@@ -67,6 +68,12 @@ impl<T: SendData + Sync> LedgerOps for Ledger<'_, T> {
     ) -> BoxFuture<'_, anyhow::Result<(), ProcessingFailed>> {
         self.0
             .external(RollbackBlockEffect::new(peer, &rollback_header.point()))
+    }
+}
+
+impl<T: SendData + Sync> HasStakeDistribution for Ledger<T> {
+    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
+        self.0.external_sync(GetPoolEffect::new(slot, pool))
     }
 }
 
@@ -96,14 +103,12 @@ impl ValidateBlockEffect {
 impl ExternalEffect for ValidateBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Box::pin(async move {
+        Self::wrap(async move {
             let validator = resources
                 .get::<ResourceBlockValidation>()
                 .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
                 .clone();
-            let result: <Self as ExternalEffectAPI>::Response =
-                validator.roll_forward_block(&self.point, &self.block).await;
-            Box::new(result) as Box<dyn SendData>
+            validator.roll_forward_block(&self.point, &self.block).await
         })
     }
 }
@@ -130,19 +135,47 @@ impl RollbackBlockEffect {
 impl ExternalEffect for RollbackBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Box::pin(async move {
+        Self::wrap(async move {
             let validator = resources
                 .get::<ResourceBlockValidation>()
                 .expect("RollbackBlockEffect requires a ResourceBlockValidation resource")
                 .clone();
-            let result: <Self as ExternalEffectAPI>::Response = validator
+            validator
                 .rollback_block(&self.point)
-                .map_err(|e| ProcessingFailed::new(&self.peer, e.to_anyhow()));
-            Box::new(result) as Box<dyn SendData>
+                .map_err(|e| ProcessingFailed::new(&self.peer, e.to_anyhow()))
         })
     }
 }
 
 impl ExternalEffectAPI for RollbackBlockEffect {
     type Response = anyhow::Result<(), ProcessingFailed>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GetPoolEffect {
+    slot: Slot,
+    pool: PoolId,
+}
+
+impl GetPoolEffect {
+    pub fn new(slot: Slot, pool: &PoolId) -> Self {
+        Self { slot, pool: *pool }
+    }
+}
+
+impl ExternalEffect for GetPoolEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let validator = resources
+                .get::<ResourceHeaderValidation>()
+                .expect("GetPoolEffect requires a ResourceHeaderValidation resource")
+                .clone();
+            validator.get_pool(self.slot, &self.pool)
+        })
+    }
+}
+
+impl ExternalEffectAPI for GetPoolEffect {
+    type Response = Option<PoolSummary>;
 }

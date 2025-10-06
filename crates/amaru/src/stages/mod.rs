@@ -19,7 +19,7 @@ use crate::stages::{
 };
 use amaru_consensus::consensus::effects::{
     ResourceBlockFetcher, ResourceBlockValidation, ResourceForwardEventListener,
-    ResourceHeaderStore, ResourceMeter, ResourceParameters,
+    ResourceHeaderStore, ResourceHeaderValidation, ResourceMeter, ResourceParameters,
 };
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
@@ -221,7 +221,7 @@ pub async fn bootstrap(
         .map(|session| pull::Stage::new(session.0, session.1, vec![tip.clone()]))
         .collect::<Vec<_>>();
 
-    let chain_store = make_chain_store(&config, era_history, &tip.hash())?;
+    let chain_store = make_chain_store(&config, &tip.hash())?;
     let our_tip = chain_store
         .load_header(&tip.hash())
         .map(|h| h.as_header_tip())
@@ -250,7 +250,6 @@ pub async fn bootstrap(
     let graph_input = build_stage_graph(
         global_parameters,
         era_history,
-        ledger.get_stake_distribution(),
         chain_selector,
         our_tip,
         &mut network,
@@ -258,6 +257,9 @@ pub async fn bootstrap(
     let graph_input = network.input(&graph_input);
 
     network.resources().put::<ResourceHeaderStore>(chain_store);
+    network
+        .resources()
+        .put::<ResourceHeaderValidation>(ledger.get_stake_distribution());
     network
         .resources()
         .put::<ResourceParameters>(global_parameters.clone());
@@ -306,13 +308,12 @@ pub async fn bootstrap(
 #[expect(clippy::panic)]
 fn make_chain_store(
     config: &Config,
-    era_history: &EraHistory,
     tip: &Hash<HEADER_HASH_SIZE>,
 ) -> Result<Arc<dyn ChainStore<Header>>, Box<dyn Error>> {
     let chain_store: Arc<dyn ChainStore<Header>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
         StoreType::RocksDb(ref rocks_db_config) => {
-            Arc::new(RocksDBStore::new(rocks_db_config.clone(), era_history)?)
+            Arc::new(RocksDBStore::new(rocks_db_config.clone())?)
         }
     };
 

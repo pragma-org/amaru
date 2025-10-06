@@ -16,7 +16,6 @@ use amaru_kernel::ORIGIN_HASH;
 use amaru_kernel::{HEADER_HASH_SIZE, Hash, RawBlock, cbor, from_cbor, to_cbor};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use amaru_slot_arithmetic::EraHistory;
 use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -26,7 +25,6 @@ use crate::rocksdb::RocksDbConfig;
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
-    era_history: EraHistory,
     pub db: OptimisticTransactionDB,
 }
 
@@ -35,7 +33,7 @@ pub struct ReadOnlyChainDB {
 }
 
 impl RocksDBStore {
-    pub fn new(config: RocksDbConfig, era_history: &EraHistory) -> Result<Self, StoreError> {
+    pub fn new(config: RocksDbConfig) -> Result<Self, StoreError> {
         let basedir = config.dir.clone();
         let mut opts: Options = config.into();
         opts.create_if_missing(true);
@@ -50,7 +48,6 @@ impl RocksDBStore {
                 }
             })?,
             basedir,
-            era_history: era_history.clone(),
         })
     }
 
@@ -298,10 +295,6 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
             })
     }
 
-    fn era_history(&self) -> &EraHistory {
-        &self.era_history
-    }
-
     fn store_block(&self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
         self.db
             .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
@@ -348,31 +341,25 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-#[expect(clippy::unwrap_used)]
 #[expect(clippy::expect_used)]
 pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
-    use std::fs::create_dir_all;
-    let (basedir, era_history) = init_dir_and_era(path);
-    create_dir_all(&basedir).unwrap();
-    RocksDBStore::new(RocksDbConfig::new(basedir), &era_history)
-        .expect("fail to initialise RocksDB")
+    let basedir = init_dir(path);
+    RocksDBStore::new(RocksDbConfig::new(basedir)).expect("fail to initialise RocksDB")
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-#[expect(clippy::unwrap_used)]
 pub fn initialise_test_ro_store(path: &std::path::Path) -> Result<ReadOnlyChainDB, StoreError> {
-    use std::fs::create_dir_all;
-    let (basedir, _) = init_dir_and_era(path);
-    create_dir_all(&basedir).unwrap();
+    let basedir = init_dir(path);
     RocksDBStore::open_for_readonly(RocksDbConfig::new(basedir))
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-fn init_dir_and_era(path: &std::path::Path) -> (PathBuf, EraHistory) {
-    use amaru_kernel::network::NetworkName;
+#[expect(clippy::expect_used)]
+fn init_dir(path: &std::path::Path) -> PathBuf {
     let basedir = path.join("rocksdb_chain_store");
-    let era_history: &EraHistory = NetworkName::Testnet(42).into();
-    (basedir, era_history.clone())
+    use std::fs::create_dir_all;
+    create_dir_all(&basedir).expect("fail to create test dir");
+    basedir
 }
 
 #[cfg(test)]

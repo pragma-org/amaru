@@ -33,7 +33,7 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hash, Hasher, Lovelace,
+    ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher, Lovelace,
     MemoizedTransactionOutput, MintedBlock, Network, Point, PoolId, RawBlock, Slot,
     StakeCredential, StakeCredentialType, TransactionInput, expect_stake_credential,
     network::NetworkName,
@@ -216,7 +216,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         StakeDistributionObserver {
             view: self.stake_distributions.clone(),
             era_history: self.era_history.clone(),
-            global_parameters: self.global_parameters.clone(),
         }
     }
 
@@ -230,10 +229,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         &self.protocol_parameters
-    }
-
-    pub fn global_parameters(&self) -> &GlobalParameters {
-        &self.global_parameters
     }
 
     pub fn governance_activity(&self) -> &GovernanceActivity {
@@ -1091,14 +1086,11 @@ impl<'a> Deref for StakeDistributionView<'a> {
 pub struct StakeDistributionObserver {
     view: Arc<Mutex<VecDeque<StakeDistribution>>>,
     era_history: Arc<EraHistory>,
-    global_parameters: Arc<GlobalParameters>,
 }
 
 impl HasStakeDistribution for StakeDistributionObserver {
     #[expect(clippy::unwrap_used)]
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
-        let view = self.view.lock().unwrap();
-
         let epoch = self
             .era_history
             // NOTE: This function is called by the consensus when validating block headers. So in
@@ -1111,6 +1103,7 @@ impl HasStakeDistribution for StakeDistributionObserver {
             .ok()?
             - 2;
 
+        let view = self.view.lock().unwrap();
         view.iter().find(|s| s.epoch == epoch).and_then(|s| {
             s.pools.get(pool).map(|st| PoolSummary {
                 vrf: st.parameters.vrf,
@@ -1118,19 +1111,6 @@ impl HasStakeDistribution for StakeDistributionObserver {
                 active_stake: s.active_stake,
             })
         })
-    }
-
-    fn slot_to_kes_period(&self, slot: Slot) -> u64 {
-        u64::from(slot) / self.global_parameters.slots_per_kes_period
-    }
-
-    fn max_kes_evolutions(&self) -> u64 {
-        self.global_parameters.max_kes_evolution as u64
-    }
-
-    fn latest_opcert_sequence_number(&self, _issuer_vkey: &Hash<28>) -> Option<u64> {
-        // FIXME: Move this responsibility to the consensus layer
-        None
     }
 }
 
