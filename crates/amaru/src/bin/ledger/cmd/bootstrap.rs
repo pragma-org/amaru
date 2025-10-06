@@ -12,13 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
-use std::{fs, io::Read, path::PathBuf, time::Instant};
+use std::{fs, io::Read, path::PathBuf, sync::Arc, time::Instant};
 use tracing::info;
 
-use amaru_kernel::{Point, RawBlock, default_ledger_dir, network::NetworkName};
-use amaru_ledger::store::HistoricalStores;
-use amaru_ouroboros_traits::can_validate_blocks::CanValidateBlocks;
+use amaru_kernel::{
+    EraHistory, HeaderBody, Point, PseudoHeader, RawBlock, default_chain_dir, default_ledger_dir,
+    network::NetworkName,
+};
+use amaru_ledger::{rules::parse_block, store::HistoricalStores};
+use amaru_ouroboros_traits::{ChainStore, can_validate_blocks::CanValidateBlocks};
 
 use flate2::read::GzDecoder;
 use tar::Archive;
@@ -44,6 +48,10 @@ pub struct Args {
     #[arg(long, value_name = "DIR")]
     ledger_dir: Option<PathBuf>,
 
+    /// Path of the chain on-disk storage.
+    #[arg(long, value_name = "DIR")]
+    chain_dir: Option<PathBuf>,
+
     /// Ingest blocks until (and including) the given slot.
     /// If not provided, will ingest all available blocks.
     #[arg(long, value_name = "INGEST_UNTIL_SLOT")]
@@ -62,8 +70,16 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger_dir = args
         .ledger_dir
         .unwrap_or_else(|| default_ledger_dir(network).into());
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(network).into());
 
+    let era_history: &EraHistory = network.into();
     let block_validator = new_block_validator(network, ledger_dir)?;
+    let chain_store: Arc<dyn ChainStore<PseudoHeader<HeaderBody>>> = Arc::new(RocksDBStore::new(
+        &RocksDbConfig::new(chain_dir),
+        era_history,
+    )?);
 
     // Collect .tar.gz files
     let mut archives: Vec<_> = fs::read_dir(format!("data/{}/blocks", network))?
@@ -106,7 +122,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
         for entry in archive.entries()? {
             let mut entry = entry?;
-            let path = entry.path()?.into_owned();
+            let path = entry.path()?;
 
             if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
                 //let file_name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -128,15 +144,19 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         // Sort by numeric key
         entries_with_keys.sort_by_key(|(num, _)| num.clone());
 
-        for (point, block) in entries_with_keys.iter_mut() {
+        for (point, raw_block) in entries_with_keys.iter_mut() {
             // Do not process points already in the ledger
             if point.slot_or_default() <= tip.slot_or_default() {
                 continue;
             }
             processed += 1;
 
+            let block = parse_block(raw_block)?;
+            chain_store.store_header(&block.header.unwrap().into())?;
+            chain_store.store_block(&point.hash(), raw_block)?;
+
             if let Err(err) = block_validator
-                .roll_forward_block(point, block)
+                .roll_forward_block(point, raw_block)
                 .await
                 .unwrap()
             {
