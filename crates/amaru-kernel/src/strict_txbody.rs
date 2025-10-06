@@ -1,25 +1,33 @@
-use std::ops::Deref;
 use pallas_codec::minicbor::{Decode, Decoder, decode::Error};
-use pallas_codec::utils::{AnyCbor};
-use std::collections::HashSet;
-use pallas_primitives::conway::{TransactionBody, TransactionOutput, PseudoTransactionOutput, Multiasset, Value};
-use pallas_codec::utils::{KeyValuePairs, Set, NonEmptySet};
+use pallas_codec::utils::AnyCbor;
+use pallas_codec::utils::{KeyValuePairs, NonEmptySet, Set};
+use pallas_primitives::conway::{
+    Multiasset, PseudoTransactionOutput, TransactionBody, TransactionOutput, Value,
+};
+use std::collections::BTreeSet;
+use std::ops::Deref;
 
-fn set_has_duplicates<T>(s: &Set<T>) -> bool where T: std::hash::Hash + std::cmp::Eq {
-    let mut seen: HashSet<&T> = HashSet::new();
+fn set_has_duplicates<T>(s: &Set<T>) -> bool
+where
+    T: std::cmp::Ord + std::cmp::Eq,
+{
+    let mut seen: BTreeSet<&T> = BTreeSet::new();
     for e in s {
-        if !seen.insert(&e) {
-            return true 
+        if !seen.insert(e) {
+            return true;
         }
     }
     false
 }
 
-fn nonempty_set_has_duplicates<T>(s: &NonEmptySet<T>) -> bool where T: std::hash::Hash + std::cmp::Eq {
-    let mut seen: HashSet<&T> = HashSet::new();
+fn nonempty_set_has_duplicates<T>(s: &NonEmptySet<T>) -> bool
+where
+    T: std::cmp::Ord + std::cmp::Eq,
+{
+    let mut seen: BTreeSet<&T> = BTreeSet::new();
     for e in s {
-        if !seen.insert(&e) {
-            return true 
+        if !seen.insert(e) {
+            return true;
         }
     }
     false
@@ -39,9 +47,13 @@ fn is_multiasset_small_enough<T: Clone>(ma: &Multiasset<T>) -> bool {
     size <= 65535
 }
 
-fn validate_multiasset<T>(ma: &Multiasset<T>) -> Result<(), String> where u64: From<T>, T: Clone + Copy {
+fn validate_multiasset<T>(ma: &Multiasset<T>) -> Result<(), String>
+where
+    u64: From<T>,
+    T: Clone + Copy,
+{
     for (_policy, asset) in ma.iter() {
-        if asset.len() == 0 {
+        if asset.is_empty() {
             return Err("Value must not contain empty assets".to_string());
         }
         for (_token, amount) in asset.iter() {
@@ -103,25 +115,28 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             let mut d2 = d.clone();
             let raw_: KeyValuePairs<u64, AnyCbor> = d2.decode_with(ctx)?;
             let raw: Vec<(u64, AnyCbor)> = raw_.to_vec();
-            
-            let mut seen: HashSet<u64> = HashSet::new();
+
+            let mut seen: BTreeSet<u64> = BTreeSet::new();
             for (ix, _value) in raw {
                 if !seen.insert(ix) {
-                    return Err(Error::message(format!("duplicate key found in TransactionBody: {}", ix)));
+                    return Err(Error::message(format!(
+                        "duplicate key found in TransactionBody: {}",
+                        ix
+                    )));
                 }
             }
 
             if !seen.contains(&0) {
-                return Err(Error::message(format!("field inputs is required")));
+                return Err(Error::message("field inputs is required".to_string()));
             }
             if !seen.contains(&1) {
-                return Err(Error::message(format!("field outputs is required")));
+                return Err(Error::message("field outputs is required".to_string()));
             }
             if !seen.contains(&2) {
-                return Err(Error::message(format!("field fee is required")));
+                return Err(Error::message("field fee is required".to_string()));
             }
         }
-        
+
         let tx_body: TransactionBody = d.decode_with(ctx)?;
 
         // TODO: Are we missing any invariants of any of the fields?
@@ -130,7 +145,9 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
         // empty assets) (check if multiasset is "small enough") on the mint and on the outputs
 
         if set_has_duplicates(&tx_body.inputs) {
-            return Err(Error::message(format!("TransactionBody inputs has duplicates")));
+            return Err(Error::message(
+                "TransactionBody inputs has duplicates".to_string()
+            ));
         }
 
         for o in &tx_body.outputs {
@@ -139,59 +156,117 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             }
         }
 
-        if tx_body.mint.as_ref().map_or(false, |m| m.len() == 0) {
-            return Err(Error::message(format!("mint must be non-empty if present")));
+        if tx_body.mint.as_ref().is_some_and(|x| x.is_empty()) {
+            return Err(Error::message("mint must be non-empty if present".to_string()));
         }
 
-        if tx_body.certificates.as_ref().map_or(false, |c| c.len() == 0) {
-            return Err(Error::message(format!("TransactionBody certificates are empty")));
+        if tx_body
+            .certificates
+            .as_ref()
+            .is_some_and(|x| x.is_empty())
+        {
+            return Err(Error::message(
+                "TransactionBody certificates are empty".to_string()
+            ));
         }
 
-        if tx_body.withdrawals.as_ref().map_or(false, |w| w.len() == 0) {
-            return Err(Error::message(format!("withdrawals must be non-empty if present")));
+        if tx_body.withdrawals.as_ref().is_some_and(|x| x.is_empty()) {
+            return Err(Error::message(
+                "withdrawals must be non-empty if present".to_string()
+            ));
         }
 
-        if tx_body.voting_procedures.as_ref().map_or(false, |v| v.len() == 0) {
-            return Err(Error::message(format!("voting procedures must be non-empty if present")));
+        if tx_body
+            .voting_procedures
+            .as_ref()
+            .is_some_and(|x| x.is_empty())
+        {
+            return Err(Error::message(
+                "voting procedures must be non-empty if present".to_string()
+            ));
         }
 
-        if tx_body.proposal_procedures.as_ref().map_or(false, |p| p.len() == 0) {
-            return Err(Error::message(format!("proposal procedures must be non-empty if present")));
+        if tx_body
+            .proposal_procedures
+            .as_ref()
+            .is_some_and(|x| x.is_empty())
+        {
+            return Err(Error::message(
+                "proposal procedures must be non-empty if present".to_string()
+            ));
         }
 
-        if tx_body.collateral.as_ref().map_or(false, |c| c.len() == 0) {
-            return Err(Error::message(format!("collaterals must be non-empty if present")));
+        if tx_body.collateral.as_ref().is_some_and(|x| x.is_empty()) {
+            return Err(Error::message(
+                "collaterals must be non-empty if present".to_string()
+            ));
         }
 
-        if tx_body.collateral.as_ref().map_or(false, |c| nonempty_set_has_duplicates(c)) {
-            return Err(Error::message(format!("TransactionBody collaterals has duplicates")));
+        if tx_body
+            .collateral
+            .as_ref()
+            .is_some_and(nonempty_set_has_duplicates)
+        {
+            return Err(Error::message(
+                "TransactionBody collaterals has duplicates".to_string()
+            ));
         }
 
-        if tx_body.required_signers.as_ref().map_or(false, |r| r.len() == 0) {
-            return Err(Error::message(format!("required signers must be non-empty if present")));
+        if tx_body
+            .required_signers
+            .as_ref()
+            .is_some_and(|r| r.is_empty())
+        {
+            return Err(Error::message(
+                "required signers must be non-empty if present".to_string()
+            ));
         }
 
-        if tx_body.required_signers.as_ref().map_or(false, |r| nonempty_set_has_duplicates(r)) {
-            return Err(Error::message(format!("TransactionBody required signers has duplicates")));
+        if tx_body
+            .required_signers
+            .as_ref()
+            .is_some_and(nonempty_set_has_duplicates)
+        {
+            return Err(Error::message(
+                "TransactionBody required signers has duplicates".to_string()
+            ));
         }
 
-        if tx_body.reference_inputs.as_ref().map_or(false, |r| r.len() == 0) {
-            return Err(Error::message(format!("reference inputs must be non-empty if present")));
+        if tx_body
+            .reference_inputs
+            .as_ref()
+            .is_some_and(|r| r.is_empty())
+        {
+            return Err(Error::message(
+                "reference inputs must be non-empty if present".to_string()
+            ));
         }
 
-        if tx_body.voting_procedures.as_ref().map_or(false, |v| v.len() == 0) {
-            return Err(Error::message(format!("voting procedures must be non-empty if present")));
+        if tx_body
+            .voting_procedures
+            .as_ref()
+            .is_some_and(|v| v.is_empty())
+        {
+            return Err(Error::message(
+                "voting procedures must be non-empty if present".to_string()
+            ));
         }
 
-        if tx_body.proposal_procedures.as_ref().map_or(false, |p| p.len() == 0) {
-            return Err(Error::message(format!("proposal procedures must be non-empty if present")));
+        if tx_body
+            .proposal_procedures
+            .as_ref()
+            .is_some_and(|p| p.is_empty())
+        {
+            return Err(Error::message(
+                "proposal procedures must be non-empty if present".to_string()
+            ));
         }
 
-        if tx_body.treasury_value.as_ref().map_or(false, |t| *t == 0) {
-            return Err(Error::message(format!("TransactionBody treasury donation is zero")));
+        if tx_body.treasury_value.as_ref().is_some_and(|t| *t == 0) {
+            return Err(Error::message(
+                "TransactionBody treasury donation is zero".to_string()
+            ));
         }
-
-
 
         Ok(Strict {
             inner: TransactionBody {
@@ -249,7 +324,10 @@ mod tests_transaction {
     // Single input, no outputs, fee present but zero
     #[test]
     fn reject_tx_missing_outputs() {
-        let tx_bytes = hex::decode("a200818258200000000000000000000000000000000000000000000000000000000000000008090200").unwrap();
+        let tx_bytes = hex::decode(
+            "a200818258200000000000000000000000000000000000000000000000000000000000000008090200",
+        )
+        .unwrap();
         let tx: Result<Strict<TransactionBody>, _> = minicbor::decode(&tx_bytes);
         assert_eq!(
             tx.map_err(|e| e.to_string()),
@@ -350,7 +428,6 @@ mod tests_transaction {
             Err("decode error: decoding 0 as PositiveCoin".to_owned())
         );
     }
-
 
     #[test]
     fn reject_duplicate_keys() {
