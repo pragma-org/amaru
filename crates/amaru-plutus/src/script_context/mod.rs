@@ -9,11 +9,17 @@ pub mod v1;
 pub mod v2;
 pub mod v3;
 
+pub trait IsPrePlutusVersion3 {}
+impl IsPrePlutusVersion3 for PlutusVersion<1> {}
+impl IsPrePlutusVersion3 for PlutusVersion<2> {}
+
 pub use v1::ScriptContext as ScriptContextV1;
 pub use v1::TxInfo as TxInfoV1;
 pub use v2::ScriptContext as ScriptContextV2;
 pub use v2::TxInfo as TxInfoV2;
 pub use v3::TxInfo as TxInfoV3;
+
+use crate::PlutusVersion;
 
 pub struct OutputRef {
     pub input: TransactionInput,

@@ -15,8 +15,9 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, BigInt, Bytes, ComputeHash, Constr, Hash, Int, MaybeIndefArray, PlutusData, ScriptRef,
-    ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakeCredential, StakePayload,
+    Address, BigInt, Bytes, ComputeHash, Constr, DatumOption, Hash, Int, KeyValuePairs,
+    MaybeIndefArray, PlutusData, Redeemer, ScriptRef, ShelleyDelegationPart, ShelleyPaymentPart,
+    StakeAddress, StakeCredential, StakePayload,
 };
 
 use crate::script_context::TimeRange;
@@ -78,6 +79,22 @@ pub trait IsKnownPlutusVersion {}
 impl IsKnownPlutusVersion for PlutusVersion<1> {}
 impl IsKnownPlutusVersion for PlutusVersion<2> {}
 impl IsKnownPlutusVersion for PlutusVersion<3> {}
+
+impl<const V: u8> ToPlutusData<V> for Option<DatumOption>
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            Some(datum) => match datum {
+                DatumOption::Hash(hash) => constr!(1, hash),
+                DatumOption::Data(data) => constr!(2, data.0),
+            },
+
+            None => constr!(0),
+        }
+    }
+}
 
 impl<const V: u8> ToPlutusData<V> for Address
 where
@@ -320,6 +337,21 @@ where
     }
 }
 
+impl<const VER: u8, K, V> ToPlutusData<VER> for KeyValuePairs<K, V>
+where
+    PlutusVersion<VER>: IsKnownPlutusVersion,
+    K: ToPlutusData<VER> + Clone,
+    V: ToPlutusData<VER> + Clone,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        PlutusData::Map(KeyValuePairs::Def(
+            self.iter()
+                .map(|(key, value)| (key.to_plutus_data(), value.to_plutus_data()))
+                .collect::<Vec<_>>(),
+        ))
+    }
+}
+
 impl<const VER: u8, K, V> ToPlutusData<VER> for (K, V)
 where
     PlutusVersion<VER>: IsKnownPlutusVersion,
@@ -331,7 +363,15 @@ where
     }
 }
 
-// TODO: can this be done without a clone?
+impl<const V: u8> ToPlutusData<V> for Redeemer
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        self.data.clone()
+    }
+}
+
 impl<const V: u8> ToPlutusData<V> for PlutusData
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
