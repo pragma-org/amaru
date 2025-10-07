@@ -1,31 +1,20 @@
 use pallas_codec::minicbor::{Decode, Decoder, decode::Error};
 use pallas_codec::utils::AnyCbor;
-use pallas_codec::utils::{KeyValuePairs, NonEmptySet, Set};
+use pallas_codec::utils::KeyValuePairs;
 use pallas_primitives::conway::{
     Multiasset, PseudoTransactionOutput, TransactionBody, TransactionOutput, Value,
 };
 use std::collections::BTreeSet;
+use std::iter::IntoIterator;
 use std::ops::Deref;
 
-fn set_has_duplicates<T>(s: &Set<T>) -> bool
+fn has_duplicates<I>(s: I) -> bool
 where
-    T: std::cmp::Ord + std::cmp::Eq,
+    I: IntoIterator,
+    <I as IntoIterator>::Item: std::cmp::Ord + std::cmp::Eq,
 {
-    let mut seen: BTreeSet<&T> = BTreeSet::new();
-    for e in s {
-        if !seen.insert(e) {
-            return true;
-        }
-    }
-    false
-}
-
-fn nonempty_set_has_duplicates<T>(s: &NonEmptySet<T>) -> bool
-where
-    T: std::cmp::Ord + std::cmp::Eq,
-{
-    let mut seen: BTreeSet<&T> = BTreeSet::new();
-    for e in s {
+    let mut seen: BTreeSet<<I as IntoIterator>::Item> = BTreeSet::new();
+    for e in s.into_iter() {
         if !seen.insert(e) {
             return true;
         }
@@ -144,7 +133,7 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
         // Need to validate conway multiasset invariants (cannot contain zeroes, cannot contain
         // empty assets) (check if multiasset is "small enough") on the mint and on the outputs
 
-        if set_has_duplicates(&tx_body.inputs) {
+        if has_duplicates(&tx_body.inputs) {
             return Err(Error::message(
                 "TransactionBody inputs has duplicates".to_string(),
             ));
@@ -200,11 +189,7 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
             ));
         }
 
-        if tx_body
-            .collateral
-            .as_ref()
-            .is_some_and(nonempty_set_has_duplicates)
-        {
+        if tx_body.collateral.as_ref().is_some_and(has_duplicates) {
             return Err(Error::message(
                 "TransactionBody collaterals has duplicates".to_string(),
             ));
@@ -223,7 +208,7 @@ impl<'b, C> Decode<'b, C> for Strict<TransactionBody> {
         if tx_body
             .required_signers
             .as_ref()
-            .is_some_and(nonempty_set_has_duplicates)
+            .is_some_and(has_duplicates)
         {
             return Err(Error::message(
                 "TransactionBody required signers has duplicates".to_string(),
