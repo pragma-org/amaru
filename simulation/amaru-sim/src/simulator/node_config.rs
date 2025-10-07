@@ -13,57 +13,46 @@
 // limitations under the License.
 
 use crate::simulator::Args;
-use rand::Rng;
+use pallas_crypto::hash::Hash;
+use std::path::PathBuf;
 
-/// Configuration for a simulation run
+/// Configuration for a single node
 #[derive(Debug, Clone)]
-pub struct SimulateConfig {
-    pub number_of_tests: u32,
-    pub seed: u64,
-    pub number_of_nodes: u8,
+pub struct NodeConfig {
+    pub stake_distribution_file: PathBuf,
+    pub consensus_context_file: PathBuf,
+    pub chain_dir: PathBuf,
+    pub block_tree_file: PathBuf,
+    pub start_header: Hash<32>,
     pub number_of_upstream_peers: u8,
     pub number_of_downstream_peers: u8,
-    pub disable_shrinking: bool,
 }
 
-impl Default for SimulateConfig {
+impl Default for NodeConfig {
     fn default() -> Self {
         Self {
-            number_of_tests: 50,
-            seed: rand::rng().random::<u64>(),
-            number_of_nodes: 1,
+            stake_distribution_file: PathBuf::from("./stake_distribution.json"),
+            consensus_context_file: PathBuf::from("./consensus_context.json"),
+            chain_dir: PathBuf::from("./chain.db/"),
+            block_tree_file: PathBuf::from("./chain.json"),
+            start_header: Hash::from([0; 32]),
             number_of_upstream_peers: 2,
             number_of_downstream_peers: 2,
-            disable_shrinking: false,
         }
     }
 }
 
-impl SimulateConfig {
+impl NodeConfig {
     pub fn from(args: Args) -> Self {
-        let default = Self::default();
         Self {
-            number_of_tests: args.number_of_tests,
-            seed: args.seed.unwrap_or(default.seed),
-            number_of_nodes: args.number_of_nodes,
+            stake_distribution_file: args.stake_distribution_file,
+            consensus_context_file: args.consensus_context_file,
+            chain_dir: args.chain_dir,
+            block_tree_file: args.block_tree_file,
+            start_header: args.start_header,
             number_of_upstream_peers: args.number_of_upstream_peers,
             number_of_downstream_peers: args.number_of_downstream_peers,
-            disable_shrinking: args.disable_shrinking,
         }
-    }
-    pub fn with_number_of_tests(mut self, n: u32) -> Self {
-        self.number_of_tests = n;
-        self
-    }
-
-    pub fn with_seed(mut self, seed: u64) -> Self {
-        self.seed = seed;
-        self
-    }
-
-    pub fn with_number_of_nodes(mut self, n: u8) -> Self {
-        self.number_of_nodes = n;
-        self
     }
 
     pub fn with_number_of_upstream_peers(mut self, n: u8) -> Self {
@@ -73,11 +62,6 @@ impl SimulateConfig {
 
     pub fn with_number_of_downstream_peers(mut self, n: u8) -> Self {
         self.number_of_downstream_peers = n;
-        self
-    }
-
-    pub fn disable_shrinking(mut self) -> Self {
-        self.disable_shrinking = true;
         self
     }
 }
