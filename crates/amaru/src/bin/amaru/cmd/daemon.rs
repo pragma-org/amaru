@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::pid::with_optional_pid_file;
 use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
@@ -22,9 +23,7 @@ use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, time::Duration};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-use tracing::error;
-use tracing::trace;
-use tracing::warn;
+use tracing::{error, trace, warn};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -77,38 +76,44 @@ pub struct Args {
         default_value_t = MaxExtraLedgerSnapshots::default(),
     )]
     max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
+
+    /// Path to the PID file, managed by Amaru.
+    #[arg(long, value_name = "FILE", env = "AMARU_PID_FILE")]
+    pid_file: Option<PathBuf>,
 }
 
 pub async fn run(
     args: Args,
     meter_provider: Option<SdkMeterProvider>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let config = parse_args(args)?;
+    with_optional_pid_file(args.pid_file.clone(), async |_pid_file| {
+        let config = parse_args(args)?;
+        pre_flight_checks()?;
 
-    pre_flight_checks()?;
+        let metrics = meter_provider
+            .clone()
+            .map(track_system_metrics)
+            .transpose()?;
 
-    let metrics = meter_provider
-        .clone()
-        .map(track_system_metrics)
-        .transpose()?;
+        let mut clients: Vec<(String, PeerClient)> = vec![];
+        for peer in &config.upstream_peers {
+            let client = connect_to_peer(peer, &config.network).await?;
+            clients.push((peer.clone(), client));
+        }
 
-    let mut clients: Vec<(String, PeerClient)> = vec![];
-    for peer in &config.upstream_peers {
-        let client = connect_to_peer(peer, &config.network).await?;
-        clients.push((peer.clone(), client));
-    }
+        let exit = amaru::exit::hook_exit_token();
 
-    let exit = amaru::exit::hook_exit_token();
+        let sync = bootstrap(config, clients, exit.clone(), meter_provider).await?;
 
-    let sync = bootstrap(config, clients, exit.clone(), meter_provider).await?;
+        run_pipeline(gasket::daemon::Daemon::new(sync), exit).await;
 
-    run_pipeline(gasket::daemon::Daemon::new(sync), exit).await;
+        if let Some(handle) = metrics {
+            handle.abort();
+        }
 
-    if let Some(handle) = metrics {
-        handle.abort();
-    }
-
-    Ok(())
+        Ok(())
+    })
+    .await
 }
 
 pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationToken) {

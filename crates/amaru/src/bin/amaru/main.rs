@@ -20,6 +20,7 @@ mod cmd;
 mod metrics;
 mod observability;
 mod panic;
+mod pid;
 
 #[derive(Debug, Subcommand)]
 enum Command {
