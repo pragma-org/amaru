@@ -13,6 +13,14 @@ We provide git hooks to lint code before it gets checked in CI/CD, simplfying th
 ./scripts/setup-hooks.sh
 ```
 
+### Rust nightly
+
+`amaru` currently relies on nightly versions of rust to benefit from following `features`:
+
+* [try_trait_v2](https://github.com/rust-lang/rust/issues/84277)
+* [assert_matches](https://github.com/rust-lang/rust/issues/82775)
+* [step_trait](https://github.com/rust-lang/rust/issues/42168)
+
 ## Using radicle
 
 While most of the activity on Amaru happens on [GitHub](https://github.com/pragma-org/amaru) is also compatible with Radicle, a decentralized code collaboration platform. This allows developers to collaborate on Amaru's development in a more decentralized manner.
