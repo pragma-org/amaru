@@ -2415,7 +2415,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "slog",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tokio",
  "walkdir",
 ]
@@ -2443,7 +2443,7 @@ dependencies = [
  "slog",
  "strum",
  "tar",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tokio",
  "uuid",
  "zstd",
@@ -2482,7 +2482,7 @@ dependencies = [
  "sha2 0.10.9",
  "slog",
  "strum",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tokio",
  "typetag",
  "walkdir",
@@ -2505,7 +2505,7 @@ dependencies = [
  "rayon",
  "rug",
  "serde",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

@@ -19,7 +19,8 @@ use std::{fs, io::Read, path::PathBuf, sync::Arc, time::Instant};
 use tracing::info;
 
 use amaru_kernel::{
-    default_chain_dir, default_ledger_dir, network::NetworkName, protocol_parameters::GlobalParameters, EraHistory, HeaderBody, Point, PseudoHeader, RawBlock
+    EraHistory, HeaderBody, Point, PseudoHeader, RawBlock, default_chain_dir, default_ledger_dir,
+    network::NetworkName, protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::{rules::parse_block, store::HistoricalStores};
 use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
@@ -156,7 +157,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             let header = block.header.unwrap().into();
             chain_store.store_header(&header)?;
             chain_store.store_block(&point.hash(), raw_block)?;
-            PraosChainStore::new(chain_store.clone()).evolve_nonce(&header, &global_parameters)?;
+            PraosChainStore::new(chain_store.clone()).evolve_nonce(&header, global_parameters)?;
 
             if let Err(err) = block_validator
                 .roll_forward_block(point, raw_block)
