@@ -124,7 +124,7 @@ fn extract_raw_values(matches: &ArgMatches) -> BTreeMap<String, String> {
 
 fn arguments_to_string(map: &BTreeMap<String, String>) -> String {
     map.iter()
-        .map(|(k, v)| format!("- {}: {:?}", k, v))
+        .map(|(k, v)| format!("- {}: {}", k, v))
         .collect::<Vec<_>>()
         .join("  \n")
 }
