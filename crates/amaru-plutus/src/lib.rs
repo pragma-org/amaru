@@ -14,9 +14,16 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{BigInt, Constr, Int, MaybeIndefArray, PlutusData};
+use amaru_kernel::{
+    Address, BigInt, Bytes, ComputeHash, Constr, Hash, Int, MaybeIndefArray, PlutusData, ScriptRef,
+    ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakeCredential, StakePayload,
+};
+
+use crate::script_context::TimeRange;
 
 pub const DEFAULT_TAG: u64 = 102;
+
+pub mod script_context;
 
 pub trait ToConstrTag {
     fn to_constr_tag(&self) -> Option<u64>;
@@ -34,6 +41,34 @@ impl ToConstrTag for u64 {
     }
 }
 
+#[macro_export]
+macro_rules! constr {
+    ($index:expr) => {{
+        let maybe_constr_tag = $index.to_constr_tag();
+        PlutusData::Constr(Constr {
+            tag: maybe_constr_tag.unwrap_or(DEFAULT_TAG),
+            any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
+            fields: MaybeIndefArray::Def(vec![]),
+        })
+    }};
+    ($index:expr, $($field:expr),+ $(,)?) => {{
+        let maybe_constr_tag = $index.to_constr_tag();
+        PlutusData::Constr(Constr {
+            tag: maybe_constr_tag.unwrap_or(DEFAULT_TAG),
+            any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
+            fields: MaybeIndefArray::Indef(vec![$($field.to_plutus_data()),+]),
+        })
+    }};
+    (v: $version:expr, $index:expr, $($field:expr),+ $(,)?) => {{
+            let maybe_constr_tag = $index.to_constr_tag();
+            PlutusData::Constr(Constr {
+                tag: maybe_constr_tag.unwrap_or(DEFAULT_TAG),
+                any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
+                fields: MaybeIndefArray::Indef(vec![$(ToPlutusData::<$version>::to_plutus_data(&$field)),+]),
+            })
+        }};
+}
+
 pub trait ToPlutusData<const VERSION: u8> {
     fn to_plutus_data(&self) -> PlutusData;
 }
@@ -44,21 +79,159 @@ impl IsKnownPlutusVersion for PlutusVersion<1> {}
 impl IsKnownPlutusVersion for PlutusVersion<2> {}
 impl IsKnownPlutusVersion for PlutusVersion<3> {}
 
+impl<const V: u8> ToPlutusData<V> for Address
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            Address::Shelley(shelley_address) => {
+                let payment_part = shelley_address.payment();
+                let stake_part = shelley_address.delegation();
+
+                let payment_part_plutus_data = match payment_part {
+                    ShelleyPaymentPart::Key(payment_keyhash) => {
+                        constr!(0, payment_keyhash)
+                    }
+                    ShelleyPaymentPart::Script(script_hash) => {
+                        constr!(1, script_hash)
+                    }
+                };
+
+                let stake_part_plutus_data = match stake_part {
+                    ShelleyDelegationPart::Key(stake_keyhash) => {
+                        Some(constr!(0, StakeCredential::AddrKeyhash(*stake_keyhash)))
+                            .to_plutus_data()
+                    }
+                    ShelleyDelegationPart::Script(script_hash) => {
+                        Some(constr!(0, StakeCredential::ScriptHash(*script_hash))).to_plutus_data()
+                    }
+                    ShelleyDelegationPart::Pointer(pointer) => Some(constr!(
+                        1,
+                        pointer.slot(),
+                        pointer.tx_idx(),
+                        pointer.cert_idx(),
+                    ))
+                    .to_plutus_data(),
+                    ShelleyDelegationPart::Null => None::<StakeCredential>.to_plutus_data(),
+                };
+
+                constr!(0, payment_part_plutus_data, stake_part_plutus_data)
+            }
+            Address::Stake(stake_address) => stake_address.to_plutus_data(),
+            Address::Byron(_) => unreachable!("unable to encode Byron address in PlutusData"),
+        }
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for TimeRange
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        let lower = match self.lower_bound {
+            Some(x) => constr!(0, constr!(1, u64::from(x)), true),
+            None => constr!(0, constr!(0), true),
+        };
+        let upper = match self.upper_bound {
+            Some(x) => constr!(0, constr!(1, u64::from(x)), false),
+            None => constr!(0, constr!(2), true),
+        };
+
+        constr!(0, lower, upper)
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for StakeAddress
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self.payload() {
+            StakePayload::Stake(keyhash) => constr!(0, keyhash),
+            StakePayload::Script(script_hash) => constr!(1, script_hash),
+        }
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for StakeCredential
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            StakeCredential::AddrKeyhash(hash) => {
+                constr!(0, hash)
+            }
+            StakeCredential::ScriptHash(hash) => {
+                constr!(1, hash)
+            }
+        }
+    }
+}
+
+impl<A, const V: u8> ToPlutusData<V> for Option<A>
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+    A: ToPlutusData<V>,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            None => constr!(0),
+            Some(data) => constr!(1, data),
+        }
+    }
+}
+
+impl<const BYTES: usize, const V: u8> ToPlutusData<V> for Hash<BYTES>
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        PlutusData::BoundedBytes(self.to_vec().into())
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for Bytes
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        PlutusData::BoundedBytes(self.to_vec().into())
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for ScriptRef
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            amaru_kernel::PseudoScript::NativeScript(native_script) => {
+                native_script.compute_hash().to_plutus_data()
+            }
+            amaru_kernel::PseudoScript::PlutusV1Script(plutus_script) => {
+                plutus_script.compute_hash().to_plutus_data()
+            }
+            amaru_kernel::PseudoScript::PlutusV2Script(plutus_script) => {
+                plutus_script.compute_hash().to_plutus_data()
+            }
+            amaru_kernel::PseudoScript::PlutusV3Script(plutus_script) => {
+                plutus_script.compute_hash().to_plutus_data()
+            }
+        }
+    }
+}
+
 impl<const V: u8> ToPlutusData<V> for bool
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        let index = match self {
-            false => 0,
-            true => 1,
-        };
-        let constr_tag = index.to_constr_tag();
-        PlutusData::Constr(Constr {
-            tag: constr_tag.unwrap_or(DEFAULT_TAG),
-            any_constructor: constr_tag.map_or(Some(index), |_| None),
-            fields: MaybeIndefArray::Indef(vec![]),
-        })
+        match self {
+            false => constr!(0),
+            true => constr!(1),
+        }
     }
 }
 
@@ -144,5 +317,36 @@ where
                 .map(|(k, v)| (k.to_plutus_data(), v.to_plutus_data()))
                 .collect(),
         )
+    }
+}
+
+impl<const VER: u8, K, V> ToPlutusData<VER> for (K, V)
+where
+    PlutusVersion<VER>: IsKnownPlutusVersion,
+    K: ToPlutusData<VER>,
+    V: ToPlutusData<VER>,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        constr!(0, self.0, self.1)
+    }
+}
+
+// TODO: can this be done without a clone?
+impl<const V: u8> ToPlutusData<V> for PlutusData
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        self.clone()
+    }
+}
+
+impl<const V: u8, T> ToPlutusData<V> for &T
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+    T: ToPlutusData<V>,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        (*self).to_plutus_data()
     }
 }

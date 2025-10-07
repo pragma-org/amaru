@@ -281,6 +281,7 @@ name = "amaru-plutus"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-slot-arithmetic",
 ]
 
 [[package]]
