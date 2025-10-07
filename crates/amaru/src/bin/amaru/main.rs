@@ -40,7 +40,7 @@ enum Command {
     FetchChainHeaders(cmd::fetch_chain_headers::Args),
 
     /// Run the node in all its glory.
-    Daemon(cmd::daemon::Args),
+    Run(cmd::run::Args),
 
     /// Import the ledger state from a CBOR export produced by a Haskell node.
     #[clap(alias = "import")]
@@ -140,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let result = match args.command {
-        Command::Daemon(args) => cmd::daemon::run(args, metrics).await,
+        Command::Run(args) => cmd::run::run(args, metrics).await,
         Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
