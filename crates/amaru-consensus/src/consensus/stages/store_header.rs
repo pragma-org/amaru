@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::{events::DecodedChainSyncEvent, span::adopt_current_span};
-use amaru_ouroboros_traits::IsHeader;
+use crate::consensus::events::NewHeader;
+use crate::consensus::span::adopt_current_span;
 use pure_stage::StageRef;
 use tracing::{Level, instrument};
 
@@ -24,23 +24,19 @@ use tracing::{Level, instrument};
     name = "stage.store_header",
 )]
 pub async fn stage(
-    downstream: StageRef<DecodedChainSyncEvent>,
-    msg: DecodedChainSyncEvent,
+    downstream: StageRef<NewHeader>,
+    msg: NewHeader,
     eff: impl ConsensusOps,
-) -> StageRef<DecodedChainSyncEvent> {
+) -> StageRef<NewHeader> {
     adopt_current_span(&msg);
-    match &msg {
-        DecodedChainSyncEvent::RollForward { peer, header, .. } => {
-            let result = eff.store().store_header(header);
-            if let Err(error) = result {
-                tracing::error!(%error, %peer, "Failed to store header at {}", header.point());
-                // FIXME what should be the consequence of this?
-                eff.base().terminate().await;
-            };
-            eff.base().send(&downstream, msg).await
-        }
-        DecodedChainSyncEvent::Rollback { .. } => eff.base().send(&downstream, msg).await,
-        DecodedChainSyncEvent::CaughtUp { .. } => eff.base().send(&downstream, msg).await,
-    }
+    let result = eff.store().store_header(msg.header());
+    if let Err(error) = result {
+        let peer = msg.peer();
+        let point = msg.point();
+        tracing::error!(%error, %peer, "Failed to store header at {point}");
+        // FIXME what should be the consequence of this?
+        eff.base().terminate().await;
+    };
+    eff.base().send(&downstream, msg).await;
     downstream
 }

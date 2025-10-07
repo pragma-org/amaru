@@ -124,6 +124,10 @@ impl<Msg, St> StageStateRef<Msg, St> {
     pub fn without_state(self) -> StageRef<Msg> {
         self.stage_ref
     }
+
+    pub fn to_ref(&self) -> StageRef<Msg> {
+        self.stage_ref.clone()
+    }
 }
 
 impl<Msg, St> Deref for StageStateRef<Msg, St> {

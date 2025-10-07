@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps, LedgerOps};
+use crate::consensus::events::{FetchBlock, NewHeader};
 use crate::consensus::store::PraosChainStore;
 use crate::consensus::{
     errors::{ConsensusError, ValidationFailed},
-    events::DecodedChainSyncEvent,
     span::adopt_current_span,
 };
 use amaru_kernel::protocol_parameters::ConsensusParameters;
@@ -25,44 +25,32 @@ use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{ChainStore, Praos};
 use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
-use tracing::{Instrument, Level, Span, instrument};
+use tracing::{Instrument, Level, instrument};
 
 #[instrument(
     level = Level::TRACE,
     skip_all,
     name = "stage.validate_header",
 )]
-pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl ConsensusOps) -> State {
+pub async fn stage(state: State, msg: NewHeader, eff: impl ConsensusOps) -> State {
     adopt_current_span(&msg);
-    let (consensus_parameters, downstream, errors) = state;
+    let (consensus_parameters, fetch_block, errors) = state;
     let state = ValidateHeader::new(consensus_parameters.clone(), eff.store(), eff.ledger());
 
-    let (peer, point, header) = match &msg {
-        DecodedChainSyncEvent::RollForward {
-            peer,
-            point,
-            header,
-            ..
-        } => (peer, point, header),
-        DecodedChainSyncEvent::Rollback { .. } => {
-            eff.base().send(&downstream, msg).await;
-            return (consensus_parameters, downstream, errors);
-        }
-        DecodedChainSyncEvent::CaughtUp { .. } => {
-            eff.base().send(&downstream, msg).await;
-            return (consensus_parameters, downstream, errors);
-        }
-    };
-
+    let point = msg.point();
+    let peer = msg.peer();
     let span = tracing::trace_span!(
         "consensus.roll_forward",
         point.slot = %point.slot_or_default(),
-        point.hash = %Hash::<32>::from(point),
+        point.hash = %Hash::<32>::from(&point),
     );
 
     async {
-        match state.handle_roll_forward(peer, point, header).await {
-            Ok(msg) => eff.base().send(&downstream, msg).await,
+        match state
+            .handle_roll_forward(msg.peer(), &msg.point(), msg.header())
+            .await
+        {
+            Ok(msg) => eff.base().send(&fetch_block, msg).await,
             Err(error) => {
                 tracing::error!(%peer, %error, "failed to handle roll forward");
                 eff.base()
@@ -74,12 +62,12 @@ pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl Consensus
     .instrument(span)
     .await;
 
-    (consensus_parameters, downstream, errors)
+    (consensus_parameters, fetch_block, errors)
 }
 
 type State = (
     Arc<ConsensusParameters>,
-    StageRef<DecodedChainSyncEvent>,
+    StageRef<FetchBlock>,
     StageRef<ValidationFailed>,
 );
 
@@ -125,7 +113,7 @@ impl ValidateHeader {
         peer: &Peer,
         point: &Point,
         header: &Header,
-    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+    ) -> Result<FetchBlock, ConsensusError> {
         let nonces = PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone())
             .evolve_nonce(header)?;
         let epoch_nonce = &nonces.active;
@@ -137,12 +125,7 @@ impl ValidateHeader {
             epoch_nonce,
         )?;
 
-        Ok(DecodedChainSyncEvent::RollForward {
-            peer: peer.clone(),
-            point: point.clone(),
-            header: header.clone(),
-            span: Span::current(),
-        })
+        Ok(FetchBlock::new(peer.clone(), header.clone()))
     }
 
     #[instrument(level = Level::TRACE, skip_all, fields(issuer.key = %header.header_body.issuer_vkey))]
@@ -314,6 +297,10 @@ mod tests {
     }
 
     impl ChainStore<Header> for FailingStore {
+        fn store_header(&self, header: &Header) -> Result<(), StoreError> {
+            self.store.store_header(header)
+        }
+
         fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
             self.store.set_anchor_hash(hash)
         }
@@ -330,16 +317,12 @@ mod tests {
             self.store.update_best_chain(anchor, tip)
         }
 
-        fn store_header(&self, header: &Header) -> Result<(), StoreError> {
-            self.store.store_header(header)
+        fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+            self.store.remove_header(hash)
         }
 
         fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
             self.store.store_block(hash, block)
-        }
-
-        fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
-            self.store.remove_header(hash)
         }
 
         fn put_nonces(&self, hash: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
@@ -360,6 +343,7 @@ mod tests {
 
         // Create a minimal valid header using the default constructor
         let header = run(any_header());
+
         // Create a simple global parameters for testing
         let global_parameters = &*TESTNET_GLOBAL_PARAMETERS;
         let ledger = Arc::new(MockLedgerOps);

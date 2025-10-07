@@ -281,7 +281,7 @@ pub async fn bootstrap(
     let network = network.run(Handle::current().clone());
     let pure_stages = PureStageSim::new(network, exit);
 
-    let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = stages
+    let outputs: Vec<&mut OutputPort<ChainSyncEvent<Vec<u8>>>> = stages
         .iter_mut()
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();

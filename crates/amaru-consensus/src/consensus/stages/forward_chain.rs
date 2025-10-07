@@ -15,7 +15,7 @@
 use crate::consensus::effects::NetworkOps;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
-use crate::consensus::events::BlockValidationResult;
+use crate::consensus::events::ForwardHeader;
 use crate::consensus::span::adopt_current_span;
 use crate::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::Point;
@@ -40,11 +40,11 @@ type State = (
     skip_all,
     name = "stage.forward_chain",
 )]
-pub async fn stage(state: State, msg: BlockValidationResult, eff: impl ConsensusOps) -> State {
+pub async fn stage(state: State, msg: ForwardHeader, eff: impl ConsensusOps) -> State {
     adopt_current_span(&msg);
     let (mut our_tip, validation_errors, processing_errors) = state;
     match msg {
-        BlockValidationResult::BlockValidated { peer, header, .. } => {
+        ForwardHeader::RollForward { peer, header, .. } => {
             // assert that the new tip is a direct successor of the old tip
             assert_eq!(header.block_height(), our_tip.block_height() + 1);
             match header.parent() {
@@ -73,21 +73,17 @@ pub async fn stage(state: State, msg: BlockValidationResult, eff: impl Consensus
                     .await
             }
         }
-        BlockValidationResult::RolledBackTo {
-            peer,
-            rollback_header,
-            ..
-        } => {
+        ForwardHeader::Rollback { peer, header, .. } => {
             info!(
                 target: EVENT_TARGET,
-                point = %rollback_header.point(),
+                point = %header.point(),
                 "rolled_back_to"
             );
 
-            our_tip = rollback_header.as_header_tip();
+            our_tip = header.as_header_tip();
             if let Err(e) = eff
                 .network()
-                .send_backward_event(&peer, rollback_header.as_header_tip())
+                .send_backward_event(&peer, header.as_header_tip())
                 .await
             {
                 error!(
@@ -99,14 +95,6 @@ pub async fn stage(state: State, msg: BlockValidationResult, eff: impl Consensus
                     .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
                     .await
             }
-        }
-        BlockValidationResult::BlockValidationFailed { point, .. } => {
-            error!(
-                target: EVENT_TARGET,
-                slot = %point.slot_or_default(),
-                hash = %point.hash(),
-                "block validation failed"
-            );
         }
     }
     (our_tip, validation_errors, processing_errors)

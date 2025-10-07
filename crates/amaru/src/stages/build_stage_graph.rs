@@ -35,7 +35,7 @@ pub fn build_stage_graph(
     chain_selector: SelectChain,
     our_tip: HeaderTip,
     network: &mut impl StageGraph,
-) -> StageRef<ChainSyncEvent> {
+) -> StageRef<ChainSyncEvent<Vec<u8>>> {
     let receive_header_stage = network.stage(
         "receive_header",
         with_consensus_effects(receive_header::stage),
@@ -88,39 +88,38 @@ pub fn build_stage_graph(
         forward_chain_stage,
         (
             our_tip,
-            validation_errors_stage.clone().without_state(),
-            processing_errors_stage.clone().without_state(),
-        ),
-    );
-    let validate_block_stage = network.wire_up(
-        validate_block_stage,
-        (
-            forward_chain_stage.without_state(),
-            validation_errors_stage.clone().without_state(),
-            processing_errors_stage.clone().without_state(),
-        ),
-    );
-    let store_block_stage = network.wire_up(
-        store_block_stage,
-        (
-            validate_block_stage.without_state(),
-            processing_errors_stage.clone().without_state(),
-        ),
-    );
-    let fetch_block_stage = network.wire_up(
-        fetch_block_stage,
-        (
-            store_block_stage.without_state(),
-            validation_errors_stage.clone().without_state(),
+            validation_errors_stage.to_ref(),
+            processing_errors_stage.to_ref(),
         ),
     );
     let select_chain_stage = network.wire_up(
         select_chain_stage,
         (
             chain_selector,
-            fetch_block_stage.without_state(),
-            validation_errors_stage.clone().without_state(),
+            forward_chain_stage.to_ref(),
+            validation_errors_stage.to_ref(),
         ),
+    );
+
+    let select_chain_stage = select_chain_stage.to_ref();
+    let validate_block_stage = network.wire_up(
+        validate_block_stage,
+        (
+            select_chain_stage.clone(),
+            validation_errors_stage.to_ref(),
+            processing_errors_stage.to_ref(),
+        ),
+    );
+    let store_block_stage = network.wire_up(
+        store_block_stage,
+        (
+            validate_block_stage.to_ref(),
+            processing_errors_stage.to_ref(),
+        ),
+    );
+    let fetch_block_stage = network.wire_up(
+        fetch_block_stage,
+        (store_block_stage.to_ref(), validation_errors_stage.to_ref()),
     );
     let validate_header_stage = network.wire_up(
         validate_header_stage,
@@ -130,21 +129,22 @@ pub fn build_stage_graph(
                 era_history,
                 Default::default(),
             )),
-            select_chain_stage.without_state(),
-            validation_errors_stage.clone().without_state(),
+            fetch_block_stage.to_ref(),
+            validation_errors_stage.to_ref(),
         ),
     );
-    let store_header_stage =
-        network.wire_up(store_header_stage, validate_header_stage.without_state());
+    let store_header_stage = network.wire_up(store_header_stage, validate_header_stage.to_ref());
     let receive_header_stage = network.wire_up(
         receive_header_stage,
         (
-            store_header_stage.without_state(),
-            validation_errors_stage.without_state(),
+            store_header_stage.to_ref(),
+            validate_block_stage.to_ref(),
+            select_chain_stage,
+            validation_errors_stage.to_ref(),
         ),
     );
 
-    receive_header_stage.without_state()
+    receive_header_stage.to_ref()
 }
 
 /// Wrap a function taking `ConsensusEffects` so that it can be used in a stage graph that provides

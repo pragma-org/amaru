@@ -13,48 +13,40 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::{
-    errors::ProcessingFailed, events::ValidateBlockEvent, span::adopt_current_span,
-};
+use crate::consensus::events::{StoreBlock, ValidateBlock};
+use crate::consensus::{errors::ProcessingFailed, span::adopt_current_span};
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::Level;
 use tracing::instrument;
 
-type State = (StageRef<ValidateBlockEvent>, StageRef<ProcessingFailed>);
+type State = (StageRef<ValidateBlock>, StageRef<ProcessingFailed>);
 
 /// This stages stores a full block from a peer
-/// It then sends the full block to the downstream stage for validation and storage.
+/// It then sends the full block to the downstream stage for validation.
 #[instrument(
     level = Level::TRACE,
     skip_all,
     name = "stage.store_block",
 )]
-pub async fn stage(
-    (downstream, errors): State,
-    msg: ValidateBlockEvent,
-    eff: impl ConsensusOps,
-) -> State {
+pub async fn stage((downstream, errors): State, msg: StoreBlock, eff: impl ConsensusOps) -> State {
     adopt_current_span(&msg);
-    match msg {
-        ValidateBlockEvent::Validated {
-            ref header,
-            ref block,
-            ref peer,
-            ..
-        } => {
-            let result = eff.store().store_block(&header.hash(), block);
-            match result {
-                Ok(_) => eff.base().send(&downstream, msg).await,
-                Err(e) => {
-                    eff.base()
-                        .send(&errors, ProcessingFailed::new(peer, anyhow!(e)))
-                        .await
-                }
-            }
+    let result = eff.store().store_block(&msg.header().hash(), msg.block());
+    match result {
+        Ok(_) => {
+            let event = ValidateBlock::new_roll_forward(
+                msg.peer().clone(),
+                msg.header().clone(),
+                msg.into_block(),
+            );
+            eff.base().send(&downstream, event).await
         }
-        ValidateBlockEvent::Rollback { .. } => eff.base().send(&downstream, msg).await,
+        Err(e) => {
+            eff.base()
+                .send(&errors, ProcessingFailed::new(msg.peer(), anyhow!(e)))
+                .await
+        }
     }
     (downstream, errors)
 }

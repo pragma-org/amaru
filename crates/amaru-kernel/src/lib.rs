@@ -250,7 +250,16 @@ pub type AuxiliaryDataHash = Hash<32>;
 
 /// Cheaply cloneable block bytes
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    Default,
 )]
 pub struct RawBlock(Arc<[u8]>);
 

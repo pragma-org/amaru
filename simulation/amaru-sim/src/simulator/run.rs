@@ -136,7 +136,7 @@ fn spawn_node(
                         ChainSyncEvent::RollForward {
                             peer: Peer::new(&msg.src),
                             point: Point::Specific(slot.into(), hash.into()),
-                            raw_header: header.into(),
+                            value: header.into(),
                             span: Span::current(),
                         },
                     )
@@ -147,7 +147,7 @@ fn spawn_node(
                         &downstream,
                         ChainSyncEvent::Rollback {
                             peer: Peer::new(&msg.src),
-                            rollback_point: Point::Specific(slot.into(), hash.into()),
+                            point: Point::Specific(slot.into(), hash.into()),
                             span: Span::current(),
                         },
                     )

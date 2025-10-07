@@ -14,15 +14,16 @@
 
 use crate::consensus::effects::{BaseOps, ConsensusOps, MetricsOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
-use crate::consensus::events::{BlockValidationResult, ValidateBlockEvent};
+use crate::consensus::events::{ChainSyncEvent, ValidateBlock};
 use crate::consensus::span::adopt_current_span;
+use amaru_kernel::Header;
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Level, error, instrument};
 
 type State = (
-    StageRef<BlockValidationResult>,
+    StageRef<ChainSyncEvent<Header>>,
     StageRef<ValidationFailed>,
     StageRef<ProcessingFailed>,
 );
@@ -34,12 +35,12 @@ type State = (
 )]
 pub async fn stage(
     (downstream, validation_errors, processing_errors): State,
-    msg: ValidateBlockEvent,
+    msg: ValidateBlock,
     eff: impl ConsensusOps,
 ) -> State {
     adopt_current_span(&msg);
     match msg {
-        ValidateBlockEvent::Validated {
+        ValidateBlock::RollForward {
             header,
             block,
             span,
@@ -54,9 +55,10 @@ pub async fn stage(
                     eff.base()
                         .send(
                             &downstream,
-                            BlockValidationResult::BlockValidated {
+                            ChainSyncEvent::RollForward {
                                 peer,
-                                header,
+                                point,
+                                value: header,
                                 span: span.clone(),
                             },
                         )
@@ -88,25 +90,15 @@ pub async fn stage(
                 }
             }
         }
-        ValidateBlockEvent::Rollback {
-            peer,
-            rollback_header,
-            span,
-            ..
+        ValidateBlock::Rollback {
+            peer, point, span, ..
         } => {
-            if let Err(err) = eff.ledger().rollback(&peer, &rollback_header).await {
+            if let Err(err) = eff.ledger().rollback(&peer, &point).await {
                 error!(?err, "Failed to rollback");
                 eff.base().send(&processing_errors, err).await;
             } else {
                 eff.base()
-                    .send(
-                        &downstream,
-                        BlockValidationResult::RolledBackTo {
-                            peer,
-                            rollback_header,
-                            span,
-                        },
-                    )
+                    .send(&downstream, ChainSyncEvent::Rollback { peer, point, span })
                     .await
             }
         }

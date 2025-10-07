@@ -15,7 +15,7 @@
 use crate::consensus::EVENT_TARGET;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ValidationFailed};
-use crate::consensus::events::{DecodedChainSyncEvent, ValidateHeaderEvent};
+use crate::consensus::events::{ChainSyncEvent, ForwardHeader};
 use crate::consensus::headers_tree::{HeadersTree, HeadersTreeState};
 use crate::consensus::span::adopt_current_span;
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer, string_utils::ListToString};
@@ -75,24 +75,24 @@ impl SelectChain {
         }
     }
 
-    fn forward_block(peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
-        ValidateHeaderEvent::Validated { peer, header, span }
+    fn forward_header(peer: Peer, header: Header, span: Span) -> ForwardHeader {
+        ForwardHeader::RollForward { peer, header, span }
     }
 
     fn switch_to_fork(
         peer: Peer,
-        rollback_header: Header,
+        header: Header,
         fork: Vec<Header>,
         span: Span,
-    ) -> Vec<ValidateHeaderEvent> {
-        let mut result = vec![ValidateHeaderEvent::Rollback {
-            rollback_header,
+    ) -> Vec<ForwardHeader> {
+        let mut result = vec![ForwardHeader::Rollback {
+            header,
             peer: peer.clone(),
             span: span.clone(),
         }];
 
         for header in fork {
-            result.push(SelectChain::forward_block(
+            result.push(SelectChain::forward_header(
                 peer.clone(),
                 header,
                 span.clone(),
@@ -108,7 +108,7 @@ impl SelectChain {
         peer: Peer,
         header: Header,
         span: Span,
-    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
+    ) -> Result<Vec<ForwardHeader>, ConsensusError> {
         // Temporarily take the tree state out of self, to avoid borrowing self
         let tree_state = mem::take(&mut self.tree_state);
         let mut headers_tree = HeadersTree::create(store, tree_state);
@@ -122,7 +122,7 @@ impl SelectChain {
                 } else {
                     trace!(target: EVENT_TARGET, %peer, hash = %tip.hash(), slot = %tip.slot(), "new tip");
                 }
-                vec![SelectChain::forward_block(peer, tip, span)]
+                vec![SelectChain::forward_header(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
                 peer,
@@ -147,7 +147,7 @@ impl SelectChain {
         peer: Peer,
         rollback_point: Point,
         span: Span,
-    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
+    ) -> Result<Vec<ForwardHeader>, ConsensusError> {
         // Temporarily take the tree state out of self, to avoid borrowing self
         let tree_state = mem::take(&mut self.tree_state);
         let mut headers_tree = HeadersTree::create(store, tree_state);
@@ -184,27 +184,27 @@ impl SelectChain {
     pub fn handle_chain_sync(
         &mut self,
         store: Arc<dyn ChainStore<Header>>,
-        chain_sync: DecodedChainSyncEvent,
-    ) -> BoxFuture<'_, Result<Vec<ValidateHeaderEvent>, ConsensusError>> {
+        chain_sync: ChainSyncEvent<Header>,
+    ) -> BoxFuture<'_, Result<Vec<ForwardHeader>, ConsensusError>> {
         Box::pin(async move {
             match chain_sync {
-                DecodedChainSyncEvent::RollForward {
-                    peer, header, span, ..
-                } => self.select_chain(store, peer, header, span).await,
-                DecodedChainSyncEvent::Rollback {
+                ChainSyncEvent::RollForward {
+                    peer, value, span, ..
+                } => self.select_chain(store, peer, value, span).await,
+                ChainSyncEvent::Rollback {
                     peer,
-                    rollback_point,
+                    point: rollback_point,
                     span,
                 } => {
                     self.select_rollback(store, peer, rollback_point, span)
                         .await
                 }
-                DecodedChainSyncEvent::CaughtUp { peer, .. } => self.caught_up(&peer),
+                ChainSyncEvent::CaughtUp { peer, .. } => self.caught_up(&peer),
             }
         })
     }
 
-    fn caught_up(&mut self, peer: &Peer) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
+    fn caught_up(&mut self, peer: &Peer) -> Result<Vec<ForwardHeader>, ConsensusError> {
         self.sync_tracker.caught_up(peer);
         Ok(vec![])
     }
@@ -305,7 +305,7 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
 
 type State = (
     SelectChain,
-    StageRef<ValidateHeaderEvent>,
+    StageRef<ForwardHeader>,
     StageRef<ValidationFailed>,
 );
 
@@ -316,11 +316,11 @@ type State = (
 )]
 pub async fn stage(
     (mut select_chain, downstream, errors): State,
-    msg: DecodedChainSyncEvent,
+    msg: ChainSyncEvent<Header>,
     eff: impl ConsensusOps,
 ) -> State {
     let store = eff.store();
-    let peer = msg.peer();
+    let peer = msg.peer().clone();
     adopt_current_span(&msg);
     let events = match select_chain.handle_chain_sync(store, msg).await {
         Ok(events) => events,
@@ -344,7 +344,6 @@ mod tests {
     use super::*;
     use crate::consensus::effects::mock_consensus_ops;
     use crate::consensus::errors::ValidationFailed;
-    use crate::consensus::events::DecodedChainSyncEvent;
     use crate::consensus::headers_tree::Tracker;
     use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
     use crate::consensus::stages::select_chain::SyncTracker;
@@ -401,7 +400,7 @@ mod tests {
         assert_eq!(
             consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
+                "forward_header".to_string(),
                 vec![format!("{:?}", output)]
             )])
         );
@@ -444,7 +443,7 @@ mod tests {
         assert_eq!(
             consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
+                "forward_header".to_string(),
                 vec![format!("{:?}", output1), format!("{:?}", output2)]
             )])
         );
@@ -466,7 +465,7 @@ mod tests {
         peer: &Peer,
         anchor: &Hash<HEADER_HASH_SIZE>,
     ) -> State {
-        let downstream: StageRef<ValidateHeaderEvent> = StageRef::named("downstream");
+        let forward_header: StageRef<ForwardHeader> = StageRef::named("forward_header");
         let errors: StageRef<ValidationFailed> = StageRef::named("errors");
         let mut tree_state = HeadersTreeState::new(10);
         tree_state
@@ -474,30 +473,30 @@ mod tests {
             .unwrap();
         (
             SelectChain::new(tree_state, slice::from_ref(peer)),
-            downstream,
+            forward_header,
             errors,
         )
     }
 
-    fn make_roll_forward_message(peer: &Peer, header: &Header) -> DecodedChainSyncEvent {
-        DecodedChainSyncEvent::RollForward {
+    fn make_roll_forward_message(peer: &Peer, header: &Header) -> ChainSyncEvent<Header> {
+        ChainSyncEvent::RollForward {
             peer: peer.clone(),
             point: header.point(),
-            header: header.clone(),
+            value: header.clone(),
             span: Span::current(),
         }
     }
 
-    fn make_rollback_message(peer: &Peer, header: &Header) -> DecodedChainSyncEvent {
-        DecodedChainSyncEvent::Rollback {
+    fn make_rollback_message(peer: &Peer, header: &Header) -> ChainSyncEvent<Header> {
+        ChainSyncEvent::Rollback {
             peer: peer.clone(),
-            rollback_point: header.point(),
+            point: header.point(),
             span: Span::current(),
         }
     }
 
-    fn make_validated_event(peer: &Peer, header: &Header) -> ValidateHeaderEvent {
-        ValidateHeaderEvent::Validated {
+    fn make_validated_event(peer: &Peer, header: &Header) -> ForwardHeader {
+        ForwardHeader::RollForward {
             peer: peer.clone(),
             header: header.clone(),
             span: Span::current(),

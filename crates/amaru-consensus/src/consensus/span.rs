@@ -17,8 +17,7 @@ pub use impls::*;
 #[cfg(feature = "telemetry")]
 mod impls {
     use crate::consensus::events::{
-        BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, ValidateBlockEvent,
-        ValidateHeaderEvent,
+        ChainSyncEvent, FetchBlock, ForwardHeader, NewHeader, StoreBlock, ValidateBlock,
     };
     use opentelemetry::Context;
     use tracing::Span;
@@ -40,7 +39,7 @@ mod impls {
         fn context(&self) -> Context;
     }
 
-    impl HasSpan for ChainSyncEvent {
+    impl<T> HasSpan for ChainSyncEvent<T> {
         fn context(&self) -> Context {
             match self {
                 ChainSyncEvent::RollForward { span, .. } => span.context(),
@@ -50,40 +49,38 @@ mod impls {
         }
     }
 
-    impl HasSpan for DecodedChainSyncEvent {
+    impl HasSpan for NewHeader {
+        fn context(&self) -> Context {
+            self.span().context()
+        }
+    }
+
+    impl HasSpan for ForwardHeader {
         fn context(&self) -> Context {
             match self {
-                DecodedChainSyncEvent::RollForward { span, .. } => span.context(),
-                DecodedChainSyncEvent::Rollback { span, .. } => span.context(),
-                DecodedChainSyncEvent::CaughtUp { span, .. } => span.context(),
+                ForwardHeader::RollForward { span, .. } => span.context(),
+                ForwardHeader::Rollback { span, .. } => span.context(),
             }
         }
     }
 
-    impl HasSpan for ValidateHeaderEvent {
+    impl HasSpan for FetchBlock {
         fn context(&self) -> Context {
-            match self {
-                ValidateHeaderEvent::Validated { span, .. } => span.context(),
-                ValidateHeaderEvent::Rollback { span, .. } => span.context(),
-            }
+            self.span().context()
         }
     }
 
-    impl HasSpan for ValidateBlockEvent {
+    impl HasSpan for StoreBlock {
         fn context(&self) -> Context {
-            match self {
-                ValidateBlockEvent::Validated { span, .. } => span.context(),
-                ValidateBlockEvent::Rollback { span, .. } => span.context(),
-            }
+            self.span().context()
         }
     }
 
-    impl HasSpan for BlockValidationResult {
+    impl HasSpan for ValidateBlock {
         fn context(&self) -> Context {
             match self {
-                BlockValidationResult::BlockValidated { span, .. } => span.context(),
-                BlockValidationResult::BlockValidationFailed { span, .. } => span.context(),
-                BlockValidationResult::RolledBackTo { span, .. } => span.context(),
+                ValidateBlock::RollForward { span, .. } => span.context(),
+                ValidateBlock::Rollback { span, .. } => span.context(),
             }
         }
     }
@@ -100,13 +97,15 @@ mod impls {
 
     pub trait HasSpan {}
 
-    impl HasSpan for ChainSyncEvent {}
+    impl<T> HasSpan for ChainSyncEvent<T> {}
 
-    impl HasSpan for DecodedChainSyncEvent {}
+    impl HasSpan for NewHeader {}
 
-    impl HasSpan for ValidateHeaderEvent {}
+    impl HasSpan for ForwardHeader {}
 
-    impl HasSpan for ValidateBlockEvent {}
+    impl HasSpan for FetchBlock {}
 
-    impl HasSpan for BlockValidationResult {}
+    impl HasSpan for StoreBlock {}
+
+    impl HasSpan for ValidateBlock {}
 }

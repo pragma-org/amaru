@@ -14,7 +14,7 @@
 
 use crate::consensus::effects::{BaseOps, ConsensusOps, NetworkOps};
 use crate::consensus::errors::{ConsensusError, ValidationFailed};
-use crate::consensus::events::{ValidateBlockEvent, ValidateHeaderEvent};
+use crate::consensus::events::{FetchBlock, StoreBlock};
 use crate::consensus::span::adopt_current_span;
 use amaru_kernel::{Point, RawBlock, peer::Peer};
 use amaru_ouroboros_traits::{CanFetchBlock, IsHeader};
@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{Level, error, instrument};
 
-type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
+type State = (StageRef<StoreBlock>, StageRef<ValidationFailed>);
 
 /// This stages fetches the full block from a peer after its header has been validated.
 /// It then sends the full block to the downstream stage for validation and storage.
@@ -34,52 +34,19 @@ type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
     skip_all,
     name = "stage.fetch_block",
 )]
-pub async fn stage(
-    (downstream, errors): State,
-    msg: ValidateHeaderEvent,
-    eff: impl ConsensusOps,
-) -> State {
+pub async fn stage((downstream, errors): State, msg: FetchBlock, eff: impl ConsensusOps) -> State {
     adopt_current_span(&msg);
-    match msg {
-        ValidateHeaderEvent::Validated { peer, header, span } => {
-            let point = header.point();
-            match eff.network().fetch_block(&peer, &point).await {
-                Ok(block) => {
-                    let block = RawBlock::from(&*block);
-                    eff.base()
-                        .send(
-                            &downstream,
-                            ValidateBlockEvent::Validated {
-                                peer,
-                                header,
-                                block,
-                                span,
-                            },
-                        )
-                        .await
-                }
-                Err(e) => {
-                    eff.base()
-                        .send(&errors, ValidationFailed::new(&peer, e))
-                        .await
-                }
-            }
-        }
-        ValidateHeaderEvent::Rollback {
-            peer,
-            rollback_header: rollback_point,
-            span,
-            ..
-        } => {
+    let point = msg.header().point();
+    match eff.network().fetch_block(msg.peer(), &point).await {
+        Ok(block) => {
+            let block = RawBlock::from(&*block);
             eff.base()
-                .send(
-                    &downstream,
-                    ValidateBlockEvent::Rollback {
-                        peer,
-                        rollback_header: rollback_point,
-                        span,
-                    },
-                )
+                .send(&downstream, StoreBlock::from_fetch(msg, block))
+                .await
+        }
+        Err(e) => {
+            eff.base()
+                .send(&errors, ValidationFailed::new(msg.peer(), e))
                 .await
         }
     }
@@ -149,29 +116,19 @@ mod tests {
     use amaru_ouroboros_traits::fake::tests::run;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
-    use tracing::Span;
 
     #[tokio::test]
     async fn a_block_that_can_be_fetched_is_sent_downstream() -> anyhow::Result<()> {
         let peer = Peer::new("name");
         let header = run(any_header());
-        let message = ValidateHeaderEvent::Validated {
-            peer: peer.clone(),
-            header: header.clone(),
-            span: Span::current(),
-        };
+        let message = FetchBlock::new(peer.clone(), header.clone());
         let block = vec![1u8; 128];
         let consensus_ops = mock_consensus_ops();
         consensus_ops.mock_network.return_block(Ok(block.clone()));
 
-        stage(make_state(), message, consensus_ops.clone()).await;
+        stage(make_state(), message.clone(), consensus_ops.clone()).await;
 
-        let forwarded = ValidateBlockEvent::Validated {
-            peer: peer.clone(),
-            header,
-            block: RawBlock::from(block.as_slice()),
-            span: Span::current(),
-        };
+        let forwarded = StoreBlock::from_fetch(message, RawBlock::from(block.as_slice()));
         assert_eq!(
             consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![(
@@ -185,7 +142,7 @@ mod tests {
     // HELPERS
 
     fn make_state() -> State {
-        let downstream: StageRef<ValidateBlockEvent> = StageRef::named("downstream");
+        let downstream: StageRef<StoreBlock> = StageRef::named("downstream");
         let errors: StageRef<ValidationFailed> = StageRef::named("errors");
         (downstream, errors)
     }

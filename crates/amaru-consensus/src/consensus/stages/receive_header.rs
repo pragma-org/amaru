@@ -14,13 +14,18 @@
 
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ValidationFailed};
-use crate::consensus::events::{ChainSyncEvent, DecodedChainSyncEvent};
+use crate::consensus::events::{ChainSyncEvent, NewHeader, ValidateBlock};
 use crate::consensus::span::adopt_current_span;
 use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
 use pure_stage::StageRef;
 use tracing::{Level, instrument};
 
-type State = (StageRef<DecodedChainSyncEvent>, StageRef<ValidationFailed>);
+type State = (
+    StageRef<NewHeader>,
+    StageRef<ValidateBlock>,
+    StageRef<ChainSyncEvent<Header>>,
+    StageRef<ValidationFailed>,
+);
 
 #[instrument(
     level = Level::TRACE,
@@ -28,63 +33,44 @@ type State = (StageRef<DecodedChainSyncEvent>, StageRef<ValidationFailed>);
     name = "stage.receive_header"
 )]
 pub async fn stage(
-    (downstream, errors): State,
-    msg: ChainSyncEvent,
+    (store_header, validate_block, select_chain, errors): State,
+    msg: ChainSyncEvent<Vec<u8>>,
     eff: impl ConsensusOps,
 ) -> State {
     adopt_current_span(&msg);
     match msg {
         ChainSyncEvent::RollForward {
-            peer,
-            point,
-            raw_header,
-            span,
+            peer, point, value, ..
         } => {
-            let header = match decode_header(&point, raw_header.as_slice()) {
+            let header = match decode_header(&point, value.as_slice()) {
                 Ok(header) => header,
                 Err(error) => {
                     tracing::error!(%error, %point, %peer, "Failed to decode header");
                     eff.base()
                         .send(&errors, ValidationFailed::new(&peer, error))
                         .await;
-                    return (downstream, errors);
+                    return (store_header, validate_block, select_chain, errors);
                 }
             };
             eff.base()
-                .send(
-                    &downstream,
-                    DecodedChainSyncEvent::RollForward {
-                        peer,
-                        point,
-                        header,
-                        span,
-                    },
-                )
+                .send(&store_header, NewHeader::new(peer, point, header))
                 .await;
         }
-        ChainSyncEvent::Rollback {
-            peer,
-            rollback_point,
-            span,
-        } => {
+        ChainSyncEvent::Rollback { peer, point, span } => {
             eff.base()
                 .send(
-                    &downstream,
-                    DecodedChainSyncEvent::Rollback {
-                        peer,
-                        rollback_point,
-                        span,
-                    },
+                    &validate_block,
+                    ValidateBlock::Rollback { peer, point, span },
                 )
                 .await
         }
         ChainSyncEvent::CaughtUp { peer, span } => {
             eff.base()
-                .send(&downstream, DecodedChainSyncEvent::CaughtUp { peer, span })
+                .send(&select_chain, ChainSyncEvent::CaughtUp { peer, span })
                 .await
         }
     }
-    (downstream, errors)
+    (store_header, validate_block, select_chain, errors)
 }
 
 #[instrument(
@@ -112,7 +98,7 @@ mod tests {
     use super::*;
     use crate::consensus::effects::mock_consensus_ops;
     use crate::consensus::errors::ValidationFailed;
-    use crate::consensus::events::DecodedChainSyncEvent;
+    use crate::consensus::events::{ChainSyncEvent, NewHeader};
     use crate::consensus::tests::any_header;
     use amaru_kernel::peer::Peer;
     use amaru_ouroboros_traits::fake::tests::run;
@@ -121,29 +107,24 @@ mod tests {
     use tracing::Span;
 
     #[tokio::test]
-    async fn a_header_that_can_be_decoded_is_sent_downstream() -> anyhow::Result<()> {
+    async fn a_header_that_can_be_decoded_is_sent_to_store_header() -> anyhow::Result<()> {
         let peer = Peer::new("name");
         let header = run(any_header());
         let message = ChainSyncEvent::RollForward {
             peer: peer.clone(),
             point: Point::Origin,
             span: Span::current(),
-            raw_header: cbor::to_vec(header.clone())?,
+            value: cbor::to_vec(header.clone())?,
         };
         let consensus_ops = mock_consensus_ops();
 
         stage(make_state(), message, consensus_ops.clone()).await;
 
-        let forwarded = DecodedChainSyncEvent::RollForward {
-            peer: peer.clone(),
-            point: Point::Origin,
-            header,
-            span: Span::current(),
-        };
+        let forwarded = NewHeader::new(peer, Point::Origin, header);
         assert_eq!(
             consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
+                "store_header".to_string(),
                 vec![format!("{forwarded:?}")]
             )])
         );
@@ -157,7 +138,7 @@ mod tests {
             peer: peer.clone(),
             point: Point::Origin,
             span: Span::current(),
-            raw_header: vec![1, 2, 3],
+            value: vec![1, 2, 3],
         };
         let consensus_ops = mock_consensus_ops();
 
@@ -179,19 +160,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rollback_is_just_sent_downstream() -> anyhow::Result<()> {
+    async fn rollback_is_sent_to_validate_block() -> anyhow::Result<()> {
         let message = ChainSyncEvent::Rollback {
             peer: Peer::new("name"),
-            rollback_point: Point::Origin,
+            point: Point::Origin,
             span: Span::current(),
         };
         let consensus_ops = mock_consensus_ops();
 
         stage(make_state(), message.clone(), consensus_ops.clone()).await;
+        let message = ValidateBlock::Rollback {
+            peer: Peer::new("name"),
+            point: Point::Origin,
+            span: Span::current(),
+        };
         assert_eq!(
             consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
+                "validate_block".to_string(),
                 vec![format!("{message:?}")]
             )])
         );
@@ -199,7 +185,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn caughtup_is_just_sent_downstream() -> anyhow::Result<()> {
+    async fn caught_up_is_just_sent_to_select_chain() -> anyhow::Result<()> {
         let message = ChainSyncEvent::CaughtUp {
             peer: Peer::new("name"),
             span: Span::current(),
@@ -210,7 +196,7 @@ mod tests {
         assert_eq!(
             consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
+                "select_chain".to_string(),
                 vec![format!("{message:?}")]
             )])
         );
@@ -220,8 +206,10 @@ mod tests {
     // HELPERS
 
     fn make_state() -> State {
-        let downstream: StageRef<DecodedChainSyncEvent> = StageRef::named("downstream");
+        let store_header: StageRef<NewHeader> = StageRef::named("store_header");
+        let validate_block: StageRef<ValidateBlock> = StageRef::named("validate_block");
+        let select_chain: StageRef<ChainSyncEvent<Header>> = StageRef::named("select_chain");
         let errors: StageRef<ValidationFailed> = StageRef::named("errors");
-        (downstream, errors)
+        (store_header, validate_block, select_chain, errors)
     }
 }

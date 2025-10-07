@@ -21,7 +21,7 @@ use gasket::framework::{Stage as StageTrait, *};
 use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse};
 use tracing::{Level, Span, debug, error, instrument};
 
-pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
+pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent<Vec<u8>>>;
 
 pub enum WorkUnit {
     Pull,
@@ -60,7 +60,7 @@ impl Stage {
         let event = ChainSyncEvent::RollForward {
             peer: peer.clone(),
             point,
-            raw_header,
+            value: raw_header,
             span: Span::current(),
         };
         send!(&mut self.downstream, event)
@@ -69,7 +69,7 @@ impl Stage {
     pub async fn roll_back(&mut self, rollback_point: Point) -> Result<(), WorkerError> {
         let event = ChainSyncEvent::Rollback {
             peer: self.peer.clone(),
-            rollback_point,
+            point: rollback_point,
             span: Span::current(),
         };
         self.downstream.send(event.into()).await.or_panic()

@@ -93,7 +93,7 @@ impl fmt::Debug for ChainSyncMessage {
 }
 
 impl Envelope<ChainSyncMessage> {
-    pub fn to_chain_sync_event(self, span: Span) -> Result<ChainSyncEvent, WorkerError> {
+    pub fn to_chain_sync_event(self, span: Span) -> Result<ChainSyncEvent<Vec<u8>>, WorkerError> {
         use ChainSyncMessage::*;
         let peer = Peer { name: self.src };
 
@@ -106,7 +106,7 @@ impl Envelope<ChainSyncMessage> {
             } => Ok(ChainSyncEvent::RollForward {
                 peer,
                 point: Point::Specific((slot).into(), hash.into()),
-                raw_header: header.into(),
+                value: header.into(),
                 span,
             }),
             Bck {
@@ -115,7 +115,7 @@ impl Envelope<ChainSyncMessage> {
                 hash,
             } => Ok(ChainSyncEvent::Rollback {
                 peer,
-                rollback_point: Point::Specific(slot.into(), hash.into()),
+                point: Point::Specific(slot.into(), hash.into()),
                 span,
             }),
             _ => Err(WorkerError::Recv),
@@ -163,7 +163,7 @@ mod test {
             ChainSyncEvent::RollForward {
                 peer,
                 point,
-                raw_header,
+                value: raw_header,
                 ..
             } => {
                 assert_eq!(peer.name, "peer1");

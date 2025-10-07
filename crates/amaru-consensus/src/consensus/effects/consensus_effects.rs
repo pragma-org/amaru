@@ -212,7 +212,7 @@ pub mod tests {
         fn rollback(
             &self,
             _peer: &Peer,
-            _rollback_header: &Header,
+            _point: &Point,
         ) -> BoxFuture<'static, anyhow::Result<(), ProcessingFailed>> {
             Box::pin(async { Ok(()) })
         }

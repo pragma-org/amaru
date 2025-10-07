@@ -20,17 +20,17 @@ use std::fmt::{Debug, Formatter};
 use tracing::Span;
 
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum ChainSyncEvent {
+pub enum ChainSyncEvent<T> {
     RollForward {
         peer: Peer,
         point: Point,
-        raw_header: Vec<u8>,
+        value: T,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
     Rollback {
         peer: Peer,
-        rollback_point: Point,
+        point: Point,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -41,31 +41,31 @@ pub enum ChainSyncEvent {
     },
 }
 
-impl fmt::Debug for ChainSyncEvent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl<T> ChainSyncEvent<T> {
+    pub fn peer(&self) -> &Peer {
+        match self {
+            ChainSyncEvent::RollForward { peer, .. } => peer,
+            ChainSyncEvent::Rollback { peer, .. } => peer,
+            ChainSyncEvent::CaughtUp { peer, .. } => peer,
+        }
+    }
+}
+
+impl<T: Debug> Debug for ChainSyncEvent<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             ChainSyncEvent::RollForward {
-                peer,
-                point,
-                raw_header,
-                ..
+                peer, point, value, ..
             } => f
                 .debug_struct("RollForward")
                 .field("peer", &peer.name)
                 .field("point", &point.to_string())
-                .field(
-                    "raw_header",
-                    &hex::encode(&raw_header[..raw_header.len().min(8)]),
-                )
+                .field("value", value)
                 .finish(),
-            ChainSyncEvent::Rollback {
-                peer,
-                rollback_point,
-                ..
-            } => f
+            ChainSyncEvent::Rollback { peer, point, .. } => f
                 .debug_struct("Rollback")
                 .field("peer", &peer.name)
-                .field("rollback_point", &rollback_point.to_string())
+                .field("point", &point.to_string())
                 .finish(),
             ChainSyncEvent::CaughtUp { peer, .. } => f
                 .debug_struct("CaughtUp")
@@ -75,237 +75,306 @@ impl fmt::Debug for ChainSyncEvent {
     }
 }
 
-#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum DecodedChainSyncEvent {
-    RollForward {
-        peer: Peer,
-        point: Point,
-        header: Header,
-        #[serde(skip, default = "Span::none")]
-        span: Span,
-    },
-    Rollback {
-        peer: Peer,
-        rollback_point: Point,
-        #[serde(skip, default = "Span::none")]
-        span: Span,
-    },
-    CaughtUp {
-        peer: Peer,
-        #[serde(skip, default = "Span::none")]
-        span: Span,
-    },
+#[derive(Clone, Serialize, Deserialize)]
+pub struct NewHeader {
+    peer: Peer,
+    point: Point,
+    header: Header,
+    #[serde(skip, default = "Span::none")]
+    span: Span,
 }
 
-impl DecodedChainSyncEvent {
-    pub fn peer(&self) -> Peer {
-        match self {
-            DecodedChainSyncEvent::RollForward { peer, .. } => peer.clone(),
-            DecodedChainSyncEvent::Rollback { peer, .. } => peer.clone(),
-            DecodedChainSyncEvent::CaughtUp { peer, .. } => peer.clone(),
+impl NewHeader {
+    pub fn new(peer: Peer, point: Point, header: Header) -> Self {
+        Self {
+            peer,
+            point,
+            header,
+            span: Span::current(),
         }
+    }
+
+    pub fn peer(&self) -> &Peer {
+        &self.peer
+    }
+
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
+    pub fn point(&self) -> Point {
+        self.header.point()
+    }
+
+    pub fn span(&self) -> &Span {
+        &self.span
     }
 }
 
-impl fmt::Debug for DecodedChainSyncEvent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DecodedChainSyncEvent::RollForward {
-                peer,
-                point,
-                header,
-                ..
-            } => f
-                .debug_struct("RollForward")
-                .field("peer", &peer.name)
-                .field("point", &point.to_string())
-                .field("header", &header.hash().to_string())
-                .finish(),
-            DecodedChainSyncEvent::Rollback {
-                peer,
-                rollback_point,
-                ..
-            } => f
-                .debug_struct("Rollback")
-                .field("peer", &peer.name)
-                .field("rollback_point", &rollback_point.to_string())
-                .finish(),
-            DecodedChainSyncEvent::CaughtUp { peer, .. } => f
-                .debug_struct("CaughtUp")
-                .field("peer", &peer.name)
-                .finish(),
-        }
+impl Debug for NewHeader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NewHeader")
+            .field("peer", &self.peer)
+            .field("header", &self.header)
+            .finish()
     }
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-pub enum ValidateHeaderEvent {
-    Validated {
-        peer: Peer,
-        header: Header,
-        #[serde(skip, default = "Span::none")]
-        span: Span,
-    },
-    Rollback {
-        peer: Peer,
-        rollback_header: Header,
-        #[serde(skip, default = "Span::none")]
-        span: Span,
-    },
+impl PartialEq for NewHeader {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header && self.peer == other.peer
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub enum ValidateBlockEvent {
-    Validated {
+pub enum ForwardHeader {
+    RollForward {
         peer: Peer,
         header: Header,
-        #[serde(skip, default = "default_block")]
-        block: RawBlock,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
     Rollback {
         peer: Peer,
-        rollback_header: Header,
+        header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
 }
 
-fn default_block() -> RawBlock {
-    RawBlock::from(Vec::new().as_slice())
-}
-
-impl Debug for ValidateBlockEvent {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl Debug for ForwardHeader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            ValidateBlockEvent::Validated {
-                peer,
-                header,
-                block,
-                ..
-            } => f
-                .debug_struct("Validated")
-                .field("peer", peer)
-                .field("header", header)
-                .field("block", block)
+            ForwardHeader::RollForward { peer, header, .. } => f
+                .debug_struct("ForwardHeaderRollForward")
+                .field("peer", &peer.name)
+                .field("header", &header.hash())
                 .finish(),
-            ValidateBlockEvent::Rollback {
-                peer,
-                rollback_header: rollback_point,
-                ..
-            } => f
-                .debug_struct("Rollback")
-                .field("peer", peer)
-                .field("rollback_point", rollback_point)
+            ForwardHeader::Rollback { peer, header, .. } => f
+                .debug_struct("ForwardHeader:Rollback")
+                .field("peer", &peer.name)
+                .field("header", &header.hash())
                 .finish(),
         }
     }
 }
 
-impl PartialEq for ValidateBlockEvent {
+impl PartialEq for ForwardHeader {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
-                ValidateBlockEvent::Validated {
+                ForwardHeader::RollForward {
                     peer: p1,
                     header: h1,
                     ..
                 },
-                ValidateBlockEvent::Validated {
+                ForwardHeader::RollForward {
                     peer: p2,
                     header: h2,
                     ..
                 },
             ) => p1 == p2 && h1 == h2,
             (
-                ValidateBlockEvent::Rollback {
+                ForwardHeader::Rollback {
                     peer: p1,
-                    rollback_header: rp1,
+                    header: h1,
                     ..
                 },
-                ValidateBlockEvent::Rollback {
+                ForwardHeader::Rollback {
                     peer: p2,
-                    rollback_header: rp2,
+                    header: h2,
                     ..
                 },
-            ) => p1 == p2 && rp1 == rp2,
+            ) => p1 == p2 && h1 == h2,
             _ => false,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BlockValidationResult {
-    BlockValidated {
+#[derive(Clone, Serialize, Deserialize)]
+pub struct FetchBlock {
+    peer: Peer,
+    header: Header,
+    #[serde(skip, default = "Span::none")]
+    span: Span,
+}
+
+impl FetchBlock {
+    pub fn new(peer: Peer, header: Header) -> Self {
+        Self {
+            peer,
+            header,
+            span: Span::current(),
+        }
+    }
+
+    pub fn peer(&self) -> &Peer {
+        &self.peer
+    }
+
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
+}
+
+impl Debug for FetchBlock {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FetchBlock")
+            .field("peer", &self.peer)
+            .field("header", &self.header)
+            .finish()
+    }
+}
+
+impl PartialEq for FetchBlock {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header && self.peer == other.peer
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct StoreBlock {
+    peer: Peer,
+    header: Header,
+    #[serde(skip, default = "RawBlock::default")]
+    block: RawBlock,
+    #[serde(skip, default = "Span::none")]
+    span: Span,
+}
+
+impl StoreBlock {
+    pub fn new(peer: Peer, header: Header, block: RawBlock, span: Span) -> Self {
+        Self {
+            peer,
+            header,
+            block,
+            span,
+        }
+    }
+
+    pub fn from_fetch(msg: FetchBlock, block: RawBlock) -> Self {
+        Self {
+            peer: msg.peer,
+            header: msg.header,
+            block,
+            span: Span::current(),
+        }
+    }
+
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
+    pub fn block(&self) -> &RawBlock {
+        &self.block
+    }
+
+    pub fn into_block(self) -> RawBlock {
+        self.block
+    }
+
+    pub fn peer(&self) -> &Peer {
+        &self.peer
+    }
+
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
+}
+
+impl Debug for StoreBlock {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StoreBlock")
+            .field("peer", &self.peer)
+            .field("header", &self.header)
+            .field("block", &self.block)
+            .finish()
+    }
+}
+
+impl PartialEq for StoreBlock {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header && self.peer == other.peer
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum ValidateBlock {
+    RollForward {
         peer: Peer,
         header: Header,
+        #[serde(skip, default = "RawBlock::default")]
+        block: RawBlock,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
-    BlockValidationFailed {
+    Rollback {
         peer: Peer,
         point: Point,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
-    RolledBackTo {
-        peer: Peer,
-        rollback_header: Header,
-        #[serde(skip, default = "Span::none")]
-        span: Span,
-    },
 }
 
-impl BlockValidationResult {
-    pub fn peer(&self) -> Peer {
-        match self {
-            BlockValidationResult::BlockValidated { peer, .. } => peer.clone(),
-            BlockValidationResult::BlockValidationFailed { peer, .. } => peer.clone(),
-            BlockValidationResult::RolledBackTo { peer, .. } => peer.clone(),
+impl ValidateBlock {
+    pub fn new_roll_forward(peer: Peer, header: Header, block: RawBlock) -> Self {
+        Self::RollForward {
+            peer,
+            header,
+            block,
+            span: Span::current(),
         }
     }
 }
 
-impl PartialEq for BlockValidationResult {
+impl Debug for ValidateBlock {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ValidateBlock::RollForward { peer, header, .. } => f
+                .debug_struct("LedgerBlockEvent:RollForward")
+                .field("peer", &peer.name)
+                .field("header", &header.hash())
+                .finish(),
+            ValidateBlock::Rollback { peer, point, .. } => f
+                .debug_struct("LedgerBlockEvent:Rollback")
+                .field("peer", &peer.name)
+                .field("point", &point.hash())
+                .finish(),
+        }
+    }
+}
+
+impl PartialEq for ValidateBlock {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
-                BlockValidationResult::BlockValidated {
+                ValidateBlock::RollForward {
                     peer: p1,
-                    header: hd1,
+                    header: h1,
                     ..
                 },
-                BlockValidationResult::BlockValidated {
+                ValidateBlock::RollForward {
                     peer: p2,
-                    header: hd2,
+                    header: h2,
                     ..
                 },
-            ) => p1 == p2 && hd1 == hd2,
+            ) => p1 == p2 && h1 == h2,
             (
-                BlockValidationResult::BlockValidationFailed {
-                    peer: p1,
-                    point: pt1,
+                ValidateBlock::Rollback {
+                    peer: peer1,
+                    point: point1,
                     ..
                 },
-                BlockValidationResult::BlockValidationFailed {
-                    peer: p2,
-                    point: pt2,
+                ValidateBlock::Rollback {
+                    peer: peer2,
+                    point: point2,
                     ..
                 },
-            ) => p1 == p2 && pt1 == pt2,
-            (
-                BlockValidationResult::RolledBackTo {
-                    peer: p1,
-                    rollback_header: rp1,
-                    ..
-                },
-                BlockValidationResult::RolledBackTo {
-                    peer: p2,
-                    rollback_header: rp2,
-                    ..
-                },
-            ) => p1 == p2 && rp1 == rp2,
+            ) => peer1 == peer2 && point1 == point2,
             _ => false,
         }
     }
