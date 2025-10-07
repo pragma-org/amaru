@@ -13,6 +13,6 @@ rust-version.workspace = true
 [dependencies]
 # Internal dependencies
 amaru-kernel.workspace = true
-
+amaru-slot-arithmetic.workspace = true
 [lints]
 workspace = true

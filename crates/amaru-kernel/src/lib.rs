@@ -58,15 +58,15 @@ pub use pallas_primitives::{
         AddrKeyhash, AssetName, AuxiliaryData, BigInt, Block, BootstrapWitness, Certificate, Coin,
         Constitution, Constr, CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash,
         DatumOption, DnsName, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId,
-        HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, MintedBlock, MintedDatumOption,
-        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
-        MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PlutusData, PlutusScript, PolicyId,
-        PoolMetadata, PoolVotingThresholds, Port, PositiveCoin, PostAlonzoTransactionOutput,
-        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
-        PseudoTransactionOutput, RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey,
-        Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody,
-        TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Vote, Voter,
-        VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, Mint, MintedBlock,
+        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
+        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PlutusData, PlutusScript,
+        PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
+        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
+        Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount, ScriptHash, ScriptRef,
+        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
+        VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -935,6 +935,45 @@ impl HasRedeemers for Redeemers {
                 .iter()
                 .map(|(key, redeemer)| (Cow::Borrowed(key), (&redeemer.ex_units, &redeemer.data)))
                 .collect(),
+        }
+    }
+}
+
+pub fn from_alonzo_value(value: &AlonzoValue) -> Result<Value, Box<dyn std::error::Error>> {
+    match value {
+        AlonzoValue::Coin(coin) => Ok(Value::Coin(*coin)),
+        AlonzoValue::Multiasset(coin, assets) if assets.is_empty() => Ok(Value::Coin(*coin)),
+        AlonzoValue::Multiasset(coin, assets) => {
+            let multiasset = assets
+                .iter()
+                .cloned()
+                .map(|(policy_id, tokens)| {
+                    let token_pairs = tokens
+                        .iter()
+                        .cloned()
+                        .map(|(asset_name, quantity)| {
+                            Ok((
+                                asset_name,
+                                quantity
+                                    .try_into()
+                                    .map_err(|e| format!("zero ada in output value: {e:?}"))?,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+
+                    Ok((
+                        policy_id,
+                        NonEmptyKeyValuePairs::try_from(token_pairs)
+                            .map_err(|e| format!("empty tokens under a policy: {e:?}"))?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+
+            Ok(Value::Multiasset(
+                *coin,
+                NonEmptyKeyValuePairs::try_from(multiasset)
+                    .map_err(|e| format!("assets cannot be empty: {e:?}"))?,
+            ))
         }
     }
 }
