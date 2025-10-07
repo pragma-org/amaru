@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use clap::{Parser, Subcommand};
+use std::collections::BTreeMap;
+
+use clap::{ArgMatches, CommandFactory, Parser, Subcommand};
 use observability::OpenTelemetryConfig;
 use panic::panic_handler;
+use tracing::info;
 
 mod cmd;
 mod metrics;
@@ -109,6 +112,28 @@ const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
 
 const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
+fn extract_raw_values(matches: &ArgMatches) -> BTreeMap<String, String> {
+    matches
+        .ids()
+        .filter_map(|id| {
+            matches.get_raw(id.as_str()).map(|values| {
+                let joined = values
+                    .map(|v| v.to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                (id.to_string(), joined)
+            })
+        })
+        .collect()
+}
+
+fn arguments_to_string(map: &BTreeMap<String, String>) -> String {
+    map.iter()
+        .map(|(k, v)| format!("- {}: {:?}", k, v))
+        .collect::<Vec<_>>()
+        .join("  \n")
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
@@ -143,6 +168,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(notify) = warning_otlp.or(warning_json) {
         notify();
     }
+    let matches = Cli::command().get_matches();
+    let map = extract_raw_values(&matches);
+    info!(
+        "With global parameters:\n{}",
+        arguments_to_string(&map)
+    );
+
+    if let Some((name, args)) = matches.subcommand() {
+        info!(
+            "Running command: '{}' with arguments\n{}",
+            name,
+            arguments_to_string(&extract_raw_values(args)
+                .into_iter()
+                .filter(|(k, _)| k != "Args")
+                .collect::<BTreeMap<_, _>>())
+        );
+    }
+
+    //info!("{}", args);
 
     let result = match args.command {
         Command::Run(args) => cmd::run::run(args, metrics).await,
