@@ -165,19 +165,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let matches = Cli::command().get_matches();
     let map = extract_raw_values(&matches);
-    info!(
-        "With global parameters:\n{}",
-        arguments_to_string(&map)
-    );
+    info!("With global parameters:\n{}", arguments_to_string(&map));
 
     if let Some((name, args)) = matches.subcommand() {
         info!(
             "Running command: '{}' with arguments\n{}",
             name,
-            arguments_to_string(&extract_raw_values(args)
-                .into_iter()
-                .filter(|(k, _)| k != "Args")
-                .collect::<BTreeMap<_, _>>())
+            arguments_to_string(
+                &extract_raw_values(args)
+                    .into_iter()
+                    .filter(|(k, _)| k != "Args")
+                    .collect::<BTreeMap<_, _>>()
+            )
         );
     }
 
