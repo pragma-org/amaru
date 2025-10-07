@@ -14,7 +14,7 @@
 
 use amaru_kernel::Hash;
 use amaru_sim::simulator::run::run;
-use amaru_sim::simulator::{Args, SimulateConfig};
+use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
 use std::env;
 use std::str::FromStr;
 use tokio::runtime::Runtime;
@@ -22,22 +22,23 @@ use tracing_subscriber::EnvFilter;
 
 #[test]
 fn run_simulator() {
-    let defaults = SimulateConfig::default();
+    let simulate_config = SimulateConfig::default();
+    let node_config = NodeConfig::default();
     let args = Args {
         stake_distribution_file: "tests/data/stake-distribution.json".into(),
         consensus_context_file: "tests/data/consensus-context.json".into(),
         chain_dir: "./chain.db".into(),
         block_tree_file: "tests/data/chain.json".into(),
         start_header: Hash::from([0; 32]),
-        number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", defaults.number_of_tests),
-        number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", defaults.number_of_nodes),
+        number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", simulate_config.number_of_tests),
+        number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", simulate_config.number_of_nodes),
         number_of_upstream_peers: get_env_var(
             "AMARU_NUMBER_OF_UPSTREAM_PEERS",
-            defaults.number_of_upstream_peers,
+            node_config.number_of_upstream_peers,
         ),
         number_of_downstream_peers: get_env_var(
             "AMARU_NUMBER_OF_DOWNSTREAM_PEERS",
-            defaults.number_of_downstream_peers,
+            node_config.number_of_downstream_peers,
         ),
         disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
         seed: get_optional_env_var("AMARU_TEST_SEED"),

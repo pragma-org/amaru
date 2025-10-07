@@ -21,8 +21,6 @@ pub struct SimulateConfig {
     pub number_of_tests: u32,
     pub seed: u64,
     pub number_of_nodes: u8,
-    pub number_of_upstream_peers: u8,
-    pub number_of_downstream_peers: u8,
     pub disable_shrinking: bool,
 }
 
@@ -32,8 +30,6 @@ impl Default for SimulateConfig {
             number_of_tests: 50,
             seed: rand::rng().random::<u64>(),
             number_of_nodes: 1,
-            number_of_upstream_peers: 2,
-            number_of_downstream_peers: 1,
             disable_shrinking: false,
         }
     }
@@ -46,8 +42,6 @@ impl SimulateConfig {
             number_of_tests: args.number_of_tests,
             seed: args.seed.unwrap_or(default.seed),
             number_of_nodes: args.number_of_nodes,
-            number_of_upstream_peers: args.number_of_upstream_peers,
-            number_of_downstream_peers: args.number_of_downstream_peers,
             disable_shrinking: args.disable_shrinking,
         }
     }
@@ -63,16 +57,6 @@ impl SimulateConfig {
 
     pub fn with_number_of_nodes(mut self, n: u8) -> Self {
         self.number_of_nodes = n;
-        self
-    }
-
-    pub fn with_number_of_upstream_peers(mut self, n: u8) -> Self {
-        self.number_of_upstream_peers = n;
-        self
-    }
-
-    pub fn with_number_of_downstream_peers(mut self, n: u8) -> Self {
-        self.number_of_downstream_peers = n;
         self
     }
 
