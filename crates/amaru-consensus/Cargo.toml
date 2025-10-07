@@ -47,6 +47,7 @@ pure-stage.workspace = true
 [dev-dependencies]
 hex.workspace = true
 proptest.workspace = true
+pure-stage = { workspace = true, features = ["test-utils"] }
 rand.workspace = true
 rand_distr.workspace = true
 serde_json.workspace = true

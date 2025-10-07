@@ -10,6 +10,9 @@ homepage.workspace = true
 documentation = "https://docs.rs/pure-stage"
 rust-version.workspace = true
 
+[features]
+test-utils = []
+
 [dependencies]
 anyhow.workspace = true
 cbor4ii.workspace = true

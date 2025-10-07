@@ -77,6 +77,7 @@ impl<Msg> StageRef<Msg> {
         }
     }
 
+    #[cfg(feature = "test-utils")]
     pub fn named(name: &str) -> StageRef<Msg> {
         StageRef::new(Name::from(name))
     }
