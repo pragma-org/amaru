@@ -20,7 +20,8 @@ use tracing::info;
 
 use amaru_kernel::{
     EraHistory, HeaderBody, Point, PseudoHeader, RawBlock, default_chain_dir, default_ledger_dir,
-    network::NetworkName, protocol_parameters::GlobalParameters,
+    network::NetworkName,
+    protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::{rules::parse_block, store::HistoricalStores};
 use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
@@ -75,13 +76,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(network).into());
 
-    let era_history: &EraHistory = network.into();
     let global_parameters: &GlobalParameters = network.into();
     let block_validator = new_block_validator(network, ledger_dir)?;
-    let chain_store: Arc<dyn ChainStore<PseudoHeader<HeaderBody>>> = Arc::new(RocksDBStore::new(
-        &RocksDbConfig::new(chain_dir),
-        era_history,
-    )?);
+    let chain_store: Arc<dyn ChainStore<PseudoHeader<HeaderBody>>> =
+        Arc::new(RocksDBStore::new(&RocksDbConfig::new(chain_dir))?);
 
     // Collect .tar.gz files
     let mut archives: Vec<_> = fs::read_dir(format!("data/{}/blocks", network))?
@@ -157,7 +155,14 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             let header = block.header.unwrap().into();
             chain_store.store_header(&header)?;
             chain_store.store_block(&point.hash(), raw_block)?;
-            PraosChainStore::new(chain_store.clone()).evolve_nonce(&header, global_parameters)?;
+            let era_history: &EraHistory = network.into();
+            let consensus_parameters = Arc::new(ConsensusParameters::new(
+                global_parameters.clone(),
+                era_history,
+                Default::default(),
+            ));
+            PraosChainStore::new(consensus_parameters, chain_store.clone())
+                .evolve_nonce(&header)?;
 
             if let Err(err) = block_validator
                 .roll_forward_block(point, raw_block)
