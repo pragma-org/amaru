@@ -125,8 +125,9 @@ pub(crate) async fn import_nonces(
     chain_db_path: &PathBuf,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
-    let db = Box::new(RocksDBStore::new(&RocksDbConfig::new(chain_db_path.into()))?)
-        as Box<dyn ChainStore<Header>>;
+    let db = Box::new(RocksDBStore::new(&RocksDbConfig::new(
+        chain_db_path.into(),
+    ))?) as Box<dyn ChainStore<Header>>;
 
     let header_hash = Hash::from(&initial_nonce.at);
 

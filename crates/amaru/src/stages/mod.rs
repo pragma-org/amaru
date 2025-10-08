@@ -312,9 +312,7 @@ fn make_chain_store(
 ) -> Result<Arc<dyn ChainStore<Header>>, Box<dyn Error>> {
     let chain_store: Arc<dyn ChainStore<Header>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
-        StoreType::RocksDb(ref rocks_db_config) => {
-            Arc::new(RocksDBStore::new(rocks_db_config)?)
-        }
+        StoreType::RocksDb(ref rocks_db_config) => Arc::new(RocksDBStore::new(rocks_db_config)?),
     };
 
     if *tip != ORIGIN_HASH && chain_store.load_header(tip).is_none() {
