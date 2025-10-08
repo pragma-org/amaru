@@ -939,18 +939,18 @@ impl HasRedeemers for Redeemers {
     }
 }
 
-pub fn from_alonzo_value(value: &AlonzoValue) -> Result<Value, Box<dyn std::error::Error>> {
+pub fn from_alonzo_value(value: AlonzoValue) -> Result<Value, Box<dyn std::error::Error>> {
     match value {
-        AlonzoValue::Coin(coin) => Ok(Value::Coin(*coin)),
-        AlonzoValue::Multiasset(coin, assets) if assets.is_empty() => Ok(Value::Coin(*coin)),
+        AlonzoValue::Coin(coin) => Ok(Value::Coin(coin)),
+        AlonzoValue::Multiasset(coin, assets) if assets.is_empty() => Ok(Value::Coin(coin)),
         AlonzoValue::Multiasset(coin, assets) => {
             let multiasset = assets
-                .iter()
-                .cloned()
+                .to_vec()
+                .into_iter()
                 .map(|(policy_id, tokens)| {
                     let token_pairs = tokens
-                        .iter()
-                        .cloned()
+                        .to_vec()
+                        .into_iter()
                         .map(|(asset_name, quantity)| {
                             Ok((
                                 asset_name,
@@ -970,7 +970,7 @@ pub fn from_alonzo_value(value: &AlonzoValue) -> Result<Value, Box<dyn std::erro
                 .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
 
             Ok(Value::Multiasset(
-                *coin,
+                coin,
                 NonEmptyKeyValuePairs::try_from(multiasset)
                     .map_err(|e| format!("assets cannot be empty: {e:?}"))?,
             ))
