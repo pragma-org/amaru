@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Nonce, Point, protocol_parameters::GlobalParameters};
+use amaru_kernel::protocol_parameters::ConsensusParameters;
+use amaru_kernel::{Nonce, Point};
 use amaru_ouroboros::{Nonces, praos::nonce};
 use amaru_ouroboros_traits::{ChainStore, IsHeader, Praos, StoreError};
 use amaru_slot_arithmetic::EraHistoryError;
@@ -22,12 +23,19 @@ use thiserror::Error;
 
 /// A wrapper around a `ChainStore` that implements the `Praos` trait, supporting nonce evolution.
 pub struct PraosChainStore<H> {
+    consensus_parameters: Arc<ConsensusParameters>,
     store: Arc<dyn ChainStore<H>>,
 }
 
 impl<H: IsHeader> PraosChainStore<H> {
-    pub fn new(store: Arc<dyn ChainStore<H>>) -> Self {
-        PraosChainStore { store }
+    pub fn new(
+        consensus_parameters: Arc<ConsensusParameters>,
+        store: Arc<dyn ChainStore<H>>,
+    ) -> Self {
+        PraosChainStore {
+            consensus_parameters,
+            store,
+        }
     }
 }
 
@@ -38,14 +46,13 @@ impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
         self.store.get_nonces(header).map(|nonces| nonces.active)
     }
 
-    fn evolve_nonce(
-        &self,
-        header: &H,
-        global_parameters: &GlobalParameters,
-    ) -> Result<Nonces, Self::Error> {
-        let (epoch, is_within_stability_window) =
-            nonce::randomness_stability_window(header, self.store.era_history(), global_parameters)
-                .map_err(NoncesError::EraHistoryError)?;
+    fn evolve_nonce(&self, header: &H) -> Result<Nonces, Self::Error> {
+        let (epoch, is_within_stability_window) = nonce::randomness_stability_window(
+            header,
+            self.consensus_parameters.era_history(),
+            self.consensus_parameters.randomness_stabilization_window(),
+        )
+        .map_err(NoncesError::EraHistoryError)?;
 
         let parent_hash = header.parent().unwrap_or((&Point::Origin).into());
 
@@ -139,6 +146,7 @@ pub enum NoncesError {
 mod test {
     use super::*;
     use crate::test::include_header;
+    use amaru_kernel::protocol_parameters::GlobalParameters;
     use amaru_kernel::{Header, from_cbor, hash, network::NetworkName, to_cbor};
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use amaru_ouroboros_traits::{IsHeader, Praos, ReadOnlyChainStore};
@@ -196,6 +204,11 @@ mod test {
         global_parameters: &GlobalParameters,
     ) -> Option<Nonces> {
         let store = Arc::new(InMemConsensusStore::default());
+        let consensus_parameters = Arc::new(ConsensusParameters::new(
+            global_parameters.clone(),
+            NetworkName::Preprod.into(),
+            Default::default(),
+        ));
 
         // Have at least the last header of the last epoch available.
         store
@@ -208,9 +221,9 @@ mod test {
             .expect("database failure");
 
         // Evolve the current nonce so that 'get_nonces' can then return a result.
-        let praos_store = PraosChainStore::new(store.clone());
+        let praos_store = PraosChainStore::new(consensus_parameters, store.clone());
         praos_store
-            .evolve_nonce(current, global_parameters)
+            .evolve_nonce(current)
             .expect("evolve nonce failed");
         store.get_nonces(&current.hash())
     }

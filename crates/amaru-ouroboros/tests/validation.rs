@@ -14,13 +14,15 @@
 
 use amaru_kernel::Header;
 use amaru_kernel::cbor;
+use amaru_kernel::network::NetworkName;
+use amaru_kernel::protocol_parameters::ConsensusParameters;
 use amaru_ouroboros::{kes, praos};
 use amaru_ouroboros_traits::has_stake_distribution::mock_ledger_state::MockLedgerState;
 use ctor::ctor;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
-use pallas_math::math::FixedDecimal;
 use pallas_primitives::babbage;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::sync::Arc;
 use std::{collections::BTreeMap, fs::File, io::BufReader};
 
 /// Context from which a header has been generated.
@@ -64,8 +66,8 @@ struct GeneratorContext {
 }
 
 impl GeneratorContext {
-    fn active_slot_coeff_fraction(&self) -> pallas_math::math_dashu::Decimal {
-        FixedDecimal::from((self.active_slot_coeff * 100.0) as u64) / FixedDecimal::from(100u64)
+    pub fn active_slot_coeff(&self) -> f64 {
+        self.active_slot_coeff
     }
 }
 
@@ -200,9 +202,18 @@ fn mock_ledger_state(context: &GeneratorContext) -> MockLedgerState {
         stake: 1,
         active_stake: 1,
         op_certs: context.operational_certificate_counters.clone(),
-        slots_per_kes_period: context.praos_slots_per_kes_period,
-        max_kes_evolutions: context.praos_max_kes_evolution,
     }
+}
+
+fn consensus_parameters_from_context(context: &GeneratorContext) -> ConsensusParameters {
+    ConsensusParameters::create(
+        0,
+        context.praos_slots_per_kes_period,
+        context.praos_max_kes_evolution,
+        context.active_slot_coeff(),
+        NetworkName::Preprod.into(),
+        context.operational_certificate_counters.clone(),
+    )
 }
 
 #[ctor]
@@ -232,6 +243,7 @@ fn validation_conforms_to_test_vectors() {
     let file = File::open("tests/data/test-vector.json").unwrap();
     let result: Result<Vec<(GeneratorContext, MutatedHeader)>, serde_json::Error> =
         serde_json::from_reader(BufReader::new(file));
+
     result
         .expect("cannot deserialize test vectors")
         .iter_mut()
@@ -243,17 +255,17 @@ fn validation_conforms_to_test_vectors() {
                 .get_header()
                 .map(|minted_header| {
                     let expected = &test.1.mutation;
-                    let ledger_state = mock_ledger_state(context);
+                    let ledger_state = Arc::new(mock_ledger_state(context));
                     let epoch_nonce = context.nonce;
                     let raw_header_body = minted_header.header_body.raw_cbor();
                     let header = Header::from(minted_header);
-                    let active_slot_coeff = context.active_slot_coeff_fraction();
+                    let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
                     let assertions = praos::header::assert_all(
+                        consensus_parameters,
                         &header,
                         raw_header_body,
-                        &ledger_state,
+                        ledger_state,
                         &epoch_nonce,
-                        &active_slot_coeff,
                     )
                         .unwrap()
                         .into_par_iter()

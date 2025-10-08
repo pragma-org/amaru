@@ -14,9 +14,7 @@
 
 use crate::{ChainStore, ReadOnlyChainStore, StoreError};
 use crate::{IsHeader, Nonces};
-use amaru_kernel::network::NetworkName;
 use amaru_kernel::{HEADER_HASH_SIZE, Hash, ORIGIN_HASH, RawBlock};
-use amaru_slot_arithmetic::EraHistory;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
@@ -194,10 +192,6 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
         let mut inner = self.inner.lock().unwrap();
         inner.nonces.insert(*header, nonces.clone());
         Ok(())
-    }
-
-    fn era_history(&self) -> &EraHistory {
-        NetworkName::Preprod.into()
     }
 
     #[expect(clippy::unwrap_used)]

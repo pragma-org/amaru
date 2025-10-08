@@ -73,18 +73,16 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
-    import_headers_for_network(args.network, &network_dir, &chain_dir).await
+    import_headers_for_network(&network_dir, &chain_dir).await
 }
 
 #[allow(clippy::unwrap_used)]
 #[instrument(level = Level::INFO, name = "import_headers")]
 pub(crate) async fn import_headers_for_network(
-    network: NetworkName,
     config_dir: &Path,
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
-    let era_history = network.into();
-    let db = RocksDBStore::new(&RocksDbConfig::new(chain_dir.into()), era_history)?;
+    let db = RocksDBStore::new(&RocksDbConfig::new(chain_dir.into()))?;
 
     for entry in std::fs::read_dir(config_dir.join("headers"))? {
         let entry = entry?;

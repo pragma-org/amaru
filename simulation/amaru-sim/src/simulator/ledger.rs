@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, RationalNumber, protocol_parameters::GlobalParameters};
+use amaru_kernel::{Header, RationalNumber};
 use amaru_ouroboros::{ChainStore, HasStakeDistribution, Nonces, PoolSummary, StoreError};
 use amaru_slot_arithmetic::{Epoch, Slot};
 use pallas_crypto::hash::Hash;
@@ -26,29 +26,20 @@ use std::{fs::File, io::BufReader, path::Path};
 pub struct FakeStakeDistribution {
     total_active_stake: u64,
     pools: Vec<FakeStakePoolInfo>,
-    max_kes_evolutions: u8,
-    slots_per_kes_period: u64,
 }
 
 impl FakeStakeDistribution {
     /// Deserialize a stake distribution from a JSON file.
-    pub fn from_file(
-        stake_distribution_file: &Path,
-        global_parameters: &GlobalParameters,
-    ) -> Result<FakeStakeDistribution, Error> {
+    pub fn from_file(stake_distribution_file: &Path) -> Result<FakeStakeDistribution, Error> {
         let file = File::open(stake_distribution_file)
             .unwrap_or_else(|_| panic!("cannot find stake distribution file '{}', use --stake-distribution-file <FILE> to set the file to load distribution from", stake_distribution_file.display()));
 
-        serde_json::from_reader(BufReader::new(file)).map(|pools: Vec<FakeStakePoolInfo>| {
-            FakeStakeDistribution::new(pools, global_parameters)
-        })
+        serde_json::from_reader(BufReader::new(file))
+            .map(|pools: Vec<FakeStakePoolInfo>| FakeStakeDistribution::new(pools))
     }
 
     /// Create a new stake distribution from a list of pools.
-    pub fn new(
-        pools: Vec<FakeStakePoolInfo>,
-        global_parameters: &GlobalParameters,
-    ) -> FakeStakeDistribution {
+    pub fn new(pools: Vec<FakeStakePoolInfo>) -> FakeStakeDistribution {
         let total_active_stake = pools
             .iter()
             .map(|p| p.individual_stake.individual_total_pool_stake)
@@ -57,8 +48,6 @@ impl FakeStakeDistribution {
         FakeStakeDistribution {
             pools,
             total_active_stake,
-            max_kes_evolutions: global_parameters.max_kes_evolution,
-            slots_per_kes_period: global_parameters.slots_per_kes_period,
         }
     }
 }
@@ -73,21 +62,6 @@ impl HasStakeDistribution for FakeStakeDistribution {
                 stake: info.individual_stake.individual_total_pool_stake,
                 active_stake: self.total_active_stake,
             })
-    }
-
-    fn slot_to_kes_period(&self, slot: Slot) -> u64 {
-        u64::from(slot) / self.slots_per_kes_period
-    }
-
-    fn max_kes_evolutions(&self) -> u64 {
-        self.max_kes_evolutions as u64
-    }
-
-    fn latest_opcert_sequence_number(&self, pool: &amaru_kernel::PoolId) -> Option<u64> {
-        self.pools
-            .iter()
-            .find(|p| p.pool_id == *pool)
-            .map(|info| info.ocert_counter)
     }
 }
 
@@ -175,7 +149,6 @@ mod test {
 
     use amaru_kernel::Header;
     use amaru_kernel::Slot;
-    use amaru_kernel::network::NetworkName;
     use amaru_kernel::tests::random_bytes;
     use amaru_ouroboros::HasStakeDistribution;
     use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
@@ -185,11 +158,8 @@ mod test {
     #[test]
     fn can_create_stake_distribution_from_file() {
         let stake_distribution_file = "tests/data/stake-distribution.json";
-        let stake_distribution = FakeStakeDistribution::from_file(
-            &PathBuf::from(stake_distribution_file),
-            NetworkName::Preprod.into(),
-        )
-        .unwrap();
+        let stake_distribution =
+            FakeStakeDistribution::from_file(&PathBuf::from(stake_distribution_file)).unwrap();
         let pool_id: Hash<28> = amaru_kernel::Hash::from(
             hex::decode("50484a702b93327308d85f51f1831940fdddcb751bf43bc3376c42b9")
                 .unwrap()
@@ -206,11 +176,8 @@ mod test {
     #[test]
     fn compute_total_stake_from_individual_pool_stake() {
         let stake_distribution_file = "tests/data/stake-distribution.json";
-        let stake_distribution = FakeStakeDistribution::from_file(
-            &PathBuf::from(stake_distribution_file),
-            NetworkName::Preprod.into(),
-        )
-        .unwrap();
+        let stake_distribution =
+            FakeStakeDistribution::from_file(&PathBuf::from(stake_distribution_file)).unwrap();
         let pool_id: Hash<28> = amaru_kernel::Hash::from(
             hex::decode("50484a702b93327308d85f51f1831940fdddcb751bf43bc3376c42b9")
                 .unwrap()

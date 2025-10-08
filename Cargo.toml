@@ -161,6 +161,10 @@ debug = true
 lto = true
 codegen-units = 1
 
+[profile.profiling]
+inherits = "release"
+debug = true
+
 [workspace.metadata.cross.target.aarch64-unknown-linux-musl]
 pre-build = [
   "apt update",

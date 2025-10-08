@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{BaseOps, ConsensusOps, LedgerOps, MetricsOps};
+use crate::consensus::effects::{BaseOps, ConsensusOps, MetricsOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
 use crate::consensus::events::{BlockValidationResult, ValidateBlockEvent};
 use crate::consensus::span::adopt_current_span;
@@ -48,7 +48,7 @@ pub async fn stage(
         } => {
             let point = header.point();
 
-            match eff.ledger().validate(&peer, &point, block.clone()).await {
+            match eff.ledger().validate(&peer, &point, block).await {
                 Ok(Ok(metrics)) => {
                     eff.metrics().record(metrics.into()).await;
                     eff.base()

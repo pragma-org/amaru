@@ -18,6 +18,7 @@ use amaru::observability::{self, OpenTelemetryConfig};
 use amaru::panic::panic_handler;
 
 mod cmd;
+mod pid;
 
 #[derive(Debug, Subcommand)]
 enum Command {

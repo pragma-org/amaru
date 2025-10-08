@@ -44,11 +44,8 @@ pub struct Args {
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir;
-    let era_history = args.network.into();
-    let db: Arc<dyn ChainStore<Header>> = Arc::new(RocksDBStore::new(
-        &RocksDbConfig::new(chain_dir),
-        era_history,
-    )?);
+    let db: Arc<dyn ChainStore<Header>> =
+        Arc::new(RocksDBStore::new(&RocksDbConfig::new(chain_dir))?);
 
     print_iterator(
         "headers",

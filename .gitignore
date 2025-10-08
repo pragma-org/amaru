@@ -48,4 +48,6 @@ lcov.info
 
 **/proptest-regressions/**
 
+heaptrack.*.gz
+
 data/**/blocks/**
