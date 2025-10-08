@@ -278,6 +278,7 @@ async fn download_from_mithril(
     } = aggregator_details(network);
     let client = ClientBuilder::aggregator(endpoint, verification_key)
         .set_ancillary_verification_key(ancillary_verification_key.to_string())
+        .with_origin_tag(Some("AMARU".to_string()))
         .add_feedback_receiver(Arc::new(IndicatifFeedbackReceiver::new(&progress_bar)))
         .build()?;
     let database_client = client.cardano_database_v2();
