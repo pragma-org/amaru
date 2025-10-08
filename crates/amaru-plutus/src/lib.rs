@@ -16,8 +16,8 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Address, BigInt, Bytes, ComputeHash, Constr, DatumOption, Hash, Int, KeyValuePairs,
-    MaybeIndefArray, PlutusData, Redeemer, ScriptRef, ShelleyDelegationPart, ShelleyPaymentPart,
-    StakeAddress, StakeCredential, StakePayload,
+    MaybeIndefArray, NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ScriptRef,
+    ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakeCredential, StakePayload,
 };
 
 use crate::script_context::TimeRange;
@@ -352,6 +352,30 @@ where
     }
 }
 
+impl<const VER: u8, K, V> ToPlutusData<VER> for NonEmptyKeyValuePairs<K, V>
+where
+    PlutusVersion<VER>: IsKnownPlutusVersion,
+    K: ToPlutusData<VER> + Clone,
+    V: ToPlutusData<VER> + Clone,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        PlutusData::Map(KeyValuePairs::Def(
+            self.iter()
+                .map(|(key, value)| (key.to_plutus_data(), value.to_plutus_data()))
+                .collect::<Vec<_>>(),
+        ))
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for NonZeroInt
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        i64::from(self).to_plutus_data()
+    }
+}
+
 impl<const VER: u8, K, V> ToPlutusData<VER> for (K, V)
 where
     PlutusVersion<VER>: IsKnownPlutusVersion,
@@ -388,5 +412,18 @@ where
 {
     fn to_plutus_data(&self) -> PlutusData {
         (*self).to_plutus_data()
+    }
+}
+
+impl<const V: u8, T> ToPlutusData<V> for Nullable<T>
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+    T: ToPlutusData<V> + Clone,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            Nullable::Some(t) => constr!(0, t),
+            Nullable::Null | Nullable::Undefined => constr!(1),
+        }
     }
 }
