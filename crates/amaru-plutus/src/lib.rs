@@ -52,22 +52,59 @@ macro_rules! constr {
             fields: MaybeIndefArray::Def(vec![]),
         })
     }};
-    ($index:expr, $($field:expr),+ $(,)?) => {{
+    ($index:expr, [$($field:expr),* $(,)?]) => {{
         let maybe_constr_tag = $index.to_constr_tag();
         PlutusData::Constr(Constr {
             tag: maybe_constr_tag.unwrap_or(DEFAULT_TAG),
             any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
-            fields: MaybeIndefArray::Indef(vec![$($field.to_plutus_data()),+]),
+            fields: MaybeIndefArray::Indef(vec![$($field.to_plutus_data()),*]),
         })
     }};
-    (v: $version:expr, $index:expr, $($field:expr),+ $(,)?) => {{
-            let maybe_constr_tag = $index.to_constr_tag();
-            PlutusData::Constr(Constr {
-                tag: maybe_constr_tag.unwrap_or(DEFAULT_TAG),
-                any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
-                fields: MaybeIndefArray::Indef(vec![$(ToPlutusData::<$version>::to_plutus_data(&$field)),+]),
-            })
-        }};
+    (v: $version:expr, $index:expr, [$($field:expr),* $(,)?]) => {{
+        let maybe_constr_tag = $index.to_constr_tag();
+        PlutusData::Constr(Constr {
+            tag: maybe_constr_tag.unwrap_or(DEFAULT_TAG),
+            any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
+            fields: MaybeIndefArray::Indef(vec![$(ToPlutusData::<$version>::to_plutus_data(&$field)),*]),
+        })
+    }};
+
+}
+
+#[macro_export]
+macro_rules! constr_v1 {
+    ($index:expr, [$($field:expr),* $(,)?]) => {{
+        let maybe_constr_tag = $index.to_constr_tag();
+        PlutusData::Constr(Constr {
+            tag: maybe_constr_tag.unwrap_or(DEFAULT_TAG),
+            any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
+            fields: MaybeIndefArray::Indef(vec![$(ToPlutusData::<1>::to_plutus_data(&$field)),*]),
+        })
+    }};
+}
+
+#[macro_export]
+macro_rules! constr_v2 {
+    ($index:expr, [$($field:expr),* $(,)?]) => {{
+        let maybe_constr_tag = $index.to_constr_tag();
+        PlutusData::Constr(Constr {
+            tag: maybe_constr_tag.unwrap_or(DEFAULT_TAG),
+            any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
+            fields: MaybeIndefArray::Indef(vec![$(ToPlutusData::<2>::to_plutus_data(&$field)),*]),
+        })
+    }};
+}
+
+#[macro_export]
+macro_rules! constr_v3 {
+    ($index:expr, [$($field:expr),* $(,)?]) => {{
+        let maybe_constr_tag = $index.to_constr_tag();
+        PlutusData::Constr(Constr {
+            tag: maybe_constr_tag.unwrap_or(DEFAULT_TAG),
+            any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
+            fields: MaybeIndefArray::Indef(vec![$(ToPlutusData::<3>::to_plutus_data(&$field)),*]),
+        })
+    }};
 }
 
 pub trait ToPlutusData<const VERSION: u8> {
@@ -87,8 +124,8 @@ where
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             Some(datum) => match datum {
-                DatumOption::Hash(hash) => constr!(1, hash),
-                DatumOption::Data(data) => constr!(2, data.0),
+                DatumOption::Hash(hash) => constr!(1, [hash]),
+                DatumOption::Data(data) => constr!(2, [data.0]),
             },
 
             None => constr!(0),
@@ -108,32 +145,31 @@ where
 
                 let payment_part_plutus_data = match payment_part {
                     ShelleyPaymentPart::Key(payment_keyhash) => {
-                        constr!(0, payment_keyhash)
+                        constr!(0, [payment_keyhash])
                     }
                     ShelleyPaymentPart::Script(script_hash) => {
-                        constr!(1, script_hash)
+                        constr!(1, [script_hash])
                     }
                 };
 
                 let stake_part_plutus_data = match stake_part {
                     ShelleyDelegationPart::Key(stake_keyhash) => {
-                        Some(constr!(0, StakeCredential::AddrKeyhash(*stake_keyhash)))
+                        Some(constr!(0, [StakeCredential::AddrKeyhash(*stake_keyhash)]))
                             .to_plutus_data()
                     }
                     ShelleyDelegationPart::Script(script_hash) => {
-                        Some(constr!(0, StakeCredential::ScriptHash(*script_hash))).to_plutus_data()
+                        Some(constr!(0, [StakeCredential::ScriptHash(*script_hash)]))
+                            .to_plutus_data()
                     }
                     ShelleyDelegationPart::Pointer(pointer) => Some(constr!(
                         1,
-                        pointer.slot(),
-                        pointer.tx_idx(),
-                        pointer.cert_idx(),
+                        [pointer.slot(), pointer.tx_idx(), pointer.cert_idx()]
                     ))
                     .to_plutus_data(),
                     ShelleyDelegationPart::Null => None::<StakeCredential>.to_plutus_data(),
                 };
 
-                constr!(0, payment_part_plutus_data, stake_part_plutus_data)
+                constr!(0, [payment_part_plutus_data, stake_part_plutus_data])
             }
             Address::Stake(stake_address) => stake_address.to_plutus_data(),
             Address::Byron(_) => unreachable!("unable to encode Byron address in PlutusData"),
@@ -147,15 +183,15 @@ where
 {
     fn to_plutus_data(&self) -> PlutusData {
         let lower = match self.lower_bound {
-            Some(x) => constr!(0, constr!(1, u64::from(x)), true),
-            None => constr!(0, constr!(0), true),
+            Some(x) => constr!(0, [constr!(1, [u64::from(x)]), true]),
+            None => constr!(0, [constr!(0), true]),
         };
         let upper = match self.upper_bound {
-            Some(x) => constr!(0, constr!(1, u64::from(x)), false),
-            None => constr!(0, constr!(2), true),
+            Some(x) => constr!(0, [constr!(1, [u64::from(x)]), false]),
+            None => constr!(0, [constr!(2), true]),
         };
 
-        constr!(0, lower, upper)
+        constr!(0, [lower, upper])
     }
 }
 
@@ -165,8 +201,8 @@ where
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self.payload() {
-            StakePayload::Stake(keyhash) => constr!(0, keyhash),
-            StakePayload::Script(script_hash) => constr!(1, script_hash),
+            StakePayload::Stake(keyhash) => constr!(0, [keyhash]),
+            StakePayload::Script(script_hash) => constr!(1, [script_hash]),
         }
     }
 }
@@ -178,10 +214,10 @@ where
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             StakeCredential::AddrKeyhash(hash) => {
-                constr!(0, hash)
+                constr!(0, [hash])
             }
             StakeCredential::ScriptHash(hash) => {
-                constr!(1, hash)
+                constr!(1, [hash])
             }
         }
     }
@@ -195,7 +231,7 @@ where
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             None => constr!(0),
-            Some(data) => constr!(1, data),
+            Some(data) => constr!(1, [data]),
         }
     }
 }
@@ -383,7 +419,7 @@ where
     V: ToPlutusData<VER>,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(0, self.0, self.1)
+        constr!(0, [self.0, self.1])
     }
 }
 
@@ -422,7 +458,7 @@ where
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            Nullable::Some(t) => constr!(0, t),
+            Nullable::Some(t) => constr!(0, [t]),
             Nullable::Null | Nullable::Undefined => constr!(1),
         }
     }

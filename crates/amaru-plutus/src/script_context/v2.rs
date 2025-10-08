@@ -15,7 +15,7 @@
 use amaru_kernel::{Address, DatumOption, ScriptRef, from_alonzo_value};
 
 use crate::{
-    Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr,
+    Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr_v2,
     script_context::{
         AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, OutputRef, PlutusData,
         Redeemer, StakeAddress, TimeRange, TransactionId, TransactionOutput, Value,
@@ -43,13 +43,29 @@ pub struct TxInfo {
 
 impl ToPlutusData<2> for TxInfo {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 2, 0, self.inputs, self.reference_inputs, self.outputs, self.fee, self.mint, self.certificates, self.withdrawals, self.valid_range, self.signatories,  self.redeemers, self.data, constr!(v:2,0, self.id))
+        constr_v2!(
+            0,
+            [
+                self.inputs,
+                self.reference_inputs,
+                self.outputs,
+                self.fee,
+                self.mint,
+                self.certificates,
+                self.withdrawals,
+                self.valid_range,
+                self.signatories,
+                self.redeemers,
+                self.data,
+                constr_v2!(0, [self.id])
+            ]
+        )
     }
 }
 
 impl ToPlutusData<2> for OutputRef {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 2, 0, self.input, self.output)
+        constr_v2!(0, [self.input, self.output])
     }
 }
 
@@ -58,10 +74,26 @@ impl ToPlutusData<2> for TransactionOutput {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                constr!(v: 2, 0, Address::from_bytes(&output.address).unwrap(), from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"), output.datum_hash.map(DatumOption::Hash), None::<ScriptRef>)
+                constr_v2!(
+                    0,
+                    [
+                        Address::from_bytes(&output.address).unwrap(),
+                        from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"),
+                        output.datum_hash.map(DatumOption::Hash),
+                        None::<ScriptRef>
+                    ]
+                )
             }
             amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
-                constr!(v: 2, 0, Address::from_bytes(&output.address).unwrap(), output.value, output.datum_option, output.script_ref.as_ref().map(|s| s.clone().unwrap()))
+                constr_v2!(
+                    0,
+                    [
+                        Address::from_bytes(&output.address).unwrap(),
+                        output.value,
+                        output.datum_option,
+                        output.script_ref.as_ref().map(|s| s.clone().unwrap())
+                    ]
+                )
             }
         }
     }
