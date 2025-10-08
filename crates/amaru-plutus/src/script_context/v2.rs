@@ -37,7 +37,7 @@ impl ToPlutusData<2> for TransactionOutput {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                constr!(v: 2, 0, Address::from_bytes(&output.address).unwrap(), from_alonzo_value(&output.amount).expect("illegal alonzo value"), None::<DatumOption>, None::<ScriptRef>)
+                constr!(v: 2, 0, Address::from_bytes(&output.address).unwrap(), from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"), None::<DatumOption>, None::<ScriptRef>)
             }
             amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
                 constr!(v: 2, 0, Address::from_bytes(&output.address).unwrap(), output.value, output.datum_option, output.script_ref.as_ref().map(|s| s.clone().unwrap()))
