@@ -19,7 +19,7 @@ use amaru_kernel::{
 
 use crate::{
     Constr, DEFAULT_TAG, IsKnownPlutusVersion, MaybeIndefArray, PlutusVersion, ToConstrTag,
-    ToPlutusData, constr,
+    ToPlutusData, constr, constr_v1,
     script_context::{
         AddrKeyhash, Certificate, DatumHash, IsPrePlutusVersion3, OutputRef, PlutusData, TimeRange,
         TransactionId, TransactionOutput, Value, Withdrawal,
@@ -58,13 +58,30 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 1, 0, self.tx_info, self.purpose)
+        constr_v1!(0, [self.tx_info, self.purpose])
     }
 }
 
 impl ToPlutusData<1> for TxInfo {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 1, 0, self.inputs, self.outputs, self.fee, self.mint, self.certificates, self.withdrawals.iter().map(|(address, coin)| (constr!(v: 1, 0, address), *coin)).collect::<Vec<_>>(), self.valid_range, self.signatories, self.data, constr!(v:1,0, self.id))
+        constr_v1!(
+            0,
+            [
+                self.inputs,
+                self.outputs,
+                self.fee,
+                self.mint,
+                self.certificates,
+                self.withdrawals
+                    .iter()
+                    .map(|(address, coin)| (constr_v1!(0, [address]), *coin))
+                    .collect::<Vec<_>>(),
+                self.valid_range,
+                self.signatories,
+                self.data,
+                constr_v1!(0, [self.id])
+            ]
+        )
     }
 }
 
@@ -74,12 +91,12 @@ where
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            ScriptPurpose::Minting(policy_id) => constr!(v: 1, 0, policy_id),
-            ScriptPurpose::Spending(input) => constr!(v: 1,1, input),
+            ScriptPurpose::Minting(policy_id) => constr_v1!(0, [policy_id]),
+            ScriptPurpose::Spending(input) => constr_v1!(1, [input]),
             ScriptPurpose::Rewarding(stake_credential) => {
-                constr!(v: 1, 2, constr!(v: 1, 0, stake_credential))
+                constr_v1!(2, [constr_v1!(0, [stake_credential])])
             }
-            ScriptPurpose::Certifying(certificate) => constr!(v: 1, 3, certificate),
+            ScriptPurpose::Certifying(certificate) => constr_v1!(3, [certificate]),
         }
     }
 }
@@ -132,7 +149,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: V, 0, constr!(v: V, 0, self.transaction_id), self.index)
+        constr!(v: V, 0, [constr!(v: V, 0, [self.transaction_id]), self.index])
     }
 }
 
@@ -143,12 +160,14 @@ where
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            Certificate::StakeRegistration(stake_credential) => constr!(v: V, 0, stake_credential),
+            Certificate::StakeRegistration(stake_credential) => {
+                constr!(v: V, 0, [stake_credential])
+            }
             Certificate::StakeDeregistration(stake_credential) => {
-                constr!(v: V, 1, stake_credential)
+                constr!(v: V, 1, [stake_credential])
             }
             Certificate::StakeDelegation(stake_credential, hash) => {
-                constr!(v: V, 2, stake_credential, hash)
+                constr!(v: V, 2, [stake_credential, hash])
             }
             Certificate::PoolRegistration {
                 operator,
@@ -160,8 +179,8 @@ where
                 pool_owners: _,
                 relays: _,
                 pool_metadata: _,
-            } => constr!(v: V, 3, operator, vrf_keyhash),
-            Certificate::PoolRetirement(hash, epoch) => constr!(v: V, 4, hash, epoch),
+            } => constr!(v: V, 3, [operator, vrf_keyhash]),
+            Certificate::PoolRetirement(hash, epoch) => constr!(v: V, 4, [hash, epoch]),
             certificate => {
                 unreachable!("illegal certificate type in v{V:?} script context: {certificate:?}")
             }
@@ -171,7 +190,7 @@ where
 
 impl ToPlutusData<1> for OutputRef {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 1, 0, self.input, self.output)
+        constr_v1!(0, [self.input, self.output])
     }
 }
 
@@ -180,13 +199,27 @@ impl ToPlutusData<1> for TransactionOutput {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                constr!(v: 1, 0, Address::from_bytes(&output.address).unwrap(), from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"), output.datum_hash.map(DatumOption::Hash))
+                constr_v1!(
+                    0,
+                    [
+                        Address::from_bytes(&output.address).unwrap(),
+                        from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"),
+                        output.datum_hash.map(DatumOption::Hash)
+                    ]
+                )
             }
             amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
-                constr!(v: 1, 0, Address::from_bytes(&output.address).unwrap(), output.value, match output.datum_option {
-                    Some(DatumOption::Hash(hash)) => Some(hash),
-                    _ => None::<Hash<32>>,
-                })
+                constr_v1!(
+                    0,
+                    [
+                        Address::from_bytes(&output.address).unwrap(),
+                        output.value,
+                        match output.datum_option {
+                            Some(DatumOption::Hash(hash)) => Some(hash),
+                            _ => None::<Hash<32>>,
+                        }
+                    ]
+                )
             }
         }
     }

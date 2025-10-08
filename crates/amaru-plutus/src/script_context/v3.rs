@@ -22,7 +22,7 @@ use amaru_kernel::{
 use num::Integer;
 
 use crate::{
-    Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr,
+    Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr, constr_v3,
     script_context::{
         AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, OutputRef, PlutusData,
         PolicyId, Redeemer, StakeAddress, TimeRange, TransactionId, TransactionInput,
@@ -79,25 +79,45 @@ pub struct ScriptContext {
 
 impl ToPlutusData<3> for ScriptContext {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 3, 0, self.tx_info, self.redeemer, self.script_info)
+        constr_v3!(0, [self.tx_info, self.redeemer, self.script_info])
     }
 }
 
 impl ToPlutusData<3> for TxInfo {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 3, 0, self.inputs, self.reference_inputs, self.outputs, self.fee, self.mint, self.certificates, self.withdrawals, self.valid_range, self.signatories, self.redeemers, self.data, self.id, self.votes, self.proposal_procedures, self.current_treasury_amount, self.treasury_donation)
+        constr_v3!(
+            0,
+            [
+                self.inputs,
+                self.reference_inputs,
+                self.outputs,
+                self.fee,
+                self.mint,
+                self.certificates,
+                self.withdrawals,
+                self.valid_range,
+                self.signatories,
+                self.redeemers,
+                self.data,
+                self.id,
+                self.votes,
+                self.proposal_procedures,
+                self.current_treasury_amount,
+                self.treasury_donation,
+            ]
+        )
     }
 }
 
 impl ToPlutusData<3> for ScriptPurpose {
     fn to_plutus_data(&self) -> PlutusData {
         match self.deref() {
-            ScriptInfo::Minting(policy_id) => constr!(v: 3, 0, policy_id),
-            ScriptInfo::Spending(out_ref, _) => constr!(v: 3, 1, out_ref),
-            ScriptInfo::Rewarding(stake_credential) => constr!(v: 3, 2, stake_credential),
-            ScriptInfo::Certifying(ix, certificate) => constr!(v: 3, 3, ix, certificate),
-            ScriptInfo::Voting(voter) => constr!(v: 3, 4, voter),
-            ScriptInfo::Proposing(ix, procedure) => constr!(v: 3, 5, ix, procedure),
+            ScriptInfo::Minting(policy_id) => constr_v3!(0, [policy_id]),
+            ScriptInfo::Spending(out_ref, _) => constr_v3!(1, [out_ref]),
+            ScriptInfo::Rewarding(stake_credential) => constr_v3!(2, [stake_credential]),
+            ScriptInfo::Certifying(ix, certificate) => constr_v3!(3, [ix, certificate]),
+            ScriptInfo::Voting(voter) => constr_v3!(4, [voter]),
+            ScriptInfo::Proposing(ix, procedure) => constr_v3!(5, [ix, procedure]),
         }
     }
 }
@@ -105,31 +125,25 @@ impl ToPlutusData<3> for ScriptPurpose {
 impl ToPlutusData<3> for ScriptInfo {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            ScriptInfo::Minting(policy_id) => constr!(v: 3, 0, policy_id),
-            ScriptInfo::Spending(out_ref, datum) => {
-                constr!(v: 3, 1, out_ref, datum)
-            }
-            ScriptInfo::Rewarding(stake_credential) => {
-                constr!(v: 3, 2, stake_credential)
-            }
-            ScriptInfo::Certifying(ix, dcert) => constr!(v: 3, 3, ix, dcert),
-            ScriptInfo::Voting(voter) => constr!(v: 3, 4, voter),
-            ScriptInfo::Proposing(ix, procedure) => {
-                constr!(v: 3, 5, ix, procedure)
-            }
+            ScriptInfo::Minting(policy_id) => constr_v3!(0, [policy_id]),
+            ScriptInfo::Spending(out_ref, datum) => constr_v3!(1, [out_ref, datum]),
+            ScriptInfo::Rewarding(stake_credential) => constr_v3!(2, [stake_credential]),
+            ScriptInfo::Certifying(ix, dcert) => constr_v3!(3, [ix, dcert]),
+            ScriptInfo::Voting(voter) => constr_v3!(4, [voter]),
+            ScriptInfo::Proposing(ix, procedure) => constr_v3!(5, [ix, procedure]),
         }
     }
 }
 
 impl ToPlutusData<3> for OutputRef {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 3, 0, self.input, self.output)
+        constr_v3!(0, [self.input, self.output])
     }
 }
 
 impl ToPlutusData<3> for TransactionInput {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 3, 0, self.transaction_id, self.index)
+        constr_v3!(0, [self.transaction_id, self.index])
     }
 }
 
@@ -138,10 +152,26 @@ impl ToPlutusData<3> for TransactionOutput {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                constr!(v: 3, 0, Address::from_bytes(&output.address).unwrap(), from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"), output.datum_hash.map(DatumOption::Hash), None::<ScriptRef>)
+                constr_v3!(
+                    0,
+                    [
+                        Address::from_bytes(&output.address).unwrap(),
+                        from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"),
+                        output.datum_hash.map(DatumOption::Hash),
+                        None::<ScriptRef>
+                    ]
+                )
             }
             amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
-                constr!(v: 3, 0, Address::from_bytes(&output.address).unwrap(), output.value, output.datum_option, output.script_ref.as_ref().map(|s| s.clone().unwrap()))
+                constr_v3!(
+                    0,
+                    [
+                        Address::from_bytes(&output.address).unwrap(),
+                        output.value,
+                        output.datum_option,
+                        output.script_ref.as_ref().map(|s| s.clone().unwrap())
+                    ]
+                )
             }
         }
     }
@@ -191,8 +221,8 @@ impl ToPlutusData<3> for Value {
 impl ToPlutusData<3> for DRep {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            DRep::Key(hash) => constr!(v:3,0,StakeCredential::AddrKeyhash(*hash)),
-            DRep::Script(hash) => constr!(v:3,0,StakeCredential::ScriptHash(*hash)),
+            DRep::Key(hash) => constr_v3!(0, [StakeCredential::AddrKeyhash(*hash)]),
+            DRep::Script(hash) => constr_v3!(0, [StakeCredential::ScriptHash(*hash)]),
             DRep::Abstain => constr!(1),
             DRep::NoConfidence => constr!(2),
         }
@@ -203,43 +233,46 @@ impl ToPlutusData<3> for Certificate {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             Certificate::StakeRegistration(stake_credential) => {
-                constr!(v: 3, 0, stake_credential, None::<PlutusData>)
+                constr_v3!(0, [stake_credential, None::<PlutusData>])
             }
             Certificate::Reg(stake_credential, _) => {
-                constr!(v: 3, 0, stake_credential, None::<PlutusData>)
+                constr_v3!(0, [stake_credential, None::<PlutusData>])
             }
             Certificate::StakeDeregistration(stake_credential) => {
-                constr!(v: 3, 1, stake_credential, None::<PlutusData>)
+                constr_v3!(1, [stake_credential, None::<PlutusData>])
             }
             Certificate::UnReg(stake_credential, _) => {
-                constr!(v: 3, 1, stake_credential, None::<PlutusData>)
+                constr_v3!(1, [stake_credential, None::<PlutusData>])
             }
             Certificate::StakeDelegation(stake_credential, pool_id) => {
-                constr!(v: 3, 2, stake_credential, constr!(v:3, 0, pool_id))
+                constr_v3!(2, [stake_credential, constr_v3!(0, [pool_id])])
             }
             Certificate::VoteDeleg(stake_credential, drep) => {
-                constr!(v: 3, 2, stake_credential, constr!(v:3, 1, drep))
+                constr_v3!(2, [stake_credential, constr_v3!(1, [drep])])
             }
             Certificate::StakeVoteDeleg(stake_credential, pool_id, drep) => {
-                constr!(v: 3, 2, stake_credential, constr!(v: 3, 2, pool_id, drep))
+                constr_v3!(2, [stake_credential, constr_v3!(2, [pool_id, drep])])
             }
             Certificate::StakeRegDeleg(stake_credential, pool_id, deposit) => {
-                constr!(v: 3, 3, stake_credential, constr!(v:3, 0, pool_id), deposit)
+                constr_v3!(3, [stake_credential, constr_v3!(0, [pool_id]), deposit])
             }
             Certificate::VoteRegDeleg(stake_credential, drep, deposit) => {
-                constr!(v: 3, 3, stake_credential, constr!(v:3, 1, drep), deposit)
+                constr_v3!(3, [stake_credential, constr_v3!(1, [drep]), deposit])
             }
             Certificate::StakeVoteRegDeleg(stake_credential, pool_id, drep, deposit) => {
-                constr!(v: 3, 3, stake_credential, constr!(v: 3, 2, pool_id, drep), deposit)
+                constr_v3!(
+                    3,
+                    [stake_credential, constr_v3!(2, [pool_id, drep]), deposit]
+                )
             }
             Certificate::RegDRepCert(drep_credential, deposit, _anchor) => {
-                constr!(v: 3, 4, drep_credential, deposit)
+                constr_v3!(4, [drep_credential, deposit])
             }
             Certificate::UpdateDRepCert(drep_credential, _anchor) => {
-                constr!(v: 3, 5, drep_credential)
+                constr_v3!(5, [drep_credential])
             }
             Certificate::UnRegDRepCert(drep_credential, deposit) => {
-                constr!(v: 3, 6, drep_credential, deposit)
+                constr_v3!(6, [drep_credential, deposit])
             }
             Certificate::PoolRegistration {
                 operator,
@@ -251,17 +284,15 @@ impl ToPlutusData<3> for Certificate {
                 pool_owners: _,
                 relays: _,
                 pool_metadata: _,
-            } => {
-                constr!(v: 3, 7, operator, vrf_keyhash)
-            }
+            } => constr_v3!(7, [operator, vrf_keyhash]),
             Certificate::PoolRetirement(pool_keyhash, epoch) => {
-                constr!(v: 3, 8, pool_keyhash, epoch)
+                constr_v3!(8, [pool_keyhash, epoch])
             }
             Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
-                constr!(v: 3, 9, cold_credential, hot_credential)
+                constr_v3!(9, [cold_credential, hot_credential])
             }
             Certificate::ResignCommitteeCold(cold_credential, _anchor) => {
-                constr!(v: 3, 10, cold_credential)
+                constr_v3!(10, [cold_credential])
             }
         }
     }
@@ -271,18 +302,18 @@ impl ToPlutusData<3> for Voter {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             Voter::ConstitutionalCommitteeScript(hash) => {
-                constr!(v: 3, 0, StakeCredential::ScriptHash(*hash))
+                constr_v3!(0, [StakeCredential::ScriptHash(*hash)])
             }
             Voter::ConstitutionalCommitteeKey(hash) => {
-                constr!(v: 3, 0, StakeCredential::AddrKeyhash(*hash))
+                constr_v3!(0, [StakeCredential::AddrKeyhash(*hash)])
             }
             Voter::DRepScript(hash) => {
-                constr!(v: 3, 1, StakeCredential::ScriptHash(*hash))
+                constr_v3!(1, [StakeCredential::ScriptHash(*hash)])
             }
             Voter::DRepKey(hash) => {
-                constr!(v: 3, 1, StakeCredential::AddrKeyhash(*hash))
+                constr_v3!(1, [StakeCredential::AddrKeyhash(*hash)])
             }
-            Voter::StakePoolKey(hash) => constr!(v: 3, 2, hash),
+            Voter::StakePoolKey(hash) => constr_v3!(2, [hash]),
         }
     }
 }
@@ -290,7 +321,14 @@ impl ToPlutusData<3> for Voter {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<3> for Proposal {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 3, self.deposit, Address::from_bytes(&self.reward_account).unwrap(), self.gov_action)
+        constr_v3!(
+            0,
+            [
+                self.deposit,
+                Address::from_bytes(&self.reward_account).unwrap(),
+                self.gov_action
+            ]
+        )
     }
 }
 
@@ -299,22 +337,38 @@ impl ToPlutusData<3> for GovAction {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             GovAction::ParameterChange(previous_action, params, guardrail) => {
-                constr!(v: 3, 0, previous_action, params.as_ref(), guardrail)
+                constr_v3!(0, [previous_action, params.as_ref(), guardrail])
             }
             GovAction::HardForkInitiation(previous_action, version) => {
-                constr!(v: 3,  1, previous_action, version)
+                constr_v3!(1, [previous_action, version])
             }
             GovAction::TreasuryWithdrawals(withdrawals, guardrail) => {
-                constr!(v: 3, 2, KeyValuePairs::from(withdrawals.iter().map(|(reward_account, amount)| (Address::from_bytes(reward_account).expect("invalid stake addressin treasury withdrawal?"), *amount)).collect::<Vec<_>>()), guardrail)
+                constr_v3!(
+                    2,
+                    [
+                        KeyValuePairs::from(
+                            withdrawals
+                                .iter()
+                                .map(|(reward_account, amount)| (
+                                    Address::from_bytes(reward_account)
+                                        .expect("invalid stake addressin treasury withdrawal?"),
+                                    *amount
+                                ))
+                                .collect::<Vec<_>>()
+                        ),
+                        guardrail
+                    ]
+                )
             }
             GovAction::NoConfidence(previous_action) => {
-                constr!(v: 3, 3, previous_action)
+                constr_v3!(3, [previous_action])
             }
             GovAction::UpdateCommittee(previous_action, removed, added, quorum) => {
-                constr!(v: 3, 4, previous_action, removed.deref(), added, quorum)
+                // Check this -- in Aiken it uses a *different* encoding for quorum
+                constr_v3!(4, [previous_action, removed.deref(), added, quorum])
             }
             GovAction::NewConstitution(previous_action, constitution) => {
-                constr!(v: 3, 5, previous_action, constitution)
+                constr_v3!(5, [previous_action, constitution])
             }
             GovAction::Information => constr!(6),
         }
@@ -323,13 +377,13 @@ impl ToPlutusData<3> for GovAction {
 
 impl ToPlutusData<3> for Constitution {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 3, 0, self.guardrail_script)
+        constr_v3!(0, [self.guardrail_script])
     }
 }
 
 impl ToPlutusData<3> for ProposalId {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 3, 0, self.transaction_id, self.action_index)
+        constr_v3!(0, [self.transaction_id, self.action_index])
     }
 }
 
