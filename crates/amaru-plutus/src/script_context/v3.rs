@@ -1,8 +1,14 @@
-use amaru_kernel::{DatumOption, Mint, Proposal, ProposalId, StakeCredential, Vote};
+use amaru_kernel::{
+    Address, DatumOption, Mint, Proposal, ProposalId, StakeCredential, Value, Vote,
+};
 
-use crate::script_context::{
-    AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, OutputRef, PlutusData, PolicyId,
-    Redeemer, StakeAddress, TimeRange, TransactionId, TransactionInput, TransactionOutput, Voter,
+use crate::{
+    Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr,
+    script_context::{
+        AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, OutputRef, PlutusData,
+        PolicyId, Redeemer, StakeAddress, TimeRange, TransactionId, TransactionInput,
+        TransactionOutput, Voter,
+    },
 };
 
 // Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V3/Data/Contexts.hs#L572
@@ -40,4 +46,27 @@ pub struct ScriptContext {
     tx_info: TxInfo,
     redeemer: Redeemer,
     script_info: ScriptInfo,
+}
+
+impl ToPlutusData<3> for TransactionInput {
+    fn to_plutus_data(&self) -> PlutusData {
+        constr!(v: 3, 0, self.transaction_id, self.index)
+    }
+}
+
+impl ToPlutusData<3> for TransactionOutput {
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            amaru_kernel::PseudoTransactionOutput::Legacy(transaction_output) => todo!(),
+            amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
+                constr!(v: 3, 0, Address::from_bytes(&output.address).unwrap(), output.value, output.datum_option, output.script_ref.as_ref().map(|s| s.clone().unwrap()))
+            }
+        }
+    }
+}
+
+impl ToPlutusData<3> for Value {
+    fn to_plutus_data(&self) -> PlutusData {
+        todo!()
+    }
 }
