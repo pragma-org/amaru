@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::effects::{ConsensusEffects, ResourceHeaderValidation};
+use amaru_consensus::consensus::effects::ConsensusEffects;
 use amaru_consensus::consensus::errors::{ProcessingFailed, ValidationFailed};
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
-use amaru_consensus::consensus::stages::validate_header::ValidateHeader;
 use amaru_consensus::consensus::stages::{
     fetch_block, forward_chain, receive_header, select_chain, store_block, store_header,
     validate_block, validate_header,
 };
 use amaru_consensus::consensus::tip::HeaderTip;
-use amaru_kernel::protocol_parameters::GlobalParameters;
+use amaru_kernel::protocol_parameters::{ConsensusParameters, GlobalParameters};
 use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
+use std::sync::Arc;
 
 /// Create the graph of stages supporting the consensus protocol.
 /// The output of the graph is passed as a parameter, allowing the caller to
@@ -32,42 +32,33 @@ use pure_stage::{Effects, SendData, StageGraph, StageRef};
 pub fn build_stage_graph(
     global_parameters: &GlobalParameters,
     era_history: &'static EraHistory,
-    header_validation: ResourceHeaderValidation,
     chain_selector: SelectChain,
     our_tip: HeaderTip,
     network: &mut impl StageGraph,
 ) -> StageRef<ChainSyncEvent> {
     let receive_header_stage = network.stage(
         "receive_header",
-        with_consensus_effects(era_history, receive_header::stage),
+        with_consensus_effects(receive_header::stage),
     );
-    let store_header_stage = network.stage(
-        "store_header",
-        with_consensus_effects(era_history, store_header::stage),
-    );
+    let store_header_stage =
+        network.stage("store_header", with_consensus_effects(store_header::stage));
     let validate_header_stage = network.stage(
         "validate_header",
-        with_consensus_effects(era_history, validate_header::stage),
+        with_consensus_effects(validate_header::stage),
     );
-    let select_chain_stage = network.stage(
-        "select_chain",
-        with_consensus_effects(era_history, select_chain::stage),
-    );
-    let fetch_block_stage = network.stage(
-        "fetch_block",
-        with_consensus_effects(era_history, fetch_block::stage),
-    );
-    let store_block_stage = network.stage(
-        "store_block",
-        with_consensus_effects(era_history, store_block::stage),
-    );
+    let select_chain_stage =
+        network.stage("select_chain", with_consensus_effects(select_chain::stage));
+    let fetch_block_stage =
+        network.stage("fetch_block", with_consensus_effects(fetch_block::stage));
+    let store_block_stage =
+        network.stage("store_block", with_consensus_effects(store_block::stage));
     let validate_block_stage = network.stage(
         "validate_block",
-        with_consensus_effects(era_history, validate_block::stage),
+        with_consensus_effects(validate_block::stage),
     );
     let forward_chain_stage = network.stage(
         "forward_chain",
-        with_consensus_effects(era_history, forward_chain::stage),
+        with_consensus_effects(forward_chain::stage),
     );
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
@@ -134,8 +125,11 @@ pub fn build_stage_graph(
     let validate_header_stage = network.wire_up(
         validate_header_stage,
         (
-            ValidateHeader::new(header_validation),
-            global_parameters.clone(),
+            Arc::new(ConsensusParameters::new(
+                global_parameters.clone(),
+                era_history,
+                Default::default(),
+            )),
             select_chain_stage.without_state(),
             validation_errors_stage.clone().without_state(),
         ),
@@ -160,7 +154,6 @@ pub fn build_stage_graph(
 /// Note: the EraHistory reference must be passed to be able to build a ChainStore that can reference
 /// the correct era history. That ChainStore is returned by the ConsensusEffects::store() function.
 fn with_consensus_effects<Msg, St, F1, Fut>(
-    era_history: &'static EraHistory,
     mut f: F1,
 ) -> impl FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send
 where
@@ -169,5 +162,5 @@ where
     Msg: SendData + serde::de::DeserializeOwned + Sync + Clone,
     St: SendData,
 {
-    move |state, message, effects| f(state, message, ConsensusEffects::new(effects, era_history))
+    move |state, message, effects| f(state, message, ConsensusEffects::new(effects))
 }

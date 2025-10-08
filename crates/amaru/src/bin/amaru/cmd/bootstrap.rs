@@ -101,7 +101,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     import_nonces_for_network(network, &network_dir, &chain_dir).await?;
 
-    import_headers_for_network(network, &network_dir, &chain_dir).await?;
+    import_headers_for_network(&network_dir, &chain_dir).await?;
 
     Ok(())
 }

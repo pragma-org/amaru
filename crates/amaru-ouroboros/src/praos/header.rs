@@ -17,9 +17,11 @@ use crate::{
     math::{ExpOrdering, FixedDecimal, FixedPrecision},
     vrf,
 };
+use amaru_kernel::protocol_parameters::ConsensusParameters;
 use amaru_kernel::{Header, Nonce};
 use amaru_ouroboros_traits::HasStakeDistribution;
 use amaru_slot_arithmetic::Slot;
+use std::sync::Arc;
 use std::{array::TryFromSliceError, ops::Deref, sync::LazyLock};
 use thiserror::Error;
 
@@ -83,11 +85,11 @@ impl PartialEq for AssertHeaderError {
 pub type Assertion<'a> = Box<dyn Fn() -> Result<(), AssertHeaderError> + Send + Sync + 'a>;
 
 pub fn assert_all<'a>(
+    consensus_parameters: Arc<ConsensusParameters>,
     header: &'a Header,
     raw_header_body: &'a [u8],
-    ledger_state: &'a dyn HasStakeDistribution,
+    ledger_state: Arc<dyn HasStakeDistribution>,
     epoch_nonce: &'a Nonce,
-    active_slot_coeff: &'a FixedDecimal,
 ) -> Result<Vec<Assertion<'a>>, AssertHeaderError> {
     // Grab all the values we need to validate the block
     let absolute_slot = Slot::from(header.header_body.slot);
@@ -113,6 +115,10 @@ pub fn assert_all<'a>(
         })
         .ok_or(AssertHeaderError::UnknownPool { pool })?;
 
+    let active_slot_coeff = consensus_parameters.active_slot_coeff();
+    let slot_to_kes_period = consensus_parameters.slot_to_kes_period(absolute_slot);
+    let max_kes_evolutions = consensus_parameters.max_kes_evolutions();
+    let latest_opcert_sequence_number = consensus_parameters.latest_opcert_sequence_number(&pool);
     Ok(vec![
         Box::new(move || {
             AssertKnownLeaderVrfError::new(
@@ -133,7 +139,7 @@ pub fn assert_all<'a>(
         }),
         Box::new(move || {
             AssertLeaderStakeError::new(
-                active_slot_coeff,
+                &active_slot_coeff,
                 &leader_relative_stake,
                 &FixedDecimal::from(&header.header_body.leader_vrf_output()[..]),
             )?;
@@ -143,19 +149,19 @@ pub fn assert_all<'a>(
             AssertOperationalCertificateError::new(
                 &header.header_body.operational_cert,
                 &issuer,
-                ledger_state.latest_opcert_sequence_number(&pool),
+                latest_opcert_sequence_number,
             )?;
             Ok(())
         }),
         Box::new(move || {
             let opcert = &header.header_body.operational_cert;
             AssertKesSignatureError::new(
-                ledger_state.slot_to_kes_period(absolute_slot),
+                slot_to_kes_period,
                 opcert.operational_cert_kes_period,
                 raw_header_body,
                 &opcert.operational_cert_hot_vkey[..].try_into()?, // TODO: Pallas should hold sized slices
                 &header.body_signature[..].try_into()?, // TODO: Pallas should hold sized slices
-                ledger_state.max_kes_evolutions(),
+                max_kes_evolutions,
             )?;
             Ok(())
         }),

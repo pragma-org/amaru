@@ -25,7 +25,6 @@ hex.workspace = true
 itertools.workspace = true
 opentelemetry = { workspace = true, optional = true }
 pallas-crypto.workspace = true
-pallas-math.workspace = true
 
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }

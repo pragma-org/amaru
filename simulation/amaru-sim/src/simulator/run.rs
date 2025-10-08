@@ -104,8 +104,8 @@ fn spawn_node(
     info!("Spawning node!");
     let config = SimulateConfig::from(args.clone());
 
-    let (global_parameters, network_name, select_chain, validate_header, chain_ref) =
-        init_node(&args);
+    let (network_name, select_chain, resource_header_store, resource_validation) = init_node(&args);
+    let global_parameters: &GlobalParameters = network_name.into();
 
     // The receiver replies ok to init messages from the sender (via 'output', the only output of the graph)
     // and forwards chain sync messages to the rest of the processing graph
@@ -161,9 +161,8 @@ fn spawn_node(
     let our_tip = HeaderTip::new(Point::Origin, 0);
     let era_history: &EraHistory = network_name.into();
     let receive_header_ref = build_stage_graph(
-        &global_parameters,
+        global_parameters,
         era_history,
-        validate_header,
         select_chain,
         our_tip,
         network,
@@ -176,10 +175,15 @@ fn spawn_node(
 
     let receiver = network.wire_up(receiver, (receive_header_ref, output.clone()));
 
-    network.resources().put::<ResourceHeaderStore>(chain_ref);
     network
         .resources()
-        .put::<ResourceParameters>(global_parameters);
+        .put::<ResourceHeaderStore>(resource_header_store);
+    network
+        .resources()
+        .put::<ResourceHeaderValidation>(resource_validation);
+    network
+        .resources()
+        .put::<ResourceParameters>(global_parameters.clone());
     network
         .resources()
         .put::<ResourceBlockFetcher>(Arc::new(FakeBlockFetcher));
@@ -196,18 +200,15 @@ fn spawn_node(
 fn init_node(
     args: &Args,
 ) -> (
-    GlobalParameters,
     NetworkName,
     SelectChain,
-    ResourceHeaderValidation,
     ResourceHeaderStore,
+    ResourceHeaderValidation,
 ) {
     let network_name = NetworkName::Testnet(42);
-    let global_parameters: &GlobalParameters = network_name.into();
-    let stake_distribution: FakeStakeDistribution =
-        FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
-
     let chain_store = Arc::new(InMemConsensusStore::new());
+    let stake_distribution =
+        Arc::new(FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap());
 
     populate_chain_store(
         chain_store.clone(),
@@ -223,13 +224,7 @@ fn init_node(
             .collect::<Vec<_>>(),
     );
 
-    (
-        global_parameters.clone(),
-        network_name,
-        select_chain,
-        Arc::new(stake_distribution),
-        chain_store,
-    )
+    (network_name, select_chain, chain_store, stake_distribution)
 }
 
 fn make_chain_selector(chain_store: Arc<dyn ChainStore<Header>>, peers: &Vec<Peer>) -> SelectChain {

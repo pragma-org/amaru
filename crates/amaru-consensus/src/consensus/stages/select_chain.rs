@@ -388,8 +388,14 @@ mod tests {
         let message = make_roll_forward_message(&peer, &header);
         let consensus_ops = mock_consensus_ops();
 
-        let (select_chain, _, _) =
-            stage(make_state(&peer), message.clone(), consensus_ops.clone()).await;
+        let store = consensus_ops.store();
+        let anchor = store.get_anchor_hash();
+        let (select_chain, _, _) = stage(
+            make_state(store.clone(), &peer, &anchor),
+            message.clone(),
+            consensus_ops.clone(),
+        )
+        .await;
         let output = make_validated_event(&peer, &header);
 
         assert_eq!(
@@ -403,8 +409,8 @@ mod tests {
         check_peers(
             select_chain,
             vec![
-                (Me, vec![header.hash()]),
-                (SomePeer(peer), vec![header.hash()]),
+                (Me, vec![anchor, header.hash()]),
+                (SomePeer(peer), vec![anchor, header.hash()]),
             ],
         );
         Ok(())
@@ -422,7 +428,13 @@ mod tests {
         let message3 = make_rollback_message(&peer, &header1);
 
         let consensus_ops = mock_consensus_ops();
-        let state = stage(make_state(&peer), message1, consensus_ops.clone()).await;
+        let anchor = consensus_ops.store().get_anchor_hash();
+        let state = stage(
+            make_state(consensus_ops.store(), &peer, &anchor),
+            message1,
+            consensus_ops.clone(),
+        )
+        .await;
         let state = stage(state, message2, consensus_ops.clone()).await;
         let (select_chain, _, _) = stage(state, message3.clone(), consensus_ops.clone()).await;
 
@@ -440,8 +452,8 @@ mod tests {
         check_peers(
             select_chain,
             vec![
-                (Me, vec![header1.hash(), header2.hash()]),
-                (SomePeer(peer), vec![header1.hash()]),
+                (Me, vec![anchor, header1.hash(), header2.hash()]),
+                (SomePeer(peer), vec![anchor, header1.hash()]),
             ],
         );
         Ok(())
@@ -449,11 +461,19 @@ mod tests {
 
     // HELPERS
 
-    fn make_state(peer: &Peer) -> State {
+    fn make_state(
+        store: Arc<dyn ChainStore<Header>>,
+        peer: &Peer,
+        anchor: &Hash<HEADER_HASH_SIZE>,
+    ) -> State {
         let downstream: StageRef<ValidateHeaderEvent> = StageRef::named("downstream");
         let errors: StageRef<ValidationFailed> = StageRef::named("errors");
+        let mut tree_state = HeadersTreeState::new(10);
+        tree_state
+            .initialize_peer(store.clone(), peer, anchor)
+            .unwrap();
         (
-            SelectChain::new(HeadersTreeState::new(10), slice::from_ref(peer)),
+            SelectChain::new(tree_state, slice::from_ref(peer)),
             downstream,
             errors,
         )

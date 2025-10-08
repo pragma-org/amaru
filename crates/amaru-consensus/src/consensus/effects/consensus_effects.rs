@@ -19,7 +19,6 @@ use crate::consensus::effects::{Ledger, LedgerOps};
 use crate::consensus::effects::{Network, NetworkOps};
 use amaru_kernel::Header;
 use amaru_ouroboros_traits::ChainStore;
-use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{Effects, SendData};
 use std::sync::Arc;
 
@@ -31,7 +30,7 @@ pub trait ConsensusOps: Send + Sync + Clone {
     fn network(&self) -> impl NetworkOps;
     /// Return a LedgerOps implementation to access ledger operations, considering that it is a sub-system
     /// external to consensus.
-    fn ledger(&self) -> impl LedgerOps;
+    fn ledger(&self) -> Arc<dyn LedgerOps>;
     /// Return a BaseOps implementation to access basic operations, like sending messages to other stages.
     fn base(&self) -> impl BaseOps;
     /// Return a MetricsOps implementation to record metrics events.
@@ -39,31 +38,26 @@ pub trait ConsensusOps: Send + Sync + Clone {
 }
 
 /// Implementation of ConsensusOps using pure_stage::Effects.
-/// The EraHistory is needed to create the ChainStore.
 #[derive(Clone)]
 pub struct ConsensusEffects<T> {
     effects: Effects<T>,
-    era_history: EraHistory,
 }
 
 impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
-    pub fn new(effects: Effects<T>, era_history: &EraHistory) -> ConsensusEffects<T> {
-        ConsensusEffects {
-            effects,
-            era_history: era_history.clone(),
-        }
+    pub fn new(effects: Effects<T>) -> ConsensusEffects<T> {
+        ConsensusEffects { effects }
     }
 
     pub fn store(&self) -> Arc<dyn ChainStore<Header>> {
-        Arc::new(Store::new(self.effects.clone(), self.era_history.clone()))
+        Arc::new(Store::new(self.effects.clone()))
     }
 
     pub fn network(&self) -> impl NetworkOps {
         Network::new(&self.effects)
     }
 
-    pub fn ledger(&self) -> impl LedgerOps {
-        Ledger::new(&self.effects)
+    pub fn ledger(&self) -> Arc<dyn LedgerOps> {
+        Arc::new(Ledger::new(self.effects.clone()))
     }
 
     pub fn base(&self) -> impl BaseOps {
@@ -84,7 +78,7 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
         self.network()
     }
 
-    fn ledger(&self) -> impl LedgerOps {
+    fn ledger(&self) -> Arc<dyn LedgerOps> {
         self.ledger()
     }
 
@@ -104,11 +98,12 @@ pub mod tests {
     use crate::consensus::errors::{ConsensusError, ProcessingFailed};
     use crate::consensus::tip::HeaderTip;
     use amaru_kernel::peer::Peer;
-    use amaru_kernel::{Header, Point, RawBlock};
+    use amaru_kernel::{Header, Point, PoolId, RawBlock};
     use amaru_metrics::MetricsEvent;
     use amaru_metrics::ledger::LedgerMetrics;
-    use amaru_ouroboros_traits::BlockValidationError;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+    use amaru_ouroboros_traits::{BlockValidationError, HasStakeDistribution, PoolSummary};
+    use amaru_slot_arithmetic::Slot;
     use pure_stage::{BoxFuture, Instant, StageRef};
     use std::collections::BTreeMap;
     use std::sync::{Arc, Mutex};
@@ -133,8 +128,8 @@ pub mod tests {
             self.mock_network.clone()
         }
 
-        fn ledger(&self) -> impl LedgerOps {
-            self.mock_ledger.clone()
+        fn ledger(&self) -> Arc<dyn LedgerOps> {
+            Arc::new(self.mock_ledger.clone())
         }
 
         fn base(&self) -> impl BaseOps {
@@ -220,6 +215,12 @@ pub mod tests {
             _rollback_header: &Header,
         ) -> BoxFuture<'static, anyhow::Result<(), ProcessingFailed>> {
             Box::pin(async { Ok(()) })
+        }
+    }
+
+    impl HasStakeDistribution for MockLedgerOps {
+        fn get_pool(&self, _slot: Slot, _pool: &PoolId) -> Option<PoolSummary> {
+            None
         }
     }
 
