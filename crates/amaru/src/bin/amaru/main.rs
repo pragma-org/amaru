@@ -127,13 +127,6 @@ fn extract_raw_values(matches: &ArgMatches) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn arguments_to_string(map: &BTreeMap<String, String>) -> String {
-    map.iter()
-        .map(|(k, v)| format!("- {}: {}", k, v))
-        .collect::<Vec<_>>()
-        .join("  \n")
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
@@ -169,20 +162,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         notify();
     }
     let matches = Cli::command().get_matches();
-    let map = extract_raw_values(&matches);
-    info!("With global parameters:\n{}", arguments_to_string(&map));
+    let arguments = extract_raw_values(&matches);
+    info!(?arguments, "With global parameters");
 
     if let Some((name, args)) = matches.subcommand() {
-        info!(
-            "Running command: '{}' with arguments\n{}",
-            name,
-            arguments_to_string(
-                &extract_raw_values(args)
-                    .into_iter()
-                    .filter(|(k, _)| k != "Args")
-                    .collect::<BTreeMap<_, _>>()
-            )
-        );
+        let arguments = extract_raw_values(args)
+            .into_iter()
+            .filter(|(k, _)| k != "Args")
+            .collect::<BTreeMap<_, _>>();
+        info!(?arguments, "Running command: '{}' with arguments", name);
     }
 
     //info!("{}", args);
