@@ -137,6 +137,12 @@ impl<const V: u8> ToPlutusData<V> for Address
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
+    /// In both Plutus v1 and v2 encodings, Byron addresses are not possible encodings.
+    ///
+    /// In [PlutusV1](https://github.com/IntersectMBO/cardano-ledger/blob/59b52bb31c76a4a805e18860f68f549ec9022b14/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Plutus/TxInfo.hs#L111-L112), outputs containing Byron addresses are filtered out.
+    ///
+    /// In [PlutusV2](https://github.com/IntersectMBO/cardano-ledger/blob/232511b0fa01cd848cd7a569d1acc322124cf9b8/eras/conway/impl/src/Cardano/Ledger/Conway/TxInfo.hs#L306), Byron addresses are completely disallowed, throwing an error instead
+    // FIXME: make byron addresses impossible at the type level, so that this is not an issue, an error is thrown
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             Address::Shelley(shelley_address) => {
