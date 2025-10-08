@@ -11,6 +11,8 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+# External dependencies
+num.workspace = true
 # Internal dependencies
 amaru-kernel.workspace = true
 amaru-slot-arithmetic.workspace = true

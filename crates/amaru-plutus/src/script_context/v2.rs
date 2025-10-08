@@ -47,21 +47,22 @@ impl ToPlutusData<2> for TxInfo {
     }
 }
 
+impl ToPlutusData<2> for OutputRef {
+    fn to_plutus_data(&self) -> PlutusData {
+        constr!(v: 2, 0, self.input, self.output)
+    }
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<2> for TransactionOutput {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                constr!(v: 2, 0, Address::from_bytes(&output.address).unwrap(), from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"), None::<DatumOption>, None::<ScriptRef>)
+                constr!(v: 2, 0, Address::from_bytes(&output.address).unwrap(), from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"), output.datum_hash.map(DatumOption::Hash), None::<ScriptRef>)
             }
             amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
                 constr!(v: 2, 0, Address::from_bytes(&output.address).unwrap(), output.value, output.datum_option, output.script_ref.as_ref().map(|s| s.clone().unwrap()))
             }
         }
-    }
-}
-
-impl ToPlutusData<2> for OutputRef {
-    fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: 2, 0, self.input, self.output)
     }
 }

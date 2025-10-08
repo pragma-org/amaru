@@ -89,23 +89,18 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        match self {
-            Value::Coin(coin) => PlutusData::Map(KeyValuePairs::Def(vec![(
+        let ada_entry = |coin: &u64| -> (PlutusData, PlutusData) {
+            (
                 <Bytes as ToPlutusData<V>>::to_plutus_data(&Bytes::from(vec![])),
                 PlutusData::Map(KeyValuePairs::Def(vec![(
                     <AssetName as ToPlutusData<V>>::to_plutus_data(&AssetName::from(vec![])),
                     <u64 as ToPlutusData<V>>::to_plutus_data(coin),
                 )])),
-            )])),
+            )
+        };
+        let entries = match self {
+            Value::Coin(coin) => vec![ada_entry(coin)],
             Value::Multiasset(coin, multiasset) => {
-                let ada_entry = (
-                    <Bytes as ToPlutusData<V>>::to_plutus_data(&Bytes::from(vec![])),
-                    PlutusData::Map(KeyValuePairs::Def(vec![(
-                        <AssetName as ToPlutusData<V>>::to_plutus_data(&AssetName::from(vec![])),
-                        <u64 as ToPlutusData<V>>::to_plutus_data(coin),
-                    )])),
-                );
-
                 let multiasset_entries = multiasset.iter().map(|(policy_id, assets)| {
                     (
                         <PolicyId as ToPlutusData<V>>::to_plutus_data(policy_id),
@@ -122,14 +117,13 @@ where
                         )),
                     )
                 });
-
-                PlutusData::Map(KeyValuePairs::Def(
-                    std::iter::once(ada_entry)
-                        .chain(multiasset_entries)
-                        .collect(),
-                ))
+                std::iter::once(ada_entry(coin))
+                    .chain(multiasset_entries)
+                    .collect()
             }
-        }
+        };
+
+        PlutusData::Map(KeyValuePairs::Def(entries))
     }
 }
 
@@ -181,12 +175,12 @@ impl ToPlutusData<1> for OutputRef {
     }
 }
 
-// TODO: remove unwraps and expects here
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<1> for TransactionOutput {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                constr!(v: 1, 0, Address::from_bytes(&output.address).unwrap(), from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"), None::<Hash<32>>)
+                constr!(v: 1, 0, Address::from_bytes(&output.address).unwrap(), from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"), output.datum_hash.map(DatumOption::Hash))
             }
             amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
                 constr!(v: 1, 0, Address::from_bytes(&output.address).unwrap(), output.value, match output.datum_option {
