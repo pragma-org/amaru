@@ -13,9 +13,18 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::store::PraosChainStore;
-use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
+use amaru_stores::rocksdb::{
+    RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore,
+};
+use anyhow::anyhow;
 use clap::Parser;
-use std::{fs, io::Read, path::PathBuf, sync::Arc, time::Instant};
+use std::{
+    fs::{self, File},
+    io::Read,
+    path::PathBuf,
+    sync::Arc,
+    time::Instant,
+};
 use tracing::info;
 
 use amaru_kernel::{
@@ -23,7 +32,7 @@ use amaru_kernel::{
     network::NetworkName,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
-use amaru_ledger::{rules::parse_block, store::HistoricalStores};
+use amaru_ledger::{block_validator::BlockValidator, rules::parse_block};
 use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
 
 use flate2::read::GzDecoder;
@@ -65,23 +74,8 @@ pub struct Args {
     ingest_maximum_blocks: Option<usize>,
 }
 
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::panic)]
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let network = args.network;
-    let ledger_dir = args
-        .ledger_dir
-        .unwrap_or_else(|| default_ledger_dir(network).into());
-    let chain_dir = args
-        .chain_dir
-        .unwrap_or_else(|| default_chain_dir(network).into());
-
-    let global_parameters: &GlobalParameters = network.into();
-    let block_validator = new_block_validator(network, ledger_dir)?;
-    let chain_store: Arc<dyn ChainStore<PseudoHeader<HeaderBody>>> =
-        Arc::new(RocksDBStore::new(&RocksDbConfig::new(chain_dir))?);
-
-    // Collect .tar.gz files
+/// Load archives containing blocks and sort them based on file name (filesystem access doesn't guarantee any ordering)
+fn list_archive_names(network: NetworkName) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut archives: Vec<_> = fs::read_dir(format!("data/{}/blocks", network))?
         .filter_map(|entry| {
             let entry = entry.ok()?;
@@ -98,7 +92,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .collect();
-
     archives.sort_by(|a, b| {
         let a = a.split_once(".").unwrap_or_default().0;
         let b = b.split_once(".").unwrap_or_default().0;
@@ -106,71 +99,131 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or_default()
             .cmp(&b.parse::<u32>().unwrap_or_default())
     });
+    Ok(archives)
+}
 
+fn load_archive(
+    network: NetworkName,
+    archive_path: &String,
+) -> Result<Archive<GzDecoder<File>>, Box<dyn std::error::Error>> {
+    let file = fs::File::open(format!("data/{}/blocks/{}", network, archive_path))?;
+    let gz = GzDecoder::new(file);
+    Ok(Archive::new(gz))
+}
+
+fn create_praos_chain_store(
+    global_parameters: GlobalParameters,
+    chain_store: Arc<dyn ChainStore<PseudoHeader<HeaderBody>>>,
+    era_history: &EraHistory,
+) -> PraosChainStore<PseudoHeader<HeaderBody>> {
+    let consensus_parameters = Arc::new(ConsensusParameters::new(
+        global_parameters,
+        era_history,
+        Default::default(),
+    ));
+    PraosChainStore::new(consensus_parameters, chain_store)
+}
+
+async fn load_blocks(
+    archive: &mut Archive<GzDecoder<File>>,
+) -> Result<Vec<(Point, RawBlock)>, Box<dyn std::error::Error>> {
+    let archive_entries = archive.entries()?;
+    let mut entries_with_keys: Vec<(_, _)> = Vec::with_capacity(archive_entries.size_hint().0);
+
+    for entry in archive_entries {
+        let mut entry = entry?;
+        let path = entry.path()?;
+
+        if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+            //let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+            let (slot_str, hash_str) = file_name
+                .strip_suffix(".cbor")
+                .unwrap_or(file_name)
+                .split_once('.')
+                .unwrap_or(("0", ""));
+            let point = Point::Specific(
+                slot_str.parse().unwrap_or_default(),
+                hex::decode(hash_str).unwrap_or_default(),
+            );
+            let mut block_data = Vec::new();
+            entry.read_to_end(&mut block_data)?;
+            entries_with_keys.push((point, RawBlock::from(&*block_data)));
+        }
+    }
+
+    // Sort by numeric key
+    entries_with_keys.sort_by_key(|(num, _)| num.clone());
+    Ok(entries_with_keys)
+}
+
+/// Process blocks as if they were processed by the full node
+/// Particularly all on disk side-effects are performed
+async fn process_block(
+    chain_store: &Arc<dyn ChainStore<PseudoHeader<HeaderBody>>>,
+    praos_chain_store: &PraosChainStore<PseudoHeader<HeaderBody>>,
+    block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
+    point: &Point,
+    raw_block: &RawBlock,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let block = parse_block(raw_block)?;
+    let header = block.header.unwrap().into();
+    chain_store.store_header(&header)?;
+    chain_store.store_block(&point.hash(), raw_block)?;
+    praos_chain_store.evolve_nonce(&header)?;
+    let _ = block_validator
+        .roll_forward_block(point, raw_block)
+        .await
+        .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?;
+
+    Ok(())
+}
+
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::panic)]
+pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let network = args.network;
+    let ledger_dir = args
+        .ledger_dir
+        .unwrap_or_else(|| default_ledger_dir(network).into());
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(network).into());
+
+    let era_history: &EraHistory = network.into();
+    let global_parameters: &GlobalParameters = network.into();
+    let block_validator = new_block_validator(network, ledger_dir)?;
     let tip = block_validator.get_tip();
+    let chain_store: Arc<dyn ChainStore<PseudoHeader<HeaderBody>>> =
+        Arc::new(RocksDBStore::new(&RocksDbConfig::new(chain_dir))?);
+    let praos_chain_store =
+        create_praos_chain_store(global_parameters.clone(), chain_store.clone(), era_history);
+
+    // Collect .tar.gz files
+    let archive_names = list_archive_names(network)?;
 
     let mut processed = 0;
     // Process relevant points
     let before = Instant::now();
-    for archive_path in &archives {
-        let file = fs::File::open(format!("data/{}/blocks/{}", network, archive_path))?;
-        let gz = GzDecoder::new(file);
-        let mut archive = Archive::new(gz);
 
-        let mut entries_with_keys: Vec<(_, _)> =
-            Vec::with_capacity(archive.entries()?.size_hint().0);
+    for archive_name in &archive_names {
+        let mut archive = load_archive(network, archive_name)?;
+        let blocks = load_blocks(&mut archive).await?;
 
-        for entry in archive.entries()? {
-            let mut entry = entry?;
-            let path = entry.path()?;
-
-            if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
-                //let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-                let (slot_str, hash_str) = file_name
-                    .strip_suffix(".cbor")
-                    .unwrap_or(file_name)
-                    .split_once('.')
-                    .unwrap_or(("0", ""));
-                let point = Point::Specific(
-                    slot_str.parse().unwrap_or_default(),
-                    hex::decode(hash_str).unwrap_or_default(),
-                );
-                let mut block_data = Vec::new();
-                entry.read_to_end(&mut block_data)?;
-                entries_with_keys.push((point, RawBlock::from(&*block_data)));
-            }
-        }
-
-        // Sort by numeric key
-        entries_with_keys.sort_by_key(|(num, _)| num.clone());
-
-        for (point, raw_block) in entries_with_keys.iter_mut() {
+        for (point, raw_block) in blocks
+            .iter()
             // Do not process points already in the ledger
-            if point.slot_or_default() <= tip.slot_or_default() {
-                continue;
-            }
+            .filter(|(point, _)| point.slot_or_default() > tip.slot_or_default())
+        {
+            process_block(
+                &chain_store,
+                &praos_chain_store,
+                &block_validator,
+                point,
+                raw_block,
+            )
+            .await?;
+
             processed += 1;
-
-            let block = parse_block(raw_block)?;
-            let header = block.header.unwrap().into();
-            chain_store.store_header(&header)?;
-            chain_store.store_block(&point.hash(), raw_block)?;
-            let era_history: &EraHistory = network.into();
-            let consensus_parameters = Arc::new(ConsensusParameters::new(
-                global_parameters.clone(),
-                era_history,
-                Default::default(),
-            ));
-            PraosChainStore::new(consensus_parameters, chain_store.clone())
-                .evolve_nonce(&header)?;
-
-            if let Err(err) = block_validator
-                .roll_forward_block(point, raw_block)
-                .await
-                .unwrap()
-            {
-                panic!("Error processing block at point {:?}: {:?}", point, err);
-            }
         }
     }
 
