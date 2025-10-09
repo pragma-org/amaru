@@ -15,7 +15,7 @@
 use crate::consensus::effects::{BaseOps, ConsensusOps, NetworkOps};
 use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::events::{ValidateBlockEvent, ValidateHeaderEvent};
-use crate::consensus::span::adopt_current_span;
+use crate::consensus::span::HasSpan;
 use amaru_kernel::{Point, RawBlock, peer::Peer};
 use amaru_ouroboros_traits::{CanFetchBlock, IsHeader};
 use async_trait::async_trait;
@@ -23,23 +23,20 @@ use pure_stage::StageRef;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{Level, error, instrument};
+use tracing::{Level, error, span};
 
 type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
 
 /// This stages fetches the full block from a peer after its header has been validated.
 /// It then sends the full block to the downstream stage for validation and storage.
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.fetch_block",
-)]
 pub async fn stage(
     (downstream, errors): State,
     msg: ValidateHeaderEvent,
     eff: impl ConsensusOps,
 ) -> State {
-    adopt_current_span(&msg);
+    let span = span!(parent: msg.span(), Level::TRACE, "stage.fetch_block");
+    let _entered = span.enter();
+
     match msg {
         ValidateHeaderEvent::Validated { peer, header, span } => {
             let point = header.point();

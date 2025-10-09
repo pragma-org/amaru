@@ -16,14 +16,12 @@ rust-version.workspace = true
 default = []
 profiling = ["dep:pprof"]
 test-utils = ["proptest", "rand", "rand_distr", "serde_json"]
-telemetry = ["opentelemetry", "tracing-opentelemetry"]
 
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
 hex.workspace = true
 itertools.workspace = true
-opentelemetry = { workspace = true, optional = true }
 pallas-crypto.workspace = true
 
 proptest = { workspace = true, optional = true }
@@ -35,7 +33,6 @@ serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-tracing-opentelemetry = { workspace = true, optional = true }
 
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true

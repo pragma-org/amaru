@@ -15,24 +15,21 @@
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::events::{ChainSyncEvent, DecodedChainSyncEvent};
-use crate::consensus::span::adopt_current_span;
+use crate::consensus::span::HasSpan;
 use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
 use pure_stage::StageRef;
-use tracing::{Level, instrument};
+use tracing::{Level, instrument, span};
 
 type State = (StageRef<DecodedChainSyncEvent>, StageRef<ValidationFailed>);
 
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.receive_header"
-)]
 pub async fn stage(
     (downstream, errors): State,
     msg: ChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> State {
-    adopt_current_span(&msg);
+    let span = span!(parent: msg.span(), Level::TRACE, "stage.receive_header");
+    let _entered = span.enter();
+
     match msg {
         ChainSyncEvent::RollForward {
             peer,

@@ -13,22 +13,20 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::{events::DecodedChainSyncEvent, span::adopt_current_span};
+use crate::consensus::events::DecodedChainSyncEvent;
+use crate::consensus::span::HasSpan;
 use amaru_ouroboros_traits::IsHeader;
 use pure_stage::StageRef;
-use tracing::{Level, instrument};
+use tracing::{Level, span};
 
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.store_header",
-)]
 pub async fn stage(
     downstream: StageRef<DecodedChainSyncEvent>,
     msg: DecodedChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> StageRef<DecodedChainSyncEvent> {
-    adopt_current_span(&msg);
+    let span = span!(parent: msg.span(), Level::TRACE, "stage.store_header");
+    let _entered = span.enter();
+
     match &msg {
         DecodedChainSyncEvent::RollForward { peer, header, .. } => {
             let result = eff.store().store_header(header);

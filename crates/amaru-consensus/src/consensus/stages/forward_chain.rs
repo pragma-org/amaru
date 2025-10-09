@@ -16,13 +16,13 @@ use crate::consensus::effects::NetworkOps;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
 use crate::consensus::events::BlockValidationResult;
-use crate::consensus::span::adopt_current_span;
+use crate::consensus::span::HasSpan;
 use crate::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::Point;
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use pure_stage::StageRef;
-use tracing::{Level, error, info, instrument, trace};
+use tracing::{Level, error, info, span, trace};
 
 pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 
@@ -35,13 +35,10 @@ type State = (
 /// The forward chain stage forwards the headers of validated blocks to downstream peers, via the
 /// `ForwardEventEffect`. The current node tip is maintained in order to double check that the header
 /// we sent out is correct
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.forward_chain",
-)]
 pub async fn stage(state: State, msg: BlockValidationResult, eff: impl ConsensusOps) -> State {
-    adopt_current_span(&msg);
+    let span = span!(parent: msg.span(), Level::TRACE, "stage.forward_chain");
+    let _entered = span.enter();
+
     let (mut our_tip, validation_errors, processing_errors) = state;
     match msg {
         BlockValidationResult::BlockValidated { peer, header, .. } => {

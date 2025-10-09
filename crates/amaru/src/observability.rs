@@ -204,6 +204,12 @@ impl Default for OpenTelemetryHandle {
     }
 }
 
+pub const DEFAULT_SERVICE_NAME: &str = "amaru";
+
+pub const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
+
+pub const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
+
 /// Configuration for OpenTelemetry tracing layer.
 pub struct OpenTelemetryConfig {
     /// Uniquely identifies this particular instance of Amaru
@@ -214,6 +220,16 @@ pub struct OpenTelemetryConfig {
 
     /// URL for exporting OTLP metrics
     pub metric_url: String,
+}
+
+impl Default for OpenTelemetryConfig {
+    fn default() -> Self {
+        OpenTelemetryConfig {
+            service_name: DEFAULT_SERVICE_NAME.to_string(),
+            span_url: DEFAULT_OTLP_SPAN_URL.to_string(),
+            metric_url: DEFAULT_OTLP_METRIC_URL.to_string(),
+        }
+    }
 }
 
 #[expect(clippy::panic)]
