@@ -97,11 +97,6 @@ pub trait Praos<H: IsHeader>: Send + Sync {
     /// So, nonces aren't bound to epochs, but to headers.
     fn get_nonce(&self, header: &Hash<32>) -> Option<Nonce>;
 
-    /// Evolve the given nonce by combining it in an arbitrary way with other data. When
-    /// `within_stability_window` is false, this also modifies the candidate nonce for the next
-    /// epoch.
-    ///
-    /// Once the stability window has been reached, the candidate is fixed for the epoch and will
-    /// be used once crossing the epoch boundary to produce the next epoch nonce.
+    /// Evolve the given nonce by combining it in an arbitrary way with other data.
     fn evolve_nonce(&self, header: &H) -> Result<Nonces, Self::Error>;
 }
