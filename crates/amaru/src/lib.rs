@@ -22,6 +22,8 @@ pub mod point;
 /// applying them to the local chain.
 pub mod stages;
 
+pub mod observability;
+
 /// Generic exit handler
 pub mod exit;
 

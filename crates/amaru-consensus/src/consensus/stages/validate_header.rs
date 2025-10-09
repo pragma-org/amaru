@@ -27,11 +27,6 @@ use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
 use tracing::{Level, instrument, span};
 
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.validate_header",
-)]
 pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl ConsensusOps) -> State {
     let span = span!(parent: msg.span(), Level::TRACE, "stage.validate_header");
     let _entered = span.enter();

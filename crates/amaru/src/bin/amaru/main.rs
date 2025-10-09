@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::observability;
+use amaru::observability::{DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAULT_SERVICE_NAME};
 use clap::{Parser, Subcommand};
 use observability::OpenTelemetryConfig;
 use panic::panic_handler;
 
 mod cmd;
 mod metrics;
-mod observability;
 mod panic;
 mod pid;
 
@@ -102,12 +103,6 @@ struct Cli {
     )]
     otlp_metric_url: String,
 }
-
-const DEFAULT_SERVICE_NAME: &str = "amaru";
-
-const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
-
-const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

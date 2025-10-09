@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::tree::Tree;
 use assert_json_diff::assert_json_eq;
 use serde_json as json;
+use serde_json::{Value, to_string_pretty};
+use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 use tracing::Dispatch;
 use tracing_subscriber::layer::SubscriberExt;
+
+pub mod tree;
 
 #[repr(transparent)]
 #[derive(Clone, Default)]
@@ -163,10 +168,15 @@ where
     fn on_enter(&self, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
         if let Some(span) = ctx.span(id) {
             let mut span_json = json::json!({
-                "name": span.name().to_string() + "_span",
+                "id": Value::String(format!("{id:?}")),
+                "name": format!("{}_span", span.name().to_string()),
             });
 
-            if let Some(fields) = span.extensions().get::<json::Map<String, json::Value>>() {
+            if let Some(parent) = span.parent() {
+                span_json["parent_id"] = Value::String(format!("{:?}", parent.id()));
+            };
+
+            if let Some(fields) = span.extensions().get::<json::Map<String, Value>>() {
                 for (key, value) in fields {
                     span_json[key] = value.clone();
                 }
@@ -191,7 +201,7 @@ where
             .unwrap_or_default();
 
         let mut event_json = json::json!({
-            "name": name + "_event",
+            "name": format!("{name}_event"),
         });
 
         for (key, value) in visitor.fields {
@@ -202,8 +212,152 @@ where
     }
 }
 
-/// TODO: Write some documentation on expectations and usage.
-pub fn assert_trace<F, R>(run: F, expected: Vec<json::Value>) -> R
+/// Run a function `run` while collecting tracing data emitted during its execution
+/// and assert that the collected data matches `expected`.
+/// The collected data is stripped of ids before comparison and the result of `run` is returned.
+pub fn assert_trace<F, R>(run: F, expected: Vec<Value>) -> R
+where
+    F: FnOnce() -> R,
+{
+    let (result, collected) = collect(run);
+    let collected: Vec<_> = collected.into_iter().map(strip_ids).collect();
+
+    if collected != expected {
+        eprintln!(
+            "collected traces:\n  - {}",
+            collected
+                .iter()
+                .map(serde_json::to_string)
+                .collect::<Result<Vec<_>, _>>()
+                .map(|vec| vec.join("\n  - "))
+                .unwrap_or_else(|e| format!("error: invalid JSON traces: {e}"))
+        )
+    }
+
+    // use assert_json_eq! to get better error messages on mismatch
+    assert_json_eq!(Value::Array(collected), Value::Array(expected));
+    result
+}
+
+/// Run a function `run` while collecting tracing data emitted during its execution.
+/// Assert that the collected spans form a list of trees.
+/// `expected` is a list of expected root spans with their children.
+/// The result of `run` is returned.
+pub fn assert_spans_trees<F, R>(run: F, expected: Vec<Value>) -> R
+where
+    F: FnOnce() -> R,
+{
+    let (result, collected) = collect(run);
+    let actual = as_trees(collected);
+
+    if actual.len() != expected.len() {
+        eprintln!(
+            "actual spans tree count: {}, expected: {}",
+            actual.len(),
+            expected.len()
+        );
+
+        eprintln!("actual\n");
+        for actual in actual.iter() {
+            eprintln!("{}\n", to_string_pretty(actual).unwrap_or_default());
+        }
+
+        eprintln!("expected\n");
+        for expected in expected.iter() {
+            eprintln!("{}\n", to_string_pretty(expected).unwrap_or_default());
+        }
+
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "incorrect number of root spans"
+        );
+    }
+
+    // make comparisons tree by tree
+    for (actual, expected) in actual.iter().zip(expected.iter()) {
+        eprintln!(
+            "actual:\n {}\n\nexpected:\n {}\n",
+            to_string_pretty(actual).unwrap_or_default(),
+            to_string_pretty(expected).unwrap_or_default()
+        );
+        assert_json_eq!(actual, expected);
+    }
+    result
+}
+
+/// Convert a list of collected tracing data into a list of trees
+/// Each tree represents a root span and its children.
+///
+/// The parent-child relationships are determined using the `id` and `parent_id` fields.
+/// Only spans (items with names ending in `_span`) are included in the trees.
+/// The `_span` suffix is removed from span names and only the `name` and `children` fields are kept in the output.
+fn as_trees(collected: Vec<Value>) -> Vec<Value> {
+    let mut parent_child: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut values: BTreeMap<String, Value> = BTreeMap::new();
+    let mut roots: Vec<String> = vec![];
+    for item in collected {
+        if !is_span(&item) {
+            continue;
+        }
+
+        if let Some(id) = item.get("id") {
+            let id_string = id.as_str().map(|s| s.to_string()).unwrap_or_default();
+            if let Some(parent_id) = item.get("parent_id") {
+                let parent_id_string = parent_id
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let children = parent_child.entry(parent_id_string).or_default();
+                if !children.contains(&id_string) {
+                    children.push(id_string.clone());
+                };
+            } else if !roots.contains(&id_string) {
+                roots.push(id_string.clone());
+            }
+            values.insert(id_string, item);
+        }
+    }
+
+    fn make_tree(
+        root: String,
+        by_id: &BTreeMap<String, Vec<String>>,
+        values: &BTreeMap<String, Value>,
+    ) -> Tree<Value> {
+        let value = values.get(&root).cloned().unwrap_or_default();
+        let mut tree = Tree::make_leaf(strip_span(value));
+        if let Some(children) = by_id.get(&root) {
+            tree.children = children
+                .iter()
+                .cloned()
+                .map(|c| make_tree(c, by_id, values))
+                .collect();
+        }
+        tree
+    }
+
+    let mut trees: Vec<Value> = vec![];
+    for root in roots {
+        let tree = make_tree(root, &parent_child, &values);
+        trees.push(tree.as_json());
+    }
+    trees
+}
+
+/// Return true if collected trace is a span (name ends with `_span`)
+fn is_span(item: &Value) -> bool {
+    if let Some(name) = item.get("name")
+        && let Some(name_str) = name.as_str()
+        && name_str.ends_with("_span")
+    {
+        true
+    } else {
+        false
+    }
+}
+
+/// Collect tracing data emitted during the execution of `run` and also return the result of `run`.
+fn collect<F, R>(run: F) -> (R, Vec<Value>)
 where
     F: FnOnce() -> R,
 {
@@ -214,18 +368,30 @@ where
     let _guard = tracing::dispatcher::set_default(&dispatch);
     let result = run();
     let collected = collector.flush();
-    // NOTE: Print statement is only printed on test failures.
-    eprintln!(
-        "collected traces:\n  - {}",
-        collected
-            .iter()
-            .map(serde_json::to_string)
-            .collect::<Result<Vec<_>, _>>()
-            .map(|vec| vec.join("\n  - "))
-            .unwrap_or_else(|e| format!("error: invalid JSON traces: {e}"))
-    );
-    assert_json_eq!(json::Value::Array(collected), json::Value::Array(expected),);
-    result
+    (result, collected)
+}
+
+/// Remove ids from collected data
+fn strip_ids(mut value: Value) -> Value {
+    if let Value::Object(ref mut map) = value {
+        map.remove("id");
+        map.remove("parent_id");
+    }
+    value
+}
+
+/// Keep only span name and children from collected data
+/// and remove the `_span` suffix from span names
+fn strip_span(mut value: Value) -> Value {
+    if let Value::Object(ref mut map) = value {
+        map.retain(|key, _value| ["name", "children"].contains(&(key.as_str())));
+        if let Some(name) = map.get_mut("name")
+            && let Some(name_str) = name.as_str()
+        {
+            *name = Value::String(name_str.replace("_span", ""));
+        }
+    }
+    value
 }
 
 #[cfg(test)]
@@ -235,7 +401,7 @@ mod tests {
     use tracing::{info, info_span};
 
     #[test]
-    fn assert_simple_tracing() {
+    fn check_simple_tracing() {
         assert_eq!(
             assert_trace(
                 || {
@@ -253,5 +419,30 @@ mod tests {
             ),
             "result"
         );
+    }
+
+    #[test]
+    fn check_spans_tree_is_ok() {
+        assert_spans_trees(
+            || info_span!("foo").in_scope(|| info_span!("bar").in_scope(|| {})),
+            vec![json!({
+                "name": "foo",
+                "children": [
+                    json!({ "name": "bar"})]
+            })],
+        )
+    }
+
+    #[test]
+    #[should_panic]
+    fn check_spans_tree_is_ko() {
+        assert_spans_trees(
+            || info_span!("foo").in_scope(|| info_span!("bar").in_scope(|| {})),
+            vec![json!({
+                "name": "foo",
+                "children": [
+                    json!({ "name": "bar2"})]
+            })],
+        )
     }
 }
