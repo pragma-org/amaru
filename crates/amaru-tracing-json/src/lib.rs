@@ -169,7 +169,8 @@ where
         if let Some(span) = ctx.span(id) {
             let mut span_json = json::json!({
                 "id": Value::String(format!("{id:?}")),
-                "name": format!("{}_span", span.name().to_string()),
+                "name": span.name().to_string(),
+                "type": "span".to_string(),
             });
 
             if let Some(parent) = span.parent() {
@@ -201,7 +202,8 @@ where
             .unwrap_or_default();
 
         let mut event_json = json::json!({
-            "name": format!("{name}_event"),
+            "name": name,
+            "type": "event",
         });
 
         for (key, value) in visitor.fields {
@@ -290,8 +292,6 @@ where
 /// Each tree represents a root span and its children.
 ///
 /// The parent-child relationships are determined using the `id` and `parent_id` fields.
-/// Only spans (items with names ending in `_span`) are included in the trees.
-/// The `_span` suffix is removed from span names and only the `name` and `children` fields are kept in the output.
 fn as_trees(collected: Vec<Value>) -> Vec<Value> {
     let mut parent_child: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut values: BTreeMap<String, Value> = BTreeMap::new();
@@ -344,11 +344,10 @@ fn as_trees(collected: Vec<Value>) -> Vec<Value> {
     trees
 }
 
-/// Return true if collected trace is a span (name ends with `_span`)
+/// Return true if collected trace is a span
 fn is_span(item: &Value) -> bool {
-    if let Some(name) = item.get("name")
-        && let Some(name_str) = name.as_str()
-        && name_str.ends_with("_span")
+    if let Some(t) = item.get("type")
+        && t == "span"
     {
         true
     } else {
@@ -385,11 +384,6 @@ fn strip_ids(mut value: Value) -> Value {
 fn strip_span(mut value: Value) -> Value {
     if let Value::Object(ref mut map) = value {
         map.retain(|key, _value| ["name", "children"].contains(&(key.as_str())));
-        if let Some(name) = map.get_mut("name")
-            && let Some(name_str) = name.as_str()
-        {
-            *name = Value::String(name_str.replace("_span", ""));
-        }
     }
     value
 }
@@ -412,9 +406,9 @@ mod tests {
                     })
                 },
                 vec![
-                    json!({ "name": "foo_span" }),
-                    json!({ "name": "basic_event", "a": 1 }),
-                    json!({ "name": "nested_fields_event", "a": { "foo": 1, "bar": 2 } }),
+                    json!({ "name": "foo", "type": "span" }),
+                    json!({ "name": "basic", "a": 1, "type": "event" }),
+                    json!({ "name": "nested_fields", "a": { "foo": 1, "bar": 2 }, "type": "event" }),
                 ],
             ),
             "result"
