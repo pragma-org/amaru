@@ -127,7 +127,6 @@ dependencies = [
  "async-trait",
  "hex",
  "itertools 0.14.0",
- "opentelemetry",
  "pallas-crypto",
  "pprof",
  "proptest",
@@ -141,7 +140,6 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
- "tracing-opentelemetry",
 ]
 
 [[package]]

@@ -17,7 +17,7 @@ use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::events::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::headers_tree::{HeadersTree, HeadersTreeState};
-use crate::consensus::span::adopt_current_span;
+use crate::consensus::span::HasSpan;
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer, string_utils::ListToString};
 use amaru_ouroboros::IsHeader;
 use amaru_ouroboros_traits::ChainStore;
@@ -30,7 +30,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     mem,
 };
-use tracing::{Level, Span, debug, info, instrument, trace};
+use tracing::{Level, Span, debug, info, span, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -309,11 +309,6 @@ type State = (
     StageRef<ValidationFailed>,
 );
 
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.select_chain",
-)]
 pub async fn stage(
     (mut select_chain, downstream, errors): State,
     msg: DecodedChainSyncEvent,
@@ -321,7 +316,9 @@ pub async fn stage(
 ) -> State {
     let store = eff.store();
     let peer = msg.peer();
-    adopt_current_span(&msg);
+    let span = span!(parent: msg.span(), Level::TRACE, "stage.select_chain");
+    let _entered = span.enter();
+
     let events = match select_chain.handle_chain_sync(store, msg).await {
         Ok(events) => events,
         Err(e) => {

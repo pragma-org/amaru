@@ -13,30 +13,25 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::{
-    errors::ProcessingFailed, events::ValidateBlockEvent, span::adopt_current_span,
-};
+use crate::consensus::span::HasSpan;
+use crate::consensus::{errors::ProcessingFailed, events::ValidateBlockEvent};
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use pure_stage::StageRef;
-use tracing::Level;
-use tracing::instrument;
+use tracing::{Level, span};
 
 type State = (StageRef<ValidateBlockEvent>, StageRef<ProcessingFailed>);
 
 /// This stages stores a full block from a peer
 /// It then sends the full block to the downstream stage for validation and storage.
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.store_block",
-)]
 pub async fn stage(
     (downstream, errors): State,
     msg: ValidateBlockEvent,
     eff: impl ConsensusOps,
 ) -> State {
-    adopt_current_span(&msg);
+    let span = span!(parent: msg.span(), Level::TRACE, "stage.store_block");
+    let _entered = span.enter();
+
     match msg {
         ValidateBlockEvent::Validated {
             ref header,

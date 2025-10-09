@@ -14,99 +14,63 @@
 
 pub use impls::*;
 
-#[cfg(feature = "telemetry")]
 mod impls {
     use crate::consensus::events::{
         BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, ValidateBlockEvent,
         ValidateHeaderEvent,
     };
-    use opentelemetry::Context;
     use tracing::Span;
-    use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-    /// Make current span a child of given span.
-    ///
-    /// This is needed to ensure tracing keeps track of dependencies between
-    /// stages, properly connecting related spans even though they are crossing
-    /// thread boundaries.
-    pub fn adopt_current_span(has_span: &impl HasSpan) -> Span {
-        let span = Span::current();
-        let _ = span.set_parent(has_span.context());
-        span
-    }
 
     /// Helper trait to remove span reparenting boilerplate.
     pub trait HasSpan {
-        fn context(&self) -> Context;
+        fn span(&self) -> &Span;
     }
 
     impl HasSpan for ChainSyncEvent {
-        fn context(&self) -> Context {
+        fn span(&self) -> &Span {
             match self {
-                ChainSyncEvent::RollForward { span, .. } => span.context(),
-                ChainSyncEvent::Rollback { span, .. } => span.context(),
-                ChainSyncEvent::CaughtUp { span, .. } => span.context(),
+                ChainSyncEvent::RollForward { span, .. } => span,
+                ChainSyncEvent::Rollback { span, .. } => span,
+                ChainSyncEvent::CaughtUp { span, .. } => span,
             }
         }
     }
 
     impl HasSpan for DecodedChainSyncEvent {
-        fn context(&self) -> Context {
+        fn span(&self) -> &Span {
             match self {
-                DecodedChainSyncEvent::RollForward { span, .. } => span.context(),
-                DecodedChainSyncEvent::Rollback { span, .. } => span.context(),
-                DecodedChainSyncEvent::CaughtUp { span, .. } => span.context(),
+                DecodedChainSyncEvent::RollForward { span, .. } => span,
+                DecodedChainSyncEvent::Rollback { span, .. } => span,
+                DecodedChainSyncEvent::CaughtUp { span, .. } => span,
             }
         }
     }
 
     impl HasSpan for ValidateHeaderEvent {
-        fn context(&self) -> Context {
+        fn span(&self) -> &Span {
             match self {
-                ValidateHeaderEvent::Validated { span, .. } => span.context(),
-                ValidateHeaderEvent::Rollback { span, .. } => span.context(),
+                ValidateHeaderEvent::Validated { span, .. } => span,
+                ValidateHeaderEvent::Rollback { span, .. } => span,
             }
         }
     }
 
     impl HasSpan for ValidateBlockEvent {
-        fn context(&self) -> Context {
+        fn span(&self) -> &Span {
             match self {
-                ValidateBlockEvent::Validated { span, .. } => span.context(),
-                ValidateBlockEvent::Rollback { span, .. } => span.context(),
+                ValidateBlockEvent::Validated { span, .. } => span,
+                ValidateBlockEvent::Rollback { span, .. } => span,
             }
         }
     }
 
     impl HasSpan for BlockValidationResult {
-        fn context(&self) -> Context {
+        fn span(&self) -> &Span {
             match self {
-                BlockValidationResult::BlockValidated { span, .. } => span.context(),
-                BlockValidationResult::BlockValidationFailed { span, .. } => span.context(),
-                BlockValidationResult::RolledBackTo { span, .. } => span.context(),
+                BlockValidationResult::BlockValidated { span, .. } => span,
+                BlockValidationResult::BlockValidationFailed { span, .. } => span,
+                BlockValidationResult::RolledBackTo { span, .. } => span,
             }
         }
     }
-}
-
-#[cfg(not(feature = "telemetry"))]
-mod impls {
-    use crate::consensus::events::*;
-    use tracing::Span;
-
-    pub fn adopt_current_span(_has_span: &impl HasSpan) -> Span {
-        Span::current()
-    }
-
-    pub trait HasSpan {}
-
-    impl HasSpan for ChainSyncEvent {}
-
-    impl HasSpan for DecodedChainSyncEvent {}
-
-    impl HasSpan for ValidateHeaderEvent {}
-
-    impl HasSpan for ValidateBlockEvent {}
-
-    impl HasSpan for BlockValidationResult {}
 }

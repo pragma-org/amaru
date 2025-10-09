@@ -15,11 +15,11 @@
 use crate::consensus::effects::{BaseOps, ConsensusOps, MetricsOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
 use crate::consensus::events::{BlockValidationResult, ValidateBlockEvent};
-use crate::consensus::span::adopt_current_span;
+use crate::consensus::span::HasSpan;
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use pure_stage::StageRef;
-use tracing::{Level, error, instrument};
+use tracing::{Level, error, span};
 
 type State = (
     StageRef<BlockValidationResult>,
@@ -27,17 +27,14 @@ type State = (
     StageRef<ProcessingFailed>,
 );
 
-#[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "stage.ledger"
-)]
 pub async fn stage(
     (downstream, validation_errors, processing_errors): State,
     msg: ValidateBlockEvent,
     eff: impl ConsensusOps,
 ) -> State {
-    adopt_current_span(&msg);
+    let span = span!(parent: msg.span(), Level::TRACE, "stage.validate_block");
+    let _entered = span.enter();
+
     match msg {
         ValidateBlockEvent::Validated {
             header,
