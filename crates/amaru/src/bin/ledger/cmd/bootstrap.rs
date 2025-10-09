@@ -172,10 +172,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 panic!("Error processing block at point {:?}: {:?}", point, err);
             }
         }
-
-        // TODO only prune when current blocks led to a new Epoch
-        let snapshots = &block_validator.state.lock().unwrap().snapshots;
-        snapshots.prune(snapshots.most_recent_snapshot())?;
     }
 
     let duration = Instant::now().saturating_duration_since(before);
