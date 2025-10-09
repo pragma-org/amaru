@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use clap::{Parser, Subcommand};
+use std::collections::BTreeMap;
+
+use clap::{ArgMatches, CommandFactory, Parser, Subcommand};
 use observability::OpenTelemetryConfig;
 use panic::panic_handler;
+use tracing::info;
 
 mod cmd;
 mod metrics;
@@ -39,7 +42,7 @@ enum Command {
     FetchChainHeaders(cmd::fetch_chain_headers::Args),
 
     /// Run the node in all its glory.
-    Daemon(cmd::daemon::Args),
+    Run(cmd::run::Args),
 
     /// Import the ledger state from a CBOR export produced by a Haskell node.
     #[clap(alias = "import")]
@@ -90,9 +93,9 @@ struct Cli {
     #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
 
-    #[arg(long, value_name = "STRING", env("AMARU_SERVICE_NAME"), default_value_t = DEFAULT_SERVICE_NAME.to_string()
+    #[arg(long, value_name = "STRING", env("AMARU_OTLP_SERVICE_NAME"), default_value_t = DEFAULT_SERVICE_NAME.to_string()
     )]
-    service_name: String,
+    otlp_service_name: String,
 
     #[arg(long, value_name = "URL", env("AMARU_OTLP_SPAN_URL"), default_value_t = DEFAULT_OTLP_SPAN_URL.to_string()
     )]
@@ -109,6 +112,21 @@ const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
 
 const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
+fn extract_raw_values(matches: &ArgMatches) -> BTreeMap<String, String> {
+    matches
+        .ids()
+        .filter_map(|id| {
+            matches.get_raw(id.as_str()).map(|values| {
+                let joined = values
+                    .map(|v| v.to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                (id.to_string(), joined)
+            })
+        })
+        .collect()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
@@ -121,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.with_open_telemetry {
             observability::setup_open_telemetry(
                 &OpenTelemetryConfig {
-                    service_name: args.service_name,
+                    service_name: args.otlp_service_name,
                     span_url: args.otlp_span_url,
                     metric_url: args.otlp_metric_url,
                 },
@@ -143,9 +161,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(notify) = warning_otlp.or(warning_json) {
         notify();
     }
+    let matches = Cli::command().get_matches();
+    let arguments = extract_raw_values(&matches);
+    info!(?arguments, "With global parameters");
+
+    if let Some((name, args)) = matches.subcommand() {
+        let arguments = extract_raw_values(args)
+            .into_iter()
+            .filter(|(k, _)| k != "Args")
+            .collect::<BTreeMap<_, _>>();
+        info!(?arguments, "Running command: '{}' with arguments", name);
+    }
+
+    //info!("{}", args);
 
     let result = match args.command {
-        Command::Daemon(args) => cmd::daemon::run(args, metrics).await,
+        Command::Run(args) => cmd::run::run(args, metrics).await,
         Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,

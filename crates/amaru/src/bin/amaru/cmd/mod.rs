@@ -17,12 +17,12 @@ use pallas_network::facades::PeerClient;
 
 pub(crate) mod bootstrap;
 pub(crate) mod convert_ledger_state;
-pub(crate) mod daemon;
 pub(crate) mod dump_chain_db;
 pub(crate) mod fetch_chain_headers;
 pub(crate) mod import_headers;
 pub(crate) mod import_ledger_state;
 pub(crate) mod import_nonces;
+pub(crate) mod run;
 
 pub(crate) const DEFAULT_NETWORK: NetworkName = NetworkName::Preprod;
 
