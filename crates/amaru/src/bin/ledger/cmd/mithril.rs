@@ -377,9 +377,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .skip(1) // Exclude the tip itself
         .array_chunks::<BLOCKS_PER_ARCHIVE>()
     {
-        let map: BTreeMap<_, _> = chunk
+        let map = chunk
             .iter()
             .filter_map(|cbor| {
+                // TODO only access the necessary info and do not decode the whole block
                 let block = MultiEraBlock::decode(cbor).ok()?;
                 let header = block.header();
                 let name = format!("{}.{}.cbor", header.slot(), header.hash());
