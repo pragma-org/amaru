@@ -153,6 +153,9 @@ pub mod stake_credential;
 pub use strict_maybe::*;
 pub mod strict_maybe;
 
+pub use strict_txbody::*;
+pub mod strict_txbody;
+
 use crate::string_utils::ListToString;
 pub use transaction_pointer::*;
 
