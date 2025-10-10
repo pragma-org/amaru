@@ -13,66 +13,49 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps, LedgerOps};
+use crate::consensus::span::HasSpan;
 use crate::consensus::store::PraosChainStore;
 use crate::consensus::{
     errors::{ConsensusError, ValidationFailed},
     events::DecodedChainSyncEvent,
-    span::adopt_current_span,
 };
 use amaru_kernel::protocol_parameters::ConsensusParameters;
-use amaru_kernel::{Hash, Header, Nonce, Point, peer::Peer, to_cbor};
+use amaru_kernel::{Hash, Header, Nonce, Point, to_cbor};
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{ChainStore, Praos};
 use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
-use tracing::{Instrument, Level, Span, instrument};
+use tracing::{Level, instrument, span};
 
-#[instrument(
-    level = Level::TRACE,
-    skip_all,
-    name = "stage.validate_header",
-)]
 pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl ConsensusOps) -> State {
-    adopt_current_span(&msg);
+    let span = span!(parent: msg.span(), Level::TRACE, "stage.validate_header");
+    let _entered = span.enter();
+
     let (consensus_parameters, downstream, errors) = state;
     let state = ValidateHeader::new(consensus_parameters.clone(), eff.store(), eff.ledger());
 
-    let (peer, point, header) = match &msg {
+    match &msg {
         DecodedChainSyncEvent::RollForward {
             peer,
             point,
             header,
             ..
-        } => (peer, point, header),
-        DecodedChainSyncEvent::Rollback { .. } => {
-            eff.base().send(&downstream, msg).await;
-            return (consensus_parameters, downstream, errors);
-        }
-        DecodedChainSyncEvent::CaughtUp { .. } => {
-            eff.base().send(&downstream, msg).await;
-            return (consensus_parameters, downstream, errors);
-        }
-    };
-
-    let span = tracing::trace_span!(
-        "consensus.roll_forward",
-        point.slot = %point.slot_or_default(),
-        point.hash = %Hash::<32>::from(point),
-    );
-
-    async {
-        match state.handle_roll_forward(peer, point, header).await {
-            Ok(msg) => eff.base().send(&downstream, msg).await,
+        } => match state.handle_roll_forward(point, header).await {
+            Ok(_) => eff.base().send(&downstream, msg).await,
             Err(error) => {
                 tracing::error!(%peer, %error, "failed to handle roll forward");
                 eff.base()
                     .send(&errors, ValidationFailed::new(peer, error))
                     .await
             }
+        },
+        DecodedChainSyncEvent::Rollback { .. } => {
+            eff.base().send(&downstream, msg).await;
         }
-    }
-    .instrument(span)
-    .await;
+        DecodedChainSyncEvent::CaughtUp { .. } => {
+            eff.base().send(&downstream, msg).await;
+        }
+    };
 
     (consensus_parameters, downstream, errors)
 }
@@ -113,19 +96,19 @@ impl ValidateHeader {
 
     #[instrument(
         level = Level::TRACE,
-        skip_all,
         name = "consensus.roll_forward",
+        skip_all,
         fields(
-            point.slot = %point.slot_or_default(),
-            point.hash = %Hash::<32>::from(point),
-        )
+            point = %point,
+            slot = %point.slot_or_default(),
+            hash = %Hash::<32>::from(point),
+        ),
     )]
     pub async fn handle_roll_forward(
         &self,
-        peer: &Peer,
         point: &Point,
         header: &Header,
-    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+    ) -> Result<(), ConsensusError> {
         let nonces = PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone())
             .evolve_nonce(header)?;
         let epoch_nonce = &nonces.active;
@@ -136,16 +119,11 @@ impl ValidateHeader {
             to_cbor(&header.header_body).as_slice(),
             epoch_nonce,
         )?;
-
-        Ok(DecodedChainSyncEvent::RollForward {
-            peer: peer.clone(),
-            point: point.clone(),
-            header: header.clone(),
-            span: Span::current(),
-        })
+        Ok(())
     }
 
-    #[instrument(level = Level::TRACE, skip_all, fields(issuer.key = %header.header_body.issuer_vkey))]
+    #[instrument(level = Level::TRACE, skip_all, fields(issuer.key = %header.header_body.issuer_vkey)
+    )]
     pub fn header_is_valid(
         &self,
         point: &Point,
@@ -178,7 +156,6 @@ mod tests {
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::{
         HEADER_HASH_SIZE, Header, Point, RawBlock,
-        peer::Peer,
         protocol_parameters::{GlobalParameters, TESTNET_GLOBAL_PARAMETERS},
     };
     use amaru_ouroboros::Nonces;
@@ -190,7 +167,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_roll_forward_evolve_nonce_error() {
-        let (peer, point, header, global_parameters, ledger) = create_test_data();
+        let (point, header, global_parameters, ledger) = create_test_data();
         let failing_store = FailingStore::new().fail_on_evolve_nonce();
         let consensus_parameters = Arc::new(ConsensusParameters::new(
             global_parameters.clone(),
@@ -200,9 +177,7 @@ mod tests {
         let validate_header =
             ValidateHeader::new(consensus_parameters, Arc::new(failing_store), ledger);
 
-        let result = validate_header
-            .handle_roll_forward(&peer, &point, &header)
-            .await;
+        let result = validate_header.handle_roll_forward(&point, &header).await;
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
@@ -217,7 +192,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_roll_forward_fake_error() {
-        let (peer, point, header, global_parameters, ledger) = create_test_data();
+        let (point, header, global_parameters, ledger) = create_test_data();
         let consensus_parameters = Arc::new(ConsensusParameters::new(
             global_parameters.clone(),
             NetworkName::Preprod.into(),
@@ -227,9 +202,7 @@ mod tests {
         let validate_header =
             ValidateHeader::new(consensus_parameters, Arc::new(failing_store), ledger);
 
-        let result = validate_header
-            .handle_roll_forward(&peer, &point, &header)
-            .await;
+        let result = validate_header.handle_roll_forward(&point, &header).await;
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
@@ -348,14 +321,7 @@ mod tests {
     }
 
     // Helper function to create test data
-    fn create_test_data() -> (
-        Peer,
-        Point,
-        Header,
-        &'static GlobalParameters,
-        Arc<dyn LedgerOps>,
-    ) {
-        let peer = Peer::new("test-peer");
+    fn create_test_data() -> (Point, Header, &'static GlobalParameters, Arc<dyn LedgerOps>) {
         let point = Point::Origin;
 
         // Create a minimal valid header using the default constructor
@@ -364,6 +330,6 @@ mod tests {
         let global_parameters = &*TESTNET_GLOBAL_PARAMETERS;
         let ledger = Arc::new(MockLedgerOps);
 
-        (peer, point, header, global_parameters, ledger)
+        (point, header, global_parameters, ledger)
     }
 }

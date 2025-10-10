@@ -46,6 +46,12 @@ impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
         self.store.get_nonces(header).map(|nonces| nonces.active)
     }
 
+    /// Evolve the given nonce by combining it in an arbitrary way with other data. When
+    /// `within_stability_window` is false, this also modifies the candidate nonce for the next
+    /// epoch.
+    ///
+    /// Once the stability window has been reached, the candidate is fixed for the epoch and will
+    /// be used once crossing the epoch boundary to produce the next epoch nonce.
     fn evolve_nonce(&self, header: &H) -> Result<Nonces, Self::Error> {
         let (epoch, is_within_stability_window) = nonce::randomness_stability_window(
             header,

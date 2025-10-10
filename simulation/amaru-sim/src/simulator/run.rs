@@ -92,7 +92,7 @@ pub fn run(rt: Runtime, args: Args) {
 ///  * A handle to receive init messages executed on the node
 ///  * A handle to receive output messages from the node
 ///
-fn spawn_node(
+pub fn spawn_node(
     node_id: String,
     args: Args,
     network: &mut SimulationBuilder,

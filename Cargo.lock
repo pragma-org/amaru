@@ -133,7 +133,6 @@ dependencies = [
  "async-trait",
  "hex",
  "itertools 0.14.0",
- "opentelemetry",
  "pallas-crypto",
  "pprof",
  "proptest",
@@ -147,7 +146,6 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
- "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -299,14 +297,13 @@ dependencies = [
  "amaru-kernel",
  "amaru-ouroboros",
  "amaru-slot-arithmetic",
+ "amaru-tracing-json",
  "anyhow",
  "async-trait",
- "built",
  "clap",
  "futures-util",
  "gasket",
  "hex",
- "insta",
  "pallas-crypto",
  "pallas-primitives",
  "parking_lot",
@@ -317,7 +314,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "test-case",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -3646,6 +3642,7 @@ version = "1.0.145"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "402a6f66d8c709116cf22f558eab210f5a50187f702eb4d7e5ef38d9a7f1c79c"
 dependencies = [
+ "indexmap 2.11.0",
  "itoa",
  "memchr",
  "ryu",

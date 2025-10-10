@@ -20,6 +20,8 @@ use std::str::FromStr;
 use tokio::runtime::Runtime;
 use tracing_subscriber::EnvFilter;
 
+mod traces;
+
 #[test]
 fn run_simulator() {
     let defaults = SimulateConfig::default();

@@ -21,7 +21,7 @@ use std::fmt::Debug;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use tracing::info;
+use tracing::{info, info_span};
 
 /// A `NodeHandle` is an async function that sends an Envelope<Msg> to a node and returns a list of Envelope<Msg>.
 /// as the result of processing that message (Envelope holds source/destination values representing node ids).
@@ -48,7 +48,7 @@ impl<Msg> NodeHandle<Msg> {
     }
 
     pub fn handle_msg(&mut self, msg: Envelope<Msg>) -> Result<Vec<Envelope<Msg>>, anyhow::Error> {
-        (self.handle)(msg)
+        info_span!("handle_msg").in_scope(|| (self.handle)(msg))
     }
 
     /// Create a stateful function that can be used to send messages to node and receive messages from it.

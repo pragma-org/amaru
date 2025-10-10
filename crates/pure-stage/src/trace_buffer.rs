@@ -25,6 +25,7 @@ use std::{collections::VecDeque, sync::Arc};
 /// The buffer has a bounded size and will drop the oldest entries when it is full.
 /// Attempting to push an entry that would exceed the size will try to free up space, but it will
 /// retain at least `min_entries`; if this does not suffice, the new entry will be dropped.
+#[derive(Default)]
 pub struct TraceBuffer {
     messages: VecDeque<Vec<u8>>,
     min_entries: usize,

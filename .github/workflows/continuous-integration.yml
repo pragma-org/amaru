@@ -324,7 +324,7 @@ jobs:
             cargo-x86_64-unknown-linux-gnu
       - name: Run amaru-consensus benches
         shell: bash
-        run: cargo bench --bench headers_tree --features="test-utils telemetry profiling"
+        run: cargo bench --bench headers_tree --features="test-utils profiling"
 
   cli:
     name: Test the CLI
