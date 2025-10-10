@@ -64,7 +64,7 @@ pub async fn stage(
         }
         ValidateHeaderEvent::Rollback {
             peer,
-            rollback_header: rollback_point,
+            rollback_point,
             span,
             ..
         } => {
@@ -73,7 +73,7 @@ pub async fn stage(
                     &downstream,
                     ValidateBlockEvent::Rollback {
                         peer,
-                        rollback_header: rollback_point,
+                        rollback_point,
                         span,
                     },
                 )

@@ -6,32 +6,46 @@ between the various steps.
 
 ```mermaid
 graph TD
-    disc[disconnect peer]
-    net@{ shape: delay, label: "Upstream peers" }
+    receive_header[receive header]
+    track_peers[track peers]
+    store_header[store header]
+    validate_header[validate header]
+    fetch_block[fetch block]
+    store_block[store block]
+    validate_block[validate block]
+    select_chain[select chain]
+    forward_header[forward header]
+
+    downstream([downstream])
+    store@{ shape: cyl, label: "Chain store" }
+    net@{ shape: delay, label: "Peers" }
+
     upstream([upstream]) -.-> net
     upstream -- chain sync --> pull
-    pull -- ChainSyncEvent --> rcv[receive header]
-    rcv -- malformed header --> disc
-    val_hdr[validate header]
-    rcv -- DecodedChainSyncEvent --> sto_hdr
-    sto_hdr -.-> store@{ shape: cyl, label: "Chain store" }
-    sto_hdr -- storage failure --> crash?
-    sto_hdr -- DecodedChainSyncEvent --> val_hdr[validate header]
-    val_hdr -- invalid header --> disc
-    val_hdr -- DecodedChainSyncEvent --> select[select chain]
-    select -- invalid chain --> disc
-    select -- ValidateHeaderEvent --> fetch[fetch block]
-    fetch -.-> net
-    fetch -- fetch error --> disc
-    fetch -- ValidateBlockEvent --> sto_block[store block]
-    sto_block -.-> store
-    sto_block -- storage failure --> crash?
-    sto_block -- ValidateBlockEvent --> val_block[validate block]
-    val_block -.-> store
-    val_block -- invalid block --> disc
-    val_block -- BlockValidationResult --> fwd[forward chain]
-    fwd --> down([downstream])
-    down -.-> net
+    pull -- ChainSyncEvent --> receive_header
+
+    receive_header -- DecodedChainSyncEvent --> store_header
+    receive_header -- ChainSyncEvent::CaughtUp --> track_peers
+
+    store_header -.-> store
+    store_header -- ValidateHeaderEvent --> validate_header
+
+    validate_header -- ValidateHeaderEvent --> fetch_block
+
+    fetch_block -- ValidateBlockEvent --> store_block
+    fetch_block -.-> net
+
+    store_block -.-> store
+    store_block -- ValidateBlockEvent --> validate_block
+
+    validate_block -.-> store
+    validate_block -- DecodedChainSyncEvent --> select_chain
+
+    select_chain -.-> store
+    select_chain -- ForwardHeader --> forward_header
+
+    forward_header --> downstream
+    downstream -.-> net
 ```
 
 Stages:
@@ -41,18 +55,49 @@ Stages:
   messages, deserialising raw headers, and potentially checking whether or not they should be further processed (eg. if
   a header is already known to be invalid, or known to be valid because it's part of our best chain, let's not waste
   time processing it!)
+* [track_peers](src/consensus/track_peers.rs): this stage logs a message to notify operators when we are caught up with
+  an upstream peer.
 * [validate header](src/consensus/validate_header.rs): protocol validation of the header, checks the correctness of the
   VRF leader election w.r.t relevant stake distribution, and epoch nonce
 * [store header](src/consensus/store_header.rs): store valid (and invalid?) headers indexed by hash
-* [select chain](src/consensus/select_chain.rs): proceed to chain (candidate) selection, possibly changing the current
-  best chain,
 * [fetch block](../amaru/src/stages/consensus/fetch_block.rs): fetch block body corresponding to the new header, if any.
 * [store block](src/consensus/store_block.rs): store valid (and invalid) block bodies, indexed by header hash. The
   blocks are stored _before_ validation in order to support [
   _pipelining_](https://iohk.io/en/blog/posts/2022/02/01/introducing-pipelining-cardanos-consensus-layer-scaling-solution/)
 * [validate block](../amaru/src/stages/ledger.rs): validate the block body against its parent ledger state
+* [select chain](src/consensus/select_chain.rs): proceed to chain (candidate) selection, possibly changing the current
+  best chain,
 * [forward chain](../amaru/src/stages/consensus/forward_chain/): forward newly selected chain to downstream peers (chain
   followers)
+
+Errors:
+
+```mermaid
+graph LR
+    receive_header[receive header]
+    store_header[store header]
+    validate_header[validate header]
+    fetch_block[fetch block]
+    store_block[store block]
+    validate_block[validate block]
+    select_chain[select chain]
+
+    disconnect_peer[disconnect peer]
+    panic[panic]
+
+    receive_header -- malformed header --> disconnect_peer
+    validate_header -- invalid header --> disconnect_peer
+    fetch_block -- fetch error --> disconnect_peer
+    validate_block -- invalid block --> disconnect_peer
+    select_chain -- invalid chain --> disconnect_peer
+
+    store_header -- storage failure --> panic
+    store_block -- storage failure --> panic
+
+```
+
+When the data received from a peer is malformed or invalid, the peer is disconnected. Other errors (eg. storage failure)
+are considered fatal and cause the node to panic.
 
 ## Chain Selection
 

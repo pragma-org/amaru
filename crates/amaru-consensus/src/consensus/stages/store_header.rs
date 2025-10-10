@@ -38,7 +38,6 @@ pub async fn stage(
             eff.base().send(&downstream, msg).await
         }
         DecodedChainSyncEvent::Rollback { .. } => eff.base().send(&downstream, msg).await,
-        DecodedChainSyncEvent::CaughtUp { .. } => eff.base().send(&downstream, msg).await,
     }
     downstream
 }

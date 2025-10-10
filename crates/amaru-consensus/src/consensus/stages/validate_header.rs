@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps, LedgerOps};
+use crate::consensus::events::ValidateHeaderEvent;
 use crate::consensus::span::HasSpan;
 use crate::consensus::store::PraosChainStore;
 use crate::consensus::{
@@ -39,9 +40,16 @@ pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl Consensus
             peer,
             point,
             header,
-            ..
+            span,
         } => match state.handle_roll_forward(point, header).await {
-            Ok(_) => eff.base().send(&downstream, msg).await,
+            Ok(_) => {
+                let msg = ValidateHeaderEvent::Validated {
+                    peer: peer.clone(),
+                    header: header.clone(),
+                    span: span.clone(),
+                };
+                eff.base().send(&downstream, msg).await
+            }
             Err(error) => {
                 tracing::error!(%peer, %error, "failed to handle roll forward");
                 eff.base()
@@ -49,10 +57,16 @@ pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl Consensus
                     .await
             }
         },
-        DecodedChainSyncEvent::Rollback { .. } => {
-            eff.base().send(&downstream, msg).await;
-        }
-        DecodedChainSyncEvent::CaughtUp { .. } => {
+        DecodedChainSyncEvent::Rollback {
+            peer,
+            rollback_point,
+            span,
+        } => {
+            let msg = ValidateHeaderEvent::Rollback {
+                peer: peer.clone(),
+                rollback_point: rollback_point.clone(),
+                span: span.clone(),
+            };
             eff.base().send(&downstream, msg).await;
         }
     };
@@ -62,7 +76,7 @@ pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl Consensus
 
 type State = (
     Arc<ConsensusParameters>,
-    StageRef<DecodedChainSyncEvent>,
+    StageRef<ValidateHeaderEvent>,
     StageRef<ValidationFailed>,
 );
 
@@ -161,7 +175,7 @@ mod tests {
     use amaru_ouroboros::Nonces;
     use amaru_ouroboros_traits::fake::tests::run;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
+    use amaru_ouroboros_traits::{ChainStore, IsHeader, ReadOnlyChainStore, StoreError};
     use pallas_crypto::hash::Hash;
     use std::sync::Arc;
 
@@ -322,14 +336,13 @@ mod tests {
 
     // Helper function to create test data
     fn create_test_data() -> (Point, Header, &'static GlobalParameters, Arc<dyn LedgerOps>) {
-        let point = Point::Origin;
-
         // Create a minimal valid header using the default constructor
         let header = run(any_header());
         // Create a simple global parameters for testing
         let global_parameters = &*TESTNET_GLOBAL_PARAMETERS;
         let ledger = Arc::new(MockLedgerOps);
 
+        let point = Point::Specific(1, header.parent().unwrap_or(Point::Origin.hash()).to_vec());
         (point, header, global_parameters, ledger)
     }
 }

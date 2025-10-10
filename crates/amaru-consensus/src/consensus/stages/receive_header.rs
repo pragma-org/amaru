@@ -20,10 +20,14 @@ use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
 use pure_stage::StageRef;
 use tracing::{Level, instrument, span};
 
-type State = (StageRef<DecodedChainSyncEvent>, StageRef<ValidationFailed>);
+type State = (
+    StageRef<DecodedChainSyncEvent>,
+    StageRef<ChainSyncEvent>,
+    StageRef<ValidationFailed>,
+);
 
 pub async fn stage(
-    (downstream, errors): State,
+    (downstream, track_peers, errors): State,
     msg: ChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> State {
@@ -44,7 +48,7 @@ pub async fn stage(
                     eff.base()
                         .send(&errors, ValidationFailed::new(&peer, error))
                         .await;
-                    return (downstream, errors);
+                    return (downstream, track_peers, errors);
                 }
             };
             eff.base()
@@ -77,11 +81,11 @@ pub async fn stage(
         }
         ChainSyncEvent::CaughtUp { peer, span } => {
             eff.base()
-                .send(&downstream, DecodedChainSyncEvent::CaughtUp { peer, span })
+                .send(&track_peers, ChainSyncEvent::CaughtUp { peer, span })
                 .await
         }
     }
-    (downstream, errors)
+    (downstream, track_peers, errors)
 }
 
 #[instrument(
@@ -113,6 +117,7 @@ mod tests {
     use crate::consensus::tests::any_header;
     use amaru_kernel::peer::Peer;
     use amaru_ouroboros_traits::fake::tests::run;
+    use amaru_ouroboros_traits::{ChainStore, IsHeader};
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;
@@ -177,26 +182,36 @@ mod tests {
 
     #[tokio::test]
     async fn rollback_is_just_sent_downstream() -> anyhow::Result<()> {
+        let header = run(any_header());
+        let peer = Peer::new("name");
+        let span = Span::current();
         let message = ChainSyncEvent::Rollback {
-            peer: Peer::new("name"),
-            rollback_point: Point::Origin,
-            span: Span::current(),
+            peer: peer.clone(),
+            rollback_point: header.point(),
+            span: span.clone(),
         };
         let consensus_ops = mock_consensus_ops();
+        consensus_ops.mock_store.store_header(&header)?;
 
         stage(make_state(), message.clone(), consensus_ops.clone()).await;
+
+        let expected = DecodedChainSyncEvent::Rollback {
+            peer: peer.clone(),
+            rollback_point: header.point(),
+            span,
+        };
         assert_eq!(
             consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![(
                 "downstream".to_string(),
-                vec![format!("{message:?}")]
+                vec![format!("{expected:?}")]
             )])
         );
         Ok(())
     }
 
     #[tokio::test]
-    async fn caughtup_is_just_sent_downstream() -> anyhow::Result<()> {
+    async fn caughtup_is_sent_to_track_peers() -> anyhow::Result<()> {
         let message = ChainSyncEvent::CaughtUp {
             peer: Peer::new("name"),
             span: Span::current(),
@@ -207,7 +222,7 @@ mod tests {
         assert_eq!(
             consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
+                "track_peers".to_string(),
                 vec![format!("{message:?}")]
             )])
         );
@@ -218,7 +233,8 @@ mod tests {
 
     fn make_state() -> State {
         let downstream: StageRef<DecodedChainSyncEvent> = StageRef::named("downstream");
+        let track_peers: StageRef<ChainSyncEvent> = StageRef::named("track_peers");
         let errors: StageRef<ValidationFailed> = StageRef::named("errors");
-        (downstream, errors)
+        (downstream, track_peers, errors)
     }
 }

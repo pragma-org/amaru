@@ -14,7 +14,7 @@
 
 use crate::consensus::effects::{BaseOps, ConsensusOps, MetricsOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
-use crate::consensus::events::{BlockValidationResult, ValidateBlockEvent};
+use crate::consensus::events::{DecodedChainSyncEvent, ValidateBlockEvent};
 use crate::consensus::span::HasSpan;
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
@@ -22,7 +22,7 @@ use pure_stage::StageRef;
 use tracing::{Level, error, span};
 
 type State = (
-    StageRef<BlockValidationResult>,
+    StageRef<DecodedChainSyncEvent>,
     StageRef<ValidationFailed>,
     StageRef<ProcessingFailed>,
 );
@@ -51,8 +51,9 @@ pub async fn stage(
                     eff.base()
                         .send(
                             &downstream,
-                            BlockValidationResult::BlockValidated {
+                            DecodedChainSyncEvent::RollForward {
                                 peer,
+                                point,
                                 header,
                                 span: span.clone(),
                             },
@@ -87,20 +88,20 @@ pub async fn stage(
         }
         ValidateBlockEvent::Rollback {
             peer,
-            rollback_header,
+            rollback_point,
             span,
             ..
         } => {
-            if let Err(err) = eff.ledger().rollback(&peer, &rollback_header).await {
+            if let Err(err) = eff.ledger().rollback(&peer, &rollback_point).await {
                 error!(?err, "Failed to rollback");
                 eff.base().send(&processing_errors, err).await;
             } else {
                 eff.base()
                     .send(
                         &downstream,
-                        BlockValidationResult::RolledBackTo {
+                        DecodedChainSyncEvent::Rollback {
                             peer,
-                            rollback_header,
+                            rollback_point,
                             span,
                         },
                     )
