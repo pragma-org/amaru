@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Address, DatumOption, ScriptRef, from_alonzo_value};
-
 use crate::{
     Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr_v2,
     script_context::{
@@ -72,29 +70,6 @@ impl ToPlutusData<2> for OutputRef {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<2> for TransactionOutput {
     fn to_plutus_data(&self) -> PlutusData {
-        match self {
-            amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                constr_v2!(
-                    0,
-                    [
-                        Address::from_bytes(&output.address).unwrap(),
-                        from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"),
-                        output.datum_hash.map(DatumOption::Hash),
-                        None::<ScriptRef>
-                    ]
-                )
-            }
-            amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
-                constr_v2!(
-                    0,
-                    [
-                        Address::from_bytes(&output.address).unwrap(),
-                        output.value,
-                        output.datum_option,
-                        output.script_ref.as_ref().map(|s| s.clone().unwrap())
-                    ]
-                )
-            }
-        }
+        constr_v2!(0, [self.address, self.value, self.datum, self.script])
     }
 }

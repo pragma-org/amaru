@@ -16,8 +16,9 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Address, BigInt, Bytes, ComputeHash, Constr, DatumOption, Hash, Int, KeyValuePairs,
-    MaybeIndefArray, NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ScriptRef,
-    ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakeCredential, StakePayload,
+    MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable,
+    PlutusData, PseudoScript, Redeemer, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress,
+    StakeCredential, StakePayload,
 };
 
 use crate::script_context::TimeRange;
@@ -117,17 +118,29 @@ impl IsKnownPlutusVersion for PlutusVersion<1> {}
 impl IsKnownPlutusVersion for PlutusVersion<2> {}
 impl IsKnownPlutusVersion for PlutusVersion<3> {}
 
+impl<const V: u8> ToPlutusData<V> for MemoizedDatum
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            MemoizedDatum::None => constr!(0),
+            MemoizedDatum::Hash(hash) => constr!(1, [hash]),
+            MemoizedDatum::Inline(data) => constr!(2, [data.as_ref()]),
+        }
+    }
+}
+
 impl<const V: u8> ToPlutusData<V> for Option<DatumOption>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            Some(datum) => match datum {
+            Some(datum_option) => match datum_option {
                 DatumOption::Hash(hash) => constr!(1, [hash]),
                 DatumOption::Data(data) => constr!(2, [data.0]),
             },
-
             None => constr!(0),
         }
     }
@@ -260,22 +273,22 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for ScriptRef
+impl<const V: u8> ToPlutusData<V> for MemoizedScript
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            amaru_kernel::PseudoScript::NativeScript(native_script) => {
-                native_script.compute_hash().to_plutus_data()
+            PseudoScript::NativeScript(native_script) => {
+                native_script.as_ref().compute_hash().to_plutus_data()
             }
-            amaru_kernel::PseudoScript::PlutusV1Script(plutus_script) => {
+            PseudoScript::PlutusV1Script(plutus_script) => {
                 plutus_script.compute_hash().to_plutus_data()
             }
-            amaru_kernel::PseudoScript::PlutusV2Script(plutus_script) => {
+            PseudoScript::PlutusV2Script(plutus_script) => {
                 plutus_script.compute_hash().to_plutus_data()
             }
-            amaru_kernel::PseudoScript::PlutusV3Script(plutus_script) => {
+            PseudoScript::PlutusV3Script(plutus_script) => {
                 plutus_script.compute_hash().to_plutus_data()
             }
         }

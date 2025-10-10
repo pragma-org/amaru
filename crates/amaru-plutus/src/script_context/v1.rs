@@ -12,10 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::BTreeMap, ops::Deref};
+
 use amaru_kernel::{
-    Address, AssetName, Bytes, DatumOption, Hash, KeyValuePairs, PolicyId, StakeCredential,
-    TransactionInput, from_alonzo_value,
+    Address, AssetName, Bytes, Hash, IsSortable, KeyValuePairs, MemoizedDatum,
+    MintedTransactionBody, NonEmptyKeyValuePairs, PolicyId, StakeCredential, TransactionInput,
+    TransactionInputAdapter,
 };
+use itertools::Itertools;
+use thiserror::Error;
 
 use crate::{
     Constr, DEFAULT_TAG, IsKnownPlutusVersion, MaybeIndefArray, PlutusVersion, ToConstrTag,
@@ -25,6 +30,24 @@ use crate::{
         TransactionId, TransactionOutput, Value, Withdrawal,
     },
 };
+
+#[derive(Debug, Error)]
+pub enum PlutusV1Error {
+    #[error("failed to translate inputs: {0}")]
+    InputTranslationError(#[from] V1InputTranslationError),
+    #[error("reference inputs are not allowed in the v1 script context")]
+    ReferenceInputsIncluded,
+}
+
+#[derive(Debug, Error)]
+pub enum V1InputTranslationError {
+    #[error("unknown input: {0}")]
+    UnknownInput(TransactionInputAdapter),
+    #[error("inline datum included in v1 context: {0}")]
+    InlineDatumProvided(TransactionInputAdapter),
+    #[error("script ref included in v1 context: {0}")]
+    ScriptRefProvided(TransactionInputAdapter),
+}
 
 // Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V1/Data/Contexts.hs#L148
 pub struct TxInfo {
@@ -38,6 +61,124 @@ pub struct TxInfo {
     signatories: Vec<AddrKeyhash>,
     data: Vec<(DatumHash, PlutusData)>,
     id: TransactionId,
+}
+
+impl TxInfo {
+    pub fn new(
+        tx: &MintedTransactionBody<'_>,
+        utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    ) -> Result<Self, PlutusV1Error> {
+        if tx.reference_inputs.is_some() {
+            return Err(PlutusV1Error::ReferenceInputsIncluded);
+        }
+
+        let inputs = Self::translate_inputs(&*tx.inputs, utxo)
+            .map_err(PlutusV1Error::InputTranslationError)?;
+        let certificates = tx
+            .certificates
+            .clone()
+            .map(|set| set.to_vec())
+            .unwrap_or_default();
+        let withdrawals = tx.withdrawals.as_ref().map(|withdrawals| {
+            withdrawals
+                .iter()
+                .map(|(reward_account, coin)| {
+                    let address = Address::from_bytes(&reward_account)
+                        .expect("invalid address bytes in withdrawal");
+                    if let Address::Stake(reward_account) = address {
+                        (reward_account, *coin)
+                    } else {
+                        unreachable!("invalid reward address in withdrawals")
+                    }
+                })
+                .sorted_by(|(a, _), (b, _)| a.sort(b))
+                .collect::<Vec<Withdrawal>>()
+        });
+
+        todo!()
+    }
+
+    fn translate_inputs(
+        inputs: &[TransactionInput],
+        utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    ) -> Result<Vec<OutputRef>, V1InputTranslationError> {
+        inputs
+            .iter()
+            .sorted()
+            .filter_map(|input| {
+                let utxo = match utxo.get(input) {
+                    Some(resolved) => resolved,
+                    None => {
+                        return Some(Err(V1InputTranslationError::UnknownInput(
+                            input.clone().into(),
+                        )));
+                    }
+                };
+
+                // In v1, we filter out Byron addresses due to a mistake in Alonzo
+                // https://github.com/IntersectMBO/cardano-ledger/blob/59b52bb31c76a4a805e18860f68f549ec9022b14/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Plutus/TxInfo.hs#L111-L112
+                match &utxo.address {
+                    Address::Byron(_) => return None,
+                    Address::Stake(_) => unreachable!("stake address in UTxO"),
+                    _ => (),
+                };
+
+                if let MemoizedDatum::Inline(_) = utxo.datum {
+                    return Some(Err(V1InputTranslationError::InlineDatumProvided(
+                        input.clone().into(),
+                    )));
+                }
+
+                if let Some(_) = utxo.script {
+                    return Some(Err(V1InputTranslationError::ScriptRefProvided(
+                        input.clone().into(),
+                    )));
+                }
+
+                Some(Ok(OutputRef {
+                    input: input.clone(),
+                    // TODO: The value in our output has to be lexicographically sorted
+                    output: sorted_utxo(utxo.clone()),
+                }))
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
+fn sorted_utxo(utxo: TransactionOutput) -> TransactionOutput {
+    TransactionOutput {
+        is_legacy: utxo.is_legacy,
+        address: utxo.address,
+        value: sort_value(utxo.value),
+        datum: utxo.datum,
+        script: utxo.script,
+    }
+}
+
+// TODO: this is grabbed straight from Aiken.
+// This should be rethought to avoid cloning
+fn sort_value(value: Value) -> Value {
+    match value {
+        Value::Coin(_) => value.clone(),
+        Value::Multiasset(coin, multiasset) => Value::Multiasset(
+            coin,
+            NonEmptyKeyValuePairs::Indef(
+                multiasset
+                    .deref()
+                    .into_iter()
+                    .sorted()
+                    .map(|(policy_id, asset_bundle)| {
+                        (
+                            *policy_id,
+                            NonEmptyKeyValuePairs::Indef(
+                                asset_bundle.deref().iter().sorted().cloned().collect(),
+                            ),
+                        )
+                    })
+                    .collect(),
+            ),
+        ),
+    }
 }
 
 #[derive(Clone)]
@@ -197,30 +338,16 @@ impl ToPlutusData<1> for OutputRef {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<1> for TransactionOutput {
     fn to_plutus_data(&self) -> PlutusData {
-        match self {
-            amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                constr_v1!(
-                    0,
-                    [
-                        Address::from_bytes(&output.address).unwrap(),
-                        from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"),
-                        output.datum_hash.map(DatumOption::Hash)
-                    ]
-                )
-            }
-            amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
-                constr_v1!(
-                    0,
-                    [
-                        Address::from_bytes(&output.address).unwrap(),
-                        output.value,
-                        match output.datum_option {
-                            Some(DatumOption::Hash(hash)) => Some(hash),
-                            _ => None::<Hash<32>>,
-                        }
-                    ]
-                )
-            }
-        }
+        constr_v1!(
+            0,
+            [
+                self.address,
+                self.value,
+                match self.datum {
+                    MemoizedDatum::Hash(hash) => Some(hash),
+                    _ => None::<Hash<32>>,
+                },
+            ]
+        )
     }
 }

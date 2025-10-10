@@ -31,6 +31,7 @@ use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
     borrow::Cow,
+    cmp::Ordering,
     collections::BTreeMap,
     fmt::{self, Debug, Formatter},
     ops::Deref,
@@ -52,7 +53,7 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
-    alonzo::Value as AlonzoValue,
+    alonzo::{TransactionOutput as AlonzoTransactionOutput, Value as AlonzoValue},
     babbage::{Header, MintedHeader, PseudoHeader},
     conway::{
         AddrKeyhash, AssetName, AuxiliaryData, BigInt, Block, BootstrapWitness, Certificate, Coin,
@@ -808,6 +809,36 @@ fn tagged_script_hash(tag: u8, bytes: &[u8]) -> ScriptHash {
     Hasher::<224>::hash(&buffer)
 }
 
+pub trait IsSortable {
+    fn sort(&self, other: &Self) -> Ordering;
+}
+
+// Reference for this ordering is
+// https://github.com/aiken-lang/aiken/blob/a8c032935dbaf4a1140e9d8be5c270acd32c9e8c/crates/uplc/src/tx/script_context.rs#L1112
+// FIXME: this should be checked against the Haskell logic
+impl IsSortable for StakeAddress {
+    fn sort(&self, other: &Self) -> Ordering {
+        fn network_tag(network: Network) -> u8 {
+            match network {
+                Network::Testnet => 0,
+                Network::Mainnet => 1,
+                Network::Other(tag) => tag,
+            }
+        }
+
+        if self.network() != other.network() {
+            return network_tag(self.network()).cmp(&network_tag(other.network()));
+        }
+
+        match (self.payload(), self.payload()) {
+            (StakePayload::Script(..), StakePayload::Stake(..)) => Ordering::Less,
+            (StakePayload::Stake(..), StakePayload::Script(..)) => Ordering::Greater,
+            (StakePayload::Script(hash_a), StakePayload::Script(hash_b)) => hash_a.cmp(hash_b),
+            (StakePayload::Stake(hash_a), StakePayload::Stake(hash_b)) => hash_a.cmp(hash_b),
+        }
+    }
+}
+
 /// Construct the bootstrap root from a bootstrap witness
 pub fn to_root(witness: &BootstrapWitness) -> Hash<28> {
     // CBOR header for data that will be encoded
@@ -935,45 +966,6 @@ impl HasRedeemers for Redeemers {
                 .iter()
                 .map(|(key, redeemer)| (Cow::Borrowed(key), (&redeemer.ex_units, &redeemer.data)))
                 .collect(),
-        }
-    }
-}
-
-pub fn from_alonzo_value(value: AlonzoValue) -> Result<Value, Box<dyn std::error::Error>> {
-    match value {
-        AlonzoValue::Coin(coin) => Ok(Value::Coin(coin)),
-        AlonzoValue::Multiasset(coin, assets) if assets.is_empty() => Ok(Value::Coin(coin)),
-        AlonzoValue::Multiasset(coin, assets) => {
-            let multiasset = assets
-                .to_vec()
-                .into_iter()
-                .map(|(policy_id, tokens)| {
-                    let token_pairs = tokens
-                        .to_vec()
-                        .into_iter()
-                        .map(|(asset_name, quantity)| {
-                            Ok((
-                                asset_name,
-                                quantity
-                                    .try_into()
-                                    .map_err(|e| format!("zero ada in output value: {e:?}"))?,
-                            ))
-                        })
-                        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
-
-                    Ok((
-                        policy_id,
-                        NonEmptyKeyValuePairs::try_from(token_pairs)
-                            .map_err(|e| format!("empty tokens under a policy: {e:?}"))?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
-
-            Ok(Value::Multiasset(
-                coin,
-                NonEmptyKeyValuePairs::try_from(multiasset)
-                    .map_err(|e| format!("assets cannot be empty: {e:?}"))?,
-            ))
         }
     }
 }
