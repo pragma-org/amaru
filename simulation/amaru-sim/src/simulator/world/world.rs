@@ -21,7 +21,7 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::{BTreeMap, BinaryHeap};
 use std::fmt::Debug;
 use std::time::Duration;
-use tracing::info;
+use tracing::{debug, info};
 
 /// This data structure represents a simulated 'world' of interconnected nodes.
 /// Nodes are identified by string ids:
@@ -111,7 +111,8 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
             // eg. run all nodes whose next action is earlier than msg's arrival time
             // and enqueue their output messages possibly bailing out and recursing
             {
-                info!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
+                info!(msg = ?envelope, arrival = ?arrival_time, "stepping");
+                debug!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
 
                 match self.nodes.get_mut(&envelope.dest) {
                     Some(node) => match node.handle_msg(envelope.clone()) {

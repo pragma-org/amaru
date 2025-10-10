@@ -62,9 +62,13 @@ where
 
     for test_number in 1..=config.number_of_tests {
         let entries: Vec<Reverse<Entry<Msg>>> = generator(&mut rng);
+        info!("Test data generated. Now executing the tests");
 
         let test = test_nodes(config.number_of_nodes, &spawn, &property);
-        match test(&entries) {
+        let result = test(&entries);
+        info!("Test run executed. Now checking results");
+
+        match result {
             (history, Err(reason)) => {
                 let failure_message = if config.disable_shrinking {
                     let number_of_shrinks = 0;
