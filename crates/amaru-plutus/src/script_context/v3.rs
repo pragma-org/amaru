@@ -17,7 +17,7 @@ use std::ops::Deref;
 use amaru_kernel::{
     Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
     ExUnits, GovAction, Mint, PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate,
-    RationalNumber, ScriptRef, StakeCredential, Value, Vote, from_alonzo_value,
+    RationalNumber, StakeCredential, Value, Vote,
 };
 use num::Integer;
 
@@ -150,30 +150,7 @@ impl ToPlutusData<3> for TransactionInput {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<3> for TransactionOutput {
     fn to_plutus_data(&self) -> PlutusData {
-        match self {
-            amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                constr_v3!(
-                    0,
-                    [
-                        Address::from_bytes(&output.address).unwrap(),
-                        from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"),
-                        output.datum_hash.map(DatumOption::Hash),
-                        None::<ScriptRef>
-                    ]
-                )
-            }
-            amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
-                constr_v3!(
-                    0,
-                    [
-                        Address::from_bytes(&output.address).unwrap(),
-                        output.value,
-                        output.datum_option,
-                        output.script_ref.as_ref().map(|s| s.clone().unwrap())
-                    ]
-                )
-            }
-        }
+        constr_v3!(0, [self.address, self.value, self.datum, self.script])
     }
 }
 

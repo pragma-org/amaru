@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, PlutusData, PolicyId, Redeemer,
-    StakeAddress, TransactionId, TransactionInput, TransactionOutput, Value, Voter, Withdrawal,
+    AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace,
+    MemoizedTransactionOutput as TransactionOutput, PlutusData, PolicyId, Redeemer, StakeAddress,
+    TransactionId, TransactionInput, Value, Voter, Withdrawal,
 };
 
 use amaru_slot_arithmetic::TimeMs;
