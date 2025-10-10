@@ -17,7 +17,7 @@ use crate::simulator::bytes::Bytes;
 use crate::simulator::generate::generate_entries;
 use crate::simulator::ledger::{FakeStakeDistribution, populate_chain_store};
 use crate::simulator::simulate::simulate;
-use crate::simulator::{Args, Chain, History, NodeHandle, SimulateConfig};
+use crate::simulator::{Args, Chain, History, NodeConfig, NodeHandle, SimulateConfig};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
 use amaru_consensus::consensus::effects::{
@@ -60,21 +60,21 @@ use tracing::{Span, info};
 /// * Run the simulation.
 pub fn run(rt: Runtime, args: Args) {
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
+    let node_config = NodeConfig::from(args.clone());
 
     let spawn = |node_id: String| {
         let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
-        let (input, init_messages, output) = spawn_node(node_id, args.clone(), &mut network);
+        let (input, init_messages, output) = spawn_node(node_id, node_config.clone(), &mut network);
         let running = network.run(rt.handle().clone());
         NodeHandle::from_pure_stage(input, init_messages, output, running).unwrap()
     };
 
-    let config = SimulateConfig::from(args.clone());
+    let simulate_config = SimulateConfig::from(args.clone());
     simulate(
-        &config,
+        &simulate_config,
         spawn,
         generate_entries(
-            &config,
-            &args.block_tree_file,
+            &node_config,
             Instant::at_offset(Duration::from_secs(0)),
             200.0,
         ),
@@ -94,7 +94,7 @@ pub fn run(rt: Runtime, args: Args) {
 ///
 pub fn spawn_node(
     node_id: String,
-    args: Args,
+    node_config: NodeConfig,
     network: &mut SimulationBuilder,
 ) -> (
     StageRef<Envelope<ChainSyncMessage>>,
@@ -102,9 +102,8 @@ pub fn spawn_node(
     Receiver<Envelope<ChainSyncMessage>>,
 ) {
     info!("Spawning node!");
-    let config = SimulateConfig::from(args.clone());
-
-    let (network_name, select_chain, resource_header_store, resource_validation) = init_node(&args);
+    let (network_name, select_chain, resource_header_store, resource_validation) =
+        init_node(&node_config);
     let global_parameters: &GlobalParameters = network_name.into();
 
     // The receiver replies ok to init messages from the sender (via 'output', the only output of the graph)
@@ -171,7 +170,7 @@ pub fn spawn_node(
     let (output, rx1) = network.output("output", 10);
     let (sender, rx2) = mpsc::channel(10);
     let listener =
-        MockForwardEventListener::new(node_id, config.number_of_downstream_peers, sender);
+        MockForwardEventListener::new(node_id, node_config.number_of_downstream_peers, sender);
 
     let receiver = network.wire_up(receiver, (receive_header_ref, output.clone()));
 
@@ -198,7 +197,7 @@ pub fn spawn_node(
 }
 
 fn init_node(
-    args: &Args,
+    node_config: &NodeConfig,
 ) -> (
     NetworkName,
     SelectChain,
@@ -208,18 +207,18 @@ fn init_node(
     let network_name = NetworkName::Testnet(42);
     let chain_store = Arc::new(InMemConsensusStore::new());
     let stake_distribution =
-        Arc::new(FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap());
+        Arc::new(FakeStakeDistribution::from_file(&node_config.stake_distribution_file).unwrap());
 
     populate_chain_store(
         chain_store.clone(),
-        &args.start_header,
-        &args.consensus_context_file,
+        &node_config.start_header,
+        &node_config.consensus_context_file,
     )
     .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
 
     let select_chain = make_chain_selector(
         chain_store.clone(),
-        &(1..=args.number_of_upstream_peers)
+        &(1..=node_config.number_of_upstream_peers)
             .map(|i| Peer::new(&format!("c{}", i)))
             .collect::<Vec<_>>(),
     );
