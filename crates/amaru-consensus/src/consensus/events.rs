@@ -90,11 +90,6 @@ pub enum DecodedChainSyncEvent {
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
-    CaughtUp {
-        peer: Peer,
-        #[serde(skip, default = "Span::none")]
-        span: Span,
-    },
 }
 
 impl DecodedChainSyncEvent {
@@ -102,7 +97,6 @@ impl DecodedChainSyncEvent {
         match self {
             DecodedChainSyncEvent::RollForward { peer, .. } => peer.clone(),
             DecodedChainSyncEvent::Rollback { peer, .. } => peer.clone(),
-            DecodedChainSyncEvent::CaughtUp { peer, .. } => peer.clone(),
         }
     }
 }
@@ -128,11 +122,7 @@ impl fmt::Debug for DecodedChainSyncEvent {
             } => f
                 .debug_struct("Rollback")
                 .field("peer", &peer.name)
-                .field("rollback_point", &rollback_point.to_string())
-                .finish(),
-            DecodedChainSyncEvent::CaughtUp { peer, .. } => f
-                .debug_struct("CaughtUp")
-                .field("peer", &peer.name)
+                .field("rollback_point", &rollback_point)
                 .finish(),
         }
     }
@@ -148,7 +138,7 @@ pub enum ValidateHeaderEvent {
     },
     Rollback {
         peer: Peer,
-        rollback_header: Header,
+        rollback_point: Point,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -166,7 +156,7 @@ pub enum ValidateBlockEvent {
     },
     Rollback {
         peer: Peer,
-        rollback_header: Header,
+        rollback_point: Point,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -192,7 +182,7 @@ impl Debug for ValidateBlockEvent {
                 .finish(),
             ValidateBlockEvent::Rollback {
                 peer,
-                rollback_header: rollback_point,
+                rollback_point,
                 ..
             } => f
                 .debug_struct("Rollback")
@@ -221,12 +211,12 @@ impl PartialEq for ValidateBlockEvent {
             (
                 ValidateBlockEvent::Rollback {
                     peer: p1,
-                    rollback_header: rp1,
+                    rollback_point: rp1,
                     ..
                 },
                 ValidateBlockEvent::Rollback {
                     peer: p2,
-                    rollback_header: rp2,
+                    rollback_point: rp2,
                     ..
                 },
             ) => p1 == p2 && rp1 == rp2,

@@ -16,9 +16,10 @@ use amaru_consensus::consensus::effects::ConsensusEffects;
 use amaru_consensus::consensus::errors::{ProcessingFailed, ValidationFailed};
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
+use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_consensus::consensus::stages::{
     fetch_block, forward_chain, receive_header, select_chain, store_block, store_header,
-    validate_block, validate_header,
+    track_peers, validate_block, validate_header,
 };
 use amaru_consensus::consensus::tip::HeaderTip;
 use amaru_kernel::protocol_parameters::{ConsensusParameters, GlobalParameters};
@@ -33,6 +34,7 @@ pub fn build_stage_graph(
     global_parameters: &GlobalParameters,
     era_history: &'static EraHistory,
     chain_selector: SelectChain,
+    sync_tracker: SyncTracker,
     our_tip: HeaderTip,
     network: &mut impl StageGraph,
 ) -> StageRef<ChainSyncEvent> {
@@ -42,12 +44,12 @@ pub fn build_stage_graph(
     );
     let store_header_stage =
         network.stage("store_header", with_consensus_effects(store_header::stage));
+    let track_peers_stage =
+        network.stage("track_peers", with_consensus_effects(track_peers::stage));
     let validate_header_stage = network.stage(
         "validate_header",
         with_consensus_effects(validate_header::stage),
     );
-    let select_chain_stage =
-        network.stage("select_chain", with_consensus_effects(select_chain::stage));
     let fetch_block_stage =
         network.stage("fetch_block", with_consensus_effects(fetch_block::stage));
     let store_block_stage =
@@ -56,6 +58,8 @@ pub fn build_stage_graph(
         "validate_block",
         with_consensus_effects(validate_block::stage),
     );
+    let select_chain_stage =
+        network.stage("select_chain", with_consensus_effects(select_chain::stage));
     let forward_chain_stage = network.stage(
         "forward_chain",
         with_consensus_effects(forward_chain::stage),
@@ -92,10 +96,18 @@ pub fn build_stage_graph(
             processing_errors_stage.clone().without_state(),
         ),
     );
+    let select_chain_stage = network.wire_up(
+        select_chain_stage,
+        (
+            chain_selector,
+            forward_chain_stage.without_state(),
+            validation_errors_stage.clone().without_state(),
+        ),
+    );
     let validate_block_stage = network.wire_up(
         validate_block_stage,
         (
-            forward_chain_stage.without_state(),
+            select_chain_stage.without_state(),
             validation_errors_stage.clone().without_state(),
             processing_errors_stage.clone().without_state(),
         ),
@@ -103,22 +115,14 @@ pub fn build_stage_graph(
     let store_block_stage = network.wire_up(
         store_block_stage,
         (
-            validate_block_stage.without_state(),
+            validate_block_stage.clone().without_state(),
             processing_errors_stage.clone().without_state(),
         ),
     );
     let fetch_block_stage = network.wire_up(
         fetch_block_stage,
         (
-            store_block_stage.without_state(),
-            validation_errors_stage.clone().without_state(),
-        ),
-    );
-    let select_chain_stage = network.wire_up(
-        select_chain_stage,
-        (
-            chain_selector,
-            fetch_block_stage.without_state(),
+            store_block_stage.clone().without_state(),
             validation_errors_stage.clone().without_state(),
         ),
     );
@@ -130,16 +134,18 @@ pub fn build_stage_graph(
                 era_history,
                 Default::default(),
             )),
-            select_chain_stage.without_state(),
+            fetch_block_stage.without_state(),
             validation_errors_stage.clone().without_state(),
         ),
     );
+    let track_peers_stage = network.wire_up(track_peers_stage, sync_tracker);
     let store_header_stage =
         network.wire_up(store_header_stage, validate_header_stage.without_state());
     let receive_header_stage = network.wire_up(
         receive_header_stage,
         (
             store_header_stage.without_state(),
+            track_peers_stage.without_state(),
             validation_errors_stage.without_state(),
         ),
     );

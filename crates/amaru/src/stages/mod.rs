@@ -33,6 +33,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::block_validator::BlockValidator;
 
+use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::block_fetch_client::PallasBlockFetchClient;
 use amaru_ouroboros_traits::{
@@ -232,6 +233,7 @@ pub async fn bootstrap(
         &peers,
         global_parameters.consensus_security_param,
     )?;
+    let sync_tracker = SyncTracker::new(&peers);
 
     let forward_event_listener = Arc::new(
         TcpForwardChainServer::new(
@@ -251,6 +253,7 @@ pub async fn bootstrap(
         global_parameters,
         era_history,
         chain_selector,
+        sync_tracker,
         our_tip,
         &mut network,
     );
@@ -409,7 +412,7 @@ fn make_chain_selector(
         tree_state.initialize_peer(chain_store.clone(), peer, &anchor)?;
     }
 
-    Ok(SelectChain::new(tree_state, peers))
+    Ok(SelectChain::new(tree_state))
 }
 
 pub trait PallasPoint {

@@ -32,6 +32,7 @@ use amaru_consensus::consensus::stages::fetch_block::BlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::{
     DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain,
 };
+use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_consensus::consensus::tip::HeaderTip;
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
@@ -102,7 +103,7 @@ pub fn spawn_node(
     Receiver<Envelope<ChainSyncMessage>>,
 ) {
     info!("Spawning node!");
-    let (network_name, select_chain, resource_header_store, resource_validation) =
+    let (network_name, select_chain, sync_tracker, resource_header_store, resource_validation) =
         init_node(&node_config);
     let global_parameters: &GlobalParameters = network_name.into();
 
@@ -163,6 +164,7 @@ pub fn spawn_node(
         global_parameters,
         era_history,
         select_chain,
+        sync_tracker,
         our_tip,
         network,
     );
@@ -201,6 +203,7 @@ fn init_node(
 ) -> (
     NetworkName,
     SelectChain,
+    SyncTracker,
     ResourceHeaderStore,
     ResourceHeaderValidation,
 ) {
@@ -216,14 +219,19 @@ fn init_node(
     )
     .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
 
-    let select_chain = make_chain_selector(
-        chain_store.clone(),
-        &(1..=node_config.number_of_upstream_peers)
-            .map(|i| Peer::new(&format!("c{}", i)))
-            .collect::<Vec<_>>(),
-    );
+    let peers = (1..=node_config.number_of_upstream_peers)
+        .map(|i| Peer::new(&format!("c{}", i)))
+        .collect::<Vec<_>>();
+    let select_chain = make_chain_selector(chain_store.clone(), &peers);
+    let sync_tracker = SyncTracker::new(&peers);
 
-    (network_name, select_chain, chain_store, stake_distribution)
+    (
+        network_name,
+        select_chain,
+        sync_tracker,
+        chain_store,
+        stake_distribution,
+    )
 }
 
 fn make_chain_selector(chain_store: Arc<dyn ChainStore<Header>>, peers: &Vec<Peer>) -> SelectChain {
@@ -234,7 +242,7 @@ fn make_chain_selector(chain_store: Arc<dyn ChainStore<Header>>, peers: &Vec<Pee
             .initialize_peer(chain_store.clone(), peer, &anchor)
             .expect("the root node is guaranteed to already be in the tree")
     }
-    SelectChain::new(tree_state, peers)
+    SelectChain::new(tree_state)
 }
 
 /// Property: at the end of the simulation, the tip of the chain from the last block must

@@ -41,7 +41,6 @@ mod impls {
             match self {
                 DecodedChainSyncEvent::RollForward { span, .. } => span,
                 DecodedChainSyncEvent::Rollback { span, .. } => span,
-                DecodedChainSyncEvent::CaughtUp { span, .. } => span,
             }
         }
     }
