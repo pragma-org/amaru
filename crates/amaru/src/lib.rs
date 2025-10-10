@@ -14,6 +14,9 @@
 
 use amaru_kernel::network::NetworkName;
 
+pub mod metrics;
+pub mod observability;
+pub mod panic;
 pub mod point;
 
 /// Sync pipeline
@@ -21,8 +24,6 @@ pub mod point;
 /// The sync pipeline is responsible for fetching blocks from the upstream node and
 /// applying them to the local chain.
 pub mod stages;
-
-pub mod observability;
 
 /// Generic exit handler
 pub mod exit;

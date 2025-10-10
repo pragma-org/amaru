@@ -33,7 +33,7 @@ pub struct ReadOnlyChainDB {
 }
 
 impl RocksDBStore {
-    pub fn new(config: RocksDbConfig) -> Result<Self, StoreError> {
+    pub fn new(config: &RocksDbConfig) -> Result<Self, StoreError> {
         let basedir = config.dir.clone();
         let mut opts: Options = config.into();
         opts.create_if_missing(true);
@@ -51,7 +51,7 @@ impl RocksDBStore {
         })
     }
 
-    pub fn open_for_readonly(config: RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
+    pub fn open_for_readonly(config: &RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
         let basedir = config.dir.clone();
         let mut opts: Options = config.into();
         opts.create_if_missing(false);
@@ -344,13 +344,13 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
 #[expect(clippy::expect_used)]
 pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
     let basedir = init_dir(path);
-    RocksDBStore::new(RocksDbConfig::new(basedir)).expect("fail to initialise RocksDB")
+    RocksDBStore::new(&RocksDbConfig::new(basedir)).expect("fail to initialise RocksDB")
 }
 
 #[cfg(any(test, feature = "test-utils"))]
 pub fn initialise_test_ro_store(path: &std::path::Path) -> Result<ReadOnlyChainDB, StoreError> {
     let basedir = init_dir(path);
-    RocksDBStore::open_for_readonly(RocksDbConfig::new(basedir))
+    RocksDBStore::open_for_readonly(&RocksDbConfig::new(basedir))
 }
 
 #[cfg(any(test, feature = "test-utils"))]

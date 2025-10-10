@@ -51,7 +51,7 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
         .or_insert_with(|| {
             Arc::new(
                 RocksDBHistoricalStores::for_epoch_with(
-                    RocksDbConfig::new(PathBuf::from(format!(
+                    &RocksDbConfig::new(PathBuf::from(format!(
                         "../../{}",
                         default_ledger_dir(network)
                     ))),
