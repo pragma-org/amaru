@@ -163,7 +163,10 @@ pub fn spawn_node(
     let receive_header_ref = build_stage_graph(select_chain, sync_tracker, our_tip, network);
 
     let (output, rx1) = network.output("output", 10);
-    let (sender, rx2) = mpsc::channel(10);
+
+    // The number of received messages sent by the forward event listener is proportional
+    // to the number of downstream peers, as each event is duplicated to each downstream peer.
+    let (sender, rx2) = mpsc::channel(10 * config.number_of_downstream_peers as usize);
     let listener =
         MockForwardEventListener::new(node_id, node_config.number_of_downstream_peers, sender);
 
