@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::HeaderHash;
 use crate::consensus::errors::ConsensusError::UnknownPoint;
 use crate::consensus::errors::{ConsensusError, InvalidHeaderParentData};
 use crate::consensus::headers_tree::headers_tree::Tracker::{Me, SomePeer};
@@ -23,7 +22,7 @@ use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{ORIGIN_HASH, Point, peer::Peer};
 #[cfg(any(test, feature = "test-utils"))]
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use amaru_ouroboros_traits::{ChainStore, HeaderHash, IsHeader};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};

@@ -28,8 +28,8 @@ use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
 use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::{
-    EraHistory, HEADER_HASH_SIZE, Hash, Header, ORIGIN_HASH, Point, network::NetworkName,
-    peer::Peer, protocol_parameters::GlobalParameters,
+    EraHistory, HEADER_HASH_SIZE, Hash, ORIGIN_HASH, Point, network::NetworkName, peer::Peer,
+    protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::block_validator::BlockValidator;
 
@@ -37,7 +37,7 @@ use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::block_fetch_client::PallasBlockFetchClient;
 use amaru_ouroboros_traits::{
-    CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
+    BlockHeader, CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
     in_memory_consensus_store::InMemConsensusStore,
 };
 use amaru_stores::rocksdb::RocksDbConfig;
@@ -312,8 +312,8 @@ pub async fn bootstrap(
 fn make_chain_store(
     config: &Config,
     tip: &Hash<HEADER_HASH_SIZE>,
-) -> Result<Arc<dyn ChainStore<Header>>, Box<dyn Error>> {
-    let chain_store: Arc<dyn ChainStore<Header>> = match config.chain_store {
+) -> Result<Arc<dyn ChainStore<BlockHeader>>, Box<dyn Error>> {
+    let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
         StoreType::RocksDb(ref rocks_db_config) => {
             Arc::new(RocksDBStore::new(rocks_db_config.clone())?)
@@ -401,7 +401,7 @@ fn make_ledger(
 }
 
 fn make_chain_selector(
-    chain_store: Arc<dyn ChainStore<Header>>,
+    chain_store: Arc<dyn ChainStore<BlockHeader>>,
     peers: &Vec<Peer>,
     consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
@@ -419,7 +419,7 @@ pub trait PallasPoint {
     fn pallas_point(&self) -> pallas_network::miniprotocols::Point;
 }
 
-impl PallasPoint for Header {
+impl PallasPoint for BlockHeader {
     fn pallas_point(&self) -> pallas_network::miniprotocols::Point {
         to_pallas_point(&self.point())
     }
@@ -444,9 +444,9 @@ pub trait AsTip {
     fn as_tip(&self) -> Tip;
 }
 
-impl AsTip for Header {
+impl<H: IsHeader> AsTip for H {
     fn as_tip(&self) -> Tip {
-        Tip(self.pallas_point(), self.block_height())
+        Tip(self.point().pallas_point(), self.block_height())
     }
 }
 

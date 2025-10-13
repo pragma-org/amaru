@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::HeaderHash;
-use amaru_ouroboros_traits::IsHeader;
+use amaru_ouroboros_traits::{HeaderHash, IsHeader};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 

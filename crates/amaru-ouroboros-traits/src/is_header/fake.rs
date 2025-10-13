@@ -120,6 +120,10 @@ impl IsHeader for FakeHeader {
             "called 'extended_vrf_nonce_output' on a Fake header clearly not ready for that."
         )
     }
+
+    fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+        self.body_hash
+    }
 }
 
 impl Display for FakeHeader {

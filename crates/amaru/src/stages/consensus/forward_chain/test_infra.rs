@@ -20,7 +20,7 @@ use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_consensus::consensus::tip::AsHeaderTip;
 use amaru_kernel::{Hash, Header, from_cbor};
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::{
@@ -38,7 +38,7 @@ pub const LOST_47: &str = "bd41b102018a21e068d504e64b282512a3b7d5c3883b743aa070a
 pub const BRANCH_47: &str = "64565f22fb23476baaa6f82e0e2d68636ceadabded697099fb376c23226bdf03";
 pub const WINNER_47: &str = "66c90f54f9073cfc03a334f5b15b1617f6bf6fe6c892fad8368e16abe20b0f4f";
 
-pub fn mk_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<Header>> {
+pub fn mk_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHeader>> {
     let f = File::open(path).unwrap();
     let json: serde_json::Value = serde_json::from_reader(f).unwrap();
     let headers = json
@@ -53,7 +53,7 @@ pub fn mk_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<Header>> {
     for header in headers {
         let header = header.pointer("/header").unwrap().as_str().unwrap();
         let header = hex::decode(header).unwrap();
-        let header: Header = minicbor::decode(&header).unwrap();
+        let header: BlockHeader = minicbor::decode(&header).unwrap();
         if !anchor_set {
             store.set_anchor_hash(&header.hash()).unwrap();
             anchor_set = true
@@ -80,8 +80,8 @@ pub fn amaru_point(slot: u64, hash: &str) -> amaru_kernel::Point {
 }
 
 pub struct Setup {
-    pub store: Arc<dyn ChainStore<Header>>,
-    listener: TcpForwardChainServer,
+    pub store: Arc<dyn ChainStore<BlockHeader>>,
+    listener: TcpForwardChainServer<BlockHeader>,
     port: u16,
 }
 
@@ -140,7 +140,7 @@ impl Setup {
 
     pub fn check_header(&self, s: &str, h: &Header) {
         let header = self.store.load_header(&hash(s)).unwrap();
-        assert_eq!(header.header_body, h.header_body);
+        assert_eq!(header.header_body().clone(), h.header_body);
     }
 }
 
@@ -205,7 +205,7 @@ impl Client {
 
 #[derive(Clone)]
 pub enum ClientMsg {
-    Forward(Header, Tip),
+    Forward(BlockHeader, Tip),
     Backward(Point, Tip),
 }
 

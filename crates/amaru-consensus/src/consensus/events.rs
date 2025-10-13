@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, Point, RawBlock, peer::Peer};
-use amaru_ouroboros_traits::IsHeader;
+use amaru_kernel::{Point, RawBlock, peer::Peer};
+use amaru_ouroboros_traits::{BlockHeader, IsHeader};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -80,7 +80,7 @@ pub enum DecodedChainSyncEvent {
     RollForward {
         peer: Peer,
         point: Point,
-        header: Header,
+        header: BlockHeader,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -132,7 +132,7 @@ impl fmt::Debug for DecodedChainSyncEvent {
 pub enum ValidateHeaderEvent {
     Validated {
         peer: Peer,
-        header: Header,
+        header: BlockHeader,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -148,7 +148,7 @@ pub enum ValidateHeaderEvent {
 pub enum ValidateBlockEvent {
     Validated {
         peer: Peer,
-        header: Header,
+        header: BlockHeader,
         #[serde(skip, default = "default_block")]
         block: RawBlock,
         #[serde(skip, default = "Span::none")]
@@ -229,7 +229,7 @@ impl PartialEq for ValidateBlockEvent {
 pub enum BlockValidationResult {
     BlockValidated {
         peer: Peer,
-        header: Header,
+        header: BlockHeader,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -241,7 +241,7 @@ pub enum BlockValidationResult {
     },
     RolledBackTo {
         peer: Peer,
-        rollback_header: Header,
+        rollback_header: BlockHeader,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },

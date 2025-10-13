@@ -17,6 +17,7 @@ use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFaile
 use crate::consensus::events::{ChainSyncEvent, DecodedChainSyncEvent};
 use crate::consensus::span::HasSpan;
 use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
+use amaru_ouroboros_traits::BlockHeader;
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Level, instrument, span};
@@ -108,15 +109,16 @@ pub async fn stage(
             point.hash = %Hash::<32>::from(point),
         )
 )]
-pub fn decode_header(point: &Point, raw_header: &[u8]) -> Result<Header, ConsensusError> {
-    let header: MintedHeader<'_> =
+pub fn decode_header(point: &Point, raw_header: &[u8]) -> Result<BlockHeader, ConsensusError> {
+    let minted_header: MintedHeader<'_> =
         cbor::decode(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
             point: point.clone(),
             header: raw_header.into(),
             reason: reason.to_string(),
         })?;
 
-    Ok(Header::from(header))
+    let header = Header::from(minted_header);
+    Ok(BlockHeader::from(header))
 }
 
 #[cfg(test)]

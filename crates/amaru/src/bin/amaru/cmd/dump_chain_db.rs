@@ -14,8 +14,8 @@
 
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::{Header, to_cbor};
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use amaru_kernel::to_cbor;
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
 use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::{Parser, arg};
@@ -44,7 +44,7 @@ pub struct Args {
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir;
-    let db: Arc<dyn ChainStore<Header>> =
+    let db: Arc<dyn ChainStore<BlockHeader>> =
         Arc::new(RocksDBStore::new(RocksDbConfig::new(chain_dir))?);
 
     print_iterator(
@@ -76,7 +76,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 }
 
 #[expect(clippy::print_stdout)]
-pub fn print_best_chain(db: Arc<dyn ChainStore<Header>>) {
+pub fn print_best_chain(db: Arc<dyn ChainStore<BlockHeader>>) {
     println!();
     let best_chain = db.retrieve_best_chain();
     println!(

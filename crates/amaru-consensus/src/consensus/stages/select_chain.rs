@@ -18,9 +18,9 @@ use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::events::{BlockValidationResult, DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::headers_tree::{HeadersTree, HeadersTreeState};
 use crate::consensus::span::HasSpan;
-use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer, string_utils::ListToString};
+use amaru_kernel::{HEADER_HASH_SIZE, Point, peer::Peer, string_utils::ListToString};
 use amaru_ouroboros::IsHeader;
-use amaru_ouroboros_traits::ChainStore;
+use amaru_ouroboros_traits::{BlockHeader, ChainStore};
 use pallas_crypto::hash::Hash;
 use pure_stage::{BoxFuture, StageRef};
 use serde::{Deserialize, Serialize};
@@ -43,14 +43,14 @@ impl SelectChain {
         SelectChain { tree_state }
     }
 
-    fn forward_block(peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
+    fn forward_block(peer: Peer, header: BlockHeader, span: Span) -> ValidateHeaderEvent {
         ValidateHeaderEvent::Validated { peer, header, span }
     }
 
     fn switch_to_fork(
         peer: Peer,
         rollback_point: Point,
-        fork: Vec<Header>,
+        fork: Vec<BlockHeader>,
         span: Span,
     ) -> Vec<ValidateHeaderEvent> {
         let mut result = vec![ValidateHeaderEvent::Rollback {
@@ -72,9 +72,9 @@ impl SelectChain {
 
     pub async fn select_chain(
         &mut self,
-        store: Arc<dyn ChainStore<Header>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
         peer: Peer,
-        header: Header,
+        header: BlockHeader,
         span: Span,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         // Temporarily take the tree state out of self, to avoid borrowing self
@@ -106,7 +106,7 @@ impl SelectChain {
 
     pub async fn select_rollback(
         &mut self,
-        store: Arc<dyn ChainStore<Header>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
         peer: Peer,
         rollback_point: Point,
         span: Span,
@@ -146,7 +146,7 @@ impl SelectChain {
 
     pub fn handle_chain_sync(
         &mut self,
-        store: Arc<dyn ChainStore<Header>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
         chain_sync: DecodedChainSyncEvent,
     ) -> BoxFuture<'_, Result<Vec<ValidateHeaderEvent>, ConsensusError>> {
         Box::pin(async move {
@@ -420,7 +420,7 @@ mod tests {
     // HELPERS
 
     fn make_state(
-        store: Arc<dyn ChainStore<Header>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
         peer: &Peer,
         anchor: &Hash<HEADER_HASH_SIZE>,
     ) -> State {
@@ -433,7 +433,7 @@ mod tests {
         (SelectChain::new(tree_state), downstream, errors)
     }
 
-    fn make_roll_forward_message(peer: &Peer, header: &Header) -> DecodedChainSyncEvent {
+    fn make_roll_forward_message(peer: &Peer, header: &BlockHeader) -> DecodedChainSyncEvent {
         DecodedChainSyncEvent::RollForward {
             peer: peer.clone(),
             point: header.point(),
@@ -442,7 +442,7 @@ mod tests {
         }
     }
 
-    fn make_rollback_message(peer: &Peer, header: &Header) -> DecodedChainSyncEvent {
+    fn make_rollback_message(peer: &Peer, header: &BlockHeader) -> DecodedChainSyncEvent {
         DecodedChainSyncEvent::Rollback {
             peer: peer.clone(),
             rollback_point: header.point(),
@@ -450,7 +450,7 @@ mod tests {
         }
     }
 
-    fn make_block_validated_event(peer: &Peer, header: &Header) -> BlockValidationResult {
+    fn make_block_validated_event(peer: &Peer, header: &BlockHeader) -> BlockValidationResult {
         BlockValidated {
             peer: peer.clone(),
             header: header.clone(),

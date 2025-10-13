@@ -16,9 +16,9 @@ use crate::consensus::errors::ConsensusError;
 use crate::consensus::errors::ProcessingFailed;
 use crate::consensus::stages::fetch_block::BlockFetcher;
 use crate::consensus::tip::HeaderTip;
+use amaru_kernel::Point;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{Header, Point};
-use amaru_ouroboros_traits::IsHeader;
+use amaru_ouroboros_traits::{BlockHeader, IsHeader};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
@@ -38,7 +38,7 @@ pub trait NetworkOps {
     fn send_forward_event(
         &self,
         peer: &Peer,
-        header: Header,
+        header: BlockHeader,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 
     fn send_backward_event(
@@ -69,7 +69,7 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
     fn send_forward_event(
         &self,
         peer: &Peer,
-        header: Header,
+        header: BlockHeader,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
         self.0
             .external(ForwardEventEffect::new(peer, ForwardEvent::Forward(header)))
@@ -139,7 +139,7 @@ pub trait ForwardEventListener {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ForwardEvent {
-    Forward(Header),
+    Forward(BlockHeader),
     Backward(HeaderTip),
 }
 
