@@ -8,10 +8,8 @@ between the various steps.
 graph TD
     receive_header[receive header]
     track_peers[track peers]
-    store_header[store header]
     validate_header[validate header]
     fetch_block[fetch block]
-    store_block[store block]
     validate_block[validate block]
     select_chain[select chain]
     forward_header[forward header]
@@ -24,19 +22,15 @@ graph TD
     upstream -- chain sync --> pull
     pull -- ChainSyncEvent --> receive_header
 
-    receive_header -- DecodedChainSyncEvent --> store_header
+    receive_header -- DecodedChainSyncEvent --> validate_header
     receive_header -- ChainSyncEvent::CaughtUp --> track_peers
-
-    store_header -.-> store
-    store_header -- ValidateHeaderEvent --> validate_header
+    receive_header -.-> store
 
     validate_header -- ValidateHeaderEvent --> fetch_block
 
-    fetch_block -- ValidateBlockEvent --> store_block
+    fetch_block -- ValidateBlockEvent --> validate_block
     fetch_block -.-> net
-
-    store_block -.-> store
-    store_block -- ValidateBlockEvent --> validate_block
+    fetch_block -.-> store
 
     validate_block -.-> store
     validate_block -- DecodedChainSyncEvent --> select_chain
@@ -54,16 +48,15 @@ Stages:
 * [receive header](src/consensus/receive_header.rs): this stage is responsible for basic sanity check of _chain sync_
   messages, deserialising raw headers, and potentially checking whether or not they should be further processed (eg. if
   a header is already known to be invalid, or known to be valid because it's part of our best chain, let's not waste
-  time processing it!)
+  time processing it!). The received header is stored at this stage, indexed by its hash.
 * [track_peers](src/consensus/track_peers.rs): this stage logs a message to notify operators when we are caught up with
   an upstream peer.
 * [validate header](src/consensus/validate_header.rs): protocol validation of the header, checks the correctness of the
   VRF leader election w.r.t relevant stake distribution, and epoch nonce
-* [store header](src/consensus/store_header.rs): store valid (and invalid?) headers indexed by hash
 * [fetch block](../amaru/src/stages/consensus/fetch_block.rs): fetch block body corresponding to the new header, if any.
-* [store block](src/consensus/store_block.rs): store valid (and invalid) block bodies, indexed by header hash. The
-  blocks are stored _before_ validation in order to support [
-  _pipelining_](https://iohk.io/en/blog/posts/2022/02/01/introducing-pipelining-cardanos-consensus-layer-scaling-solution/)
+  The block body is stored, indexed by header hash.
+  It is stored _before_ validation in order to
+  support [pipelining](https://iohk.io/en/blog/posts/2022/02/01/introducing-pipelining-cardanos-consensus-layer-scaling-solution/).
 * [validate block](../amaru/src/stages/ledger.rs): validate the block body against its parent ledger state
 * [select chain](src/consensus/select_chain.rs): proceed to chain (candidate) selection, possibly changing the current
   best chain,
@@ -75,10 +68,8 @@ Errors:
 ```mermaid
 graph LR
     receive_header[receive header]
-    store_header[store header]
     validate_header[validate header]
     fetch_block[fetch block]
-    store_block[store block]
     validate_block[validate block]
     select_chain[select chain]
 
@@ -91,9 +82,8 @@ graph LR
     validate_block -- invalid block --> disconnect_peer
     select_chain -- invalid chain --> disconnect_peer
 
-    store_header -- storage failure --> panic
-    store_block -- storage failure --> panic
-
+    receive_header -- storage failure --> panic
+    fetch_block -- storage failure --> panic
 ```
 
 When the data received from a peer is malformed or invalid, the peer is disconnected. Other errors (eg. storage failure)
