@@ -13,10 +13,11 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ConsensusError, ValidationFailed};
+use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
 use crate::consensus::events::{ChainSyncEvent, DecodedChainSyncEvent};
 use crate::consensus::span::HasSpan;
 use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
+use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Level, instrument, span};
 
@@ -24,10 +25,11 @@ type State = (
     StageRef<DecodedChainSyncEvent>,
     StageRef<ChainSyncEvent>,
     StageRef<ValidationFailed>,
+    StageRef<ProcessingFailed>,
 );
 
 pub async fn stage(
-    (downstream, track_peers, errors): State,
+    (downstream, track_peers, failures, errors): State,
     msg: ChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> State {
@@ -42,13 +44,22 @@ pub async fn stage(
             span,
         } => {
             let header = match decode_header(&point, raw_header.as_slice()) {
-                Ok(header) => header,
+                Ok(header) => {
+                    let result = eff.store().store_header(&header);
+                    if let Err(error) = result {
+                        eff.base()
+                            .send(&errors, ProcessingFailed::new(&peer, anyhow!(error)))
+                            .await;
+                        return (downstream, track_peers, failures, errors);
+                    };
+                    header
+                }
                 Err(error) => {
                     tracing::error!(%error, %point, %peer, "Failed to decode header");
                     eff.base()
-                        .send(&errors, ValidationFailed::new(&peer, error))
+                        .send(&failures, ValidationFailed::new(&peer, error))
                         .await;
-                    return (downstream, track_peers, errors);
+                    return (downstream, track_peers, failures, errors);
                 }
             };
             eff.base()
@@ -85,7 +96,7 @@ pub async fn stage(
                 .await
         }
     }
-    (downstream, track_peers, errors)
+    (downstream, track_peers, failures, errors)
 }
 
 #[instrument(
@@ -175,7 +186,7 @@ mod tests {
         );
         assert_eq!(
             consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![("errors".to_string(), vec![format!("{error:?}")])])
+            BTreeMap::from_iter(vec![("failures".to_string(), vec![format!("{error:?}")])])
         );
         Ok(())
     }
@@ -234,7 +245,8 @@ mod tests {
     fn make_state() -> State {
         let downstream: StageRef<DecodedChainSyncEvent> = StageRef::named("downstream");
         let track_peers: StageRef<ChainSyncEvent> = StageRef::named("track_peers");
-        let errors: StageRef<ValidationFailed> = StageRef::named("errors");
-        (downstream, track_peers, errors)
+        let failures: StageRef<ValidationFailed> = StageRef::named("failures");
+        let errors: StageRef<ProcessingFailed> = StageRef::named("errors");
+        (downstream, track_peers, failures, errors)
     }
 }

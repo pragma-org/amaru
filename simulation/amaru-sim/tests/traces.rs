@@ -90,9 +90,6 @@ fn run_simulator_with_traces() {
                   ]
                 },
                 {
-                  "name": "stage.store_header"
-                },
-                {
                   "name": "stage.validate_header",
                   "children": [
                     {
@@ -107,9 +104,6 @@ fn run_simulator_with_traces() {
                 },
                 {
                   "name": "stage.fetch_block"
-                },
-                {
-                  "name": "stage.store_block"
                 },
                 {
                   "name": "stage.validate_block"
