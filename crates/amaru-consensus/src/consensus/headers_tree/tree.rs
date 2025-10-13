@@ -219,7 +219,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
 mod tests {
     use super::*;
     use crate::consensus::headers_tree::data_generation::{
-        Ratio, any_tree_of_headers, config_begin, generate_headers_chain, generate_test_header_tree,
+        Ratio, any_tree_of_headers, config_begin, generate_header_tree, generate_headers_chain,
     };
     use proptest::{prop_assert_eq, proptest};
 
@@ -252,12 +252,12 @@ mod tests {
 
     #[test]
     fn test_pretty_print() {
-        let tree = generate_test_header_tree(4, 42, Ratio(1, 10));
+        let tree = generate_header_tree(4, 42, Ratio(1, 10));
         let expected = r#"
-TestHeader { hash: "a22427226377cc867d51ad3f130af08ad13451de7160efa2b23076fd782de967", slot: "1", parent: "None" }
-    └── TestHeader { hash: "a8810f9ea39c3a6afb780859e8d8c7bc37b78e2f9b8d68d95e831ca1477e9b21", slot: "2", parent: "a22427226377cc867d51ad3f130af08ad13451de7160efa2b23076fd782de967" }
-        └── TestHeader { hash: "1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164", slot: "3", parent: "a8810f9ea39c3a6afb780859e8d8c7bc37b78e2f9b8d68d95e831ca1477e9b21" }
-            └── TestHeader { hash: "da3fc7b517b61024fcad5acd80e4e585902180d1eb16fd37ca2f07a37c4b3903", slot: "4", parent: "1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164" }
+BlockHeader { hash: "ede0bf92248771ce3f7295de922779309a9835eea7a82d883b371bbbfef19585", slot: 1, parent: None }
+    └── BlockHeader { hash: "ade5f0649f5039e91bfb933d3a95a6abd880aadcf17bda9463dbc11c5877d146", slot: 2, parent: Some("ede0bf92248771ce3f7295de922779309a9835eea7a82d883b371bbbfef19585") }
+        └── BlockHeader { hash: "feeb21de183ead0e37b2d57767ed635049dbf4b1cc5fa39b48d7a55110a46b7b", slot: 3, parent: Some("ade5f0649f5039e91bfb933d3a95a6abd880aadcf17bda9463dbc11c5877d146") }
+            └── BlockHeader { hash: "c5f2d7bb37e4a2d6e2646226b50b0ca576dc90296397a1cd73c2ad85629c855c", slot: 4, parent: Some("feeb21de183ead0e37b2d57767ed635049dbf4b1cc5fa39b48d7a55110a46b7b") }
 "#;
         assert_eq!(
             format!("\n{tree:?}"),

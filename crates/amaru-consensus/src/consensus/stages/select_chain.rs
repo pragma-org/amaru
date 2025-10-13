@@ -80,7 +80,7 @@ impl SelectChain {
         // Temporarily take the tree state out of self, to avoid borrowing self
         let tree_state = mem::take(&mut self.tree_state);
         let mut headers_tree = HeadersTree::create(store, tree_state);
-        let result = headers_tree.select_roll_forward(&peer, header)?;
+        let result = headers_tree.select_roll_forward(&peer, &header)?;
         self.tree_state = headers_tree.into_tree_state();
 
         let events = match result {

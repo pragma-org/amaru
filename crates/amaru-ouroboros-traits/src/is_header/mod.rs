@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::cbor::encode::{Error, Write};
+use amaru_kernel::cbor::encode::Write;
 use amaru_kernel::cbor::{Decode, Decoder, Encode, Encoder};
 use amaru_kernel::{HEADER_HASH_SIZE, Hash, Hasher, Header, HeaderBody, MintedHeader, Point, cbor};
-use serde::{Deserialize, Serialize};
+use serde::Serializer;
+use serde::{Deserialize, Deserializer, Serialize};
+use std::cmp::Ordering;
+use std::fmt;
+use std::fmt::{Debug, Display, Formatter};
 
 pub mod fake;
 
@@ -55,13 +59,73 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
 pub type HeaderHash = Hash<HEADER_HASH_SIZE>;
 
 /// This header type encapsulates a header and its hash to avoid recomputing
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct BlockHeader {
     header: Header,
     hash: HeaderHash,
 }
 
+impl Serialize for BlockHeader {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.header.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for BlockHeader {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let header = Header::deserialize(deserializer)?;
+        Ok(BlockHeader::from(header))
+    }
+}
+
+impl Debug for BlockHeader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BlockHeader")
+            .field("hash", &hex::encode(self.hash()))
+            .field("slot", &self.slot())
+            .field("parent", &self.parent().map(hex::encode))
+            .finish()
+    }
+}
+
+impl PartialOrd for BlockHeader {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BlockHeader {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.hash.cmp(&other.hash())
+    }
+}
+
+impl core::hash::Hash for BlockHeader {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.hash.hash(state);
+    }
+}
+
+impl Display for BlockHeader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl BlockHeader {
+    /// Create a new BlockHeader from a Header and its precomputed hash
+    /// Note: The hash is not verified to match the header!
+    #[cfg(feature = "test-utils")]
+    pub fn new(header: Header, hash: HeaderHash) -> Self {
+        Self { header, hash }
+    }
+
     pub fn header(&self) -> &Header {
         &self.header
     }
@@ -73,10 +137,18 @@ impl BlockHeader {
     pub fn header_mut(&mut self) -> &mut Header {
         &mut self.header
     }
+
+    pub fn header_body_mut(&mut self) -> &mut HeaderBody {
+        &mut self.header.header_body
+    }
 }
 
 impl<C> Encode<C> for BlockHeader {
-    fn encode<W: Write>(&self, e: &mut Encoder<W>, ctx: &mut C) -> Result<(), Error<W::Error>> {
+    fn encode<W: Write>(
+        &self,
+        e: &mut Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         self.header.encode(e, ctx)
     }
 }
@@ -141,5 +213,35 @@ impl IsHeader for MintedHeader<'_> {
 
     fn extended_vrf_nonce_output(&self) -> Vec<u8> {
         self.header_body.nonce_vrf_output()
+    }
+}
+
+/// Make a mostly empty Header with the given block_number, slot and previous hash
+#[cfg(any(test, feature = "test-utils"))]
+pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
+    use amaru_kernel::Bytes;
+    use pallas_primitives::VrfCert;
+    use pallas_primitives::babbage::PseudoHeader;
+    use pallas_primitives::conway::OperationalCert;
+
+    PseudoHeader {
+        header_body: HeaderBody {
+            block_number,
+            slot,
+            prev_hash,
+            issuer_vkey: Bytes::from(vec![]),
+            vrf_vkey: Bytes::from(vec![]),
+            vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
+            block_body_size: 0,
+            block_body_hash: Hash::<32>::from([0u8; 32]),
+            operational_cert: OperationalCert {
+                operational_cert_hot_vkey: Bytes::from(vec![]),
+                operational_cert_sequence_number: 0,
+                operational_cert_kes_period: 0,
+                operational_cert_sigma: Bytes::from(vec![]),
+            },
+            protocol_version: (1, 2),
+        },
+        body_signature: Bytes::from(vec![]),
     }
 }
