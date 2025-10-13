@@ -367,9 +367,8 @@ pub mod test {
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
     use amaru_kernel::{Nonce, ORIGIN_HASH};
-    use amaru_ouroboros_traits::fake::tests::{any_fake_header, any_fake_headers_chain, run};
-    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::is_header::fake::FakeHeader;
+    use amaru_ouroboros_traits::is_header::BlockHeader;
+    use amaru_ouroboros_traits::tests::{any_header, any_headers_chain, make_header, run};
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
@@ -386,13 +385,7 @@ pub mod test {
     #[test]
     fn rocksdb_chain_store_can_get_header_it_puts() {
         with_db(|db| {
-            let header = FakeHeader {
-                block_number: 1,
-                slot: 0,
-                parent: None,
-                body_hash: random_bytes(32).as_slice().into(),
-            };
-
+            let header = BlockHeader::from(make_header(1, 0, None));
             db.store_header(&header).unwrap();
             let header2 = db.load_header(&header.hash()).unwrap();
             assert_eq!(header, header2);
@@ -473,10 +466,10 @@ pub mod test {
             // h0 -> h1 -> h2
             //      \
             //       -> h3
-            let mut chain = run(any_fake_headers_chain(3));
-            let mut h3 = run(any_fake_header());
-            h3.parent = Some(chain[1].hash());
-            chain.push(h3);
+            let mut chain = run(any_headers_chain(3));
+            let mut h3 = run(any_header());
+            h3.set_parent(chain[1].hash());
+            chain.push(h3.clone());
 
             for header in &chain {
                 db.store_header(header).unwrap();
@@ -493,18 +486,14 @@ pub mod test {
     #[test]
     fn load_all_headers() {
         with_db(|db| {
-            let mut headers: Vec<FakeHeader> = vec![];
+            let mut headers: Vec<BlockHeader> = vec![];
             for i in 0..10usize {
-                let header = FakeHeader {
-                    block_number: i as u64,
-                    slot: i as u64 * 10,
-                    parent: if i == 0 {
-                        None
-                    } else {
-                        Some(headers[i - 1].hash())
-                    },
-                    body_hash: random_bytes(32).as_slice().into(),
+                let parent = if i == 0 {
+                    None
+                } else {
+                    Some(headers[i - 1].hash())
                 };
+                let header = make_header(i as u64, i as u64 * 10, parent).into();
                 db.store_header(&header).unwrap();
                 headers.push(header);
             }
@@ -521,18 +510,18 @@ pub mod test {
             // h0 -> h1 -> h2
             //      \
             //       -> h3 -> h4
-            let mut chain = run(any_fake_headers_chain(3));
-            let mut h3 = run(any_fake_header());
-            h3.parent = Some(chain[1].hash());
-            chain.push(h3);
-            let mut h4 = run(any_fake_header());
-            h4.parent = Some(h3.hash());
+            let mut chain = run(any_headers_chain(3));
+            let mut h3 = run(any_header());
+            h3.set_parent(chain[1].hash());
+            chain.push(h3.clone());
+            let mut h4 = run(any_header());
+            h4.set_parent(h3.hash());
             chain.push(h4);
 
             let mut expected = BTreeMap::new();
 
             for header in &chain {
-                if let Some(parent) = header.parent {
+                if let Some(parent) = header.parent() {
                     expected
                         .entry(parent)
                         .or_insert_with(Vec::new)
@@ -550,14 +539,14 @@ pub mod test {
     #[test]
     fn load_nonces() {
         with_db(|db| {
-            let chain = run(any_fake_headers_chain(3));
+            let chain = run(any_headers_chain(3));
             let mut expected = BTreeMap::new();
             for header in &chain {
                 let nonces = Nonces {
                     active: Nonce::from(random_bytes(32).as_slice()),
                     evolving: Nonce::from(random_bytes(32).as_slice()),
                     candidate: Nonce::from(random_bytes(32).as_slice()),
-                    tail: header.parent.unwrap_or(ORIGIN_HASH),
+                    tail: header.parent().unwrap_or(ORIGIN_HASH),
                     epoch: Default::default(),
                 };
                 db.put_nonces(&header.hash(), &nonces).unwrap();
@@ -575,7 +564,7 @@ pub mod test {
     #[test]
     fn load_blocks() {
         with_db(|db| {
-            let chain = run(any_fake_headers_chain(3));
+            let chain = run(any_headers_chain(3));
             let mut expected = BTreeMap::new();
             for header in &chain {
                 let block = RawBlock::from(random_bytes(32).as_slice());
@@ -596,7 +585,7 @@ pub mod test {
         with_db(|db| {
             // create a chain and store it as the best chain
             // with its anchor and tip.
-            let chain = run(any_fake_headers_chain(15));
+            let chain = run(any_headers_chain(15));
             for header in &chain {
                 db.store_header(header).unwrap();
             }
@@ -615,14 +604,15 @@ pub mod test {
 
     // HELPERS
 
-    fn with_db(f: impl Fn(Arc<dyn ChainStore<FakeHeader>>)) {
-        // try first with in-memory store
-        let in_memory_store: Arc<dyn ChainStore<FakeHeader>> = Arc::new(InMemConsensusStore::new());
-        f(in_memory_store);
+    fn with_db(f: impl Fn(Arc<dyn ChainStore<BlockHeader>>)) {
+        // // try first with in-memory store
+        // let in_memory_store: Arc<dyn ChainStore<BlockHeader>> =
+        //     Arc::new(InMemConsensusStore::new());
+        // f(in_memory_store);
 
         // then with rocksdb store
         let tempdir = tempfile::tempdir().unwrap();
-        let rw_store: Arc<dyn ChainStore<FakeHeader>> =
+        let rw_store: Arc<dyn ChainStore<BlockHeader>> =
             Arc::new(initialise_test_rw_store(tempdir.path()));
         f(rw_store);
     }

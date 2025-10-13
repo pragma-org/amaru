@@ -712,7 +712,7 @@ mod tests {
         let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());
         let peer = Peer::new("alice");
         let mut header = generate_single_header();
-        header.header_body_mut().prev_hash = Some(ORIGIN_HASH);
+        header.set_parent(ORIGIN_HASH);
         store.store_header(&header).unwrap();
         let mut tree: HeadersTree<BlockHeader> =
             HeadersTree::create(store, HeadersTreeState::new(10));

@@ -21,7 +21,8 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 
-pub mod fake;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests;
 
 /// Interface to a header for the purpose of chain selection.
 pub trait IsHeader: cbor::Encode<()> + Sized {
@@ -134,12 +135,23 @@ impl BlockHeader {
         &self.header.header_body
     }
 
-    pub fn header_mut(&mut self) -> &mut Header {
-        &mut self.header
+    fn recompute_hash(&mut self) {
+        self.hash = Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&self.header);
     }
 
-    pub fn header_body_mut(&mut self) -> &mut HeaderBody {
-        &mut self.header.header_body
+    pub fn set_block_number(&mut self, block_number: u64) {
+        self.header.header_body.block_number = block_number;
+        self.recompute_hash();
+    }
+
+    pub fn set_slot(&mut self, slot: u64) {
+        self.header.header_body.slot = slot;
+        self.recompute_hash();
+    }
+
+    pub fn set_parent(&mut self, parent_hash: HeaderHash) {
+        self.header.header_body.prev_hash = Some(parent_hash);
+        self.recompute_hash();
     }
 }
 
@@ -162,8 +174,10 @@ impl<'b, C> Decode<'b, C> for BlockHeader {
 
 impl From<Header> for BlockHeader {
     fn from(header: Header) -> Self {
-        let hash = Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&header);
-        Self { header, hash }
+        let hash = Point::Origin.hash();
+        let mut block_header = Self { header, hash };
+        block_header.recompute_hash();
+        block_header
     }
 }
 
@@ -213,35 +227,5 @@ impl IsHeader for MintedHeader<'_> {
 
     fn extended_vrf_nonce_output(&self) -> Vec<u8> {
         self.header_body.nonce_vrf_output()
-    }
-}
-
-/// Make a mostly empty Header with the given block_number, slot and previous hash
-#[cfg(any(test, feature = "test-utils"))]
-pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
-    use amaru_kernel::Bytes;
-    use pallas_primitives::VrfCert;
-    use pallas_primitives::babbage::PseudoHeader;
-    use pallas_primitives::conway::OperationalCert;
-
-    PseudoHeader {
-        header_body: HeaderBody {
-            block_number,
-            slot,
-            prev_hash,
-            issuer_vkey: Bytes::from(vec![]),
-            vrf_vkey: Bytes::from(vec![]),
-            vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
-            block_body_size: 0,
-            block_body_hash: Hash::<32>::from([0u8; 32]),
-            operational_cert: OperationalCert {
-                operational_cert_hot_vkey: Bytes::from(vec![]),
-                operational_cert_sequence_number: 0,
-                operational_cert_kes_period: 0,
-                operational_cert_sigma: Bytes::from(vec![]),
-            },
-            protocol_version: (1, 2),
-        },
-        body_signature: Bytes::from(vec![]),
     }
 }

@@ -34,13 +34,14 @@ use amaru_consensus::consensus::stages::select_chain::{
 };
 use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_consensus::consensus::tip::HeaderTip;
+use amaru_consensus::{BlockHeader, ChainStore};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use amaru_kernel::{Point, to_cbor};
+use amaru_ouroboros::IsHeader;
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateBlocks;
 use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros::{BlockHeader, ChainStore, IsHeader};
 use amaru_slot_arithmetic::{EraHistory, Slot};
 use async_trait::async_trait;
 use pure_stage::simulation::SimulationBuilder;

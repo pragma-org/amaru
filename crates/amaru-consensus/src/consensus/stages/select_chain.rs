@@ -19,8 +19,7 @@ use crate::consensus::events::{BlockValidationResult, DecodedChainSyncEvent, Val
 use crate::consensus::headers_tree::{HeadersTree, HeadersTreeState};
 use crate::consensus::span::HasSpan;
 use amaru_kernel::{HEADER_HASH_SIZE, Point, peer::Peer, string_utils::ListToString};
-use amaru_ouroboros::IsHeader;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore};
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
 use pallas_crypto::hash::Hash;
 use pure_stage::{BoxFuture, StageRef};
 use serde::{Deserialize, Serialize};
@@ -332,9 +331,8 @@ mod tests {
     use crate::consensus::events::DecodedChainSyncEvent;
     use crate::consensus::headers_tree::Tracker;
     use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
-    use crate::consensus::tests::{any_header, any_headers_chain};
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::fake::tests::run;
+    use amaru_ouroboros_traits::tests::{any_header, any_headers_chain, run};
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;

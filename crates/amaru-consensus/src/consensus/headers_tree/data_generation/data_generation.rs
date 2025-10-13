@@ -26,7 +26,8 @@ use crate::consensus::headers_tree::tree::Tree;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Bytes, HEADER_HASH_SIZE, Header};
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, HeaderHash, IsHeader, make_header};
+use amaru_ouroboros_traits::tests::make_header;
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, HeaderHash, IsHeader};
 use proptest::prelude::Strategy;
 use rand::prelude::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
@@ -37,10 +38,10 @@ impl Tree<BlockHeader> {
     /// This function is used to give incrementing slot numbers to `BlockHeader`s and help test failures
     /// diagnosis
     fn renumber_slots(&mut self, start: u64) {
-        self.value.header_body_mut().slot = start;
+        self.value.set_slot(start);
         for (i, child) in self.children.iter_mut().enumerate() {
             child.renumber_slots(start + ((i + 1) as u64));
-            child.value.header_body_mut().prev_hash = Some(self.value.hash());
+            child.value.set_parent(self.value.hash());
         }
     }
 }
@@ -86,7 +87,7 @@ fn generate_header_subtree(
     let mut current_size = 0;
     for n in spine.iter_mut() {
         current.add_child(n);
-        n.header_body_mut().prev_hash = Some(current.value.hash());
+        n.set_parent(current.value.hash());
         current = current.get_last_child_mut().unwrap();
         current_size += 1;
         let other_branch_depth = rng.random_range(
@@ -214,5 +215,24 @@ mod tests {
     fn test_generate_headers_tree() {
         let tree = generate_header_tree(5, 42, Ratio(1, 2));
         assert_eq!(tree.depth(), 5);
+        check_nodes(&tree);
+    }
+
+    // HELPERS
+    fn check_nodes(node: &Tree<BlockHeader>) {
+        assert_eq!(
+            node.value.hash(),
+            BlockHeader::from(node.value.header().clone()).hash(),
+            "incorrect hash {}",
+            node.value.hash()
+        );
+        for child in &node.children {
+            assert_eq!(
+                child.value.parent(),
+                Some(node.value.hash()),
+                "incorrect parent"
+            );
+            check_nodes(child);
+        }
     }
 }

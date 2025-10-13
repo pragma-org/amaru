@@ -166,15 +166,14 @@ mod tests {
     use crate::consensus;
     use crate::consensus::effects::MockLedgerOps;
     use crate::consensus::errors::ConsensusError::NoncesError;
-    use crate::consensus::tests::any_header;
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::{
         HEADER_HASH_SIZE, Point, RawBlock,
         protocol_parameters::{GlobalParameters, TESTNET_GLOBAL_PARAMETERS},
     };
-    use amaru_ouroboros::Nonces;
-    use amaru_ouroboros_traits::fake::tests::run;
+    use amaru_ouroboros_traits::Nonces;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+    use amaru_ouroboros_traits::tests::{any_header, run};
     use amaru_ouroboros_traits::{
         ChainStore, HeaderHash, IsHeader, ReadOnlyChainStore, StoreError,
     };
