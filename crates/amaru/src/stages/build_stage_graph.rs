@@ -18,8 +18,8 @@ use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
 use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_consensus::consensus::stages::{
-    fetch_block, forward_chain, receive_header, select_chain, store_block, store_header,
-    track_peers, validate_block, validate_header,
+    fetch_block, forward_chain, receive_header, select_chain, store_block, track_peers,
+    validate_block, validate_header,
 };
 use amaru_consensus::consensus::tip::HeaderTip;
 use amaru_kernel::protocol_parameters::{ConsensusParameters, GlobalParameters};
@@ -42,8 +42,6 @@ pub fn build_stage_graph(
         "receive_header",
         with_consensus_effects(receive_header::stage),
     );
-    let store_header_stage =
-        network.stage("store_header", with_consensus_effects(store_header::stage));
     let track_peers_stage =
         network.stage("track_peers", with_consensus_effects(track_peers::stage));
     let validate_header_stage = network.stage(
@@ -139,14 +137,13 @@ pub fn build_stage_graph(
         ),
     );
     let track_peers_stage = network.wire_up(track_peers_stage, sync_tracker);
-    let store_header_stage =
-        network.wire_up(store_header_stage, validate_header_stage.without_state());
     let receive_header_stage = network.wire_up(
         receive_header_stage,
         (
-            store_header_stage.without_state(),
+            validate_header_stage.without_state(),
             track_peers_stage.without_state(),
             validation_errors_stage.without_state(),
+            processing_errors_stage.without_state(),
         ),
     );
 
