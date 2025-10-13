@@ -15,6 +15,7 @@
 use amaru::observability;
 use amaru::observability::{DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAULT_SERVICE_NAME};
 use std::collections::BTreeMap;
+use std::fmt::Display;
 
 use clap::{ArgMatches, CommandFactory, Parser, Subcommand};
 use observability::OpenTelemetryConfig;
@@ -107,19 +108,35 @@ struct Cli {
     otlp_metric_url: String,
 }
 
-fn extract_raw_values(matches: &ArgMatches) -> BTreeMap<String, String> {
-    matches
-        .ids()
-        .filter_map(|id| {
-            matches.get_raw(id.as_str()).map(|values| {
-                let joined = values
-                    .map(|v| v.to_string_lossy().to_string())
-                    .collect::<Vec<_>>()
-                    .join(",");
-                (id.to_string(), joined)
+struct Arguments(BTreeMap<String, String>);
+
+impl Display for Arguments {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, (k, v)) in self.0.iter().enumerate() {
+            if i == 0 {
+                write!(f, "{}: {}", k, v)?;
+            }
+            write!(f, " {}: {}", k, v)?;
+        }
+        Ok(())
+    }
+}
+
+fn extract_raw_values(matches: &ArgMatches) -> Arguments {
+    Arguments(
+        matches
+            .ids()
+            .filter_map(|id| {
+                matches.get_raw(id.as_str()).map(|values| {
+                    let joined = values
+                        .map(|v| v.to_string_lossy().to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    (id.to_string(), joined)
+                })
             })
-        })
-        .collect()
+            .collect(),
+    )
 }
 
 #[tokio::main]
@@ -158,14 +175,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let matches = Cli::command().get_matches();
     let map = extract_raw_values(&matches);
-    info!(?map, "With global arguments");
+    info!(%map, "Started with global arguments");
 
     if let Some((name, args)) = matches.subcommand() {
-        let map = extract_raw_values(args)
-            .into_iter()
-            .filter(|(k, _)| k != "Args")
-            .collect::<BTreeMap<_, _>>();
-        info!(?map, "Running command: '{}' with arguments", name);
+        let map = Arguments(
+            extract_raw_values(args)
+                .0
+                .into_iter()
+                .filter(|(k, _)| k != "Args")
+                .collect::<BTreeMap<_, _>>(),
+        );
+        info!(%map, "Running command: '{}' with arguments", name);
     }
 
     //info!("{}", args);
