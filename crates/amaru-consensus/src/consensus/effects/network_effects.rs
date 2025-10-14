@@ -12,19 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::errors::ConsensusError;
-use crate::consensus::errors::ProcessingFailed;
-use crate::consensus::stages::fetch_block::BlockFetcher;
-use crate::consensus::tip::HeaderTip;
-use amaru_kernel::Point;
-use amaru_kernel::peer::Peer;
-use amaru_ouroboros_traits::{BlockHeader, IsHeader};
+use crate::consensus::{
+    errors::{ConsensusError, ProcessingFailed},
+    events::ChainSyncEvent,
+    tip::HeaderTip,
+};
+use acto::{AcTokioRuntime, ActoRef, ActoRuntime, variable::Reader};
+use amaru_kernel::{Point, peer::Peer};
+use amaru_ouroboros::{BlockFetchClientError, BlockHeader};
+use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-use std::sync::Arc;
+use std::{collections::HashMap, fmt::Display, ops::Deref, sync::Arc};
+use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
 
 /// Network operations available to a stage: fetch block and forward events to peers.
 /// This trait can have mock implementations for unit testing a stage.
@@ -46,6 +49,8 @@ pub trait NetworkOps {
         peer: &Peer,
         header_tip: HeaderTip,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
+
+    fn disconnect(&self, peer: Peer) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 }
 
 /// Implementation of NetworkOps using pure_stage::Effects.
@@ -85,50 +90,16 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
             ForwardEvent::Backward(header_tip),
         ))
     }
+
+    fn disconnect(&self, peer: Peer) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+        let f = self.0.external(DisconnectEffect::new(peer));
+        Box::pin(async move { Ok(f.await) })
+    }
 }
 
 // EXTERNAL EFFECTS DEFINITIONS
 
-pub type ResourceBlockFetcher = Arc<dyn BlockFetcher + Send + Sync>;
 pub type ResourceForwardEventListener = Arc<dyn ForwardEventListener + Send + Sync>;
-
-/// This effect is used to fetch a block from a peer given a point (hash + slot).
-/// The effect response is either a vector of bytes representing the block,
-/// or a ConsensusError if the block could not be fetched.
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FetchBlockEffect {
-    peer: Peer,
-    point: Point,
-}
-
-impl ExternalEffectAPI for FetchBlockEffect {
-    type Response = Result<Vec<u8>, ConsensusError>;
-}
-
-impl FetchBlockEffect {
-    pub fn new(peer: &Peer, point: &Point) -> Self {
-        Self {
-            peer: peer.clone(),
-            point: point.clone(),
-        }
-    }
-}
-
-impl ExternalEffect for FetchBlockEffect {
-    #[expect(clippy::expect_used)]
-    fn run(
-        self: Box<Self>,
-        resources: Resources,
-    ) -> pure_stage::BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let block_fetcher = resources
-                .get::<ResourceBlockFetcher>()
-                .expect("FetchBlockEffect requires a BlockFetcher")
-                .clone();
-            block_fetcher.fetch_block(&self.peer, &self.point).await
-        })
-    }
-}
 
 /// A listener interface for forward events (new headers or rollbacks).
 /// These events are either caught for tests or forwarded to downstream peers (see the TcpForwardEventListener implementation).
@@ -203,4 +174,214 @@ impl ExternalEffect for ForwardEventEffect {
 
 impl ExternalEffectAPI for ForwardEventEffect {
     type Response = Result<(), ProcessingFailed>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChainSyncEffect;
+
+impl ExternalEffectAPI for ChainSyncEffect {
+    type Response = ChainSyncEvent;
+}
+
+impl ExternalEffect for ChainSyncEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let network = resources
+                .get::<NetworkResource>()
+                .expect("ChainSyncEffect requires a NetworkResource")
+                .clone();
+            network.next_sync().await
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FetchBlockEffect {
+    peer: Peer,
+    point: Point,
+}
+
+impl ExternalEffectAPI for FetchBlockEffect {
+    type Response = Result<Vec<u8>, ConsensusError>;
+}
+
+impl FetchBlockEffect {
+    pub fn new(peer: &Peer, point: &Point) -> Self {
+        Self {
+            peer: peer.clone(),
+            point: point.clone(),
+        }
+    }
+}
+
+impl ExternalEffect for FetchBlockEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let network = resources
+                .get::<NetworkResource>()
+                .expect("BlockFetchEffect requires a NetworkResource")
+                .clone();
+            let point = self.point.clone();
+            network
+                .fetch_block(&self.peer, self.point)
+                .await
+                .map_err(|err| {
+                    tracing::warn!(%point, %err, "fetch block failed");
+                    ConsensusError::FetchBlockFailed(point)
+                })
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DisconnectEffect {
+    peer: Peer,
+}
+
+impl ExternalEffectAPI for DisconnectEffect {
+    type Response = ();
+}
+
+impl DisconnectEffect {
+    pub fn new(peer: Peer) -> Self {
+        Self { peer }
+    }
+}
+
+impl ExternalEffect for DisconnectEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let network = resources
+                .get::<NetworkResource>()
+                .expect("DisconnectEffect requires a NetworkResource")
+                .clone();
+            network.disconnect(&self.peer).await
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct NetworkResource {
+    inner: Arc<NetworkInner>,
+}
+
+impl Deref for NetworkResource {
+    type Target = NetworkInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl NetworkResource {
+    pub fn new(
+        peers: impl IntoIterator<Item = Peer>,
+        rt: &AcTokioRuntime,
+        magic: u64,
+        intersection: Reader<Vec<Point>>,
+    ) -> Self {
+        let (hd_tx, hd_rx) = mpsc::channel(100);
+        let connections = peers
+            .into_iter()
+            .map(|peer| {
+                (
+                    peer.clone(),
+                    rt.spawn_actor(&format!("conn-{}", peer), |cell| {
+                        connection::actor(cell, peer, magic, hd_tx.clone(), intersection.clone())
+                    })
+                    .me,
+                )
+            })
+            .collect();
+        Self {
+            inner: Arc::new(NetworkInner {
+                connections,
+                hd_rx: AsyncMutex::new(hd_rx),
+            }),
+        }
+    }
+}
+
+pub struct NetworkInner {
+    #[allow(clippy::disallowed_types)]
+    connections: HashMap<Peer, ActoRef<ConnMsg>>,
+    hd_rx: AsyncMutex<mpsc::Receiver<ChainSyncEvent>>,
+}
+
+impl NetworkInner {
+    pub async fn next_sync(&self) -> ChainSyncEvent {
+        #[expect(clippy::expect_used)]
+        self.hd_rx
+            .lock()
+            .await
+            .recv()
+            .await
+            .expect("upstream funnel will never stop")
+    }
+
+    pub async fn fetch_block(
+        &self,
+        peer: &Peer,
+        point: Point,
+    ) -> Result<Vec<u8>, BlockFetchClientError> {
+        let (tx, rx) = oneshot::channel();
+        let tx = Arc::new(Mutex::new(Some(tx)));
+        if let Some(peer) = self.connections.get(peer) {
+            peer.send(ConnMsg::FetchBlock(point.clone(), tx.clone()));
+        }
+        #[cfg(feature = "amaru-upstream")]
+        let others = rand::seq::IteratorRandom::choose_multiple(
+            self.connections.keys(),
+            &mut rand::rng(),
+            3,
+        );
+        #[cfg(not(feature = "amaru-upstream"))]
+        let others = self.connections.keys().take(3);
+        for p in others {
+            if peer != p {
+                self.connections[p].send(ConnMsg::FetchBlock(point.clone(), tx.clone()));
+            }
+        }
+        drop(tx);
+        // if no sends were made then the drop above ensures that the below errors instead of deadlock
+        rx.await
+            .map_err(|e| BlockFetchClientError::new(e.into()))
+            .flatten()
+    }
+
+    pub async fn disconnect(&self, peer: &Peer) {
+        if let Some(p) = self.connections.get(peer) {
+            p.send_wait(ConnMsg::Disconnect).await;
+        }
+    }
+}
+
+type BlockSender = Arc<Mutex<Option<oneshot::Sender<Result<Vec<u8>, BlockFetchClientError>>>>>;
+
+pub enum ConnMsg {
+    FetchBlock(Point, BlockSender),
+    Disconnect,
+}
+
+#[cfg(feature = "amaru-upstream")]
+mod connection;
+
+#[cfg(not(feature = "amaru-upstream"))]
+mod connection {
+    use crate::consensus::events::ChainSyncEvent;
+    use acto::{AcTokioRuntime, ActoCell, variable::Reader};
+    use amaru_kernel::{Point, peer::Peer};
+    use tokio::sync::mpsc;
+
+    pub async fn actor(
+        _cell: ActoCell<super::ConnMsg, AcTokioRuntime>,
+        _peer: Peer,
+        _magic: u64,
+        _hd_tx: mpsc::Sender<ChainSyncEvent>,
+        _intersection: Reader<Vec<Point>>,
+    ) {
+    }
 }

@@ -84,7 +84,6 @@ dependencies = [
  "built",
  "clap",
  "futures-util",
- "gasket",
  "hex",
  "indoc",
  "insta",
@@ -94,6 +93,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "pallas-network",
+ "parking_lot",
  "proptest",
  "pure-stage",
  "rand 0.9.2",
@@ -117,17 +117,22 @@ dependencies = [
 name = "amaru-consensus"
 version = "0.1.0"
 dependencies = [
+ "acto",
  "amaru-kernel",
  "amaru-metrics",
+ "amaru-network",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
  "amaru-stores",
  "anyhow",
  "async-trait",
+ "futures-util",
  "hex",
  "itertools 0.14.0",
  "pallas-crypto",
+ "pallas-network",
+ "parking_lot",
  "pprof",
  "proptest",
  "pure-stage",
@@ -287,6 +292,7 @@ dependencies = [
 name = "amaru-sim"
 version = "0.1.0"
 dependencies = [
+ "acto",
  "amaru",
  "amaru-consensus",
  "amaru-kernel",

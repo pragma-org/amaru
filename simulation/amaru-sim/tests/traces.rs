@@ -43,7 +43,8 @@ fn run_simulator_with_traces() {
     let rt = Runtime::new().unwrap();
     let spawn = |node_id: String| {
         let mut network = SimulationBuilder::default();
-        let (input, init_messages, output) = spawn_node(node_id, node_config.clone(), &mut network);
+        let (input, init_messages, output) =
+            spawn_node(node_id, node_config.clone(), &mut network, &rt);
         let running = network.run(rt.handle().clone());
         NodeHandle::from_pure_stage(input, init_messages, output, running).unwrap()
     };

@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2024 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,11 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod fetch_block;
-pub mod forward_chain;
-pub mod pull;
-pub mod receive_header;
-pub mod select_chain;
-pub mod track_peers;
-pub mod validate_block;
-pub mod validate_header;
+use crate::consensus::{effects::ChainSyncEffect, events::ChainSyncEvent};
+use pure_stage::{Effects, StageRef};
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NextSync;
+
+pub async fn stage(
+    downstream: StageRef<ChainSyncEvent>,
+    _msg: NextSync,
+    eff: Effects<NextSync>,
+) -> StageRef<ChainSyncEvent> {
+    let msg = eff.external(ChainSyncEffect).await;
+    eff.send(&downstream, msg).await;
+    eff.send(eff.me_ref(), NextSync).await;
+    downstream
+}

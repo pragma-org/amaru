@@ -108,6 +108,7 @@ pub mod tests {
     use amaru_slot_arithmetic::Slot;
     use pure_stage::{BoxFuture, Instant, StageRef};
     use std::collections::BTreeMap;
+    use std::future::ready;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -185,7 +186,7 @@ pub mod tests {
             _peer: &Peer,
             _header: BlockHeader,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-            Box::pin(async { Ok(()) })
+            Box::pin(ready(Ok(())))
         }
 
         fn send_backward_event(
@@ -193,7 +194,11 @@ pub mod tests {
             _peer: &Peer,
             _header_tip: HeaderTip,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-            Box::pin(async { Ok(()) })
+            Box::pin(ready(Ok(())))
+        }
+
+        fn disconnect(&self, _peer: Peer) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+            Box::pin(ready(Ok(())))
         }
     }
 

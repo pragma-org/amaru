@@ -13,45 +13,50 @@
 // limitations under the License.
 
 use crate::echo::Envelope;
-use crate::simulator::bytes::Bytes;
-use crate::simulator::simulate::simulate;
-use crate::simulator::{Args, History, NodeConfig, NodeHandle, SimulateConfig, generate_entries};
+use crate::simulator::NodeConfig;
+use crate::simulator::{
+    Args, History, NodeHandle, SimulateConfig, bytes::Bytes, generate::generate_entries,
+    simulate::simulate,
+};
 use crate::sync::ChainSyncMessage;
+use acto::{AcTokio, variable::Writer};
 use amaru::stages::build_stage_graph::build_stage_graph;
-use amaru_consensus::can_validate_blocks::mock::MockCanValidateHeaders;
-use amaru_consensus::consensus::effects::{
-    ForwardEvent, ForwardEventListener, ResourceForwardEventListener, ResourceHeaderStore,
-    ResourceHeaderValidation, ResourceParameters,
-};
-use amaru_consensus::consensus::effects::{ResourceBlockFetcher, ResourceBlockValidation};
-use amaru_consensus::consensus::errors::ConsensusError;
-use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_consensus::consensus::headers_tree::HeadersTreeState;
+use amaru_consensus::consensus::effects::NetworkResource;
 use amaru_consensus::consensus::headers_tree::data_generation::Chain;
-use amaru_consensus::consensus::stages::fetch_block::BlockFetcher;
-use amaru_consensus::consensus::stages::select_chain::{
-    DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain,
-};
 use amaru_consensus::consensus::stages::track_peers::SyncTracker;
-use amaru_consensus::consensus::tip::HeaderTip;
-use amaru_consensus::{BlockHeader, ChainStore};
-use amaru_kernel::network::NetworkName;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::protocol_parameters::GlobalParameters;
+use amaru_consensus::consensus::{
+    effects::{
+        ForwardEvent, ForwardEventListener, ResourceBlockValidation, ResourceForwardEventListener,
+        ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
+    },
+    events::ChainSyncEvent,
+    headers_tree::HeadersTreeState,
+    stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
+    tip::HeaderTip,
+};
 use amaru_kernel::string_utils::{ListDebug, ListToString};
-use amaru_kernel::{Point, to_cbor};
-use amaru_ouroboros::IsHeader;
-use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateBlocks;
-use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
+use amaru_kernel::{
+    Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
+};
+use amaru_ouroboros::BlockHeader;
+use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateHeaders;
+use amaru_ouroboros::{
+    ChainStore, IsHeader, can_validate_blocks::mock::MockCanValidateBlocks,
+    in_memory_consensus_store::InMemConsensusStore,
+};
 use async_trait::async_trait;
-use pure_stage::simulation::SimulationBuilder;
-use pure_stage::trace_buffer::TraceBuffer;
-use pure_stage::{Instant, Receiver, StageGraph, StageRef};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc;
+use pure_stage::{
+    Instant, Receiver, StageGraph, StageRef, simulation::SimulationBuilder,
+    trace_buffer::TraceBuffer,
+};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
+use tokio::{runtime::Runtime, sync::mpsc};
 use tracing::{Span, info};
 
 /// Run the full simulation:
@@ -64,7 +69,8 @@ pub fn run(rt: Runtime, args: Args) {
 
     let spawn = |node_id: String| {
         let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
-        let (input, init_messages, output) = spawn_node(node_id, node_config.clone(), &mut network);
+        let (input, init_messages, output) =
+            spawn_node(node_id, node_config.clone(), &mut network, &rt);
         let running = network.run(rt.handle().clone());
         NodeHandle::from_pure_stage(input, init_messages, output, running).unwrap()
     };
@@ -96,6 +102,7 @@ pub fn spawn_node(
     node_id: String,
     node_config: NodeConfig,
     network: &mut SimulationBuilder,
+    rt: &Runtime,
 ) -> (
     StageRef<Envelope<ChainSyncMessage>>,
     Receiver<Envelope<ChainSyncMessage>>,
@@ -181,13 +188,16 @@ pub fn spawn_node(
         .put::<ResourceParameters>(global_parameters.clone());
     network
         .resources()
-        .put::<ResourceBlockFetcher>(Arc::new(FakeBlockFetcher));
-    network
-        .resources()
         .put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
     network
         .resources()
         .put::<ResourceForwardEventListener>(Arc::new(listener));
+    network.resources().put(NetworkResource::new(
+        [],
+        &AcTokio::from_handle("upstream", rt.handle().clone()),
+        0,
+        Writer::new(vec![]).reader(),
+    ));
 
     (receiver.without_state(), rx1, Receiver::new(rx2))
 }
@@ -231,7 +241,7 @@ fn make_chain_selector(
             .initialize_peer(chain_store.clone(), peer, &anchor)
             .expect("the root node is guaranteed to already be in the tree")
     }
-    SelectChain::new(tree_state)
+    SelectChain::new(tree_state, Writer::new(vec![]))
 }
 
 /// Property: at the end of the simulation, the chain built from the history of messages received
@@ -284,18 +294,6 @@ pub fn make_best_chain_from_downstream_messages(history: &History<ChainSyncMessa
         }
     }
     best_chain
-}
-
-/// A fake block fetcher that always returns an empty block.
-/// This is used in for simulating the network.
-#[derive(Clone, Debug, Default)]
-pub struct FakeBlockFetcher;
-
-#[async_trait]
-impl BlockFetcher for FakeBlockFetcher {
-    async fn fetch_block(&self, _peer: &Peer, _point: &Point) -> Result<Vec<u8>, ConsensusError> {
-        Ok(vec![])
-    }
 }
 
 /// This implementation of ForwardEventListener sends the received events a Sender that can collect them

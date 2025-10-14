@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::PallasPoint;
+use crate::point::to_network_point;
 use crate::stages::consensus::forward_chain::client_protocol::PrettyPoint;
 use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
 use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
@@ -216,7 +216,10 @@ impl std::fmt::Debug for ClientMsg {
                 .debug_struct("Forward")
                 .field(
                     "header",
-                    &(header.block_height(), PrettyPoint(&header.pallas_point())),
+                    &(
+                        header.block_height(),
+                        PrettyPoint(&to_network_point(header.point())),
+                    ),
                 )
                 .field("tip", &(tip.1, PrettyPoint(&tip.0)))
                 .finish(),

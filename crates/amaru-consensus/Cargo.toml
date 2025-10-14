@@ -15,15 +15,19 @@ rust-version.workspace = true
 [features]
 default = []
 profiling = ["dep:pprof"]
-test-utils = ["proptest", "rand", "serde_json"]
+test-utils = ["proptest", "dep:rand", "serde_json"]
+amaru-upstream = ["dep:pallas-network", "dep:rand", "dep:amaru-network"]
 
 [dependencies]
+acto.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
+futures-util.workspace = true
 hex.workspace = true
 itertools.workspace = true
 pallas-crypto.workspace = true
-
+pallas-network = { workspace = true, optional = true }
+parking_lot.workspace = true
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 rayon.workspace = true
@@ -34,6 +38,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 amaru-kernel.workspace = true
+amaru-network = { workspace = true, optional = true }
 amaru-ouroboros.workspace = true
 amaru-metrics.workspace = true
 amaru-ouroboros-traits.workspace = true

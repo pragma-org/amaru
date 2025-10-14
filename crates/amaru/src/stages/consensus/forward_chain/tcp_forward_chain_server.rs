@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::PallasPoint;
+use crate::point::to_network_point;
 use crate::stages::consensus::forward_chain::client_protocol::{
     ClientMsg, ClientOp, ClientProtocolMsg, client_protocols,
 };
@@ -97,7 +97,7 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
                             .clone();
                         clients_clone.send(ClientMsg::Peer(
                             peer,
-                            Tip(our_tip.point().pallas_point(), our_tip.block_height()),
+                            Tip(to_network_point(our_tip.point()), our_tip.block_height()),
                         ));
                     }
                     Err(e) => {
@@ -143,7 +143,7 @@ impl ForwardEventListener for TcpForwardChainServer<BlockHeader> {
                     .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
                 *our_tip = tip.clone();
                 self.clients.send(ClientMsg::Op(ClientOp::Backward(Tip(
-                    tip.point().pallas_point(),
+                    to_network_point(tip.point()),
                     tip.block_height(),
                 ))));
                 Ok(())
