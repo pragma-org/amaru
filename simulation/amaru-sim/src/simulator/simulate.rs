@@ -36,7 +36,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
-use std::{cmp::Reverse, fmt::Debug, io::Write, path::Path};
+use std::{fmt::Debug, io::Write, path::Path};
 use tracing::{info, warn};
 
 /// Run the simulation

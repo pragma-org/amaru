@@ -355,11 +355,13 @@ pub fn generate_random_walks(
 /// is given a seed controlled by `proptest` but this makes the resulting list of actions non-shrinkable.
 ///
 pub fn any_select_chains(
+    peers_nb: usize,
     depth: usize,
     rollback_ratio: Ratio,
 ) -> impl Strategy<Value = Vec<Action>> {
     any_tree_of_headers(depth, Ratio(1, 2)).prop_flat_map(move |tree| {
-        (1..u64::MAX).prop_map(move |seed| generate_random_walks(&tree, 5, rollback_ratio, seed))
+        (1..u64::MAX)
+            .prop_map(move |seed| generate_random_walks(&tree, peers_nb, rollback_ratio, seed))
     })
 }
 
