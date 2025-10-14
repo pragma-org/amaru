@@ -43,7 +43,7 @@ pub enum ChainSyncMessage {
     Bck {
         msg_id: u64,
         slot: Slot,
-        hash: crate::simulator::bytes::Bytes,
+        hash: Bytes,
     },
 }
 

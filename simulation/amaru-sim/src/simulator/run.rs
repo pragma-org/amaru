@@ -14,7 +14,6 @@
 
 use crate::echo::Envelope;
 use crate::simulator::bytes::Bytes;
-use crate::simulator::generate::generate_entries;
 use crate::simulator::ledger::populate_chain_store;
 use crate::simulator::simulate::simulate;
 use crate::simulator::{

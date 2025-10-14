@@ -44,6 +44,8 @@ pub async fn stage(
             raw_header,
             span,
         } => {
+            // TODO: check the point vs the deserialized header point and invalidate if they don't match
+            // then simplify and don't pass the point separately
             let header = match decode_header(&point, raw_header.as_slice()) {
                 Ok(header) => {
                     let result = eff.store().store_header(&header);
@@ -239,6 +241,15 @@ mod tests {
             )])
         );
         Ok(())
+    }
+
+    #[test]
+    fn decode_header_on_generated_header() {
+        let header = run(any_header());
+        let raw_header = cbor::to_vec(header.clone()).unwrap();
+        let point = header.point();
+        let decoded = decode_header(&point, &raw_header).unwrap();
+        assert_eq!(header, decoded);
     }
 
     // HELPERS

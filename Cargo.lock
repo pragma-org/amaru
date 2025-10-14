@@ -291,6 +291,7 @@ dependencies = [
  "amaru-consensus",
  "amaru-kernel",
  "amaru-ouroboros",
+ "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
  "amaru-tracing-json",
  "anyhow",
