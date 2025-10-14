@@ -27,7 +27,7 @@ pub use network_effects::{
     ForwardEvent, ForwardEventListener, Network, NetworkOps, ResourceBlockFetcher,
     ResourceForwardEventListener,
 };
-pub use store_effects::{HeaderHash, ResourceHeaderStore, ResourceParameters, Store};
+pub use store_effects::{ResourceHeaderStore, ResourceParameters, Store};
 
 #[cfg(test)]
 pub use consensus_effects::tests::*;

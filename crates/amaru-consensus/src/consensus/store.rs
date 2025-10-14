@@ -14,8 +14,8 @@
 
 use amaru_kernel::protocol_parameters::ConsensusParameters;
 use amaru_kernel::{Nonce, Point};
-use amaru_ouroboros::{Nonces, praos::nonce};
-use amaru_ouroboros_traits::{ChainStore, IsHeader, Praos, StoreError};
+use amaru_ouroboros::praos::nonce;
+use amaru_ouroboros_traits::{ChainStore, IsHeader, Nonces, Praos, StoreError};
 use amaru_slot_arithmetic::EraHistoryError;
 use pallas_crypto::hash::Hash;
 use std::sync::Arc;
@@ -153,9 +153,9 @@ mod test {
     use super::*;
     use crate::test::include_header;
     use amaru_kernel::protocol_parameters::GlobalParameters;
-    use amaru_kernel::{Header, from_cbor, hash, network::NetworkName, to_cbor};
+    use amaru_kernel::{from_cbor, hash, network::NetworkName, to_cbor};
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{IsHeader, Praos, ReadOnlyChainStore};
+    use amaru_ouroboros_traits::{BlockHeader, IsHeader, Praos, ReadOnlyChainStore};
     use amaru_slot_arithmetic::Epoch;
     use proptest::{prelude::*, prop_compose, proptest};
     use std::sync::{Arc, LazyLock};
@@ -204,9 +204,9 @@ mod test {
     });
 
     fn evolve_nonce(
-        last_header_last_epoch: &Header,
-        parent: (&Header, &Nonces),
-        current: &Header,
+        last_header_last_epoch: &BlockHeader,
+        parent: (&BlockHeader, &Nonces),
+        current: &BlockHeader,
         global_parameters: &GlobalParameters,
     ) -> Option<Nonces> {
         let store = Arc::new(InMemConsensusStore::default());

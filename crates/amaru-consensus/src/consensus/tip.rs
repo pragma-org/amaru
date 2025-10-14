@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HEADER_HASH_SIZE, Header, ORIGIN_HASH, Point, cbor};
+use amaru_kernel::{HEADER_HASH_SIZE, ORIGIN_HASH, Point, cbor};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
@@ -181,7 +181,7 @@ pub trait AsHeaderTip {
     fn as_header_tip(&self) -> HeaderTip;
 }
 
-impl AsHeaderTip for Header {
+impl<H: IsHeader> AsHeaderTip for H {
     fn as_header_tip(&self) -> HeaderTip {
         HeaderTip::new(self.point(), self.block_height())
     }

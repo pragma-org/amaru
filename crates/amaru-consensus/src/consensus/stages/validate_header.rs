@@ -21,9 +21,9 @@ use crate::consensus::{
     events::DecodedChainSyncEvent,
 };
 use amaru_kernel::protocol_parameters::ConsensusParameters;
-use amaru_kernel::{Hash, Header, Nonce, Point, to_cbor};
+use amaru_kernel::{Hash, Nonce, Point, to_cbor};
 use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::{ChainStore, Praos};
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, Praos};
 use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
 use tracing::{Level, instrument, span};
@@ -82,7 +82,7 @@ type State = (
 
 pub struct ValidateHeader {
     consensus_parameters: Arc<ConsensusParameters>,
-    store: Arc<dyn ChainStore<Header>>,
+    store: Arc<dyn ChainStore<BlockHeader>>,
     ledger: Arc<dyn LedgerOps>,
 }
 
@@ -98,7 +98,7 @@ impl fmt::Debug for ValidateHeader {
 impl ValidateHeader {
     pub fn new(
         consensus_parameters: Arc<ConsensusParameters>,
-        store: Arc<dyn ChainStore<Header>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
         ledger: Arc<dyn LedgerOps>,
     ) -> Self {
         Self {
@@ -121,7 +121,7 @@ impl ValidateHeader {
     pub async fn handle_roll_forward(
         &self,
         point: &Point,
-        header: &Header,
+        header: &BlockHeader,
     ) -> Result<(), ConsensusError> {
         let nonces = PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone())
             .evolve_nonce(header)?;
@@ -130,24 +130,24 @@ impl ValidateHeader {
         self.header_is_valid(
             point,
             header,
-            to_cbor(&header.header_body).as_slice(),
+            to_cbor(&header.header_body()).as_slice(),
             epoch_nonce,
         )?;
         Ok(())
     }
 
-    #[instrument(level = Level::TRACE, skip_all, fields(issuer.key = %header.header_body.issuer_vkey)
+    #[instrument(level = Level::TRACE, skip_all, fields(issuer.key = %header.header_body().issuer_vkey)
     )]
     pub fn header_is_valid(
         &self,
         point: &Point,
-        header: &Header,
+        header: &BlockHeader,
         raw_header_body: &[u8],
         epoch_nonce: &Nonce,
     ) -> Result<(), ConsensusError> {
         praos::header::assert_all(
             self.consensus_parameters.clone(),
-            header,
+            header.header(),
             raw_header_body,
             self.ledger.clone(),
             epoch_nonce,
@@ -164,18 +164,19 @@ impl ValidateHeader {
 mod tests {
     use super::*;
     use crate::consensus;
-    use crate::consensus::effects::{HeaderHash, MockLedgerOps};
+    use crate::consensus::effects::MockLedgerOps;
     use crate::consensus::errors::ConsensusError::NoncesError;
-    use crate::consensus::tests::any_header;
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::{
-        HEADER_HASH_SIZE, Header, Point, RawBlock,
+        HEADER_HASH_SIZE, Point, RawBlock,
         protocol_parameters::{GlobalParameters, TESTNET_GLOBAL_PARAMETERS},
     };
-    use amaru_ouroboros::Nonces;
-    use amaru_ouroboros_traits::fake::tests::run;
+    use amaru_ouroboros_traits::Nonces;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{ChainStore, IsHeader, ReadOnlyChainStore, StoreError};
+    use amaru_ouroboros_traits::tests::{any_header, run};
+    use amaru_ouroboros_traits::{
+        ChainStore, HeaderHash, IsHeader, ReadOnlyChainStore, StoreError,
+    };
     use pallas_crypto::hash::Hash;
     use std::sync::Arc;
 
@@ -234,7 +235,7 @@ mod tests {
     // Fake store that returns errors for each operation
     struct FailingStore {
         fail_on_evolve_nonce: bool,
-        store: InMemConsensusStore<Header>,
+        store: InMemConsensusStore<BlockHeader>,
     }
 
     impl FailingStore {
@@ -251,12 +252,12 @@ mod tests {
         }
     }
 
-    impl ReadOnlyChainStore<Header> for FailingStore {
+    impl ReadOnlyChainStore<BlockHeader> for FailingStore {
         fn has_header(&self, hash: &HeaderHash) -> bool {
             self.store.has_header(hash)
         }
 
-        fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
+        fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
             self.store.load_header(hash)
         }
 
@@ -276,7 +277,7 @@ mod tests {
             self.store.load_block(hash)
         }
 
-        fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_> {
+        fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
             self.store.load_headers()
         }
 
@@ -300,7 +301,7 @@ mod tests {
         }
     }
 
-    impl ChainStore<Header> for FailingStore {
+    impl ChainStore<BlockHeader> for FailingStore {
         fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
             self.store.set_anchor_hash(hash)
         }
@@ -317,7 +318,7 @@ mod tests {
             self.store.update_best_chain(anchor, tip)
         }
 
-        fn store_header(&self, header: &Header) -> Result<(), StoreError> {
+        fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
             self.store.store_header(header)
         }
 
@@ -335,7 +336,12 @@ mod tests {
     }
 
     // Helper function to create test data
-    fn create_test_data() -> (Point, Header, &'static GlobalParameters, Arc<dyn LedgerOps>) {
+    fn create_test_data() -> (
+        Point,
+        BlockHeader,
+        &'static GlobalParameters,
+        Arc<dyn LedgerOps>,
+    ) {
         // Create a minimal valid header using the default constructor
         let header = run(any_header());
         // Create a simple global parameters for testing

@@ -34,16 +34,16 @@ use amaru_consensus::consensus::stages::select_chain::{
 };
 use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_consensus::consensus::tip::HeaderTip;
+use amaru_consensus::{BlockHeader, ChainStore};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use amaru_kernel::{Point, to_cbor};
+use amaru_ouroboros::IsHeader;
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateBlocks;
 use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros::{ChainStore, IsHeader};
 use amaru_slot_arithmetic::{EraHistory, Slot};
 use async_trait::async_trait;
-use pallas_primitives::babbage::Header;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef};
@@ -234,7 +234,10 @@ fn init_node(
     )
 }
 
-fn make_chain_selector(chain_store: Arc<dyn ChainStore<Header>>, peers: &Vec<Peer>) -> SelectChain {
+fn make_chain_selector(
+    chain_store: Arc<dyn ChainStore<BlockHeader>>,
+    peers: &Vec<Peer>,
+) -> SelectChain {
     let mut tree_state = HeadersTreeState::new(DEFAULT_MAXIMUM_FRAGMENT_LENGTH);
     let anchor = chain_store.get_anchor_hash();
     for peer in peers {
