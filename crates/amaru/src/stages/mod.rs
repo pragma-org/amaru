@@ -34,6 +34,8 @@ use amaru_kernel::{
 use amaru_ledger::block_validator::BlockValidator;
 
 use amaru_consensus::consensus::stages::track_peers::SyncTracker;
+use amaru_consensus::consensus::stages::validate_header::ValidateHeader;
+use amaru_kernel::protocol_parameters::ConsensusParameters;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::block_fetch_client::PallasBlockFetchClient;
 use amaru_ouroboros_traits::{
@@ -233,6 +235,18 @@ pub async fn bootstrap(
         &peers,
         global_parameters.consensus_security_param,
     )?;
+
+    let consensus_parameters = Arc::new(ConsensusParameters::new(
+        global_parameters.clone(),
+        era_history,
+        Default::default(),
+    ));
+    let validate_header = ValidateHeader::new(
+        consensus_parameters,
+        chain_store.clone(),
+        ledger.get_stake_distribution(),
+    );
+
     let sync_tracker = SyncTracker::new(&peers);
 
     let forward_event_listener = Arc::new(
@@ -249,20 +263,10 @@ pub async fn bootstrap(
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
 
-    let graph_input = build_stage_graph(
-        global_parameters,
-        era_history,
-        chain_selector,
-        sync_tracker,
-        our_tip,
-        &mut network,
-    );
+    let graph_input = build_stage_graph(chain_selector, sync_tracker, our_tip, &mut network);
     let graph_input = network.input(&graph_input);
 
     network.resources().put::<ResourceHeaderStore>(chain_store);
-    network
-        .resources()
-        .put::<ResourceHeaderValidation>(ledger.get_stake_distribution());
     network
         .resources()
         .put::<ResourceParameters>(global_parameters.clone());
@@ -272,6 +276,9 @@ pub async fn bootstrap(
     network
         .resources()
         .put::<ResourceBlockValidation>(ledger.get_block_validation());
+    network
+        .resources()
+        .put::<ResourceHeaderValidation>(Arc::new(validate_header));
     network
         .resources()
         .put::<ResourceForwardEventListener>(forward_event_listener);

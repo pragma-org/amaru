@@ -45,7 +45,7 @@ pub async fn stage(
         } => {
             let point = header.point();
 
-            match eff.ledger().validate(&peer, &point, block).await {
+            match eff.ledger().validate_block(&peer, &point, block).await {
                 Ok(Ok(metrics)) => {
                     eff.metrics().record(metrics.into()).await;
                     eff.base()
