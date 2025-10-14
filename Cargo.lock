@@ -94,6 +94,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "pallas-network",
+ "parking_lot",
  "proptest",
  "pure-stage",
  "rand 0.9.2",

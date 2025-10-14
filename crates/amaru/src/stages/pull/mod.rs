@@ -21,6 +21,8 @@ use gasket::framework::{Stage as StageTrait, *};
 use pallas_network::miniprotocols::chainsync::{Client, HeaderContent, NextResponse};
 use tracing::{Level, Span, debug, error, instrument};
 
+pub mod effects;
+
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
 pub enum WorkUnit {
