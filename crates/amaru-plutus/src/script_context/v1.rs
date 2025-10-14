@@ -15,10 +15,12 @@
 use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
-    Address, AssetName, Bytes, Hash, IsSortable, KeyValuePairs, MemoizedDatum,
-    MintedTransactionBody, NonEmptyKeyValuePairs, PolicyId, StakeCredential, TransactionInput,
+    Address, AssetName, Bytes, ComputeHash, EraHistory, Hash, IsSortable, KeyValuePairs,
+    MemoizedDatum, Mint, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
+    NonEmptyKeyValuePairs, PolicyId, Slot, StakeCredential, TransactionInput,
     TransactionInputAdapter,
 };
+use amaru_slot_arithmetic::EraHistoryError;
 use itertools::Itertools;
 use thiserror::Error;
 
@@ -37,6 +39,8 @@ pub enum PlutusV1Error {
     InputTranslationError(#[from] V1InputTranslationError),
     #[error("reference inputs are not allowed in the v1 script context")]
     ReferenceInputsIncluded,
+    #[error("invalid validity range: {0}")]
+    InvalidValidityRange(#[from] EraHistoryError),
 }
 
 #[derive(Debug, Error)]
@@ -54,7 +58,7 @@ pub struct TxInfo {
     inputs: Vec<OutputRef>,
     outputs: Vec<TransactionOutput>,
     fee: Value,
-    mint: Value,
+    mint: Mint,
     certificates: Vec<Certificate>,
     withdrawals: Vec<Withdrawal>,
     valid_range: TimeRange,
@@ -66,7 +70,11 @@ pub struct TxInfo {
 impl TxInfo {
     pub fn new(
         tx: &MintedTransactionBody<'_>,
+        id: &Hash<32>,
+        witness_set: &MintedWitnessSet<'_>,
         utxo: BTreeMap<TransactionInput, TransactionOutput>,
+        era_history: &EraHistory,
+        slot: &Slot,
     ) -> Result<Self, PlutusV1Error> {
         if tx.reference_inputs.is_some() {
             return Err(PlutusV1Error::ReferenceInputsIncluded);
@@ -74,28 +82,74 @@ impl TxInfo {
 
         let inputs = Self::translate_inputs(&*tx.inputs, utxo)
             .map_err(PlutusV1Error::InputTranslationError)?;
+
+        let outputs = get_outputs_info(&tx.outputs);
         let certificates = tx
             .certificates
             .clone()
             .map(|set| set.to_vec())
             .unwrap_or_default();
-        let withdrawals = tx.withdrawals.as_ref().map(|withdrawals| {
-            withdrawals
-                .iter()
-                .map(|(reward_account, coin)| {
-                    let address = Address::from_bytes(&reward_account)
-                        .expect("invalid address bytes in withdrawal");
-                    if let Address::Stake(reward_account) = address {
-                        (reward_account, *coin)
-                    } else {
-                        unreachable!("invalid reward address in withdrawals")
-                    }
-                })
-                .sorted_by(|(a, _), (b, _)| a.sort(b))
-                .collect::<Vec<Withdrawal>>()
-        });
+        let withdrawals = tx
+            .withdrawals
+            .as_ref()
+            .map(|withdrawals| {
+                withdrawals
+                    .iter()
+                    .map(|(reward_account, coin)| {
+                        let address = Address::from_bytes(&reward_account)
+                            .expect("invalid address bytes in withdrawal");
+                        if let Address::Stake(reward_account) = address {
+                            (reward_account, *coin)
+                        } else {
+                            unreachable!("invalid reward address in withdrawals")
+                        }
+                    })
+                    .sorted_by(|(a, _), (b, _)| a.sort(b))
+                    .collect::<Vec<Withdrawal>>()
+            })
+            .unwrap_or(vec![]);
+        let mint = tx
+            .mint
+            .as_ref()
+            .map(|mint| sort_mint(mint.clone()))
+            .unwrap_or(NonEmptyKeyValuePairs::Def(vec![]));
 
-        todo!()
+        let signatories: Vec<_> = tx
+            .required_signers
+            .as_deref()
+            .map(|s| s.iter().cloned().sorted().collect())
+            .unwrap_or_default();
+
+        let data: Vec<(_, _)> = witness_set
+            .plutus_data
+            .as_deref()
+            .map(|s| {
+                s.iter()
+                    .cloned()
+                    .map(|d| (d.compute_hash(), d.unwrap()))
+                    .sorted()
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(Self {
+            inputs,
+            outputs,
+            fee: Value::Coin(tx.fee),
+            mint,
+            certificates,
+            withdrawals,
+            valid_range: TimeRange::new(
+                tx.validity_interval_start.map(Slot::from),
+                tx.ttl.map(Slot::from),
+                slot,
+                era_history,
+            )
+            .map_err(PlutusV1Error::InvalidValidityRange)?,
+            signatories,
+            data,
+            id: id.clone(),
+        })
     }
 
     fn translate_inputs(
@@ -145,6 +199,15 @@ impl TxInfo {
     }
 }
 
+pub fn get_outputs_info(outputs: &[MintedTransactionOutput<'_>]) -> Vec<TransactionOutput> {
+    outputs
+        .into_iter()
+        .map(|output| {
+            sorted_utxo(TransactionOutput::try_from(output.clone()).expect("invalid output"))
+        })
+        .collect()
+}
+
 fn sorted_utxo(utxo: TransactionOutput) -> TransactionOutput {
     TransactionOutput {
         is_legacy: utxo.is_legacy,
@@ -153,6 +216,27 @@ fn sorted_utxo(utxo: TransactionOutput) -> TransactionOutput {
         datum: utxo.datum,
         script: utxo.script,
     }
+}
+
+fn sort_mint(mint: Mint) -> Mint {
+    NonEmptyKeyValuePairs::Indef(
+        mint.into_iter()
+            .sorted()
+            .map(|(policy_id, asset_bundle)| {
+                (
+                    policy_id,
+                    NonEmptyKeyValuePairs::Indef(
+                        asset_bundle
+                            .deref()
+                            .iter()
+                            .sorted()
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                    ),
+                )
+            })
+            .collect::<Vec<_>>(),
+    )
 }
 
 // TODO: this is grabbed straight from Aiken.

@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::Slot;
 use amaru_kernel::{
-    AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace,
+    AddrKeyhash, Certificate, DatumHash, EraHistory, KeyValuePairs, Lovelace,
     MemoizedTransactionOutput as TransactionOutput, PlutusData, PolicyId, Redeemer, StakeAddress,
     TransactionId, TransactionInput, Value, Voter, Withdrawal,
 };
 
-use amaru_slot_arithmetic::TimeMs;
+use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 
 pub mod v1;
 pub mod v2;
@@ -44,4 +45,25 @@ pub struct OutputRef {
 pub struct TimeRange {
     pub lower_bound: Option<TimeMs>,
     pub upper_bound: Option<TimeMs>,
+}
+
+impl TimeRange {
+    pub fn new(
+        valid_from_slot: Option<Slot>,
+        valid_to_slot: Option<Slot>,
+        tip: &Slot,
+        era_history: &EraHistory,
+    ) -> Result<Self, EraHistoryError> {
+        let lower_bound = valid_from_slot
+            .map(|slot| era_history.slot_to_relative_time(slot, *tip))
+            .transpose()?;
+        let upper_bound = valid_to_slot
+            .map(|slot| era_history.slot_to_relative_time(slot, *tip))
+            .transpose()?;
+
+        Ok(Self {
+            lower_bound,
+            upper_bound,
+        })
+    }
 }
