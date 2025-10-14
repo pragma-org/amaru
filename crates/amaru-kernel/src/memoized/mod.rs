@@ -42,3 +42,6 @@ fn blanket_try_from_hex_bytes<T, I: for<'d> cbor::Decode<'d, ()>>(
 
     Ok(new(original_bytes, value))
 }
+
+#[repr(transparent)]
+pub(crate) struct Legacy<A>(A);
