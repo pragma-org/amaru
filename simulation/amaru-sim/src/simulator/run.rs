@@ -17,7 +17,9 @@ use crate::simulator::bytes::Bytes;
 use crate::simulator::generate::generate_entries;
 use crate::simulator::ledger::populate_chain_store;
 use crate::simulator::simulate::simulate;
-use crate::simulator::{Args, Chain, History, NodeConfig, NodeHandle, SimulateConfig};
+use crate::simulator::{
+    Args, Chain, History, NodeConfig, NodeHandle, SimulateConfig, generate_entries,
+};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
 use amaru_consensus::can_validate_blocks::mock::MockCanValidateHeaders;
@@ -166,7 +168,7 @@ pub fn spawn_node(
 
     // The number of received messages sent by the forward event listener is proportional
     // to the number of downstream peers, as each event is duplicated to each downstream peer.
-    let (sender, rx2) = mpsc::channel(10 * config.number_of_downstream_peers as usize);
+    let (sender, rx2) = mpsc::channel(10 * node_config.number_of_downstream_peers as usize);
     let listener =
         MockForwardEventListener::new(node_id, node_config.number_of_downstream_peers, sender);
 
