@@ -40,8 +40,9 @@ impl Tree<BlockHeader> {
     fn renumber_slots(&mut self, start: u64) {
         self.value.set_slot(start);
         for (i, child) in self.children.iter_mut().enumerate() {
-            child.renumber_slots(start + ((i + 1) as u64));
+            // set the parent hash of the child to the current node hash before renumbering
             child.value.set_parent(self.value.hash());
+            child.renumber_slots(start + ((i + 1) as u64));
         }
     }
 }
@@ -222,16 +223,10 @@ mod tests {
     fn check_nodes(node: &Tree<BlockHeader>) {
         assert_eq!(
             node.value.hash(),
-            BlockHeader::from(node.value.header().clone()).hash(),
-            "incorrect hash {}",
-            node.value.hash()
+            BlockHeader::from(node.value.header().clone()).hash()
         );
         for child in &node.children {
-            assert_eq!(
-                child.value.parent(),
-                Some(node.value.hash()),
-                "incorrect parent"
-            );
+            assert_eq!(child.value.parent(), Some(node.value.hash()));
             check_nodes(child);
         }
     }
