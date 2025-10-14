@@ -100,6 +100,7 @@ pub mod tests {
     use amaru_kernel::{Point, PoolId, RawBlock};
     use amaru_metrics::MetricsEvent;
     use amaru_metrics::ledger::LedgerMetrics;
+    use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use amaru_ouroboros_traits::{
         BlockHeader, BlockValidationError, HasStakeDistribution, PoolSummary,
@@ -200,7 +201,15 @@ pub mod tests {
     pub struct MockLedgerOps;
 
     impl LedgerOps for MockLedgerOps {
-        fn validate(
+        fn validate_header(
+            &self,
+            _point: &Point,
+            _header: &BlockHeader,
+        ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn validate_block(
             &self,
             _peer: &Peer,
             _point: &Point,

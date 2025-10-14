@@ -14,19 +14,23 @@
 
 use crate::consensus::errors::ProcessingFailed;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{Point, PoolId, RawBlock};
+use amaru_kernel::{Point, RawBlock};
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, HasStakeDistribution, PoolSummary,
-};
-use amaru_slot_arithmetic::Slot;
+use amaru_ouroboros_traits::can_validate_blocks::{CanValidateHeaders, HeaderValidationError};
+use amaru_ouroboros_traits::{BlockHeader, BlockValidationError, CanValidateBlocks};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
-pub trait LedgerOps: HasStakeDistribution {
-    fn validate(
+pub trait LedgerOps: Send + Sync {
+    fn validate_header(
+        &self,
+        point: &Point,
+        header: &BlockHeader,
+    ) -> BoxFuture<'_, Result<(), HeaderValidationError>>;
+
+    fn validate_block(
         &self,
         peer: &Peer,
         point: &Point,
@@ -50,7 +54,15 @@ impl<T> Ledger<T> {
 }
 
 impl<T: SendData + Sync> LedgerOps for Ledger<T> {
-    fn validate(
+    fn validate_header(
+        &self,
+        point: &Point,
+        header: &BlockHeader,
+    ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
+        self.0.external(ValidateHeaderEffect::new(point, header))
+    }
+
+    fn validate_block(
         &self,
         peer: &Peer,
         point: &Point,
@@ -70,17 +82,11 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
     }
 }
 
-impl<T: SendData + Sync> HasStakeDistribution for Ledger<T> {
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
-        self.0.external_sync(GetPoolEffect::new(slot, pool))
-    }
-}
-
 // EXTERNAL EFFECTS DEFINITIONS
 
 /// Resource types for ledger operations.
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
-pub type ResourceHeaderValidation = Arc<dyn HasStakeDistribution>;
+pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlockEffect {
@@ -117,6 +123,38 @@ impl ExternalEffectAPI for ValidateBlockEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ValidateHeaderEffect {
+    point: Point,
+    header: BlockHeader,
+}
+
+impl ValidateHeaderEffect {
+    pub fn new(point: &Point, header: &BlockHeader) -> Self {
+        Self {
+            point: point.clone(),
+            header: header.clone(),
+        }
+    }
+}
+
+impl ExternalEffect for ValidateHeaderEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let validator = resources
+                .get::<ResourceHeaderValidation>()
+                .expect("ValidateHeaderEffect requires a ResourceHeaderValidation resource")
+                .clone();
+            validator.validate_header(&self.point, &self.header)
+        })
+    }
+}
+
+impl ExternalEffectAPI for ValidateHeaderEffect {
+    type Response = Result<(), HeaderValidationError>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RollbackBlockEffect {
     peer: Peer,
     point: Point,
@@ -148,33 +186,4 @@ impl ExternalEffect for RollbackBlockEffect {
 
 impl ExternalEffectAPI for RollbackBlockEffect {
     type Response = anyhow::Result<(), ProcessingFailed>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GetPoolEffect {
-    slot: Slot,
-    pool: PoolId,
-}
-
-impl GetPoolEffect {
-    pub fn new(slot: Slot, pool: &PoolId) -> Self {
-        Self { slot, pool: *pool }
-    }
-}
-
-impl ExternalEffect for GetPoolEffect {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let validator = resources
-                .get::<ResourceHeaderValidation>()
-                .expect("GetPoolEffect requires a ResourceHeaderValidation resource")
-                .clone();
-            validator.get_pool(self.slot, &self.pool)
-        })
-    }
-}
-
-impl ExternalEffectAPI for GetPoolEffect {
-    type Response = Option<PoolSummary>;
 }

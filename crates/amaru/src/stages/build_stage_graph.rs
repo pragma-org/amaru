@@ -22,17 +22,12 @@ use amaru_consensus::consensus::stages::{
     validate_header,
 };
 use amaru_consensus::consensus::tip::HeaderTip;
-use amaru_kernel::protocol_parameters::{ConsensusParameters, GlobalParameters};
-use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
-use std::sync::Arc;
 
 /// Create the graph of stages supporting the consensus protocol.
 /// The output of the graph is passed as a parameter, allowing the caller to
 /// decide what to do with the results the graph processing.
 pub fn build_stage_graph(
-    global_parameters: &GlobalParameters,
-    era_history: &'static EraHistory,
     chain_selector: SelectChain,
     sync_tracker: SyncTracker,
     our_tip: HeaderTip,
@@ -119,11 +114,6 @@ pub fn build_stage_graph(
     let validate_header_stage = network.wire_up(
         validate_header_stage,
         (
-            Arc::new(ConsensusParameters::new(
-                global_parameters.clone(),
-                era_history,
-                Default::default(),
-            )),
             fetch_block_stage.without_state(),
             validation_errors_stage.clone().without_state(),
         ),

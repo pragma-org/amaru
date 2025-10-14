@@ -15,11 +15,12 @@
 use crate::echo::Envelope;
 use crate::simulator::bytes::Bytes;
 use crate::simulator::generate::generate_entries;
-use crate::simulator::ledger::{FakeStakeDistribution, populate_chain_store};
+use crate::simulator::ledger::populate_chain_store;
 use crate::simulator::simulate::simulate;
 use crate::simulator::{Args, Chain, History, NodeConfig, NodeHandle, SimulateConfig};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
+use amaru_consensus::can_validate_blocks::mock::MockCanValidateHeaders;
 use amaru_consensus::consensus::effects::{
     ForwardEvent, ForwardEventListener, ResourceForwardEventListener, ResourceHeaderStore,
     ResourceHeaderValidation, ResourceParameters,
@@ -42,7 +43,7 @@ use amaru_kernel::{Point, to_cbor};
 use amaru_ouroboros::IsHeader;
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateBlocks;
 use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
-use amaru_slot_arithmetic::{EraHistory, Slot};
+use amaru_slot_arithmetic::Slot;
 use async_trait::async_trait;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::trace_buffer::TraceBuffer;
@@ -159,15 +160,7 @@ pub fn spawn_node(
     );
 
     let our_tip = HeaderTip::new(Point::Origin, 0);
-    let era_history: &EraHistory = network_name.into();
-    let receive_header_ref = build_stage_graph(
-        global_parameters,
-        era_history,
-        select_chain,
-        sync_tracker,
-        our_tip,
-        network,
-    );
+    let receive_header_ref = build_stage_graph(select_chain, sync_tracker, our_tip, network);
 
     let (output, rx1) = network.output("output", 10);
     let (sender, rx2) = mpsc::channel(10);
@@ -209,8 +202,7 @@ fn init_node(
 ) {
     let network_name = NetworkName::Testnet(42);
     let chain_store = Arc::new(InMemConsensusStore::new());
-    let stake_distribution =
-        Arc::new(FakeStakeDistribution::from_file(&node_config.stake_distribution_file).unwrap());
+    let header_validation = Arc::new(MockCanValidateHeaders);
 
     populate_chain_store(
         chain_store.clone(),
@@ -230,7 +222,7 @@ fn init_node(
         select_chain,
         sync_tracker,
         chain_store,
-        stake_distribution,
+        header_validation,
     )
 }
 

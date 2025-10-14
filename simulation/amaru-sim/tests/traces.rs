@@ -91,16 +91,6 @@ fn run_simulator_with_traces() {
                 },
                 {
                   "name": "stage.validate_header",
-                  "children": [
-                    {
-                      "name": "consensus.roll_forward",
-                      "children": [
-                        {
-                          "name": "header_is_valid"
-                        }
-                      ]
-                    }
-                  ]
                 },
                 {
                   "name": "stage.fetch_block"

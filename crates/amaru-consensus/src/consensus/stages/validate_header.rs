@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{BaseOps, ConsensusOps, LedgerOps};
+use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::events::ValidateHeaderEvent;
 use crate::consensus::span::HasSpan;
 use crate::consensus::store::PraosChainStore;
@@ -21,9 +21,12 @@ use crate::consensus::{
     events::DecodedChainSyncEvent,
 };
 use amaru_kernel::protocol_parameters::ConsensusParameters;
-use amaru_kernel::{Hash, Nonce, Point, to_cbor};
+use amaru_kernel::{Nonce, Point, to_cbor};
 use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, Praos};
+use amaru_ouroboros_traits::IsHeader;
+use amaru_ouroboros_traits::can_validate_blocks::{CanValidateHeaders, HeaderValidationError};
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, HasStakeDistribution, Praos};
+use anyhow::anyhow;
 use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
 use tracing::{Level, instrument, span};
@@ -32,8 +35,7 @@ pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl Consensus
     let span = span!(parent: msg.span(), Level::TRACE, "stage.validate_header");
     let _entered = span.enter();
 
-    let (consensus_parameters, downstream, errors) = state;
-    let state = ValidateHeader::new(consensus_parameters.clone(), eff.store(), eff.ledger());
+    let (downstream, errors) = state;
 
     match &msg {
         DecodedChainSyncEvent::RollForward {
@@ -41,7 +43,7 @@ pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl Consensus
             point,
             header,
             span,
-        } => match state.handle_roll_forward(point, header).await {
+        } => match eff.ledger().validate_header(point, header).await {
             Ok(_) => {
                 let msg = ValidateHeaderEvent::Validated {
                     peer: peer.clone(),
@@ -53,7 +55,13 @@ pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl Consensus
             Err(error) => {
                 tracing::error!(%peer, %error, "failed to handle roll forward");
                 eff.base()
-                    .send(&errors, ValidationFailed::new(peer, error))
+                    .send(
+                        &errors,
+                        ValidationFailed::new(
+                            peer,
+                            ConsensusError::InvalidHeader(point.clone(), error),
+                        ),
+                    )
                     .await
             }
         },
@@ -71,26 +79,22 @@ pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl Consensus
         }
     };
 
-    (consensus_parameters, downstream, errors)
+    (downstream, errors)
 }
 
-type State = (
-    Arc<ConsensusParameters>,
-    StageRef<ValidateHeaderEvent>,
-    StageRef<ValidationFailed>,
-);
+type State = (StageRef<ValidateHeaderEvent>, StageRef<ValidationFailed>);
 
 pub struct ValidateHeader {
     consensus_parameters: Arc<ConsensusParameters>,
     store: Arc<dyn ChainStore<BlockHeader>>,
-    ledger: Arc<dyn LedgerOps>,
+    ledger: Arc<dyn HasStakeDistribution>,
 }
 
 impl fmt::Debug for ValidateHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ValidateHeader")
             .field("store", &"Arc<dyn ChainStore<H>>")
-            .field("ledger", &"Arc<dyn LedgerOps>")
+            .field("ledger", &"Arc<dyn HasStakeDistribution>")
             .finish()
     }
 }
@@ -99,7 +103,7 @@ impl ValidateHeader {
     pub fn new(
         consensus_parameters: Arc<ConsensusParameters>,
         store: Arc<dyn ChainStore<BlockHeader>>,
-        ledger: Arc<dyn LedgerOps>,
+        ledger: Arc<dyn HasStakeDistribution>,
     ) -> Self {
         Self {
             consensus_parameters,
@@ -108,37 +112,36 @@ impl ValidateHeader {
         }
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        name = "consensus.roll_forward",
-        skip_all,
-        fields(
-            point = %point,
-            slot = %point.slot_or_default(),
-            hash = %Hash::<32>::from(point),
-        ),
-    )]
-    pub async fn handle_roll_forward(
-        &self,
-        point: &Point,
-        header: &BlockHeader,
-    ) -> Result<(), ConsensusError> {
-        let nonces = PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone())
-            .evolve_nonce(header)?;
-        let epoch_nonce = &nonces.active;
-
-        self.header_is_valid(
+    pub fn validate(&self, point: &Point, header: &BlockHeader) -> Result<(), ConsensusError> {
+        let epoch_nonce = self.evolve_nonce(header)?;
+        self.check_header(
             point,
             header,
             to_cbor(&header.header_body()).as_slice(),
-            epoch_nonce,
+            &epoch_nonce,
         )?;
         Ok(())
     }
 
-    #[instrument(level = Level::TRACE, skip_all, fields(issuer.key = %header.header_body().issuer_vkey)
+    #[instrument(
+        level = Level::TRACE,
+        name = "consensus.evolve_nonce",
+        skip_all,
+        fields(hash = %header.hash()),
     )]
-    pub fn header_is_valid(
+    fn evolve_nonce(&self, header: &BlockHeader) -> Result<Nonce, ConsensusError> {
+        let nonces = PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone())
+            .evolve_nonce(header)?;
+        Ok(nonces.active)
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        name = "consensus.check_header",
+        skip_all,
+        fields(issuer.key = %header.header_body().issuer_vkey)
+    )]
+    fn check_header(
         &self,
         point: &Point,
         header: &BlockHeader,
@@ -156,7 +159,20 @@ impl ValidateHeader {
             use rayon::prelude::*;
             assertions.into_par_iter().try_for_each(|assert| assert())
         })
-        .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
+        .map_err(|e| {
+            ConsensusError::InvalidHeader(point.clone(), HeaderValidationError::new(anyhow!(e)))
+        })
+    }
+}
+
+impl CanValidateHeaders for ValidateHeader {
+    fn validate_header(
+        &self,
+        point: &Point,
+        header: &BlockHeader,
+    ) -> Result<(), HeaderValidationError> {
+        self.validate(point, header)
+            .map_err(|e| HeaderValidationError::new(anyhow!(e)))
     }
 }
 
@@ -192,7 +208,7 @@ mod tests {
         let validate_header =
             ValidateHeader::new(consensus_parameters, Arc::new(failing_store), ledger);
 
-        let result = validate_header.handle_roll_forward(&point, &header).await;
+        let result = validate_header.validate(&point, &header);
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
@@ -217,7 +233,7 @@ mod tests {
         let validate_header =
             ValidateHeader::new(consensus_parameters, Arc::new(failing_store), ledger);
 
-        let result = validate_header.handle_roll_forward(&point, &header).await;
+        let result = validate_header.validate(&point, &header);
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
@@ -340,7 +356,7 @@ mod tests {
         Point,
         BlockHeader,
         &'static GlobalParameters,
-        Arc<dyn LedgerOps>,
+        Arc<dyn HasStakeDistribution>,
     ) {
         // Create a minimal valid header using the default constructor
         let header = run(any_header());

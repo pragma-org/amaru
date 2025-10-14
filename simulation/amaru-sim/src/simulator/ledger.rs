@@ -25,11 +25,14 @@ use std::{fs::File, io::BufReader, path::Path};
 
 /// A fake stake distribution used for simulation purposes.
 /// It can be loaded from a JSON file or instantiated directly from a list of pools (FakeStakePoolInfo).
+/// TODO: This is dead code for now remove when changing the data generation for the simulation module.
+#[allow(dead_code)]
 pub struct FakeStakeDistribution {
     total_active_stake: u64,
     pools: Vec<FakeStakePoolInfo>,
 }
 
+#[allow(dead_code)]
 impl FakeStakeDistribution {
     /// Deserialize a stake distribution from a JSON file.
     pub fn from_file(stake_distribution_file: &Path) -> Result<FakeStakeDistribution, Error> {

@@ -15,8 +15,8 @@
 use crate::consensus;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{HEADER_HASH_SIZE, Point};
-use amaru_ouroboros::praos::header::AssertHeaderError;
 use amaru_ouroboros_traits::StoreError;
+use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
 use pallas_crypto::hash::Hash;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ pub enum ConsensusError {
     #[error("Failed to fetch block at {0}")]
     FetchBlockFailed(Point),
     #[error("Failed to validate header at {0}: {1}")]
-    InvalidHeader(Point, AssertHeaderError),
+    InvalidHeader(Point, HeaderValidationError),
     #[error("Failed to store header at {0}: {1}")]
     StoreHeaderFailed(Hash<HEADER_HASH_SIZE>, StoreError),
     #[error("Failed to remove header at {0}: {1}")]
