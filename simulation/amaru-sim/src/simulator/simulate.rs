@@ -49,7 +49,7 @@ use tracing::{info, warn};
 pub fn simulate<Msg, F>(
     config: &SimulateConfig,
     spawn: F,
-    generator: impl Fn(&mut StdRng) -> Vec<Reverse<Entry<Msg>>>,
+    generator: impl Fn(&mut StdRng) -> Vec<Entry<Msg>>,
     property: impl Fn(&History<Msg>) -> Result<(), String>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     persist_on_success: bool,
@@ -61,7 +61,7 @@ where
     let mut rng = StdRng::seed_from_u64(config.seed);
 
     for test_number in 1..=config.number_of_tests {
-        let entries: Vec<Reverse<Entry<Msg>>> = generator(&mut rng);
+        let entries: Vec<Entry<Msg>> = generator(&mut rng);
         info!("Test data generated. Now executing the tests");
 
         let test = test_nodes(config.number_of_nodes, &spawn, &property);
@@ -112,7 +112,7 @@ fn test_nodes<Msg, F>(
     number_of_nodes: u8,
     spawn: F,
     property: impl Fn(&History<Msg>) -> Result<(), String>,
-) -> impl Fn(&[Reverse<Entry<Msg>>]) -> (History<Msg>, Result<(), String>)
+) -> impl Fn(&[Entry<Msg>]) -> (History<Msg>, Result<(), String>)
 where
     Msg: Debug + PartialEq + Clone,
     F: Fn(String) -> NodeHandle<Msg>,
@@ -143,7 +143,7 @@ where
 fn create_failure_message<Msg: Debug>(
     test_number: u32,
     seed: u64,
-    entries: Vec<Reverse<Entry<Msg>>>,
+    entries: Vec<Entry<Msg>>,
     number_of_shrinks: u32,
     history: History<Msg>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
@@ -152,7 +152,7 @@ fn create_failure_message<Msg: Debug>(
     let mut test_case = String::new();
     entries
         .into_iter()
-        .for_each(|entry| test_case += &format!("  {:?}\n", entry.0.envelope));
+        .for_each(|entry| test_case += &format!("  {:?}\n", entry.envelope));
     let mut history_string = String::new();
     history
         .0

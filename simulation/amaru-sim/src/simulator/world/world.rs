@@ -72,11 +72,16 @@ pub struct History<Msg>(pub Vec<Envelope<Msg>>);
 impl<Msg: PartialEq + Clone + Debug> World<Msg> {
     /// Create a new World with initial messages and node handles.
     pub fn new(
-        initial_messages: Vec<Reverse<Entry<Msg>>>,
+        initial_messages: Vec<Entry<Msg>>,
         node_handles: Vec<(NodeId, NodeHandle<Msg>)>,
     ) -> Self {
         World {
-            heap: BinaryHeap::from(initial_messages),
+            heap: BinaryHeap::from(
+                initial_messages
+                    .into_iter()
+                    .map(Reverse)
+                    .collect::<Vec<_>>(),
+            ),
             nodes: node_handles.into_iter().collect(),
             history: History(Vec::new()),
         }
