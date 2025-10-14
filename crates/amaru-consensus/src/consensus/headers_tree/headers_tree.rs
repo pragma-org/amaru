@@ -699,7 +699,6 @@ mod tests {
     use crate::consensus::headers_tree::data_generation::*;
     use crate::consensus::stages::select_chain::Fork;
     use crate::consensus::stages::select_chain::ForwardChainSelection::SwitchToFork;
-    use amaru_kernel::ORIGIN_HASH;
     use amaru_kernel::string_utils::{ListDebug, ListsToString};
     use amaru_kernel::tests::random_hash;
     use amaru_ouroboros_traits::BlockHeader;
@@ -711,8 +710,7 @@ mod tests {
     fn initialize_peer_on_empty_tree() {
         let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());
         let peer = Peer::new("alice");
-        let mut header = generate_single_header();
-        header.set_parent(ORIGIN_HASH);
+        let header = generate_single_header();
         store.store_header(&header).unwrap();
         let mut tree: HeadersTree<BlockHeader> =
             HeadersTree::create(store, HeadersTreeState::new(10));

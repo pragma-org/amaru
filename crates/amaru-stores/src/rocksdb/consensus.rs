@@ -368,7 +368,9 @@ pub mod test {
     use amaru_kernel::tests::{random_bytes, random_hash};
     use amaru_kernel::{Nonce, ORIGIN_HASH};
     use amaru_ouroboros_traits::is_header::BlockHeader;
-    use amaru_ouroboros_traits::tests::{any_header, any_headers_chain, make_header, run};
+    use amaru_ouroboros_traits::tests::{
+        any_header_with_parent, any_headers_chain, make_header, run,
+    };
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
@@ -467,8 +469,7 @@ pub mod test {
             //      \
             //       -> h3
             let mut chain = run(any_headers_chain(3));
-            let mut h3 = run(any_header());
-            h3.set_parent(chain[1].hash());
+            let h3 = run(any_header_with_parent(chain[1].hash()));
             chain.push(h3.clone());
 
             for header in &chain {
@@ -511,11 +512,9 @@ pub mod test {
             //      \
             //       -> h3 -> h4
             let mut chain = run(any_headers_chain(3));
-            let mut h3 = run(any_header());
-            h3.set_parent(chain[1].hash());
+            let h3 = run(any_header_with_parent(chain[1].hash()));
             chain.push(h3.clone());
-            let mut h4 = run(any_header());
-            h4.set_parent(h3.hash());
+            let h4 = run(any_header_with_parent(h3.hash()));
             chain.push(h4);
 
             let mut expected = BTreeMap::new();

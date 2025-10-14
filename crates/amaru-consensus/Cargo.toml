@@ -15,7 +15,7 @@ rust-version.workspace = true
 [features]
 default = []
 profiling = ["dep:pprof"]
-test-utils = ["proptest", "rand", "rand_distr", "serde_json"]
+test-utils = ["proptest", "rand", "serde_json"]
 
 [dependencies]
 anyhow.workspace = true
@@ -26,7 +26,6 @@ pallas-crypto.workspace = true
 
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
-rand_distr = { workspace = true, optional = true }
 rayon.workspace = true
 serde_json = { workspace = true, optional = true }
 serde.workspace = true
@@ -45,7 +44,6 @@ pure-stage.workspace = true
 hex.workspace = true
 proptest.workspace = true
 rand.workspace = true
-rand_distr.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }

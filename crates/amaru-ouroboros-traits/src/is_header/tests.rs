@@ -53,19 +53,23 @@ pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<BlockHeader>> {
 
 /// Given a list of headers, set their block_number, slot and parent fields to form a valid chain
 fn make_headers() -> impl Fn(Vec<BlockHeader>) -> Vec<BlockHeader> {
-    |mut headers| {
+    |headers| {
         let mut parent = None;
-        for (i, h) in headers.iter_mut().enumerate() {
-            h.set_block_number(i as u64);
-            h.set_slot(i as u64);
-            if let Some(parent) = parent {
-                h.set_parent(parent);
-            }
-            // Once the header is set, compute its hash and store it
-            h.hash = Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&h.header());
-            parent = Some(h.hash());
-        }
         headers
+            .into_iter()
+            .enumerate()
+            .map({
+                |(i, h)| {
+                    let mut header = h.header().clone();
+                    header.header_body.block_number = i as u64;
+                    header.header_body.slot = i as u64;
+                    header.header_body.prev_hash = parent;
+                    let block_header = BlockHeader::from(header);
+                    parent = Some(block_header.hash());
+                    block_header
+                }
+            })
+            .collect()
     }
 }
 
@@ -79,6 +83,13 @@ pub fn any_header() -> impl Strategy<Value = BlockHeader> {
         .prop_map(|(block_number, slot, prev_hash)| {
             BlockHeader::from(make_header(block_number, slot, prev_hash))
         })
+}
+
+/// Create an arbitrary BlockHeader, with an arbitrary parent, possibly set to None
+pub fn any_header_with_parent(parent: HeaderHash) -> impl Strategy<Value = BlockHeader> {
+    (0u64..=1_000_000, 0u64..=1_000_000).prop_map(move |(block_number, slot)| {
+        BlockHeader::from(make_header(block_number, slot, Some(parent)))
+    })
 }
 
 /// Create an arbitrary header hash with the right number of bytes

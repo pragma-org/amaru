@@ -138,24 +138,6 @@ impl BlockHeader {
     fn recompute_hash(&mut self) {
         self.hash = Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&self.header);
     }
-
-    #[cfg(feature = "test-utils")]
-    pub fn set_block_number(&mut self, block_number: u64) {
-        self.header.header_body.block_number = block_number;
-        self.recompute_hash();
-    }
-
-    #[cfg(feature = "test-utils")]
-    pub fn set_slot(&mut self, slot: u64) {
-        self.header.header_body.slot = slot;
-        self.recompute_hash();
-    }
-
-    #[cfg(feature = "test-utils")]
-    pub fn set_parent(&mut self, parent_hash: HeaderHash) {
-        self.header.header_body.prev_hash = Some(parent_hash);
-        self.recompute_hash();
-    }
 }
 
 impl<C> Encode<C> for BlockHeader {
