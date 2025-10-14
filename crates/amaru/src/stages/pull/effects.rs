@@ -1,5 +1,5 @@
 use crate::{point::from_network_point, stages::to_pallas_point};
-use acto::{AcTokioRuntime, ActoCell, ActoInput, ActoRef, ActoRuntime};
+use acto::{AcTokioRuntime, ActoCell, ActoInput, ActoRef, ActoRuntime, variable::Reader};
 use amaru_consensus::{BlockFetchClientError, consensus::events::ChainSyncEvent};
 use amaru_kernel::{Point, peer::Peer};
 use amaru_network::chain_sync_client::{ChainSyncClient, to_traverse};
@@ -12,11 +12,12 @@ use pallas_network::{
     },
 };
 use parking_lot::Mutex;
-use pure_stage::BoxFuture;
+use pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use rand::{rng, seq::IteratorRandom};
 use std::{
     collections::{HashMap, VecDeque},
     future::pending,
+    ops::Deref,
     sync::Arc,
     time::Duration,
 };
@@ -32,15 +33,103 @@ use tokio::{
 };
 use tracing::Span;
 
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChainSyncEffect {}
 
+impl ExternalEffectAPI for ChainSyncEffect {
+    type Response = ChainSyncEvent;
+}
+
+impl ExternalEffect for ChainSyncEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let network = resources
+                .get::<NetworkResource>()
+                .expect("ChainSyncEffect requires a NetworkResource")
+                .clone();
+            network.next_sync().await
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BlockFetchEffect {
+    peer: Peer,
+    point: Point,
+}
+
+impl ExternalEffectAPI for BlockFetchEffect {
+    type Response = Result<Vec<u8>, BlockFetchClientError>;
+}
+
+impl BlockFetchEffect {
+    pub fn new(peer: &Peer, point: &Point) -> Self {
+        Self {
+            peer: peer.clone(),
+            point: point.clone(),
+        }
+    }
+}
+
+impl ExternalEffect for BlockFetchEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let network = resources
+                .get::<NetworkResource>()
+                .expect("BlockFetchEffect requires a NetworkResource")
+                .clone();
+            network.fetch_block(&self.peer, self.point).await
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DisconnectEffect {
+    peer: Peer,
+}
+
+impl ExternalEffectAPI for DisconnectEffect {
+    type Response = ();
+}
+
+impl DisconnectEffect {
+    pub fn new(peer: &Peer) -> Self {
+        Self { peer: peer.clone() }
+    }
+}
+
+impl ExternalEffect for DisconnectEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let network = resources
+                .get::<NetworkResource>()
+                .expect("DisconnectEffect requires a NetworkResource")
+                .clone();
+            network.disconnect(&self.peer).await
+        })
+    }
+}
+
+#[derive(Clone)]
 pub struct NetworkResource {
-    connections: HashMap<Peer, ActoRef<ConnMsg>>,
-    hd_rx: AsyncMutex<Receiver<ChainSyncEvent>>,
+    inner: Arc<NetworkInner>,
+}
+
+impl Deref for NetworkResource {
+    type Target = NetworkInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 impl NetworkResource {
-    pub fn new(peers: impl IntoIterator<Item = Peer>, rt: &AcTokioRuntime, magic: u64) -> Self {
+    pub fn new(
+        peers: impl IntoIterator<Item = Peer>,
+        rt: &AcTokioRuntime,
+        magic: u64,
+        intersection: Reader<Vec<Point>>,
+    ) -> Self {
         let (hd_tx, hd_rx) = channel(100);
         let connections = peers
             .into_iter()
@@ -48,18 +137,27 @@ impl NetworkResource {
                 (
                     peer.clone(),
                     rt.spawn_actor(&format!("conn-{}", peer), |cell| {
-                        connection(cell, peer, magic, hd_tx.clone())
+                        connection(cell, peer, magic, hd_tx.clone(), intersection.clone())
                     })
                     .me,
                 )
             })
             .collect();
         Self {
-            connections,
-            hd_rx: AsyncMutex::new(hd_rx),
+            inner: Arc::new(NetworkInner {
+                connections,
+                hd_rx: AsyncMutex::new(hd_rx),
+            }),
         }
     }
+}
 
+pub struct NetworkInner {
+    connections: HashMap<Peer, ActoRef<ConnMsg>>,
+    hd_rx: AsyncMutex<Receiver<ChainSyncEvent>>,
+}
+
+impl NetworkInner {
     pub async fn next_sync(&self) -> ChainSyncEvent {
         self.hd_rx
             .lock()
@@ -110,6 +208,7 @@ async fn connection(
     peer: Peer,
     magic: u64,
     hd_tx: Sender<ChainSyncEvent>,
+    intersection: Reader<Vec<Point>>,
 ) {
     let mut req = VecDeque::new();
 
@@ -134,8 +233,9 @@ async fn connection(
         let mut fetch = State::Idle(blockfetch);
         let peer2 = peer.clone();
         let hd_tx = hd_tx.clone();
+        let intersection = intersection.get_cloned();
         let mut sync: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
-            let mut chainsync = ChainSyncClient::new(peer2.clone(), chainsync, vec![]);
+            let mut chainsync = ChainSyncClient::new(peer2.clone(), chainsync, intersection);
             let point = chainsync.find_intersection().await.inspect_err(|e| {
                 tracing::error!("no intersection found with {}: {}", peer2, e);
             })?;
