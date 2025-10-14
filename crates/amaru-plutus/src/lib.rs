@@ -21,7 +21,7 @@ use amaru_kernel::{
     StakeCredential, StakePayload,
 };
 
-use crate::script_context::TimeRange;
+use crate::script_context::{CurrencySymbol, TimeRange};
 
 pub const DEFAULT_TAG: u64 = 102;
 
@@ -117,6 +117,18 @@ pub trait IsKnownPlutusVersion {}
 impl IsKnownPlutusVersion for PlutusVersion<1> {}
 impl IsKnownPlutusVersion for PlutusVersion<2> {}
 impl IsKnownPlutusVersion for PlutusVersion<3> {}
+
+impl<const V: u8> ToPlutusData<V> for CurrencySymbol
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            Self::Ada => <Vec<u8> as ToPlutusData<V>>::to_plutus_data(&vec![]),
+            Self::Native(policy_id) => policy_id.to_plutus_data(),
+        }
+    }
+}
 
 impl<const V: u8> ToPlutusData<V> for MemoizedDatum
 where

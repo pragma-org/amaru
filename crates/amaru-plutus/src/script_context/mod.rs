@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Slot;
+use std::collections::BTreeMap;
+
 use amaru_kernel::{
-    AddrKeyhash, Certificate, DatumHash, EraHistory, KeyValuePairs, Lovelace,
-    MemoizedTransactionOutput as TransactionOutput, PlutusData, PolicyId, Redeemer, StakeAddress,
-    TransactionId, TransactionInput, Value, Voter, Withdrawal,
+    AddrKeyhash, Address, Certificate, DatumHash, EraHistory, Hash, KeyValuePairs, Lovelace,
+    MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, PlutusData, PolicyId, Redeemer,
+    StakeAddress, TransactionId, TransactionInput, Value as KernelValue, Voter, Withdrawal,
 };
+use amaru_kernel::{AssetName, Slot};
 
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 
@@ -65,5 +67,88 @@ impl TimeRange {
             lower_bound,
             upper_bound,
         })
+    }
+}
+
+// This is a variant of `PolicyId` that makes it easier to work with
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CurrencySymbol {
+    Ada,
+    Native(Hash<28>),
+}
+
+#[derive(Clone)]
+pub struct Value(pub BTreeMap<CurrencySymbol, BTreeMap<AssetName, u64>>);
+
+impl From<KernelValue> for Value {
+    fn from(value: KernelValue) -> Self {
+        let assets = match value {
+            KernelValue::Coin(coin) => {
+                BTreeMap::from([(CurrencySymbol::Ada, BTreeMap::from([(vec![].into(), coin)]))])
+            }
+            KernelValue::Multiasset(coin, multiasset) => {
+                let mut map = BTreeMap::new();
+                map.insert(CurrencySymbol::Ada, BTreeMap::from([(vec![].into(), coin)]));
+                multiasset
+                    .into_iter()
+                    .for_each(|(policy_id, asset_bundle)| {
+                        map.insert(
+                            CurrencySymbol::Native(policy_id),
+                            asset_bundle
+                                .into_iter()
+                                .map(|(asset_name, amount)| (asset_name, amount.into()))
+                                .collect(),
+                        );
+                    });
+
+                map
+            }
+        };
+
+        Self(assets)
+    }
+}
+
+impl From<Lovelace> for Value {
+    fn from(coin: Lovelace) -> Self {
+        Self(BTreeMap::from([(
+            CurrencySymbol::Ada,
+            BTreeMap::from([(vec![].into(), coin)]),
+        )]))
+    }
+}
+
+impl Value {
+    pub fn ada(&self) -> Option<u64> {
+        self.0.get(&CurrencySymbol::Ada).and_then(|asset_bundle| {
+            asset_bundle.iter().find_map(|(name, amount)| {
+                if name.is_empty() && amount != &0 {
+                    Some(*amount)
+                } else {
+                    None
+                }
+            })
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct TransactionOutput {
+    pub is_legacy: bool,
+    pub address: Address,
+    pub value: Value,
+    pub datum: MemoizedDatum,
+    pub script: Option<MemoizedScript>,
+}
+
+impl From<MemoizedTransactionOutput> for TransactionOutput {
+    fn from(output: MemoizedTransactionOutput) -> Self {
+        Self {
+            is_legacy: output.is_legacy,
+            address: output.address,
+            value: output.value.into(),
+            datum: output.datum,
+            script: output.script,
+        }
     }
 }

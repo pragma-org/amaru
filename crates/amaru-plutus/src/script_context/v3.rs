@@ -12,21 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
+use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
     Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
     ExUnits, GovAction, Mint, PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate,
-    RationalNumber, StakeCredential, Value, Vote,
+    RationalNumber, StakeCredential, Value as KernelValue, Vote,
 };
 use num::Integer;
 
 use crate::{
     Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr, constr_v3,
     script_context::{
-        AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, OutputRef, PlutusData,
-        PolicyId, Redeemer, StakeAddress, TimeRange, TransactionId, TransactionInput,
-        TransactionOutput, Voter,
+        AddrKeyhash, Certificate, CurrencySymbol, DatumHash, KeyValuePairs, Lovelace, OutputRef,
+        PlutusData, PolicyId, Redeemer, StakeAddress, TimeRange, TransactionId, TransactionInput,
+        TransactionOutput, Value, Voter,
     },
 };
 
@@ -156,6 +156,21 @@ impl ToPlutusData<3> for TransactionOutput {
 
 impl ToPlutusData<3> for Value {
     fn to_plutus_data(&self) -> PlutusData {
+        if self.ada().is_none() {
+            <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(
+                &self
+                    .0
+                    .iter()
+                    .filter(|(currency, _)| !matches!(currency, CurrencySymbol::Ada))
+                    .collect::<BTreeMap<_, _>>(),
+            )
+        } else {
+            <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
+        }
+    }
+}
+impl ToPlutusData<3> for KernelValue {
+    fn to_plutus_data(&self) -> PlutusData {
         fn ada_entry(coin: &u64) -> (PlutusData, PlutusData) {
             (
                 <Bytes as ToPlutusData<3>>::to_plutus_data(&Bytes::from(vec![])),
@@ -167,9 +182,9 @@ impl ToPlutusData<3> for Value {
         }
 
         let entries = match self {
-            Value::Coin(coin) if *coin > 0 => vec![ada_entry(coin)],
-            Value::Coin(_) => vec![],
-            Value::Multiasset(coin, multiasset) => {
+            KernelValue::Coin(coin) if *coin > 0 => vec![ada_entry(coin)],
+            KernelValue::Coin(_) => vec![],
+            KernelValue::Multiasset(coin, multiasset) => {
                 let ada = (*coin > 0).then(|| ada_entry(coin));
                 let multiasset_entries = multiasset.iter().map(|(policy_id, assets)| {
                     (

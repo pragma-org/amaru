@@ -15,10 +15,9 @@
 use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
-    Address, AssetName, Bytes, ComputeHash, EraHistory, Hash, IsSortable, KeyValuePairs,
-    MemoizedDatum, Mint, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
-    NonEmptyKeyValuePairs, PolicyId, Slot, StakeCredential, TransactionInput,
-    TransactionInputAdapter,
+    Address, ComputeHash, EraHistory, Hash, IsSortable, MemoizedDatum, MemoizedTransactionOutput,
+    Mint, MintedTransactionBody, MintedWitnessSet, NonEmptyKeyValuePairs, PolicyId, Slot,
+    StakeCredential, TransactionInput, TransactionInputAdapter,
 };
 use amaru_slot_arithmetic::EraHistoryError;
 use itertools::Itertools;
@@ -41,6 +40,8 @@ pub enum PlutusV1Error {
     ReferenceInputsIncluded,
     #[error("invalid validity range: {0}")]
     InvalidValidityRange(#[from] EraHistoryError),
+    #[error("something went wrong: {0}")]
+    UnspecifiedError(String),
 }
 
 #[derive(Debug, Error)]
@@ -72,7 +73,7 @@ impl TxInfo {
         tx: &MintedTransactionBody<'_>,
         id: &Hash<32>,
         witness_set: &MintedWitnessSet<'_>,
-        utxo: BTreeMap<TransactionInput, TransactionOutput>,
+        utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
         era_history: &EraHistory,
         slot: &Slot,
     ) -> Result<Self, PlutusV1Error> {
@@ -80,10 +81,23 @@ impl TxInfo {
             return Err(PlutusV1Error::ReferenceInputsIncluded);
         }
 
-        let inputs = Self::translate_inputs(&*tx.inputs, utxo)
+        let inputs = Self::translate_inputs(&tx.inputs, utxo)
             .map_err(PlutusV1Error::InputTranslationError)?;
 
-        let outputs = get_outputs_info(&tx.outputs);
+        let outputs = tx
+            .outputs
+            .iter()
+            .map(|output| {
+                MemoizedTransactionOutput::try_from(output.clone()).map(TransactionOutput::from)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                PlutusV1Error::UnspecifiedError(format!(
+                    "failed to parse transaction output: {}",
+                    e
+                ))
+            })?;
+
         let certificates = tx
             .certificates
             .clone()
@@ -96,7 +110,7 @@ impl TxInfo {
                 withdrawals
                     .iter()
                     .map(|(reward_account, coin)| {
-                        let address = Address::from_bytes(&reward_account)
+                        let address = Address::from_bytes(reward_account)
                             .expect("invalid address bytes in withdrawal");
                         if let Address::Stake(reward_account) = address {
                             (reward_account, *coin)
@@ -107,7 +121,7 @@ impl TxInfo {
                     .sorted_by(|(a, _), (b, _)| a.sort(b))
                     .collect::<Vec<Withdrawal>>()
             })
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let mint = tx
             .mint
             .as_ref()
@@ -135,7 +149,7 @@ impl TxInfo {
         Ok(Self {
             inputs,
             outputs,
-            fee: Value::Coin(tx.fee),
+            fee: tx.fee.into(),
             mint,
             certificates,
             withdrawals,
@@ -148,13 +162,13 @@ impl TxInfo {
             .map_err(PlutusV1Error::InvalidValidityRange)?,
             signatories,
             data,
-            id: id.clone(),
+            id: *id,
         })
     }
 
     fn translate_inputs(
         inputs: &[TransactionInput],
-        utxo: BTreeMap<TransactionInput, TransactionOutput>,
+        utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     ) -> Result<Vec<OutputRef>, V1InputTranslationError> {
         inputs
             .iter()
@@ -183,7 +197,7 @@ impl TxInfo {
                     )));
                 }
 
-                if let Some(_) = utxo.script {
+                if utxo.script.is_some() {
                     return Some(Err(V1InputTranslationError::ScriptRefProvided(
                         input.clone().into(),
                     )));
@@ -191,30 +205,10 @@ impl TxInfo {
 
                 Some(Ok(OutputRef {
                     input: input.clone(),
-                    // TODO: The value in our output has to be lexicographically sorted
-                    output: sorted_utxo(utxo.clone()),
+                    output: utxo.clone().into(),
                 }))
             })
             .collect::<Result<Vec<_>, _>>()
-    }
-}
-
-pub fn get_outputs_info(outputs: &[MintedTransactionOutput<'_>]) -> Vec<TransactionOutput> {
-    outputs
-        .into_iter()
-        .map(|output| {
-            sorted_utxo(TransactionOutput::try_from(output.clone()).expect("invalid output"))
-        })
-        .collect()
-}
-
-fn sorted_utxo(utxo: TransactionOutput) -> TransactionOutput {
-    TransactionOutput {
-        is_legacy: utxo.is_legacy,
-        address: utxo.address,
-        value: sort_value(utxo.value),
-        datum: utxo.datum,
-        script: utxo.script,
     }
 }
 
@@ -237,32 +231,6 @@ fn sort_mint(mint: Mint) -> Mint {
             })
             .collect::<Vec<_>>(),
     )
-}
-
-// TODO: this is grabbed straight from Aiken.
-// This should be rethought to avoid cloning
-fn sort_value(value: Value) -> Value {
-    match value {
-        Value::Coin(_) => value.clone(),
-        Value::Multiasset(coin, multiasset) => Value::Multiasset(
-            coin,
-            NonEmptyKeyValuePairs::Indef(
-                multiasset
-                    .deref()
-                    .into_iter()
-                    .sorted()
-                    .map(|(policy_id, asset_bundle)| {
-                        (
-                            *policy_id,
-                            NonEmptyKeyValuePairs::Indef(
-                                asset_bundle.deref().iter().sorted().cloned().collect(),
-                            ),
-                        )
-                    })
-                    .collect(),
-            ),
-        ),
-    }
 }
 
 #[derive(Clone)]
@@ -331,41 +299,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        let ada_entry = |coin: &u64| -> (PlutusData, PlutusData) {
-            (
-                <Bytes as ToPlutusData<V>>::to_plutus_data(&Bytes::from(vec![])),
-                PlutusData::Map(KeyValuePairs::Def(vec![(
-                    <AssetName as ToPlutusData<V>>::to_plutus_data(&AssetName::from(vec![])),
-                    <u64 as ToPlutusData<V>>::to_plutus_data(coin),
-                )])),
-            )
-        };
-        let entries = match self {
-            Value::Coin(coin) => vec![ada_entry(coin)],
-            Value::Multiasset(coin, multiasset) => {
-                let multiasset_entries = multiasset.iter().map(|(policy_id, assets)| {
-                    (
-                        <PolicyId as ToPlutusData<V>>::to_plutus_data(policy_id),
-                        PlutusData::Map(KeyValuePairs::Def(
-                            assets
-                                .iter()
-                                .map(|(asset, amount)| {
-                                    (
-                                        <Bytes as ToPlutusData<V>>::to_plutus_data(asset),
-                                        <u64 as ToPlutusData<V>>::to_plutus_data(&amount.into()),
-                                    )
-                                })
-                                .collect(),
-                        )),
-                    )
-                });
-                std::iter::once(ada_entry(coin))
-                    .chain(multiasset_entries)
-                    .collect()
-            }
-        };
-
-        PlutusData::Map(KeyValuePairs::Def(entries))
+        self.0.to_plutus_data()
     }
 }
 
