@@ -81,7 +81,7 @@ pub fn amaru_point(slot: u64, hash: &str) -> amaru_kernel::Point {
 
 pub struct Setup {
     pub store: Arc<dyn ChainStore<BlockHeader>>,
-    listener: TcpForwardChainServer<BlockHeader>,
+    listener: TcpForwardChainServer,
     port: u16,
 }
 

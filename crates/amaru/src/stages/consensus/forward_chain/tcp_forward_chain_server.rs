@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::PallasPoint;
 use crate::stages::consensus::forward_chain::client_protocol::{
     ClientMsg, ClientOp, ClientProtocolMsg, client_protocols,
 };
+use crate::stages::{AsTip, PallasPoint};
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
 use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
+use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use async_trait::async_trait;
 use pallas_network::{facades::PeerServer, miniprotocols::chainsync::Tip};
 use std::collections::BTreeMap;
@@ -34,19 +34,19 @@ pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 /// and spawns a client protocol handler for each accepted connection.
 /// It also implements the ForwardEventListener trait to receive forward events
 /// and forward them to all connected peers.
-pub struct TcpForwardChainServer<H> {
+pub struct TcpForwardChainServer {
     our_tip: Arc<Mutex<HeaderTip>>,
-    clients: ActoRef<ClientMsg<H>>,
+    clients: ActoRef<ClientMsg>,
     _runtime: AcTokio,
 }
 
-impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
+impl TcpForwardChainServer {
     /// Creates a new TcpForwardChainServer instance:
     ///
     ///  - Start an Acto runtime
     ///  - Bind a TCP listener to the given address
     ///  - Spawn the client supervisor actor
-    pub async fn new(
+    pub async fn new<H: IsHeader + 'static + Clone + Send>(
         store: Arc<dyn ChainStore<H>>,
         listen_address: String,
         network_magic: u64,
@@ -59,7 +59,7 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
 
     /// Creates a new TcpForwardChainServer instance with a provided Acto runtime and TcpListener.
     #[expect(clippy::expect_used)]
-    pub fn create(
+    pub fn create<H: IsHeader + 'static + Clone + Send>(
         store: Arc<dyn ChainStore<H>>,
         tcp_listener: TcpListener,
         network_magic: u64,
@@ -121,7 +121,7 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
 
 /// This implementation of ForwardEventListener sends the received events to all connected clients.
 #[async_trait]
-impl ForwardEventListener for TcpForwardChainServer<BlockHeader> {
+impl ForwardEventListener for TcpForwardChainServer {
     async fn send(&self, event: ForwardEvent) -> anyhow::Result<()> {
         match event {
             ForwardEvent::Forward(header) => {
@@ -133,7 +133,8 @@ impl ForwardEventListener for TcpForwardChainServer<BlockHeader> {
                     *our_tip = header.as_header_tip();
                 };
 
-                self.clients.send(ClientMsg::Op(ClientOp::Forward(header)));
+                self.clients
+                    .send(ClientMsg::Op(ClientOp::Forward(header.as_tip())));
                 Ok(())
             }
             ForwardEvent::Backward(tip) => {
@@ -153,7 +154,7 @@ impl ForwardEventListener for TcpForwardChainServer<BlockHeader> {
 }
 
 async fn client_supervisor<H: IsHeader + 'static + Send + Clone>(
-    mut cell: ActoCell<ClientMsg<H>, impl ActoRuntime, anyhow::Result<()>>,
+    mut cell: ActoCell<ClientMsg, impl ActoRuntime, anyhow::Result<()>>,
     store: Arc<dyn ChainStore<H>>,
     max_peers: usize,
 ) {

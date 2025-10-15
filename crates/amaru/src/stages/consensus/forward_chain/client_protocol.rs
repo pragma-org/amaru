@@ -15,7 +15,6 @@
 use crate::point::from_network_point;
 
 use super::client_state::{ClientState, find_headers_between};
-use crate::stages::{AsTip, PallasPoint};
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_consensus::ChainStore;
 use amaru_kernel::{Hash, to_cbor};
@@ -48,64 +47,48 @@ pub enum ClientError {
 }
 
 #[derive(Clone)]
-pub enum ClientOp<H> {
+pub enum ClientOp {
     /// the tip to go back to
     Backward(Tip),
+
     /// the header to go forward to and the tip we will be at after sending this header
-    Forward(H),
+    Forward(Tip),
 }
 
-impl<H: PartialEq> PartialEq for ClientOp<H> {
+impl PartialEq for ClientOp {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Backward(l0), Self::Backward(r0)) => (&l0.0, l0.1) == (&r0.0, r0.1),
-            (Self::Forward(l0), Self::Forward(r0)) => l0 == r0,
+            (Self::Forward(l0), Self::Forward(r0)) => l0.0 == r0.0 && l0.1 == r0.1,
             _ => false,
         }
     }
 }
 
-impl<H: Eq> Eq for ClientOp<H> {}
+impl Eq for ClientOp {}
 
-impl<H: IsHeader> std::fmt::Debug for ClientOp<H> {
+impl std::fmt::Debug for ClientOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Backward(tip) => f
                 .debug_struct("Backward")
                 .field("tip", &(tip.1, PrettyPoint(&tip.0)))
                 .finish(),
-            Self::Forward(header) => f
-                .debug_struct("Forward")
-                .field(
-                    "header",
-                    &(
-                        header.block_height(),
-                        PrettyPoint(&header.point().pallas_point()),
-                    ),
-                )
-                .field(
-                    "tip",
-                    &(
-                        header.as_tip().1,
-                        PrettyPoint(&header.point().pallas_point()),
-                    ),
-                )
-                .finish(),
+            Self::Forward(point) => f.debug_struct("Forward").field("point", point).finish(),
         }
     }
 }
 
-impl<H: IsHeader> ClientOp<H> {
+impl ClientOp {
     pub fn tip(&self) -> Tip {
         match self {
             ClientOp::Backward(tip) => tip.clone(),
-            ClientOp::Forward(header) => header.as_tip(),
+            ClientOp::Forward(tip) => tip.clone(),
         }
     }
 }
-
-pub enum ClientProtocolMsg<H> {
-    Op(ClientOp<H>),
+pub enum ClientProtocolMsg {
+    Op(ClientOp),
 }
 
 pub struct PrettyPoint<'a>(pub &'a Point);
@@ -128,17 +111,18 @@ pub(crate) fn hash_point(point: &Point) -> Hash<32> {
     }
 }
 
-pub enum ClientMsg<H> {
+pub enum ClientMsg {
     /// A new peer has connected to us.
     ///
     /// Our tip is included to get the connection handlers started correctly.
     Peer(PeerServer, Tip),
+
     /// An operation to be executed on all clients.
-    Op(ClientOp<H>),
+    Op(ClientOp),
 }
 
 pub async fn client_protocols<H: IsHeader + 'static + Clone + Send>(
-    mut cell: ActoCell<ClientProtocolMsg<H>, impl ActoRuntime, anyhow::Result<()>>,
+    mut cell: ActoCell<ClientProtocolMsg, impl ActoRuntime, anyhow::Result<()>>,
     server: PeerServer,
     store: Arc<dyn ChainStore<H>>,
     our_tip: Tip,
@@ -166,15 +150,16 @@ pub async fn client_protocols<H: IsHeader + 'static + Clone + Send>(
     Ok(())
 }
 
-pub enum ChainSyncMsg<H> {
+pub enum ChainSyncMsg {
     /// An operation coming in from the ledger
-    Op(ClientOp<H>),
+    Op(ClientOp),
+
     /// A request for data from the client
     ReqNext,
 }
 
 async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
-    mut cell: ActoCell<ChainSyncMsg<H>, impl ActoRuntime, anyhow::Result<()>>,
+    mut cell: ActoCell<ChainSyncMsg, impl ActoRuntime, anyhow::Result<()>>,
     mut server: chainsync::Server<HeaderContent>,
     our_tip: Tip,
     store: Arc<dyn ChainStore<H>>,
@@ -186,19 +171,22 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
     };
 
     tracing::debug!("finding headers between {:?} and {:?}", our_tip.0, req);
-    let Some((catch_up, client_at)) = find_headers_between(store, &our_tip.0, &req) else {
+    let Some((catch_up, intersection_point)) =
+        find_headers_between(store.clone(), &our_tip.0, &req)
+    else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
         return Err(ClientError::NoIntersection.into());
     };
-    tracing::debug!("intersection found: {client_at:?}");
+    tracing::debug!("intersection found: {intersection_point:?}");
     server
-        .send_intersect_found(client_at.0.clone(), our_tip.clone())
+        .send_intersect_found(intersection_point.0.clone(), our_tip.clone())
         .await?;
 
     let parent = cell.me();
+    let chain_store = store.clone();
     let handler = cell.spawn_supervised("chainsync_handler", move |cell| {
-        chain_sync_handler(cell, server, parent)
+        chain_sync_handler(cell, server, chain_store, parent)
     });
 
     let mut state = ClientState::new(catch_up.into());
@@ -208,32 +196,32 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
         let input = cell.recv().await;
         match input {
             ActoInput::Message(ChainSyncMsg::Op(op)) => {
-                tracing::debug!("got op {op:?}");
+                tracing::trace!("got op {op:?}");
                 our_tip = op.tip();
                 state.add_op(op);
                 if waiting && let Some(op) = state.next_op() {
-                    tracing::debug!("sending op {op:?} to waiting handler");
+                    tracing::trace!("sending op {op:?} to waiting handler");
                     waiting = false;
                     handler.send(Some((op, our_tip.clone())));
                 }
             }
             ActoInput::Message(ChainSyncMsg::ReqNext) => {
-                tracing::debug!("got req next");
+                tracing::trace!("got req next");
                 if let Some(op) = state.next_op() {
-                    tracing::debug!("sending op {op:?} to handler");
+                    tracing::trace!("sending op {op:?} to handler");
                     handler.send(Some((op, our_tip.clone())));
                 } else {
-                    tracing::debug!("sending await reply");
+                    tracing::trace!("sending await reply");
                     handler.send(None);
                     waiting = true;
                 }
             }
             ActoInput::NoMoreSenders => {
-                tracing::debug!("no more senders");
+                tracing::trace!("no more senders");
                 return Ok(());
             }
             ActoInput::Supervision { result, .. } => {
-                tracing::debug!("supervision result: {result:?}");
+                tracing::trace!("supervision result: {result:?}");
                 return result
                     .map_err(|e| anyhow::Error::from(ClientError::HandlerFailure(e.to_string())))
                     .and_then(|x| x);
@@ -246,55 +234,71 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
 /// It will ask the parent for the next operation whenever needed.
 /// The parent may respond with None to indicate the need to await, then it will eventually send the next operation.
 async fn chain_sync_handler<H: IsHeader + 'static + Clone + Send>(
-    mut cell: ActoCell<Option<(ClientOp<H>, Tip)>, impl ActoRuntime>,
+    mut cell: ActoCell<Option<(ClientOp, Tip)>, impl ActoRuntime>,
     mut server: chainsync::Server<HeaderContent>,
-    parent: ActoRef<ChainSyncMsg<H>>,
+    store: Arc<dyn ChainStore<H>>,
+    parent: ActoRef<ChainSyncMsg>,
 ) -> anyhow::Result<()> {
+    // Handle reply to client
+    async fn handle_client_op<H: IsHeader + 'static + Clone + Send>(
+        server: &mut chainsync::Server<HeaderContent>,
+        store: &Arc<dyn ChainStore<H>>,
+        op: ClientOp,
+        our_tip: Tip,
+    ) -> Result<(), anyhow::Error> {
+        match op {
+            ClientOp::Forward(tip) => {
+                if let Some(header) = store.load_header(&hash_point(&tip.0)) {
+                    tracing::trace!(?tip, "sending roll forward");
+                    server
+                        .send_roll_forward(to_header_content(header), our_tip)
+                        .await?;
+                } else {
+                    return Err(ClientError::HandlerFailure(format!(
+                        "failed to load header for point {:?}, definitely a bug!",
+                        tip
+                    ))
+                    .into());
+                }
+            }
+            ClientOp::Backward(point) => {
+                tracing::trace!(?point, "sending roll backward");
+                server.send_roll_backward(point.0, our_tip).await?;
+            }
+        };
+        Ok(())
+    }
+
     loop {
         let Some(req) = server.recv_while_idle().await? else {
-            tracing::debug!("client terminated");
+            tracing::trace!("client terminated");
             return Err(ClientError::ClientTerminated.into());
         };
+
+        // FIXME: why do we require the client to RequestNext? We are supposed to be in
+        // StIdle state and according to ChainSync protocol the client should always be
+        // able to either RequestNext or FindIntersect.
         if !matches!(req, ClientRequest::RequestNext) {
-            tracing::debug!("late intersection");
+            tracing::warn!("late intersection");
             return Err(ClientError::LateIntersection.into());
         };
-        tracing::debug!("got req next");
+        tracing::trace!("got req next");
         parent.send(ChainSyncMsg::ReqNext);
 
         if let ActoInput::Message(op) = cell.recv().await {
             match op {
-                Some((ClientOp::Forward(header), tip)) => {
-                    tracing::debug!("sending roll forward");
-                    server
-                        .send_roll_forward(to_header_content(header), tip)
-                        .await?;
-                }
-                Some((ClientOp::Backward(point), tip)) => {
-                    tracing::debug!("sending roll backward");
-                    server.send_roll_backward(point.0, tip).await?;
-                }
+                Some((op, tip)) => handle_client_op(&mut server, &store, op, tip).await?,
                 None => {
-                    tracing::debug!("sending await reply");
+                    tracing::trace!("sending await reply");
                     server.send_await_reply().await?;
                     let ActoInput::Message(Some((op, tip))) = cell.recv().await else {
                         return Ok(());
                     };
-                    match op {
-                        ClientOp::Forward(header) => {
-                            server
-                                .send_roll_forward(to_header_content(header), tip)
-                                .await?;
-                        }
-                        ClientOp::Backward(point) => {
-                            server.send_roll_backward(point.0, tip).await?;
-                        }
-                    }
+                    handle_client_op(&mut server, &store, op, tip).await?
                 }
             }
         } else {
-            tracing::debug!("parent terminated");
-            // parent terminated
+            tracing::trace!("parent terminated");
             return Ok(());
         }
     }

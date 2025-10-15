@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::stages::AsTip;
 use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
-use crate::stages::{AsTip, PallasPoint};
 use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
@@ -22,29 +22,30 @@ use std::sync::Arc;
 /// The state we track for one client.
 ///
 /// The `ops` list may contain up to one rollback at the front only.
-pub(super) struct ClientState<H> {
+pub(super) struct ClientState {
     /// The list of operations to send to the client.
-    ops: VecDeque<ClientOp<H>>,
+    ops: VecDeque<ClientOp>,
 }
 
-impl<H: IsHeader> ClientState<H> {
-    pub fn new(ops: VecDeque<ClientOp<H>>) -> Self {
+impl ClientState {
+    pub fn new(ops: VecDeque<ClientOp>) -> Self {
         Self { ops }
     }
 
-    pub fn next_op(&mut self) -> Option<ClientOp<H>> {
+    pub fn next_op(&mut self) -> Option<ClientOp> {
         tracing::debug!("next_op: {:?}", self.ops.front());
         self.ops.pop_front()
     }
 
-    pub fn add_op(&mut self, op: ClientOp<H>) {
+    pub fn add_op(&mut self, op: ClientOp) {
         tracing::debug!("add_op: {:?}", op);
         match op {
             ClientOp::Backward(tip) => {
-                if let Some((index, _)) =
-                    self.ops.iter().enumerate().rfind(
-                        |(_, op)| matches!(op, ClientOp::Forward(header2) if header2.point().pallas_point() == tip.0),
-                    )
+                if let Some((index, _)) = self
+                    .ops
+                    .iter()
+                    .enumerate()
+                    .rfind(|(_, op)| matches!(op, ClientOp::Forward(tip2) if tip2.0 == tip.0))
                 {
                     tracing::debug!("found backward op at index {index} in {:?}", self.ops);
                     self.ops.truncate(index + 1);
@@ -71,7 +72,7 @@ pub(super) fn find_headers_between<H: IsHeader + Clone>(
     store: Arc<dyn ChainStore<H>>,
     start_point: &Point,
     points: &[Point],
-) -> Option<(Vec<ClientOp<H>>, Tip)> {
+) -> Option<(Vec<ClientOp>, Tip)> {
     let start_header = store.load_header(&hash_point(start_point))?;
 
     if points.contains(start_point) {
@@ -80,7 +81,7 @@ pub(super) fn find_headers_between<H: IsHeader + Clone>(
 
     // Find the first point that is in the past of start_point
     let mut current_header = start_header;
-    let mut headers = vec![ClientOp::Forward(current_header.clone())];
+    let mut headers = vec![ClientOp::Forward(current_header.as_tip())];
 
     while let Some(parent_hash) = current_header.parent() {
         match store.load_header(&parent_hash) {
@@ -90,7 +91,7 @@ pub(super) fn find_headers_between<H: IsHeader + Clone>(
                     headers.reverse();
                     return Some((headers, header.as_tip()));
                 }
-                headers.push(ClientOp::Forward(header.clone()));
+                headers.push(ClientOp::Forward(header.as_tip()));
                 current_header = header;
             }
             None => return None, // Broken chain
