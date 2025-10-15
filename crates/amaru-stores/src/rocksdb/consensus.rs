@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use tracing::{Level, instrument};
 
 use crate::rocksdb::RocksDbConfig;
+use crate::rocksdb::migration::VERSION_KEY;
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
@@ -34,21 +35,11 @@ pub struct ReadOnlyChainDB {
 
 impl RocksDBStore {
     pub fn new(config: RocksDbConfig) -> Result<Self, StoreError> {
-        let basedir = config.dir.clone();
-        let mut opts: Options = config.into();
-        opts.create_if_missing(true);
-        opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
-            CONSENSUS_PREFIX_LEN,
-        ));
+        let (basedir, db) = open_db(&config)?;
 
-        Ok(Self {
-            db: OptimisticTransactionDB::open(&opts, &basedir).map_err(|e| {
-                StoreError::OpenError {
-                    error: e.to_string(),
-                }
-            })?,
-            basedir,
-        })
+        check_db_version(&db)?;
+
+        Ok(Self { db, basedir })
     }
 
     pub fn open_for_readonly(config: RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
@@ -67,7 +58,51 @@ impl RocksDBStore {
     }
 }
 
+fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
+    let version = db.get(VERSION_KEY).map_err(|e| StoreError::OpenError {
+        error: e.to_string(),
+    })?;
+
+    match version {
+        Some(v) => {
+            let stored = ((v[0] as u16) << 8) | v[1] as u16;
+            if stored != CHAIN_DB_VERSION {
+                Err(StoreError::IncompatibleDbVersions {
+                    stored,
+                    current: CHAIN_DB_VERSION,
+                })
+            } else {
+                Ok(())
+            }
+        }
+        None => Err(StoreError::IncompatibleDbVersions {
+            stored: 0,
+            current: CHAIN_DB_VERSION,
+        }),
+    }?;
+    Ok(())
+}
+
+fn open_db(config: &RocksDbConfig) -> Result<(PathBuf, OptimisticTransactionDB), StoreError> {
+    let basedir = config.dir.clone();
+    let mut opts: Options = config.into();
+    opts.create_if_missing(true);
+    opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
+        CONSENSUS_PREFIX_LEN,
+    ));
+    let db = OptimisticTransactionDB::open(&opts, &basedir).map_err(|e| StoreError::OpenError {
+        error: e.to_string(),
+    })?;
+    Ok((basedir, db))
+}
+
 const CONSENSUS_PREFIX_LEN: usize = 5;
+
+/// Current version of chain DB format expected by this code, as a simple number.
+/// Increment this number by 1 every time the "schema" is updated, eg. a new
+/// type of keys is added, prefixes are changed, etc. then provide a migration
+/// function from the previous version.
+pub const CHAIN_DB_VERSION: u16 = 1;
 
 /// "heade"
 const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x68, 0x65, 0x61, 0x64, 0x65];
@@ -335,10 +370,25 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+fn initialise_with_version(config: &RocksDbConfig, db_version: u16) -> Result<(), StoreError> {
+    let (_, db) = open_db(config)?;
+    let bytes: Vec<u8> = vec![(db_version >> 8) as u8, (db_version & 0xff) as u8];
+    println!("write version {:?}", bytes);
+    db.put(&VERSION_KEY, &bytes)
+        .map_err(|e| StoreError::WriteError {
+            error: e.to_string(),
+        })
+}
+
+#[cfg(any(test, feature = "test-utils"))]
 #[expect(clippy::expect_used)]
 pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
     let basedir = init_dir(path);
-    RocksDBStore::new(RocksDbConfig::new(basedir)).expect("fail to initialise RocksDB")
+    let config = RocksDbConfig::new(basedir);
+
+    initialise_with_version(&config, CHAIN_DB_VERSION).expect("fail to initialise version");
+
+    RocksDBStore::new(config).expect("fail to initialise RocksDB")
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -594,6 +644,19 @@ pub mod test {
                 chain[4..].iter().map(|h| h.hash()).collect::<Vec<_>>()
             );
         })
+    }
+
+    // MIGRATIONS
+
+    #[test]
+    #[should_panic]
+    fn fails_to_open_rw_db_if_stored_version_does_not_exist() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir.path();
+        let basedir = init_dir(path);
+        let config = RocksDbConfig::new(basedir);
+
+        RocksDBStore::new(config).unwrap();
     }
 
     // HELPERS
