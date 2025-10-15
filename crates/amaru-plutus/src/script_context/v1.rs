@@ -15,9 +15,8 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, ComputeHash, EraHistory, Hash, MemoizedDatum, MemoizedTransactionOutput,
-    MintedTransactionBody, MintedWitnessSet, PolicyId, Slot, StakeCredential, TransactionInput,
-    TransactionInputAdapter,
+    Address, EraHistory, Hash, MemoizedDatum, MemoizedTransactionOutput, MintedTransactionBody,
+    MintedWitnessSet, PolicyId, Slot, StakeCredential, TransactionInput, TransactionInputAdapter,
 };
 use amaru_slot_arithmetic::EraHistoryError;
 use itertools::Itertools;
@@ -27,7 +26,7 @@ use crate::{
     Constr, DEFAULT_TAG, IsKnownPlutusVersion, MaybeIndefArray, PlutusVersion, ToConstrTag,
     ToPlutusData, constr, constr_v1,
     script_context::{
-        Certificate, DatumHash, IsPrePlutusVersion3, Mint, OutputRef, PlutusData, RequiredSigners,
+        Certificate, Datums, IsPrePlutusVersion3, Mint, OutputRef, PlutusData, RequiredSigners,
         TimeRange, TransactionId, TransactionOutput, Value, Withdrawals,
     },
 };
@@ -64,7 +63,7 @@ pub struct TxInfo {
     withdrawals: Withdrawals,
     valid_range: TimeRange,
     signatories: RequiredSigners,
-    data: Vec<(DatumHash, PlutusData)>,
+    data: Datums,
     id: TransactionId,
 }
 
@@ -121,16 +120,10 @@ impl TxInfo {
             .map(RequiredSigners::from)
             .unwrap_or_default();
 
-        let data: Vec<(_, _)> = witness_set
+        let datums = witness_set
             .plutus_data
-            .as_deref()
-            .map(|s| {
-                s.iter()
-                    .cloned()
-                    .map(|d| (d.compute_hash(), d.unwrap()))
-                    .sorted()
-                    .collect()
-            })
+            .clone()
+            .map(Datums::from)
             .unwrap_or_default();
 
         Ok(Self {
@@ -148,7 +141,7 @@ impl TxInfo {
             )
             .map_err(PlutusV1Error::InvalidValidityRange)?,
             signatories,
-            data,
+            data: datums,
             id: *id,
         })
     }
@@ -366,5 +359,11 @@ impl ToPlutusData<1> for Withdrawals {
                 .map(|(address, coin)| (constr_v1!(0, [address]), *coin))
                 .collect::<Vec<_>>(),
         )
+    }
+}
+
+impl ToPlutusData<1> for Datums {
+    fn to_plutus_data(&self) -> PlutusData {
+        <Vec<_> as ToPlutusData<1>>::to_plutus_data(&self.0.iter().collect::<Vec<_>>())
     }
 }

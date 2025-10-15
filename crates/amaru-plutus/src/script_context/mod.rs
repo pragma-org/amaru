@@ -16,11 +16,12 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    AddrKeyhash, Address, Certificate, DatumHash, EraHistory, Hash, KeyValuePairs, Lovelace,
-    MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, Mint as KernelMint, Network,
-    NonEmptyKeyValuePairs, PlutusData, PolicyId, Redeemer,
-    RequiredSigners as KernelRequiredSigners, RewardAccount, StakeAddress as KernelStakeAddress,
-    StakePayload, TransactionId, TransactionInput, Value as KernelValue, Voter,
+    AddrKeyhash, Address, Certificate, ComputeHash, DatumHash, EraHistory, Hash, KeepRaw,
+    KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
+    Mint as KernelMint, Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PolicyId,
+    Redeemer, RequiredSigners as KernelRequiredSigners, RewardAccount,
+    StakeAddress as KernelStakeAddress, StakePayload, TransactionId, TransactionInput,
+    Value as KernelValue, Voter,
 };
 use amaru_kernel::{AssetName, Slot};
 
@@ -265,5 +266,20 @@ impl TryFrom<NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdrawals {
             .collect::<Result<BTreeMap<_, _>, String>>()?;
 
         Ok(Self(withdrawals))
+    }
+}
+
+#[derive(Default)]
+pub struct Datums(pub BTreeMap<DatumHash, PlutusData>);
+
+impl From<NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums {
+    fn from(plutus_data: NonEmptySet<KeepRaw<'_, PlutusData>>) -> Self {
+        Self(
+            plutus_data
+                .to_vec()
+                .into_iter()
+                .map(|data| (data.compute_hash(), data.unwrap()))
+                .collect(),
+        )
     }
 }
