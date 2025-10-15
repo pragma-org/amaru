@@ -16,12 +16,12 @@ use crate::{
     Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr_v2,
     script_context::{
         AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, OutputRef, PlutusData,
-        Redeemer, StakeAddress, TimeRange, TransactionId, TransactionOutput, Value,
-        v1::ScriptPurpose,
+        Redeemer, TimeRange, TransactionId, TransactionOutput, Value, v1::ScriptPurpose,
     },
 };
 
 pub use crate::script_context::v1::ScriptContext;
+use amaru_kernel::StakeAddress;
 
 // Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V2/Contexts.hs#L82
 pub struct TxInfo {

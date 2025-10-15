@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     AddrKeyhash, Address, Certificate, DatumHash, EraHistory, Hash, KeyValuePairs, Lovelace,
-    MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, Mint as KernelMint, PlutusData,
-    PolicyId, Redeemer, RequiredSigners as KernelRequiredSigners, StakeAddress, TransactionId,
-    TransactionInput, Value as KernelValue, Voter, Withdrawal,
+    MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, Mint as KernelMint, Network,
+    NonEmptyKeyValuePairs, PlutusData, PolicyId, Redeemer,
+    RequiredSigners as KernelRequiredSigners, RewardAccount, StakeAddress as KernelStakeAddress,
+    StakePayload, TransactionId, TransactionInput, Value as KernelValue, Voter,
 };
 use amaru_kernel::{AssetName, Slot};
 
@@ -188,5 +190,80 @@ pub struct RequiredSigners(pub BTreeSet<AddrKeyhash>);
 impl From<KernelRequiredSigners> for RequiredSigners {
     fn from(value: KernelRequiredSigners) -> Self {
         Self(value.to_vec().into_iter().collect())
+    }
+}
+
+#[derive(Default)]
+pub struct Withdrawals(pub BTreeMap<StakeAddress, Lovelace>);
+
+#[derive(Clone)]
+pub struct StakeAddress(KernelStakeAddress);
+
+impl From<StakeAddress> for KernelStakeAddress {
+    fn from(value: StakeAddress) -> Self {
+        value.0
+    }
+}
+
+// Reference for this ordering is
+// https://github.com/aiken-lang/aiken/blob/a8c032935dbaf4a1140e9d8be5c270acd32c9e8c/crates/uplc/src/tx/script_context.rs#L1112
+impl Ord for StakeAddress {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        fn network_tag(network: Network) -> u8 {
+            match network {
+                Network::Testnet => 0,
+                Network::Mainnet => 1,
+                Network::Other(tag) => tag,
+            }
+        }
+
+        if self.0.network() != other.0.network() {
+            return network_tag(self.0.network()).cmp(&network_tag(other.0.network()));
+        }
+
+        match (self.0.payload(), other.0.payload()) {
+            (StakePayload::Script(..), StakePayload::Stake(..)) => Ordering::Less,
+            (StakePayload::Stake(..), StakePayload::Script(..)) => Ordering::Greater,
+            (StakePayload::Script(hash_a), StakePayload::Script(hash_b)) => hash_a.cmp(hash_b),
+            (StakePayload::Stake(hash_a), StakePayload::Stake(hash_b)) => hash_a.cmp(hash_b),
+        }
+    }
+}
+
+impl PartialOrd for StakeAddress {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for StakeAddress {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for StakeAddress {}
+
+impl TryFrom<NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdrawals {
+    type Error = String;
+
+    fn try_from(
+        value: NonEmptyKeyValuePairs<RewardAccount, Lovelace>,
+    ) -> Result<Self, Self::Error> {
+        let withdrawals = value
+            .iter()
+            .map(|(reward_account, coin)| {
+                let address = Address::from_bytes(reward_account)
+                    .map_err(|e| format!("failed to decode reward account: {}", e))?;
+
+                if let Address::Stake(reward_account) = address {
+                    Ok((StakeAddress(reward_account), *coin))
+                } else {
+                    Err("invalid address type in withdrawals".into())
+                }
+            })
+            .collect::<Result<BTreeMap<_, _>, String>>()?;
+
+        Ok(Self(withdrawals))
     }
 }

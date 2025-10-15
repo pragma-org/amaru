@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, ops::Deref};
 use amaru_kernel::{
     Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
     ExUnits, GovAction, Mint, PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate,
-    RationalNumber, StakeCredential, Value as KernelValue, Vote,
+    RationalNumber, StakeAddress, StakeCredential, Value as KernelValue, Vote,
 };
 use num::Integer;
 
@@ -25,7 +25,7 @@ use crate::{
     Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr, constr_v3,
     script_context::{
         AddrKeyhash, Certificate, CurrencySymbol, DatumHash, KeyValuePairs, Lovelace, OutputRef,
-        PlutusData, PolicyId, Redeemer, StakeAddress, TimeRange, TransactionId, TransactionInput,
+        PlutusData, PolicyId, Redeemer, TimeRange, TransactionId, TransactionInput,
         TransactionOutput, Value, Voter,
     },
 };

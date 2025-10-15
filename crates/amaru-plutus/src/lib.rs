@@ -17,11 +17,11 @@ use std::collections::BTreeMap;
 use amaru_kernel::{
     Address, BigInt, Bytes, ComputeHash, Constr, DatumOption, Hash, Int, KeyValuePairs,
     MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable,
-    PlutusData, PseudoScript, Redeemer, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress,
-    StakeCredential, StakePayload,
+    PlutusData, PseudoScript, Redeemer, ShelleyDelegationPart, ShelleyPaymentPart,
+    StakeAddress as KernelStakeAddress, StakeCredential, StakePayload,
 };
 
-use crate::script_context::{CurrencySymbol, TimeRange};
+use crate::script_context::{CurrencySymbol, StakeAddress, TimeRange};
 
 pub const DEFAULT_TAG: u64 = 102;
 
@@ -226,7 +226,7 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for StakeAddress
+impl<const V: u8> ToPlutusData<V> for KernelStakeAddress
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
@@ -235,6 +235,15 @@ where
             StakePayload::Stake(keyhash) => constr!(0, [keyhash]),
             StakePayload::Script(script_hash) => constr!(1, [script_hash]),
         }
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for StakeAddress
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        KernelStakeAddress::from(self.clone()).to_plutus_data()
     }
 }
 

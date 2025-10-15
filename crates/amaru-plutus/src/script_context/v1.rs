@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, ComputeHash, EraHistory, Hash, IsSortable, MemoizedDatum, MemoizedTransactionOutput,
+    Address, ComputeHash, EraHistory, Hash, MemoizedDatum, MemoizedTransactionOutput,
     MintedTransactionBody, MintedWitnessSet, PolicyId, Slot, StakeCredential, TransactionInput,
     TransactionInputAdapter,
 };
@@ -28,7 +28,7 @@ use crate::{
     ToPlutusData, constr, constr_v1,
     script_context::{
         Certificate, DatumHash, IsPrePlutusVersion3, Mint, OutputRef, PlutusData, RequiredSigners,
-        TimeRange, TransactionId, TransactionOutput, Value, Withdrawal,
+        TimeRange, TransactionId, TransactionOutput, Value, Withdrawals,
     },
 };
 
@@ -61,7 +61,7 @@ pub struct TxInfo {
     fee: Value,
     mint: Mint,
     certificates: Vec<Certificate>,
-    withdrawals: Vec<Withdrawal>,
+    withdrawals: Withdrawals,
     valid_range: TimeRange,
     signatories: RequiredSigners,
     data: Vec<(DatumHash, PlutusData)>,
@@ -107,22 +107,10 @@ impl TxInfo {
 
         let withdrawals = tx
             .withdrawals
-            .as_ref()
-            .map(|withdrawals| {
-                withdrawals
-                    .iter()
-                    .map(|(reward_account, coin)| {
-                        let address = Address::from_bytes(reward_account)
-                            .expect("invalid address bytes in withdrawal");
-                        if let Address::Stake(reward_account) = address {
-                            (reward_account, *coin)
-                        } else {
-                            unreachable!("invalid reward address in withdrawals")
-                        }
-                    })
-                    .sorted_by(|(a, _), (b, _)| a.sort(b))
-                    .collect::<Vec<Withdrawal>>()
-            })
+            .clone()
+            .map(Withdrawals::try_from)
+            .transpose()
+            .map_err(PlutusV1Error::UnspecifiedError)?
             .unwrap_or_default();
 
         let mint = tx.mint.clone().map(Mint::from).unwrap_or_default();
@@ -243,10 +231,7 @@ impl ToPlutusData<1> for TxInfo {
                 self.fee,
                 self.mint,
                 self.certificates,
-                self.withdrawals
-                    .iter()
-                    .map(|(address, coin)| (constr_v1!(0, [address]), *coin))
-                    .collect::<Vec<_>>(),
+                self.withdrawals,
                 self.valid_range,
                 self.signatories,
                 self.data,
@@ -369,5 +354,17 @@ impl ToPlutusData<1> for RequiredSigners {
         let vec = self.0.iter().collect::<Vec<_>>();
 
         <Vec<_> as ToPlutusData<1>>::to_plutus_data(&vec)
+    }
+}
+
+impl ToPlutusData<1> for Withdrawals {
+    fn to_plutus_data(&self) -> PlutusData {
+        <Vec<_> as ToPlutusData<1>>::to_plutus_data(
+            &self
+                .0
+                .iter()
+                .map(|(address, coin)| (constr_v1!(0, [address]), *coin))
+                .collect::<Vec<_>>(),
+        )
     }
 }
