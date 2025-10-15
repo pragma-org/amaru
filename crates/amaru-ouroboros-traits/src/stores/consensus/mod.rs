@@ -25,12 +25,12 @@ where
     H: IsHeader,
 {
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
-    fn load_headers(&self) -> Box<dyn Iterator<Item = H> + '_>;
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (Hash<32>, Nonces)> + '_>;
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (Hash<32>, RawBlock)> + '_>;
+    fn load_headers(&self) -> Box<dyn Iterator<Item=H> + '_>;
+    fn load_nonces(&self) -> Box<dyn Iterator<Item=(Hash<32>, Nonces)> + '_>;
+    fn load_blocks(&self) -> Box<dyn Iterator<Item=(Hash<32>, RawBlock)> + '_>;
     fn load_parents_children(
         &self,
-    ) -> Box<dyn Iterator<Item = (Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_>;
+    ) -> Box<dyn Iterator<Item=(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_>;
     fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>>;
     fn get_anchor_hash(&self) -> Hash<32>;
     fn get_best_chain_hash(&self) -> Hash<32>;
@@ -59,7 +59,7 @@ where
 
     /// Return the ancestors of the header, including the header itself.
     /// Stop at the anchor of the tree.
-    fn ancestors<'a>(&'a self, start: H) -> Box<dyn Iterator<Item = H> + 'a>
+    fn ancestors<'a>(&'a self, start: H) -> Box<dyn Iterator<Item=H> + 'a>
     where
         H: 'a,
     {
@@ -77,7 +77,7 @@ where
     fn ancestors_hashes<'a>(
         &'a self,
         hash: &Hash<HEADER_HASH_SIZE>,
-    ) -> Box<dyn Iterator<Item = Hash<HEADER_HASH_SIZE>> + 'a>
+    ) -> Box<dyn Iterator<Item=Hash<HEADER_HASH_SIZE>> + 'a>
     where
         H: 'a,
     {
@@ -94,21 +94,21 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
         self.as_ref().load_header(hash)
     }
 
-    fn load_headers(&self) -> Box<dyn Iterator<Item = H> + '_> {
+    fn load_headers(&self) -> Box<dyn Iterator<Item=H> + '_> {
         self.as_ref().load_headers()
     }
 
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (Hash<32>, Nonces)> + '_> {
+    fn load_nonces(&self) -> Box<dyn Iterator<Item=(Hash<32>, Nonces)> + '_> {
         self.as_ref().load_nonces()
     }
 
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (Hash<32>, RawBlock)> + '_> {
+    fn load_blocks(&self) -> Box<dyn Iterator<Item=(Hash<32>, RawBlock)> + '_> {
         self.as_ref().load_blocks()
     }
 
     fn load_parents_children(
         &self,
-    ) -> Box<dyn Iterator<Item = (Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_> {
+    ) -> Box<dyn Iterator<Item=(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_> {
         self.as_ref().load_parents_children()
     }
 
@@ -146,6 +146,7 @@ where
     fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError>;
     fn set_best_chain_hash(&self, hash: &Hash<32>) -> Result<(), StoreError>;
     fn update_best_chain(&self, anchor: &Hash<32>, tip: &Hash<32>) -> Result<(), StoreError>;
+    /// FIXME: this function is not used anywhere, remove it.
     fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError>;
     fn store_block(&self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError>;
     fn put_nonces(&self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError>;
