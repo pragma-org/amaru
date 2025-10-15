@@ -44,8 +44,7 @@ impl RocksDBStore {
 
     pub fn open_for_readonly(config: RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
         let basedir = config.dir.clone();
-        let mut opts: Options = config.into();
-        opts.create_if_missing(false);
+        let opts: Options = config.into();
         DB::open_for_read_only(&opts, basedir, false)
             .map_err(|e| StoreError::OpenError {
                 error: e.to_string(),
@@ -58,7 +57,7 @@ impl RocksDBStore {
     }
 }
 
-fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
+pub fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
     let version = db.get(VERSION_KEY).map_err(|e| StoreError::OpenError {
         error: e.to_string(),
     })?;
@@ -83,10 +82,10 @@ fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn open_db(config: &RocksDbConfig) -> Result<(PathBuf, OptimisticTransactionDB), StoreError> {
+/// Open a Chain DB for reading and writing.
+pub fn open_db(config: &RocksDbConfig) -> Result<(PathBuf, OptimisticTransactionDB), StoreError> {
     let basedir = config.dir.clone();
     let mut opts: Options = config.into();
-    opts.create_if_missing(true);
     opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
         CONSENSUS_PREFIX_LEN,
     ));
@@ -373,7 +372,6 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
 fn initialise_with_version(config: &RocksDbConfig, db_version: u16) -> Result<(), StoreError> {
     let (_, db) = open_db(config)?;
     let bytes: Vec<u8> = vec![(db_version >> 8) as u8, (db_version & 0xff) as u8];
-    println!("write version {:?}", bytes);
     db.put(&VERSION_KEY, &bytes)
         .map_err(|e| StoreError::WriteError {
             error: e.to_string(),

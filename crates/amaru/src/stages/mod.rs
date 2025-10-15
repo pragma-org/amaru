@@ -497,21 +497,21 @@ mod tests {
                 "{}",
                 StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("/path/to/store")))
             ),
-            "RocksDbConfig { dir: /path/to/store }"
+            "RocksDbConfig { dir: /path/to/store, create_if_missing: true }"
         );
         assert_eq!(
             format!(
                 "{}",
                 StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("./relative/path")))
             ),
-            "RocksDbConfig { dir: ./relative/path }"
+            "RocksDbConfig { dir: ./relative/path, create_if_missing: true }"
         );
         assert_eq!(
             format!(
                 "{}",
                 StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("")))
             ),
-            "RocksDbConfig { dir:  }"
+            "RocksDbConfig { dir: , create_if_missing: true }"
         );
     }
 }
