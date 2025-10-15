@@ -940,6 +940,21 @@ impl HasRedeemers for Redeemers {
     }
 }
 
+pub fn normalize_redeemers(redeemers: Redeemers) -> Vec<Redeemer> {
+    match redeemers {
+        Redeemers::List(list) => list.to_vec(),
+        Redeemers::Map(map) => map
+            .into_iter()
+            .map(|(tag, value)| Redeemer {
+                tag: tag.tag,
+                index: tag.index,
+                data: value.data,
+                ex_units: value.ex_units,
+            })
+            .collect(),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

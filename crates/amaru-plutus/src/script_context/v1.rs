@@ -16,7 +16,8 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Address, EraHistory, Hash, MemoizedDatum, MemoizedTransactionOutput, MintedTransactionBody,
-    MintedWitnessSet, PolicyId, Slot, StakeCredential, TransactionInput, TransactionInputAdapter,
+    MintedWitnessSet, PolicyId, Redeemer, ScriptPurpose as RedeemerTag, Slot, StakeCredential,
+    TransactionInput, TransactionInputAdapter, normalize_redeemers,
 };
 use amaru_slot_arithmetic::EraHistoryError;
 use itertools::Itertools;
@@ -39,6 +40,8 @@ pub enum PlutusV1Error {
     ReferenceInputsIncluded,
     #[error("invalid validity range: {0}")]
     InvalidValidityRange(#[from] EraHistoryError),
+    #[error("invalid redeemer at index {0}")]
+    InvalidRedeemer(usize),
     #[error("something went wrong: {0}")]
     UnspecifiedError(String),
 }
@@ -64,6 +67,7 @@ pub struct TxInfo {
     valid_range: TimeRange,
     signatories: RequiredSigners,
     data: Datums,
+    redeemers: Redeemers,
     id: TransactionId,
 }
 
@@ -126,6 +130,31 @@ impl TxInfo {
             .map(Datums::from)
             .unwrap_or_default();
 
+        let redeemers = witness_set
+            .redeemer
+            .clone()
+            .map(|redeemers| {
+                normalize_redeemers(redeemers.unwrap())
+                    .into_iter()
+                    .enumerate()
+                    .map(|(ix, redeemer)| {
+                        let purpose = ScriptPurpose::builder(
+                            &redeemer,
+                            &inputs[..],
+                            &mint,
+                            &withdrawals,
+                            &certificates,
+                        )
+                        .map_err(|_| PlutusV1Error::InvalidRedeemer(ix))?;
+
+                        Ok((purpose, redeemer))
+                    })
+                    .collect::<Result<Vec<(ScriptPurpose, Redeemer)>, PlutusV1Error>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let redeemers = Redeemers(redeemers);
         Ok(Self {
             inputs,
             outputs,
@@ -141,6 +170,7 @@ impl TxInfo {
             )
             .map_err(PlutusV1Error::InvalidValidityRange)?,
             signatories,
+            redeemers,
             data: datums,
             id: *id,
         })
@@ -200,9 +230,64 @@ pub enum ScriptPurpose {
     Certifying(Certificate),
 }
 
+// FIXME: This should probably be a BTreeMap
+pub struct Redeemers(pub Vec<(ScriptPurpose, Redeemer)>);
+
+impl ScriptPurpose {
+    #[allow(clippy::result_unit_err)]
+    pub fn builder(
+        redeemer: &Redeemer,
+        inputs: &[OutputRef],
+        mint: &Mint,
+        withdrawals: &Withdrawals,
+        certs: &[Certificate],
+    ) -> Result<Self, ()> {
+        let index = redeemer.index as usize;
+        match redeemer.tag {
+            RedeemerTag::Spend => inputs
+                .get(index)
+                .map(|output_ref| ScriptPurpose::Spending(output_ref.input.clone())),
+            RedeemerTag::Mint => mint
+                .0
+                .keys()
+                .nth(index)
+                .map(|policy| ScriptPurpose::Minting(*policy)),
+            RedeemerTag::Reward => withdrawals.0.keys().nth(index).map(|stake| {
+                ScriptPurpose::Rewarding(match stake.0.payload() {
+                    amaru_kernel::StakePayload::Stake(hash) => StakeCredential::AddrKeyhash(*hash),
+                    amaru_kernel::StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
+                })
+            }),
+            RedeemerTag::Cert => certs
+                .get(index)
+                .map(|cert| ScriptPurpose::Certifying(cert.clone())),
+            RedeemerTag::Vote | RedeemerTag::Propose => None,
+        }
+        .ok_or(())
+    }
+}
+
 pub struct ScriptContext {
     tx_info: TxInfo,
     purpose: ScriptPurpose,
+}
+
+impl ScriptContext {
+    pub fn new(tx_info: TxInfo, redeemer: &Redeemer) -> Option<Self> {
+        let purpose = tx_info
+            .redeemers
+            .0
+            .iter()
+            .find_map(|(purpose, tx_redeemer)| {
+                if redeemer.tag == tx_redeemer.tag && redeemer.index == tx_redeemer.index {
+                    Some(purpose.clone())
+                } else {
+                    None
+                }
+            });
+
+        purpose.map(|purpose| ScriptContext { tx_info, purpose })
+    }
 }
 
 impl<const V: u8> ToPlutusData<V> for ScriptContext
