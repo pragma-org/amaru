@@ -361,6 +361,7 @@ pub mod test {
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
     use amaru_kernel::{Nonce, ORIGIN_HASH};
+    use amaru_ouroboros_traits::ChainStore;
     use amaru_ouroboros_traits::is_header::BlockHeader;
     use amaru_ouroboros_traits::tests::{
         any_header_with_parent, any_headers_chain, make_header, run,
@@ -596,6 +597,32 @@ pub mod test {
     }
 
     // HELPERS
+
+    // creates a sample db at the given path, populating with some data
+    // this function exists to make it easy to test DB migration:
+    //
+    // 1. create a sample DB with the old version
+    // 2. run migration code
+    // 3. check that the data is still there and correct
+    fn create_sample_db(path: &PathBuf) {
+        let db = initialise_test_rw_store(path);
+        let chain = run(any_headers_chain(10));
+        for header in &chain {
+            let block = RawBlock::from(random_bytes(32).as_slice());
+            db.store_header(header).unwrap();
+            <RocksDBStore as ChainStore<BlockHeader>>::store_block(&db, &header.hash(), &block)
+                .unwrap();
+            let nonces = Nonces {
+                active: Nonce::from(random_bytes(32).as_slice()),
+                evolving: Nonce::from(random_bytes(32).as_slice()),
+                candidate: Nonce::from(random_bytes(32).as_slice()),
+                tail: header.parent().unwrap_or(ORIGIN_HASH),
+                epoch: Default::default(),
+            };
+            <RocksDBStore as ChainStore<BlockHeader>>::put_nonces(&db, &header.hash(), &nonces)
+                .unwrap();
+        }
+    }
 
     fn with_db(f: impl Fn(Arc<dyn ChainStore<BlockHeader>>)) {
         // // try first with in-memory store
