@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, ops::Deref};
+use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Address, ComputeHash, EraHistory, Hash, IsSortable, MemoizedDatum, MemoizedTransactionOutput,
-    Mint, MintedTransactionBody, MintedWitnessSet, NonEmptyKeyValuePairs, PolicyId, Slot,
-    StakeCredential, TransactionInput, TransactionInputAdapter,
+    MintedTransactionBody, MintedWitnessSet, PolicyId, Slot, StakeCredential, TransactionInput,
+    TransactionInputAdapter,
 };
 use amaru_slot_arithmetic::EraHistoryError;
 use itertools::Itertools;
@@ -27,8 +27,8 @@ use crate::{
     Constr, DEFAULT_TAG, IsKnownPlutusVersion, MaybeIndefArray, PlutusVersion, ToConstrTag,
     ToPlutusData, constr, constr_v1,
     script_context::{
-        AddrKeyhash, Certificate, DatumHash, IsPrePlutusVersion3, OutputRef, PlutusData, TimeRange,
-        TransactionId, TransactionOutput, Value, Withdrawal,
+        AddrKeyhash, Certificate, DatumHash, IsPrePlutusVersion3, Mint, OutputRef, PlutusData,
+        TimeRange, TransactionId, TransactionOutput, Value, Withdrawal,
     },
 };
 
@@ -69,6 +69,7 @@ pub struct TxInfo {
 }
 
 impl TxInfo {
+    #[allow(clippy::expect_used)]
     pub fn new(
         tx: &MintedTransactionBody<'_>,
         id: &Hash<32>,
@@ -122,11 +123,8 @@ impl TxInfo {
                     .collect::<Vec<Withdrawal>>()
             })
             .unwrap_or_default();
-        let mint = tx
-            .mint
-            .as_ref()
-            .map(|mint| sort_mint(mint.clone()))
-            .unwrap_or(NonEmptyKeyValuePairs::Def(vec![]));
+
+        let mint = tx.mint.clone().map(Mint::from).unwrap_or_default();
 
         let signatories: Vec<_> = tx
             .required_signers
@@ -210,27 +208,6 @@ impl TxInfo {
             })
             .collect::<Result<Vec<_>, _>>()
     }
-}
-
-fn sort_mint(mint: Mint) -> Mint {
-    NonEmptyKeyValuePairs::Indef(
-        mint.into_iter()
-            .sorted()
-            .map(|(policy_id, asset_bundle)| {
-                (
-                    policy_id,
-                    NonEmptyKeyValuePairs::Indef(
-                        asset_bundle
-                            .deref()
-                            .iter()
-                            .sorted()
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                    ),
-                )
-            })
-            .collect::<Vec<_>>(),
-    )
 }
 
 #[derive(Clone)]
@@ -353,8 +330,8 @@ impl ToPlutusData<1> for OutputRef {
     }
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<1> for TransactionOutput {
+    #[allow(clippy::wildcard_enum_match_arm)]
     fn to_plutus_data(&self) -> PlutusData {
         constr_v1!(
             0,
@@ -367,5 +344,21 @@ impl ToPlutusData<1> for TransactionOutput {
                 },
             ]
         )
+    }
+}
+
+impl ToPlutusData<1> for Mint {
+    fn to_plutus_data(&self) -> PlutusData {
+        // In V1, we need to provide the zero ADA asset as well
+        let mut mint = self
+            .0
+            .iter()
+            .map(|(policy, multiasset)| (policy.to_vec(), multiasset))
+            .collect::<BTreeMap<_, _>>();
+
+        let ada_bundle = BTreeMap::from([(vec![].into(), 0)]);
+        mint.insert(vec![], &ada_bundle);
+
+        <BTreeMap<_, _> as ToPlutusData<1>>::to_plutus_data(&mint)
     }
 }

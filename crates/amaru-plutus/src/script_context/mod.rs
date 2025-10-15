@@ -16,8 +16,9 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     AddrKeyhash, Address, Certificate, DatumHash, EraHistory, Hash, KeyValuePairs, Lovelace,
-    MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, PlutusData, PolicyId, Redeemer,
-    StakeAddress, TransactionId, TransactionInput, Value as KernelValue, Voter, Withdrawal,
+    MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, Mint as KernelMint, PlutusData,
+    PolicyId, Redeemer, StakeAddress, TransactionId, TransactionInput, Value as KernelValue, Voter,
+    Withdrawal,
 };
 use amaru_kernel::{AssetName, Slot};
 
@@ -75,6 +76,12 @@ impl TimeRange {
 pub enum CurrencySymbol {
     Ada,
     Native(Hash<28>),
+}
+
+impl From<Hash<28>> for CurrencySymbol {
+    fn from(value: Hash<28>) -> Self {
+        Self::Native(value)
+    }
 }
 
 #[derive(Clone)]
@@ -150,5 +157,27 @@ impl From<MemoizedTransactionOutput> for TransactionOutput {
             datum: output.datum,
             script: output.script,
         }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Mint(pub BTreeMap<Hash<28>, BTreeMap<AssetName, i64>>);
+
+impl From<KernelMint> for Mint {
+    fn from(value: KernelMint) -> Self {
+        let mints: BTreeMap<Hash<28>, BTreeMap<AssetName, i64>> = value
+            .into_iter()
+            .map(|(policy, multiasset)| {
+                (
+                    policy,
+                    multiasset
+                        .into_iter()
+                        .map(|(asset_name, amount)| (asset_name, amount.into()))
+                        .collect(),
+                )
+            })
+            .collect();
+
+        Self(mints)
     }
 }
