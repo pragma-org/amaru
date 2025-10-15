@@ -27,7 +27,7 @@ use crate::{
     Constr, DEFAULT_TAG, IsKnownPlutusVersion, MaybeIndefArray, PlutusVersion, ToConstrTag,
     ToPlutusData, constr, constr_v1,
     script_context::{
-        AddrKeyhash, Certificate, DatumHash, IsPrePlutusVersion3, Mint, OutputRef, PlutusData,
+        Certificate, DatumHash, IsPrePlutusVersion3, Mint, OutputRef, PlutusData, RequiredSigners,
         TimeRange, TransactionId, TransactionOutput, Value, Withdrawal,
     },
 };
@@ -63,7 +63,7 @@ pub struct TxInfo {
     certificates: Vec<Certificate>,
     withdrawals: Vec<Withdrawal>,
     valid_range: TimeRange,
-    signatories: Vec<AddrKeyhash>,
+    signatories: RequiredSigners,
     data: Vec<(DatumHash, PlutusData)>,
     id: TransactionId,
 }
@@ -104,6 +104,7 @@ impl TxInfo {
             .clone()
             .map(|set| set.to_vec())
             .unwrap_or_default();
+
         let withdrawals = tx
             .withdrawals
             .as_ref()
@@ -126,10 +127,10 @@ impl TxInfo {
 
         let mint = tx.mint.clone().map(Mint::from).unwrap_or_default();
 
-        let signatories: Vec<_> = tx
+        let signatories: RequiredSigners = tx
             .required_signers
-            .as_deref()
-            .map(|s| s.iter().cloned().sorted().collect())
+            .clone()
+            .map(RequiredSigners::from)
             .unwrap_or_default();
 
         let data: Vec<(_, _)> = witness_set
@@ -360,5 +361,13 @@ impl ToPlutusData<1> for Mint {
         mint.insert(vec![], &ada_bundle);
 
         <BTreeMap<_, _> as ToPlutusData<1>>::to_plutus_data(&mint)
+    }
+}
+
+impl ToPlutusData<1> for RequiredSigners {
+    fn to_plutus_data(&self) -> PlutusData {
+        let vec = self.0.iter().collect::<Vec<_>>();
+
+        <Vec<_> as ToPlutusData<1>>::to_plutus_data(&vec)
     }
 }

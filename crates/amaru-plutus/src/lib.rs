@@ -478,7 +478,7 @@ where
     T: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        (*self).to_plutus_data()
+        T::to_plutus_data(*self)
     }
 }
 

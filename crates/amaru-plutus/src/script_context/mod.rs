@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     AddrKeyhash, Address, Certificate, DatumHash, EraHistory, Hash, KeyValuePairs, Lovelace,
     MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, Mint as KernelMint, PlutusData,
-    PolicyId, Redeemer, StakeAddress, TransactionId, TransactionInput, Value as KernelValue, Voter,
-    Withdrawal,
+    PolicyId, Redeemer, RequiredSigners as KernelRequiredSigners, StakeAddress, TransactionId,
+    TransactionInput, Value as KernelValue, Voter, Withdrawal,
 };
 use amaru_kernel::{AssetName, Slot};
 
@@ -179,5 +179,14 @@ impl From<KernelMint> for Mint {
             .collect();
 
         Self(mints)
+    }
+}
+
+#[derive(Default)]
+pub struct RequiredSigners(pub BTreeSet<AddrKeyhash>);
+
+impl From<KernelRequiredSigners> for RequiredSigners {
+    fn from(value: KernelRequiredSigners) -> Self {
+        Self(value.to_vec().into_iter().collect())
     }
 }

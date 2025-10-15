@@ -65,9 +65,10 @@ pub use pallas_primitives::{
         PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
         ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount, ScriptHash, ScriptRef,
-        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
-        VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners, RewardAccount, ScriptHash,
+        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
+        UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures,
+        VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
