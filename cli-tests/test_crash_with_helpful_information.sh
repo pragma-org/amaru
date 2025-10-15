@@ -32,7 +32,7 @@ bootstrap_amaru() {
 }
 
 start_amaru() {
-	cargo run --profile ${BUILD_PROFILE} -- daemon \
+	cargo run --profile ${BUILD_PROFILE} -- run \
 		--peer-address ${UNREACHABLE_PEER} \
 		--ledger-dir ${LEDGER_DIR} \
 		--chain-dir ${CHAIN_DIR} \
