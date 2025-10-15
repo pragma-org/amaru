@@ -48,6 +48,7 @@ pub mod common;
 use common::{PREFIX_LEN, as_value};
 
 pub mod consensus;
+pub mod migration;
 
 mod transaction;
 use transaction::OngoingTransaction;
@@ -158,6 +159,16 @@ impl From<RocksDbConfig> for Options {
         let mut opts = Options::default();
         if let Some(env) = config.env {
             opts.set_env(&env);
+        }
+        opts
+    }
+}
+
+impl From<&RocksDbConfig> for Options {
+    fn from(config: &RocksDbConfig) -> Self {
+        let mut opts = Options::default();
+        if let Some(ref env) = config.env {
+            opts.set_env(env);
         }
         opts
     }
