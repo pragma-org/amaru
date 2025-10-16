@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_primitives::{Bytes, Hash, PolicyId, PositiveCoin, conway::Multiasset};
-
 use crate::{
-    Address, AlonzoValue, AssetName, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedNativeScript,
-    MemoizedPlutusData, MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs,
-    PseudoScript, ScriptHash, Value, cbor,
+    Address, AlonzoValue, AssetName, KeyValuePairs, Legacy, Lovelace, MemoizedDatum,
+    MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs, ScriptHash, Value, cbor,
+    decode_script, from_minted_script,
     script::{PlaceholderScript, encode_script, serialize_memoized_script},
 };
-
-use pallas_primitives::{KeepRaw, PlutusData, conway::NativeScript};
+use amaru_minicbor_extra::{
+    decode_break, decode_chunk, heterogeneous_map, missing_field, unexpected_field,
+    with_default_value,
+};
+use pallas_codec::minicbor::data::Type;
+use pallas_primitives::{Bytes, Hash, PolicyId, PositiveCoin, conway::Multiasset};
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
 pub struct MemoizedTransactionOutput {
@@ -46,144 +48,90 @@ pub struct MemoizedTransactionOutput {
 impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let data_type = d.datatype()?;
-        let mut is_legacy = false;
-        let mut address: Option<Address> = None;
-        let mut value: Value = Value::Coin(0);
-        let mut datum: MemoizedDatum = MemoizedDatum::None;
-        let mut script: Option<MemoizedScript> = None;
 
-        if data_type == cbor::data::Type::MapIndef || data_type == cbor::data::Type::Map {
-            let map_size = d.map()?.unwrap_or(4);
-
-            for _ in 0..map_size {
-                // Check for break condition first (for indefinite maps)
-                if d.datatype()? == cbor::data::Type::Break {
-                    d.skip()?;
-                    break;
-                }
-
-                let key = d.u8()?;
-                match key {
-                    0 => {
-                        address = Some(Address::from_bytes(d.bytes()?).map_err(|e| {
-                            cbor::decode::Error::message(format!("invalid address: {e:?}"))
-                        })?);
-                    }
-                    1 => {
-                        value = d.decode_with(ctx)?;
-                    }
-                    2 => {
-                        d.array()?;
-                        let datum_option = d.u8()?;
-                        match datum_option {
-                            0 => {
-                                datum = MemoizedDatum::Hash(d.bytes()?.into());
-                            }
-                            1 => {
-                                let tag = d.tag()?;
-
-                                match tag.as_u64() {
-                                    24 => {
-                                        let plutus_data: KeepRaw<'_, PlutusData> =
-                                            cbor::decode(d.bytes()?)?;
-                                        let memoized_data = MemoizedPlutusData::from(plutus_data);
-                                        datum = MemoizedDatum::Inline(memoized_data);
-                                    }
-                                    _ => {
-                                        return Err(cbor::decode::Error::message(
-                                            "unknown tag for datum tag",
-                                        ));
-                                    }
-                                };
-                            }
-                            _ => {
-                                return Err(cbor::decode::Error::message(format!(
-                                    "unknown datum option: {}",
-                                    datum_option
-                                )));
-                            }
-                        }
-                    }
-                    3 => {
-                        let tag = d.tag()?;
-
-                        match tag.as_u64() {
-                            24 => {
-                                let mut script_decoder: cbor::Decoder<'_> =
-                                    cbor::Decoder::new(d.bytes()?);
-                                let pseudo_script: Result<
-                                    PseudoScript<KeepRaw<'_, NativeScript>>,
-                                    _,
-                                > = script_decoder.decode_with(ctx);
-
-                                script = match pseudo_script {
-                                    Ok(pseudo_script_type) => match pseudo_script_type {
-                                        PseudoScript::NativeScript(script_bytes) => {
-                                            Some(PseudoScript::NativeScript(
-                                                MemoizedNativeScript::from(script_bytes),
-                                            ))
-                                        }
-                                        PseudoScript::PlutusV1Script(script_bytes) => {
-                                            Some(PseudoScript::PlutusV1Script(script_bytes))
-                                        }
-                                        PseudoScript::PlutusV2Script(script_bytes) => {
-                                            Some(PseudoScript::PlutusV2Script(script_bytes))
-                                        }
-                                        PseudoScript::PlutusV3Script(script_byte) => {
-                                            Some(PseudoScript::PlutusV3Script(script_byte))
-                                        }
-                                    },
-                                    Err(e) => {
-                                        return Err(cbor::decode::Error::message(format!(
-                                            "failed to decode script: {:?}",
-                                            e
-                                        )));
-                                    }
-                                };
-                            }
-                            _ => {
-                                return Err(cbor::decode::Error::message(
-                                    "unknown tag for script tag",
-                                ));
-                            }
-                        }
-                    }
-                    _ => {
-                        return Err(cbor::decode::Error::message("unknown key option"));
-                    }
-                }
-            }
-        } else if data_type == cbor::data::Type::ArrayIndef || data_type == cbor::data::Type::Array
-        {
-            is_legacy = true;
-            d.array()?;
-            address =
-                Some(Address::from_bytes(d.bytes()?).map_err(|e| {
-                    cbor::decode::Error::message(format!("invalid address: {e:?}"))
-                })?);
-            value = d.decode_with(ctx)?;
-
-            if d.datatype()? == cbor::data::Type::Bytes {
-                datum = MemoizedDatum::Hash(d.bytes()?.into());
-            }
+        if matches!(data_type, Type::MapIndef | Type::Map) {
+            decode_modern_output(d, ctx)
+        } else if matches!(data_type, Type::ArrayIndef | Type::Array) {
+            decode_legacy_output(d, ctx)
         } else {
-            return Err(cbor::decode::Error::message(format!(
-                "unexpected CBOR type for output: {:?}",
-                data_type
-            )));
+            Err(cbor::decode::Error::type_mismatch(data_type))
         }
-
-        let address = address
-            .ok_or_else(|| cbor::decode::Error::message("missing required address field"))?;
-
-        Ok(MemoizedTransactionOutput {
-            is_legacy,
-            address,
-            value,
-            datum,
-            script,
-        })
     }
+}
+
+fn decode_legacy_output<C>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
+    let len = d.array()?;
+
+    Ok(MemoizedTransactionOutput {
+        is_legacy: true,
+        address: decode_address(d.bytes()?)?,
+        value: d.decode_with(ctx)?,
+        datum: match len {
+            Some(2) => MemoizedDatum::None,
+            Some(3) => d.decode_with::<_, Legacy<_>>(ctx)?.0,
+            Some(_) => {
+                return Err(cbor::decode::Error::message(format!(
+                    "expected legacy transaction output array length of 2 or 3, got {len:?}",
+                )));
+            }
+            None => {
+                if decode_break(d, len)? {
+                    MemoizedDatum::None
+                } else {
+                    let datum: Legacy<MemoizedDatum> = d.decode_with(ctx)?;
+                    if !decode_break(d, len)? {
+                        return Err(cbor::decode::Error::message(
+                            "expected break after legacy transaction output datum",
+                        ));
+                    }
+                    datum.0
+                }
+            }
+        },
+        script: None,
+    })
+}
+
+fn decode_modern_output<C>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
+    let (address, value, datum, script) = heterogeneous_map(
+        d,
+        (
+            missing_field::<MemoizedTransactionOutput, _>(0),
+            missing_field::<MemoizedTransactionOutput, _>(1),
+            with_default_value(MemoizedDatum::None),
+            with_default_value(None),
+        ),
+        |d| d.u8(),
+        |d, state, field| {
+            match field {
+                0 => state.0 = decode_chunk(d, |d| decode_address(d.bytes()?)),
+                1 => state.1 = decode_chunk(d, |d| d.decode_with(ctx)),
+                2 => state.2 = decode_chunk(d, |d| d.decode_with(ctx)),
+                3 => state.3 = decode_chunk(d, |d| Ok(Some(decode_script(d, ctx)?))),
+                _ => return unexpected_field::<MemoizedTransactionOutput, _>(field),
+            }
+            Ok(())
+        },
+    )?;
+
+    Ok(MemoizedTransactionOutput {
+        is_legacy: false,
+        address: address()?,
+        value: value()?,
+        datum: datum()?,
+        script: script()?,
+    })
+}
+
+fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
+    Address::from_bytes(address_bytes)
+        .map_err(|e| cbor::decode::Error::message(format!("invalid address: {e:?}")))
 }
 
 impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
@@ -254,20 +202,7 @@ impl<'a> TryFrom<MintedTransactionOutput<'a>> for MemoizedTransactionOutput {
                     .map_err(|e| format!("invalid address: {e:?}"))?,
                 value: output.value,
                 datum: MemoizedDatum::from(output.datum_option),
-                script: output.script_ref.map(|script| match script.unwrap() {
-                    PseudoScript::NativeScript(native_script) => {
-                        PseudoScript::NativeScript(MemoizedNativeScript::from(native_script))
-                    }
-                    PseudoScript::PlutusV1Script(plutus_script) => {
-                        PseudoScript::PlutusV1Script(plutus_script)
-                    }
-                    PseudoScript::PlutusV2Script(plutus_script) => {
-                        PseudoScript::PlutusV2Script(plutus_script)
-                    }
-                    PseudoScript::PlutusV3Script(plutus_script) => {
-                        PseudoScript::PlutusV3Script(plutus_script)
-                    }
-                }),
+                script: output.script_ref.map(from_minted_script),
             }),
         }
     }
@@ -465,6 +400,30 @@ mod tests {
             .unwrap(),
             value: Value::Coin(1500000),
             datum,
+            script: None,
+        };
+
+        let mut encoder = cbor::Encoder::new(Vec::new());
+        let mut ctx = ();
+        original.encode(&mut encoder, &mut ctx).unwrap();
+        let encoded_bytes = encoder.writer().clone();
+
+        let mut decoder = cbor::Decoder::new(&encoded_bytes);
+        let decoded: MemoizedTransactionOutput = decoder.decode_with(&mut ctx).unwrap();
+
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_encode_decode_output_no_datum_no_script() {
+        let original = MemoizedTransactionOutput {
+            is_legacy: false,
+            address: Address::from_hex(
+                "61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335",
+            )
+            .unwrap(),
+            value: Value::Coin(1500000),
+            datum: MemoizedDatum::None,
             script: None,
         };
 

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, Point, RawBlock, peer::Peer};
-use amaru_ouroboros_traits::IsHeader;
+use amaru_kernel::{Point, RawBlock, peer::Peer};
+use amaru_ouroboros_traits::{BlockHeader, IsHeader};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -80,18 +80,13 @@ pub enum DecodedChainSyncEvent {
     RollForward {
         peer: Peer,
         point: Point,
-        header: Header,
+        header: BlockHeader,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
     Rollback {
         peer: Peer,
         rollback_point: Point,
-        #[serde(skip, default = "Span::none")]
-        span: Span,
-    },
-    CaughtUp {
-        peer: Peer,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -102,7 +97,6 @@ impl DecodedChainSyncEvent {
         match self {
             DecodedChainSyncEvent::RollForward { peer, .. } => peer.clone(),
             DecodedChainSyncEvent::Rollback { peer, .. } => peer.clone(),
-            DecodedChainSyncEvent::CaughtUp { peer, .. } => peer.clone(),
         }
     }
 }
@@ -128,11 +122,7 @@ impl fmt::Debug for DecodedChainSyncEvent {
             } => f
                 .debug_struct("Rollback")
                 .field("peer", &peer.name)
-                .field("rollback_point", &rollback_point.to_string())
-                .finish(),
-            DecodedChainSyncEvent::CaughtUp { peer, .. } => f
-                .debug_struct("CaughtUp")
-                .field("peer", &peer.name)
+                .field("rollback_point", &rollback_point)
                 .finish(),
         }
     }
@@ -142,13 +132,13 @@ impl fmt::Debug for DecodedChainSyncEvent {
 pub enum ValidateHeaderEvent {
     Validated {
         peer: Peer,
-        header: Header,
+        header: BlockHeader,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
     Rollback {
         peer: Peer,
-        rollback_header: Header,
+        rollback_point: Point,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -158,7 +148,7 @@ pub enum ValidateHeaderEvent {
 pub enum ValidateBlockEvent {
     Validated {
         peer: Peer,
-        header: Header,
+        header: BlockHeader,
         #[serde(skip, default = "default_block")]
         block: RawBlock,
         #[serde(skip, default = "Span::none")]
@@ -166,7 +156,7 @@ pub enum ValidateBlockEvent {
     },
     Rollback {
         peer: Peer,
-        rollback_header: Header,
+        rollback_point: Point,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -192,7 +182,7 @@ impl Debug for ValidateBlockEvent {
                 .finish(),
             ValidateBlockEvent::Rollback {
                 peer,
-                rollback_header: rollback_point,
+                rollback_point,
                 ..
             } => f
                 .debug_struct("Rollback")
@@ -221,12 +211,12 @@ impl PartialEq for ValidateBlockEvent {
             (
                 ValidateBlockEvent::Rollback {
                     peer: p1,
-                    rollback_header: rp1,
+                    rollback_point: rp1,
                     ..
                 },
                 ValidateBlockEvent::Rollback {
                     peer: p2,
-                    rollback_header: rp2,
+                    rollback_point: rp2,
                     ..
                 },
             ) => p1 == p2 && rp1 == rp2,
@@ -239,7 +229,7 @@ impl PartialEq for ValidateBlockEvent {
 pub enum BlockValidationResult {
     BlockValidated {
         peer: Peer,
-        header: Header,
+        header: BlockHeader,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -251,7 +241,7 @@ pub enum BlockValidationResult {
     },
     RolledBackTo {
         peer: Peer,
-        rollback_header: Header,
+        rollback_header: BlockHeader,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },

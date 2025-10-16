@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    EraHistory, Hash, Header, Nonce, Point, default_chain_dir, network::NetworkName, parse_nonce,
+    EraHistory, Hash, Nonce, Point, default_chain_dir, network::NetworkName, parse_nonce,
 };
-use amaru_ouroboros_traits::{ChainStore, Nonces};
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, Nonces};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -127,7 +127,7 @@ pub(crate) async fn import_nonces(
 ) -> Result<(), Box<dyn Error>> {
     let db = Box::new(RocksDBStore::new(&RocksDbConfig::new(
         chain_db_path.into(),
-    ))?) as Box<dyn ChainStore<Header>>;
+    ))?) as Box<dyn ChainStore<BlockHeader>>;
 
     let header_hash = Hash::from(&initial_nonce.at);
 

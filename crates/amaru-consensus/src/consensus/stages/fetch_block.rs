@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps, NetworkOps};
-use crate::consensus::errors::{ConsensusError, ValidationFailed};
+use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
 use crate::consensus::events::{ValidateBlockEvent, ValidateHeaderEvent};
 use crate::consensus::span::HasSpan;
 use amaru_kernel::{Point, RawBlock, peer::Peer};
 use amaru_ouroboros_traits::{CanFetchBlock, IsHeader};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use pure_stage::StageRef;
 use std::collections::BTreeMap;
@@ -25,12 +26,16 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{Level, error, span};
 
-type State = (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>);
+type State = (
+    StageRef<ValidateBlockEvent>,
+    StageRef<ValidationFailed>,
+    StageRef<ProcessingFailed>,
+);
 
 /// This stages fetches the full block from a peer after its header has been validated.
 /// It then sends the full block to the downstream stage for validation and storage.
 pub async fn stage(
-    (downstream, errors): State,
+    (downstream, failures, errors): State,
     msg: ValidateHeaderEvent,
     eff: impl ConsensusOps,
 ) -> State {
@@ -43,6 +48,15 @@ pub async fn stage(
             match eff.network().fetch_block(&peer, &point).await {
                 Ok(block) => {
                     let block = RawBlock::from(&*block);
+
+                    let result = eff.store().store_block(&header.hash(), &block);
+                    if let Err(e) = result {
+                        eff.base()
+                            .send(&errors, ProcessingFailed::new(&peer, anyhow!(e)))
+                            .await;
+                        return (downstream, failures, errors);
+                    }
+
                     eff.base()
                         .send(
                             &downstream,
@@ -57,14 +71,14 @@ pub async fn stage(
                 }
                 Err(e) => {
                     eff.base()
-                        .send(&errors, ValidationFailed::new(&peer, e))
+                        .send(&failures, ValidationFailed::new(&peer, e))
                         .await
                 }
             }
         }
         ValidateHeaderEvent::Rollback {
             peer,
-            rollback_header: rollback_point,
+            rollback_point,
             span,
             ..
         } => {
@@ -73,14 +87,14 @@ pub async fn stage(
                     &downstream,
                     ValidateBlockEvent::Rollback {
                         peer,
-                        rollback_header: rollback_point,
+                        rollback_point,
                         span,
                     },
                 )
                 .await
         }
     }
-    (downstream, errors)
+    (downstream, failures, errors)
 }
 
 /// A trait for fetching blocks from peers.
@@ -141,9 +155,8 @@ mod tests {
     use super::*;
     use crate::consensus::effects::mock_consensus_ops;
     use crate::consensus::errors::ValidationFailed;
-    use crate::consensus::tests::any_header;
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::fake::tests::run;
+    use amaru_ouroboros_traits::tests::{any_header, run};
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;
@@ -183,7 +196,8 @@ mod tests {
 
     fn make_state() -> State {
         let downstream: StageRef<ValidateBlockEvent> = StageRef::named("downstream");
-        let errors: StageRef<ValidationFailed> = StageRef::named("errors");
-        (downstream, errors)
+        let failures: StageRef<ValidationFailed> = StageRef::named("failures");
+        let errors: StageRef<ProcessingFailed> = StageRef::named("errors");
+        (downstream, failures, errors)
     }
 }

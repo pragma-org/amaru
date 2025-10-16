@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, default_chain_dir, from_cbor, network::NetworkName};
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName};
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use gasket::framework::*;
@@ -101,7 +101,7 @@ pub(crate) async fn import_headers_for_network(
                 .inspect_err(|reason| error!(file = %path.display(), reason = %reason, "Failed to read header file"))
                 .map_err(|_| WorkerError::Panic)?;
 
-            let header_from_file: Header = from_cbor(&cbor_data).unwrap();
+            let header_from_file: BlockHeader = from_cbor(&cbor_data).unwrap();
             let hash = header_from_file.hash();
 
             info!(

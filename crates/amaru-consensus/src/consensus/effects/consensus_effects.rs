@@ -17,15 +17,14 @@ use crate::consensus::effects::metrics_effects::{Metrics, MetricsOps};
 use crate::consensus::effects::{Base, BaseOps};
 use crate::consensus::effects::{Ledger, LedgerOps};
 use crate::consensus::effects::{Network, NetworkOps};
-use amaru_kernel::Header;
-use amaru_ouroboros_traits::ChainStore;
+use amaru_ouroboros_traits::{BlockHeader, ChainStore};
 use pure_stage::{Effects, SendData};
 use std::sync::Arc;
 
 /// This trait provides access to all effectful operations needed by consensus stages.
 pub trait ConsensusOps: Send + Sync + Clone {
     /// Return a ChainStore implementation to store headers, get the best chain tip etc...
-    fn store(&self) -> Arc<dyn ChainStore<Header>>;
+    fn store(&self) -> Arc<dyn ChainStore<BlockHeader>>;
     /// Return a NetworkOps implementation to access network operations, like fetch_block
     fn network(&self) -> impl NetworkOps;
     /// Return a LedgerOps implementation to access ledger operations, considering that it is a sub-system
@@ -48,7 +47,7 @@ impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
         ConsensusEffects { effects }
     }
 
-    pub fn store(&self) -> Arc<dyn ChainStore<Header>> {
+    pub fn store(&self) -> Arc<dyn ChainStore<BlockHeader>> {
         Arc::new(Store::new(self.effects.clone()))
     }
 
@@ -70,7 +69,7 @@ impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
 }
 
 impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
-    fn store(&self) -> Arc<dyn ChainStore<Header>> {
+    fn store(&self) -> Arc<dyn ChainStore<BlockHeader>> {
         self.store()
     }
 
@@ -98,11 +97,14 @@ pub mod tests {
     use crate::consensus::errors::{ConsensusError, ProcessingFailed};
     use crate::consensus::tip::HeaderTip;
     use amaru_kernel::peer::Peer;
-    use amaru_kernel::{Header, Point, PoolId, RawBlock};
+    use amaru_kernel::{Point, PoolId, RawBlock};
     use amaru_metrics::MetricsEvent;
     use amaru_metrics::ledger::LedgerMetrics;
+    use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{BlockValidationError, HasStakeDistribution, PoolSummary};
+    use amaru_ouroboros_traits::{
+        BlockHeader, BlockValidationError, HasStakeDistribution, PoolSummary,
+    };
     use amaru_slot_arithmetic::Slot;
     use pure_stage::{BoxFuture, Instant, StageRef};
     use std::collections::BTreeMap;
@@ -111,7 +113,7 @@ pub mod tests {
 
     #[derive(Clone)]
     pub struct MockConsensusOps {
-        pub mock_store: InMemConsensusStore<Header>,
+        pub mock_store: InMemConsensusStore<BlockHeader>,
         pub mock_network: MockNetworkOps,
         pub mock_ledger: MockLedgerOps,
         pub mock_base: MockBaseOps,
@@ -120,7 +122,7 @@ pub mod tests {
 
     #[allow(refining_impl_trait)]
     impl ConsensusOps for MockConsensusOps {
-        fn store(&self) -> Arc<dyn ChainStore<Header>> {
+        fn store(&self) -> Arc<dyn ChainStore<BlockHeader>> {
             Arc::new(self.mock_store.clone())
         }
 
@@ -181,7 +183,7 @@ pub mod tests {
         fn send_forward_event(
             &self,
             _peer: &Peer,
-            _header: Header,
+            _header: BlockHeader,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
             Box::pin(async { Ok(()) })
         }
@@ -199,7 +201,15 @@ pub mod tests {
     pub struct MockLedgerOps;
 
     impl LedgerOps for MockLedgerOps {
-        fn validate(
+        fn validate_header(
+            &self,
+            _point: &Point,
+            _header: &BlockHeader,
+        ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn validate_block(
             &self,
             _peer: &Peer,
             _point: &Point,
@@ -212,7 +222,7 @@ pub mod tests {
         fn rollback(
             &self,
             _peer: &Peer,
-            _rollback_header: &Header,
+            _point: &Point,
         ) -> BoxFuture<'static, anyhow::Result<(), ProcessingFailed>> {
             Box::pin(async { Ok(()) })
         }

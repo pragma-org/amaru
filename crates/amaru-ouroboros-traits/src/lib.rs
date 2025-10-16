@@ -29,6 +29,3 @@ pub use is_header::*;
 
 pub mod praos;
 pub use praos::*;
-
-#[cfg(test)]
-pub use is_header::fake::tests::*;

@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, RationalNumber};
-use amaru_ouroboros::{ChainStore, HasStakeDistribution, Nonces, PoolSummary, StoreError};
+use amaru_kernel::RationalNumber;
+use amaru_ouroboros::{
+    BlockHeader, ChainStore, HasStakeDistribution, Nonces, PoolSummary, StoreError,
+};
 use amaru_slot_arithmetic::{Epoch, Slot};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
@@ -23,11 +25,14 @@ use std::{fs::File, io::BufReader, path::Path};
 
 /// A fake stake distribution used for simulation purposes.
 /// It can be loaded from a JSON file or instantiated directly from a list of pools (FakeStakePoolInfo).
+/// TODO: This is dead code for now remove when changing the data generation for the simulation module.
+#[allow(dead_code)]
 pub struct FakeStakeDistribution {
     total_active_stake: u64,
     pools: Vec<FakeStakePoolInfo>,
 }
 
+#[allow(dead_code)]
 impl FakeStakeDistribution {
     /// Deserialize a stake distribution from a JSON file.
     pub fn from_file(stake_distribution_file: &Path) -> Result<FakeStakeDistribution, Error> {
@@ -101,7 +106,7 @@ pub enum PopulateError {
 
 /// Populate a chain store with nonces data from given context file.
 pub(crate) fn populate_chain_store(
-    chain_store: Arc<dyn ChainStore<Header>>,
+    chain_store: Arc<dyn ChainStore<BlockHeader>>,
     header: &Hash<32>,
     consensus_context_file: &Path,
 ) -> Result<(), PopulateError> {
@@ -147,7 +152,6 @@ pub struct ConsensusContext {
 mod test {
     use super::*;
 
-    use amaru_kernel::Header;
     use amaru_kernel::Slot;
     use amaru_kernel::tests::random_bytes;
     use amaru_ouroboros::HasStakeDistribution;
@@ -195,7 +199,8 @@ mod test {
     #[test]
     fn populate_chain_store_nonces_from_context_file() {
         let consensus_store_file = "tests/data/consensus-context.json";
-        let consensus_store: Arc<dyn ChainStore<Header>> = Arc::new(InMemConsensusStore::new());
+        let consensus_store: Arc<dyn ChainStore<BlockHeader>> =
+            Arc::new(InMemConsensusStore::new());
         let expected_nonce = amaru_kernel::Hash::from(
             hex::decode("ec08f270a044fb94bf61f9870e928a96cf75027d1f0e9f5dead0651b40849a89")
                 .unwrap()

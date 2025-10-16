@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HEADER_HASH_SIZE, Header, RawBlock, protocol_parameters::GlobalParameters};
-use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
+use amaru_kernel::{HEADER_HASH_SIZE, RawBlock, protocol_parameters::GlobalParameters};
+use amaru_ouroboros_traits::{
+    BlockHeader, ChainStore, HeaderHash, Nonces, ReadOnlyChainStore, StoreError,
+};
 use pallas_crypto::hash::Hash;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
-
-/// Type alias for a header hash to improve readability
-pub type HeaderHash = Hash<HEADER_HASH_SIZE>;
 
 /// Implementation of ChainStore using pure_stage::Effects.
 #[derive(Clone)]
@@ -41,12 +40,12 @@ impl<T> Store<T> {
     }
 }
 
-impl<T: SendData + Sync> ReadOnlyChainStore<Header> for Store<T> {
-    fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
+impl<T: SendData + Sync> ReadOnlyChainStore<BlockHeader> for Store<T> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         self.external_sync(LoadHeaderEffect::new(*hash))
     }
 
-    fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_> {
+    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
         Box::new(self.external_sync(LoadHeadersEffect::new()).into_iter())
     }
 
@@ -92,7 +91,7 @@ impl<T: SendData + Sync> ReadOnlyChainStore<Header> for Store<T> {
     }
 }
 
-impl<T: SendData + Sync> ChainStore<Header> for Store<T> {
+impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         self.external_sync(SetAnchorHashEffect::new(*hash))
     }
@@ -105,7 +104,7 @@ impl<T: SendData + Sync> ChainStore<Header> for Store<T> {
         self.external_sync(UpdateBestChainEffect::new(*anchor, *tip))
     }
 
-    fn store_header(&self, header: &Header) -> Result<(), StoreError> {
+    fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
         self.external_sync(StoreHeaderEffect::new(header.clone()))
     }
 
@@ -124,16 +123,16 @@ impl<T: SendData + Sync> ChainStore<Header> for Store<T> {
 
 // EXTERNAL EFFECTS DEFINITIONS
 
-pub type ResourceHeaderStore = Arc<dyn ChainStore<Header>>;
+pub type ResourceHeaderStore = Arc<dyn ChainStore<BlockHeader>>;
 pub type ResourceParameters = GlobalParameters;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct StoreHeaderEffect {
-    header: Header,
+    header: BlockHeader,
 }
 
 impl StoreHeaderEffect {
-    pub fn new(header: Header) -> Self {
+    pub fn new(header: BlockHeader) -> Self {
         Self { header }
     }
 }
@@ -379,7 +378,7 @@ impl ExternalEffect for LoadHeaderEffect {
 }
 
 impl ExternalEffectAPI for LoadHeaderEffect {
-    type Response = Option<Header>;
+    type Response = Option<BlockHeader>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -513,7 +512,7 @@ impl ExternalEffect for LoadHeadersEffect {
 }
 
 impl ExternalEffectAPI for LoadHeadersEffect {
-    type Response = Vec<Header>;
+    type Response = Vec<BlockHeader>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -24,7 +24,7 @@ use crate::echo::Envelope;
 use crate::simulator::bytes::Bytes;
 use crate::simulator::data_generation::base_generators::generate_arrival_times;
 use crate::simulator::data_generation::chain::{Block, Chain};
-use crate::simulator::{Entry, SimulateConfig};
+use crate::simulator::{Entry, NodeConfig};
 use crate::sync::ChainSyncMessage;
 use amaru_slot_arithmetic::Slot;
 
@@ -167,17 +167,17 @@ pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &PathBuf) -> Result<Vec<C
     Ok(generate_inputs_from_chain(&chain, rng))
 }
 
-pub fn generate_entries<'a, R: Rng>(
-    config: &'a SimulateConfig,
-    file_path: &'a PathBuf,
+pub fn generate_entries<R: Rng>(
+    node_config: &NodeConfig,
     start_time: Instant,
     mean_millis: f64,
-) -> impl Fn(&mut R) -> Vec<Reverse<Entry<ChainSyncMessage>>> + use<'a, R> {
+) -> impl Fn(&mut R) -> Vec<Reverse<Entry<ChainSyncMessage>>> + use<'_, R> {
+    let file_path = node_config.block_tree_file.clone();
     move |rng| {
         let mut entries: Vec<Reverse<Entry<ChainSyncMessage>>> = vec![];
-        for client in 1..=config.number_of_upstream_peers {
-            let messages =
-                generate_inputs(rng, file_path).expect("Failed to generate inputs from chain file");
+        for client in 1..=node_config.number_of_upstream_peers {
+            let messages = generate_inputs(rng, &file_path)
+                .expect("Failed to generate inputs from chain file");
             let arrival_times =
                 generate_arrival_times(start_time, mean_millis)(messages.len(), rng);
             entries.extend(

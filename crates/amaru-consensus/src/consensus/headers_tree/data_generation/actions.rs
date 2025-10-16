@@ -17,23 +17,26 @@
 //!
 //!  - `Action` represents roll forward or rollback actions.
 //!  - `SelectionResult` encapsulates the values returned by the `HeadersTree` on each roll forward or rollback.
-//!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<TestHeader>` of a given depth.
+//!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<BlockHeader>` of a given depth.
 //!
 
 use crate::consensus::errors::ConsensusError;
 use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
 use crate::consensus::headers_tree::data_generation::SelectionResult::{Back, Forward};
-use crate::consensus::headers_tree::data_generation::{TestHeader, any_tree_of_headers};
+use crate::consensus::headers_tree::data_generation::any_tree_of_headers;
 use crate::consensus::headers_tree::tree::Tree;
 use crate::consensus::headers_tree::{HeadersTree, Tracker};
 use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
 use crate::consensus::stages::select_chain::{ForwardChainSelection, RollbackChainSelection};
-use amaru_kernel::Point;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::string_utils::ListToString;
+use amaru_kernel::{HEADER_HASH_SIZE, Point};
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use amaru_ouroboros_traits::tests::make_header;
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, HeaderHash, IsHeader};
+use hex::FromHexError;
 use itertools::Itertools;
+use pallas_crypto::hash::Hash;
 use proptest::prelude::Strategy;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
@@ -46,14 +49,98 @@ use std::sync::Arc;
 /// This data type models the events sent by the ChainSync mini-protocol with simplified data for the tests.
 /// The serialization is adjusted to make concise string representations when transforming
 /// lists of actions to JSON in order to create unit tests out of property test failures
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Action {
+    RollForward { peer: Peer, header: BlockHeader },
+    RollBack { peer: Peer, rollback_point: Point },
+}
+
+struct SimplifiedHeader(BlockHeader);
+
+impl Serialize for SimplifiedHeader {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("BlockHeader", 4)?;
+        state.serialize_field("hash", &self.0.hash())?;
+        state.serialize_field("block", &self.0.block_height())?;
+        state.serialize_field("slot", &self.0.slot())?;
+        state.serialize_field(
+            "parent",
+            &self.0.parent().as_ref().map(|h| hex::encode(h.as_ref())),
+        )?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for SimplifiedHeader {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct SimplifiedHeaderHelper {
+            hash: String,
+            block: u64,
+            slot: u64,
+            parent: Option<String>,
+        }
+
+        let helper = SimplifiedHeaderHelper::deserialize(deserializer)?;
+
+        let parent_hash = if let Some(parent_str) = helper.parent {
+            Some(decode_hash(parent_str.as_str()).map_err(serde::de::Error::custom)?)
+        } else {
+            None
+        };
+        let header = make_header(helper.block, helper.slot, parent_hash);
+        Ok(SimplifiedHeader(BlockHeader::new(
+            header,
+            decode_hash(&helper.hash).map_err(serde::de::Error::custom)?,
+        )))
+    }
+}
+
+fn decode_hash(s: &str) -> Result<HeaderHash, FromHexError> {
+    let bytes = hex::decode(s)?;
+    let mut arr = [0u8; HEADER_HASH_SIZE];
+    arr.copy_from_slice(&bytes);
+    Ok(Hash::from(arr))
+}
+
+impl Serialize for Action {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Action::RollForward { peer, header } => ActionHelper::RollForward {
+                peer: peer.to_string(),
+                header: SimplifiedHeader(header.clone()),
+            }
+            .serialize(serializer),
+            Action::RollBack {
+                peer,
+                rollback_point,
+            } => ActionHelper::RollBack {
+                peer: peer.to_string(),
+                rollback_point: rollback_point.clone(),
+            }
+            .serialize(serializer),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+enum ActionHelper {
     RollForward {
-        peer: Peer,
-        header: TestHeader,
+        peer: String,
+        header: SimplifiedHeader,
     },
     RollBack {
-        peer: Peer,
+        peer: String,
         #[serde(
             serialize_with = "serialize_point",
             deserialize_with = "deserialize_point"
@@ -62,11 +149,33 @@ pub enum Action {
     },
 }
 
+impl<'de> Deserialize<'de> for Action {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let helper = ActionHelper::deserialize(deserializer)?;
+        match helper {
+            ActionHelper::RollForward { peer, header } => Ok(Action::RollForward {
+                peer: Peer::new(&peer),
+                header: header.0,
+            }),
+            ActionHelper::RollBack {
+                peer,
+                rollback_point,
+            } => Ok(Action::RollBack {
+                peer: Peer::new(&peer),
+                rollback_point,
+            }),
+        }
+    }
+}
+
 impl Display for Action {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Action::RollForward { peer, header } => {
-                write!(f, "Forward peer {peer} to {}", header.hash)
+                write!(f, "Forward peer {peer} to {}", header.hash())
             }
             Action::RollBack {
                 peer,
@@ -105,8 +214,8 @@ fn deserialize_point<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Point
 /// This data type helps collecting the output of the execution of a list of actions
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SelectionResult {
-    Forward(ForwardChainSelection<TestHeader>),
-    Back(RollbackChainSelection<TestHeader>),
+    Forward(ForwardChainSelection<BlockHeader>),
+    Back(RollbackChainSelection<BlockHeader>),
 }
 
 impl Display for SelectionResult {
@@ -158,7 +267,7 @@ impl Display for SelectionResult {
 ///
 pub fn random_walk(
     rng: &mut StdRng,
-    tree: &Tree<TestHeader>,
+    tree: &Tree<BlockHeader>,
     peer: &Peer,
     rollback_ratio: Ratio,
     result: &mut BTreeMap<Peer, Vec<Action>>,
@@ -170,7 +279,7 @@ pub fn random_walk(
     if let Some(actions) = result.get_mut(peer) {
         actions.push(Action::RollForward {
             peer: peer.clone(),
-            header: tree.value,
+            header: tree.value.clone(),
         })
     }
 
@@ -186,7 +295,7 @@ pub fn random_walk(
             actions.push(Action::RollBack {
                 peer: peer.clone(),
                 // We don't have the parent slot here but this is not important for the tests.
-                rollback_point: Point::Specific(tree.value.slot, tree.value.hash().to_vec()),
+                rollback_point: Point::Specific(tree.value.slot(), tree.value.hash().to_vec()),
             })
         }
     }
@@ -196,7 +305,7 @@ pub fn random_walk(
     {
         actions.push(Action::RollBack {
             peer: peer.clone(),
-            rollback_point: Point::Specific(tree.value.slot, parent.to_vec()),
+            rollback_point: Point::Specific(tree.value.slot(), parent.to_vec()),
         })
     }
 }
@@ -214,7 +323,7 @@ pub struct Ratio(pub u32, pub u32);
 /// we could end up with a tree growing beyond the `max_length` causing the tree to be pruned and
 /// the root header to be removed.
 pub fn generate_random_walks(
-    tree: &Tree<TestHeader>,
+    tree: &Tree<BlockHeader>,
     peers_nb: usize,
     rollback_ratio: Ratio,
     seed: u64,
@@ -275,8 +384,8 @@ pub fn execute_actions(
 /// the execution with before / after state when debugging.
 ///
 pub fn execute_actions_on_tree(
-    store: Arc<dyn ChainStore<TestHeader>>,
-    tree: &mut HeadersTree<TestHeader>,
+    store: Arc<dyn ChainStore<BlockHeader>>,
+    tree: &mut HeadersTree<BlockHeader>,
     actions: &[Action],
     print: bool,
 ) -> Result<Vec<SelectionResult>, ConsensusError> {
@@ -290,7 +399,7 @@ pub fn execute_actions_on_tree(
                 if !store.has_header(&header.hash()) {
                     store.store_header(header).unwrap();
                 }
-                match tree.select_roll_forward(peer, *header) {
+                match tree.select_roll_forward(peer, header) {
                     Ok(result) => Forward(result.clone()),
                     Err(_) => {
                         // Skip invalid actions like rolling forward a header that is not at the tip of a given peer
@@ -327,7 +436,7 @@ pub fn execute_actions_on_tree(
 fn print_diagnostics(
     print: bool,
     actions: &[Action],
-    diagnostics: &BTreeMap<(usize, Action), (SelectionResult, HeadersTree<TestHeader>)>,
+    diagnostics: &BTreeMap<(usize, Action), (SelectionResult, HeadersTree<BlockHeader>)>,
 ) {
     if print {
         for ((action_nb, action), (result, after)) in diagnostics {
@@ -367,7 +476,7 @@ pub fn execute_json_actions(
 }
 
 /// Type alias for a chain of headers tracked by a peer
-type Chain = Vec<TestHeader>;
+type Chain = Vec<BlockHeader>;
 
 /// This function computes the chains sent by each peer from a list of actions.
 /// Once all the actions have been executed it returns the chains that are the longest.
@@ -386,7 +495,7 @@ pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Chain>> {
         let chain: &mut Chain = current_chains.get_mut(&tracker).unwrap();
         match action {
             Action::RollForward { header, .. } => {
-                chain.push(*header);
+                chain.push(header.clone());
             }
             Action::RollBack { rollback_point, .. } => {
                 if let Some(rollback_position) =
@@ -420,7 +529,9 @@ pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Chain> 
     let mut current_best_chain = vec![];
     for (i, event) in results.iter().enumerate() {
         match event {
-            Forward(ForwardChainSelection::NewTip { tip, .. }) => current_best_chain.push(*tip),
+            Forward(ForwardChainSelection::NewTip { tip, .. }) => {
+                current_best_chain.push(tip.clone())
+            }
             Forward(ForwardChainSelection::NoChange) => {}
             Forward(ForwardChainSelection::SwitchToFork(fork))
             | Back(RollbackChainSelection::SwitchToFork(fork)) => {

@@ -14,7 +14,6 @@
 
 use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
 use crate::stages::{AsTip, PallasPoint};
-use amaru_kernel::Header;
 use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
@@ -23,28 +22,28 @@ use std::sync::Arc;
 /// The state we track for one client.
 ///
 /// The `ops` list may contain up to one rollback at the front only.
-pub(super) struct ClientState {
+pub(super) struct ClientState<H> {
     /// The list of operations to send to the client.
-    ops: VecDeque<ClientOp>,
+    ops: VecDeque<ClientOp<H>>,
 }
 
-impl ClientState {
-    pub fn new(ops: VecDeque<ClientOp>) -> Self {
+impl<H: IsHeader> ClientState<H> {
+    pub fn new(ops: VecDeque<ClientOp<H>>) -> Self {
         Self { ops }
     }
 
-    pub fn next_op(&mut self) -> Option<ClientOp> {
+    pub fn next_op(&mut self) -> Option<ClientOp<H>> {
         tracing::debug!("next_op: {:?}", self.ops.front());
         self.ops.pop_front()
     }
 
-    pub fn add_op(&mut self, op: ClientOp) {
+    pub fn add_op(&mut self, op: ClientOp<H>) {
         tracing::debug!("add_op: {:?}", op);
         match op {
             ClientOp::Backward(tip) => {
                 if let Some((index, _)) =
                     self.ops.iter().enumerate().rfind(
-                        |(_, op)| matches!(op, ClientOp::Forward(header2) if header2.pallas_point() == tip.0),
+                        |(_, op)| matches!(op, ClientOp::Forward(header2) if header2.point().pallas_point() == tip.0),
                     )
                 {
                     tracing::debug!("found backward op at index {index} in {:?}", self.ops);
@@ -68,11 +67,11 @@ impl ClientState {
 /// Returns None if the local chain is broken.
 /// Otherwise returns Some(headers) where headers is a list of headers leading from
 /// the tallest point from the list that lies in the past of `start_point`.
-pub(super) fn find_headers_between(
-    store: Arc<dyn ChainStore<Header>>,
+pub(super) fn find_headers_between<H: IsHeader + Clone>(
+    store: Arc<dyn ChainStore<H>>,
     start_point: &Point,
     points: &[Point],
-) -> Option<(Vec<ClientOp>, Tip)> {
+) -> Option<(Vec<ClientOp<H>>, Tip)> {
     let start_header = store.load_header(&hash_point(start_point))?;
 
     if points.contains(start_point) {
@@ -110,8 +109,8 @@ pub(crate) mod tests {
     use crate::stages::consensus::forward_chain::test_infra::{
         BRANCH_47, CHAIN_47, LOST_47, TIP_47, WINNER_47, hash, mk_store,
     };
-    use amaru_kernel::{Hash, Header};
-    use amaru_ouroboros_traits::{ChainStore, IsHeader};
+    use amaru_kernel::Hash;
+    use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
     use pallas_network::miniprotocols::Point;
     use pallas_network::miniprotocols::chainsync::Tip;
     use std::sync::Arc;
@@ -122,9 +121,9 @@ pub(crate) mod tests {
         assert_eq!(store.len(), 48);
         let chain = store.get_chain(TIP_47);
         assert_eq!(chain.len(), 47);
-        assert_eq!(chain[0].header_body.slot, 31);
-        assert_eq!(chain[0].header_body.prev_hash, None);
-        assert_eq!(chain[46].header_body.slot, 990);
+        assert_eq!(chain[0].header_body().slot, 31);
+        assert_eq!(chain[0].header_body().prev_hash, None);
+        assert_eq!(chain[46].header_body().slot, 990);
         assert_eq!(chain[6].block_height(), 7);
     }
 
@@ -202,21 +201,21 @@ pub(crate) mod tests {
     pub trait ChainStoreExt {
         fn len(&self) -> usize;
 
-        fn get_all_children(&self, hash: &Hash<32>) -> Vec<Header>;
+        fn get_all_children(&self, hash: &Hash<32>) -> Vec<BlockHeader>;
 
-        fn get_chain(&self, h: &str) -> Vec<Header>;
+        fn get_chain(&self, h: &str) -> Vec<BlockHeader>;
 
         fn get_point(&self, h: &str) -> Point;
 
         fn get_height(&self, h: &str) -> u64;
     }
 
-    impl ChainStoreExt for Arc<dyn ChainStore<Header>> {
+    impl ChainStoreExt for Arc<dyn ChainStore<BlockHeader>> {
         fn len(&self) -> usize {
             self.get_all_children(&self.get_anchor_hash()).len()
         }
 
-        fn get_all_children(&self, hash: &Hash<32>) -> Vec<Header> {
+        fn get_all_children(&self, hash: &Hash<32>) -> Vec<BlockHeader> {
             let mut result = vec![];
             if let Some(header) = self.load_header(hash) {
                 result.push(header);
@@ -227,7 +226,7 @@ pub(crate) mod tests {
             result
         }
 
-        fn get_chain(&self, h: &str) -> Vec<Header> {
+        fn get_chain(&self, h: &str) -> Vec<BlockHeader> {
             let mut chain = Vec::new();
             let mut current = hash(h);
             while let Some(header) = self.load_header(&current) {

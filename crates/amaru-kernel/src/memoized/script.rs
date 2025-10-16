@@ -16,6 +16,8 @@ use crate::{
     Bytes, MemoizedNativeScript, PlutusScript, PseudoScript, cbor,
     cbor::{bytes::ByteSlice, data::IanaTag},
 };
+use pallas_codec::utils::CborWrap;
+use pallas_primitives::{KeepRaw, conway::NativeScript};
 use serde::ser::SerializeStruct;
 
 pub type MemoizedScript = PseudoScript<MemoizedNativeScript>;
@@ -54,6 +56,31 @@ pub fn script_original_bytes(script: &MemoizedScript) -> &[u8] {
     }
 }
 
+pub fn decode_script<C>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+) -> Result<MemoizedScript, cbor::decode::Error> {
+    let tag = d.tag()?;
+    if tag != IanaTag::Cbor.tag() {
+        return Err(cbor::decode::Error::message(format!(
+            "unexpected tag for script: expected {}, got {}",
+            IanaTag::Cbor.tag(),
+            tag
+        )));
+    }
+
+    let script: PseudoScript<MemoizedNativeScript> = cbor::Decoder::new(d.bytes()?)
+        .decode_with(ctx)
+        .map_err(|e| cbor::decode::Error::message(format!("failed to decode script: {e}")))?;
+
+    Ok(match script {
+        PseudoScript::NativeScript(n) => MemoizedScript::NativeScript(n),
+        PseudoScript::PlutusV1Script(s) => MemoizedScript::PlutusV1Script(s),
+        PseudoScript::PlutusV2Script(s) => MemoizedScript::PlutusV2Script(s),
+        PseudoScript::PlutusV3Script(s) => MemoizedScript::PlutusV3Script(s),
+    })
+}
+
 pub fn encode_script<W: cbor::encode::Write>(
     script: &MemoizedScript,
     e: &mut cbor::Encoder<W>,
@@ -86,6 +113,19 @@ pub fn encode_script<W: cbor::encode::Write>(
     e.bytes(&buffer)?;
 
     Ok(())
+}
+
+pub fn from_minted_script(
+    wrapper: CborWrap<PseudoScript<KeepRaw<'_, NativeScript>>>,
+) -> MemoizedScript {
+    match wrapper.0 {
+        PseudoScript::NativeScript(script) => {
+            MemoizedScript::NativeScript(MemoizedNativeScript::from(script))
+        }
+        PseudoScript::PlutusV1Script(script) => MemoizedScript::PlutusV1Script(script),
+        PseudoScript::PlutusV2Script(script) => MemoizedScript::PlutusV2Script(script),
+        PseudoScript::PlutusV3Script(script) => MemoizedScript::PlutusV3Script(script),
+    }
 }
 
 impl TryFrom<PlaceholderScript> for MemoizedScript {

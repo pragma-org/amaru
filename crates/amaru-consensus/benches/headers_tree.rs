@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
 
 /// This benchmark generates a large random header tree and a long sequence of actions
 /// (adding headers from random peers and rollbacks) to be executed on a `HeadersTree`.
@@ -33,9 +33,8 @@ use amaru_ouroboros_traits::{ChainStore, IsHeader};
 #[cfg(all(unix, feature = "profiling", feature = "test-utils"))]
 fn main() {
     use amaru_consensus::consensus::headers_tree::HeadersTree;
-    use amaru_consensus::consensus::headers_tree::data_generation::TestHeader;
     use amaru_consensus::consensus::headers_tree::data_generation::{
-        Ratio, execute_actions_on_tree, generate_random_walks, generate_test_header_tree,
+        Ratio, execute_actions_on_tree, generate_header_tree, generate_random_walks,
     };
     use amaru_consensus::consensus::stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};
@@ -65,7 +64,7 @@ fn main() {
 
     // Create a large tree of headers and random actions to be executed on a HeadersTree
     // from the list of peers.
-    let tree = generate_test_header_tree(depth, seed, branching_ratio);
+    let tree = generate_header_tree(depth, seed, branching_ratio);
     assert!(tree.leaves().len() > 10000);
 
     let actions = generate_random_walks(&tree, peers_nb, rollback_ratio, seed);
@@ -77,7 +76,7 @@ fn main() {
     } else {
         use amaru_stores::rocksdb::consensus::initialise_test_rw_store;
         let tempdir = tempfile::tempdir().unwrap();
-        let store: Arc<dyn ChainStore<TestHeader>> =
+        let store: Arc<dyn ChainStore<BlockHeader>> =
             Arc::new(initialise_test_rw_store(tempdir.path()));
         store
     };
