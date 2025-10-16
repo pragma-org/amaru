@@ -342,10 +342,6 @@ mod tests {
             self.store.store_block(hash, block)
         }
 
-        fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
-            self.store.remove_header(hash)
-        }
-
         fn put_nonces(&self, hash: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
             self.store.put_nonces(hash, nonces)
         }

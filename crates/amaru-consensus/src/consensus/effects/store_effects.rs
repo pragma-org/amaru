@@ -112,10 +112,6 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
         self.external_sync(StoreBlockEffect::new(hash, block.clone()))
     }
 
-    fn remove_header(&self, hash: &HeaderHash) -> Result<(), StoreError> {
-        self.external_sync(RemoveHeaderEffect::new(*hash))
-    }
-
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
         self.external_sync(PutNoncesEffect::new(*header, nonces.clone()))
     }
@@ -265,34 +261,6 @@ impl ExternalEffect for UpdateBestChainEffect {
 }
 
 impl ExternalEffectAPI for UpdateBestChainEffect {
-    type Response = Result<(), StoreError>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct RemoveHeaderEffect {
-    hash: HeaderHash,
-}
-
-impl RemoveHeaderEffect {
-    pub fn new(hash: HeaderHash) -> Self {
-        Self { hash }
-    }
-}
-
-impl ExternalEffect for RemoveHeaderEffect {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("RemoveHeaderEffect requires a chain store")
-                .clone();
-            store.remove_header(&self.hash)
-        })
-    }
-}
-
-impl ExternalEffectAPI for RemoveHeaderEffect {
     type Response = Result<(), StoreError>;
 }
 
