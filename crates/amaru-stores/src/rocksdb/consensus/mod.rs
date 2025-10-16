@@ -376,7 +376,7 @@ fn init_dir(path: &std::path::Path) -> PathBuf {
 
 #[cfg(test)]
 pub mod test {
-    use crate::rocksdb::consensus::migration::migrate_db;
+    use crate::rocksdb::consensus::migration::migrate_db_path;
 
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
@@ -640,7 +640,7 @@ pub mod test {
 
         copy_recursively(source, target).unwrap();
 
-        let result = migrate_db(&target.to_path_buf()).unwrap();
+        let result = migrate_db_path(&target.to_path_buf()).unwrap();
 
         let _ = RocksDBStore::new(config)
             .expect("DB should successfully be opened as it's been migrated");

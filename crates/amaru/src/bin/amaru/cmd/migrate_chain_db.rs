@@ -15,7 +15,7 @@
 use amaru_consensus::StoreError;
 use amaru_stores::rocksdb::{
     RocksDbConfig,
-    consensus::{check_db_version, migration::migrate_db, util::open_db},
+    consensus::{check_db_version, migrate_db, util::open_db},
 };
 use clap::{Parser, arg};
 use std::{error::Error, path::PathBuf};
@@ -44,7 +44,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         }
         Err(StoreError::IncompatibleDbVersions { .. }) => {
             info!("Migrating chain database at {:?}", chain_dir);
-            let (from, to) = migrate_db(&chain_dir)?;
+            let (from, to) = migrate_db(&db)?;
             info!("Migrated Chain DB from {} to {}", from, to);
             Ok(())
         }
