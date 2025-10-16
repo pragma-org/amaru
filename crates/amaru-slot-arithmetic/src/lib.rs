@@ -963,6 +963,26 @@ mod tests {
         assert_eq!(bounds.end, None);
     }
 
+    const MAINNET_SYSTEM_START: u64 = 1506203091000;
+
+    #[test_case(0, 42, MAINNET_SYSTEM_START
+        => Ok(MAINNET_SYSTEM_START);
+        "first slot in the system, tip is irrelevant"
+    )]
+    #[test_case(1000, 42, MAINNET_SYSTEM_START
+        => Ok(MAINNET_SYSTEM_START + 1000 * 1000);
+        "one thousand slots after genesis, tip is irrelevant"
+    )]
+    #[test_case(172801, 0, MAINNET_SYSTEM_START
+        => Err(EraHistoryError::PastTimeHorizon);
+        "slot is at the next epcoh, but tip is at genesis"
+    )]
+    fn slot_to_posix(slot: u64, tip: u64, system_start: u64) -> Result<u64, EraHistoryError> {
+        two_eras()
+            .slot_to_posix_time(slot.into(), tip.into(), system_start.into())
+            .map(|TimeMs(t)| t)
+    }
+
     #[test_case(0,          42 => Ok(0);
         "first slot in first epoch, tip irrelevant"
     )]
