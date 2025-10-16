@@ -74,7 +74,7 @@ fn get_optional_env_var<T: FromStr>(var_name: &str) -> Option<T> {
     env::var(var_name).ok().and_then(|v| v.parse::<T>().ok())
 }
 
-/// Return true if the environment variable `var_name` is set to "1".
+/// Return true if the environment variable `var_name` is set to "1" or "true".
 fn is_true(var_name: &str) -> bool {
-    env::var(var_name).is_ok_and(|v| v == "1")
+    env::var(var_name).is_ok_and(|v| v == "1" || v == "true")
 }
