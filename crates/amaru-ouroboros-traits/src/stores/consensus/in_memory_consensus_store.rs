@@ -202,28 +202,6 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     }
 
     #[expect(clippy::unwrap_used)]
-    fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
-        let mut inner = self.inner.lock().unwrap();
-        // unlink from parent's children list if present
-        if let Some(parent) = inner.headers.get(hash).and_then(|h| h.parent())
-            && let Some(children) = inner.parent_child_relationship.get_mut(&parent)
-        {
-            if let Some(pos) = children.iter().position(|h| h == hash) {
-                children.swap_remove(pos);
-            }
-            if children.is_empty() {
-                inner.parent_child_relationship.remove(&parent);
-            }
-        }
-
-        // remove this node's children list
-        inner.parent_child_relationship.remove(hash);
-        // finally remove the header
-        inner.headers.remove(hash);
-        Ok(())
-    }
-
-    #[expect(clippy::unwrap_used)]
     fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.anchor = *hash;

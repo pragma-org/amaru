@@ -303,12 +303,6 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
             })
     }
 
-    fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
-        self.db.delete(hash).map_err(|e| StoreError::WriteError {
-            error: e.to_string(),
-        })
-    }
-
     fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
         self.db
             .put(ANCHOR_PREFIX, hash.as_ref())
