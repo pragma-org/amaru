@@ -45,7 +45,7 @@ Summarizing:
 */
 
 use crate::is_header::IsHeader;
-use amaru_kernel::{Hash, Nonce, cbor};
+use amaru_kernel::{Hash, HeaderHash, Nonce, cbor};
 use amaru_slot_arithmetic::Epoch;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
@@ -95,7 +95,7 @@ pub trait Praos<H: IsHeader>: Send + Sync {
     /// chains.
     ///
     /// So, nonces aren't bound to epochs, but to headers.
-    fn get_nonce(&self, header: &Hash<32>) -> Option<Nonce>;
+    fn get_nonce(&self, header: &HeaderHash) -> Option<Nonce>;
 
     /// Evolve the given nonce by combining it in an arbitrary way with other data.
     fn evolve_nonce(&self, header: &H) -> Result<Nonces, Self::Error>;

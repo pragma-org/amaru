@@ -18,9 +18,8 @@ use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::events::{BlockValidationResult, DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::headers_tree::{HeadersTree, HeadersTreeState};
 use crate::consensus::span::HasSpan;
-use amaru_kernel::{HEADER_HASH_SIZE, Point, peer::Peer, string_utils::ListToString};
+use amaru_kernel::{HeaderHash, Point, peer::Peer, string_utils::ListToString};
 use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
-use pallas_crypto::hash::Hash;
 use pure_stage::{BoxFuture, StageRef};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -223,8 +222,8 @@ pub enum RollbackChainSelection<H: IsHeader> {
     /// The peer tried to rollback beyond the limit
     RollbackBeyondLimit {
         peer: Peer,
-        rollback_point: Hash<HEADER_HASH_SIZE>,
-        max_point: Hash<HEADER_HASH_SIZE>,
+        rollback_point: HeaderHash,
+        max_point: HeaderHash,
     },
 
     /// The current best chain has not changed
@@ -420,7 +419,7 @@ mod tests {
     fn make_state(
         store: Arc<dyn ChainStore<BlockHeader>>,
         peer: &Peer,
-        anchor: &Hash<HEADER_HASH_SIZE>,
+        anchor: &HeaderHash,
     ) -> State {
         let downstream: StageRef<BlockValidationResult> = StageRef::named("downstream");
         let errors: StageRef<ValidationFailed> = StageRef::named("errors");
@@ -456,7 +455,7 @@ mod tests {
         }
     }
 
-    fn check_peers(select_chain: SelectChain, expected: Vec<(Tracker, Vec<Hash<32>>)>) {
+    fn check_peers(select_chain: SelectChain, expected: Vec<(Tracker, Vec<HeaderHash>)>) {
         let actual = select_chain
             .tree_state
             .peers()

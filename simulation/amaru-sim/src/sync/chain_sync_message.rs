@@ -127,7 +127,7 @@ impl Envelope<ChainSyncMessage> {
 mod test {
     use super::*;
     use crate::sync::ChainSyncMessage::{Bck, Fwd};
-    use amaru_kernel::cbor;
+    use amaru_kernel::{HeaderHash, cbor};
     use pallas_crypto::hash::{Hash, Hasher};
     use pallas_primitives::babbage;
     use proptest::prelude::BoxedStrategy;
@@ -146,9 +146,10 @@ mod test {
     #[test]
     fn can_retrieve_forward_from_message() {
         let fwd = some_forward();
-        let expected_hash: Hash<32> =
-            Hash::from_str("746353a52e80b3ac2d6d51658df7988d4b7baa219f55584a4827bd00bc97617e")
-                .unwrap();
+        let expected_hash: HeaderHash = HeaderHash::from_str(
+            "746353a52e80b3ac2d6d51658df7988d4b7baa219f55584a4827bd00bc97617e",
+        )
+        .unwrap();
         let message = Envelope {
             src: "peer1".to_string(),
             dest: "me".to_string(),

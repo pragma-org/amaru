@@ -109,7 +109,7 @@ pub(crate) mod tests {
     use crate::stages::consensus::forward_chain::test_infra::{
         BRANCH_47, CHAIN_47, LOST_47, TIP_47, WINNER_47, hash, mk_store,
     };
-    use amaru_kernel::Hash;
+    use amaru_kernel::HeaderHash;
     use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
     use pallas_network::miniprotocols::Point;
     use pallas_network::miniprotocols::chainsync::Tip;
@@ -201,7 +201,7 @@ pub(crate) mod tests {
     pub trait ChainStoreExt {
         fn len(&self) -> usize;
 
-        fn get_all_children(&self, hash: &Hash<32>) -> Vec<BlockHeader>;
+        fn get_all_children(&self, hash: &HeaderHash) -> Vec<BlockHeader>;
 
         fn get_chain(&self, h: &str) -> Vec<BlockHeader>;
 
@@ -215,7 +215,7 @@ pub(crate) mod tests {
             self.get_all_children(&self.get_anchor_hash()).len()
         }
 
-        fn get_all_children(&self, hash: &Hash<32>) -> Vec<BlockHeader> {
+        fn get_all_children(&self, hash: &HeaderHash) -> Vec<BlockHeader> {
             let mut result = vec![];
             if let Some(header) = self.load_header(hash) {
                 result.push(header);

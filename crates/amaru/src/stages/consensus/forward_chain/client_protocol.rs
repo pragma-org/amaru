@@ -18,7 +18,7 @@ use super::client_state::{ClientState, find_headers_between};
 use crate::stages::{AsTip, PallasPoint};
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_consensus::ChainStore;
-use amaru_kernel::{Hash, to_cbor};
+use amaru_kernel::{Hash, HeaderHash, to_cbor};
 use amaru_ouroboros_traits::IsHeader;
 use pallas_network::{
     facades::PeerServer,
@@ -121,7 +121,7 @@ impl std::fmt::Debug for PrettyPoint<'_> {
     }
 }
 
-pub(crate) fn hash_point(point: &Point) -> Hash<32> {
+pub(crate) fn hash_point(point: &Point) -> HeaderHash {
     match point {
         Point::Origin => Hash::from([0; 32]),
         Point::Specific(_slot, hash) => Hash::from(hash.as_slice()),

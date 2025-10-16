@@ -15,7 +15,7 @@
 pub mod in_memory_consensus_store;
 
 use crate::{IsHeader, Nonces};
-use amaru_kernel::{HEADER_HASH_SIZE, Hash, RawBlock};
+use amaru_kernel::{HeaderHash, RawBlock};
 use std::fmt::Display;
 use std::iter::successors;
 use thiserror::Error;
@@ -24,22 +24,21 @@ pub trait ReadOnlyChainStore<H>
 where
     H: IsHeader,
 {
-    fn load_header(&self, hash: &Hash<32>) -> Option<H>;
+    fn load_header(&self, hash: &HeaderHash) -> Option<H>;
     fn load_headers(&self) -> Box<dyn Iterator<Item = H> + '_>;
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (Hash<32>, Nonces)> + '_>;
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (Hash<32>, RawBlock)> + '_>;
-    fn load_parents_children(
-        &self,
-    ) -> Box<dyn Iterator<Item = (Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_>;
-    fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>>;
-    fn get_anchor_hash(&self) -> Hash<32>;
-    fn get_best_chain_hash(&self) -> Hash<32>;
-    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError>;
-    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces>;
-    fn has_header(&self, hash: &Hash<32>) -> bool;
+    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_>;
+    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_>;
+    fn load_parents_children(&self)
+    -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_>;
+    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
+    fn get_anchor_hash(&self) -> HeaderHash;
+    fn get_best_chain_hash(&self) -> HeaderHash;
+    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError>;
+    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
+    fn has_header(&self, hash: &HeaderHash) -> bool;
 
     /// Return the hashes of the best chain fragment, starting from the anchor.
-    fn retrieve_best_chain(&self) -> Vec<Hash<HEADER_HASH_SIZE>> {
+    fn retrieve_best_chain(&self) -> Vec<HeaderHash> {
         let anchor = self.get_anchor_hash();
         let mut best_chain = vec![];
         let mut current_hash = self.get_best_chain_hash();
@@ -76,8 +75,8 @@ where
     /// Return the hashes of the ancestors of the header, including the header hash itself.
     fn ancestors_hashes<'a>(
         &'a self,
-        hash: &Hash<HEADER_HASH_SIZE>,
-    ) -> Box<dyn Iterator<Item = Hash<HEADER_HASH_SIZE>> + 'a>
+        hash: &HeaderHash,
+    ) -> Box<dyn Iterator<Item = HeaderHash> + 'a>
     where
         H: 'a,
     {
@@ -90,7 +89,7 @@ where
 }
 
 impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
-    fn load_header(&self, hash: &Hash<32>) -> Option<H> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         self.as_ref().load_header(hash)
     }
 
@@ -98,41 +97,41 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
         self.as_ref().load_headers()
     }
 
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (Hash<32>, Nonces)> + '_> {
+    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
         self.as_ref().load_nonces()
     }
 
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (Hash<32>, RawBlock)> + '_> {
+    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
         self.as_ref().load_blocks()
     }
 
     fn load_parents_children(
         &self,
-    ) -> Box<dyn Iterator<Item = (Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_> {
+    ) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
         self.as_ref().load_parents_children()
     }
 
-    fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>> {
+    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
         self.as_ref().get_children(hash)
     }
 
-    fn get_anchor_hash(&self) -> Hash<32> {
+    fn get_anchor_hash(&self) -> HeaderHash {
         self.as_ref().get_anchor_hash()
     }
 
-    fn get_best_chain_hash(&self) -> Hash<32> {
+    fn get_best_chain_hash(&self) -> HeaderHash {
         self.as_ref().get_best_chain_hash()
     }
 
-    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
         self.as_ref().load_block(hash)
     }
 
-    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
         self.as_ref().get_nonces(header)
     }
 
-    fn has_header(&self, hash: &Hash<32>) -> bool {
+    fn has_header(&self, hash: &HeaderHash) -> bool {
         self.as_ref().has_header(hash)
     }
 }
@@ -143,11 +142,11 @@ where
     H: IsHeader,
 {
     fn store_header(&self, header: &H) -> Result<(), StoreError>;
-    fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError>;
-    fn set_best_chain_hash(&self, hash: &Hash<32>) -> Result<(), StoreError>;
-    fn update_best_chain(&self, anchor: &Hash<32>, tip: &Hash<32>) -> Result<(), StoreError>;
-    fn store_block(&self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError>;
-    fn put_nonces(&self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError>;
+    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+    fn update_best_chain(&self, anchor: &HeaderHash, tip: &HeaderHash) -> Result<(), StoreError>;
+    fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError>;
+    fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError>;
 }
 
 #[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
@@ -155,7 +154,7 @@ pub enum StoreError {
     WriteError { error: String },
     ReadError { error: String },
     OpenError { error: String },
-    NotFound { hash: Hash<32> },
+    NotFound { hash: HeaderHash },
 }
 
 impl Display for StoreError {

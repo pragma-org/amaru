@@ -19,7 +19,7 @@ use crate::{
     store::GovernanceActivity,
 };
 use amaru_kernel::{
-    AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hash, Hasher, MintedBlock, Network,
+    AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hasher, HeaderHash, MintedBlock, Network,
     OriginalHash, TransactionId, TransactionPointer, protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Slot;
@@ -58,7 +58,7 @@ pub enum InvalidBlockDetails {
 #[derive(Debug)]
 pub enum BlockValidation<A, E> {
     Valid(A),
-    Invalid(Slot, Hash<32>, InvalidBlockDetails),
+    Invalid(Slot, HeaderHash, InvalidBlockDetails),
     Err(E),
 }
 
@@ -137,7 +137,7 @@ impl<A, E> Termination for BlockValidation<A, E> {
 
 impl<A, E> Try for BlockValidation<A, E> {
     type Output = A;
-    type Residual = Result<(Slot, Hash<32>, InvalidBlockDetails), E>;
+    type Residual = Result<(Slot, HeaderHash, InvalidBlockDetails), E>;
 
     fn from_output(result: Self::Output) -> Self {
         Self::Valid(result)
@@ -153,7 +153,7 @@ impl<A, E> Try for BlockValidation<A, E> {
 }
 
 impl<A, E> FromResidual for BlockValidation<A, E> {
-    fn from_residual(residual: Result<(Slot, Hash<32>, InvalidBlockDetails), E>) -> Self {
+    fn from_residual(residual: Result<(Slot, HeaderHash, InvalidBlockDetails), E>) -> Self {
         match residual {
             Ok((slot, id, violation)) => BlockValidation::Invalid(slot, id, violation),
             Err(err) => BlockValidation::Err(err),

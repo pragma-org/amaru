@@ -33,7 +33,7 @@ pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) 
             vrf_vkey: Bytes::from(vec![]),
             vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
             block_body_size: 0,
-            block_body_hash: Hash::<32>::from([0u8; 32]),
+            block_body_hash: HeaderHash::from([0u8; 32]),
             operational_cert: OperationalCert {
                 operational_cert_hot_vkey: Bytes::from(vec![]),
                 operational_cert_sequence_number: 0,
@@ -93,8 +93,8 @@ pub fn any_header_with_parent(parent: HeaderHash) -> impl Strategy<Value = Block
 }
 
 /// Create an arbitrary header hash with the right number of bytes
-pub fn any_header_hash() -> impl Strategy<Value = Hash<HEADER_HASH_SIZE>> {
-    any::<[u8; HEADER_HASH_SIZE]>().prop_map(Hash::from)
+pub fn any_header_hash() -> impl Strategy<Value = HeaderHash> {
+    any::<[u8; HEADER_HASH_SIZE]>().prop_map(HeaderHash::from)
 }
 
 /// Create an arbitrary FakeHeader

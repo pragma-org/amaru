@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::ORIGIN_HASH;
 use amaru_kernel::{HEADER_HASH_SIZE, Hash, RawBlock, cbor, from_cbor, to_cbor};
+use amaru_kernel::{HeaderHash, ORIGIN_HASH};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
@@ -90,7 +90,7 @@ const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x63, 0x68, 0x69, 0x6c, 0x64];
 macro_rules! impl_ReadOnlyChainStore {
     (for $($s:ty),+) => {
         $(impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ReadOnlyChainStore<H> for $s {
-            fn load_header(&self, hash: &Hash<32>) -> Option<H> {
+            fn load_header(&self, hash: &HeaderHash) -> Option<H> {
                 let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
                 self.db
                     .get_pinned(prefix)
@@ -110,7 +110,7 @@ macro_rules! impl_ReadOnlyChainStore {
                 }).into_iter())
             }
 
-            fn load_nonces(&self) -> Box<dyn Iterator<Item=(Hash<HEADER_HASH_SIZE>, Nonces)> + '_> {
+            fn load_nonces(&self) -> Box<dyn Iterator<Item=(HeaderHash, Nonces)> + '_> {
                 Box::new(self.db
                     .prefix_iterator(&NONCES_PREFIX).filter_map(|item| {
                     match item {
@@ -127,7 +127,7 @@ macro_rules! impl_ReadOnlyChainStore {
                 }).into_iter())
             }
 
-            fn load_blocks(&self) -> Box<dyn Iterator<Item=(Hash<HEADER_HASH_SIZE>, RawBlock)> + '_> {
+            fn load_blocks(&self) -> Box<dyn Iterator<Item=(HeaderHash, RawBlock)> + '_> {
                 Box::new(self.db
                     .prefix_iterator(&BLOCK_PREFIX).map(|item| {
                     match item {
@@ -140,10 +140,10 @@ macro_rules! impl_ReadOnlyChainStore {
                 }).into_iter())
             }
 
-            fn load_parents_children(&self) -> Box<dyn Iterator<Item=(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_> {
-                let mut groups: Vec<(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> = Vec::new();
-                let mut current_parent: Option<Hash<HEADER_HASH_SIZE>> = None;
-                let mut current_children: Vec<Hash<HEADER_HASH_SIZE>> = Vec::new();
+            fn load_parents_children(&self) -> Box<dyn Iterator<Item=(HeaderHash, Vec<HeaderHash>)> + '_> {
+                let mut groups: Vec<(HeaderHash, Vec<HeaderHash>)> = Vec::new();
+                let mut current_parent: Option<HeaderHash> = None;
+                let mut current_children: Vec<HeaderHash> = Vec::new();
 
                 for kv in self
                     .db
@@ -187,7 +187,7 @@ macro_rules! impl_ReadOnlyChainStore {
                 Box::new(groups.into_iter())
             }
 
-            fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>> {
+            fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
                 let mut result = Vec::new();
                 let mut opts = ReadOptions::default();
                 opts.set_iterate_range(PrefixRange([&CHILD_PREFIX[..], &hash[..]].concat()));
@@ -205,7 +205,7 @@ macro_rules! impl_ReadOnlyChainStore {
                 result
             }
 
-            fn get_anchor_hash(&self) -> Hash<32> {
+            fn get_anchor_hash(&self) -> HeaderHash {
                 self.db
                     .get_pinned(&ANCHOR_PREFIX)
                     .ok()
@@ -220,7 +220,7 @@ macro_rules! impl_ReadOnlyChainStore {
                     .unwrap_or(ORIGIN_HASH)
             }
 
-            fn get_best_chain_hash(&self) -> Hash<32> {
+            fn get_best_chain_hash(&self) -> HeaderHash {
                 self.db
                     .get_pinned(&BEST_CHAIN_PREFIX)
                     .ok()
@@ -235,14 +235,14 @@ macro_rules! impl_ReadOnlyChainStore {
                     .unwrap_or(ORIGIN_HASH)
             }
 
-            fn has_header(&self, hash: &Hash<32>) -> bool {
+            fn has_header(&self, hash: &HeaderHash) -> bool {
                 let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
                 self.db.get_pinned(prefix)
                     .map(|opt| opt.is_some())
                     .unwrap_or(false)
             }
 
-            fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+            fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
                 self.db
                     .get_pinned([&NONCES_PREFIX[..], &header[..]].concat())
                     .ok()
@@ -251,7 +251,7 @@ macro_rules! impl_ReadOnlyChainStore {
                     .and_then(from_cbor)
             }
 
-            fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+            fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
                 self.db
                     .get_pinned([&BLOCK_PREFIX[..], &hash[..]].concat())
                     .map_err(|e| StoreError::ReadError {
@@ -287,7 +287,7 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
         })
     }
 
-    fn put_nonces(&self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
+    fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
         self.db
             .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(nonces))
             .map_err(|e| StoreError::WriteError {
@@ -295,7 +295,7 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
             })
     }
 
-    fn store_block(&self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
+    fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
         self.db
             .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
             .map_err(|e| StoreError::WriteError {
@@ -303,7 +303,7 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
             })
     }
 
-    fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         self.db
             .put(ANCHOR_PREFIX, hash.as_ref())
             .map_err(|e| StoreError::WriteError {
@@ -311,14 +311,14 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
             })
     }
 
-    fn set_best_chain_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         self.db
             .put(BEST_CHAIN_PREFIX, hash.as_ref())
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),
             })
     }
-    fn update_best_chain(&self, anchor: &Hash<32>, tip: &Hash<32>) -> Result<(), StoreError> {
+    fn update_best_chain(&self, anchor: &HeaderHash, tip: &HeaderHash) -> Result<(), StoreError> {
         let tx = self.db.transaction();
         tx.put(ANCHOR_PREFIX, anchor.as_ref())
             .map_err(|e| StoreError::WriteError {
@@ -391,7 +391,7 @@ pub mod test {
     #[test]
     fn rocksdb_chain_store_can_get_block_it_puts() {
         with_db(|db| {
-            let hash: Hash<32> = random_bytes(32).as_slice().into();
+            let hash: HeaderHash = random_bytes(32).as_slice().into();
             let block = RawBlock::from(&*vec![1; 64]);
 
             db.store_block(&hash, &block).unwrap();
@@ -403,7 +403,7 @@ pub mod test {
     #[test]
     fn rocksdb_chain_store_returns_not_found_for_nonexistent_block() {
         with_db(|db| {
-            let nonexistent_hash: Hash<32> = random_bytes(32).as_slice().into();
+            let nonexistent_hash: HeaderHash = random_bytes(32).as_slice().into();
             let result = db.load_block(&nonexistent_hash);
 
             assert_eq!(
@@ -611,8 +611,8 @@ pub mod test {
     }
 
     fn sort_entries(
-        mut v: Vec<(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)>,
-    ) -> Vec<(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> {
+        mut v: Vec<(HeaderHash, Vec<HeaderHash>)>,
+    ) -> Vec<(HeaderHash, Vec<HeaderHash>)> {
         v.sort_by_key(|(k, _)| *k);
         for (_, children) in &mut v {
             children.sort();

@@ -184,16 +184,13 @@ mod tests {
     use crate::consensus::errors::ConsensusError::NoncesError;
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::{
-        HEADER_HASH_SIZE, Point, RawBlock,
+        HeaderHash, Point, RawBlock,
         protocol_parameters::{GlobalParameters, TESTNET_GLOBAL_PARAMETERS},
     };
     use amaru_ouroboros_traits::Nonces;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use amaru_ouroboros_traits::tests::{any_header, run};
-    use amaru_ouroboros_traits::{
-        ChainStore, HeaderHash, IsHeader, ReadOnlyChainStore, StoreError,
-    };
-    use pallas_crypto::hash::Hash;
+    use amaru_ouroboros_traits::{ChainStore, IsHeader, ReadOnlyChainStore, StoreError};
     use std::sync::Arc;
 
     #[tokio::test]
@@ -297,22 +294,21 @@ mod tests {
             self.store.load_headers()
         }
 
-        fn load_nonces(&self) -> Box<dyn Iterator<Item = (Hash<32>, Nonces)> + '_> {
+        fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
             self.store.load_nonces()
         }
 
-        fn load_blocks(&self) -> Box<dyn Iterator<Item = (Hash<32>, RawBlock)> + '_> {
+        fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
             self.store.load_blocks()
         }
 
         fn load_parents_children(
             &self,
-        ) -> Box<dyn Iterator<Item = (Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_>
-        {
+        ) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
             self.store.load_parents_children()
         }
 
-        fn get_nonces(&self, hash: &Hash<32>) -> Option<Nonces> {
+        fn get_nonces(&self, hash: &HeaderHash) -> Option<Nonces> {
             self.store.get_nonces(hash)
         }
     }
@@ -342,7 +338,7 @@ mod tests {
             self.store.store_block(hash, block)
         }
 
-        fn put_nonces(&self, hash: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
+        fn put_nonces(&self, hash: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
             self.store.put_nonces(hash, nonces)
         }
     }

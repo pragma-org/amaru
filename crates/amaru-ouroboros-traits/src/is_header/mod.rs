@@ -14,7 +14,9 @@
 
 use amaru_kernel::cbor::encode::Write;
 use amaru_kernel::cbor::{Decode, Decoder, Encode, Encoder};
-use amaru_kernel::{HEADER_HASH_SIZE, Hash, Hasher, Header, HeaderBody, MintedHeader, Point, cbor};
+use amaru_kernel::{
+    HEADER_HASH_SIZE, Hasher, Header, HeaderBody, HeaderHash, MintedHeader, Point, cbor,
+};
 use serde::Serializer;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::cmp::Ordering;
@@ -31,7 +33,7 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
     /// This is used to identify the header in the chain selection.
     /// Header hash is expected to be unique for each header, eg.
     /// $h \neq h' \logeq hhash() \new h'.hash()$.
-    fn hash(&self) -> Hash<HEADER_HASH_SIZE>;
+    fn hash(&self) -> HeaderHash;
 
     /// Point to this header
     fn point(&self) -> Point {
@@ -40,7 +42,7 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
 
     /// Parent hash of the header
     /// Not all headers have a parent, eg. genesis block.
-    fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>>;
+    fn parent(&self) -> Option<HeaderHash>;
 
     /// Block height of the header w.r.t genesis block
     fn block_height(&self) -> u64;
@@ -55,9 +57,6 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
     // 3. Fix Pallas' leader_vrf_output to return a Hash<32> instead of a Vec.
     fn extended_vrf_nonce_output(&self) -> Vec<u8>;
 }
-
-/// Type alias for a header hash to improve readability
-pub type HeaderHash = Hash<HEADER_HASH_SIZE>;
 
 /// This header type encapsulates a header and its hash to avoid recomputing
 #[derive(PartialEq, Eq, Clone)]
@@ -194,11 +193,11 @@ impl IsHeader for BlockHeader {
 }
 
 impl IsHeader for MintedHeader<'_> {
-    fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+    fn hash(&self) -> HeaderHash {
         Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&self)
     }
 
-    fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>> {
+    fn parent(&self) -> Option<HeaderHash> {
         self.header_body.prev_hash
     }
 

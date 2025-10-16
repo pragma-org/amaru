@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HEADER_HASH_SIZE, RawBlock, protocol_parameters::GlobalParameters};
-use amaru_ouroboros_traits::{
-    BlockHeader, ChainStore, HeaderHash, Nonces, ReadOnlyChainStore, StoreError,
-};
+use amaru_kernel::{HeaderHash, RawBlock, protocol_parameters::GlobalParameters};
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use pallas_crypto::hash::Hash;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
@@ -59,7 +57,7 @@ impl<T: SendData + Sync> ReadOnlyChainStore<BlockHeader> for Store<T> {
 
     fn load_parents_children(
         &self,
-    ) -> Box<dyn Iterator<Item = (Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_> {
+    ) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
         Box::new(
             self.external_sync(LoadParentsChildrenEffect::new())
                 .into_iter(),
@@ -558,7 +556,7 @@ impl ExternalEffect for LoadParentsChildrenEffect {
 }
 
 impl ExternalEffectAPI for LoadParentsChildrenEffect {
-    type Response = Vec<(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)>;
+    type Response = Vec<(HeaderHash, Vec<HeaderHash>)>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

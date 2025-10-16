@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    EraHistory, Hash, Nonce, Point, default_chain_dir, network::NetworkName, parse_nonce,
+    EraHistory, Hash, HeaderHash, Nonce, Point, default_chain_dir, network::NetworkName,
+    parse_nonce,
 };
 use amaru_ouroboros_traits::{BlockHeader, ChainStore, Nonces};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
@@ -46,7 +47,7 @@ pub struct Args {
 
     /// The previous epoch last block header hash
     #[arg(long, value_name = "HEADER-HASH", value_parser = parse_nonce)]
-    tail: Option<Hash<32>>,
+    tail: Option<HeaderHash>,
 
     /// JSON-formatted file with nonces details.
     ///
@@ -79,7 +80,7 @@ pub(crate) struct InitialNonces {
     pub active: Nonce,
     pub evolving: Nonce,
     pub candidate: Nonce,
-    pub tail: Hash<32>,
+    pub tail: HeaderHash,
 }
 
 fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>

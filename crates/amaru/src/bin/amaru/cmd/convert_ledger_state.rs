@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Bound, EraHistory, EraParams, HEADER_HASH_SIZE, Hash, Nonce, Point, Summary, cbor,
+    Bound, EraHistory, EraParams, Hash, HeaderHash, Nonce, Point, Summary, cbor,
     network::NetworkName,
 };
 use clap::Parser;
@@ -140,7 +140,7 @@ async fn convert_snapshot_to(
     d.array()?;
     let slot = d.u64()?;
     let _height = d.u64()?;
-    let hash: Hash<HEADER_HASH_SIZE> = d.decode()?;
+    let hash: HeaderHash = d.decode()?;
 
     // ledger state
     let begin = d.position();
@@ -165,7 +165,7 @@ async fn convert_snapshot_to(
     d.array()?;
     // NOTE: The encoding of an AnnTip is not consistent with the encoding of a Tip
     let tip_slot = d.u64()?;
-    let tip_hash: Hash<HEADER_HASH_SIZE> = d.decode()?;
+    let tip_hash: HeaderHash = d.decode()?;
     let _tip_height = d.u64()?;
 
     // ChainDepState for Praos
@@ -237,7 +237,7 @@ async fn convert_snapshot_to(
 async fn write_era_history(
     target_dir: &Path,
     slot: u64,
-    hash: Hash<32>,
+    hash: HeaderHash,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("history.{}.{}.json", slot, hash));
@@ -302,7 +302,7 @@ fn decode_eras(
 async fn write_nonces(
     target_dir: &Path,
     slot: u64,
-    hash: Hash<HEADER_HASH_SIZE>,
+    hash: HeaderHash,
     nonces: InitialNonces,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("nonces.{}.{}.json", slot, hash));
@@ -314,7 +314,7 @@ async fn write_nonces(
 async fn write_ledger_snapshot(
     target_dir: &Path,
     slot: u64,
-    hash: Hash<HEADER_HASH_SIZE>,
+    hash: HeaderHash,
     ledger_data: &[u8],
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let target_path = target_dir.join(format!("{}.{}.cbor", slot, hash));

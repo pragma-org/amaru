@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Header;
 use amaru_kernel::cbor;
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::protocol_parameters::ConsensusParameters;
+use amaru_kernel::{Header, Nonce};
 use amaru_ouroboros::{kes, praos};
 use amaru_ouroboros_traits::has_stake_distribution::mock_ledger_state::MockLedgerState;
 use ctor::ctor;
@@ -58,7 +58,7 @@ struct GeneratorContext {
     #[serde(rename = "vrfVKeyHash", deserialize_with = "deserialize_vrf_vkey_hash")]
     vrf_vkey_hash: Hash<32>,
     #[serde(deserialize_with = "deserialize_nonce")]
-    nonce: Hash<32>,
+    nonce: Nonce,
     #[serde(rename = "ocertCounters")]
     operational_certificate_counters: BTreeMap<Hash<28>, u64>,
     #[serde(rename = "activeSlotCoeff")]
