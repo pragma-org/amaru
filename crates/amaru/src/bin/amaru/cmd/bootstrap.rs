@@ -18,6 +18,7 @@ use super::{
 use crate::cmd::{DEFAULT_NETWORK, import_nonces::import_nonces_from_file};
 use amaru::snapshots_dir;
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
+use amaru_stores::rocksdb::consensus::migrate_db_path;
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{Parser, arg};
 use futures_util::TryStreamExt;
@@ -98,6 +99,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
     import_all_from_directory(network, &ledger_dir, &snapshots_dir).await?;
+
+    migrate_db_path(&chain_dir)?;
 
     import_nonces_for_network(network, &network_dir, &chain_dir).await?;
 
