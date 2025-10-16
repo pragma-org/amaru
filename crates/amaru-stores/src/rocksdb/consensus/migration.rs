@@ -18,7 +18,7 @@ use crate::rocksdb::{
 };
 use amaru_ouroboros_traits::StoreError;
 use rocksdb::OptimisticTransactionDB;
-use std::path::PathBuf;
+use std::path::Path;
 use tracing::info;
 
 /// The version key: __VERSION__
@@ -29,7 +29,7 @@ pub const VERSION_KEY: [u8; 11] = [
 /// Migrate the Chain Database at the given `path` to the current `CHAIN_DB_VERSION`.
 /// Returns the pair of numbers consisting in the initial version of the database and
 /// the current version if migration succeeds, otherwise returns a `StoreError`.
-pub fn migrate_db_path(path: &PathBuf) -> Result<(u16, u16), StoreError> {
+pub fn migrate_db_path(path: &Path) -> Result<(u16, u16), StoreError> {
     let config = RocksDbConfig::new(path.to_path_buf());
 
     let (_, db) = open_db(&config)?;
@@ -38,11 +38,11 @@ pub fn migrate_db_path(path: &PathBuf) -> Result<(u16, u16), StoreError> {
 }
 
 pub fn migrate_db(db: &OptimisticTransactionDB) -> Result<(u16, u16), StoreError> {
-    let version = get_version(&db)?;
+    let version = get_version(db)?;
 
     for n in version..CHAIN_DB_VERSION {
         info!("Migrating Chain database to version {}", n + 1);
-        MIGRATIONS[n as usize](&db)?
+        MIGRATIONS[n as usize](db)?
     }
     Ok((version, CHAIN_DB_VERSION))
 }

@@ -342,7 +342,7 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
 fn initialise_with_version(config: &RocksDbConfig, db_version: u16) -> Result<(), StoreError> {
     let (_, db) = open_db(config)?;
     let bytes: Vec<u8> = vec![(db_version >> 8) as u8, (db_version & 0xff) as u8];
-    db.put(&VERSION_KEY, &bytes)
+    db.put(VERSION_KEY, &bytes)
         .map_err(|e| StoreError::WriteError {
             error: e.to_string(),
         })
@@ -640,7 +640,7 @@ pub mod test {
 
         copy_recursively(source, target).unwrap();
 
-        let result = migrate_db_path(&target.to_path_buf()).unwrap();
+        let result = migrate_db_path(target).unwrap();
 
         let _ = RocksDBStore::new(config)
             .expect("DB should successfully be opened as it's been migrated");
@@ -656,7 +656,7 @@ pub mod test {
     // 2. run migration code
     // 3. check that the data is still there and correct
     #[expect(dead_code)]
-    fn create_sample_db(path: &PathBuf) {
+    fn create_sample_db(path: &Path) {
         let db = initialise_test_rw_store(path);
         let chain = run(any_headers_chain(10));
         for header in &chain {
