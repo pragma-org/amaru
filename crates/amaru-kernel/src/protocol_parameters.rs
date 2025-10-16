@@ -435,7 +435,7 @@ pub struct GlobalParameters {
     /// nonce of the following epoch.
     pub randomness_stabilization_window: u64,
 
-    /// POSIX time (miliseconds) of the System Start.
+    /// POSIX time (milliseconds) of the System Start.
     pub system_start: u64,
 }
 

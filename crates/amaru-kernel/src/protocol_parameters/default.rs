@@ -51,7 +51,7 @@ pub static PREPROD_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new
     let epoch_length_scale_factor = 10;
     let epoch_length =
         active_slot_coeff_inverse * epoch_length_scale_factor * consensus_security_param;
-    let system_start = 1653955200000; // 2022-06-01T00:00:00Z
+    let system_start = 1654041600000; // 2022-06-01T00:00:00Z
     GlobalParameters {
         consensus_security_param,
         epoch_length_scale_factor,
