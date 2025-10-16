@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use amaru_kernel::{
     Address, EraHistory, Hash, MemoizedDatum, MemoizedTransactionOutput, MintedTransactionBody,
     MintedWitnessSet, PolicyId, Redeemer, ScriptPurpose as RedeemerTag, Slot, StakeCredential,
-    TransactionInput, TransactionInputAdapter, normalize_redeemers,
+    TransactionInput, TransactionInputAdapter, network::NetworkName, normalize_redeemers,
 };
 use amaru_slot_arithmetic::EraHistoryError;
 use itertools::Itertools;
@@ -80,6 +80,7 @@ impl TxInfo {
         utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
         era_history: &EraHistory,
         slot: &Slot,
+        network: NetworkName,
     ) -> Result<Self, PlutusV1Error> {
         if tx.reference_inputs.is_some() {
             return Err(PlutusV1Error::ReferenceInputsIncluded);
@@ -155,6 +156,15 @@ impl TxInfo {
             .unwrap_or_default();
 
         let redeemers = Redeemers(redeemers);
+
+        let valid_range = TimeRange::new(
+            tx.validity_interval_start.map(Slot::from),
+            tx.ttl.map(Slot::from),
+            slot,
+            era_history,
+            network,
+        )
+        .map_err(PlutusV1Error::InvalidValidityRange)?;
         Ok(Self {
             inputs,
             outputs,
@@ -162,13 +172,7 @@ impl TxInfo {
             mint,
             certificates,
             withdrawals,
-            valid_range: TimeRange::new(
-                tx.validity_interval_start.map(Slot::from),
-                tx.ttl.map(Slot::from),
-                slot,
-                era_history,
-            )
-            .map_err(PlutusV1Error::InvalidValidityRange)?,
+            valid_range,
             signatories,
             redeemers,
             data: datums,

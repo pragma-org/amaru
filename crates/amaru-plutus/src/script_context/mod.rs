@@ -15,6 +15,8 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
+use amaru_kernel::network::NetworkName;
+use amaru_kernel::protocol_parameters::GlobalParameters;
 use amaru_kernel::{
     AddrKeyhash, Address, Certificate, ComputeHash, DatumHash, EraHistory, Hash, KeepRaw,
     KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
@@ -59,12 +61,14 @@ impl TimeRange {
         valid_to_slot: Option<Slot>,
         tip: &Slot,
         era_history: &EraHistory,
+        network: NetworkName,
     ) -> Result<Self, EraHistoryError> {
+        let parameters: &GlobalParameters = network.into();
         let lower_bound = valid_from_slot
-            .map(|slot| era_history.slot_to_relative_time(slot, *tip))
+            .map(|slot| era_history.slot_to_posix_time(slot, *tip, parameters.system_start.into()))
             .transpose()?;
         let upper_bound = valid_to_slot
-            .map(|slot| era_history.slot_to_relative_time(slot, *tip))
+            .map(|slot| era_history.slot_to_posix_time(slot, *tip, parameters.system_start.into()))
             .transpose()?;
 
         Ok(Self {
