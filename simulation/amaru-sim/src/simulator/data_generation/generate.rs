@@ -36,7 +36,7 @@ pub fn generate_entries<R: Rng>(
             rng,
             any_select_chains(
                 node_config.number_of_upstream_peers as usize,
-                10,
+                node_config.generated_chain_depth as usize,
                 Ratio(1, 2),
             ),
         );

@@ -19,6 +19,7 @@ use crate::simulator::Args;
 pub struct NodeConfig {
     pub number_of_upstream_peers: u8,
     pub number_of_downstream_peers: u8,
+    pub generated_chain_depth: u64,
 }
 
 impl Default for NodeConfig {
@@ -26,6 +27,7 @@ impl Default for NodeConfig {
         Self {
             number_of_upstream_peers: 2,
             number_of_downstream_peers: 1,
+            generated_chain_depth: 10,
         }
     }
 }
@@ -35,6 +37,7 @@ impl NodeConfig {
         Self {
             number_of_upstream_peers: args.number_of_upstream_peers,
             number_of_downstream_peers: args.number_of_downstream_peers,
+            generated_chain_depth: args.generated_chain_depth,
         }
     }
 
@@ -45,6 +48,11 @@ impl NodeConfig {
 
     pub fn with_number_of_downstream_peers(mut self, n: u8) -> Self {
         self.number_of_downstream_peers = n;
+        self
+    }
+
+    pub fn with_generated_chain_depth(mut self, depth: u64) -> Self {
+        self.generated_chain_depth = depth;
         self
     }
 }

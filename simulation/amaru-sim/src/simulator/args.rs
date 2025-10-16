@@ -36,6 +36,10 @@ pub struct Args {
     #[arg(long, default_value = "1")]
     pub number_of_downstream_peers: u8,
 
+    /// Maximum depth of the generated chain for a given peer
+    #[arg(long, default_value = "10")]
+    pub generated_chain_depth: u64,
+
     #[arg(long)]
     pub disable_shrinking: bool,
 

@@ -30,6 +30,7 @@ fn run_simulator_with_traces() {
         number_of_nodes: 1,
         number_of_upstream_peers: 1,
         number_of_downstream_peers: 1,
+        generated_chain_depth: 1,
         disable_shrinking: true,
         seed: None,
         persist_on_success: false,

@@ -36,6 +36,10 @@ fn run_simulator() {
             "AMARU_NUMBER_OF_DOWNSTREAM_PEERS",
             node_config.number_of_downstream_peers,
         ),
+        generated_chain_depth: get_env_var(
+            "AMARU_GENERATED_CHAIN_DEPTH",
+            node_config.generated_chain_depth,
+        ),
         disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true("AMARU_PERSIST_ON_SUCCESS"),
