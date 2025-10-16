@@ -27,7 +27,7 @@ pub static MAINNET_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new
     let epoch_length_scale_factor = 10;
     let epoch_length =
         active_slot_coeff_inverse * epoch_length_scale_factor * consensus_security_param;
-    let system_start = 1506203091000; // 2017-09-23T21:44:51Z
+    let system_start = 1506203091000; // 2017-09-23T21:44:51Z  (see Shelley Genesis https://book.world.dev.cardano.org/env-mainnet.html)
     GlobalParameters {
         consensus_security_param,
         epoch_length_scale_factor,
@@ -51,7 +51,7 @@ pub static PREPROD_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new
     let epoch_length_scale_factor = 10;
     let epoch_length =
         active_slot_coeff_inverse * epoch_length_scale_factor * consensus_security_param;
-    let system_start = 1654041600000; // 2022-06-01T00:00:00Z
+    let system_start = 1654041600000; // 2022-06-01T00:00:00Z (see Shelley Genesis https://book.world.dev.cardano.org/env-preprod.html)
     GlobalParameters {
         consensus_security_param,
         epoch_length_scale_factor,
@@ -276,7 +276,7 @@ pub static PREVIEW_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new
         Slot::from((active_slot_coeff_inverse * consensus_security_param * 3) as u64);
     let randomness_stabilization_window =
         (4 * consensus_security_param * active_slot_coeff_inverse) as u64;
-    let system_start = 1666656000000; // 2022-10-25T00:00:00Z
+    let system_start = 1666656000000; // 2022-10-25T00:00 (see Shelley Genesis https://book.world.dev.cardano.org/env-preview.html)
 
     GlobalParameters {
         consensus_security_param,
@@ -492,7 +492,7 @@ pub static TESTNET_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new
     let epoch_length_scale_factor = 10;
     let epoch_length =
         active_slot_coeff_inverse * epoch_length_scale_factor * consensus_security_param;
-    let system_start = 1666656000000; // 2022-10-25T00:00:00Z
+    let system_start = 1666656000000; // 2022-10-25T00:00:00Z (This is the preprod system start. If this is being used for Antithesis testing, it may need to change)
 
     GlobalParameters {
         consensus_security_param,
