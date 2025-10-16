@@ -218,6 +218,14 @@ impl Add<u64> for TimeMs {
     }
 }
 
+impl Add<TimeMs> for TimeMs {
+    type Output = Self;
+
+    fn add(self, rhs: TimeMs) -> Self::Output {
+        TimeMs(self.0 + rhs.0)
+    }
+}
+
 /// Scaling factor between picoseconds and milliseconds
 const PICOS_IN_MILLIS: u64 = 1_000_000_000u64;
 
@@ -571,6 +579,17 @@ impl EraHistory {
             stability_window,
             eras: eras.to_vec(),
         }
+    }
+
+    pub fn slot_to_posix_time(
+        &self,
+        slot: Slot,
+        tip: Slot,
+        system_start: TimeMs,
+    ) -> Result<TimeMs, EraHistoryError> {
+        let relative_time = self.slot_to_relative_time(slot, tip)?;
+
+        Ok(relative_time + system_start)
     }
 
     pub fn slot_to_relative_time(&self, slot: Slot, tip: Slot) -> Result<TimeMs, EraHistoryError> {
