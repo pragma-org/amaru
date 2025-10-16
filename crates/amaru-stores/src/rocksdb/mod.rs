@@ -48,7 +48,6 @@ pub mod common;
 use common::{PREFIX_LEN, as_value};
 
 pub mod consensus;
-pub mod migration;
 
 mod transaction;
 use transaction::OngoingTransaction;

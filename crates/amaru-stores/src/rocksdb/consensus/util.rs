@@ -1,0 +1,57 @@
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::rocksdb::RocksDbConfig;
+use amaru_ouroboros_traits::StoreError;
+use rocksdb::{OptimisticTransactionDB, Options};
+use std::path::PathBuf;
+
+pub(crate) const CONSENSUS_PREFIX_LEN: usize = 5;
+
+/// Current version of chain DB format expected by this code, as a simple number.
+/// Increment this number by 1 every time the "schema" is updated, eg. a new
+/// type of keys is added, prefixes are changed, etc. then provide a migration
+/// function from the previous version.
+pub const CHAIN_DB_VERSION: u16 = 1;
+
+/// "heade"
+pub(crate) const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x68, 0x65, 0x61, 0x64, 0x65];
+
+/// "nonce"
+pub(crate) const NONCES_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
+
+/// "block"
+pub(crate) const BLOCK_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x62, 0x6c, 0x6f, 0x63, 0x6b];
+
+/// "ancho"
+pub(crate) const ANCHOR_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x61, 0x6e, 0x63, 0x68, 0x6f];
+
+/// "best_"
+pub(crate) const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x62, 0x65, 0x73, 0x74, 0x5f];
+
+/// "child"
+pub(crate) const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x63, 0x68, 0x69, 0x6c, 0x64];
+
+/// Open a Chain DB for reading and writing.
+pub fn open_db(config: &RocksDbConfig) -> Result<(PathBuf, OptimisticTransactionDB), StoreError> {
+    let basedir = config.dir.clone();
+    let mut opts: Options = config.into();
+    opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
+        CONSENSUS_PREFIX_LEN,
+    ));
+    let db = OptimisticTransactionDB::open(&opts, &basedir).map_err(|e| StoreError::OpenError {
+        error: e.to_string(),
+    })?;
+    Ok((basedir, db))
+}

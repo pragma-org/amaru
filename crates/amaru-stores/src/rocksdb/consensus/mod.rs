@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HEADER_HASH_SIZE, Hash, RawBlock, cbor, from_cbor, to_cbor};
-use amaru_kernel::{HeaderHash, ORIGIN_HASH};
+pub mod migration;
+pub mod util;
+
+pub use migration::*;
+
+use amaru_kernel::{
+    HEADER_HASH_SIZE, Hash, HeaderHash, ORIGIN_HASH, RawBlock, cbor, from_cbor, to_cbor,
+};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
@@ -22,7 +28,10 @@ use std::path::PathBuf;
 use tracing::{Level, instrument};
 
 use crate::rocksdb::RocksDbConfig;
-use crate::rocksdb::migration::VERSION_KEY;
+use crate::rocksdb::consensus::util::{
+    ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX,
+    CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX, open_db,
+};
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
@@ -81,45 +90,6 @@ pub fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> 
     }?;
     Ok(())
 }
-
-/// Open a Chain DB for reading and writing.
-pub fn open_db(config: &RocksDbConfig) -> Result<(PathBuf, OptimisticTransactionDB), StoreError> {
-    let basedir = config.dir.clone();
-    let mut opts: Options = config.into();
-    opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
-        CONSENSUS_PREFIX_LEN,
-    ));
-    let db = OptimisticTransactionDB::open(&opts, &basedir).map_err(|e| StoreError::OpenError {
-        error: e.to_string(),
-    })?;
-    Ok((basedir, db))
-}
-
-const CONSENSUS_PREFIX_LEN: usize = 5;
-
-/// Current version of chain DB format expected by this code, as a simple number.
-/// Increment this number by 1 every time the "schema" is updated, eg. a new
-/// type of keys is added, prefixes are changed, etc. then provide a migration
-/// function from the previous version.
-pub const CHAIN_DB_VERSION: u16 = 1;
-
-/// "heade"
-const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x68, 0x65, 0x61, 0x64, 0x65];
-
-/// "nonce"
-const NONCES_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
-
-/// "block"
-const BLOCK_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x62, 0x6c, 0x6f, 0x63, 0x6b];
-
-/// "ancho"
-const ANCHOR_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x61, 0x6e, 0x63, 0x68, 0x6f];
-
-/// "best_"
-const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x62, 0x65, 0x73, 0x74, 0x5f];
-
-/// "child"
-const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x63, 0x68, 0x69, 0x6c, 0x64];
 
 macro_rules! impl_ReadOnlyChainStore {
     (for $($s:ty),+) => {
@@ -406,6 +376,8 @@ fn init_dir(path: &std::path::Path) -> PathBuf {
 
 #[cfg(test)]
 pub mod test {
+    use crate::rocksdb::consensus::migration::migrate_db;
+
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
     use amaru_kernel::{Nonce, ORIGIN_HASH};
@@ -415,7 +387,9 @@ pub mod test {
         any_header_with_parent, any_headers_chain, make_header, run,
     };
     use std::collections::BTreeMap;
+    use std::path::Path;
     use std::sync::Arc;
+    use std::{fs, io};
 
     #[test]
     fn both_rw_and_ro_can_be_open_on_same_dir() {
@@ -657,6 +631,22 @@ pub mod test {
         RocksDBStore::new(config).unwrap();
     }
 
+    #[test]
+    fn can_convert_v0_sample_db_to_v1() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target = tempdir.path();
+        let config = RocksDbConfig::new(target.to_path_buf());
+        let source = PathBuf::from("sample-chain-db/v0");
+
+        copy_recursively(source, target).unwrap();
+
+        let result = migrate_db(&target.to_path_buf()).unwrap();
+
+        let _ = RocksDBStore::new(config)
+            .expect("DB should successfully be opened as it's been migrated");
+        assert_eq!((0, 1), result);
+    }
+
     // HELPERS
 
     // creates a sample db at the given path, populating with some data
@@ -665,6 +655,7 @@ pub mod test {
     // 1. create a sample DB with the old version
     // 2. run migration code
     // 3. check that the data is still there and correct
+    #[expect(dead_code)]
     fn create_sample_db(path: &PathBuf) {
         let db = initialise_test_rw_store(path);
         let chain = run(any_headers_chain(10));
@@ -706,5 +697,23 @@ pub mod test {
             children.sort();
         }
         v
+    }
+
+    // from https://nick.groenen.me/notes/recursively-copy-files-in-rust/
+    pub fn copy_recursively(
+        source: impl AsRef<Path>,
+        destination: impl AsRef<Path>,
+    ) -> io::Result<()> {
+        fs::create_dir_all(&destination)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let filetype = entry.file_type()?;
+            if filetype.is_dir() {
+                copy_recursively(entry.path(), destination.as_ref().join(entry.file_name()))?;
+            } else {
+                fs::copy(entry.path(), destination.as_ref().join(entry.file_name()))?;
+            }
+        }
+        Ok(())
     }
 }
