@@ -29,11 +29,15 @@ pub const VERSION_KEY: [u8; 11] = [
 /// Migrate the Chain Database at the given `path` to the current `CHAIN_DB_VERSION`.
 /// Returns the pair of numbers consisting in the initial version of the database and
 /// the current version if migration succeeds, otherwise returns a `StoreError`.
-pub fn migrate_db(path: &PathBuf) -> Result<(u16, u16), StoreError> {
+pub fn migrate_db_path(path: &PathBuf) -> Result<(u16, u16), StoreError> {
     let config = RocksDbConfig::new(path.to_path_buf());
 
     let (_, db) = open_db(&config)?;
 
+    migrate_db(&db)
+}
+
+pub fn migrate_db(db: &OptimisticTransactionDB) -> Result<(u16, u16), StoreError> {
     let version = get_version(&db)?;
 
     for n in version..CHAIN_DB_VERSION {
