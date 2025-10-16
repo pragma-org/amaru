@@ -42,10 +42,10 @@ use amaru_ouroboros_traits::{
     BlockHeader, CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
     in_memory_consensus_store::InMemConsensusStore,
 };
-use amaru_stores::rocksdb::RocksDbConfig;
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use amaru_stores::{
     in_memory::MemoryStore,
-    rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore},
+    rocksdb::{RocksDB, RocksDBHistoricalStores},
 };
 use gasket::{
     messaging::OutputPort,
