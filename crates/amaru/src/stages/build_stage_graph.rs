@@ -141,7 +141,7 @@ fn with_consensus_effects<Msg, St, F1, Fut>(
 ) -> impl FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send
 where
     F1: FnMut(St, Msg, ConsensusEffects<Msg>) -> Fut + 'static + Send,
-    Fut: Future<Output=St> + 'static + Send,
+    Fut: Future<Output = St> + 'static + Send,
     Msg: SendData + serde::de::DeserializeOwned + Sync + Clone,
     St: SendData,
 {

@@ -68,7 +68,7 @@ fn run_simulator_with_traces() {
             &simulate_config,
             spawn,
             generate_one,
-            |_| Ok(()),
+            |_, _| Ok(()),
             Default::default(),
             false,
         )

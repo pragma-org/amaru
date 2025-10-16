@@ -134,6 +134,10 @@ impl BlockHeader {
         &self.header.header_body
     }
 
+    pub fn parent_hash(&self) -> Option<HeaderHash> {
+        self.header.header_body.prev_hash
+    }
+
     fn recompute_hash(&mut self) {
         self.hash = Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&self.header);
     }

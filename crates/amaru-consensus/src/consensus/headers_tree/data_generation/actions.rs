@@ -478,12 +478,15 @@ pub fn execute_json_actions(
 }
 
 /// Type alias for a chain of headers tracked by a peer
-type Chain = Vec<BlockHeader>;
+pub type Chain = Vec<BlockHeader>;
 
 /// This function computes the chains sent by each peer from a list of actions.
 /// Once all the actions have been executed it returns the chains that are the longest.
 ///
-/// The return value is a list of lists of chains, because it returns one list of chains per action.
+/// The return value is a list of lists of chains:
+///
+///  - For each action we produce the resulting best chains.
+///  - So that the last list of chains is the best chains after executing all the actions.
 ///
 pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Chain>> {
     let mut all_best_chains: Vec<Vec<Chain>> = vec![];

@@ -17,7 +17,7 @@ use crate::simulator::bytes::Bytes;
 use crate::simulator::ledger::populate_chain_store;
 use crate::simulator::simulate::simulate;
 use crate::simulator::{
-    Args, Chain, History, NodeConfig, NodeHandle, SimulateConfig, generate_entries,
+    Args, Entry, History, NodeConfig, NodeHandle, SimulateConfig, generate_entries,
 };
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
@@ -30,6 +30,7 @@ use amaru_consensus::consensus::effects::{ResourceBlockFetcher, ResourceBlockVal
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::headers_tree::HeadersTreeState;
+use amaru_consensus::consensus::headers_tree::data_generation::Chain;
 use amaru_consensus::consensus::stages::fetch_block::BlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::{
     DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain,
@@ -40,16 +41,16 @@ use amaru_consensus::{BlockHeader, ChainStore};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_parameters::GlobalParameters;
+use amaru_kernel::string_utils::{ListDebug, ListToString};
 use amaru_kernel::{Point, to_cbor};
 use amaru_ouroboros::IsHeader;
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateBlocks;
 use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
-use amaru_slot_arithmetic::Slot;
 use async_trait::async_trait;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef};
-use std::path::PathBuf;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -81,7 +82,7 @@ pub fn run(rt: Runtime, args: Args) {
             Instant::at_offset(Duration::from_secs(0)),
             200.0,
         ),
-        chain_property(&args.block_tree_file),
+        chain_property(),
         trace_buffer.clone(),
         args.persist_on_success,
     )
@@ -244,39 +245,108 @@ fn make_chain_selector(
     SelectChain::new(tree_state)
 }
 
-/// Property: at the end of the simulation, the tip of the chain from the last block must
-/// match the tip of the chain returned by the history of messages sent by the nodes under test.
-fn chain_property(
-    chain_data_path: &PathBuf,
-) -> impl Fn(&History<ChainSyncMessage>) -> Result<(), String> + use<'_> {
-    move |history| {
-        // Get the tip of the chain from the chain data file
-        // and compare it to the last entry in the history
-        let blocks =
-            Chain::read_blocks_from_file(chain_data_path).map_err(|err| err.to_string())?;
-        let expected = blocks
-            .last()
-            .map(|block| (block.hash.clone(), Slot::from(block.slot)))
-            .expect("empty chain data");
+/// Property: at the end of the simulation, the chain built from the history of messages received
+/// must match one of the best chains that could be built from the entries.
+fn chain_property()
+-> impl Fn(&[Entry<ChainSyncMessage>], &History<ChainSyncMessage>) -> Result<(), String> {
+    move |entries, history| {
+        let expected = make_best_chain_from_entries(
+            &entries
+                .iter()
+                .map(|e| e.envelope.clone())
+                .collect::<Vec<_>>(),
+        );
+        let actual = make_best_chain_from_results(history);
+        let actual_chain = actual.list_to_string(",\n ");
+        let expected_chain = expected.list_to_string(",\n ");
+        assert_eq!(
+            actual, expected,
+            "\nThe actual chain\n{}\n\nis not the best chain\n\n{}\n\nThe history is:\n{:?}",
+            actual_chain, expected_chain, history,
+        );
+        Ok(())
+    }
+}
 
-        if let Some(Envelope {
-            body: ChainSyncMessage::Fwd { hash, slot, .. },
-            ..
-        }) = history.0.last()
-        {
-            let actual = (hash.clone(), *slot);
-            if actual != expected {
-                Err(format!(
-                    "tip of chains don't match, expected:\n    {:?}\n  got:\n    {:?}",
-                    expected, actual
-                ))
-            } else {
-                Ok(())
+/// Build the best chain from messages incoming from upstream peers.
+pub fn make_best_chain_from_entries(messages: &[Envelope<ChainSyncMessage>]) -> Chain {
+    // keep the chain of each peer
+    let mut current_chains: BTreeMap<String, Chain> = BTreeMap::new();
+
+    // also keep track of the best chain seen so far
+    let best_chain_tracker = "best".to_string();
+    current_chains.insert(best_chain_tracker.clone(), vec![]);
+    for message in messages {
+        // only consider messages from the peers
+        if !message.src.starts_with("c") {
+            continue;
+        };
+
+        if !current_chains.contains_key(&message.src) {
+            current_chains.insert(message.src.clone(), vec![]);
+        }
+        let chain: &mut Chain = current_chains.get_mut(&message.src).unwrap();
+        match &message.body {
+            msg @ ChainSyncMessage::Fwd { .. } => {
+                // make sure to skip headers that cannot be decoded
+                if let Some(header) = msg.decode_block_header() {
+                    chain.push(header);
+                }
             }
-        } else {
-            Err("impossible, no first entry in history".to_string())
+            msg @ ChainSyncMessage::Bck { .. } => {
+                // make sure to skip header hashes that cannot be decoded
+                if let Some(header_hash) = msg.header_hash()
+                    && let Some(rollback_position) =
+                        chain.iter().position(|h| h.hash() == header_hash)
+                {
+                    chain.truncate(rollback_position + 1)
+                }
+            }
+            _ => (),
+        }
+
+        // update the best chain seen so far
+        let best_length = current_chains.values().map(|c| c.len()).max().unwrap();
+        let best_chain = current_chains
+            .clone()
+            .into_values()
+            .filter(|c| c.len() == best_length)
+            .collect::<Vec<Chain>>();
+        current_chains.insert(best_chain_tracker.clone(), best_chain[0].clone());
+    }
+    current_chains.get(&best_chain_tracker).unwrap().clone()
+}
+
+/// Build the best chain from the results by creating a chain corresponding to the ChainSyncMessage emitted
+/// by the node.
+pub fn make_best_chain_from_results(history: &History<ChainSyncMessage>) -> Chain {
+    let mut best_chain = vec![];
+    for (i, message) in history.0.iter().enumerate() {
+        // only consider messages from the node under test
+        if !message.src.starts_with("n") {
+            continue;
+        };
+        match &message.body {
+            msg @ ChainSyncMessage::Fwd { .. } => {
+                best_chain.push(msg.decode_block_header().unwrap())
+            }
+            msg @ ChainSyncMessage::Bck { .. } => {
+                let header_hash = msg.header_hash().unwrap();
+                let rollback_position = best_chain.iter().position(|h| h.hash() == header_hash);
+                assert!(
+                    rollback_position.is_some(),
+                    "after the action {}, we have a rollback position that does not exist with hash {}.\nThe best chain is:\n{}. The history is:\n{}",
+                    i + 1,
+                    header_hash,
+                    best_chain.list_to_string(",\n"),
+                    history.0.iter().collect::<Vec<_>>().list_debug("\n")
+                );
+                best_chain.truncate(rollback_position.unwrap() + 1);
+            }
+            _ => (),
         }
     }
+    best_chain
 }
 
 /// A fake block fetcher that always returns an empty block.

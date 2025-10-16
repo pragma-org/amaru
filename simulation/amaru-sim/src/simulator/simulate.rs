@@ -50,7 +50,7 @@ pub fn simulate<Msg, F>(
     config: &SimulateConfig,
     spawn: F,
     generator: impl Fn(&mut StdRng) -> Vec<Entry<Msg>>,
-    property: impl Fn(&History<Msg>) -> Result<(), String>,
+    property: impl Fn(&[Entry<Msg>], &History<Msg>) -> Result<(), String>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     persist_on_success: bool,
 ) -> Result<(), String>
@@ -111,7 +111,7 @@ where
 fn test_nodes<Msg, F>(
     number_of_nodes: u8,
     spawn: F,
-    property: impl Fn(&History<Msg>) -> Result<(), String>,
+    property: impl Fn(&[Entry<Msg>], &History<Msg>) -> Result<(), String>,
 ) -> impl Fn(&[Entry<Msg>]) -> (History<Msg>, Result<(), String>)
 where
     Msg: Debug + PartialEq + Clone,
@@ -130,7 +130,7 @@ where
         match world.run_world() {
             Ok(history) => {
                 let history = History(history.to_vec());
-                let result = property(&history);
+                let result = property(entries, &history);
                 (history, result)
             }
             Err((reason, history)) => (History(history.to_vec()), Err(reason)),

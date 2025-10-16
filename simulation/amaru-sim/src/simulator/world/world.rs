@@ -19,7 +19,7 @@ use pure_stage::Instant;
 use serde::Serialize;
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BTreeMap, BinaryHeap};
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::time::Duration;
 use tracing::{debug, info};
 
@@ -66,8 +66,17 @@ impl<Msg: PartialEq> Eq for Entry<Msg> {}
 pub type NodeId = String;
 
 /// A `History` records all messages sent to/from client nodes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct History<Msg>(pub Vec<Envelope<Msg>>);
+
+impl<Msg: Debug> Debug for History<Msg> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for message in &self.0 {
+            writeln!(f, "{message:?}")?;
+        }
+        Ok(())
+    }
+}
 
 impl<Msg: PartialEq + Clone + Debug> World<Msg> {
     /// Create a new World with initial messages and node handles.

@@ -93,7 +93,10 @@ pub fn echo_generator(rng: &mut StdRng) -> Vec<Entry<EchoMessage>> {
 /// Check that for every echo response from the node, there is a matching echo request that was sent to the node.
 /// The response must have the same `in_reply_to` as the request's `msg_id`, and the echoed message must
 /// match the original message.
-pub fn echo_property(history: &History<EchoMessage>) -> Result<(), String> {
+pub fn echo_property(
+    _entries: &[Entry<EchoMessage>],
+    history: &History<EchoMessage>,
+) -> Result<(), String> {
     // TODO: Take response time into account.
     for (index, msg) in history
         .0
