@@ -13,18 +13,10 @@
 // limitations under the License.
 
 use crate::simulator::Args;
-use amaru_kernel::HeaderHash;
-use pallas_crypto::hash::Hash;
-use std::path::PathBuf;
 
 /// Configuration for a single node
 #[derive(Debug, Clone)]
 pub struct NodeConfig {
-    pub stake_distribution_file: PathBuf,
-    pub consensus_context_file: PathBuf,
-    pub chain_dir: PathBuf,
-    pub block_tree_file: PathBuf,
-    pub start_header: HeaderHash,
     pub number_of_upstream_peers: u8,
     pub number_of_downstream_peers: u8,
 }
@@ -32,11 +24,6 @@ pub struct NodeConfig {
 impl Default for NodeConfig {
     fn default() -> Self {
         Self {
-            stake_distribution_file: PathBuf::from("./stake_distribution.json"),
-            consensus_context_file: PathBuf::from("./consensus_context.json"),
-            chain_dir: PathBuf::from("./chain.db/"),
-            block_tree_file: PathBuf::from("./chain.json"),
-            start_header: Hash::from([0; 32]),
             number_of_upstream_peers: 2,
             number_of_downstream_peers: 1,
         }
@@ -46,11 +33,6 @@ impl Default for NodeConfig {
 impl NodeConfig {
     pub fn from(args: Args) -> Self {
         Self {
-            stake_distribution_file: args.stake_distribution_file,
-            consensus_context_file: args.consensus_context_file,
-            chain_dir: args.chain_dir,
-            block_tree_file: args.block_tree_file,
-            start_header: args.start_header,
             number_of_upstream_peers: args.number_of_upstream_peers,
             number_of_downstream_peers: args.number_of_downstream_peers,
         }

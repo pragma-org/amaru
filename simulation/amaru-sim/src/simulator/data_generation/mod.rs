@@ -13,11 +13,9 @@
 // limitations under the License.
 
 pub mod base_generators;
-pub mod chain;
 pub mod generate;
 pub mod shrink;
 
 pub use base_generators::*;
-pub use chain::*;
 pub use generate::*;
 pub use shrink::*;

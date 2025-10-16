@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Hash;
 use amaru_sim::simulator::run::run;
 use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
 use std::env;
@@ -27,11 +26,6 @@ fn run_simulator() {
     let simulate_config = SimulateConfig::default();
     let node_config = NodeConfig::default();
     let args = Args {
-        stake_distribution_file: "tests/data/stake-distribution.json".into(),
-        consensus_context_file: "tests/data/consensus-context.json".into(),
-        chain_dir: "./chain.db".into(),
-        block_tree_file: "tests/data/chain.json".into(),
-        start_header: Hash::from([0; 32]),
         number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", simulate_config.number_of_tests),
         number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", simulate_config.number_of_nodes),
         number_of_upstream_peers: get_env_var(

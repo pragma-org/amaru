@@ -14,7 +14,6 @@
 
 use crate::echo::Envelope;
 use crate::simulator::bytes::Bytes;
-use crate::simulator::ledger::populate_chain_store;
 use crate::simulator::simulate::simulate;
 use crate::simulator::{
     Args, Entry, History, NodeConfig, NodeHandle, SimulateConfig, generate_entries,
@@ -208,13 +207,6 @@ fn init_node(
     let network_name = NetworkName::Testnet(42);
     let chain_store = Arc::new(InMemConsensusStore::new());
     let header_validation = Arc::new(MockCanValidateHeaders);
-
-    populate_chain_store(
-        chain_store.clone(),
-        &node_config.start_header,
-        &node_config.consensus_context_file,
-    )
-    .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
 
     let peers = (1..=node_config.number_of_upstream_peers)
         .map(|i| Peer::new(&format!("c{}", i)))

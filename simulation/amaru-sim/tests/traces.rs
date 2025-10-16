@@ -16,7 +16,6 @@ use amaru_sim::simulator::run::spawn_node;
 use amaru_sim::simulator::simulate::simulate;
 use amaru_sim::simulator::{Args, NodeConfig, NodeHandle, SimulateConfig, generate_entries};
 use amaru_tracing_json::assert_spans_trees;
-use pallas_crypto::hash::Hash;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::{Instant, StageGraph};
 use rand::prelude::StdRng;
@@ -27,11 +26,6 @@ use tokio::runtime::Runtime;
 #[test]
 fn run_simulator_with_traces() {
     let args = Args {
-        stake_distribution_file: "tests/data/stake-distribution.json".into(),
-        consensus_context_file: "tests/data/consensus-context.json".into(),
-        chain_dir: "./chain.db".into(),
-        block_tree_file: "tests/data/chain.json".into(),
-        start_header: Hash::from([0; 32]),
         number_of_tests: 1,
         number_of_nodes: 1,
         number_of_upstream_peers: 1,
