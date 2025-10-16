@@ -18,8 +18,8 @@ use amaru_kernel::{EraHistory, network::NetworkName, protocol_parameters::Global
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
 
-pub(crate) mod sync;
 pub(crate) mod mithril;
+pub(crate) mod sync;
 
 pub fn new_block_validator(
     network: NetworkName,

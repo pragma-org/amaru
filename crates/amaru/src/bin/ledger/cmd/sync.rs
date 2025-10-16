@@ -28,12 +28,14 @@ use std::{
 use tracing::info;
 
 use amaru_kernel::{
-    EraHistory, HeaderBody, Point, PseudoHeader, RawBlock, default_chain_dir, default_ledger_dir,
+    EraHistory, Header, Point, RawBlock, default_chain_dir, default_ledger_dir,
     network::NetworkName,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::{block_validator::BlockValidator, rules::parse_block};
-use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
+use amaru_ouroboros_traits::{
+    BlockHeader, ChainStore, Praos, can_validate_blocks::CanValidateBlocks,
+};
 
 use flate2::read::GzDecoder;
 use tar::Archive;
@@ -113,9 +115,9 @@ fn load_archive(
 
 fn create_praos_chain_store(
     global_parameters: GlobalParameters,
-    chain_store: Arc<dyn ChainStore<PseudoHeader<HeaderBody>>>,
+    chain_store: Arc<dyn ChainStore<BlockHeader>>,
     era_history: &EraHistory,
-) -> PraosChainStore<PseudoHeader<HeaderBody>> {
+) -> PraosChainStore<BlockHeader> {
     let consensus_parameters = Arc::new(ConsensusParameters::new(
         global_parameters,
         era_history,
@@ -159,17 +161,18 @@ async fn load_blocks(
 /// Process blocks as if they were processed by the full node
 /// Particularly all on disk side-effects are performed
 async fn process_block(
-    chain_store: &Arc<dyn ChainStore<PseudoHeader<HeaderBody>>>,
-    praos_chain_store: &PraosChainStore<PseudoHeader<HeaderBody>>,
+    chain_store: &Arc<dyn ChainStore<BlockHeader>>,
+    praos_chain_store: &PraosChainStore<BlockHeader>,
     block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
     point: &Point,
     raw_block: &RawBlock,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let block = parse_block(raw_block)?;
-    let header = block.header.unwrap().into();
-    chain_store.store_header(&header)?;
+    let header: Header = block.header.unwrap().into();
+    let block_header: BlockHeader = BlockHeader::from(header);
+    chain_store.store_header(&block_header)?;
     chain_store.store_block(&point.hash(), raw_block)?;
-    praos_chain_store.evolve_nonce(&header)?;
+    praos_chain_store.evolve_nonce(&block_header)?;
     let _ = block_validator
         .roll_forward_block(point, raw_block)
         .await
@@ -193,7 +196,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let global_parameters: &GlobalParameters = network.into();
     let block_validator = new_block_validator(network, ledger_dir)?;
     let tip = block_validator.get_tip();
-    let chain_store: Arc<dyn ChainStore<PseudoHeader<HeaderBody>>> =
+    let chain_store: Arc<dyn ChainStore<BlockHeader>> =
         Arc::new(RocksDBStore::new(&RocksDbConfig::new(chain_dir))?);
     let praos_chain_store =
         create_praos_chain_store(global_parameters.clone(), chain_store.clone(), era_history);
