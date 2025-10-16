@@ -85,7 +85,7 @@ pub fn run(rt: Runtime, args: Args) {
         trace_buffer.clone(),
         args.persist_on_success,
     )
-    .unwrap_or_else(|e| panic!("{e}"));
+        .unwrap_or_else(|e| panic!("{e}"));
 }
 
 /// Create and start a node
@@ -127,7 +127,7 @@ pub fn spawn_node(
                             },
                         },
                     )
-                    .await
+                        .await
                 }
                 ChainSyncMessage::InitOk { .. } => (),
                 ChainSyncMessage::Fwd {
@@ -142,7 +142,7 @@ pub fn spawn_node(
                             span: Span::current(),
                         },
                     )
-                    .await
+                        .await
                 }
                 ChainSyncMessage::Bck { slot, hash, .. } => {
                     eff.send(
@@ -153,7 +153,7 @@ pub fn spawn_node(
                             span: Span::current(),
                         },
                     )
-                    .await
+                        .await
                 }
             }
             (downstream, output)
@@ -240,7 +240,7 @@ fn make_chain_selector(
 /// Property: at the end of the simulation, the chain built from the history of messages received
 /// must match one of the best chains that could be built from the entries.
 fn chain_property()
--> impl Fn(&[Entry<ChainSyncMessage>], &History<ChainSyncMessage>) -> Result<(), String> {
+    -> impl Fn(&[Entry<ChainSyncMessage>], &History<ChainSyncMessage>) -> Result<(), String> {
     move |entries, history| {
         let expected = make_best_chain_from_entries(
             &entries
@@ -289,7 +289,7 @@ pub fn make_best_chain_from_entries(messages: &[Envelope<ChainSyncMessage>]) -> 
                 // make sure to skip header hashes that cannot be decoded
                 if let Some(header_hash) = msg.header_hash()
                     && let Some(rollback_position) =
-                        chain.iter().position(|h| h.hash() == header_hash)
+                    chain.iter().position(|h| h.hash() == header_hash)
                 {
                     chain.truncate(rollback_position + 1)
                 }
@@ -314,8 +314,8 @@ pub fn make_best_chain_from_entries(messages: &[Envelope<ChainSyncMessage>]) -> 
 pub fn make_best_chain_from_results(history: &History<ChainSyncMessage>) -> Chain {
     let mut best_chain = vec![];
     for (i, message) in history.0.iter().enumerate() {
-        // only consider messages from the node under test
-        if !message.src.starts_with("n") {
+        // only consider messages sent to the first peer
+        if !message.dest.starts_with("c1") {
             continue;
         };
         match &message.body {
