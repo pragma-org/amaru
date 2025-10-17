@@ -13,20 +13,19 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AuxiliaryData, Epoch, EraHistory, Hasher, KeepRaw, MintedTransactionBody, MintedTx,
-    MintedWitnessSet, Point, PoolId, TransactionPointer, cbor, network::NetworkName,
+    AnyCbor, AuxiliaryData, Bytes, Epoch, EraHistory, Hasher, KeepRaw, MintedTransactionBody, MintedTx,
+    MintedWitnessSet, Point, PoolId, TransactionPointer, cbor, network::NetworkName, Network,
     protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     self,
+    bootstrap::import_initial_snapshot,
     context::DefaultValidationContext,
     rules::transaction,
     state::{self, volatile_db::StoreUpdate},
     store::{EpochTransitionProgress, ReadStore, Store, TransactionalContext},
 };
 use amaru_stores::rocksdb::RocksDB;
-use pallas_addresses::Network;
-use pallas_codec::utils::AnyCbor;
 use std::{collections::BTreeSet, env, fs, iter, ops::Deref, path::PathBuf};
 
 use test_case::test_case;
@@ -58,7 +57,7 @@ fn evaluate_vector(snapshot: &str) -> Result<(), Box<dyn std::error::Error>> {
     match get_test_context() {
         Ok(tc) => {
             let vector_file = fs::read(snapshot)?;
-            let record: NESVector = minicbor::decode(&vector_file)?;
+            let record: TestVector = minicbor::decode(&vector_file)?;
             let () = import_vector(record, &tc.ledger_dir, era_history, &tc.pparams_dir)?;
             Ok(())
         }
@@ -80,42 +79,60 @@ fn peek_epoch(nes: &AnyCbor) -> Result<u64, Box<dyn std::error::Error>> {
 
 #[derive(cbor::Decode)]
 #[allow(dead_code)]
-struct NESVector {
+struct TestVector {
     #[n(0)]
-    initial_nes: AnyCbor,
+    config: AnyCbor,
     #[n(1)]
-    final_nes: AnyCbor,
+    initial_state: AnyCbor,
     #[n(2)]
-    transactions: Vec<AnyCbor>,
+    final_state: AnyCbor,
     #[n(3)]
-    test_state: String,
+    events: Vec<TestVectorEvent>,
+    #[n(4)]
+    title: String,
+}
+
+enum TestVectorEvent {
+    Transaction(Bytes, bool, u64),
+    PassTick(u64),
+    PassEpoch(u64),
+}
+
+impl<'b, C> minicbor::decode::Decode<'b, C> for TestVectorEvent {
+    fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        d.array()?;
+        let variant = d.u16()?;
+
+        match variant {
+            0 => Ok(TestVectorEvent::Transaction(d.decode_with(ctx)?, d.decode_with(ctx)?, d.decode_with(ctx)?)),
+            1 => Ok(TestVectorEvent::PassTick(d.decode_with(ctx)?)),
+            2 => Ok(TestVectorEvent::PassEpoch(d.decode_with(ctx)?)),
+            _ => Err(minicbor::decode::Error::message(
+                "invalid variant id for TestVectorEvent",
+            )),
+        }
+    }
 }
 
 fn import_vector(
-    record: NESVector,
+    record: TestVector,
     ledger_dir: &PathBuf,
     era_history: &EraHistory,
     pparams_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if record.initial_nes[0] == 0x80 {
-        return Ok(());
-    }
-    let epoch = peek_epoch(&record.initial_nes)?;
-    let point = amaru_kernel::Point::try_from(
-        format!(
-            "{}.0000000000000000000000000000000000000000000000000000000000000000",
-            epoch * 86400
-        )
-        .as_str(),
-    )?;
+    let epoch = peek_epoch(&record.initial_state)?;
+    let point = Point::Specific(
+        epoch * 86400,
+        hex::decode("0000000000000000000000000000000000000000000000000000000000000000")?
+    );
 
     fs::create_dir_all(ledger_dir)?;
     let db = RocksDB::empty(ledger_dir)?;
 
     let network = NetworkName::Testnet(1);
-    let epoch = crate::amaru_ledger::bootstrap::import_initial_snapshot(
+    let epoch = import_initial_snapshot(
         &db,
-        &record.initial_nes,
+        &record.initial_state,
         &point,
         network,
         amaru_progress_bar::no_progress_bar,
@@ -127,22 +144,11 @@ fn import_vector(
 
     let mut governance_activity = db.governance_activity()?;
 
-    let transaction = db.create_transaction();
-    transaction.save(
-        era_history,
-        &protocol_parameters,
-        &mut governance_activity,
-        &point,
-        None,
-        Default::default(),
-        Default::default(),
-        iter::empty(),
-    )?;
-    transaction.commit()?;
-
-    for entry in record.transactions {
-        let (tx_bytes, success, slot): (pallas_codec::utils::Bytes, bool, minicbor::data::Int) =
-            minicbor::decode(entry.raw_bytes())?;
+    for (ix, event) in record.events.into_iter().enumerate() {
+        let (tx_bytes, success, slot): (Bytes, bool, u64) = match event {
+            TestVectorEvent::Transaction(tx, success, slot) => (tx, success, slot),
+            _ => continue,
+        };
         let tx: MintedTx<'_> = minicbor::decode(&*tx_bytes)?;
 
         let utxo = db.iter_utxos()?.collect();
@@ -150,13 +156,13 @@ fn import_vector(
 
         let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
         let tx_witness_set: MintedWitnessSet<'_> = tx.transaction_witness_set.deref().clone();
-        let _tx_auxiliary_data =
+        let tx_auxiliary_data =
             Into::<Option<KeepRaw<'_, AuxiliaryData>>>::into(tx.auxiliary_data.clone())
                 .map(|aux_data| Hasher::<256>::hash(aux_data.raw_cbor()));
 
         let pointer = TransactionPointer {
             slot: point.slot_or_default(),
-            transaction_index: 0,
+            transaction_index: ix,
         };
 
         // Run the transaction against the imported ledger state
@@ -170,13 +176,14 @@ fn import_vector(
             true,
             tx_body,
             &tx_witness_set,
-            None, // tx_auxiliary_data.as_ref(),
+            tx_auxiliary_data,
         );
 
         let vs = state::VolatileState::from(validation_context);
 
         // Can we re-use this point? We should be able to treat all txes as if they're in the same block
         let p: Point = point.clone();
+
         let issuer: PoolId = [7; 28].into();
         let anchored_vs = vs.anchor(&p, issuer);
         let StoreUpdate {

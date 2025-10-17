@@ -46,7 +46,7 @@ pub use pallas_addresses::{
 };
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{Bytes, CborWrap, Int, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{AnyCbor, Bytes, CborWrap, Int, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
