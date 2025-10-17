@@ -20,10 +20,10 @@ use amaru_kernel::protocol_parameters::GlobalParameters;
 use amaru_kernel::{
     AddrKeyhash, Address, Certificate, ComputeHash, DatumHash, EraHistory, Hash, KeepRaw,
     KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
-    Mint as KernelMint, Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PolicyId,
+    Mint as KernelMint, Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, ProposalIdAdapter,
     Redeemer, RequiredSigners as KernelRequiredSigners, RewardAccount,
     StakeAddress as KernelStakeAddress, StakePayload, TransactionId, TransactionInput,
-    Value as KernelValue, Voter,
+    Value as KernelValue, Vote, Voter, VotingProcedures,
 };
 use amaru_kernel::{AssetName, Slot};
 
@@ -283,6 +283,31 @@ impl From<NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums {
                 .to_vec()
                 .into_iter()
                 .map(|data| (data.compute_hash(), data.unwrap()))
+                .collect(),
+        )
+    }
+}
+
+// FIXME: This should probably be a BTreeMap
+pub struct Redeemers<T>(pub Vec<(T, Redeemer)>);
+
+#[derive(Default)]
+pub struct Votes(pub BTreeMap<Voter, BTreeMap<ProposalIdAdapter, Vote>>);
+
+impl From<VotingProcedures> for Votes {
+    fn from(voting_procedures: VotingProcedures) -> Self {
+        Self(
+            voting_procedures
+                .into_iter()
+                .map(|(voter, votes)| {
+                    (
+                        voter,
+                        votes
+                            .into_iter()
+                            .map(|(proposal, procedure)| (proposal.into(), procedure.vote))
+                            .collect(),
+                    )
+                })
                 .collect(),
         )
     }
