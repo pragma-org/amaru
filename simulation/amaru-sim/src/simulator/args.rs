@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::HeaderHash;
+use amaru_consensus::consensus::headers_tree::data_generation::Ratio;
 use clap::Parser;
+use std::str::FromStr;
 
 #[derive(Debug, Parser, Clone)]
 #[clap(name = "Amaru Simulator")]
@@ -39,6 +41,14 @@ pub struct Args {
     /// Maximum depth of the generated chain for a given peer
     #[arg(long, default_value = "10")]
     pub generated_chain_depth: u64,
+
+    /// Ratio of rollbacks in the generated chain for a given peer
+    #[arg(long, default_value = "1/2", value_parser = Ratio::from_str)]
+    pub generated_chain_rollback_ratio: Ratio,
+
+    /// Ratio of branches generated from a central chain that can be explored by peers during input generation
+    #[arg(long, default_value = "1/2", value_parser = Ratio::from_str)]
+    pub generated_chain_branching_ratio: Ratio,
 
     #[arg(long)]
     pub disable_shrinking: bool,

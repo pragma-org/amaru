@@ -40,6 +40,14 @@ fn run_simulator() {
             "AMARU_GENERATED_CHAIN_DEPTH",
             node_config.generated_chain_depth,
         ),
+        generated_chain_rollback_ratio: get_env_var(
+            "AMARU_GENERATED_CHAIN_ROLLBACK_RATIO",
+            node_config.generated_chain_rollback_ratio,
+        ),
+        generated_chain_branching_ratio: get_env_var(
+            "AMARU_GENERATED_CHAIN_BRANCHING_RATIO",
+            node_config.generated_chain_branching_ratio,
+        ),
         disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true("AMARU_PERSIST_ON_SUCCESS"),

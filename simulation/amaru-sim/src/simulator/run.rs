@@ -238,17 +238,17 @@ fn make_chain_selector(
 }
 
 /// Property: at the end of the simulation, the chain built from the history of messages received
-/// must match one of the best chains that could be built from the entries.
+/// downstream must match the best chain built directly from messages coming from upstream peers.
 fn chain_property()
 -> impl Fn(&[Entry<ChainSyncMessage>], &History<ChainSyncMessage>) -> Result<(), String> {
     move |entries, history| {
-        let expected = make_best_chain_from_entries(
+        let expected = make_best_chain_from_upstream_messages(
             &entries
                 .iter()
                 .map(|e| e.envelope.clone())
                 .collect::<Vec<_>>(),
         );
-        let actual = make_best_chain_from_results(history);
+        let actual = make_best_chain_from_downstream_messages(history);
         let actual_chain = actual.list_to_string(",\n ");
         let expected_chain = expected.list_to_string(",\n ");
         assert_eq!(
@@ -261,7 +261,7 @@ fn chain_property()
 }
 
 /// Build the best chain from messages incoming from upstream peers.
-pub fn make_best_chain_from_entries(messages: &[Envelope<ChainSyncMessage>]) -> Chain {
+pub fn make_best_chain_from_upstream_messages(messages: &[Envelope<ChainSyncMessage>]) -> Chain {
     // keep the chain of each peer
     let mut current_chains: BTreeMap<String, Chain> = BTreeMap::new();
 
@@ -309,9 +309,8 @@ pub fn make_best_chain_from_entries(messages: &[Envelope<ChainSyncMessage>]) -> 
     current_chains.get(&best_chain_tracker).unwrap().clone()
 }
 
-/// Build the best chain from the results by creating a chain corresponding to the ChainSyncMessage emitted
-/// by the node.
-pub fn make_best_chain_from_results(history: &History<ChainSyncMessage>) -> Chain {
+/// Build the best chain from messages sent to downstream peers.
+pub fn make_best_chain_from_downstream_messages(history: &History<ChainSyncMessage>) -> Chain {
     let mut best_chain = vec![];
     for (i, message) in history.0.iter().enumerate() {
         // only consider messages sent to the first peer

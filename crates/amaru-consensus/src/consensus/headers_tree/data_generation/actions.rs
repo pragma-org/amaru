@@ -44,6 +44,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
+use std::str::FromStr;
 use std::sync::Arc;
 
 /// This data type models the events sent by the ChainSync mini-protocol with simplified data for the tests.
@@ -315,6 +316,30 @@ pub fn random_walk(
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Ratio(pub u32, pub u32);
 
+impl Display for Ratio {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.0, self.1)
+    }
+}
+
+impl FromStr for Ratio {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('/').collect();
+        if parts.len() != 2 {
+            return Err("Ratio must be in the form 'numerator/denominator'".to_string());
+        }
+        let numerator = parts[0]
+            .parse::<u32>()
+            .map_err(|_| format!("Invalid numerator in ratio: {}", parts[0]))?;
+        let denominator = parts[1]
+            .parse::<u32>()
+            .map_err(|_| format!("Invalid denominator in ratio: {}", parts[1]))?;
+        Ok(Ratio(numerator, denominator))
+    }
+}
+
 /// Generate random walks for a fixed number of peers on a given tree of headers.
 ///
 /// The returned list of actions is transposed so that the actions from different peers are interleaved.
@@ -358,8 +383,9 @@ pub fn any_select_chains(
     peers_nb: usize,
     depth: usize,
     rollback_ratio: Ratio,
+    branching_ratio: Ratio,
 ) -> impl Strategy<Value = Vec<Action>> {
-    any_tree_of_headers(depth, Ratio(1, 2)).prop_flat_map(move |tree| {
+    any_tree_of_headers(depth, branching_ratio).prop_flat_map(move |tree| {
         (1..u64::MAX)
             .prop_map(move |seed| generate_random_walks(&tree, peers_nb, rollback_ratio, seed))
     })

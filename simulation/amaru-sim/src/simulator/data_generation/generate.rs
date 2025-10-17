@@ -18,7 +18,7 @@ use crate::simulator::data_generation::base_generators::generate_arrival_times;
 use crate::simulator::{Entry, NodeConfig};
 use crate::sync::ChainSyncMessage;
 use amaru_consensus::IsHeader;
-use amaru_consensus::consensus::headers_tree::data_generation::{Action, Ratio, any_select_chains};
+use amaru_consensus::consensus::headers_tree::data_generation::{Action, any_select_chains};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::to_cbor;
 use amaru_ouroboros_traits::tests::run_with_rng;
@@ -37,7 +37,8 @@ pub fn generate_entries<R: Rng>(
             any_select_chains(
                 node_config.number_of_upstream_peers as usize,
                 node_config.generated_chain_depth as usize,
-                Ratio(1, 2),
+                node_config.generated_chain_rollback_ratio,
+                node_config.generated_chain_branching_ratio,
             ),
         );
 

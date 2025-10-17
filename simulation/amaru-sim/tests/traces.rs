@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_consensus::consensus::headers_tree::data_generation::Ratio;
 use amaru_sim::simulator::run::spawn_node;
 use amaru_sim::simulator::simulate::simulate;
 use amaru_sim::simulator::{Args, NodeConfig, NodeHandle, SimulateConfig, generate_entries};
@@ -31,6 +32,8 @@ fn run_simulator_with_traces() {
         number_of_upstream_peers: 1,
         number_of_downstream_peers: 1,
         generated_chain_depth: 1,
+        generated_chain_rollback_ratio: Ratio(1, 2),
+        generated_chain_branching_ratio: Ratio(1, 2),
         disable_shrinking: true,
         seed: None,
         persist_on_success: false,

@@ -1284,11 +1284,12 @@ mod tests {
     const MAX_LENGTH: usize = 5;
     const TEST_CASES_NB: u32 = 1000;
     const ROLLBACK_RATIO: Ratio = Ratio(1, 2);
+    const BRANCHING_RATIO: Ratio = Ratio(1, 2);
 
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(TEST_CASES_NB).end())]
         #[test]
-        fn run_chain_selection(actions in any_select_chains(DEPTH, 5, ROLLBACK_RATIO)) {
+        fn run_chain_selection(actions in any_select_chains(DEPTH, 5, ROLLBACK_RATIO, BRANCHING_RATIO)) {
             let results = execute_actions(MAX_LENGTH, &actions, false).unwrap();
             let actual_chains = make_best_chains_from_results(&results);
             let expected_chains = make_best_chains_from_actions(&actions);
