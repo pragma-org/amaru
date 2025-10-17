@@ -23,6 +23,13 @@ mod metrics;
 mod panic;
 mod pid;
 
+#[cfg(feature = "jemalloc")]
+use jemallocator::Jemalloc;
+
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Bootstrap the node with needed data.
