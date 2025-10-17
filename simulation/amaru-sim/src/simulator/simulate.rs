@@ -36,7 +36,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
-use std::{cmp::Reverse, fmt::Debug, io::Write, path::Path};
+use std::{fmt::Debug, io::Write, path::Path};
 use tracing::{info, warn};
 
 /// Run the simulation
@@ -49,8 +49,8 @@ use tracing::{info, warn};
 pub fn simulate<Msg, F>(
     config: &SimulateConfig,
     spawn: F,
-    generator: impl Fn(&mut StdRng) -> Vec<Reverse<Entry<Msg>>>,
-    property: impl Fn(&History<Msg>) -> Result<(), String>,
+    generator: impl Fn(&mut StdRng) -> Vec<Entry<Msg>>,
+    property: impl Fn(&[Entry<Msg>], &History<Msg>) -> Result<(), String>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     persist_on_success: bool,
 ) -> Result<(), String>
@@ -61,10 +61,14 @@ where
     let mut rng = StdRng::seed_from_u64(config.seed);
 
     for test_number in 1..=config.number_of_tests {
-        let entries: Vec<Reverse<Entry<Msg>>> = generator(&mut rng);
+        let entries: Vec<Entry<Msg>> = generator(&mut rng);
+        info!("Test data generated. Now executing the tests");
 
         let test = test_nodes(config.number_of_nodes, &spawn, &property);
-        match test(&entries) {
+        let result = test(&entries);
+        info!("Test run executed. Now checking results");
+
+        match result {
             (history, Err(reason)) => {
                 let failure_message = if config.disable_shrinking {
                     let number_of_shrinks = 0;
@@ -107,8 +111,8 @@ where
 fn test_nodes<Msg, F>(
     number_of_nodes: u8,
     spawn: F,
-    property: impl Fn(&History<Msg>) -> Result<(), String>,
-) -> impl Fn(&[Reverse<Entry<Msg>>]) -> (History<Msg>, Result<(), String>)
+    property: impl Fn(&[Entry<Msg>], &History<Msg>) -> Result<(), String>,
+) -> impl Fn(&[Entry<Msg>]) -> (History<Msg>, Result<(), String>)
 where
     Msg: Debug + PartialEq + Clone,
     F: Fn(String) -> NodeHandle<Msg>,
@@ -126,7 +130,7 @@ where
         match world.run_world() {
             Ok(history) => {
                 let history = History(history.to_vec());
-                let result = property(&history);
+                let result = property(entries, &history);
                 (history, result)
             }
             Err((reason, history)) => (History(history.to_vec()), Err(reason)),
@@ -139,7 +143,7 @@ where
 fn create_failure_message<Msg: Debug>(
     test_number: u32,
     seed: u64,
-    entries: Vec<Reverse<Entry<Msg>>>,
+    entries: Vec<Entry<Msg>>,
     number_of_shrinks: u32,
     history: History<Msg>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
@@ -148,7 +152,7 @@ fn create_failure_message<Msg: Debug>(
     let mut test_case = String::new();
     entries
         .into_iter()
-        .for_each(|entry| test_case += &format!("  {:?}\n", entry.0.envelope));
+        .for_each(|entry| test_case += &format!("  {:?}\n", entry.envelope));
     let mut history_string = String::new();
     history
         .0

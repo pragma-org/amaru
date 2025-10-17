@@ -35,7 +35,8 @@ tracing.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }
-amaru-consensus.workspace = true
+amaru-consensus = { workspace = true, features = ["test-utils"] }
+amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros.workspace = true
 amaru-slot-arithmetic.workspace = true
 

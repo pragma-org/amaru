@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Hash;
 use amaru_sim::simulator::run::run;
 use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
 use std::env;
@@ -27,11 +26,6 @@ fn run_simulator() {
     let simulate_config = SimulateConfig::default();
     let node_config = NodeConfig::default();
     let args = Args {
-        stake_distribution_file: "tests/data/stake-distribution.json".into(),
-        consensus_context_file: "tests/data/consensus-context.json".into(),
-        chain_dir: "./chain.db".into(),
-        block_tree_file: "tests/data/chain.json".into(),
-        start_header: Hash::from([0; 32]),
         number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", simulate_config.number_of_tests),
         number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", simulate_config.number_of_nodes),
         number_of_upstream_peers: get_env_var(
@@ -41,6 +35,18 @@ fn run_simulator() {
         number_of_downstream_peers: get_env_var(
             "AMARU_NUMBER_OF_DOWNSTREAM_PEERS",
             node_config.number_of_downstream_peers,
+        ),
+        generated_chain_depth: get_env_var(
+            "AMARU_GENERATED_CHAIN_DEPTH",
+            node_config.generated_chain_depth,
+        ),
+        generated_chain_rollback_ratio: get_env_var(
+            "AMARU_GENERATED_CHAIN_ROLLBACK_RATIO",
+            node_config.generated_chain_rollback_ratio,
+        ),
+        generated_chain_branching_ratio: get_env_var(
+            "AMARU_GENERATED_CHAIN_BRANCHING_RATIO",
+            node_config.generated_chain_branching_ratio,
         ),
         disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
@@ -74,7 +80,7 @@ fn get_optional_env_var<T: FromStr>(var_name: &str) -> Option<T> {
     env::var(var_name).ok().and_then(|v| v.parse::<T>().ok())
 }
 
-/// Return true if the environment variable `var_name` is set to "1".
+/// Return true if the environment variable `var_name` is set to "1" or "true".
 fn is_true(var_name: &str) -> bool {
-    env::var(var_name).is_ok_and(|v| v == "1")
+    env::var(var_name).is_ok_and(|v| v == "1" || v == "true")
 }

@@ -59,11 +59,9 @@ pub fn build_stage_graph(
     // TODO: currently only validate_header errors, will need to grow into all error handling
     let validation_errors_stage = network.stage(
         "validation_errors",
-        async |_, error: ValidationFailed, eff| {
+        async |_, error: ValidationFailed, _eff| {
             tracing::error!(%error, "stage error");
-            // TODO: implement specific actions once we have an upstream network
-            // termination here will tear down the entire stage graph
-            eff.terminate().await
+            // TODO: disconnect bad behaving peers
         },
     );
 

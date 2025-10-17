@@ -44,6 +44,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
+use std::str::FromStr;
 use std::sync::Arc;
 
 /// This data type models the events sent by the ChainSync mini-protocol with simplified data for the tests.
@@ -315,6 +316,40 @@ pub fn random_walk(
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Ratio(pub u32, pub u32);
 
+impl Display for Ratio {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.0, self.1)
+    }
+}
+
+impl FromStr for Ratio {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split('/').collect();
+        if parts.len() != 2 {
+            return Err("Ratio must be in the form 'numerator/denominator'".to_string());
+        }
+        let numerator = parts[0]
+            .parse::<u32>()
+            .map_err(|_| format!("Invalid numerator in ratio: {}", parts[0]))?;
+        let denominator = parts[1]
+            .parse::<u32>()
+            .map_err(|_| format!("Invalid denominator in ratio: {}", parts[1]))?;
+
+        if denominator == 0 {
+            return Err("Ratio denominator must be > 0".to_string());
+        }
+        if numerator > denominator {
+            return Err(format!(
+                "Ratio must be <= 1.0, got {}/{}",
+                numerator, denominator
+            ));
+        }
+        Ok(Ratio(numerator, denominator))
+    }
+}
+
 /// Generate random walks for a fixed number of peers on a given tree of headers.
 ///
 /// The returned list of actions is transposed so that the actions from different peers are interleaved.
@@ -355,11 +390,14 @@ pub fn generate_random_walks(
 /// is given a seed controlled by `proptest` but this makes the resulting list of actions non-shrinkable.
 ///
 pub fn any_select_chains(
+    peers_nb: usize,
     depth: usize,
     rollback_ratio: Ratio,
+    branching_ratio: Ratio,
 ) -> impl Strategy<Value = Vec<Action>> {
-    any_tree_of_headers(depth, Ratio(1, 2)).prop_flat_map(move |tree| {
-        (1..u64::MAX).prop_map(move |seed| generate_random_walks(&tree, 5, rollback_ratio, seed))
+    any_tree_of_headers(depth, branching_ratio).prop_flat_map(move |tree| {
+        (1..u64::MAX)
+            .prop_map(move |seed| generate_random_walks(&tree, peers_nb, rollback_ratio, seed))
     })
 }
 
@@ -476,12 +514,15 @@ pub fn execute_json_actions(
 }
 
 /// Type alias for a chain of headers tracked by a peer
-type Chain = Vec<BlockHeader>;
+pub type Chain = Vec<BlockHeader>;
 
 /// This function computes the chains sent by each peer from a list of actions.
 /// Once all the actions have been executed it returns the chains that are the longest.
 ///
-/// The return value is a list of lists of chains, because it returns one list of chains per action.
+/// The return value is a list of lists of chains:
+///
+///  - For each action we produce the resulting best chains.
+///  - So that the last list of chains is the best chains after executing all the actions.
 ///
 pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Chain>> {
     let mut all_best_chains: Vec<Vec<Chain>> = vec![];
@@ -584,6 +625,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn transpose_works() {
         let rows = vec![
@@ -600,7 +643,37 @@ mod tests {
             vec![3, 8],
             vec![9],
         ];
-        let result = super::transpose(rows);
+        let result = transpose(rows);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn parse_ratio_works() {
+        let ratio: Ratio = "3/4".parse().unwrap();
+        assert_eq!(ratio, Ratio(3, 4));
+
+        let ratio: super::Ratio = "0/1".parse().unwrap();
+        assert_eq!(ratio, Ratio(0, 1));
+
+        let ratio: super::Ratio = "1/1".parse().unwrap();
+        assert_eq!(ratio, Ratio(1, 1));
+    }
+
+    #[test]
+    fn parse_ratio_with_errors() {
+        let err = "3".parse::<Ratio>().unwrap_err();
+        assert_eq!(err, "Ratio must be in the form 'numerator/denominator'");
+
+        let err = "a/2".parse::<Ratio>().unwrap_err();
+        assert_eq!(err, "Invalid numerator in ratio: a");
+
+        let err = "1/b".parse::<Ratio>().unwrap_err();
+        assert_eq!(err, "Invalid denominator in ratio: b");
+
+        let err = "1/0".parse::<Ratio>().unwrap_err();
+        assert_eq!(err, "Ratio denominator must be > 0");
+
+        let err = "5/4".parse::<Ratio>().unwrap_err();
+        assert_eq!(err, "Ratio must be <= 1.0, got 5/4");
     }
 }
