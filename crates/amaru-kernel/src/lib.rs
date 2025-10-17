@@ -31,6 +31,7 @@ use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
     borrow::Cow,
+    cmp::Ordering,
     collections::BTreeMap,
     fmt::{self, Debug, Formatter},
     ops::Deref,
@@ -299,6 +300,54 @@ pub type PoolId = Hash<28>;
 pub type Nonce = Hash<32>;
 
 pub type Withdrawal = (StakeAddress, Lovelace);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalIdAdapter(pub ProposalId);
+
+impl ProposalIdAdapter {
+    pub fn new(gov_action_id: ProposalId) -> Self {
+        Self(gov_action_id)
+    }
+
+    pub fn into_inner(self) -> ProposalId {
+        self.0
+    }
+}
+
+impl PartialOrd for ProposalIdAdapter {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ProposalIdAdapter {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0
+            .transaction_id
+            .cmp(&other.0.transaction_id)
+            .then_with(|| self.0.action_index.cmp(&other.0.action_index))
+    }
+}
+
+impl From<ProposalId> for ProposalIdAdapter {
+    fn from(proposal_id: ProposalId) -> Self {
+        Self(proposal_id)
+    }
+}
+
+impl Deref for ProposalIdAdapter {
+    type Target = ProposalId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<ProposalId> for ProposalIdAdapter {
+    fn as_ref(&self) -> &ProposalId {
+        &self.0
+    }
+}
 
 // Helpers
 // ----------------------------------------------------------------------------

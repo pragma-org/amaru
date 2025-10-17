@@ -15,9 +15,9 @@
 use amaru_kernel::{
     AddrKeyhash, Address, AssetName, Certificate, ComputeHash, DatumHash, EraHistory, Hash,
     KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
-    Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PolicyId, Redeemer, RewardAccount,
-    Slot, StakePayload, TransactionId, TransactionInput, Voter, network::NetworkName,
-    protocol_parameters::GlobalParameters,
+    Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, ProposalIdAdapter, Redeemer,
+    RewardAccount, Slot, StakePayload, TransactionId, TransactionInput, Vote, Voter,
+    VotingProcedures, network::NetworkName, protocol_parameters::GlobalParameters,
 };
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 use std::{
@@ -277,6 +277,31 @@ impl From<NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums {
                 .to_vec()
                 .into_iter()
                 .map(|data| (data.compute_hash(), data.unwrap()))
+                .collect(),
+        )
+    }
+}
+
+// FIXME: This should probably be a BTreeMap
+pub struct Redeemers<T>(pub Vec<(T, Redeemer)>);
+
+#[derive(Default)]
+pub struct Votes(pub BTreeMap<Voter, BTreeMap<ProposalIdAdapter, Vote>>);
+
+impl From<VotingProcedures> for Votes {
+    fn from(voting_procedures: VotingProcedures) -> Self {
+        Self(
+            voting_procedures
+                .into_iter()
+                .map(|(voter, votes)| {
+                    (
+                        voter,
+                        votes
+                            .into_iter()
+                            .map(|(proposal, procedure)| (proposal.into(), procedure.vote))
+                            .collect(),
+                    )
+                })
                 .collect(),
         )
     }
