@@ -319,20 +319,25 @@ pub fn make_best_chain_from_downstream_messages(history: &History<ChainSyncMessa
         };
         match &message.body {
             msg @ ChainSyncMessage::Fwd { .. } => {
-                best_chain.push(msg.decode_block_header().unwrap())
+                if let Some(header) = msg.decode_block_header() {
+                    best_chain.push(header)
+                }
             }
             msg @ ChainSyncMessage::Bck { .. } => {
-                let header_hash = msg.header_hash().unwrap();
-                let rollback_position = best_chain.iter().position(|h| h.hash() == header_hash);
-                assert!(
-                    rollback_position.is_some(),
-                    "after the action {}, we have a rollback position that does not exist with hash {}.\nThe best chain is:\n{}. The history is:\n{}",
-                    i + 1,
-                    header_hash,
-                    best_chain.list_to_string(",\n"),
-                    history.0.iter().collect::<Vec<_>>().list_debug("\n")
-                );
-                best_chain.truncate(rollback_position.unwrap() + 1);
+                if let Some(header_hash) = msg.header_hash() {
+                    let rollback_position = best_chain.iter().position(|h| h.hash() == header_hash);
+                    if let Some(rollback_position) = rollback_position {
+                        best_chain.truncate(rollback_position + 1);
+                    } else {
+                        panic!(
+                            "after the action {}, we have a rollback position that does not exist with hash {}.\nThe best chain is:\n{}. The history is:\n{}",
+                            i + 1,
+                            header_hash,
+                            best_chain.list_to_string(",\n"),
+                            history.0.iter().collect::<Vec<_>>().list_debug("\n")
+                        );
+                    }
+                }
             }
             _ => (),
         }

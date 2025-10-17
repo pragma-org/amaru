@@ -30,7 +30,7 @@ pub fn generate_entries<R: Rng>(
     node_config: &NodeConfig,
     start_time: Instant,
     mean_millis: f64,
-) -> impl Fn(&mut R) -> Vec<Entry<ChainSyncMessage>> + use<'_, R> {
+) -> impl Fn(&mut R) -> Vec<Entry<ChainSyncMessage>> {
     move |rng: &mut R| {
         let actions = run_with_rng(
             rng,

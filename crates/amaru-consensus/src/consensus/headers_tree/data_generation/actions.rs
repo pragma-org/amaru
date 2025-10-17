@@ -336,6 +336,16 @@ impl FromStr for Ratio {
         let denominator = parts[1]
             .parse::<u32>()
             .map_err(|_| format!("Invalid denominator in ratio: {}", parts[1]))?;
+
+        if denominator == 0 {
+            return Err("Ratio denominator must be > 0".to_string());
+        }
+        if numerator > denominator {
+            return Err(format!(
+                "Ratio must be <= 1.0, got {}/{}",
+                numerator, denominator
+            ));
+        }
         Ok(Ratio(numerator, denominator))
     }
 }
@@ -615,6 +625,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn transpose_works() {
         let rows = vec![
@@ -631,7 +643,37 @@ mod tests {
             vec![3, 8],
             vec![9],
         ];
-        let result = super::transpose(rows);
+        let result = transpose(rows);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn parse_ratio_works() {
+        let ratio: Ratio = "3/4".parse().unwrap();
+        assert_eq!(ratio, Ratio(3, 4));
+
+        let ratio: super::Ratio = "0/1".parse().unwrap();
+        assert_eq!(ratio, Ratio(0, 1));
+
+        let ratio: super::Ratio = "1/1".parse().unwrap();
+        assert_eq!(ratio, Ratio(1, 1));
+    }
+
+    #[test]
+    fn parse_ratio_with_errors() {
+        let err = "3".parse::<Ratio>().unwrap_err();
+        assert_eq!(err, "Ratio must be in the form 'numerator/denominator'");
+
+        let err = "a/2".parse::<Ratio>().unwrap_err();
+        assert_eq!(err, "Invalid numerator in ratio: a");
+
+        let err = "1/b".parse::<Ratio>().unwrap_err();
+        assert_eq!(err, "Invalid denominator in ratio: b");
+
+        let err = "1/0".parse::<Ratio>().unwrap_err();
+        assert_eq!(err, "Ratio denominator must be > 0");
+
+        let err = "5/4".parse::<Ratio>().unwrap_err();
+        assert_eq!(err, "Ratio must be <= 1.0, got 5/4");
     }
 }
