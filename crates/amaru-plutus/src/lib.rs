@@ -383,7 +383,7 @@ where
     T: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::Array(MaybeIndefArray::Def(
+        PlutusData::Array(MaybeIndefArray::Indef(
             self.iter().map(|a| a.to_plutus_data()).collect(),
         ))
     }
