@@ -26,7 +26,6 @@ use std::sync::Arc;
 pub trait LedgerOps: Send + Sync {
     fn validate_header(
         &self,
-        point: &Point,
         header: &BlockHeader,
     ) -> BoxFuture<'_, Result<(), HeaderValidationError>>;
 
@@ -56,10 +55,9 @@ impl<T> Ledger<T> {
 impl<T: SendData + Sync> LedgerOps for Ledger<T> {
     fn validate_header(
         &self,
-        point: &Point,
         header: &BlockHeader,
     ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
-        self.0.external(ValidateHeaderEffect::new(point, header))
+        self.0.external(ValidateHeaderEffect::new(header))
     }
 
     fn validate_block(
@@ -124,14 +122,12 @@ impl ExternalEffectAPI for ValidateBlockEffect {
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateHeaderEffect {
-    point: Point,
     header: BlockHeader,
 }
 
 impl ValidateHeaderEffect {
-    pub fn new(point: &Point, header: &BlockHeader) -> Self {
+    pub fn new(header: &BlockHeader) -> Self {
         Self {
-            point: point.clone(),
             header: header.clone(),
         }
     }
@@ -145,7 +141,7 @@ impl ExternalEffect for ValidateHeaderEffect {
                 .get::<ResourceHeaderValidation>()
                 .expect("ValidateHeaderEffect requires a ResourceHeaderValidation resource")
                 .clone();
-            validator.validate_header(&self.point, &self.header)
+            validator.validate_header(&self.header)
         })
     }
 }
