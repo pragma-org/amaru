@@ -12,12 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, PlutusData, PolicyId, Redeemer,
-    StakeAddress, TransactionId, TransactionInput, TransactionOutput, Value, Voter, Withdrawal,
-};
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 
-use amaru_slot_arithmetic::TimeMs;
+use amaru_kernel::network::NetworkName;
+use amaru_kernel::protocol_parameters::GlobalParameters;
+use amaru_kernel::{
+    AddrKeyhash, Address, Certificate, ComputeHash, DatumHash, EraHistory, Hash, KeepRaw,
+    KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
+    Mint as KernelMint, Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PolicyId,
+    Redeemer, RequiredSigners as KernelRequiredSigners, RewardAccount,
+    StakeAddress as KernelStakeAddress, StakePayload, TransactionId, TransactionInput,
+    Value as KernelValue, Voter,
+};
+use amaru_kernel::{AssetName, Slot};
+
+use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 
 pub mod v1;
 pub mod v2;
@@ -43,4 +53,237 @@ pub struct OutputRef {
 pub struct TimeRange {
     pub lower_bound: Option<TimeMs>,
     pub upper_bound: Option<TimeMs>,
+}
+
+impl TimeRange {
+    pub fn new(
+        valid_from_slot: Option<Slot>,
+        valid_to_slot: Option<Slot>,
+        tip: &Slot,
+        era_history: &EraHistory,
+        network: NetworkName,
+    ) -> Result<Self, EraHistoryError> {
+        let parameters: &GlobalParameters = network.into();
+        let lower_bound = valid_from_slot
+            .map(|slot| era_history.slot_to_posix_time(slot, *tip, parameters.system_start.into()))
+            .transpose()?;
+        let upper_bound = valid_to_slot
+            .map(|slot| era_history.slot_to_posix_time(slot, *tip, parameters.system_start.into()))
+            .transpose()?;
+
+        Ok(Self {
+            lower_bound,
+            upper_bound,
+        })
+    }
+}
+
+// This is a variant of `PolicyId` that makes it easier to work with
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CurrencySymbol {
+    Ada,
+    Native(Hash<28>),
+}
+
+impl From<Hash<28>> for CurrencySymbol {
+    fn from(value: Hash<28>) -> Self {
+        Self::Native(value)
+    }
+}
+
+#[derive(Clone)]
+pub struct Value(pub BTreeMap<CurrencySymbol, BTreeMap<AssetName, u64>>);
+
+impl From<KernelValue> for Value {
+    fn from(value: KernelValue) -> Self {
+        let assets = match value {
+            KernelValue::Coin(coin) => {
+                BTreeMap::from([(CurrencySymbol::Ada, BTreeMap::from([(vec![].into(), coin)]))])
+            }
+            KernelValue::Multiasset(coin, multiasset) => {
+                let mut map = BTreeMap::new();
+                map.insert(CurrencySymbol::Ada, BTreeMap::from([(vec![].into(), coin)]));
+                multiasset
+                    .into_iter()
+                    .for_each(|(policy_id, asset_bundle)| {
+                        map.insert(
+                            CurrencySymbol::Native(policy_id),
+                            asset_bundle
+                                .into_iter()
+                                .map(|(asset_name, amount)| (asset_name, amount.into()))
+                                .collect(),
+                        );
+                    });
+
+                map
+            }
+        };
+
+        Self(assets)
+    }
+}
+
+impl From<Lovelace> for Value {
+    fn from(coin: Lovelace) -> Self {
+        Self(BTreeMap::from([(
+            CurrencySymbol::Ada,
+            BTreeMap::from([(vec![].into(), coin)]),
+        )]))
+    }
+}
+
+impl Value {
+    pub fn ada(&self) -> Option<u64> {
+        self.0.get(&CurrencySymbol::Ada).and_then(|asset_bundle| {
+            asset_bundle.iter().find_map(|(name, amount)| {
+                if name.is_empty() && amount != &0 {
+                    Some(*amount)
+                } else {
+                    None
+                }
+            })
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct TransactionOutput {
+    pub is_legacy: bool,
+    pub address: Address,
+    pub value: Value,
+    pub datum: MemoizedDatum,
+    pub script: Option<MemoizedScript>,
+}
+
+impl From<MemoizedTransactionOutput> for TransactionOutput {
+    fn from(output: MemoizedTransactionOutput) -> Self {
+        Self {
+            is_legacy: output.is_legacy,
+            address: output.address,
+            value: output.value.into(),
+            datum: output.datum,
+            script: output.script,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Mint(pub BTreeMap<Hash<28>, BTreeMap<AssetName, i64>>);
+
+impl From<KernelMint> for Mint {
+    fn from(value: KernelMint) -> Self {
+        let mints: BTreeMap<Hash<28>, BTreeMap<AssetName, i64>> = value
+            .into_iter()
+            .map(|(policy, multiasset)| {
+                (
+                    policy,
+                    multiasset
+                        .into_iter()
+                        .map(|(asset_name, amount)| (asset_name, amount.into()))
+                        .collect(),
+                )
+            })
+            .collect();
+
+        Self(mints)
+    }
+}
+
+#[derive(Default)]
+pub struct RequiredSigners(pub BTreeSet<AddrKeyhash>);
+
+impl From<KernelRequiredSigners> for RequiredSigners {
+    fn from(value: KernelRequiredSigners) -> Self {
+        Self(value.to_vec().into_iter().collect())
+    }
+}
+
+#[derive(Default)]
+pub struct Withdrawals(pub BTreeMap<StakeAddress, Lovelace>);
+
+#[derive(Clone)]
+pub struct StakeAddress(KernelStakeAddress);
+
+impl From<StakeAddress> for KernelStakeAddress {
+    fn from(value: StakeAddress) -> Self {
+        value.0
+    }
+}
+
+// Reference for this ordering is
+// https://github.com/aiken-lang/aiken/blob/a8c032935dbaf4a1140e9d8be5c270acd32c9e8c/crates/uplc/src/tx/script_context.rs#L1112
+impl Ord for StakeAddress {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        fn network_tag(network: Network) -> u8 {
+            match network {
+                Network::Testnet => 0,
+                Network::Mainnet => 1,
+                Network::Other(tag) => tag,
+            }
+        }
+
+        if self.0.network() != other.0.network() {
+            return network_tag(self.0.network()).cmp(&network_tag(other.0.network()));
+        }
+
+        match (self.0.payload(), other.0.payload()) {
+            (StakePayload::Script(..), StakePayload::Stake(..)) => Ordering::Less,
+            (StakePayload::Stake(..), StakePayload::Script(..)) => Ordering::Greater,
+            (StakePayload::Script(hash_a), StakePayload::Script(hash_b)) => hash_a.cmp(hash_b),
+            (StakePayload::Stake(hash_a), StakePayload::Stake(hash_b)) => hash_a.cmp(hash_b),
+        }
+    }
+}
+
+impl PartialOrd for StakeAddress {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for StakeAddress {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for StakeAddress {}
+
+impl TryFrom<NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdrawals {
+    type Error = String;
+
+    fn try_from(
+        value: NonEmptyKeyValuePairs<RewardAccount, Lovelace>,
+    ) -> Result<Self, Self::Error> {
+        let withdrawals = value
+            .iter()
+            .map(|(reward_account, coin)| {
+                let address = Address::from_bytes(reward_account)
+                    .map_err(|e| format!("failed to decode reward account: {}", e))?;
+
+                if let Address::Stake(reward_account) = address {
+                    Ok((StakeAddress(reward_account), *coin))
+                } else {
+                    Err("invalid address type in withdrawals".into())
+                }
+            })
+            .collect::<Result<BTreeMap<_, _>, String>>()?;
+
+        Ok(Self(withdrawals))
+    }
+}
+
+#[derive(Default)]
+pub struct Datums(pub BTreeMap<DatumHash, PlutusData>);
+
+impl From<NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums {
+    fn from(plutus_data: NonEmptySet<KeepRaw<'_, PlutusData>>) -> Self {
+        Self(
+            plutus_data
+                .to_vec()
+                .into_iter()
+                .map(|data| (data.compute_hash(), data.unwrap()))
+                .collect(),
+        )
+    }
 }

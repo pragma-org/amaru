@@ -52,7 +52,7 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
-    alonzo::Value as AlonzoValue,
+    alonzo::{TransactionOutput as AlonzoTransactionOutput, Value as AlonzoValue},
     babbage::{Header, MintedHeader, PseudoHeader},
     conway::{
         AddrKeyhash, AssetName, AuxiliaryData, BigInt, Block, BootstrapWitness, Certificate, Coin,
@@ -64,9 +64,10 @@ pub use pallas_primitives::{
         PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
         ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount, ScriptHash, ScriptRef,
-        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
-        VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners, RewardAccount, ScriptHash,
+        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
+        UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures,
+        VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -939,42 +940,18 @@ impl HasRedeemers for Redeemers {
     }
 }
 
-pub fn from_alonzo_value(value: AlonzoValue) -> Result<Value, Box<dyn std::error::Error>> {
-    match value {
-        AlonzoValue::Coin(coin) => Ok(Value::Coin(coin)),
-        AlonzoValue::Multiasset(coin, assets) if assets.is_empty() => Ok(Value::Coin(coin)),
-        AlonzoValue::Multiasset(coin, assets) => {
-            let multiasset = assets
-                .to_vec()
-                .into_iter()
-                .map(|(policy_id, tokens)| {
-                    let token_pairs = tokens
-                        .to_vec()
-                        .into_iter()
-                        .map(|(asset_name, quantity)| {
-                            Ok((
-                                asset_name,
-                                quantity
-                                    .try_into()
-                                    .map_err(|e| format!("zero ada in output value: {e:?}"))?,
-                            ))
-                        })
-                        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
-
-                    Ok((
-                        policy_id,
-                        NonEmptyKeyValuePairs::try_from(token_pairs)
-                            .map_err(|e| format!("empty tokens under a policy: {e:?}"))?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
-
-            Ok(Value::Multiasset(
-                coin,
-                NonEmptyKeyValuePairs::try_from(multiasset)
-                    .map_err(|e| format!("assets cannot be empty: {e:?}"))?,
-            ))
-        }
+pub fn normalize_redeemers(redeemers: Redeemers) -> Vec<Redeemer> {
+    match redeemers {
+        Redeemers::List(list) => list.to_vec(),
+        Redeemers::Map(map) => map
+            .into_iter()
+            .map(|(tag, value)| Redeemer {
+                tag: tag.tag,
+                index: tag.index,
+                data: value.data,
+                ex_units: value.ex_units,
+            })
+            .collect(),
     }
 }
 

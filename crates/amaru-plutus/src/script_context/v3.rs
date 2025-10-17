@@ -12,21 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
+use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
     Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
     ExUnits, GovAction, Mint, PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate,
-    RationalNumber, ScriptRef, StakeCredential, Value, Vote, from_alonzo_value,
+    RationalNumber, StakeAddress, StakeCredential, Value as KernelValue, Vote,
 };
 use num::Integer;
 
 use crate::{
     Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr, constr_v3,
     script_context::{
-        AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, OutputRef, PlutusData,
-        PolicyId, Redeemer, StakeAddress, TimeRange, TransactionId, TransactionInput,
-        TransactionOutput, Voter,
+        AddrKeyhash, Certificate, CurrencySymbol, DatumHash, KeyValuePairs, Lovelace, OutputRef,
+        PlutusData, PolicyId, Redeemer, TimeRange, TransactionId, TransactionInput,
+        TransactionOutput, Value, Voter,
     },
 };
 
@@ -150,34 +150,26 @@ impl ToPlutusData<3> for TransactionInput {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<3> for TransactionOutput {
     fn to_plutus_data(&self) -> PlutusData {
-        match self {
-            amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                constr_v3!(
-                    0,
-                    [
-                        Address::from_bytes(&output.address).unwrap(),
-                        from_alonzo_value(output.amount.clone()).expect("illegal alonzo value"),
-                        output.datum_hash.map(DatumOption::Hash),
-                        None::<ScriptRef>
-                    ]
-                )
-            }
-            amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
-                constr_v3!(
-                    0,
-                    [
-                        Address::from_bytes(&output.address).unwrap(),
-                        output.value,
-                        output.datum_option,
-                        output.script_ref.as_ref().map(|s| s.clone().unwrap())
-                    ]
-                )
-            }
-        }
+        constr_v3!(0, [self.address, self.value, self.datum, self.script])
     }
 }
 
 impl ToPlutusData<3> for Value {
+    fn to_plutus_data(&self) -> PlutusData {
+        if self.ada().is_none() {
+            <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(
+                &self
+                    .0
+                    .iter()
+                    .filter(|(currency, _)| !matches!(currency, CurrencySymbol::Ada))
+                    .collect::<BTreeMap<_, _>>(),
+            )
+        } else {
+            <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
+        }
+    }
+}
+impl ToPlutusData<3> for KernelValue {
     fn to_plutus_data(&self) -> PlutusData {
         fn ada_entry(coin: &u64) -> (PlutusData, PlutusData) {
             (
@@ -190,9 +182,9 @@ impl ToPlutusData<3> for Value {
         }
 
         let entries = match self {
-            Value::Coin(coin) if *coin > 0 => vec![ada_entry(coin)],
-            Value::Coin(_) => vec![],
-            Value::Multiasset(coin, multiasset) => {
+            KernelValue::Coin(coin) if *coin > 0 => vec![ada_entry(coin)],
+            KernelValue::Coin(_) => vec![],
+            KernelValue::Multiasset(coin, multiasset) => {
                 let ada = (*coin > 0).then(|| ada_entry(coin));
                 let multiasset_entries = multiasset.iter().map(|(policy_id, assets)| {
                     (
