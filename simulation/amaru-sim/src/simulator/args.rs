@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::HeaderHash;
 use amaru_consensus::consensus::headers_tree::data_generation::Ratio;
 use clap::Parser;
 use std::str::FromStr;
