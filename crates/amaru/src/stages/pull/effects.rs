@@ -14,6 +14,7 @@ use pallas_network::{
 use parking_lot::Mutex;
 use pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use rand::{rng, seq::IteratorRandom};
+#[allow(clippy::disallowed_types)]
 use std::{
     collections::{HashMap, VecDeque},
     future::pending,
@@ -34,7 +35,7 @@ use tokio::{
 use tracing::Span;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChainSyncEffect {}
+pub struct ChainSyncEffect;
 
 impl ExternalEffectAPI for ChainSyncEffect {
     type Response = ChainSyncEvent;
@@ -43,6 +44,7 @@ impl ExternalEffectAPI for ChainSyncEffect {
 impl ExternalEffect for ChainSyncEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
+            #[expect(clippy::expect_used)]
             let network = resources
                 .get::<NetworkResource>()
                 .expect("ChainSyncEffect requires a NetworkResource")
@@ -74,6 +76,7 @@ impl BlockFetchEffect {
 impl ExternalEffect for BlockFetchEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
+            #[expect(clippy::expect_used)]
             let network = resources
                 .get::<NetworkResource>()
                 .expect("BlockFetchEffect requires a NetworkResource")
@@ -101,6 +104,7 @@ impl DisconnectEffect {
 impl ExternalEffect for DisconnectEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
+            #[expect(clippy::expect_used)]
             let network = resources
                 .get::<NetworkResource>()
                 .expect("DisconnectEffect requires a NetworkResource")
@@ -153,12 +157,14 @@ impl NetworkResource {
 }
 
 pub struct NetworkInner {
+    #[allow(clippy::disallowed_types)]
     connections: HashMap<Peer, ActoRef<ConnMsg>>,
     hd_rx: AsyncMutex<Receiver<ChainSyncEvent>>,
 }
 
 impl NetworkInner {
     pub async fn next_sync(&self) -> ChainSyncEvent {
+        #[expect(clippy::expect_used)]
         self.hd_rx
             .lock()
             .await

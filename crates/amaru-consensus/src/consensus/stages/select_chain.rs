@@ -18,6 +18,7 @@ use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::events::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::headers_tree::{HeadersTree, HeadersTreeState};
 use crate::consensus::span::adopt_current_span;
+use acto::variable::Writer;
 use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer, string_utils::ListToString};
 use amaru_ouroboros::IsHeader;
 use amaru_ouroboros_traits::ChainStore;
@@ -34,10 +35,34 @@ use tracing::{Level, Span, debug, info, instrument, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SelectChain {
     tree_state: HeadersTreeState,
     sync_tracker: SyncTracker,
+    #[serde(with = "ser_de")]
+    intersection: Writer<Vec<Point>>,
+}
+
+impl PartialEq for SelectChain {
+    fn eq(&self, other: &Self) -> bool {
+        self.tree_state == other.tree_state
+            && self.sync_tracker == other.sync_tracker
+            && *self.intersection.read() == *other.intersection.read()
+    }
+}
+
+mod ser_de {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(writer: &Writer<Vec<Point>>, s: S) -> Result<S::Ok, S::Error> {
+        writer.read().serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Writer<Vec<Point>>, D::Error> {
+        let value = Vec::<Point>::deserialize(d)?;
+        Ok(Writer::new(value))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -67,11 +92,16 @@ pub enum SyncState {
 }
 
 impl SelectChain {
-    pub fn new(tree_state: HeadersTreeState, peers: &[Peer]) -> Self {
+    pub fn new(
+        tree_state: HeadersTreeState,
+        peers: &[Peer],
+        intersection: Writer<Vec<Point>>,
+    ) -> Self {
         let sync_tracker = SyncTracker::new(peers);
         SelectChain {
             tree_state,
             sync_tracker,
+            intersection,
         }
     }
 
@@ -187,20 +217,32 @@ impl SelectChain {
         chain_sync: DecodedChainSyncEvent,
     ) -> BoxFuture<'_, Result<Vec<ValidateHeaderEvent>, ConsensusError>> {
         Box::pin(async move {
-            match chain_sync {
+            let ret = match chain_sync {
                 DecodedChainSyncEvent::RollForward {
                     peer, header, span, ..
-                } => self.select_chain(store, peer, header, span).await,
+                } => self.select_chain(store.clone(), peer, header, span).await,
                 DecodedChainSyncEvent::Rollback {
                     peer,
                     rollback_point,
                     span,
                 } => {
-                    self.select_rollback(store, peer, rollback_point, span)
+                    self.select_rollback(store.clone(), peer, rollback_point, span)
                         .await
                 }
                 DecodedChainSyncEvent::CaughtUp { peer, .. } => self.caught_up(&peer),
+            };
+
+            if ret.as_ref().map(|evs| !evs.is_empty()).unwrap_or(false) {
+                // FIXME add some more points in between?
+                let hashes = [store.get_anchor_hash(), store.get_best_chain_hash()];
+                let points = hashes
+                    .iter()
+                    .filter_map(|h| store.load_header(h).map(|h| h.point()))
+                    .collect();
+                *self.intersection.write() = points;
             }
+
+            ret
         })
     }
 
@@ -349,6 +391,7 @@ mod tests {
     use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
     use crate::consensus::stages::select_chain::SyncTracker;
     use crate::consensus::tests::{any_header, any_headers_chain};
+    use acto::variable::Reader;
     use amaru_kernel::peer::Peer;
     use amaru_ouroboros_traits::fake::tests::run;
     use pure_stage::StageRef;
@@ -387,16 +430,15 @@ mod tests {
         let header = run(any_header());
         let message = make_roll_forward_message(&peer, &header);
         let consensus_ops = mock_consensus_ops();
+        consensus_ops.store().store_header(&header).unwrap();
 
         let store = consensus_ops.store();
         let anchor = store.get_anchor_hash();
-        let (select_chain, _, _) = stage(
-            make_state(store.clone(), &peer, &anchor),
-            message.clone(),
-            consensus_ops.clone(),
-        )
-        .await;
+        let (state, reader) = make_state(store.clone(), &peer, &anchor);
+        let (select_chain, _, _) = stage(state, message.clone(), consensus_ops.clone()).await;
         let output = make_validated_event(&peer, &header);
+
+        assert_eq!(reader.get_cloned(), vec![header.point(), header.point()]);
 
         assert_eq!(
             consensus_ops.mock_base.received(),
@@ -428,18 +470,19 @@ mod tests {
         let message3 = make_rollback_message(&peer, &header1);
 
         let consensus_ops = mock_consensus_ops();
+        consensus_ops.store().store_header(&header1).unwrap();
+        consensus_ops.store().store_header(&header2).unwrap();
+
         let anchor = consensus_ops.store().get_anchor_hash();
-        let state = stage(
-            make_state(consensus_ops.store(), &peer, &anchor),
-            message1,
-            consensus_ops.clone(),
-        )
-        .await;
+        let (state, reader) = make_state(consensus_ops.store(), &peer, &anchor);
+        let state = stage(state, message1, consensus_ops.clone()).await;
         let state = stage(state, message2, consensus_ops.clone()).await;
         let (select_chain, _, _) = stage(state, message3.clone(), consensus_ops.clone()).await;
 
         let output1 = make_validated_event(&peer, &header1);
         let output2 = make_validated_event(&peer, &header2);
+
+        assert_eq!(reader.get_cloned(), vec![header1.point(), header2.point()]);
 
         assert_eq!(
             consensus_ops.mock_base.received(),
@@ -465,17 +508,22 @@ mod tests {
         store: Arc<dyn ChainStore<Header>>,
         peer: &Peer,
         anchor: &Hash<HEADER_HASH_SIZE>,
-    ) -> State {
+    ) -> (State, Reader<Vec<Point>>) {
         let downstream: StageRef<ValidateHeaderEvent> = StageRef::named("downstream");
         let errors: StageRef<ValidationFailed> = StageRef::named("errors");
         let mut tree_state = HeadersTreeState::new(10);
         tree_state
             .initialize_peer(store.clone(), peer, anchor)
             .unwrap();
+        let writer = Writer::new(vec![]);
+        let reader = writer.reader();
         (
-            SelectChain::new(tree_state, slice::from_ref(peer)),
-            downstream,
-            errors,
+            (
+                SelectChain::new(tree_state, slice::from_ref(peer), writer),
+                downstream,
+                errors,
+            ),
+            reader,
         )
     }
 

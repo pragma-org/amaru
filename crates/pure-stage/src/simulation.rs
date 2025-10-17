@@ -278,6 +278,21 @@ impl super::StageGraph for SimulationBuilder {
         StageStateRef::new(name)
     }
 
+    fn preload<Msg: SendData>(
+        &mut self,
+        stage: impl AsRef<StageRef<Msg>>,
+        messages: impl IntoIterator<Item = Msg>,
+    ) -> bool {
+        let data = self.stages.get_mut(stage.as_ref().name()).unwrap();
+        for msg in messages {
+            if data.mailbox.len() >= self.mailbox_size {
+                return false;
+            }
+            data.mailbox.push_back(Box::new(msg) as Box<dyn SendData>);
+        }
+        true
+    }
+
     fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg> {
         self.inputs.sender(stage.as_ref())
     }

@@ -21,7 +21,6 @@ async-compression.workspace = true
 async-trait.workspace = true
 clap.workspace = true
 futures-util.workspace = true
-gasket.workspace = true
 hex.workspace = true
 indoc.workspace = true
 minicbor.workspace = true

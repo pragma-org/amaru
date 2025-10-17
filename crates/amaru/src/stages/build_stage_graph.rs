@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::effects::ConsensusEffects;
-use amaru_consensus::consensus::errors::{ProcessingFailed, ValidationFailed};
-use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_consensus::consensus::stages::select_chain::SelectChain;
-use amaru_consensus::consensus::stages::{
-    fetch_block, forward_chain, receive_header, select_chain, store_block, store_header,
-    validate_block, validate_header,
+use amaru_consensus::consensus::{
+    effects::ConsensusEffects,
+    errors::{ProcessingFailed, ValidationFailed},
+    events::ChainSyncEvent,
+    stages::{
+        fetch_block, forward_chain, receive_header,
+        select_chain::{self, SelectChain},
+        store_block, store_header, validate_block, validate_header,
+    },
+    tip::HeaderTip,
 };
-use amaru_consensus::consensus::tip::HeaderTip;
 use amaru_kernel::protocol_parameters::{ConsensusParameters, GlobalParameters};
 use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{Effects, SendData, StageGraph, StageRef};

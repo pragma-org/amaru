@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::metrics::track_system_metrics;
 use crate::pid::with_optional_pid_file;
-use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap};
+use amaru_kernel::peer::Peer;
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pallas_network::facades::PeerClient;
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 use thiserror::Error;
-use tokio_util::sync::CancellationToken;
-use tracing::{error, trace, warn};
+use tracing::{error, warn};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -95,17 +94,11 @@ pub async fn run(
             .map(track_system_metrics)
             .transpose()?;
 
-        let mut clients: Vec<(String, PeerClient)> = vec![];
-        for peer in &config.upstream_peers {
-            let client = connect_to_peer(peer, &config.network).await?;
-            clients.push((peer.clone(), client));
-        }
+        let clients = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
 
         let exit = amaru::exit::hook_exit_token();
 
-        let sync = bootstrap(config, clients, exit.clone(), meter_provider).await?;
-
-        run_pipeline(gasket::daemon::Daemon::new(sync), exit).await;
+        bootstrap(config, clients, exit, meter_provider).await?;
 
         if let Some(handle) = metrics {
             handle.abort();
@@ -114,26 +107,6 @@ pub async fn run(
         Ok(())
     })
     .await
-}
-
-pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationToken) {
-    loop {
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(5000)) => {
-                if pipeline.should_stop() {
-                    break;
-                }
-            }
-            _ = exit.cancelled() => {
-                trace!("exit requested");
-                break;
-            }
-        }
-    }
-
-    trace!("shutting down pipeline");
-
-    pipeline.teardown();
 }
 
 fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {

@@ -84,7 +84,6 @@ dependencies = [
  "built",
  "clap",
  "futures-util",
- "gasket",
  "hex",
  "indoc",
  "insta",
@@ -118,6 +117,7 @@ dependencies = [
 name = "amaru-consensus"
 version = "0.1.0"
 dependencies = [
+ "acto",
  "amaru-kernel",
  "amaru-metrics",
  "amaru-ouroboros",
@@ -289,6 +289,7 @@ dependencies = [
 name = "amaru-sim"
 version = "0.1.0"
 dependencies = [
+ "acto",
  "amaru",
  "amaru-consensus",
  "amaru-kernel",

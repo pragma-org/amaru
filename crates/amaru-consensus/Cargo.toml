@@ -19,6 +19,7 @@ test-utils = ["proptest", "rand", "rand_distr", "serde_json"]
 telemetry = ["opentelemetry", "tracing-opentelemetry"]
 
 [dependencies]
+acto.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 hex.workspace = true

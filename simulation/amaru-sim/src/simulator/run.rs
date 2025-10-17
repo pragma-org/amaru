@@ -19,6 +19,7 @@ use crate::simulator::ledger::{FakeStakeDistribution, populate_chain_store};
 use crate::simulator::simulate::simulate;
 use crate::simulator::{Args, Chain, History, NodeHandle, SimulateConfig};
 use crate::sync::ChainSyncMessage;
+use acto::variable::Writer;
 use amaru::stages::build_stage_graph::build_stage_graph;
 use amaru_consensus::consensus::effects::{
     ForwardEvent, ForwardEventListener, ResourceForwardEventListener, ResourceHeaderStore,
@@ -235,7 +236,7 @@ fn make_chain_selector(chain_store: Arc<dyn ChainStore<Header>>, peers: &Vec<Pee
             .initialize_peer(chain_store.clone(), peer, &anchor)
             .expect("the root node is guaranteed to already be in the tree")
     }
-    SelectChain::new(tree_state, peers)
+    SelectChain::new(tree_state, peers, Writer::new(vec![]))
 }
 
 /// Property: at the end of the simulation, the tip of the chain from the last block must

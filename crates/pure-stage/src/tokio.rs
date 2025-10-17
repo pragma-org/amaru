@@ -177,6 +177,25 @@ impl StageGraph for TokioBuilder {
         StageStateRef::new(name)
     }
 
+    #[expect(clippy::expect_used)]
+    fn preload<Msg: SendData>(
+        &mut self,
+        stage: impl AsRef<StageRef<Msg>>,
+        messages: impl IntoIterator<Item = Msg>,
+    ) -> bool {
+        let tx = self
+            .inner
+            .senders
+            .get(stage.as_ref().name())
+            .expect("stage ref contained unknown name");
+        for msg in messages {
+            let Ok(_) = tx.try_send(Box::new(msg)) else {
+                return false;
+            };
+        }
+        true
+    }
+
     fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg> {
         mk_sender(stage.as_ref().name(), &self.inner)
     }
