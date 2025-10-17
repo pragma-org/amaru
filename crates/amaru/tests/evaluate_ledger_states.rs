@@ -206,7 +206,7 @@ fn import_vector(
             add,
             remove,
             withdrawals,
-        );
+        )?;
         transaction.commit()?;
 
         match result {
