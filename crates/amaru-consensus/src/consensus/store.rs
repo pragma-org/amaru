@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::protocol_parameters::ConsensusParameters;
-use amaru_kernel::{Nonce, Point};
+use amaru_kernel::{HeaderHash, Nonce, Point};
 use amaru_ouroboros::praos::nonce;
 use amaru_ouroboros_traits::{ChainStore, IsHeader, Nonces, Praos, StoreError};
 use amaru_slot_arithmetic::EraHistoryError;
-use pallas_crypto::hash::Hash;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -42,7 +41,7 @@ impl<H: IsHeader> PraosChainStore<H> {
 impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
     type Error = NoncesError;
 
-    fn get_nonce(&self, header: &Hash<32>) -> Option<Nonce> {
+    fn get_nonce(&self, header: &HeaderHash) -> Option<Nonce> {
         self.store.get_nonces(header).map(|nonces| nonces.active)
     }
 
@@ -133,13 +132,16 @@ impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum NoncesError {
     #[error("cannot find nonces: unknown parent {parent} from header {header}")]
-    UnknownParent { header: Hash<32>, parent: Hash<32> },
+    UnknownParent {
+        header: HeaderHash,
+        parent: HeaderHash,
+    },
 
     #[error("unknown header: {header}")]
-    UnknownHeader { header: Hash<32> },
+    UnknownHeader { header: HeaderHash },
 
     #[error("no parent header for: {header} (where one is clearly expected)")]
-    NoParentHeader { header: Hash<32> },
+    NoParentHeader { header: HeaderHash },
 
     #[error("{0}")]
     StoreError(#[from] StoreError),
@@ -288,7 +290,7 @@ mod test {
                 active: Nonce::from(active),
                 evolving: Nonce::from(evolving),
                 candidate: Nonce::from(candidate),
-                tail: Hash::from(tail),
+                tail: HeaderHash::from(tail),
                 epoch,
             }
         }

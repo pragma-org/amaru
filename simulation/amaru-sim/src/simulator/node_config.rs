@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::simulator::Args;
+use amaru_kernel::HeaderHash;
 use pallas_crypto::hash::Hash;
 use std::path::PathBuf;
 
@@ -23,7 +24,7 @@ pub struct NodeConfig {
     pub consensus_context_file: PathBuf,
     pub chain_dir: PathBuf,
     pub block_tree_file: PathBuf,
-    pub start_header: Hash<32>,
+    pub start_header: HeaderHash,
     pub number_of_upstream_peers: u8,
     pub number_of_downstream_peers: u8,
 }

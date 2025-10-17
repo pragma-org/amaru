@@ -19,10 +19,10 @@ use crate::consensus::headers_tree::tree::Tree;
 use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
 use crate::consensus::stages::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
 use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::{ORIGIN_HASH, Point, peer::Peer};
+use amaru_kernel::{HeaderHash, ORIGIN_HASH, Point, peer::Peer};
 #[cfg(any(test, feature = "test-utils"))]
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, HeaderHash, IsHeader};
+use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};

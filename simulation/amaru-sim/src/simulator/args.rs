@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::HeaderHash;
 use clap::Parser;
 use pallas_crypto::hash::Hash;
 use std::path::PathBuf;
@@ -40,7 +41,7 @@ pub struct Args {
     /// Starting point for the (simulated) chain.
     /// Default to genesis hash, eg. all-zero hash.
     #[arg(long, default_value_t = Hash::from([0; 32]))]
-    pub start_header: Hash<32>,
+    pub start_header: HeaderHash,
 
     /// Number of tests to run in simulation
     #[arg(long, default_value = "50")]

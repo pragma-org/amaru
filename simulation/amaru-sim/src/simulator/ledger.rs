@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::RationalNumber;
+use amaru_kernel::{HeaderHash, Nonce, RationalNumber};
 use amaru_ouroboros::{
     BlockHeader, ChainStore, HasStakeDistribution, Nonces, PoolSummary, StoreError,
 };
@@ -107,7 +107,7 @@ pub enum PopulateError {
 /// Populate a chain store with nonces data from given context file.
 pub(crate) fn populate_chain_store(
     chain_store: Arc<dyn ChainStore<BlockHeader>>,
-    header: &Hash<32>,
+    header: &HeaderHash,
     consensus_context_file: &Path,
 ) -> Result<(), PopulateError> {
     use PopulateError::*;
@@ -143,7 +143,7 @@ pub(crate) fn populate_chain_store(
 #[expect(non_snake_case)]
 pub struct ConsensusContext {
     active_slot_coeff: f64,
-    nonce: Hash<32>,
+    nonce: Nonce,
     praos_max_KES_evo: u8,
     praos_slots_per_KES_period: u64,
 }

@@ -235,7 +235,7 @@ pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
 
 pub const HEADER_HASH_SIZE: usize = 32;
 
-pub const ORIGIN_HASH: Hash<HEADER_HASH_SIZE> = Hash::new([0; HEADER_HASH_SIZE]);
+pub const ORIGIN_HASH: HeaderHash = Hash::new([0; HEADER_HASH_SIZE]);
 
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------

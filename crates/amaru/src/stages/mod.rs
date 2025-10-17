@@ -28,7 +28,7 @@ use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::SelectChain;
 use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::{
-    EraHistory, HEADER_HASH_SIZE, Hash, ORIGIN_HASH, Point, network::NetworkName, peer::Peer,
+    EraHistory, HeaderHash, ORIGIN_HASH, Point, network::NetworkName, peer::Peer,
     protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::block_validator::BlockValidator;
@@ -73,8 +73,6 @@ pub mod common;
 pub mod consensus;
 pub mod pull;
 mod pure_stage_util;
-
-pub type BlockHash = Hash<32>;
 
 /// Whether or not data is stored on disk or in memory.
 #[derive(Clone)]
@@ -318,7 +316,7 @@ pub async fn bootstrap(
 #[expect(clippy::panic)]
 fn make_chain_store(
     config: &Config,
-    tip: &Hash<HEADER_HASH_SIZE>,
+    tip: &HeaderHash,
 ) -> Result<Arc<dyn ChainStore<BlockHeader>>, Box<dyn Error>> {
     let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),

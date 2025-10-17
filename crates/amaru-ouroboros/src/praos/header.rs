@@ -18,7 +18,7 @@ use crate::{
     vrf,
 };
 use amaru_kernel::protocol_parameters::ConsensusParameters;
-use amaru_kernel::{Header, Nonce};
+use amaru_kernel::{Header, HeaderHash, Nonce};
 use amaru_ouroboros_traits::HasStakeDistribution;
 use amaru_slot_arithmetic::Slot;
 use std::sync::Arc;
@@ -208,7 +208,7 @@ pub enum AssertVrfProofError {
     MalformedProof(#[from] vrf::ProofFromBytesError),
 
     #[error("Invalid VRF proof: {0}")]
-    InvalidProof(vrf::ProofVerifyError, Slot, Hash<32>, Vec<u8>),
+    InvalidProof(vrf::ProofVerifyError, Slot, HeaderHash, Vec<u8>),
 
     #[error("could not convert slice to array")]
     TryFromSliceError,
@@ -279,7 +279,7 @@ impl AssertVrfProofError {
     /// Assert that the VRF output from the block and its corresponding hash.
     pub fn new(
         absolute_slot: Slot,
-        epoch_nonce: &Hash<32>,
+        epoch_nonce: &Nonce,
         output: &[u8],
         leader_public_key: &vrf::PublicKey,
         certificate: &VrfCert,

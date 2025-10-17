@@ -30,10 +30,10 @@ use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyo
 use crate::consensus::stages::select_chain::{ForwardChainSelection, RollbackChainSelection};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::{HEADER_HASH_SIZE, Point};
+use amaru_kernel::{HEADER_HASH_SIZE, HeaderHash, Point};
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::tests::make_header;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, HeaderHash, IsHeader};
+use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
 use hex::FromHexError;
 use itertools::Itertools;
 use pallas_crypto::hash::Hash;
