@@ -27,8 +27,8 @@ use crate::{
     Constr, DEFAULT_TAG, IsKnownPlutusVersion, MaybeIndefArray, PlutusVersion, ToConstrTag,
     ToPlutusData, constr, constr_v1,
     script_context::{
-        Certificate, Datums, IsPrePlutusVersion3, Mint, OutputRef, PlutusData, RequiredSigners,
-        TimeRange, TransactionId, TransactionOutput, Value, Withdrawals,
+        Certificate, Datums, IsPrePlutusVersion3, Mint, OutputRef, PlutusData, Redeemers,
+        RequiredSigners, TimeRange, TransactionId, TransactionOutput, Value, Withdrawals,
     },
 };
 
@@ -67,7 +67,7 @@ pub struct TxInfo {
     valid_range: TimeRange,
     signatories: RequiredSigners,
     data: Datums,
-    redeemers: Redeemers,
+    redeemers: Redeemers<ScriptPurpose>,
     id: TransactionId,
 }
 
@@ -233,9 +233,6 @@ pub enum ScriptPurpose {
     Rewarding(StakeCredential),
     Certifying(Certificate),
 }
-
-// FIXME: This should probably be a BTreeMap
-pub struct Redeemers(pub Vec<(ScriptPurpose, Redeemer)>);
 
 impl ScriptPurpose {
     #[allow(clippy::result_unit_err)]
