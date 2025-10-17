@@ -433,7 +433,6 @@ mod tests {
     fn make_roll_forward_message(peer: &Peer, header: &BlockHeader) -> DecodedChainSyncEvent {
         DecodedChainSyncEvent::RollForward {
             peer: peer.clone(),
-            point: header.point(),
             header: header.clone(),
             span: Span::current(),
         }

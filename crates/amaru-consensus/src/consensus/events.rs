@@ -79,7 +79,6 @@ impl fmt::Debug for ChainSyncEvent {
 pub enum DecodedChainSyncEvent {
     RollForward {
         peer: Peer,
-        point: Point,
         header: BlockHeader,
         #[serde(skip, default = "Span::none")]
         span: Span,
@@ -104,15 +103,9 @@ impl DecodedChainSyncEvent {
 impl fmt::Debug for DecodedChainSyncEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DecodedChainSyncEvent::RollForward {
-                peer,
-                point,
-                header,
-                ..
-            } => f
+            DecodedChainSyncEvent::RollForward { peer, header, .. } => f
                 .debug_struct("RollForward")
                 .field("peer", &peer.name)
-                .field("point", &point.to_string())
                 .field("header", &header.hash().to_string())
                 .finish(),
             DecodedChainSyncEvent::Rollback {

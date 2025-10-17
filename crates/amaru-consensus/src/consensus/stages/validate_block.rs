@@ -53,7 +53,6 @@ pub async fn stage(
                             &downstream,
                             DecodedChainSyncEvent::RollForward {
                                 peer,
-                                point,
                                 header,
                                 span: span.clone(),
                             },

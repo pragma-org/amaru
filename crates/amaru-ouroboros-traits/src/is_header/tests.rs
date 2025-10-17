@@ -85,11 +85,16 @@ pub fn any_header() -> impl Strategy<Value = BlockHeader> {
         })
 }
 
-/// Create an arbitrary BlockHeader, with an arbitrary parent, possibly set to None
+/// Create an arbitrary BlockHeader, with an arbitrary parent
 pub fn any_header_with_parent(parent: HeaderHash) -> impl Strategy<Value = BlockHeader> {
     (0u64..=1_000_000, 0u64..=1_000_000).prop_map(move |(block_number, slot)| {
         BlockHeader::from(make_header(block_number, slot, Some(parent)))
     })
+}
+
+/// Create an arbitrary BlockHeader, with an arbitrary parent that is guaranteed to be Some
+pub fn any_header_with_some_parent() -> impl Strategy<Value = BlockHeader> {
+    any_header().prop_flat_map(|h| any_header_with_parent(h.hash()))
 }
 
 /// Create an arbitrary header hash with the right number of bytes

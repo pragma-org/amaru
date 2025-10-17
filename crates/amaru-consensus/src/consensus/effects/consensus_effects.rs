@@ -203,7 +203,6 @@ pub mod tests {
     impl LedgerOps for MockLedgerOps {
         fn validate_header(
             &self,
-            _point: &Point,
             _header: &BlockHeader,
         ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
             Box::pin(async { Ok(()) })

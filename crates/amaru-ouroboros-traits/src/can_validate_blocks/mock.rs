@@ -41,11 +41,7 @@ impl CanValidateBlocks for MockCanValidateBlocks {
 pub struct MockCanValidateHeaders;
 
 impl CanValidateHeaders for MockCanValidateHeaders {
-    fn validate_header(
-        &self,
-        _point: &Point,
-        _header: &BlockHeader,
-    ) -> Result<(), HeaderValidationError> {
+    fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
         Ok(())
     }
 }
