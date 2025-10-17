@@ -53,6 +53,7 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
+    Fragment,
     alonzo::{TransactionOutput as AlonzoTransactionOutput, Value as AlonzoValue},
     babbage::{Header, MintedHeader, PseudoHeader},
     conway::{
