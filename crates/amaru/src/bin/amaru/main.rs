@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::observability;
-use amaru::observability::{DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAULT_SERVICE_NAME};
+use amaru::observability::{
+    self, DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAULT_SERVICE_NAME, OpenTelemetryConfig,
+};
+use amaru::panic::panic_handler;
 use clap::{Parser, Subcommand};
-use observability::OpenTelemetryConfig;
-use panic::panic_handler;
 
 mod cmd;
-mod metrics;
-mod panic;
 mod pid;
 
 #[derive(Debug, Subcommand)]
