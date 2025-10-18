@@ -133,6 +133,8 @@ pub struct RocksDB {
 pub struct RocksDbConfig {
     dir: PathBuf,
     env: Option<rocksdb::Env>,
+    /// Create if missing
+    pub create_if_missing: bool,
 }
 
 #[allow(clippy::expect_used)]
@@ -142,23 +144,35 @@ static ROCKSDB_SHARED_ENV: LazyLock<Env> =
 
 impl RocksDbConfig {
     pub fn new(dir: PathBuf) -> Self {
-        RocksDbConfig { env: None, dir }
+        RocksDbConfig {
+            env: None,
+            dir,
+            create_if_missing: true,
+        }
     }
 
     pub fn with_shared_env(&self) -> RocksDbConfig {
         RocksDbConfig {
             dir: self.dir.clone(),
             env: Some(ROCKSDB_SHARED_ENV.clone()),
+            create_if_missing: true,
         }
     }
 }
 
 impl From<RocksDbConfig> for Options {
     fn from(config: RocksDbConfig) -> Self {
+        From::from(&config)
+    }
+}
+
+impl From<&RocksDbConfig> for Options {
+    fn from(config: &RocksDbConfig) -> Self {
         let mut opts = Options::default();
-        if let Some(env) = config.env {
-            opts.set_env(&env);
+        if let Some(ref env) = config.env {
+            opts.set_env(env);
         }
+        opts.create_if_missing(config.create_if_missing);
         opts
     }
 }
@@ -168,11 +182,17 @@ impl std::fmt::Display for RocksDbConfig {
         if self.env.is_some() {
             write!(
                 f,
-                "RocksDbConfig {{ dir: {}, env: shared }}",
-                self.dir.display()
+                "RocksDbConfig {{ dir: {}, env: shared, create_if_missing: {} }}",
+                self.dir.display(),
+                self.create_if_missing
             )
         } else {
-            write!(f, "RocksDbConfig {{ dir: {} }}", self.dir.display())
+            write!(
+                f,
+                "RocksDbConfig {{ dir: {}, create_if_missing: {} }}",
+                self.dir.display(),
+                self.create_if_missing
+            )
         }
     }
 }

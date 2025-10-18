@@ -42,10 +42,10 @@ use amaru_ouroboros_traits::{
     BlockHeader, CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
     in_memory_consensus_store::InMemConsensusStore,
 };
-use amaru_stores::rocksdb::RocksDbConfig;
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use amaru_stores::{
     in_memory::MemoryStore,
-    rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore},
+    rocksdb::{RocksDB, RocksDBHistoricalStores},
 };
 use gasket::{
     messaging::OutputPort,
@@ -497,21 +497,21 @@ mod tests {
                 "{}",
                 StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("/path/to/store")))
             ),
-            "RocksDbConfig { dir: /path/to/store }"
+            "RocksDbConfig { dir: /path/to/store, create_if_missing: true }"
         );
         assert_eq!(
             format!(
                 "{}",
                 StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("./relative/path")))
             ),
-            "RocksDbConfig { dir: ./relative/path }"
+            "RocksDbConfig { dir: ./relative/path, create_if_missing: true }"
         );
         assert_eq!(
             format!(
                 "{}",
                 StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("")))
             ),
-            "RocksDbConfig { dir:  }"
+            "RocksDbConfig { dir: , create_if_missing: true }"
         );
     }
 }

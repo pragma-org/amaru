@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HEADER_HASH_SIZE, Hash, RawBlock, cbor, from_cbor, to_cbor};
-use amaru_kernel::{HeaderHash, ORIGIN_HASH};
+pub mod migration;
+pub mod util;
+
+pub use migration::*;
+
+use amaru_kernel::{
+    HEADER_HASH_SIZE, Hash, HeaderHash, ORIGIN_HASH, RawBlock, cbor, from_cbor, to_cbor,
+};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
@@ -22,6 +28,10 @@ use std::path::PathBuf;
 use tracing::{Level, instrument};
 
 use crate::rocksdb::RocksDbConfig;
+use crate::rocksdb::consensus::util::{
+    ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX,
+    CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX, open_db,
+};
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
@@ -34,27 +44,16 @@ pub struct ReadOnlyChainDB {
 
 impl RocksDBStore {
     pub fn new(config: RocksDbConfig) -> Result<Self, StoreError> {
-        let basedir = config.dir.clone();
-        let mut opts: Options = config.into();
-        opts.create_if_missing(true);
-        opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
-            CONSENSUS_PREFIX_LEN,
-        ));
+        let (basedir, db) = open_db(&config)?;
 
-        Ok(Self {
-            db: OptimisticTransactionDB::open(&opts, &basedir).map_err(|e| {
-                StoreError::OpenError {
-                    error: e.to_string(),
-                }
-            })?,
-            basedir,
-        })
+        check_db_version(&db)?;
+
+        Ok(Self { db, basedir })
     }
 
     pub fn open_for_readonly(config: RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
         let basedir = config.dir.clone();
-        let mut opts: Options = config.into();
-        opts.create_if_missing(false);
+        let opts: Options = config.into();
         DB::open_for_read_only(&opts, basedir, false)
             .map_err(|e| StoreError::OpenError {
                 error: e.to_string(),
@@ -67,25 +66,29 @@ impl RocksDBStore {
     }
 }
 
-const CONSENSUS_PREFIX_LEN: usize = 5;
+pub fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
+    let version = db.get(VERSION_KEY).map_err(|e| StoreError::OpenError {
+        error: e.to_string(),
+    })?;
 
-/// "heade"
-const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x68, 0x65, 0x61, 0x64, 0x65];
-
-/// "nonce"
-const NONCES_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
-
-/// "block"
-const BLOCK_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x62, 0x6c, 0x6f, 0x63, 0x6b];
-
-/// "ancho"
-const ANCHOR_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x61, 0x6e, 0x63, 0x68, 0x6f];
-
-/// "best_"
-const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x62, 0x65, 0x73, 0x74, 0x5f];
-
-/// "child"
-const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x63, 0x68, 0x69, 0x6c, 0x64];
+    match version {
+        Some(v) => {
+            let stored = ((v[0] as u16) << 8) | v[1] as u16;
+            if stored != CHAIN_DB_VERSION {
+                Err(StoreError::IncompatibleDbVersions {
+                    stored,
+                    current: CHAIN_DB_VERSION,
+                })
+            } else {
+                Ok(())
+            }
+        }
+        None => Err(StoreError::IncompatibleDbVersions {
+            stored: 0,
+            current: CHAIN_DB_VERSION,
+        }),
+    }
+}
 
 macro_rules! impl_ReadOnlyChainStore {
     (for $($s:ty),+) => {
@@ -335,10 +338,24 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+fn initialise_with_version(config: &RocksDbConfig, db_version: u16) -> Result<(), StoreError> {
+    let (_, db) = open_db(config)?;
+    let bytes: Vec<u8> = vec![(db_version >> 8) as u8, (db_version & 0xff) as u8];
+    db.put(VERSION_KEY, &bytes)
+        .map_err(|e| StoreError::WriteError {
+            error: e.to_string(),
+        })
+}
+
+#[cfg(any(test, feature = "test-utils"))]
 #[expect(clippy::expect_used)]
 pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
     let basedir = init_dir(path);
-    RocksDBStore::new(RocksDbConfig::new(basedir)).expect("fail to initialise RocksDB")
+    let config = RocksDbConfig::new(basedir);
+
+    initialise_with_version(&config, CHAIN_DB_VERSION).expect("fail to initialise version");
+
+    RocksDBStore::new(config).expect("fail to initialise RocksDB")
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -358,15 +375,20 @@ fn init_dir(path: &std::path::Path) -> PathBuf {
 
 #[cfg(test)]
 pub mod test {
+    use crate::rocksdb::consensus::migration::migrate_db_path;
+
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
-    use amaru_kernel::{Nonce, ORIGIN_HASH};
+    use amaru_kernel::{HeaderHash, Nonce, ORIGIN_HASH};
+    use amaru_ouroboros_traits::ChainStore;
     use amaru_ouroboros_traits::is_header::BlockHeader;
     use amaru_ouroboros_traits::tests::{
         any_header_with_parent, any_headers_chain, make_header, run,
     };
     use std::collections::BTreeMap;
+    use std::path::Path;
     use std::sync::Arc;
+    use std::{fs, io};
 
     #[test]
     fn both_rw_and_ro_can_be_open_on_same_dir() {
@@ -595,7 +617,75 @@ pub mod test {
         })
     }
 
+    // MIGRATIONS
+
+    #[test]
+    fn fails_to_open_rw_db_if_stored_version_does_not_exist() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir.path();
+        let basedir = init_dir(path);
+        let config = RocksDbConfig::new(basedir);
+
+        let result = RocksDBStore::new(config);
+        match result {
+            Err(StoreError::IncompatibleDbVersions { stored, current }) => {
+                assert_eq!(stored, 0);
+                assert_eq!(current, CHAIN_DB_VERSION);
+            }
+            Err(e) => panic!("Expected IncompatibleDbVersions error, got: {:?}", e),
+            _other => panic!("Expected failure to open RocksDBStore but it succeeded"),
+        }
+    }
+
+    #[test]
+    fn can_convert_v0_sample_db_to_v1() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target = tempdir.path();
+        let config = RocksDbConfig::new(target.to_path_buf());
+        let source = PathBuf::from("sample-chain-db/v0");
+
+        copy_recursively(source, target).unwrap();
+
+        let result = migrate_db_path(target).expect("Migration should succeed");
+
+        let db = RocksDBStore::new(config)
+            .expect("DB should successfully be opened as it's been migrated");
+        assert_eq!((0, 1), result);
+        let header: Option<BlockHeader> = db.load_header(&HeaderHash::from(
+            hex::decode(SAMPLE_HASH).unwrap().as_slice(),
+        ));
+        assert!(header.is_some(), "Sample data should be preserved");
+    }
+
+    const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";
     // HELPERS
+
+    // creates a sample db at the given path, populating with some data
+    // this function exists to make it easy to test DB migration:
+    //
+    // 1. create a sample DB with the old version
+    // 2. run migration code
+    // 3. check that the data is still there and correct
+    #[expect(dead_code)]
+    fn create_sample_db(path: &Path) {
+        let db = initialise_test_rw_store(path);
+        let chain = run(any_headers_chain(10));
+        for header in &chain {
+            let block = RawBlock::from(random_bytes(32).as_slice());
+            db.store_header(header).unwrap();
+            <RocksDBStore as ChainStore<BlockHeader>>::store_block(&db, &header.hash(), &block)
+                .unwrap();
+            let nonces = Nonces {
+                active: Nonce::from(random_bytes(32).as_slice()),
+                evolving: Nonce::from(random_bytes(32).as_slice()),
+                candidate: Nonce::from(random_bytes(32).as_slice()),
+                tail: header.parent().unwrap_or(ORIGIN_HASH),
+                epoch: Default::default(),
+            };
+            <RocksDBStore as ChainStore<BlockHeader>>::put_nonces(&db, &header.hash(), &nonces)
+                .unwrap();
+        }
+    }
 
     fn with_db(f: impl Fn(Arc<dyn ChainStore<BlockHeader>>)) {
         // // try first with in-memory store
@@ -618,5 +708,23 @@ pub mod test {
             children.sort();
         }
         v
+    }
+
+    // from https://nick.groenen.me/notes/recursively-copy-files-in-rust/
+    pub fn copy_recursively(
+        source: impl AsRef<Path>,
+        destination: impl AsRef<Path>,
+    ) -> io::Result<()> {
+        fs::create_dir_all(&destination)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let filetype = entry.file_type()?;
+            if filetype.is_dir() {
+                copy_recursively(entry.path(), destination.as_ref().join(entry.file_name()))?;
+            } else {
+                fs::copy(entry.path(), destination.as_ref().join(entry.file_name()))?;
+            }
+        }
+        Ok(())
     }
 }

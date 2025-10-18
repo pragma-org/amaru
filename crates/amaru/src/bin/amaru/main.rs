@@ -75,6 +75,11 @@ enum Command {
     ///  - Best chain anchor, tip and length
     ///
     DumpChainDB(cmd::dump_chain_db::Args),
+
+    /// Migrate the Chain Database to the current version.
+    /// This command is only relevant when one upgrades Amaru to a newer version that
+    /// requires changes in the database format.
+    MigrateChainDB(cmd::migrate_chain_db::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -148,6 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
         Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
         Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
+        Command::MigrateChainDB(args) => cmd::migrate_chain_db::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook

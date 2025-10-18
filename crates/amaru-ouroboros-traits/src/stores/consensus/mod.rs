@@ -155,6 +155,7 @@ pub enum StoreError {
     ReadError { error: String },
     OpenError { error: String },
     NotFound { hash: HeaderHash },
+    IncompatibleDbVersions { stored: u16, current: u16 },
 }
 
 impl Display for StoreError {
@@ -164,6 +165,11 @@ impl Display for StoreError {
             StoreError::ReadError { error } => write!(f, "ReadError: {}", error),
             StoreError::OpenError { error } => write!(f, "OpenError: {}", error),
             StoreError::NotFound { hash } => write!(f, "NotFound: {}", hash),
+            StoreError::IncompatibleDbVersions { stored, current } => write!(
+                f,
+                "Incompatible DB Versions: found {}, expected {}",
+                stored, current
+            ),
         }
     }
 }
