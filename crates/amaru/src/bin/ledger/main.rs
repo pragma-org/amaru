@@ -22,10 +22,10 @@ mod cmd;
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Bootstrap the ledger with local blocks.
+    /// Syncs the ledger with local blocks.
     ///
-    /// The ledger state must be in an already bootstrapped state (e.g. via a snapshot).
-    Bootstrap(cmd::sync::Args),
+    /// The ledger state must be in an already bootstrapped state (e.g. via amaru snapshots).
+    Sync(cmd::sync::Args),
 
     Mithril(cmd::mithril::Args),
 }
@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let result = match args.command {
-        Command::Bootstrap(args) => cmd::sync::run(args).await,
+        Command::Sync(args) => cmd::sync::run(args).await,
         Command::Mithril(args) => cmd::mithril::run(args).await,
     };
 
