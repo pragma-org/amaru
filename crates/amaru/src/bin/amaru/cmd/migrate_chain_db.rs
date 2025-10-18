@@ -42,8 +42,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
             );
             Ok(())
         }
-        Err(StoreError::IncompatibleDbVersions { .. }) => {
-            info!("Migrating chain database at {:?}", chain_dir);
+        Err(StoreError::IncompatibleDbVersions { stored, current }) => {
+            info!(
+                "Migrating chain database at {:?} ({} -> {})",
+                chain_dir, stored, current
+            );
             let (from, to) = migrate_db(&db)?;
             info!("Migrated Chain DB from {} to {}", from, to);
             Ok(())

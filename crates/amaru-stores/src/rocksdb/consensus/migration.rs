@@ -30,7 +30,8 @@ pub const VERSION_KEY: [u8; 11] = [
 /// Returns the pair of numbers consisting in the initial version of the database and
 /// the current version if migration succeeds, otherwise returns a `StoreError`.
 pub fn migrate_db_path(path: &Path) -> Result<(u16, u16), StoreError> {
-    let config = RocksDbConfig::new(path.to_path_buf());
+    let mut config = RocksDbConfig::new(path.to_path_buf());
+    config.create_if_missing = false;
 
     let (_, db) = open_db(&config)?;
 
@@ -48,7 +49,7 @@ pub fn migrate_db(db: &OptimisticTransactionDB) -> Result<(u16, u16), StoreError
 }
 
 /// "Migrate" DB to version 1
-/// This simply records the VERSIION_KEY into the db.
+/// This simply records the `VERSION_KEY` into the db.
 fn migrate_to_v1(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
     db.put(VERSION_KEY, [0x0, 0x1])
         .map_err(|e| StoreError::WriteError {

@@ -87,8 +87,7 @@ pub fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> 
             stored: 0,
             current: CHAIN_DB_VERSION,
         }),
-    }?;
-    Ok(())
+    }
 }
 
 macro_rules! impl_ReadOnlyChainStore {
@@ -380,7 +379,7 @@ pub mod test {
 
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
-    use amaru_kernel::{Nonce, ORIGIN_HASH};
+    use amaru_kernel::{HeaderHash, Nonce, ORIGIN_HASH};
     use amaru_ouroboros_traits::ChainStore;
     use amaru_ouroboros_traits::is_header::BlockHeader;
     use amaru_ouroboros_traits::tests::{
@@ -621,14 +620,21 @@ pub mod test {
     // MIGRATIONS
 
     #[test]
-    #[should_panic]
     fn fails_to_open_rw_db_if_stored_version_does_not_exist() {
         let tempdir = tempfile::tempdir().unwrap();
         let path = tempdir.path();
         let basedir = init_dir(path);
         let config = RocksDbConfig::new(basedir);
 
-        RocksDBStore::new(config).unwrap();
+        let result = RocksDBStore::new(config);
+        match result {
+            Err(StoreError::IncompatibleDbVersions { stored, current }) => {
+                assert_eq!(stored, 0);
+                assert_eq!(current, CHAIN_DB_VERSION);
+            }
+            Err(e) => panic!("Expected IncompatibleDbVersions error, got: {:?}", e),
+            _other => panic!("Expected failure to open RocksDBStore but it succeeded"),
+        }
     }
 
     #[test]
@@ -640,13 +646,18 @@ pub mod test {
 
         copy_recursively(source, target).unwrap();
 
-        let result = migrate_db_path(target).unwrap();
+        let result = migrate_db_path(target).expect("Migration should succeed");
 
-        let _ = RocksDBStore::new(config)
+        let db = RocksDBStore::new(config)
             .expect("DB should successfully be opened as it's been migrated");
         assert_eq!((0, 1), result);
+        let header: Option<BlockHeader> = db.load_header(&HeaderHash::from(
+            hex::decode(SAMPLE_HASH).unwrap().as_slice(),
+        ));
+        assert!(header.is_some(), "Sample data should be preserved");
     }
 
+    const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";
     // HELPERS
 
     // creates a sample db at the given path, populating with some data
