@@ -23,6 +23,7 @@ use amaru_kernel::{
 use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
+use std::fs::{self};
 use std::ops::Deref;
 use std::path::PathBuf;
 use tracing::{Level, instrument};
@@ -48,6 +49,31 @@ impl RocksDBStore {
 
         check_db_version(&db)?;
 
+        Ok(Self { db, basedir })
+    }
+
+    /// Create a Chain DB at the given path.
+    /// If the database already exists, an error will be raised.
+    /// To check the existence of the database we only check the directory pointed at
+    /// contains at least one file.
+    /// NOTE: There should be a better way to detect whether or not a directory contains
+    /// a RocksDB database.
+    pub fn create_db(basedir: PathBuf) -> Result<Self, StoreError> {
+        let list = fs::read_dir(&basedir);
+        if let Ok(entries) = list {
+            if entries.count() > 0 {
+                return Err(StoreError::OpenError {
+                    error: format!(
+                        "Cannot create RocksDB at {}, directory is not empty",
+                        basedir.display()
+                    ),
+                });
+            }
+        }
+
+        let mut config = RocksDbConfig::new(basedir.clone());
+        config.create_if_missing = true;
+        let (_, db) = open_db(&config)?;
         Ok(Self { db, basedir })
     }
 
@@ -638,6 +664,24 @@ pub mod test {
     }
 
     #[test]
+    fn raises_an_error_when_creating_a_database_given_directory_is_non_empty() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir.path();
+        let basedir = init_dir(path);
+        fs::write(basedir.join("some_file.txt"), b"some data").unwrap();
+
+        let result = RocksDBStore::create_db(basedir);
+
+        match result {
+            Err(StoreError::OpenError { error: _ }) => {
+                // expected
+            }
+            Err(e) => panic!("Expected OpenError, got: {:?}", e),
+            _other => panic!("Expected failure to create DB but it succeeded"),
+        };
+    }
+
+    #[test]
     fn can_convert_v0_sample_db_to_v1() {
         let tempdir = tempfile::tempdir().unwrap();
         let target = tempdir.path();
@@ -655,6 +699,22 @@ pub mod test {
             hex::decode(SAMPLE_HASH).unwrap().as_slice(),
         ));
         assert!(header.is_some(), "Sample data should be preserved");
+    }
+
+    #[test]
+    fn migrate_db_fails_given_directory_does_not_exist() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target = tempdir.path();
+
+        let result = migrate_db_path(target);
+
+        match result {
+            Err(StoreError::OpenError { error: _ }) => {
+                // expected
+            }
+            Err(e) => panic!("Expected OpenError, got: {:?}", e),
+            _other => panic!("Expected failure to migrate DB but it succeeded"),
+        }
     }
 
     const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";
