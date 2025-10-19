@@ -58,7 +58,8 @@ impl RocksDBStore {
     /// contains at least one file.
     /// NOTE: There should be a better way to detect whether or not a directory contains
     /// a RocksDB database.
-    pub fn create_db(basedir: PathBuf) -> Result<Self, StoreError> {
+    pub fn create(config: RocksDbConfig) -> Result<Self, StoreError> {
+        let basedir = config.dir.clone();
         let list = fs::read_dir(&basedir);
         if let Ok(entries) = list {
             if entries.count() > 0 {
@@ -71,9 +72,9 @@ impl RocksDBStore {
             }
         }
 
-        let mut config = RocksDbConfig::new(basedir.clone());
-        config.create_if_missing = true;
         let (_, db) = open_db(&config)?;
+        set_version(&db)?;
+
         Ok(Self { db, basedir })
     }
 
@@ -668,9 +669,9 @@ pub mod test {
         let tempdir = tempfile::tempdir().unwrap();
         let path = tempdir.path();
         let basedir = init_dir(path);
-        fs::write(basedir.join("some_file.txt"), b"some data").unwrap();
 
-        let result = RocksDBStore::create_db(basedir);
+        fs::write(basedir.join("some_file.txt"), b"some data").unwrap();
+        let result = RocksDBStore::create(RocksDbConfig::new(basedir));
 
         match result {
             Err(StoreError::OpenError { error: _ }) => {
@@ -679,6 +680,19 @@ pub mod test {
             Err(e) => panic!("Expected OpenError, got: {:?}", e),
             _other => panic!("Expected failure to create DB but it succeeded"),
         };
+    }
+
+    #[test]
+    fn creates_a_database_with_current_version_given_directory_is_empty() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir.path();
+        let basedir = init_dir(path);
+
+        let store = RocksDBStore::create(RocksDbConfig::new(basedir))
+            .expect("should create DB successfully");
+        let version = get_version(&store.db).expect("should read version successfully");
+
+        assert_eq!(version, CHAIN_DB_VERSION);
     }
 
     #[test]
