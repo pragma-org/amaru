@@ -364,42 +364,6 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
-fn initialise_with_version(config: &RocksDbConfig, db_version: u16) -> Result<(), StoreError> {
-    let (_, db) = open_db(config)?;
-    let bytes: Vec<u8> = vec![(db_version >> 8) as u8, (db_version & 0xff) as u8];
-    db.put(VERSION_KEY, &bytes)
-        .map_err(|e| StoreError::WriteError {
-            error: e.to_string(),
-        })
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-#[expect(clippy::expect_used)]
-pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
-    let basedir = init_dir(path);
-    let config = RocksDbConfig::new(basedir);
-
-    initialise_with_version(&config, CHAIN_DB_VERSION).expect("fail to initialise version");
-
-    RocksDBStore::new(config).expect("fail to initialise RocksDB")
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-pub fn initialise_test_ro_store(path: &std::path::Path) -> Result<ReadOnlyChainDB, StoreError> {
-    let basedir = init_dir(path);
-    RocksDBStore::open_for_readonly(RocksDbConfig::new(basedir))
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-#[expect(clippy::expect_used)]
-fn init_dir(path: &std::path::Path) -> PathBuf {
-    let basedir = path.join("rocksdb_chain_store");
-    use std::fs::create_dir_all;
-    create_dir_all(&basedir).expect("fail to create test dir");
-    basedir
-}
-
 #[cfg(test)]
 pub mod test {
     use crate::rocksdb::consensus::migration::migrate_db_path;
@@ -733,6 +697,25 @@ pub mod test {
 
     const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";
     // HELPERS
+
+    pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
+        let basedir = init_dir(path);
+        let config = RocksDbConfig::new(basedir);
+
+        RocksDBStore::create(config).expect("fail to initialise RocksDB")
+    }
+
+    pub fn initialise_test_ro_store(path: &std::path::Path) -> Result<ReadOnlyChainDB, StoreError> {
+        let basedir = init_dir(path);
+        RocksDBStore::open_for_readonly(RocksDbConfig::new(basedir))
+    }
+
+    fn init_dir(path: &std::path::Path) -> PathBuf {
+        let basedir = path.join("rocksdb_chain_store");
+        use std::fs::create_dir_all;
+        create_dir_all(&basedir).expect("fail to create test dir");
+        basedir
+    }
 
     // creates a sample db at the given path, populating with some data
     // this function exists to make it easy to test DB migration:
