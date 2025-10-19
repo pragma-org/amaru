@@ -52,7 +52,7 @@ impl RocksDBStore {
         Ok(Self { db, basedir })
     }
 
-    /// Create a Chain DB at the given path.
+    /// Create a `RocksDBStore` with given configuration.
     /// If the database already exists, an error will be raised.
     /// To check the existence of the database we only check the directory pointed at
     /// contains at least one file.

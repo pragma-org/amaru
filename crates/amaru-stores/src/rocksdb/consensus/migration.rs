@@ -58,10 +58,15 @@ fn migrate_to_v1(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
 }
 
 /// List of migrations to apply, in order.
-/// Each function at index `i` in this array corresponds to a migration from version `i` to version `i + 1`.
-/// When modifying the DB schema, create migration function and add it to this array bumping its length.
+///
+/// Each function at index `i` in this array corresponds to a
+/// migration from version `i` to version `i + 1`.  When modifying the
+/// DB schema, create migration function and add it to this array
+/// bumping its length.
 static MIGRATIONS: [fn(&OptimisticTransactionDB) -> Result<(), StoreError>; 1] = [migrate_to_v1];
 
+/// Retrieve the version of the Chain DB stored in the given `db`.
+/// If no version is stored, returns 0.
 pub fn get_version(db: &OptimisticTransactionDB) -> Result<u16, StoreError> {
     let raw_version = db.get(VERSION_KEY).map_err(|e| StoreError::OpenError {
         error: e.to_string(),
@@ -75,6 +80,8 @@ pub fn get_version(db: &OptimisticTransactionDB) -> Result<u16, StoreError> {
         .unwrap_or(0))
 }
 
+/// Set the version of the Chain DB stored in the given `db` to the
+/// current `CHAIN_DB_VERSION`.
 pub fn set_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
     let bytes: Vec<u8> = vec![(CHAIN_DB_VERSION >> 8) as u8, (CHAIN_DB_VERSION & 0xff) as u8];
     db.put(VERSION_KEY, &bytes)
