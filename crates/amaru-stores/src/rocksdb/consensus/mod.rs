@@ -619,6 +619,7 @@ pub mod test {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn fails_to_open_rw_db_if_it_exists_with_wrong_version() {
         let tempdir = tempfile::tempdir().unwrap();
@@ -670,6 +671,7 @@ pub mod test {
         assert_eq!(version, CHAIN_DB_VERSION);
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn can_convert_v0_sample_db_to_v1() {
         let tempdir = tempfile::tempdir().unwrap();
@@ -706,6 +708,7 @@ pub mod test {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn open_or_create_succeeds_given_directory_exists() {
         let tempdir = tempfile::tempdir().unwrap();
@@ -794,6 +797,8 @@ pub mod test {
     }
 
     // from https://nick.groenen.me/notes/recursively-copy-files-in-rust/
+    // NOTE: the stored database is only valid for Unix (Linux/MacOS) systems, so
+    // any test relying on it should be guarded for not running on windows
     pub fn copy_recursively(
         source: impl AsRef<Path>,
         destination: impl AsRef<Path>,
