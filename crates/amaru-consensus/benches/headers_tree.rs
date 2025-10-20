@@ -76,8 +76,9 @@ fn main() {
         Arc::new(InMemConsensusStore::new())
     } else {
         let tempdir = tempfile::tempdir().unwrap();
-        let store: Arc<dyn ChainStore<BlockHeader>> =
-            Arc::new(RocksDBStore::create(RocksDbConfig::new(tebmpdir.path().to_path_buf())).unwrap());
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(
+            RocksDBStore::create(RocksDbConfig::new(tempdir.path().to_path_buf())).unwrap(),
+        );
         store
     };
 

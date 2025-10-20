@@ -30,8 +30,7 @@ pub struct Args {
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir;
-    let mut config = RocksDbConfig::new(chain_dir.clone());
-    config.create_if_missing = false;
+    let config = RocksDbConfig::new(chain_dir.clone());
 
     let (_, db) = open_db(&config)?;
     match check_db_version(&db) {

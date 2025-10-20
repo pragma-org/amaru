@@ -321,7 +321,7 @@ fn make_chain_store(
     let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
         StoreType::RocksDb(ref rocks_db_config) => {
-            Arc::new(RocksDBStore::new(rocks_db_config.clone())?)
+            Arc::new(RocksDBStore::open(rocks_db_config.clone())?)
         }
     };
 
@@ -497,21 +497,21 @@ mod tests {
                 "{}",
                 StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("/path/to/store")))
             ),
-            "RocksDbConfig { dir: /path/to/store, create_if_missing: true }"
+            "RocksDbConfig { dir: /path/to/store }"
         );
         assert_eq!(
             format!(
                 "{}",
                 StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("./relative/path")))
             ),
-            "RocksDbConfig { dir: ./relative/path, create_if_missing: true }"
+            "RocksDbConfig { dir: ./relative/path }"
         );
         assert_eq!(
             format!(
                 "{}",
                 StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("")))
             ),
-            "RocksDbConfig { dir: , create_if_missing: true }"
+            "RocksDbConfig { dir:  }"
         );
     }
 }

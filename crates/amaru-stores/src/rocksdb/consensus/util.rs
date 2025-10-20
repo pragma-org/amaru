@@ -44,14 +44,36 @@ pub(crate) const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x62, 0x65, 0x
 pub(crate) const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x63, 0x68, 0x69, 0x6c, 0x64];
 
 /// Open a Chain DB for reading and writing.
+/// The DB _must_ exist otherwise the function will return an error.
 pub fn open_db(config: &RocksDbConfig) -> Result<(PathBuf, OptimisticTransactionDB), StoreError> {
     let basedir = config.dir.clone();
     let mut opts: Options = config.into();
+    opts.create_if_missing(false);
+    let db = do_open_rocks_db(&basedir, opts)?;
+    Ok((basedir, db))
+}
+
+/// Create or open a Chain DB for reading and writing.
+/// The DB _may_ exist, if it does not it will be created.
+pub fn open_or_create_db(
+    config: &RocksDbConfig,
+) -> Result<(PathBuf, OptimisticTransactionDB), StoreError> {
+    let basedir = config.dir.clone();
+    let mut opts: Options = config.into();
+    opts.create_if_missing(true);
+    let db = do_open_rocks_db(&basedir, opts)?;
+    Ok((basedir, db))
+}
+
+fn do_open_rocks_db(
+    basedir: &PathBuf,
+    mut opts: Options,
+) -> Result<OptimisticTransactionDB, StoreError> {
     opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
         CONSENSUS_PREFIX_LEN,
     ));
-    let db = OptimisticTransactionDB::open(&opts, &basedir).map_err(|e| StoreError::OpenError {
+    let db = OptimisticTransactionDB::open(&opts, basedir).map_err(|e| StoreError::OpenError {
         error: e.to_string(),
     })?;
-    Ok((basedir, db))
+    Ok(db)
 }

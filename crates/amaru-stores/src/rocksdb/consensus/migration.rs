@@ -30,8 +30,7 @@ pub const VERSION_KEY: [u8; 11] = [
 /// Returns the pair of numbers consisting in the initial version of the database and
 /// the current version if migration succeeds, otherwise returns a `StoreError`.
 pub fn migrate_db_path(path: &Path) -> Result<(u16, u16), StoreError> {
-    let mut config = RocksDbConfig::new(path.to_path_buf());
-    config.create_if_missing = false;
+    let config = RocksDbConfig::new(path.to_path_buf());
 
     let (_, db) = open_db(&config)?;
 
@@ -65,6 +64,31 @@ fn migrate_to_v1(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
 /// bumping its length.
 static MIGRATIONS: [fn(&OptimisticTransactionDB) -> Result<(), StoreError>; 1] = [migrate_to_v1];
 
+/// Check the version stored in the `db` matches `CHAIN_DB_VERSION`.
+pub fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
+    let version = db.get(VERSION_KEY).map_err(|e| StoreError::OpenError {
+        error: e.to_string(),
+    })?;
+
+    match version {
+        Some(v) => {
+            let stored = ((v[0] as u16) << 8) | v[1] as u16;
+            if stored != CHAIN_DB_VERSION {
+                Err(StoreError::IncompatibleDbVersions {
+                    stored,
+                    current: CHAIN_DB_VERSION,
+                })
+            } else {
+                Ok(())
+            }
+        }
+        None => Err(StoreError::IncompatibleDbVersions {
+            stored: 0,
+            current: CHAIN_DB_VERSION,
+        }),
+    }
+}
+
 /// Retrieve the version of the Chain DB stored in the given `db`.
 /// If no version is stored, returns 0.
 pub fn get_version(db: &OptimisticTransactionDB) -> Result<u16, StoreError> {
@@ -83,7 +107,10 @@ pub fn get_version(db: &OptimisticTransactionDB) -> Result<u16, StoreError> {
 /// Set the version of the Chain DB stored in the given `db` to the
 /// current `CHAIN_DB_VERSION`.
 pub fn set_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
-    let bytes: Vec<u8> = vec![(CHAIN_DB_VERSION >> 8) as u8, (CHAIN_DB_VERSION & 0xff) as u8];
+    let bytes: Vec<u8> = vec![
+        (CHAIN_DB_VERSION >> 8) as u8,
+        (CHAIN_DB_VERSION & 0xff) as u8,
+    ];
     db.put(VERSION_KEY, &bytes)
         .map_err(|e| StoreError::WriteError {
             error: e.to_string(),

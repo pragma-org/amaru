@@ -30,8 +30,8 @@ use tracing::{Level, instrument};
 
 use crate::rocksdb::RocksDbConfig;
 use crate::rocksdb::consensus::util::{
-    ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX,
-    CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX, open_db,
+    ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN,
+    HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
 };
 
 pub struct RocksDBStore {
@@ -44,7 +44,12 @@ pub struct ReadOnlyChainDB {
 }
 
 impl RocksDBStore {
-    pub fn new(config: RocksDbConfig) -> Result<Self, StoreError> {
+    /// Open an existing `RocksDBStore` with given configuration.
+    ///
+    /// This function will fail if:
+    /// * the DB does not exist
+    /// * the DB exists but with an incompatible version
+    pub fn open(config: RocksDbConfig) -> Result<Self, StoreError> {
         let (basedir, db) = open_db(&config)?;
 
         check_db_version(&db)?;
@@ -61,19 +66,31 @@ impl RocksDBStore {
     pub fn create(config: RocksDbConfig) -> Result<Self, StoreError> {
         let basedir = config.dir.clone();
         let list = fs::read_dir(&basedir);
-        if let Ok(entries) = list {
-            if entries.count() > 0 {
-                return Err(StoreError::OpenError {
-                    error: format!(
-                        "Cannot create RocksDB at {}, directory is not empty",
-                        basedir.display()
-                    ),
-                });
-            }
+        if let Ok(entries) = list
+            && entries.count() > 0
+        {
+            return Err(StoreError::OpenError {
+                error: format!(
+                    "Cannot create RocksDB at {}, directory is not empty",
+                    basedir.display()
+                ),
+            });
         }
 
-        let (_, db) = open_db(&config)?;
+        let (_, db) = open_or_create_db(&config)?;
         set_version(&db)?;
+
+        Ok(Self { db, basedir })
+    }
+
+    /// Open or create a `RocksDBStore` with given configuration.
+    ///
+    /// This function is deemed "unsafe" because it automatically tries to migrate the
+    /// DB it opens or creates which can potentially causes data corruption.
+    pub fn open_or_create(config: RocksDbConfig) -> Result<Self, StoreError> {
+        let (basedir, db) = open_or_create_db(&config)?;
+
+        migrate_db(&db)?;
 
         Ok(Self { db, basedir })
     }
@@ -90,30 +107,6 @@ impl RocksDBStore {
 
     pub fn create_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
         self.db.transaction()
-    }
-}
-
-pub fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
-    let version = db.get(VERSION_KEY).map_err(|e| StoreError::OpenError {
-        error: e.to_string(),
-    })?;
-
-    match version {
-        Some(v) => {
-            let stored = ((v[0] as u16) << 8) | v[1] as u16;
-            if stored != CHAIN_DB_VERSION {
-                Err(StoreError::IncompatibleDbVersions {
-                    stored,
-                    current: CHAIN_DB_VERSION,
-                })
-            } else {
-                Ok(())
-            }
-        }
-        None => Err(StoreError::IncompatibleDbVersions {
-            stored: 0,
-            current: CHAIN_DB_VERSION,
-        }),
     }
 }
 
@@ -367,6 +360,7 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
 #[cfg(test)]
 pub mod test {
     use crate::rocksdb::consensus::migration::migrate_db_path;
+    use crate::rocksdb::consensus::util::CHAIN_DB_VERSION;
 
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
@@ -611,19 +605,36 @@ pub mod test {
     // MIGRATIONS
 
     #[test]
-    fn fails_to_open_rw_db_if_stored_version_does_not_exist() {
+    fn fails_to_open_rw_db_if_it_does_not_exist() {
         let tempdir = tempfile::tempdir().unwrap();
         let path = tempdir.path();
         let basedir = init_dir(path);
         let config = RocksDbConfig::new(basedir);
 
-        let result = RocksDBStore::new(config);
+        let result = RocksDBStore::open(config);
+        match result {
+            Err(StoreError::OpenError { .. }) => (), // OK
+            Err(e) => panic!("Expected OpenError error, got: {:?}", e),
+            _other => panic!("Expected failure to open RocksDBStore but it succeeded"),
+        }
+    }
+
+    #[test]
+    fn fails_to_open_rw_db_if_it_exists_with_wrong_version() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target = tempdir.path();
+        let config = RocksDbConfig::new(target.to_path_buf());
+        let source = PathBuf::from("sample-chain-db/v0");
+
+        copy_recursively(source, target).unwrap();
+
+        let result = RocksDBStore::open(config);
         match result {
             Err(StoreError::IncompatibleDbVersions { stored, current }) => {
                 assert_eq!(stored, 0);
                 assert_eq!(current, CHAIN_DB_VERSION);
             }
-            Err(e) => panic!("Expected IncompatibleDbVersions error, got: {:?}", e),
+            Err(e) => panic!("Expected OpenError error, got: {:?}", e),
             _other => panic!("Expected failure to open RocksDBStore but it succeeded"),
         }
     }
@@ -670,7 +681,7 @@ pub mod test {
 
         let result = migrate_db_path(target).expect("Migration should succeed");
 
-        let db = RocksDBStore::new(config)
+        let db = RocksDBStore::open(config)
             .expect("DB should successfully be opened as it's been migrated");
         assert_eq!((0, 1), result);
         let header: Option<BlockHeader> = db.load_header(&HeaderHash::from(
@@ -693,6 +704,21 @@ pub mod test {
             Err(e) => panic!("Expected OpenError, got: {:?}", e),
             _other => panic!("Expected failure to migrate DB but it succeeded"),
         }
+    }
+
+    #[test]
+    fn open_or_create_succeeds_given_directory_exists() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target = tempdir.path();
+        let config = RocksDbConfig::new(target.to_path_buf());
+        let source = PathBuf::from("sample-chain-db/v0");
+
+        copy_recursively(source, target).unwrap();
+
+        let store = RocksDBStore::open_or_create(config).expect("should create DB successfully");
+        let version = get_version(&store.db).expect("should read version successfully");
+
+        assert_eq!(version, CHAIN_DB_VERSION);
     }
 
     const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";
