@@ -360,7 +360,7 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
 #[cfg(test)]
 pub mod test {
     use crate::rocksdb::consensus::migration::migrate_db_path;
-    use crate::rocksdb::consensus::util::CHAIN_DB_VERSION;
+    use crate::rocksdb::consensus::util::{CHAIN_DB_VERSION, CHAIN_PREFIX};
 
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
@@ -370,6 +370,7 @@ pub mod test {
     use amaru_ouroboros_traits::tests::{
         any_header_with_parent, any_headers_chain, make_header, run,
     };
+    use rocksdb::Direction;
     use std::collections::BTreeMap;
     use std::path::Path;
     use std::sync::Arc;
@@ -722,6 +723,36 @@ pub mod test {
         let version = get_version(&store.db).expect("should read version successfully");
 
         assert_eq!(version, CHAIN_DB_VERSION);
+    }
+
+    #[test]
+    fn iterator_over_chain() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target = tempdir.path();
+        let config = RocksDbConfig::new(target.to_path_buf());
+        let (_, db) = open_or_create_db(&config).expect("should open DB successfully");
+
+        // populate DB
+        for slot in 1..10 {
+            let prefix = [&CHAIN_PREFIX[..], &(slot as u64).to_be_bytes()[..]].concat();
+            let header_hash = random_hash();
+            db.put(&prefix, &header_hash)
+                .expect("should put data successfully");
+        }
+        // iterate over chain from 4 to 8
+        let slot4 = 4u64.to_be_bytes();
+        let slot8 = 8u64.to_be_bytes();
+        let prefix = [&CHAIN_PREFIX[..], &slot4].concat();
+
+        let mut readopts = ReadOptions::default();
+        readopts.set_iterate_upper_bound([&CHAIN_PREFIX[..], &slot8[..]].concat());
+        let mut iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
+        let mut count = 0;
+        while let Some(Ok((_k, v))) = iter.next() {
+            let _header_hash: HeaderHash = Hash::from(v.as_ref());
+            count += 1;
+        }
+        assert_eq!(count, 4); // slots 4,5,6,7 as upper bound (8) is exclusive
     }
 
     const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";

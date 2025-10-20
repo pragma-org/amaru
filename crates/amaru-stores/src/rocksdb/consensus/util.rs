@@ -32,6 +32,10 @@ pub(crate) const ANCHOR_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"ancho";
 pub(crate) const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"best_";
 pub(crate) const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"child";
 
+/// "chain"
+pub(crate) const CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x63, 0x68, 0x61, 0x69, 0x6e];
+
+
 /// Open a Chain DB for reading and writing.
 /// The DB _must_ exist otherwise the function will return an error.
 pub fn open_db(config: &RocksDbConfig) -> Result<(PathBuf, OptimisticTransactionDB), StoreError> {
