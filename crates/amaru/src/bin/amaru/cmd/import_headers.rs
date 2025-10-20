@@ -14,7 +14,7 @@
 
 use crate::cmd::WorkerError;
 use amaru_consensus::BlockHeader;
-use amaru_kernel::{Header, default_chain_dir, from_cbor, network::NetworkName};
+use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName};
 use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;

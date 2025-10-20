@@ -93,7 +93,8 @@ impl<M: SendData> Effects<M> {
 
     /// Obtain a reference to the current stage.
     ///
-    /// This is useful for sending to other stages that may want to send or call back.
+    /// Returns a borrowed reference without cloning. Use this e.g. when sending a
+    /// message to the current stage. For owned access, see [`me()`](Self::me).
     pub fn me_ref(&self) -> &StageRef<M> {
         &self.me
     }

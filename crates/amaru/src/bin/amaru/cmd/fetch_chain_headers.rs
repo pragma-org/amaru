@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::cmd::{DEFAULT_NETWORK, WorkerError, connect_to_peer};
-use amaru_kernel::{Header, Point, from_cbor, network::NetworkName, peer::Peer};
+use amaru_kernel::{Point, from_cbor, network::NetworkName, peer::Peer};
 use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
 use clap::{Parser, arg};

@@ -122,7 +122,10 @@ pub async fn actor(
                 msg = cell.recv() => msg,
             };
             match msg {
-                ActoInput::NoMoreSenders => return,
+                ActoInput::NoMoreSenders => {
+                    sync.abort();
+                    return;
+                }
                 ActoInput::Supervision { .. } => unreachable!(),
                 ActoInput::Message(ConnMsg::FetchBlock(point, tx)) => match fetch {
                     State::Running(_) => req.push_back((point, tx)),
@@ -133,6 +136,7 @@ pub async fn actor(
                 ActoInput::Message(ConnMsg::Disconnect) => {
                     tracing::warn!(%peer, "disconnecting due to node policy");
                     plexer.abort().await;
+                    sync.abort();
                     sleep(Duration::from_secs(10)).await;
                     break;
                 }

@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display, ops::Deref, sync::Arc};
+use std::{collections::BTreeMap, fmt::Display, ops::Deref, sync::Arc};
 use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
 
 /// Network operations available to a stage: fetch block and forward events to peers.
@@ -93,6 +93,7 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
 
     fn disconnect(&self, peer: Peer) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
         let f = self.0.external(DisconnectEffect::new(peer));
+        #[allow(clippy::unit_arg)]
         Box::pin(async move { Ok(f.await) })
     }
 }
@@ -306,8 +307,7 @@ impl NetworkResource {
 }
 
 pub struct NetworkInner {
-    #[allow(clippy::disallowed_types)]
-    connections: HashMap<Peer, ActoRef<ConnMsg>>,
+    connections: BTreeMap<Peer, ActoRef<ConnMsg>>,
     hd_rx: AsyncMutex<mpsc::Receiver<ChainSyncEvent>>,
 }
 
@@ -361,6 +361,7 @@ impl NetworkInner {
 
 type BlockSender = Arc<Mutex<Option<oneshot::Sender<Result<Vec<u8>, BlockFetchClientError>>>>>;
 
+#[allow(dead_code)]
 pub enum ConnMsg {
     FetchBlock(Point, BlockSender),
     Disconnect,

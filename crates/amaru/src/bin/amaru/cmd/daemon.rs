@@ -94,11 +94,11 @@ pub async fn run(
             .map(track_system_metrics)
             .transpose()?;
 
-        let clients = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
+        let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
 
         let exit = amaru::exit::hook_exit_token();
 
-        bootstrap(config, clients, exit, meter_provider).await?;
+        bootstrap(config, peers, exit, meter_provider).await?;
 
         if let Some(handle) = metrics {
             handle.abort();

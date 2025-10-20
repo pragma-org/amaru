@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
-
 /// This benchmark generates a large random header tree and a long sequence of actions
 /// (adding headers from random peers and rollbacks) to be executed on a `HeadersTree`.
 /// It then measures the average time taken to execute each action.
@@ -37,6 +34,8 @@ fn main() {
         Ratio, execute_actions_on_tree, generate_header_tree, generate_random_walks,
     };
     use amaru_consensus::consensus::stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
+    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+    use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};
     use std::fs::File;
     use std::sync::Arc;
@@ -129,5 +128,5 @@ fn main() {
 }
 
 /// On Windows, benchmarking is not supported because we hit a stack overflow error during the generation.
-#[cfg(windows)]
+#[cfg(not(all(unix, feature = "profiling", feature = "test-utils")))]
 fn main() {}

@@ -21,7 +21,8 @@ use crate::simulator::{
 use crate::sync::ChainSyncMessage;
 use acto::{AcTokio, variable::Writer};
 use amaru::stages::build_stage_graph::build_stage_graph;
-use amaru_consensus::consensus::effects::NetworkResource;
+use amaru_consensus::consensus::effects::{FetchBlockEffect, NetworkResource};
+use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::headers_tree::data_generation::Chain;
 use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_consensus::consensus::{
@@ -45,6 +46,7 @@ use amaru_ouroboros::{
     in_memory_consensus_store::InMemConsensusStore,
 };
 use async_trait::async_trait;
+use pure_stage::simulation::OverrideResult;
 use pure_stage::{
     Instant, Receiver, StageGraph, StageRef, simulation::SimulationBuilder,
     trace_buffer::TraceBuffer,
@@ -71,7 +73,10 @@ pub fn run(rt: Runtime, args: Args) {
         let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
         let (input, init_messages, output) =
             spawn_node(node_id, node_config.clone(), &mut network, &rt);
-        let running = network.run(rt.handle().clone());
+        let mut running = network.run(rt.handle().clone());
+        running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
+            OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
+        });
         NodeHandle::from_pure_stage(input, init_messages, output, running).unwrap()
     };
 
