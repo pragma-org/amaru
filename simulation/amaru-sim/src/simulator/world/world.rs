@@ -19,9 +19,9 @@ use pure_stage::Instant;
 use serde::Serialize;
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BTreeMap, BinaryHeap};
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::time::Duration;
-use tracing::info;
+use tracing::{debug, info};
 
 /// This data structure represents a simulated 'world' of interconnected nodes.
 /// Nodes are identified by string ids:
@@ -66,17 +66,31 @@ impl<Msg: PartialEq> Eq for Entry<Msg> {}
 pub type NodeId = String;
 
 /// A `History` records all messages sent to/from client nodes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct History<Msg>(pub Vec<Envelope<Msg>>);
+
+impl<Msg: Debug> Debug for History<Msg> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for message in &self.0 {
+            writeln!(f, "{message:?}")?;
+        }
+        Ok(())
+    }
+}
 
 impl<Msg: PartialEq + Clone + Debug> World<Msg> {
     /// Create a new World with initial messages and node handles.
     pub fn new(
-        initial_messages: Vec<Reverse<Entry<Msg>>>,
+        initial_messages: Vec<Entry<Msg>>,
         node_handles: Vec<(NodeId, NodeHandle<Msg>)>,
     ) -> Self {
         World {
-            heap: BinaryHeap::from(initial_messages),
+            heap: BinaryHeap::from(
+                initial_messages
+                    .into_iter()
+                    .map(Reverse)
+                    .collect::<Vec<_>>(),
+            ),
             nodes: node_handles.into_iter().collect(),
             history: History(Vec::new()),
         }
@@ -111,7 +125,8 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
             // eg. run all nodes whose next action is earlier than msg's arrival time
             // and enqueue their output messages possibly bailing out and recursing
             {
-                info!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
+                info!(msg = ?envelope, arrival = ?arrival_time, "stepping");
+                debug!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
 
                 match self.nodes.get_mut(&envelope.dest) {
                     Some(node) => match node.handle_msg(envelope.clone()) {

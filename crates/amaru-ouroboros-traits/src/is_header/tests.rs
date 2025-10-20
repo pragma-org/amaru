@@ -15,7 +15,7 @@
 use super::*;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
-use proptest::test_runner::TestRunner;
+use proptest::test_runner::{Config, RngSeed, TestRunner};
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
@@ -119,5 +119,17 @@ pub fn any_fake_header() -> impl Strategy<Value = BlockHeader> {
 #[expect(clippy::unwrap_used)]
 pub fn run<T>(s: impl Strategy<Value = T>) -> T {
     let mut runner = TestRunner::default();
+    s.new_tree(&mut runner).unwrap().current()
+}
+
+/// Run a strategy with a seed provided by a random generator
+/// and return the generated value, panicking if generation fails.
+#[expect(clippy::unwrap_used)]
+pub fn run_with_rng<T, RNG: Rng>(rng: &mut RNG, s: impl Strategy<Value = T>) -> T {
+    let config = Config {
+        rng_seed: RngSeed::Fixed(rng.random()),
+        ..Default::default()
+    };
+    let mut runner = TestRunner::new(config);
     s.new_tree(&mut runner).unwrap().current()
 }

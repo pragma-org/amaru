@@ -14,10 +14,8 @@
 
 use crate::echo::Envelope;
 use crate::simulator::bytes::Bytes;
-use crate::simulator::generate::generate_entries;
-use crate::simulator::ledger::populate_chain_store;
 use crate::simulator::simulate::simulate;
-use crate::simulator::{Args, Chain, History, NodeConfig, NodeHandle, SimulateConfig};
+use crate::simulator::{Args, History, NodeConfig, NodeHandle, SimulateConfig, generate_entries};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
 use amaru_consensus::can_validate_blocks::mock::MockCanValidateHeaders;
@@ -29,6 +27,7 @@ use amaru_consensus::consensus::effects::{ResourceBlockFetcher, ResourceBlockVal
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::events::ChainSyncEvent;
 use amaru_consensus::consensus::headers_tree::HeadersTreeState;
+use amaru_consensus::consensus::headers_tree::data_generation::Chain;
 use amaru_consensus::consensus::stages::fetch_block::BlockFetcher;
 use amaru_consensus::consensus::stages::select_chain::{
     DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain,
@@ -39,16 +38,15 @@ use amaru_consensus::{BlockHeader, ChainStore};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_parameters::GlobalParameters;
+use amaru_kernel::string_utils::{ListDebug, ListToString};
 use amaru_kernel::{Point, to_cbor};
 use amaru_ouroboros::IsHeader;
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateBlocks;
 use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
-use amaru_slot_arithmetic::Slot;
 use async_trait::async_trait;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef};
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -80,7 +78,7 @@ pub fn run(rt: Runtime, args: Args) {
             Instant::at_offset(Duration::from_secs(0)),
             200.0,
         ),
-        chain_property(&args.block_tree_file),
+        chain_property(),
         trace_buffer.clone(),
         args.persist_on_success,
     )
@@ -163,7 +161,10 @@ pub fn spawn_node(
     let receive_header_ref = build_stage_graph(select_chain, sync_tracker, our_tip, network);
 
     let (output, rx1) = network.output("output", 10);
-    let (sender, rx2) = mpsc::channel(10);
+
+    // The number of received messages sent by the forward event listener is proportional
+    // to the number of downstream peers, as each event is duplicated to each downstream peer.
+    let (sender, rx2) = mpsc::channel(10 * node_config.number_of_downstream_peers as usize);
     let listener =
         MockForwardEventListener::new(node_id, node_config.number_of_downstream_peers, sender);
 
@@ -204,13 +205,6 @@ fn init_node(
     let chain_store = Arc::new(InMemConsensusStore::new());
     let header_validation = Arc::new(MockCanValidateHeaders);
 
-    populate_chain_store(
-        chain_store.clone(),
-        &node_config.start_header,
-        &node_config.consensus_context_file,
-    )
-    .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
-
     let peers = (1..=node_config.number_of_upstream_peers)
         .map(|i| Peer::new(&format!("c{}", i)))
         .collect::<Vec<_>>();
@@ -240,39 +234,56 @@ fn make_chain_selector(
     SelectChain::new(tree_state)
 }
 
-/// Property: at the end of the simulation, the tip of the chain from the last block must
-/// match the tip of the chain returned by the history of messages sent by the nodes under test.
-fn chain_property(
-    chain_data_path: &PathBuf,
-) -> impl Fn(&History<ChainSyncMessage>) -> Result<(), String> + use<'_> {
-    move |history| {
-        // Get the tip of the chain from the chain data file
-        // and compare it to the last entry in the history
-        let blocks =
-            Chain::read_blocks_from_file(chain_data_path).map_err(|err| err.to_string())?;
-        let expected = blocks
-            .last()
-            .map(|block| (block.hash.clone(), Slot::from(block.slot)))
-            .expect("empty chain data");
+/// Property: at the end of the simulation, the chain built from the history of messages received
+/// downstream must match the best chain built directly from messages coming from upstream peers.
+fn chain_property() -> impl Fn(&History<ChainSyncMessage>, &Chain) -> Result<(), String> {
+    move |history, expected| {
+        let actual = make_best_chain_from_downstream_messages(history);
+        let actual_chain = actual.list_to_string(",\n ");
+        let expected_chain = expected.list_to_string(",\n ");
+        assert_eq!(
+            &actual, expected,
+            "\nThe actual chain\n{}\n\nis not the best chain\n\n{}\n\nThe history is:\n{:?}",
+            actual_chain, expected_chain, history,
+        );
+        Ok(())
+    }
+}
 
-        if let Some(Envelope {
-            body: ChainSyncMessage::Fwd { hash, slot, .. },
-            ..
-        }) = history.0.last()
-        {
-            let actual = (hash.clone(), *slot);
-            if actual != expected {
-                Err(format!(
-                    "tip of chains don't match, expected:\n    {:?}\n  got:\n    {:?}",
-                    expected, actual
-                ))
-            } else {
-                Ok(())
+/// Build the best chain from messages sent to downstream peers.
+pub fn make_best_chain_from_downstream_messages(history: &History<ChainSyncMessage>) -> Chain {
+    let mut best_chain = vec![];
+    for (i, message) in history.0.iter().enumerate() {
+        // only consider messages sent to the first peer
+        if !message.dest.starts_with("c1") {
+            continue;
+        };
+        match &message.body {
+            msg @ ChainSyncMessage::Fwd { .. } => {
+                if let Some(header) = msg.decode_block_header() {
+                    best_chain.push(header)
+                }
             }
-        } else {
-            Err("impossible, no first entry in history".to_string())
+            msg @ ChainSyncMessage::Bck { .. } => {
+                if let Some(header_hash) = msg.header_hash() {
+                    let rollback_position = best_chain.iter().position(|h| h.hash() == header_hash);
+                    if let Some(rollback_position) = rollback_position {
+                        best_chain.truncate(rollback_position + 1);
+                    } else {
+                        panic!(
+                            "after the action {}, we have a rollback position that does not exist with hash {}.\nThe best chain is:\n{}. The history is:\n{}",
+                            i + 1,
+                            header_hash,
+                            best_chain.list_to_string(",\n"),
+                            history.0.iter().collect::<Vec<_>>().list_debug("\n")
+                        );
+                    }
+                }
+            }
+            _ => (),
         }
     }
+    best_chain
 }
 
 /// A fake block fetcher that always returns an empty block.

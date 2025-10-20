@@ -13,32 +13,26 @@
 // limitations under the License.
 
 use crate::simulator::Args;
-use amaru_kernel::HeaderHash;
-use pallas_crypto::hash::Hash;
-use std::path::PathBuf;
+use amaru_consensus::consensus::headers_tree::data_generation::Ratio;
 
 /// Configuration for a single node
 #[derive(Debug, Clone)]
 pub struct NodeConfig {
-    pub stake_distribution_file: PathBuf,
-    pub consensus_context_file: PathBuf,
-    pub chain_dir: PathBuf,
-    pub block_tree_file: PathBuf,
-    pub start_header: HeaderHash,
     pub number_of_upstream_peers: u8,
     pub number_of_downstream_peers: u8,
+    pub generated_chain_depth: u64,
+    pub generated_chain_rollback_ratio: Ratio,
+    pub generated_chain_branching_ratio: Ratio,
 }
 
 impl Default for NodeConfig {
     fn default() -> Self {
         Self {
-            stake_distribution_file: PathBuf::from("./stake_distribution.json"),
-            consensus_context_file: PathBuf::from("./consensus_context.json"),
-            chain_dir: PathBuf::from("./chain.db/"),
-            block_tree_file: PathBuf::from("./chain.json"),
-            start_header: Hash::from([0; 32]),
             number_of_upstream_peers: 2,
             number_of_downstream_peers: 1,
+            generated_chain_depth: 10,
+            generated_chain_rollback_ratio: Ratio(1, 2),
+            generated_chain_branching_ratio: Ratio(1, 2),
         }
     }
 }
@@ -46,13 +40,11 @@ impl Default for NodeConfig {
 impl NodeConfig {
     pub fn from(args: Args) -> Self {
         Self {
-            stake_distribution_file: args.stake_distribution_file,
-            consensus_context_file: args.consensus_context_file,
-            chain_dir: args.chain_dir,
-            block_tree_file: args.block_tree_file,
-            start_header: args.start_header,
             number_of_upstream_peers: args.number_of_upstream_peers,
             number_of_downstream_peers: args.number_of_downstream_peers,
+            generated_chain_depth: args.generated_chain_depth,
+            generated_chain_rollback_ratio: args.generated_chain_rollback_ratio,
+            generated_chain_branching_ratio: args.generated_chain_branching_ratio,
         }
     }
 
@@ -63,6 +55,21 @@ impl NodeConfig {
 
     pub fn with_number_of_downstream_peers(mut self, n: u8) -> Self {
         self.number_of_downstream_peers = n;
+        self
+    }
+
+    pub fn with_generated_chain_depth(mut self, depth: u64) -> Self {
+        self.generated_chain_depth = depth;
+        self
+    }
+
+    pub fn with_generated_chain_rollback_ratio(mut self, ratio: Ratio) -> Self {
+        self.generated_chain_rollback_ratio = ratio;
+        self
+    }
+
+    pub fn with_generated_chain_branching_ratio(mut self, ratio: Ratio) -> Self {
+        self.generated_chain_branching_ratio = ratio;
         self
     }
 }

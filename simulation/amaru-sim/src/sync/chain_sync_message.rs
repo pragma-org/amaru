@@ -15,10 +15,12 @@
 use crate::echo::Envelope;
 use crate::simulator::bytes::Bytes;
 use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_kernel::Point;
 use amaru_kernel::peer::Peer;
+use amaru_kernel::{HeaderHash, Point, cbor};
+use amaru_ouroboros_traits::BlockHeader;
 use amaru_slot_arithmetic::Slot;
 use gasket::framework::WorkerError;
+use pallas_primitives::babbage::{Header, MintedHeader};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use tracing::Span;
@@ -43,8 +45,33 @@ pub enum ChainSyncMessage {
     Bck {
         msg_id: u64,
         slot: Slot,
-        hash: crate::simulator::bytes::Bytes,
+        hash: Bytes,
     },
+}
+
+impl ChainSyncMessage {
+    /// Attempt to decode the block header from a `Fwd` message.
+    pub fn decode_block_header(&self) -> Option<BlockHeader> {
+        match self {
+            ChainSyncMessage::Fwd { header, .. } => {
+                if let Ok(minted_header) = cbor::decode::<MintedHeader<'_>>(&header.bytes) {
+                    Some(BlockHeader::from(Header::from(minted_header)))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Attempt to decode a header hash from a `Fwd` or `Bck` message.
+    pub fn header_hash(&self) -> Option<HeaderHash> {
+        match self {
+            ChainSyncMessage::Fwd { hash, .. } => Some(HeaderHash::from(hash.bytes.as_slice())),
+            ChainSyncMessage::Bck { hash, .. } => Some(HeaderHash::from(hash.bytes.as_slice())),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Debug for ChainSyncMessage {
@@ -64,21 +91,33 @@ impl fmt::Debug for ChainSyncMessage {
                 .debug_struct("InitOk")
                 .field("in_reply_to", in_reply_to)
                 .finish(),
-            ChainSyncMessage::Fwd {
+            msg @ ChainSyncMessage::Fwd {
                 msg_id,
                 slot,
                 hash,
                 header,
-            } => f
-                .debug_struct("Fwd")
-                .field("msg_id", msg_id)
-                .field("slot", slot)
-                .field("hash", &hex::encode(&hash.bytes[..hash.bytes.len().min(3)]))
-                .field(
-                    "header",
-                    &hex::encode(&header.bytes.as_slice()[..header.bytes.len().min(4)]),
-                )
-                .finish(),
+            } => {
+                let parent_hash = msg
+                    .decode_block_header()
+                    .and_then(|h| {
+                        h.parent_hash().map(|h| {
+                            let mut s = h.to_string();
+                            s.truncate(6);
+                            s
+                        })
+                    })
+                    .unwrap_or("n/a".to_string());
+                f.debug_struct("Fwd")
+                    .field("msg_id", msg_id)
+                    .field("slot", slot)
+                    .field("hash", &hex::encode(&hash.bytes[..hash.bytes.len().min(3)]))
+                    .field("parent_hash", &parent_hash)
+                    .field(
+                        "header",
+                        &hex::encode(&header.bytes.as_slice()[..header.bytes.len().min(4)]),
+                    )
+                    .finish()
+            }
             ChainSyncMessage::Bck { msg_id, slot, hash } => f
                 .debug_struct("Bck")
                 .field("msg_id", msg_id)

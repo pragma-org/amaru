@@ -13,8 +13,6 @@
 // limitations under the License.
 
 pub mod bytes;
-mod ledger;
-
 pub mod simulate;
 
 mod simulate_config;
