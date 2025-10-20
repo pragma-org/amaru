@@ -29,7 +29,7 @@ export RUST_BACKTRACE=full
 
 export AMARU_LOG=gasket=error,amaru=debug,amaru::stages::consensus::forward_chain=info,info
 
-exec cargo run --profile dev -- daemon \
+exec cargo run --profile dev -- run \
       --peer-address "${AMARU_PEER_ADDRESS}" \
       --ledger-dir "${AMARU_LEDGER_DIR}" \
       --chain-dir "${AMARU_CHAIN_DIR}"
