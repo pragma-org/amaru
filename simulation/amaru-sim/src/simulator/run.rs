@@ -15,9 +15,7 @@
 use crate::echo::Envelope;
 use crate::simulator::bytes::Bytes;
 use crate::simulator::simulate::simulate;
-use crate::simulator::{
-    Args, Entry, History, NodeConfig, NodeHandle, SimulateConfig, generate_entries,
-};
+use crate::simulator::{Args, History, NodeConfig, NodeHandle, SimulateConfig, generate_entries};
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
 use amaru_consensus::can_validate_blocks::mock::MockCanValidateHeaders;
@@ -49,7 +47,6 @@ use async_trait::async_trait;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -239,74 +236,18 @@ fn make_chain_selector(
 
 /// Property: at the end of the simulation, the chain built from the history of messages received
 /// downstream must match the best chain built directly from messages coming from upstream peers.
-fn chain_property()
--> impl Fn(&[Entry<ChainSyncMessage>], &History<ChainSyncMessage>) -> Result<(), String> {
-    move |entries, history| {
-        let expected = make_best_chain_from_upstream_messages(
-            &entries
-                .iter()
-                .map(|e| e.envelope.clone())
-                .collect::<Vec<_>>(),
-        );
+fn chain_property() -> impl Fn(&History<ChainSyncMessage>, &Chain) -> Result<(), String> {
+    move |history, expected| {
         let actual = make_best_chain_from_downstream_messages(history);
         let actual_chain = actual.list_to_string(",\n ");
         let expected_chain = expected.list_to_string(",\n ");
         assert_eq!(
-            actual, expected,
+            &actual, expected,
             "\nThe actual chain\n{}\n\nis not the best chain\n\n{}\n\nThe history is:\n{:?}",
             actual_chain, expected_chain, history,
         );
         Ok(())
     }
-}
-
-/// Build the best chain from messages incoming from upstream peers.
-pub fn make_best_chain_from_upstream_messages(messages: &[Envelope<ChainSyncMessage>]) -> Chain {
-    // keep the chain of each peer
-    let mut current_chains: BTreeMap<String, Chain> = BTreeMap::new();
-
-    // also keep track of the best chain seen so far
-    let best_chain_tracker = "best".to_string();
-    current_chains.insert(best_chain_tracker.clone(), vec![]);
-    for message in messages {
-        // only consider messages from the peers
-        if !message.src.starts_with("c") {
-            continue;
-        };
-
-        if !current_chains.contains_key(&message.src) {
-            current_chains.insert(message.src.clone(), vec![]);
-        }
-        let chain: &mut Chain = current_chains.get_mut(&message.src).unwrap();
-        match &message.body {
-            msg @ ChainSyncMessage::Fwd { .. } => {
-                // make sure to skip headers that cannot be decoded
-                if let Some(header) = msg.decode_block_header() {
-                    chain.push(header);
-                }
-            }
-            msg @ ChainSyncMessage::Bck { .. } => {
-                // make sure to skip header hashes that cannot be decoded
-                if let Some(header_hash) = msg.header_hash()
-                    && let Some(rollback_position) =
-                        chain.iter().position(|h| h.hash() == header_hash)
-                {
-                    chain.truncate(rollback_position + 1)
-                }
-            }
-            _ => (),
-        }
-
-        // update the best chain seen so far
-        let best_length = current_chains.values().map(|c| c.len()).max().unwrap();
-        let best_chain = current_chains
-            .clone()
-            .into_values()
-            .filter(|c| c.len() == best_length)
-            .collect::<Vec<Chain>>();
-        current_chains.insert(best_chain_tracker.clone(), best_chain[0].clone());
-    }
-    current_chains.get(&best_chain_tracker).unwrap().clone()
 }
 
 /// Build the best chain from messages sent to downstream peers.

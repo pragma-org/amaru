@@ -46,11 +46,11 @@ use tracing::{info, warn};
 /// - If there a property fails, shrink the input messages to find a minimal failing case.
 /// - Persist the schedule of messages to a file for later replay.
 ///
-pub fn simulate<Msg, F>(
+pub fn simulate<Msg, GenerationContext, F>(
     config: &SimulateConfig,
     spawn: F,
-    generator: impl Fn(&mut StdRng) -> Vec<Entry<Msg>>,
-    property: impl Fn(&[Entry<Msg>], &History<Msg>) -> Result<(), String>,
+    generator: impl Fn(&mut StdRng) -> (Vec<Entry<Msg>>, GenerationContext),
+    property: impl Fn(&History<Msg>, &GenerationContext) -> Result<(), String>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     persist_on_success: bool,
 ) -> Result<(), String>
@@ -61,10 +61,15 @@ where
     let mut rng = StdRng::seed_from_u64(config.seed);
 
     for test_number in 1..=config.number_of_tests {
-        let entries: Vec<Entry<Msg>> = generator(&mut rng);
+        let (entries, generation_context) = generator(&mut rng);
         info!("Test data generated. Now executing the tests");
 
-        let test = test_nodes(config.number_of_nodes, &spawn, &property);
+        let test = test_nodes(
+            config.number_of_nodes,
+            &spawn,
+            &generation_context,
+            &property,
+        );
         let result = test(&entries);
         info!("Test run executed. Now checking results");
 
@@ -108,10 +113,11 @@ where
 }
 
 /// Spawn a given number of nodes, run the simulation and check the property.
-fn test_nodes<Msg, F>(
+fn test_nodes<Msg, GenerationContext, F>(
     number_of_nodes: u8,
     spawn: F,
-    property: impl Fn(&[Entry<Msg>], &History<Msg>) -> Result<(), String>,
+    generation_context: &GenerationContext,
+    property: impl Fn(&History<Msg>, &GenerationContext) -> Result<(), String>,
 ) -> impl Fn(&[Entry<Msg>]) -> (History<Msg>, Result<(), String>)
 where
     Msg: Debug + PartialEq + Clone,
@@ -130,7 +136,7 @@ where
         match world.run_world() {
             Ok(history) => {
                 let history = History(history.to_vec());
-                let result = property(entries, &history);
+                let result = property(&history, generation_context);
                 (history, result)
             }
             Err((reason, history)) => (History(history.to_vec()), Err(reason)),

@@ -23,7 +23,7 @@
 use crate::consensus::errors::ConsensusError;
 use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
 use crate::consensus::headers_tree::data_generation::SelectionResult::{Back, Forward};
-use crate::consensus::headers_tree::data_generation::any_tree_of_headers;
+use crate::consensus::headers_tree::data_generation::any_tree_of_headers_and_best_chain;
 use crate::consensus::headers_tree::tree::Tree;
 use crate::consensus::headers_tree::{HeadersTree, Tracker};
 use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
@@ -377,13 +377,13 @@ pub fn generate_random_walks(
         .collect()
 }
 
-/// Generate a random list of actions, for a fixed number of peers, with:
+/// Generate a random list of actions, for a number of peers.
 ///
-///  - A tree of headers of depth `depth`.
-///  - A `max_length` for how far rollback actions can go in the past.
+/// We first generate a tree of headers of depth `depth` with a given `branching_ratio`
+/// (the probability that a branch is created from an original spine of headers).
 ///
-/// If we use `max_length` < depth we will generate test cases where the `HeadersTree` will
-/// have to be truncated after a number of roll forwards.
+/// Then we execute a random walk on that tree for `peers_nb` peers, with a given `rollback_ratio`,
+/// which is how often a given peer will rollback.
 ///
 /// Important note: this function returns a prop test strategy but the random walks are generated
 /// using a `StdRng` generator. This makes the generator reproducible, because the `StdGenerator`
@@ -394,11 +394,17 @@ pub fn any_select_chains(
     depth: usize,
     rollback_ratio: Ratio,
     branching_ratio: Ratio,
-) -> impl Strategy<Value = Vec<Action>> {
-    any_tree_of_headers(depth, branching_ratio).prop_flat_map(move |tree| {
-        (1..u64::MAX)
-            .prop_map(move |seed| generate_random_walks(&tree, peers_nb, rollback_ratio, seed))
-    })
+) -> impl Strategy<Value = (Vec<Action>, Chain)> {
+    any_tree_of_headers_and_best_chain(depth, branching_ratio).prop_flat_map(
+        move |(tree, best_chain)| {
+            (1..u64::MAX).prop_map(move |seed| {
+                (
+                    generate_random_walks(&tree, peers_nb, rollback_ratio, seed),
+                    best_chain.clone(),
+                )
+            })
+        },
+    )
 }
 
 /// Create an empty `HeadersTree` handling chains of maximum length `max_length` and

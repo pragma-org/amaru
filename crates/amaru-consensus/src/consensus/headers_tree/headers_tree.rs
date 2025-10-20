@@ -1289,7 +1289,8 @@ mod tests {
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(TEST_CASES_NB).end())]
         #[test]
-        fn run_chain_selection(actions in any_select_chains(DEPTH, 5, ROLLBACK_RATIO, BRANCHING_RATIO)) {
+        fn run_chain_selection(generated in any_select_chains(DEPTH, 5, ROLLBACK_RATIO, BRANCHING_RATIO)) {
+            let actions = generated.0;
             let results = execute_actions(MAX_LENGTH, &actions, false).unwrap();
             let actual_chains = make_best_chains_from_results(&results);
             let expected_chains = make_best_chains_from_actions(&actions);

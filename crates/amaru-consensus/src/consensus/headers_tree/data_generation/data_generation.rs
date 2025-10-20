@@ -21,7 +21,7 @@
 //!
 
 use crate::consensus::headers_tree::HeadersTree;
-use crate::consensus::headers_tree::data_generation::Ratio;
+use crate::consensus::headers_tree::data_generation::{Chain, Ratio};
 use crate::consensus::headers_tree::tree::Tree;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Bytes, HEADER_HASH_SIZE, Header, HeaderHash};
@@ -34,22 +34,45 @@ use rand::{Rng, RngCore, SeedableRng};
 use std::sync::Arc;
 
 /// Return a `proptest` Strategy producing a random `Tree<BlockHeader>` of a given depth
+/// Additionally, we return the best chain corresponding to the spine of the tree.
+pub fn any_tree_of_headers_and_best_chain(
+    depth: usize,
+    branching_ratio: Ratio,
+) -> impl Strategy<Value = (Tree<BlockHeader>, Chain)> {
+    (0..u64::MAX)
+        .prop_map(move |seed| generate_header_tree_and_best_chain(depth, seed, branching_ratio))
+}
+
+/// Return a `proptest` Strategy producing a random `Tree<BlockHeader>` of a given depth
 pub fn any_tree_of_headers(
     depth: usize,
     branching_ratio: Ratio,
 ) -> impl Strategy<Value = Tree<BlockHeader>> {
-    (0..u64::MAX).prop_map(move |seed| generate_header_tree(depth, seed, branching_ratio))
+    any_tree_of_headers_and_best_chain(depth, branching_ratio).prop_map(|(tree, _)| tree)
+}
+
+/// Generate a tree of headers of a given depth.
+/// A seed is used to control the random generation of subtrees on top of a spine of length `depth`.
+///
+/// We also return the chain corresponding to the spine of the tree. This is the best chain.
+pub fn generate_header_tree_and_best_chain(
+    depth: usize,
+    seed: u64,
+    branching_ratio: Ratio,
+) -> (Tree<BlockHeader>, Chain) {
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    let root = generate_header(1, 1, None, &mut rng);
+    let mut root_tree = Tree::make_leaf(&root);
+    let mut spine = generate_header_subtree(&mut rng, &mut root_tree, depth - 1, branching_ratio);
+    spine.insert(0, root);
+    (root_tree, spine)
 }
 
 /// Generate a tree of headers of a given depth.
 /// A seed is used to control the random generation of subtrees on top of a spine of length `depth`.
 pub fn generate_header_tree(depth: usize, seed: u64, branching_ratio: Ratio) -> Tree<BlockHeader> {
-    let mut rng = StdRng::seed_from_u64(seed);
-
-    let root = generate_header(1, 1, None, &mut rng);
-    let mut root_tree = Tree::make_leaf(&root);
-    generate_header_subtree(&mut rng, &mut root_tree, depth - 1, branching_ratio);
-    root_tree
+    generate_header_tree_and_best_chain(depth, seed, branching_ratio).0
 }
 
 /// Given a random generator and a tree:
@@ -66,7 +89,7 @@ fn generate_header_subtree(
     tree: &mut Tree<BlockHeader>,
     depth: usize,
     branching_ratio: Ratio,
-) {
+) -> Chain {
     let header_body = tree.value.header_body().clone();
     let mut spine = generate_headers(
         depth,
@@ -90,6 +113,7 @@ fn generate_header_subtree(
             generate_header_subtree(rng, current, other_branch_depth, branching_ratio);
         }
     }
+    spine
 }
 
 /// Generate a chain of headers anchored at a given header.
