@@ -271,6 +271,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
         };
 
         let (result, anchor, tip) = if self.is_empty_tree() {
+            // special case for the first header added to an empty tree
             self.update_peer(peer, tip);
             (
                 Ok(ForwardChainSelection::NewTip {
@@ -281,12 +282,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
                 Some(tip.hash()),
             )
         } else {
-            // If the tip extends one of the best chains
-            if self
-                .best_chains()
-                .iter()
-                .any(|h| Some(*h) == tip.parent().as_ref())
-            {
+            if self.extends_best_chains(tip) {
                 self.update_peer(peer, tip);
                 // If the tip is extending _the_ best chain
                 let result = if tip.parent().as_ref() == Some(&self.best_chain()) {
@@ -308,6 +304,12 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
         let new_anchor = self.trim_chain()?;
         self.update_best_chain(anchor.or(new_anchor), tip)?;
         result
+    }
+
+    fn extends_best_chains(&mut self, tip: &H) -> bool {
+        self.best_chains()
+            .iter()
+            .any(|h| Some(*h) == tip.parent().as_ref())
     }
 
     /// Rollback to an existing header for an upstream peer.
