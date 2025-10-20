@@ -287,6 +287,8 @@ dependencies = [
  "itertools 0.14.0",
  "minicbor",
  "num",
+ "serde",
+ "test-case",
  "thiserror 2.0.17",
 ]
 
