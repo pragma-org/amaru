@@ -47,17 +47,15 @@ pub async fn stage(
             let header = match decode_header(&point, raw_header.as_slice()) {
                 Ok(header) => {
                     if header.point() != point {
-                        tracing::error!(%point, %peer, "Header point {} does not match expected point", header.point());
+                        tracing::error!(%point, %peer, "Header point {} does not match expected point {point}", header.point());
                         eff.base()
                             .send(
                                 &failures,
                                 ValidationFailed::new(
                                     &peer,
-                                    ConsensusError::CannotDecodeHeader {
-                                        point: point.clone(),
-                                        header: raw_header,
-                                        reason: "Header point does not match expected point"
-                                            .to_string(),
+                                    ConsensusError::HeaderPointMismatch {
+                                        actual_point: header.point(),
+                                        expected_point: point.clone(),
                                     },
                                 ),
                             )
@@ -223,10 +221,9 @@ mod tests {
 
         let error = ValidationFailed::new(
             &peer,
-            ConsensusError::CannotDecodeHeader {
-                point: point.clone(),
-                header: cbor::to_vec(header)?,
-                reason: "Header point does not match expected point".to_string(),
+            ConsensusError::HeaderPointMismatch {
+                actual_point: header.point(),
+                expected_point: point.clone(),
             },
         );
         assert_eq!(
