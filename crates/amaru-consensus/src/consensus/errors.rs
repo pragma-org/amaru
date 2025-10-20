@@ -44,6 +44,15 @@ pub enum ConsensusError {
     #[error("Failed to store block body at {0}: {1}")]
     StoreBlockFailed(Point, StoreError),
     #[error(
+        "Header point {} does not match expected point {}",
+        actual_point,
+        expected_point
+    )]
+    HeaderPointMismatch {
+        actual_point: Point,
+        expected_point: Point,
+    },
+    #[error(
         "Failed to decode header at {}: {} ({})",
         point,
         hex::encode(header),
