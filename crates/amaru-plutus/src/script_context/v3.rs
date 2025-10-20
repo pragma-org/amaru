@@ -31,7 +31,7 @@ use crate::{
     script_context::{
         Certificate, CurrencySymbol, Datums, KeyValuePairs, Lovelace, Mint, OutputRef, PlutusData,
         Redeemer, Redeemers, RequiredSigners, TimeRange, TransactionId, TransactionInput,
-        TransactionOutput, Value, Voter, Votes, Withdrawals,
+        TransactionOutput, Utxos, Value, Voter, Votes, Withdrawals,
     },
 };
 
@@ -85,7 +85,7 @@ impl TxInfo {
         tx: &MintedTransactionBody<'_>,
         id: &Hash<32>,
         witness_set: &MintedWitnessSet<'_>,
-        utxo: &BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+        utxo: &Utxos,
         era_history: &EraHistory,
         slot: &Slot,
         network: NetworkName,
@@ -896,90 +896,65 @@ impl ToPlutusData<3> for Votes {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_vectors::{self, TestVector};
     use super::*;
-    use std::collections::BTreeMap;
+    use amaru_kernel::{MintedTx, OriginalHash, to_cbor};
+    use test_case::test_case;
 
-    use amaru_kernel::{
-        Fragment, KeepRaw, MemoizedTransactionOutput, MintedTransactionBody, MintedWitnessSet,
-        OriginalHash, TransactionInput,
-    };
-
-    // These tests are ripped directly from Aiken.
-    // They can, and should, be improved to follow a nicer testing pattern
-    // like we use elsewhere in Amaru involving macros and `test_case`.
-
-    fn fixture_tx_info(
-        transaction: &str,
-        witness_set: &str,
-        inputs: &str,
-        outputs: &str,
-        slot: u64,
-    ) -> TxInfo {
-        let transaction_bytes = hex::decode(transaction).unwrap();
-        let witness_set_bytes = hex::decode(witness_set).unwrap();
-        let inputs_bytes = hex::decode(inputs).unwrap();
-        let outputs_bytes = hex::decode(outputs).unwrap();
-
-        let inputs = Vec::<TransactionInput>::decode_fragment(inputs_bytes.as_slice()).unwrap();
-        let outputs =
-            Vec::<MemoizedTransactionOutput>::decode_fragment(outputs_bytes.as_slice()).unwrap();
-        let utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput> = inputs
-            .iter()
-            .zip(outputs.iter())
-            .map(|(input, output)| (input.clone(), output.clone()))
-            .collect();
-
-        let transaction: KeepRaw<'_, MintedTransactionBody<'_>> =
-            minicbor::decode(&transaction_bytes).unwrap();
-        let witness_set: MintedWitnessSet<'_> = minicbor::decode(&witness_set_bytes).unwrap();
-
-        let tx_id = transaction.original_hash();
-
-        TxInfo::new(
-            &transaction.unwrap(),
-            &tx_id,
-            &witness_set,
-            &utxo,
-            NetworkName::Mainnet.into(),
-            &slot.into(),
-            NetworkName::Mainnet,
-        )
-        .unwrap()
+    macro_rules! fixture {
+        ($title:literal) => {
+            test_vectors::get_test_vector($title)
+        };
     }
 
-    fn empty_constr() -> PlutusData {
-        PlutusData::Constr(Constr {
-            tag: 121,
-            any_constructor: Some(0),
-            fields: MaybeIndefArray::Indef(vec![]),
-        })
-    }
+    #[test_case(fixture!("simple_send"); "simple send")]
+    fn test_plutus_v3(test_vector: &TestVector) {
+        // Ensure we're testing against the right Plutus version.
+        // If not, we should fail early.
+        assert_eq!(test_vector.meta.plutus_version, 3);
 
-    #[test]
-    fn script_context_simple_send() {
-        let datum = Some(empty_constr());
+        // this should probably be encoded in the TestVector itself
+        let network = NetworkName::Preprod;
 
-        let redeemer = Redeemer {
-            tag: RedeemerTag::Spend,
-            index: 0,
-            data: empty_constr(),
-            ex_units: ExUnits {
-                mem: 1000000,
-                steps: 100000000,
-            },
+        let transaction: MintedTx<'_> =
+            minicbor::decode(&test_vector.input.transaction_bytes).unwrap();
+
+        let redeemers = normalize_redeemers(
+            transaction
+                .transaction_witness_set
+                .redeemer
+                .clone()
+                .expect("no redeemers provided")
+                .unwrap(),
+        );
+        let redeemer = redeemers.first().expect("empty redeemers");
+
+        let datum = match &test_vector.input.utxo.1.datum {
+            amaru_kernel::MemoizedDatum::None => None,
+            amaru_kernel::MemoizedDatum::Hash(hash) => {
+                Some(PlutusData::BoundedBytes(hash.to_vec().into()))
+            }
+            amaru_kernel::MemoizedDatum::Inline(memoized_plutus_data) => {
+                Some(memoized_plutus_data.as_ref().clone())
+            }
         };
 
-        let tx_info = fixture_tx_info(
-            "A70081825820000000000000000000000000000000000000000000000000000000000000000000018182581D60111111111111111111111111111111111111111111111111111111111A3B9ACA0002182A0B5820FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0D818258200000000000000000000000000000000000000000000000000000000000000000001082581D60000000000000000000000000000000000000000000000000000000001A3B9ACA001101",
-            "A20581840000D87980821A000F42401A05F5E100078152510101003222253330044A229309B2B2B9A1",
-            "81825820000000000000000000000000000000000000000000000000000000000000000000",
-            "81a300581d7039f47fd3b388ef53c48f08de24766d3e55dade6cae908cc24e0f4f3e011a3b9aca00028201d81843d87980",
-            0,
-        );
+        let utxos = BTreeMap::from_iter(vec![test_vector.input.utxo.clone()]);
 
-        let script_context = ScriptContext::new(tx_info, &redeemer, datum).unwrap();
+        let tx_info = TxInfo::new(
+            &transaction.transaction_body,
+            &transaction.transaction_body.original_hash(),
+            &transaction.transaction_witness_set,
+            &utxos,
+            network.into(),
+            &0.into(),
+            network,
+        )
+        .unwrap();
 
-        // the snapshot that is being compared here is actually taken from the Aiken test (https://github.com/aiken-lang/aiken/blob/a8c032935dbaf4a1140e9d8be5c270acd32c9e8c/crates/uplc/src/tx/snapshots/uplc__tx__script_context__tests__script_context_simple_send.snap)
-        insta::assert_debug_snapshot!(script_context.to_plutus_data())
+        let script_context = ScriptContext::new(tx_info, redeemer, datum).unwrap();
+        let plutus_data = to_cbor(&script_context.to_plutus_data());
+
+        assert_eq!(plutus_data, test_vector.expectations.script_context)
     }
 }
