@@ -66,27 +66,16 @@ static MIGRATIONS: [fn(&OptimisticTransactionDB) -> Result<(), StoreError>; 1] =
 
 /// Check the version stored in the `db` matches `CHAIN_DB_VERSION`.
 pub fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
-    let version = db.get(VERSION_KEY).map_err(|e| StoreError::OpenError {
-        error: e.to_string(),
-    })?;
-
-    match version {
-        Some(v) => {
-            let stored = ((v[0] as u16) << 8) | v[1] as u16;
-            if stored != CHAIN_DB_VERSION {
-                Err(StoreError::IncompatibleDbVersions {
-                    stored,
-                    current: CHAIN_DB_VERSION,
-                })
-            } else {
-                Ok(())
-            }
+    get_version(db).and_then(|stored| {
+        if stored != CHAIN_DB_VERSION {
+            Err(StoreError::IncompatibleDbVersions {
+                stored,
+                current: CHAIN_DB_VERSION,
+            })
+        } else {
+            Ok(())
         }
-        None => Err(StoreError::IncompatibleDbVersions {
-            stored: 0,
-            current: CHAIN_DB_VERSION,
-        }),
-    }
+    })
 }
 
 /// Retrieve the version of the Chain DB stored in the given `db`.
@@ -96,12 +85,15 @@ pub fn get_version(db: &OptimisticTransactionDB) -> Result<u16, StoreError> {
         error: e.to_string(),
     })?;
 
-    Ok(raw_version
-        .map(|v| match v.as_slice() {
-            [v0, v1] => ((*v0 as u16) << 8) | *v1 as u16,
-            _ => 0,
-        })
-        .unwrap_or(0))
+    match raw_version {
+        None => Ok(0),
+        Some(v) => match v.as_slice() {
+            [v0, v1] => Ok(((*v0 as u16) << 8) | (*v1 as u16)),
+            _ => Err(StoreError::OpenError {
+                error: format!("Invalid __VERSION__ value length: {}", v.len()),
+            }),
+        },
+    }
 }
 
 /// Set the version of the Chain DB stored in the given `db` to the
