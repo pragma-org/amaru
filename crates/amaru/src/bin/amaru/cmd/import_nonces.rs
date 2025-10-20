@@ -126,7 +126,7 @@ pub(crate) async fn import_nonces(
     chain_db_path: &PathBuf,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
-    let db = Box::new(RocksDBStore::open_or_create(RocksDbConfig::new(
+    let db = Box::new(RocksDBStore::unsafe_open(RocksDbConfig::new(
         chain_db_path.into(),
     ))?) as Box<dyn ChainStore<BlockHeader>>;
 

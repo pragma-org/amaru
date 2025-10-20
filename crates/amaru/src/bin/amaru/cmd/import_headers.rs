@@ -82,7 +82,7 @@ pub(crate) async fn import_headers_for_network(
     config_dir: &Path,
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
-    let db = RocksDBStore::open_or_create(RocksDbConfig::new(chain_dir.into()))?;
+    let db = RocksDBStore::unsafe_open(RocksDbConfig::new(chain_dir.into()))?;
 
     for entry in std::fs::read_dir(config_dir.join("headers"))? {
         let entry = entry?;
