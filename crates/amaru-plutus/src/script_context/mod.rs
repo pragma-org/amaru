@@ -50,6 +50,8 @@ pub struct OutputRef {
     pub output: TransactionOutput,
 }
 
+pub type Utxos = BTreeMap<TransactionInput, MemoizedTransactionOutput>;
+
 pub struct TimeRange {
     pub lower_bound: Option<TimeMs>,
     pub upper_bound: Option<TimeMs>,
@@ -310,5 +312,137 @@ impl From<VotingProcedures> for Votes {
                 })
                 .collect(),
         )
+    }
+}
+
+#[cfg(test)]
+pub mod test_vectors {
+    use std::sync::LazyLock;
+
+    use amaru_kernel::{
+        Address, MemoizedDatum, MemoizedTransactionOutput, TransactionInput, include_json,
+        serde_utils::hex_to_bytes,
+    };
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    pub struct TestVector {
+        pub meta: TestMeta,
+        pub input: TestInput,
+        pub expectations: TestExpectations,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct TestMeta {
+        pub title: String,
+        pub description: String,
+        pub plutus_version: u8,
+    }
+
+    #[derive(Deserialize)]
+    pub struct TestInput {
+        #[serde(rename = "transaction", deserialize_with = "hex_to_bytes")]
+        pub transaction_bytes: Vec<u8>,
+        #[serde(deserialize_with = "deserialize_utxo")]
+        pub utxo: (TransactionInput, MemoizedTransactionOutput),
+    }
+
+    #[derive(Deserialize)]
+    pub struct TestExpectations {
+        #[serde(deserialize_with = "hex_to_bytes")]
+        pub script_context: Vec<u8>,
+    }
+
+    fn deserialize_utxo<'de, D>(
+        deserializer: D,
+    ) -> Result<(TransactionInput, MemoizedTransactionOutput), D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct UtxoHelper {
+            transaction: TransactionIdHelper,
+            index: u32,
+            address: String,
+            value: ValueHelper,
+            #[serde(default)]
+            datum_hash: Option<String>,
+            #[serde(default)]
+            datum: Option<String>,
+        }
+
+        #[derive(Deserialize)]
+        struct TransactionIdHelper {
+            id: String,
+        }
+
+        #[derive(Deserialize)]
+        struct ValueHelper {
+            ada: AdaHelper,
+        }
+
+        #[derive(Deserialize)]
+        struct AdaHelper {
+            lovelace: u64,
+        }
+
+        let helpers: Vec<UtxoHelper> = Vec::deserialize(deserializer)?;
+        let helper = helpers
+            .first()
+            .ok_or(serde::de::Error::custom("no provided utxo"))?;
+
+        let tx_id_bytes = hex::decode(&helper.transaction.id).map_err(serde::de::Error::custom)?;
+
+        let input = TransactionInput {
+            transaction_id: tx_id_bytes.as_slice().into(),
+            index: helper.index as u64,
+        };
+
+        let address_bytes = hex::decode(&helper.address).map_err(serde::de::Error::custom)?;
+        let address = Address::from_bytes(&address_bytes).map_err(serde::de::Error::custom)?;
+        let datum = match (&helper.datum_hash, &helper.datum) {
+            (Some(hash_str), None) => {
+                let hash_bytes = hex::decode(hash_str).map_err(serde::de::Error::custom)?;
+                MemoizedDatum::Hash(hash_bytes.as_slice().into())
+            }
+            (None, Some(datum_str)) => MemoizedDatum::Inline(
+                datum_str
+                    .clone()
+                    .try_into()
+                    .map_err(serde::de::Error::custom)?,
+            ),
+            (None, None) => MemoizedDatum::None,
+            (Some(_), Some(_)) => {
+                return Err(serde::de::Error::custom(
+                    "cannot have both datum_hash and datum",
+                ));
+            }
+        };
+
+        let output = MemoizedTransactionOutput {
+            is_legacy: false,
+            address,
+            value: amaru_kernel::Value::Coin(helper.value.ada.lovelace),
+            datum,
+            script: None,
+        };
+        Ok((input, output))
+    }
+
+    static TEST_VECTORS: LazyLock<Vec<TestVector>> =
+        LazyLock::new(|| include_json!("script-context-fixtures.json"));
+
+    pub fn get_test_vectors(version: u8) -> Vec<&'static TestVector> {
+        TEST_VECTORS
+            .iter()
+            .filter(|vector| vector.meta.plutus_version == version)
+            .collect()
+    }
+
+    pub fn get_test_vector(title: &str) -> &'static TestVector {
+        TEST_VECTORS
+            .iter()
+            .find(|vector| vector.meta.title == title)
+            .unwrap_or_else(|| panic!("Test case not found: {title}"))
     }
 }

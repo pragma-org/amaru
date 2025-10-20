@@ -21,5 +21,10 @@ insta.workspace = true
 # Internal dependencies
 amaru-kernel.workspace = true
 amaru-slot-arithmetic.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+test-case.workspace = true
+
 [lints]
 workspace = true
