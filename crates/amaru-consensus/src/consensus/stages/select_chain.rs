@@ -344,6 +344,9 @@ mod tests {
         let consensus_ops = mock_consensus_ops();
 
         let store = consensus_ops.store();
+        if let Some(parent_hash) = header.parent() {
+            store.set_anchor_hash(&parent_hash)?;
+        }
         let anchor = store.get_anchor_hash();
         let (select_chain, _, _) = stage(
             make_state(store.clone(), &peer, &anchor),
@@ -383,9 +386,14 @@ mod tests {
         let message3 = make_rollback_message(&peer, &header1);
 
         let consensus_ops = mock_consensus_ops();
-        let anchor = consensus_ops.store().get_anchor_hash();
+        let store = consensus_ops.store();
+        if let Some(parent_hash) = header1.parent() {
+            store.set_anchor_hash(&parent_hash)?;
+        }
+
+        let anchor = store.get_anchor_hash();
         let state = stage(
-            make_state(consensus_ops.store(), &peer, &anchor),
+            make_state(store, &peer, &anchor),
             message1,
             consensus_ops.clone(),
         )
