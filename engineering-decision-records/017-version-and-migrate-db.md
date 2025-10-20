@@ -28,7 +28,12 @@ participants: abailly, etorreborre
 * The `CHAIN_DB_VERSION` _must_ be incremented by one every time the database changes, eg. we add some new data, modify how data is stored...
 * Developers _must_ provide a _migration script_ (eg. some code) for each increment. The `migrate-chain-db` command will apply each migration script in order to update the database to the latest version
   * Migration scripts should expect the database to be possibly empty
-* It could be the case a migration is impossible, in which case this should be reported by the _migration script_ with migration utility reporting back to user and instructing to start from scratch
+* It could be that a migration is impossible, in which case this should be reported by the _migration script_ with migration utility reporting back to user and instructing to start from scratch
+* We distinguish between `open`, `create`, and `unsafe_open` operations when creating a new `RocksDBStore` to accomodate different situations:
+  * when running Amaru, we want need to check versions and make migration explicit
+  * when bootstrapping Amaru, we want to make sure we are not overwriting an existing DB unknowingly
+  * when importing headers and nonces, we are supposed to know what we do and open or create the DB. This could result in data corruption.
+* Running migration scripts is idempotent: once the DB is migrated, rerunning migrations is a no-op
 
 ## Follow-up questions
 
