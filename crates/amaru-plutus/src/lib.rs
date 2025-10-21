@@ -270,8 +270,8 @@ where
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            None => constr!(0),
-            Some(data) => constr!(1, [data]),
+            None => constr!(1),
+            Some(data) => constr!(0, [data]),
         }
     }
 }
@@ -383,9 +383,13 @@ where
     T: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::Array(MaybeIndefArray::Indef(
-            self.iter().map(|a| a.to_plutus_data()).collect(),
-        ))
+        if self.is_empty() {
+            PlutusData::Array(MaybeIndefArray::Def(vec![]))
+        } else {
+            PlutusData::Array(MaybeIndefArray::Indef(
+                self.iter().map(|a| a.to_plutus_data()).collect(),
+            ))
+        }
     }
 }
 
