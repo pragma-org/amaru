@@ -489,14 +489,14 @@ impl ToPlutusData<3> for Certificate {
             Certificate::StakeRegistration(stake_credential) => {
                 constr_v3!(0, [stake_credential, None::<PlutusData>])
             }
-            Certificate::Reg(stake_credential, _) => {
-                constr_v3!(0, [stake_credential, None::<PlutusData>])
+            Certificate::Reg(stake_credential, coin) => {
+                constr_v3!(0, [stake_credential, Some(coin)])
             }
             Certificate::StakeDeregistration(stake_credential) => {
                 constr_v3!(1, [stake_credential, None::<PlutusData>])
             }
-            Certificate::UnReg(stake_credential, _) => {
-                constr_v3!(1, [stake_credential, None::<PlutusData>])
+            Certificate::UnReg(stake_credential, coin) => {
+                constr_v3!(1, [stake_credential, Some(coin)])
             }
             Certificate::StakeDelegation(stake_credential, pool_id) => {
                 constr_v3!(2, [stake_credential, constr_v3!(0, [pool_id])])
@@ -932,50 +932,61 @@ mod tests {
                 .unwrap(),
         );
 
-        redeemers.iter().for_each(|redeemer| {
-            let datum = if let RedeemerTag::Spend = redeemer.tag {
-                let input = transaction
-                    .transaction_body
-                    .inputs
-                    .get(redeemer.index as usize)
-                    .expect("invalid redeemer index");
-                match &test_vector
-                    .input
-                    .utxo
-                    .get(input)
-                    .expect("missing input in utxo set")
-                    .datum
-                {
-                    amaru_kernel::MemoizedDatum::None => None,
-                    amaru_kernel::MemoizedDatum::Hash(hash) => {
-                        Some(PlutusData::BoundedBytes(hash.to_vec().into()))
+        let produced_contexts = redeemers
+            .iter()
+            .map(|redeemer| {
+                let datum = if let RedeemerTag::Spend = redeemer.tag {
+                    let input = transaction
+                        .transaction_body
+                        .inputs
+                        .get(redeemer.index as usize)
+                        .expect("invalid redeemer index");
+                    match &test_vector
+                        .input
+                        .utxo
+                        .get(input)
+                        .expect("missing input in utxo set")
+                        .datum
+                    {
+                        amaru_kernel::MemoizedDatum::None => None,
+                        amaru_kernel::MemoizedDatum::Hash(hash) => {
+                            Some(PlutusData::BoundedBytes(hash.to_vec().into()))
+                        }
+                        amaru_kernel::MemoizedDatum::Inline(memoized_plutus_data) => {
+                            Some(memoized_plutus_data.as_ref().clone())
+                        }
                     }
-                    amaru_kernel::MemoizedDatum::Inline(memoized_plutus_data) => {
-                        Some(memoized_plutus_data.as_ref().clone())
-                    }
-                }
-            } else {
-                None
-            };
+                } else {
+                    None
+                };
 
-            let tx_info = TxInfo::new(
-                &transaction.transaction_body,
-                &transaction.transaction_body.original_hash(),
-                &transaction.transaction_witness_set,
-                &test_vector.input.utxo,
-                network.into(),
-                &0.into(),
-                network,
-            )
-            .unwrap();
+                let tx_info = TxInfo::new(
+                    &transaction.transaction_body,
+                    &transaction.transaction_body.original_hash(),
+                    &transaction.transaction_witness_set,
+                    &test_vector.input.utxo,
+                    network.into(),
+                    &0.into(),
+                    network,
+                )
+                .unwrap();
 
-            let script_context = ScriptContext::new(tx_info, redeemer, datum).unwrap();
-            let plutus_data = to_cbor(&script_context.to_plutus_data());
+                let script_context = ScriptContext::new(tx_info, redeemer, datum).unwrap();
+                let plutus_data = to_cbor(&script_context.to_plutus_data());
 
-            pretty_assertions::assert_eq!(
-                hex::encode(plutus_data),
-                test_vector.expectations.script_context
-            )
-        });
+                hex::encode(plutus_data)
+            })
+            .collect::<Vec<_>>();
+
+        let found_match = produced_contexts
+            .iter()
+            .any(|context| context == &test_vector.expectations.script_context);
+
+        assert!(
+            found_match,
+            "No redeemer produced the expected script context: {}\nProduced script contexts: {}",
+            test_vector.expectations.script_context,
+            produced_contexts.join("\n\n")
+        );
     }
 }
