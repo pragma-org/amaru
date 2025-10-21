@@ -25,23 +25,12 @@ pub(crate) const CONSENSUS_PREFIX_LEN: usize = 5;
 /// function from the previous version.
 pub const CHAIN_DB_VERSION: u16 = 1;
 
-/// "heade"
-pub(crate) const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x68, 0x65, 0x61, 0x64, 0x65];
-
-/// "nonce"
-pub(crate) const NONCES_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
-
-/// "block"
-pub(crate) const BLOCK_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x62, 0x6c, 0x6f, 0x63, 0x6b];
-
-/// "ancho"
-pub(crate) const ANCHOR_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x61, 0x6e, 0x63, 0x68, 0x6f];
-
-/// "best_"
-pub(crate) const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x62, 0x65, 0x73, 0x74, 0x5f];
-
-/// "child"
-pub(crate) const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = [0x63, 0x68, 0x69, 0x6c, 0x64];
+pub(crate) const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"heade";
+pub(crate) const NONCES_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"nonce";
+pub(crate) const BLOCK_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"block";
+pub(crate) const ANCHOR_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"ancho";
+pub(crate) const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"best_";
+pub(crate) const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"child";
 
 /// Open a Chain DB for reading and writing.
 /// The DB _must_ exist otherwise the function will return an error.
