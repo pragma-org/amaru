@@ -52,21 +52,22 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
-    alonzo::Value as AlonzoValue,
+    alonzo::{TransactionOutput as AlonzoTransactionOutput, Value as AlonzoValue},
     babbage::{Header, MintedHeader, PseudoHeader},
     conway::{
         AddrKeyhash, AssetName, AuxiliaryData, BigInt, Block, BootstrapWitness, Certificate, Coin,
         Constitution, Constr, CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash,
         DatumOption, DnsName, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId,
-        HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, MintedBlock, MintedDatumOption,
-        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
-        MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PlutusData, PlutusScript, PolicyId,
-        PoolMetadata, PoolVotingThresholds, Port, PositiveCoin, PostAlonzoTransactionOutput,
-        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
-        PseudoTransactionOutput, RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey,
-        Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody,
-        TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Vote, Voter,
-        VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, Mint, MintedBlock,
+        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
+        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PlutusData, PlutusScript,
+        PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
+        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
+        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners, RewardAccount, ScriptHash,
+        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
+        UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures,
+        VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -936,6 +937,21 @@ impl HasRedeemers for Redeemers {
                 .map(|(key, redeemer)| (Cow::Borrowed(key), (&redeemer.ex_units, &redeemer.data)))
                 .collect(),
         }
+    }
+}
+
+pub fn normalize_redeemers(redeemers: Redeemers) -> Vec<Redeemer> {
+    match redeemers {
+        Redeemers::List(list) => list.to_vec(),
+        Redeemers::Map(map) => map
+            .into_iter()
+            .map(|(tag, value)| Redeemer {
+                tag: tag.tag,
+                index: tag.index,
+                data: value.data,
+                ex_units: value.ex_units,
+            })
+            .collect(),
     }
 }
 
