@@ -19,7 +19,7 @@ use amaru_stores::rocksdb::{
 };
 use clap::{Parser, arg};
 use std::{error::Error, path::PathBuf};
-use tracing::{error, info};
+use tracing::{error, info, info_span};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -32,27 +32,24 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir;
     let config = RocksDbConfig::new(chain_dir.clone());
 
-    let (_, db) = open_db(&config)?;
-    match check_db_version(&db) {
-        Ok(()) => {
-            info!(
-                "Chain DB at {} is already up to date, no migration needed.",
-                config
-            );
-            Ok(())
-        }
-        Err(StoreError::IncompatibleDbVersions { stored, current }) => {
-            info!(
-                "Migrating chain database at {:?} ({} -> {})",
-                chain_dir, stored, current
-            );
-            let (from, to) = migrate_db(&db)?;
-            info!("Migrated Chain DB from {} to {}", from, to);
-            Ok(())
-        }
-        Err(e) => {
-            error!("Something went wrong {}", e);
-            Err(Box::new(e))
-        }
-    }
+    Ok(
+        info_span!("opening chain db", path = %config.dir.display()).in_scope(|| {
+            let (_, db) = open_db(&config)?;
+            match check_db_version(&db) {
+                Ok(()) => {
+                    info!("already up to date, no migration needed.");
+                    Ok(())
+                }
+                Err(StoreError::IncompatibleDbVersions { stored, current }) => {
+                    info_span!("migrating database", from = stored, to = current)
+                        .in_scope(|| migrate_db(&db))?;
+                    Ok(())
+                }
+                Err(e) => {
+                    error!(error = %e, "failed to open database");
+                    Err(Box::new(e))
+                }
+            }
+        })?,
+    )
 }

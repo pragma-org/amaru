@@ -131,7 +131,7 @@ pub struct RocksDB {
 
 #[derive(Clone)]
 pub struct RocksDbConfig {
-    dir: PathBuf,
+    pub dir: PathBuf,
     env: Option<rocksdb::Env>,
 }
 
