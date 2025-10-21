@@ -16,11 +16,12 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Address, BigInt, Bytes, ComputeHash, Constr, DatumOption, Hash, Int, KeyValuePairs,
-    MaybeIndefArray, NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ScriptRef,
-    ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakeCredential, StakePayload,
+    MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable,
+    PlutusData, PseudoScript, Redeemer, ShelleyDelegationPart, ShelleyPaymentPart,
+    StakeAddress as KernelStakeAddress, StakeCredential, StakePayload,
 };
 
-use crate::script_context::TimeRange;
+use crate::script_context::{CurrencySymbol, StakeAddress, TimeRange};
 
 pub const DEFAULT_TAG: u64 = 102;
 
@@ -117,17 +118,41 @@ impl IsKnownPlutusVersion for PlutusVersion<1> {}
 impl IsKnownPlutusVersion for PlutusVersion<2> {}
 impl IsKnownPlutusVersion for PlutusVersion<3> {}
 
+impl<const V: u8> ToPlutusData<V> for CurrencySymbol
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            Self::Ada => <Vec<u8> as ToPlutusData<V>>::to_plutus_data(&vec![]),
+            Self::Native(policy_id) => policy_id.to_plutus_data(),
+        }
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for MemoizedDatum
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match self {
+            MemoizedDatum::None => constr!(0),
+            MemoizedDatum::Hash(hash) => constr!(1, [hash]),
+            MemoizedDatum::Inline(data) => constr!(2, [data.as_ref()]),
+        }
+    }
+}
+
 impl<const V: u8> ToPlutusData<V> for Option<DatumOption>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            Some(datum) => match datum {
+            Some(datum_option) => match datum_option {
                 DatumOption::Hash(hash) => constr!(1, [hash]),
                 DatumOption::Data(data) => constr!(2, [data.0]),
             },
-
             None => constr!(0),
         }
     }
@@ -201,7 +226,7 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for StakeAddress
+impl<const V: u8> ToPlutusData<V> for KernelStakeAddress
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
@@ -210,6 +235,15 @@ where
             StakePayload::Stake(keyhash) => constr!(0, [keyhash]),
             StakePayload::Script(script_hash) => constr!(1, [script_hash]),
         }
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for StakeAddress
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        KernelStakeAddress::from(self.clone()).to_plutus_data()
     }
 }
 
@@ -260,22 +294,22 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for ScriptRef
+impl<const V: u8> ToPlutusData<V> for MemoizedScript
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            amaru_kernel::PseudoScript::NativeScript(native_script) => {
-                native_script.compute_hash().to_plutus_data()
+            PseudoScript::NativeScript(native_script) => {
+                native_script.as_ref().compute_hash().to_plutus_data()
             }
-            amaru_kernel::PseudoScript::PlutusV1Script(plutus_script) => {
+            PseudoScript::PlutusV1Script(plutus_script) => {
                 plutus_script.compute_hash().to_plutus_data()
             }
-            amaru_kernel::PseudoScript::PlutusV2Script(plutus_script) => {
+            PseudoScript::PlutusV2Script(plutus_script) => {
                 plutus_script.compute_hash().to_plutus_data()
             }
-            amaru_kernel::PseudoScript::PlutusV3Script(plutus_script) => {
+            PseudoScript::PlutusV3Script(plutus_script) => {
                 plutus_script.compute_hash().to_plutus_data()
             }
         }
@@ -453,7 +487,7 @@ where
     T: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        (*self).to_plutus_data()
+        T::to_plutus_data(*self)
     }
 }
 
