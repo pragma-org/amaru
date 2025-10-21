@@ -14,6 +14,7 @@
 
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 
 /// This benchmark generates a large random header tree and a long sequence of actions
 /// (adding headers from random peers and rollbacks) to be executed on a `HeadersTree`.
@@ -74,10 +75,10 @@ fn main() {
     let store = if in_memory {
         Arc::new(InMemConsensusStore::new())
     } else {
-        use amaru_stores::rocksdb::consensus::initialise_test_rw_store;
         let tempdir = tempfile::tempdir().unwrap();
-        let store: Arc<dyn ChainStore<BlockHeader>> =
-            Arc::new(initialise_test_rw_store(tempdir.path()));
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(
+            RocksDBStore::create(RocksDbConfig::new(tempdir.path().to_path_buf())).unwrap(),
+        );
         store
     };
 

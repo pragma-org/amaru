@@ -39,7 +39,6 @@ amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 [features]
 default = ["rocksdb"]
 rocksdb = ["dep:rocksdb", "dep:rand"]
-test-utils = ["amaru-kernel/test-utils", "amaru-ouroboros-traits/test-utils"]
 
 [package.metadata.cargo-machete]
 ignored = ["rand"]

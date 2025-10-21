@@ -42,10 +42,10 @@ use amaru_ouroboros_traits::{
     BlockHeader, CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
     in_memory_consensus_store::InMemConsensusStore,
 };
-use amaru_stores::rocksdb::RocksDbConfig;
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use amaru_stores::{
     in_memory::MemoryStore,
-    rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore},
+    rocksdb::{RocksDB, RocksDBHistoricalStores},
 };
 use gasket::{
     messaging::OutputPort,
@@ -99,6 +99,7 @@ pub struct Config {
     pub listen_address: String,
     pub max_downstream_peers: usize,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
+    pub migrate_chain_db: bool,
 }
 
 impl Default for Config {
@@ -112,6 +113,7 @@ impl Default for Config {
             listen_address: "0.0.0.0:3000".to_string(),
             max_downstream_peers: 10,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
+            migrate_chain_db: false,
         }
     }
 }
@@ -320,8 +322,11 @@ fn make_chain_store(
 ) -> Result<Arc<dyn ChainStore<BlockHeader>>, Box<dyn Error>> {
     let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
+        StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
+            Arc::new(RocksDBStore::open_and_migrate(rocks_db_config.clone())?)
+        }
         StoreType::RocksDb(ref rocks_db_config) => {
-            Arc::new(RocksDBStore::new(rocks_db_config.clone())?)
+            Arc::new(RocksDBStore::open(rocks_db_config.clone())?)
         }
     };
 
