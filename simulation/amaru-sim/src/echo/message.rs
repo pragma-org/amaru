@@ -12,13 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::string_utils::ListToString;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct Envelope<T> {
     pub src: String,
     pub dest: String,
     pub body: T,
+}
+
+impl<T: Display> Display for Envelope<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} -> {}: {}", self.src, self.dest, self.body)
+    }
 }
 
 impl<T> Envelope<T> {
@@ -51,6 +59,43 @@ pub enum EchoMessage {
         in_reply_to: u64,
         echo: String,
     },
+}
+
+impl Display for EchoMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EchoMessage::Init {
+                msg_id,
+                node_id,
+                node_ids,
+            } => {
+                write!(
+                    f,
+                    "Init ({}) node_id={}, node_ids={}",
+                    msg_id,
+                    node_id,
+                    node_ids.list_to_string(", ")
+                )
+            }
+            EchoMessage::InitOk { in_reply_to } => {
+                write!(f, "InitOk ({})", in_reply_to)
+            }
+            EchoMessage::Echo { msg_id, echo } => {
+                write!(f, "Echo ({}) {}", msg_id, echo)
+            }
+            EchoMessage::EchoOk {
+                msg_id,
+                in_reply_to,
+                echo,
+            } => {
+                write!(
+                    f,
+                    "EchoOk ({}) in_reply_to={} echo={}",
+                    msg_id, in_reply_to, echo
+                )
+            }
+        }
+    }
 }
 
 #[cfg(test)]

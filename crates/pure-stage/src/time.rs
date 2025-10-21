@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::{Display, Formatter};
 use std::{
     sync::{
         LazyLock,
@@ -59,6 +60,12 @@ impl std::fmt::Debug for Instant {
         f.debug_tuple("Instant")
             .field(&self.saturating_since(*EPOCH))
             .finish()
+    }
+}
+
+impl Display for Instant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{:?}", self.saturating_since(*EPOCH)))
     }
 }
 
