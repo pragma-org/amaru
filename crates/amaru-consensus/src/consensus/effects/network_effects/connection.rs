@@ -14,13 +14,13 @@
 
 use super::{BlockSender, ConnMsg};
 use crate::consensus::events::ChainSyncEvent;
-use acto::{AcTokioRuntime, ActoCell, ActoInput, variable::Reader};
+use acto::{AcTokioRuntime, ActoCell, ActoInput};
 use amaru_kernel::{Point, peer::Peer};
 use amaru_network::{
     chain_sync_client::{ChainSyncClient, to_traverse},
     point::{from_network_point, to_network_point},
 };
-use amaru_ouroboros::BlockFetchClientError;
+use amaru_ouroboros::{BlockFetchClientError, BlockHeader, ChainStore, IsHeader};
 use futures_util::FutureExt;
 use pallas_network::{
     facades::PeerClient,
@@ -30,20 +30,33 @@ use pallas_network::{
     },
 };
 use pure_stage::BoxFuture;
-use std::{collections::VecDeque, future::pending, time::Duration};
+use std::{collections::VecDeque, future::pending, sync::Arc, time::Duration};
 use tokio::{select, sync::mpsc, task::JoinHandle, time::sleep};
 use tracing::Span;
 
+/// The actor that handles the connection to a peer.
+///
+/// NOTE: This is a stop-gap solution for using the pallas_network facilities
+/// such that upstream connections may fail and be reestablished without tearing
+/// down the node.
+///
+/// The actor basically oscillates between the two states:
+/// - trying to establish a connection to the peer
+/// - being connected to the peer and syncing headers / fetching blocks
+///
+/// When a disconnect happens (either due to a network error or the ConnMsg::Disconnect message)
+/// the actor will drop the connection, wait for 10 seconds, and then try to reconnect.
 pub async fn actor(
     mut cell: ActoCell<ConnMsg, AcTokioRuntime>,
     peer: Peer,
     magic: u64,
     hd_tx: mpsc::Sender<ChainSyncEvent>,
-    intersection: Reader<Vec<Point>>,
+    store: Arc<dyn ChainStore<BlockHeader>>,
 ) {
     let mut req = VecDeque::new();
 
     loop {
+        // connect to the peer (retry after 10sec if it fails)
         let Ok(PeerClient {
             plexer,
             chainsync,
@@ -61,10 +74,17 @@ pub async fn actor(
             Running(BoxFuture<'static, blockfetch::Client>),
         }
 
+        // spawn task for handling the chainsync protocol
         let mut fetch = State::Idle(blockfetch);
         let peer2 = peer.clone();
         let hd_tx = hd_tx.clone();
-        let intersection = intersection.get_cloned();
+        let intersection = {
+            let hashes = [store.get_anchor_hash(), store.get_best_chain_hash()];
+            hashes
+                .iter()
+                .filter_map(|h| store.load_header(h).map(|h| h.point()))
+                .collect()
+        };
         let mut sync: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
             let mut chainsync = ChainSyncClient::new(peer2.clone(), chainsync, intersection);
             let point = chainsync.find_intersection().await.inspect_err(|e| {
@@ -98,10 +118,17 @@ pub async fn actor(
             }
         });
 
+        // main loop handling
+        // - chainsync errors → disconnect
+        // - blockfetch results → fetch next block if applicable
+        // - commands to FetchBlock or Disconnect coming in via mailbox
         loop {
+            // keep select!() below uniform, no matter whether currently fetching or not
             let mut may_fetch = if let State::Running(f) = &mut fetch {
+                // left_future/right_future for merging to different Future types without boxing
                 f.left_future()
             } else {
+                // while not fetching, construct a Future that won't resolve
                 pending().right_future()
             };
             let msg = select! {
@@ -123,6 +150,9 @@ pub async fn actor(
             };
             match msg {
                 ActoInput::NoMoreSenders => {
+                    // this won't actually happen with the current NetworkResource because that
+                    // never drops the ActoRef, but who knows what the future holds...
+                    plexer.abort().await;
                     sync.abort();
                     return;
                 }

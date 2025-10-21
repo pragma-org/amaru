@@ -168,8 +168,8 @@ pub mod tests {
     impl NetworkOps for MockNetworkOps {
         fn fetch_block(
             &self,
-            _peer: &Peer,
-            point: &Point,
+            _peer: Peer,
+            point: Point,
         ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>> {
             let point_clone = point.clone();
             Box::pin(async move {
@@ -183,7 +183,7 @@ pub mod tests {
 
         fn send_forward_event(
             &self,
-            _peer: &Peer,
+            _peer: Peer,
             _header: BlockHeader,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
             Box::pin(ready(Ok(())))
@@ -191,7 +191,7 @@ pub mod tests {
 
         fn send_backward_event(
             &self,
-            _peer: &Peer,
+            _peer: Peer,
             _header_tip: HeaderTip,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
             Box::pin(ready(Ok(())))

@@ -19,7 +19,7 @@ use crate::simulator::{
     simulate::simulate,
 };
 use crate::sync::ChainSyncMessage;
-use acto::{AcTokio, variable::Writer};
+use acto::AcTokio;
 use amaru::stages::build_stage_graph::build_stage_graph;
 use amaru_consensus::consensus::effects::{FetchBlockEffect, NetworkResource};
 use amaru_consensus::consensus::errors::ConsensusError;
@@ -184,7 +184,7 @@ pub fn spawn_node(
 
     network
         .resources()
-        .put::<ResourceHeaderStore>(resource_header_store);
+        .put::<ResourceHeaderStore>(resource_header_store.clone());
     network
         .resources()
         .put::<ResourceHeaderValidation>(resource_validation);
@@ -201,7 +201,7 @@ pub fn spawn_node(
         [],
         &AcTokio::from_handle("upstream", rt.handle().clone()),
         0,
-        Writer::new(vec![]).reader(),
+        resource_header_store,
     ));
 
     (receiver.without_state(), rx1, Receiver::new(rx2))
@@ -246,7 +246,7 @@ fn make_chain_selector(
             .initialize_peer(chain_store.clone(), peer, &anchor)
             .expect("the root node is guaranteed to already be in the tree")
     }
-    SelectChain::new(tree_state, Writer::new(vec![]))
+    SelectChain::new(tree_state)
 }
 
 /// Property: at the end of the simulation, the chain built from the history of messages received

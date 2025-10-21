@@ -17,9 +17,9 @@ use crate::consensus::{
     events::ChainSyncEvent,
     tip::HeaderTip,
 };
-use acto::{AcTokioRuntime, ActoRef, ActoRuntime, variable::Reader};
+use acto::{AcTokioRuntime, ActoRef, ActoRuntime};
 use amaru_kernel::{Point, peer::Peer};
-use amaru_ouroboros::{BlockFetchClientError, BlockHeader};
+use amaru_ouroboros::{BlockFetchClientError, BlockHeader, ChainStore};
 use amaru_ouroboros_traits::IsHeader;
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -34,19 +34,19 @@ use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
 pub trait NetworkOps {
     fn fetch_block(
         &self,
-        peer: &Peer,
-        point: &Point,
+        peer: Peer,
+        point: Point,
     ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>>;
 
     fn send_forward_event(
         &self,
-        peer: &Peer,
+        peer: Peer,
         header: BlockHeader,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 
     fn send_backward_event(
         &self,
-        peer: &Peer,
+        peer: Peer,
         header_tip: HeaderTip,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 
@@ -65,15 +65,15 @@ impl<'a, T> Network<'a, T> {
 impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
     fn fetch_block(
         &self,
-        peer: &Peer,
-        point: &Point,
+        peer: Peer,
+        point: Point,
     ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>> {
         self.0.external(FetchBlockEffect::new(peer, point))
     }
 
     fn send_forward_event(
         &self,
-        peer: &Peer,
+        peer: Peer,
         header: BlockHeader,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
         self.0
@@ -82,7 +82,7 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
 
     fn send_backward_event(
         &self,
-        peer: &Peer,
+        peer: Peer,
         header_tip: HeaderTip,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
         self.0.external(ForwardEventEffect::new(
@@ -140,11 +140,8 @@ pub struct ForwardEventEffect {
 }
 
 impl ForwardEventEffect {
-    pub fn new(peer: &Peer, event: ForwardEvent) -> Self {
-        Self {
-            peer: peer.clone(),
-            event,
-        }
+    pub fn new(peer: Peer, event: ForwardEvent) -> Self {
+        Self { peer, event }
     }
 }
 
@@ -208,11 +205,8 @@ impl ExternalEffectAPI for FetchBlockEffect {
 }
 
 impl FetchBlockEffect {
-    pub fn new(peer: &Peer, point: &Point) -> Self {
-        Self {
-            peer: peer.clone(),
-            point: point.clone(),
-        }
+    pub fn new(peer: Peer, point: Point) -> Self {
+        Self { peer, point }
     }
 }
 
@@ -282,7 +276,7 @@ impl NetworkResource {
         peers: impl IntoIterator<Item = Peer>,
         rt: &AcTokioRuntime,
         magic: u64,
-        intersection: Reader<Vec<Point>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
     ) -> Self {
         let (hd_tx, hd_rx) = mpsc::channel(100);
         let connections = peers
@@ -291,7 +285,7 @@ impl NetworkResource {
                 (
                     peer.clone(),
                     rt.spawn_actor(&format!("conn-{}", peer), |cell| {
-                        connection::actor(cell, peer, magic, hd_tx.clone(), intersection.clone())
+                        connection::actor(cell, peer, magic, hd_tx.clone(), store.clone())
                     })
                     .me,
                 )
@@ -373,8 +367,10 @@ mod connection;
 #[cfg(not(feature = "amaru-upstream"))]
 mod connection {
     use crate::consensus::events::ChainSyncEvent;
-    use acto::{AcTokioRuntime, ActoCell, variable::Reader};
-    use amaru_kernel::{Point, peer::Peer};
+    use acto::{AcTokioRuntime, ActoCell};
+    use amaru_kernel::peer::Peer;
+    use amaru_ouroboros::{BlockHeader, ChainStore};
+    use std::sync::Arc;
     use tokio::sync::mpsc;
 
     pub async fn actor(
@@ -382,7 +378,7 @@ mod connection {
         _peer: Peer,
         _magic: u64,
         _hd_tx: mpsc::Sender<ChainSyncEvent>,
-        _intersection: Reader<Vec<Point>>,
+        _store: Arc<dyn ChainStore<BlockHeader>>,
     ) {
     }
 }

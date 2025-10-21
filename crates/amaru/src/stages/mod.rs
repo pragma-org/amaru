@@ -16,7 +16,7 @@ use crate::stages::{
     build_stage_graph::build_stage_graph,
     consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
 };
-use acto::{AcTokio, variable::Writer};
+use acto::AcTokio;
 use amaru_consensus::{
     BlockHeader,
     consensus::{
@@ -188,12 +188,9 @@ pub async fn bootstrap(
         .map(|h| h.as_header_tip())
         .unwrap_or(HeaderTip::new(Point::Origin, 0));
 
-    let intersection = Writer::new(vec![]);
-    let intersection_reader = intersection.reader();
     let chain_selector = make_chain_selector(
         chain_store.clone(),
         &peers,
-        intersection,
         global_parameters.consensus_security_param,
     )?;
 
@@ -232,7 +229,9 @@ pub async fn bootstrap(
     let pull_stage = network.wire_up(pull_stage, receive_header_stage);
     assert!(network.preload(pull_stage, vec![pull::NextSync]));
 
-    network.resources().put::<ResourceHeaderStore>(chain_store);
+    network
+        .resources()
+        .put::<ResourceHeaderStore>(chain_store.clone());
     network
         .resources()
         .put::<ResourceParameters>(global_parameters.clone());
@@ -249,7 +248,7 @@ pub async fn bootstrap(
         peers,
         &acto_runtime,
         config.network_magic.into(),
-        intersection_reader,
+        chain_store,
     ));
 
     if let Some(provider) = meter_provider {
@@ -359,7 +358,6 @@ fn make_ledger(
 fn make_chain_selector(
     chain_store: Arc<dyn ChainStore<BlockHeader>>,
     peers: &Vec<Peer>,
-    intersection: Writer<Vec<Point>>,
     consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
     let mut tree_state = HeadersTreeState::new(consensus_security_parameter);
@@ -369,7 +367,7 @@ fn make_chain_selector(
         tree_state.initialize_peer(chain_store.clone(), peer, &anchor)?;
     }
 
-    Ok(SelectChain::new(tree_state, intersection))
+    Ok(SelectChain::new(tree_state))
 }
 
 pub trait AsTip {

@@ -57,7 +57,7 @@ pub async fn stage(state: State, msg: BlockValidationResult, eff: impl Consensus
 
             if let Err(e) = eff
                 .network()
-                .send_forward_event(&peer, header.clone())
+                .send_forward_event(peer.clone(), header.clone())
                 .await
             {
                 error!(
@@ -84,7 +84,7 @@ pub async fn stage(state: State, msg: BlockValidationResult, eff: impl Consensus
             our_tip = rollback_header.as_header_tip();
             if let Err(e) = eff
                 .network()
-                .send_backward_event(&peer, rollback_header.as_header_tip())
+                .send_backward_event(peer.clone(), rollback_header.as_header_tip())
                 .await
             {
                 error!(

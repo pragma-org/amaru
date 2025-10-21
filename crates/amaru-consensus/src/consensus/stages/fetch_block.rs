@@ -40,7 +40,7 @@ pub async fn stage(
     match msg {
         ValidateHeaderEvent::Validated { peer, header, span } => {
             let point = header.point();
-            match eff.network().fetch_block(&peer, &point).await {
+            match eff.network().fetch_block(peer.clone(), point).await {
                 Ok(block) => {
                     let block = RawBlock::from(&*block);
 
