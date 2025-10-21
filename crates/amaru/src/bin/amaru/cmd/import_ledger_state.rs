@@ -168,7 +168,6 @@ pub async fn import_one(
                 &era_history,
                 network,
                 new_terminal_progress_bar,
-                None,
                 true,
             )
             .map_err(|e| e.to_string())

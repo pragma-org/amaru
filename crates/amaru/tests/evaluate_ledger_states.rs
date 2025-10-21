@@ -14,19 +14,18 @@
 
 use amaru_kernel::{
     AnyCbor, AuxiliaryData, Bytes, Epoch, EraHistory, Hasher, KeepRaw, MintedTransactionBody, MintedTx,
-    MintedWitnessSet, Point, PoolId, TransactionPointer, cbor, network::NetworkName, Network,
+    MintedWitnessSet, Point, PoolId, TransactionInput, TransactionOutput, TransactionPointer, cbor, network::NetworkName, Network, Value,
     protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     self,
-    bootstrap::import_initial_snapshot,
     context::DefaultValidationContext,
     rules::transaction,
     state::{self, volatile_db::StoreUpdate},
-    store::{EpochTransitionProgress, ReadStore, Store, TransactionalContext},
+    store::{EpochTransitionProgress, GovernanceActivity, ReadStore, Store, TransactionalContext},
 };
 use amaru_stores::rocksdb::RocksDB;
-use std::{collections::BTreeSet, env, fs, iter, ops::Deref, path::PathBuf};
+use std::{collections::{BTreeMap, BTreeSet}, env, fs, iter, ops::Deref, path::PathBuf};
 
 use test_case::test_case;
 
@@ -114,6 +113,97 @@ impl<'b, C> minicbor::decode::Decode<'b, C> for TestVectorEvent {
     }
 }
 
+// Traverse into the NewEpochState and find the utxos. In practice the initial ledger state for
+// each vector is very simple so we don't need to worry about every field. We really just care
+// about the utxos.
+fn decode_ledger_state<'b>(d: &mut minicbor::Decoder<'b>) -> Result<(DefaultValidationContext, &'b minicbor::bytes::ByteSlice, GovernanceActivity), minicbor::decode::Error> {
+    let _begin_nes = d.array()?;
+    let _epoch_no = d.u64()?;
+    let _blocks_made  = d.skip()?;
+    let _blocks_made = d.skip()?;
+    let _begin_epoch_state = d.array()?;
+    let _begin_account_state = d.skip()?;
+    let _begin_ledger_state = d.array()?;
+    let _cert_state = d.array()?;
+    let _voting_state = d.array()?;
+    let _dreps = d.skip()?;
+    let _committee_state = d.skip()?;
+    let number_of_dormant_epochs: Epoch = d.decode()?;
+    let _p_state = d.skip()?;
+    let _d_state = d.skip()?;
+    let _utxo_state = d.array()?;
+
+    let mut utxos_map = BTreeMap::new();
+    let utxos_map_count = d.map()?;
+    match utxos_map_count {
+        Some(n) => {
+            for _ in 0..n {
+                let tx_in = d.decode()?;
+                let tx_out = d.decode()?;
+                utxos_map.insert(tx_in, tx_out);
+            }
+        }
+        None => {
+            loop {
+                let ty = d.datatype()?;
+                if ty == minicbor::data::Type::Break {
+                    break;
+                }
+                let tx_in = d.decode()?;
+                let tx_out = d.decode()?;
+                utxos_map.insert(tx_in, tx_out);
+            }
+        }
+    }
+    let _deposited = d.skip()?;
+    let _fees = d.skip()?;
+
+    let _gov_state = d.array()?;
+    let _proposals = d.skip()?;
+    let _committee = d.skip()?;
+    let _constitution = d.skip()?;
+    let current_pparams_hash = d.decode()?;
+    let _previous_pparams_hash = d.skip()?;
+    let _future_pparams = d.skip()?;
+    let _drep_pulsing_state = d.skip()?;
+
+    let _stake_distr = d.skip()?;
+    let _donation = d.skip()?;
+    let _snapshots = d.skip()?;
+    let _non_myopic = d.skip()?;
+    let _pulsing_rew = d.skip()?;
+    let _pool_distr = d.skip()?;
+    let _stashed = d.skip()?;
+
+    Ok((
+        DefaultValidationContext::new(utxos_map),
+        current_pparams_hash,
+        GovernanceActivity {
+            consecutive_dormant_epochs: u64::from(number_of_dormant_epochs) as u32,
+        }
+    ))
+}
+
+fn decode_segregated_parameters(
+    dir: &PathBuf,
+    hash: &minicbor::bytes::ByteSlice,
+) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
+    let pparams_file_path = fs::read_dir(dir)?
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .find(|path| {
+            path.file_name()
+                .map(|filename| filename.to_str() == Some(&hex::encode(hash.as_ref())))
+                .unwrap_or(false)
+        })
+        .ok_or("Missing pparams file")?;
+
+    let pparams_file = fs::read(pparams_file_path)?;
+
+    let pparams = cbor::Decoder::new(&pparams_file).decode()?;
+
+    Ok(pparams)
+}
+
 fn import_vector(
     record: TestVector,
     ledger_dir: &PathBuf,
@@ -126,23 +216,10 @@ fn import_vector(
         hex::decode("0000000000000000000000000000000000000000000000000000000000000000")?
     );
 
-    fs::create_dir_all(ledger_dir)?;
-    let db = RocksDB::empty(ledger_dir)?;
+    let mut decoder = minicbor::Decoder::new(&record.initial_state);
+    let (mut validation_context, pparams_hash, governance_activity) = decode_ledger_state(&mut decoder)?;
 
-    let network = NetworkName::Testnet(1);
-    let epoch = import_initial_snapshot(
-        &db,
-        &record.initial_state,
-        &point,
-        network,
-        amaru_progress_bar::no_progress_bar,
-        Some(pparams_dir),
-        false,
-    )?;
-
-    let protocol_parameters = db.protocol_parameters()?;
-
-    let mut governance_activity = db.governance_activity()?;
+    let protocol_parameters = decode_segregated_parameters(pparams_dir, &pparams_hash)?;
 
     for (ix, event) in record.events.into_iter().enumerate() {
         let (tx_bytes, success, slot): (Bytes, bool, u64) = match event {
@@ -150,9 +227,6 @@ fn import_vector(
             _ => continue,
         };
         let tx: MintedTx<'_> = minicbor::decode(&*tx_bytes)?;
-
-        let utxo = db.iter_utxos()?.collect();
-        let mut validation_context = DefaultValidationContext::new(utxo);
 
         let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
         let tx_witness_set: MintedWitnessSet<'_> = tx.transaction_witness_set.deref().clone();
@@ -178,36 +252,6 @@ fn import_vector(
             &tx_witness_set,
             tx_auxiliary_data,
         );
-
-        let vs = state::VolatileState::from(validation_context);
-
-        // Can we re-use this point? We should be able to treat all txes as if they're in the same block
-        let p: Point = point.clone();
-
-        let issuer: PoolId = [7; 28].into();
-        let anchored_vs = vs.anchor(&p, issuer);
-        let StoreUpdate {
-            point: stable_point,
-            issuer: stable_issuer,
-            fees,
-            add,
-            remove,
-            withdrawals,
-        } = anchored_vs.into_store_update(epoch, &protocol_parameters);
-
-        let mut governance_activity = db.governance_activity()?;
-        let transaction = db.create_transaction();
-        transaction.save(
-            &era_history,
-            &protocol_parameters,
-            &mut governance_activity,
-            &stable_point,
-            Some(&stable_issuer),
-            add,
-            remove,
-            withdrawals,
-        )?;
-        transaction.commit()?;
 
         match result {
             Ok(()) => {

@@ -32,8 +32,7 @@ use amaru_kernel::{
 use amaru_progress_bar::ProgressBar;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs, iter,
-    path::PathBuf,
+    iter,
     rc::Rc,
     sync::LazyLock,
 };
@@ -49,12 +48,6 @@ static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> =
         },
         certificate_index: 0,
     });
-
-#[derive(Debug, thiserror::Error)]
-enum Error {
-    #[error("The pparams file was missing")]
-    MissingPparamsFile,
-}
 
 /// (Partially) decode a Haskell cardano-node's 'NewEpochState'
 ///
@@ -73,8 +66,6 @@ pub fn import_initial_snapshot(
     //
     // https://docs.rs/indicatif/latest/indicatif/index.html#templates
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-    // An extra directory where protocol parameters can be.
-    protocol_parameters_dir: Option<&PathBuf>,
     // Assumes the presence of fully computed rewards when set.
     has_rewards: bool,
 ) -> Result<Epoch, Box<dyn std::error::Error>> {
@@ -228,11 +219,7 @@ pub fn import_initial_snapshot(
     let constitution: Constitution = decoder.decode()?;
 
     // Current Protocol Params
-    let pparams = if let Some(dir) = protocol_parameters_dir {
-        decode_seggregated_parameters(dir, decoder.decode()?)?
-    } else {
-        decoder.decode()?
-    };
+    let pparams = decoder.decode()?;
     let protocol_parameters = import_protocol_parameters(db, pparams)?;
 
     import_proposals(db, point, era_history, &protocol_parameters, &proposals)?;
@@ -1122,6 +1109,7 @@ fn import_votes(
     Ok(())
 }
 
+<<<<<<< HEAD
 fn decode_seggregated_parameters(
     dir: &PathBuf,
     hash: cbor::bytes::ByteVec,
@@ -1142,6 +1130,29 @@ fn decode_seggregated_parameters(
     Ok(pparams)
 }
 
+||||||| parent of 99b23f75 (remove db dependency)
+fn decode_seggregated_parameters(
+    dir: &PathBuf,
+    hash: &cbor::bytes::ByteSlice,
+) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
+    let pparams_file_path = fs::read_dir(dir)?
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .find(|path| {
+            path.file_name()
+                .map(|filename| filename.to_str() == Some(&hex::encode(hash.as_ref())))
+                .unwrap_or(false)
+        })
+        .ok_or(Error::MissingPparamsFile)?;
+
+    let pparams_file = fs::read(pparams_file_path)?;
+
+    let pparams = cbor::Decoder::new(&pparams_file).decode()?;
+
+    Ok(pparams)
+}
+
+=======
+>>>>>>> 99b23f75 (remove db dependency)
 // TODO: Move to Pallas
 #[derive(Debug)]
 #[expect(dead_code)]
