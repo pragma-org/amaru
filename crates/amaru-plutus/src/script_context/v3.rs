@@ -908,6 +908,10 @@ mod tests {
     }
 
     #[test_case(fixture!("simple_send"); "simple send")]
+    #[test_case(fixture!("simple_spend_no_datum"); "simple spend no datum")]
+    #[test_case(fixture!("mint"); "mint")]
+    #[test_case(fixture!("certificates_v9"); "certificates (protocol ver 9")]
+    #[test_case(fixture!("certificates_v10"); "certificates (protocol ver 10")]
     fn test_plutus_v3(test_vector: &TestVector) {
         // Ensure we're testing against the right Plutus version.
         // If not, we should fail early.
