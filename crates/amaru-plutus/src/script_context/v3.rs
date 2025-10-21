@@ -927,34 +927,51 @@ mod tests {
                 .expect("no redeemers provided")
                 .unwrap(),
         );
-        let redeemer = redeemers.first().expect("empty redeemers");
 
-        let datum = match &test_vector.input.utxo.1.datum {
-            amaru_kernel::MemoizedDatum::None => None,
-            amaru_kernel::MemoizedDatum::Hash(hash) => {
-                Some(PlutusData::BoundedBytes(hash.to_vec().into()))
-            }
-            amaru_kernel::MemoizedDatum::Inline(memoized_plutus_data) => {
-                Some(memoized_plutus_data.as_ref().clone())
-            }
-        };
+        redeemers.iter().for_each(|redeemer| {
+            let datum = if let RedeemerTag::Spend = redeemer.tag {
+                let input = transaction
+                    .transaction_body
+                    .inputs
+                    .get(redeemer.index as usize)
+                    .expect("invalid redeemer index");
+                match &test_vector
+                    .input
+                    .utxo
+                    .get(input)
+                    .expect("missing input in utxo set")
+                    .datum
+                {
+                    amaru_kernel::MemoizedDatum::None => None,
+                    amaru_kernel::MemoizedDatum::Hash(hash) => {
+                        Some(PlutusData::BoundedBytes(hash.to_vec().into()))
+                    }
+                    amaru_kernel::MemoizedDatum::Inline(memoized_plutus_data) => {
+                        Some(memoized_plutus_data.as_ref().clone())
+                    }
+                }
+            } else {
+                None
+            };
 
-        let utxos = BTreeMap::from_iter(vec![test_vector.input.utxo.clone()]);
+            let tx_info = TxInfo::new(
+                &transaction.transaction_body,
+                &transaction.transaction_body.original_hash(),
+                &transaction.transaction_witness_set,
+                &test_vector.input.utxo,
+                network.into(),
+                &0.into(),
+                network,
+            )
+            .unwrap();
 
-        let tx_info = TxInfo::new(
-            &transaction.transaction_body,
-            &transaction.transaction_body.original_hash(),
-            &transaction.transaction_witness_set,
-            &utxos,
-            network.into(),
-            &0.into(),
-            network,
-        )
-        .unwrap();
+            let script_context = ScriptContext::new(tx_info, redeemer, datum).unwrap();
+            let plutus_data = to_cbor(&script_context.to_plutus_data());
 
-        let script_context = ScriptContext::new(tx_info, redeemer, datum).unwrap();
-        let plutus_data = to_cbor(&script_context.to_plutus_data());
-
-        assert_eq!(plutus_data, test_vector.expectations.script_context)
+            pretty_assertions::assert_eq!(
+                hex::encode(plutus_data),
+                test_vector.expectations.script_context
+            )
+        });
     }
 }

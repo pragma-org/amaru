@@ -25,6 +25,6 @@ amaru-slot-arithmetic.workspace = true
 [dev-dependencies]
 serde.workspace = true
 test-case.workspace = true
-
+pretty_assertions.workspace = true
 [lints]
 workspace = true

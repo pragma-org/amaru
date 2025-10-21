@@ -311,7 +311,7 @@ impl From<VotingProcedures> for Votes {
 
 #[cfg(test)]
 pub mod test_vectors {
-    use std::sync::LazyLock;
+    use std::{collections::BTreeMap, sync::LazyLock};
 
     use amaru_kernel::{
         Address, MemoizedDatum, MemoizedTransactionOutput, TransactionInput, include_json,
@@ -338,31 +338,59 @@ pub mod test_vectors {
         #[serde(rename = "transaction", deserialize_with = "hex_to_bytes")]
         pub transaction_bytes: Vec<u8>,
         #[serde(deserialize_with = "deserialize_utxo")]
-        pub utxo: (TransactionInput, MemoizedTransactionOutput),
+        pub utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     }
 
     #[derive(Deserialize)]
     pub struct TestExpectations {
-        #[serde(deserialize_with = "hex_to_bytes")]
-        pub script_context: Vec<u8>,
+        pub script_context: String,
     }
+
+    pub struct MemoizedTransactionOutputWrapper(pub MemoizedTransactionOutput);
 
     fn deserialize_utxo<'de, D>(
         deserializer: D,
-    ) -> Result<(TransactionInput, MemoizedTransactionOutput), D::Error>
+    ) -> Result<BTreeMap<TransactionInput, MemoizedTransactionOutput>, D::Error>
     where
-        D: serde::de::Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
+        struct UtxoVisitor;
+
+        impl<'a> serde::de::Visitor<'a> for UtxoVisitor {
+            type Value = BTreeMap<TransactionInput, MemoizedTransactionOutput>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("UTxOs")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
+            where
+                V: serde::de::SeqAccess<'a>,
+            {
+                let mut utxo_map = BTreeMap::new();
+
+                while let Some(entry) = seq.next_element::<UtxoEntryHelper>()? {
+                    let tx_id_bytes =
+                        hex::decode(&entry.transaction.id).map_err(serde::de::Error::custom)?;
+
+                    let input = TransactionInput {
+                        transaction_id: tx_id_bytes.as_slice().into(),
+                        index: entry.index,
+                    };
+
+                    utxo_map.insert(input, entry.output.0);
+                }
+
+                Ok(utxo_map)
+            }
+        }
+
         #[derive(Deserialize)]
-        struct UtxoHelper {
+        struct UtxoEntryHelper {
             transaction: TransactionIdHelper,
-            index: u32,
-            address: String,
-            value: ValueHelper,
-            #[serde(default)]
-            datum_hash: Option<String>,
-            #[serde(default)]
-            datum: Option<String>,
+            index: u64,
+            #[serde(flatten)]
+            output: MemoizedTransactionOutputWrapper,
         }
 
         #[derive(Deserialize)]
@@ -370,57 +398,113 @@ pub mod test_vectors {
             id: String,
         }
 
-        #[derive(Deserialize)]
-        struct ValueHelper {
-            ada: AdaHelper,
-        }
+        deserializer.deserialize_seq(UtxoVisitor)
+    }
 
-        #[derive(Deserialize)]
-        struct AdaHelper {
-            lovelace: u64,
-        }
-
-        let helpers: Vec<UtxoHelper> = Vec::deserialize(deserializer)?;
-        let helper = helpers
-            .first()
-            .ok_or(serde::de::Error::custom("no provided utxo"))?;
-
-        let tx_id_bytes = hex::decode(&helper.transaction.id).map_err(serde::de::Error::custom)?;
-
-        let input = TransactionInput {
-            transaction_id: tx_id_bytes.as_slice().into(),
-            index: helper.index as u64,
-        };
-
-        let address_bytes = hex::decode(&helper.address).map_err(serde::de::Error::custom)?;
-        let address = Address::from_bytes(&address_bytes).map_err(serde::de::Error::custom)?;
-        let datum = match (&helper.datum_hash, &helper.datum) {
-            (Some(hash_str), None) => {
-                let hash_bytes = hex::decode(hash_str).map_err(serde::de::Error::custom)?;
-                MemoizedDatum::Hash(hash_bytes.as_slice().into())
+    impl<'a> serde::Deserialize<'a> for MemoizedTransactionOutputWrapper {
+        fn deserialize<D: serde::Deserializer<'a>>(deserializer: D) -> Result<Self, D::Error> {
+            #[derive(serde::Deserialize)]
+            #[serde(field_identifier, rename_all = "snake_case")]
+            enum Field {
+                Address,
+                Value,
+                DatumHash,
+                Datum,
+                Script,
             }
-            (None, Some(datum_str)) => MemoizedDatum::Inline(
-                datum_str
-                    .clone()
-                    .try_into()
-                    .map_err(serde::de::Error::custom)?,
-            ),
-            (None, None) => MemoizedDatum::None,
-            (Some(_), Some(_)) => {
-                return Err(serde::de::Error::custom(
-                    "cannot have both datum_hash and datum",
-                ));
-            }
-        };
 
-        let output = MemoizedTransactionOutput {
-            is_legacy: false,
-            address,
-            value: amaru_kernel::Value::Coin(helper.value.ada.lovelace),
-            datum,
-            script: None,
-        };
-        Ok((input, output))
+            const FIELDS: &[&str] = &["address", "value", "datum", "datum_hash", "script"];
+
+            struct TransactionOutputVisitor;
+
+            impl<'a> serde::de::Visitor<'a> for TransactionOutputVisitor {
+                type Value = MemoizedTransactionOutputWrapper;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    formatter.write_str("TransationOutput")
+                }
+
+                fn visit_map<V>(
+                    self,
+                    mut map: V,
+                ) -> Result<MemoizedTransactionOutputWrapper, V::Error>
+                where
+                    V: serde::de::MapAccess<'a>,
+                {
+                    let mut address = None;
+                    let mut value = None;
+                    let mut datum = MemoizedDatum::None;
+                    let script = None;
+
+                    let assert_only_datum_or_hash = |datum: &MemoizedDatum| {
+                        if datum != &MemoizedDatum::None {
+                            return Err("cannot have both datum_hash and datum".to_string());
+                        }
+
+                        Ok(())
+                    };
+
+                    while let Some(key) = map.next_key()? {
+                        match key {
+                            Field::Address => {
+                                let string: String = map.next_value()?;
+                                let bytes =
+                                    hex::decode(string).map_err(serde::de::Error::custom)?;
+                                address = Some(
+                                    Address::from_bytes(&bytes)
+                                        .map_err(serde::de::Error::custom)?,
+                                );
+                            }
+                            Field::Value => {
+                                let helper: BTreeMap<String, BTreeMap<String, u64>> =
+                                    map.next_value()?;
+                                value = Some(amaru_kernel::Value::Coin(
+                                    *helper
+                                        .get("ada")
+                                        .ok_or_else(|| serde::de::Error::missing_field("ada"))?
+                                        .get("lovelace")
+                                        .ok_or_else(|| {
+                                            serde::de::Error::missing_field("lovelace")
+                                        })?,
+                                ));
+                            }
+                            Field::Datum => {
+                                assert_only_datum_or_hash(&datum)
+                                    .map_err(serde::de::Error::custom)?;
+                                let string: String = map.next_value()?;
+                                datum = MemoizedDatum::Inline(
+                                    string.try_into().map_err(serde::de::Error::custom)?,
+                                );
+                            }
+                            Field::DatumHash => {
+                                assert_only_datum_or_hash(&datum)
+                                    .map_err(serde::de::Error::custom)?;
+                                let string: String = map.next_value()?;
+                                let bytes: Vec<u8> =
+                                    hex::decode(string).map_err(serde::de::Error::custom)?;
+                                datum = MemoizedDatum::Hash(bytes.as_slice().into())
+                            }
+                            Field::Script => {
+                                unimplemented!("script in UTxO not yet supported");
+                            }
+                        }
+                    }
+
+                    Ok(MemoizedTransactionOutputWrapper(
+                        MemoizedTransactionOutput {
+                            is_legacy: false,
+                            address: address
+                                .ok_or_else(|| serde::de::Error::missing_field("address"))?,
+                            value: value.ok_or_else(|| serde::de::Error::missing_field("value"))?,
+                            datum,
+                            script,
+                        },
+                    ))
+                }
+            }
+
+            deserializer.deserialize_struct("TransationOutput", FIELDS, TransactionOutputVisitor)
+        }
     }
 
     static TEST_VECTORS: LazyLock<Vec<TestVector>> =
