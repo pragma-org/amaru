@@ -87,7 +87,7 @@ impl RocksDBStore {
     ///
     /// This function is deemed "unsafe" because it automatically tries to migrate the
     /// DB it opens or creates which can potentially causes data corruption.
-    pub fn unsafe_open(config: RocksDbConfig) -> Result<Self, StoreError> {
+    pub fn open_and_migrate(config: RocksDbConfig) -> Result<Self, StoreError> {
         let (basedir, db) = open_or_create_db(&config)?;
 
         migrate_db(&db)?;
@@ -718,7 +718,7 @@ pub mod test {
 
         copy_recursively(source, target).unwrap();
 
-        let store = RocksDBStore::unsafe_open(config).expect("should create DB successfully");
+        let store = RocksDBStore::open_and_migrate(config).expect("should create DB successfully");
         let version = get_version(&store.db).expect("should read version successfully");
 
         assert_eq!(version, CHAIN_DB_VERSION);

@@ -29,7 +29,7 @@ participants: abailly, etorreborre
 * Developers _must_ provide a _migration script_ (eg. some code) for each increment. The `migrate-chain-db` command applies each migration script in order to update the database to the latest version
   * Migration scripts should handle an empty database
 * It could be that a migration is impossible, in which case this should be reported by the _migration script_ with migration utility reporting back to user and instructing to start from scratch
-* We distinguish between `open`, `create`, and `unsafe_open` operations when creating a new `RocksDBStore` to accomodate different situations:
+* We distinguish between `open`, `create`, and `open_and_migrate` operations when creating a new `RocksDBStore` to accomodate different situations:
   * when running Amaru, we want need to check versions and make migration explicit
   * when bootstrapping Amaru, we want to make sure we are not overwriting an existing DB unknowingly
   * when importing headers and nonces, we are supposed to know what we do and open or create the DB. This may result in data corruption if misused, restrict to very specific workflows (eg. continuous integration)
