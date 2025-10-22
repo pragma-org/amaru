@@ -186,16 +186,16 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
     };
 
     tracing::debug!(
-        "finding headers between {:?} and {:?}",
-        our_tip.0,
-        requested_points
+        points = ?requested_points,
+        tip = our_tip.1,
+        "request interception",
     );
     let Some(mut chain_follower) = ChainFollower::new(store, &our_tip.0, &requested_points) else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
         return Err(ClientError::NoIntersection.into());
     };
-    tracing::debug!("intersection found: {:?}", chain_follower.tip);
+    tracing::debug!(intersection = ?chain_follower.tip, "intersection found");
     server
         .send_intersect_found(chain_follower.tip.0.clone(), our_tip.clone())
         .await?;
@@ -211,32 +211,31 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
         let input = cell.recv().await;
         match input {
             ActoInput::Message(ChainSyncMsg::Op(op)) => {
-                tracing::debug!("got op {op:?}");
+                tracing::trace!(operation = ?op, "forward change");
                 our_tip = op.tip();
                 chain_follower.add_op(op);
                 if waiting && let Some(op) = chain_follower.next_op() {
-                    tracing::debug!("sending op {op:?} to waiting handler");
+                    tracing::trace!(operation = ?op, "reply await");
                     waiting = false;
                     handler.send(Some((op, our_tip.clone())));
                 }
             }
             ActoInput::Message(ChainSyncMsg::ReqNext) => {
-                tracing::debug!("got req next");
+                tracing::trace!("client request next");
                 if let Some(op) = chain_follower.next_op() {
-                    tracing::debug!("sending op {op:?} to handler");
+                    tracing::trace!(operation = ?op, "forward next operation");
                     handler.send(Some((op, our_tip.clone())));
                 } else {
-                    tracing::debug!("sending await reply");
+                    tracing::trace!("sending await reply");
                     handler.send(None);
                     waiting = true;
                 }
             }
             ActoInput::NoMoreSenders => {
-                tracing::debug!("no more senders");
+                tracing::trace!("no more senders");
                 return Ok(());
             }
             ActoInput::Supervision { result, .. } => {
-                tracing::debug!("supervision result: {result:?}");
                 return result
                     .map_err(|e| anyhow::Error::from(ClientError::HandlerFailure(e.to_string())))
                     .and_then(|x| x);
@@ -258,27 +257,28 @@ async fn chain_sync_handler<H: IsHeader + 'static + Clone + Send>(
             tracing::debug!("client terminated");
             return Err(ClientError::ClientTerminated.into());
         };
+        // FIXME: a client should always be able to request an interception
         if !matches!(req, ClientRequest::RequestNext) {
             tracing::debug!("late intersection");
             return Err(ClientError::LateIntersection.into());
         };
-        tracing::debug!("got req next");
+
         parent.send(ChainSyncMsg::ReqNext);
 
         if let ActoInput::Message(op) = cell.recv().await {
             match op {
                 Some((ClientOp::Forward(header), tip)) => {
-                    tracing::debug!("sending roll forward");
+                    tracing::trace!(?tip, "roll forward");
                     server
                         .send_roll_forward(to_header_content(header), tip)
                         .await?;
                 }
                 Some((ClientOp::Backward(point), tip)) => {
-                    tracing::debug!("sending roll backward");
+                    tracing::trace!(?point, "roll backward");
                     server.send_roll_backward(point.0, tip).await?;
                 }
                 None => {
-                    tracing::debug!("sending await reply");
+                    tracing::trace!("await reply");
                     server.send_await_reply().await?;
                     let ActoInput::Message(Some((op, tip))) = cell.recv().await else {
                         return Ok(());

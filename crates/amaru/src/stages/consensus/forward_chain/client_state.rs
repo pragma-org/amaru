@@ -78,12 +78,10 @@ impl<H: IsHeader + Clone> ChainFollower<H> {
     }
 
     pub fn next_op(&mut self) -> Option<ClientOp<H>> {
-        tracing::debug!("next_op: {:?}", self.ops.front());
         self.ops.pop_front()
     }
 
     pub fn add_op(&mut self, op: ClientOp<H>) {
-        tracing::debug!("add_op: {:?}", op);
         match op {
             ClientOp::Backward(tip) => {
                 if let Some((index, _)) =
@@ -91,17 +89,13 @@ impl<H: IsHeader + Clone> ChainFollower<H> {
                         |(_, op)| matches!(op, ClientOp::Forward(header2) if header2.point().pallas_point() == tip.0),
                     )
                 {
-                    tracing::debug!("found backward op at index {index} in {:?}", self.ops);
                     self.ops.truncate(index + 1);
-                    tracing::debug!("last after truncate: {:?}", self.ops.back());
                 } else {
-                    tracing::debug!("clearing ops");
                     self.ops.clear();
                     self.ops.push_back(ClientOp::Backward(tip));
                 }
             }
             op @ ClientOp::Forward(..) => {
-                tracing::debug!("adding forward op");
                 self.ops.push_back(op);
             }
         }
