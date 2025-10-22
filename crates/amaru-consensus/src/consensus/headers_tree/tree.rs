@@ -160,12 +160,12 @@ impl<H> Tree<H> {
     where
         H: Clone,
     {
-        let mut result = vec![];
+        let mut result = Vec::new();
+        if self.children.len() > 1 {
+            result.push(self.value.clone());
+        }
         for child in &self.children {
-            if child.children.len() > 1 {
-                result.push(child.value.clone());
-            }
-            result.extend(child.fork_nodes())
+            result.extend(child.fork_nodes());
         }
         result
     }
@@ -304,6 +304,34 @@ BlockHeader { hash: "ede0bf92248771ce3f7295de922779309a9835eea7a82d883b371bbbfef
             "\n{}{}",
             &tree.pretty_print_debug(),
             expected
+        );
+    }
+
+    #[test]
+    fn test_fork_nodes() {
+        // 0
+        // ├── 1
+        // │   └── 3
+        // │       ├── 4
+        // │       └── 5
+        // └── 2
+
+        let mut root = Tree::make_leaf(&"0".to_string());
+        let mut leaf1 = Tree::make_leaf(&"1".to_string());
+        let leaf2 = Tree::make_leaf(&"2".to_string());
+        let mut leaf3 = Tree::make_leaf(&"3".to_string());
+        let leaf4 = Tree::make_leaf(&"4".to_string());
+        let leaf5 = Tree::make_leaf(&"5".to_string());
+        leaf3.children = vec![leaf4, leaf5];
+        leaf1.children = vec![leaf3];
+        root.children = vec![leaf1, leaf2];
+
+        // 1 is not a fork because it has only one child
+        assert_eq!(
+            root.fork_nodes(),
+            vec!["0".to_string(), "3".to_string()],
+            "{}",
+            root.pretty_print()
         );
     }
 }
