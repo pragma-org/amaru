@@ -25,11 +25,13 @@ use std::sync::Arc;
 pub(super) struct ClientState<H> {
     /// The list of operations to send to the client.
     ops: VecDeque<ClientOp<H>>,
+    /// The current known tip.
+    pub(super) tip: Tip,
 }
 
 impl<H: IsHeader> ClientState<H> {
-    pub fn new(ops: VecDeque<ClientOp<H>>) -> Self {
-        Self { ops }
+    pub fn new(ops: VecDeque<ClientOp<H>>, tip: Tip) -> Self {
+        Self { ops, tip }
     }
 
     pub fn next_op(&mut self) -> Option<ClientOp<H>> {
@@ -69,16 +71,17 @@ impl<H: IsHeader> ClientState<H> {
 /// the tallest point from the list that lies in the past of `start_point`.
 pub(super) fn find_headers_between<H: IsHeader + Clone>(
     store: Arc<dyn ChainStore<H>>,
-    start_point: &Point,
+    current_tip: &Point,
     points: &[Point],
-) -> Option<(Vec<ClientOp<H>>, Tip)> {
-    let start_header = store.load_header(&hash_point(start_point))?;
+) -> Option<ClientState<H>> {
+    let start_header = store.load_header(&hash_point(current_tip))?;
 
-    if points.contains(start_point) {
-        return Some((vec![], start_header.as_tip()));
+    // the client is at least as up-to-date as we are
+    if points.contains(current_tip) {
+        return Some(ClientState::new(vec![].into(), start_header.as_tip()));
     }
 
-    // Find the first point that is in the past of start_point
+    // Find the first point in `points` that is in the past of start_point
     let mut current_header = start_header;
     let mut headers = vec![ClientOp::Forward(current_header.clone())];
 
@@ -88,7 +91,7 @@ pub(super) fn find_headers_between<H: IsHeader + Clone>(
                 if points.iter().any(|p| hash_point(p) == parent_hash) {
                     // Found a matching point, return the collected headers
                     headers.reverse();
-                    return Some((headers, header.as_tip()));
+                    return Some(ClientState::new(headers.into(), header.as_tip()));
                 }
                 headers.push(ClientOp::Forward(header.clone()));
                 current_header = header;
@@ -99,13 +102,15 @@ pub(super) fn find_headers_between<H: IsHeader + Clone>(
 
     // Reached genesis without finding any matching point
     headers.reverse();
-    Some((headers, Tip(Point::Origin, 0)))
+    Some(ClientState::new(headers.into(), Tip(Point::Origin, 0)))
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::stages::PallasPoint;
-    use crate::stages::consensus::forward_chain::client_state::find_headers_between;
+    use crate::stages::consensus::forward_chain::client_state::{
+        ClientState, find_headers_between,
+    };
     use crate::stages::consensus::forward_chain::test_infra::{
         BRANCH_47, CHAIN_47, LOST_47, TIP_47, WINNER_47, hash, mk_store,
     };
@@ -134,8 +139,11 @@ pub(crate) mod tests {
         let tip = store.get_point(TIP_47);
         let points = [store.get_point(TIP_47)];
 
-        let (ops, Tip(p, h)) = find_headers_between(store, &tip, &points).unwrap();
-        assert_eq!((ops, p, h), (vec![], tip, 47));
+        let state = find_headers_between(store, &tip, &points).unwrap();
+        assert_eq!(
+            (state.ops, state.tip.0, state.tip.1),
+            (vec![].into(), tip, 47)
+        );
     }
 
     #[test]
@@ -146,9 +154,9 @@ pub(crate) mod tests {
         let points = [store.get_point(BRANCH_47)];
         let peer = store.get_point(BRANCH_47);
 
-        let (ops, Tip(p, h)) = find_headers_between(store.clone(), &tip, &points).unwrap();
+        let ClientState { ops, tip } = find_headers_between(store.clone(), &tip, &points).unwrap();
         assert_eq!(
-            (ops.len() as u64, p, h),
+            (ops.len() as u64, tip.0, tip.1),
             (
                 store.get_height(TIP_47) - store.get_height(BRANCH_47),
                 peer,
@@ -171,9 +179,9 @@ pub(crate) mod tests {
         ];
         let peer = store.get_point(WINNER_47);
 
-        let (ops, Tip(p, h)) = find_headers_between(store.clone(), &tip, &points).unwrap();
+        let ClientState { ops, tip } = find_headers_between(store.clone(), &tip, &points).unwrap();
         assert_eq!(
-            (ops.len() as u64, p, h),
+            (ops.len() as u64, tip.0, tip.1),
             (
                 store.get_height(TIP_47) - store.get_height(WINNER_47),
                 peer,
@@ -190,9 +198,9 @@ pub(crate) mod tests {
         let points = [store.get_point(LOST_47)];
 
         let result = find_headers_between(store.clone(), &tip, &points).unwrap();
-        assert_eq!(result.0.len() as u64, store.get_height(TIP_47));
-        assert_eq!(result.1.0, Point::Origin);
-        assert_eq!(result.1.1, 0);
+        assert_eq!(result.ops.len() as u64, store.get_height(TIP_47));
+        assert_eq!(result.tip.0, Point::Origin);
+        assert_eq!(result.tip.1, 0);
     }
 
     // HELPERS

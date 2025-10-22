@@ -180,20 +180,24 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
     store: Arc<dyn ChainStore<H>>,
 ) -> anyhow::Result<()> {
     // TODO: do we need to handle validation updates already here in case the client is really slow to ask for intersection?
-    let Some(ClientRequest::Intersect(req)) = server.recv_while_idle().await? else {
+    let Some(ClientRequest::Intersect(requested_points)) = server.recv_while_idle().await? else {
         // need an intersection point to start
         return Err(ClientError::EarlyRequestNext.into());
     };
 
-    tracing::debug!("finding headers between {:?} and {:?}", our_tip.0, req);
-    let Some((catch_up, client_at)) = find_headers_between(store, &our_tip.0, &req) else {
+    tracing::debug!(
+        "finding headers between {:?} and {:?}",
+        our_tip.0,
+        requested_points
+    );
+    let Some(mut state) = find_headers_between(store, &our_tip.0, &requested_points) else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
         return Err(ClientError::NoIntersection.into());
     };
-    tracing::debug!("intersection found: {client_at:?}");
+    tracing::debug!("intersection found: {:?}", state.tip);
     server
-        .send_intersect_found(client_at.0.clone(), our_tip.clone())
+        .send_intersect_found(state.tip.0.clone(), our_tip.clone())
         .await?;
 
     let parent = cell.me();
@@ -201,7 +205,6 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
         chain_sync_handler(cell, server, parent)
     });
 
-    let mut state = ClientState::new(catch_up.into());
     let mut our_tip = our_tip;
     let mut waiting = false;
     loop {

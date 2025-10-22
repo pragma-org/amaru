@@ -374,7 +374,7 @@ pub mod test {
     use std::collections::BTreeMap;
     use std::path::Path;
     use std::sync::Arc;
-    use std::{fs, io};
+    use std::{assert_matches::assert_matches, fs, io};
 
     #[test]
     fn both_rw_and_ro_can_be_open_on_same_dir() {
@@ -741,18 +741,44 @@ pub mod test {
         }
         // iterate over chain from 4 to 8
         let slot4 = 4u64.to_be_bytes();
+        let slot6 = 6u64.to_be_bytes();
+        let slot7 = 7u64.to_be_bytes();
         let slot8 = 8u64.to_be_bytes();
+        let slot9 = 9u64.to_be_bytes();
+        let slot10 = 10u64.to_be_bytes();
         let prefix = [&CHAIN_PREFIX[..], &slot4].concat();
 
         let mut readopts = ReadOptions::default();
-        readopts.set_iterate_upper_bound([&CHAIN_PREFIX[..], &slot8[..]].concat());
+        readopts.set_iterate_upper_bound([&CHAIN_PREFIX[..], &slot10[..]].concat());
         let mut iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
         let mut count = 0;
-        while let Some(Ok((_k, v))) = iter.next() {
+        while let Some(Ok((k, v))) = iter.next()
+            && count < 3
+        {
             let _header_hash: HeaderHash = Hash::from(v.as_ref());
             count += 1;
         }
-        assert_eq!(count, 4); // slots 4,5,6,7 as upper bound (8) is exclusive
+
+        // we can delete keys the iterator has seen and not seen
+        db.delete([&CHAIN_PREFIX[..], &slot6].concat())
+            .expect("should delete data successfully");
+        db.delete([&CHAIN_PREFIX[..], &slot7].concat())
+            .expect("should delete data successfully");
+
+        // iterator continues from where it left off, skipping deleted keys
+        assert_eq!(
+            *(iter.next().unwrap().unwrap().0),
+            [&CHAIN_PREFIX[..], &slot8].concat()
+        );
+        assert_eq!(
+            *(iter.next().unwrap().unwrap().0),
+            [&CHAIN_PREFIX[..], &slot9].concat()
+        );
+
+        let mut iter = db.full_iterator(IteratorMode::From(&prefix, Direction::Forward));
+        while let Some(Ok((k, v))) = iter.next() {
+            println!("Key: {}, Value: {:?}", hex::encode(&k), v);
+        }
     }
 
     const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";
