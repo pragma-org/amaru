@@ -15,11 +15,10 @@
 use crate::consensus::effects::NetworkOps;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
-use crate::consensus::events::BlockValidationResult;
 use crate::consensus::span::HasSpan;
 use crate::consensus::tip::{AsHeaderTip, HeaderTip};
-use amaru_kernel::Point;
-use amaru_ouroboros_traits::IsHeader;
+use amaru_kernel::consensus_events::BlockValidationResult;
+use amaru_kernel::{IsHeader, Point};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Level, error, info, span, trace};

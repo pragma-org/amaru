@@ -12,16 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::network::NetworkName;
-use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::to_cbor;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
-use amaru_stores::rocksdb::RocksDbConfig;
-use amaru_stores::rocksdb::consensus::RocksDBStore;
+use amaru_kernel::{
+    BlockHeader, IsHeader, network::NetworkName, string_utils::ListToString, to_cbor,
+};
+use amaru_ouroboros_traits::ChainStore;
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::{Parser, arg};
-use std::fmt::Display;
-use std::sync::Arc;
-use std::{error::Error, path::PathBuf};
+use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Parser)]
 pub struct Args {

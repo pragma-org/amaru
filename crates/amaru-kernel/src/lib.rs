@@ -88,13 +88,17 @@ pub mod ballot;
 pub use ballot_id::*;
 pub mod ballot_id;
 
+pub use certificate_pointer::*;
+pub mod certificate_pointer;
+
+pub mod connection;
+
+pub mod consensus_events;
+
 pub mod constitution;
 
 pub use constitutional_committee::*;
 pub mod constitutional_committee;
-
-pub use certificate_pointer::*;
-pub mod certificate_pointer;
 
 pub mod drep;
 
@@ -103,6 +107,9 @@ pub mod drep_registration;
 
 pub use drep_state::*;
 pub mod drep_state;
+
+pub mod is_header;
+pub use is_header::{BlockHeader, IsHeader};
 
 pub use memoized::*;
 pub mod memoized;

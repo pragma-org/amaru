@@ -14,10 +14,9 @@
 
 use crate::consensus::effects::{BaseOps, ConsensusOps, NetworkOps};
 use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
-use crate::consensus::events::{ValidateBlockEvent, ValidateHeaderEvent};
 use crate::consensus::span::HasSpan;
-use amaru_kernel::RawBlock;
-use amaru_ouroboros_traits::IsHeader;
+use amaru_kernel::consensus_events::{ValidateBlockEvent, ValidateHeaderEvent};
+use amaru_kernel::{IsHeader, RawBlock};
 use pure_stage::StageRef;
 use tracing::Level;
 
@@ -97,8 +96,8 @@ mod tests {
     use super::*;
     use crate::consensus::effects::mock_consensus_ops;
     use crate::consensus::errors::ValidationFailed;
+    use amaru_kernel::is_header::tests::{any_header, run};
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::tests::{any_header, run};
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;

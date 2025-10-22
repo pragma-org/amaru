@@ -14,13 +14,16 @@
 
 use crate::consensus::{
     errors::{ConsensusError, ProcessingFailed},
-    events::ChainSyncEvent,
     tip::HeaderTip,
 };
-use acto::{AcTokioRuntime, ActoRef, ActoRuntime};
-use amaru_kernel::{Point, peer::Peer};
-use amaru_ouroboros::{BlockFetchClientError, BlockHeader, ChainStore};
-use amaru_ouroboros_traits::IsHeader;
+use acto::{AcTokioRuntime, ActoCell, ActoRef, ActoRuntime};
+use amaru_kernel::{
+    BlockHeader, IsHeader, Point,
+    connection::{BlockFetchClientError, ConnMsg},
+    consensus_events::ChainSyncEvent,
+    peer::Peer,
+};
+use amaru_ouroboros::ChainStore;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -216,7 +219,7 @@ impl ExternalEffect for FetchBlockEffect {
             #[expect(clippy::expect_used)]
             let network = resources
                 .get::<NetworkResource>()
-                .expect("BlockFetchEffect requires a NetworkResource")
+                .expect("FetchBlockEffect requires a NetworkResource")
                 .clone();
             let point = self.point.clone();
             network
@@ -272,11 +275,20 @@ impl Deref for NetworkResource {
 }
 
 impl NetworkResource {
-    pub fn new(
+    pub fn new<F: Future<Output = ()> + Send + 'static>(
         peers: impl IntoIterator<Item = Peer>,
         rt: &AcTokioRuntime,
         magic: u64,
         store: Arc<dyn ChainStore<BlockHeader>>,
+        mut actor: impl FnMut(
+            ActoCell<ConnMsg, AcTokioRuntime>,
+            Peer,
+            u64,
+            mpsc::Sender<ChainSyncEvent>,
+            Arc<dyn ChainStore<BlockHeader>>,
+        ) -> F
+        + Send
+        + 'static,
     ) -> Self {
         let (hd_tx, hd_rx) = mpsc::channel(100);
         let connections = peers
@@ -285,7 +297,7 @@ impl NetworkResource {
                 (
                     peer.clone(),
                     rt.spawn_actor(&format!("conn-{}", peer), |cell| {
-                        connection::actor(cell, peer, magic, hd_tx.clone(), store.clone())
+                        actor(cell, peer, magic, hd_tx.clone(), store.clone())
                     })
                     .me,
                 )
@@ -326,19 +338,6 @@ impl NetworkInner {
         if let Some(peer) = self.connections.get(peer) {
             peer.send(ConnMsg::FetchBlock(point.clone(), tx.clone()));
         }
-        #[cfg(feature = "amaru-upstream")]
-        let others = rand::seq::IteratorRandom::choose_multiple(
-            self.connections.keys(),
-            &mut rand::rng(),
-            3,
-        );
-        #[cfg(not(feature = "amaru-upstream"))]
-        let others = self.connections.keys().take(3);
-        for p in others {
-            if peer != p {
-                self.connections[p].send(ConnMsg::FetchBlock(point.clone(), tx.clone()));
-            }
-        }
         drop(tx);
         // if no sends were made then the drop above ensures that the below errors instead of deadlock
         rx.await
@@ -350,35 +349,5 @@ impl NetworkInner {
         if let Some(p) = self.connections.get(peer) {
             p.send_wait(ConnMsg::Disconnect).await;
         }
-    }
-}
-
-type BlockSender = Arc<Mutex<Option<oneshot::Sender<Result<Vec<u8>, BlockFetchClientError>>>>>;
-
-#[allow(dead_code)]
-pub enum ConnMsg {
-    FetchBlock(Point, BlockSender),
-    Disconnect,
-}
-
-#[cfg(feature = "amaru-upstream")]
-mod connection;
-
-#[cfg(not(feature = "amaru-upstream"))]
-mod connection {
-    use crate::consensus::events::ChainSyncEvent;
-    use acto::{AcTokioRuntime, ActoCell};
-    use amaru_kernel::peer::Peer;
-    use amaru_ouroboros::{BlockHeader, ChainStore};
-    use std::sync::Arc;
-    use tokio::sync::mpsc;
-
-    pub async fn actor(
-        _cell: ActoCell<super::ConnMsg, AcTokioRuntime>,
-        _peer: Peer,
-        _magic: u64,
-        _hd_tx: mpsc::Sender<ChainSyncEvent>,
-        _store: Arc<dyn ChainStore<BlockHeader>>,
-    ) {
     }
 }

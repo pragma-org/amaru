@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HeaderHash, ORIGIN_HASH, Point, cbor};
-use amaru_ouroboros_traits::is_header::IsHeader;
+use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, cbor};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 

@@ -12,16 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::cbor::encode::Write;
-use amaru_kernel::cbor::{Decode, Decoder, Encode, Encoder};
-use amaru_kernel::{
-    HEADER_HASH_SIZE, Hasher, Header, HeaderBody, HeaderHash, MintedHeader, Point, cbor,
+use crate::{
+    HEADER_HASH_SIZE, Hasher, Header, HeaderBody, HeaderHash, MintedHeader, Point,
+    cbor::{self, Decode, Decoder, Encode, Encoder, encode::Write},
 };
-use serde::Serializer;
-use serde::{Deserialize, Deserializer, Serialize};
-use std::cmp::Ordering;
-use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::{
+    cmp::Ordering,
+    fmt::{self, Debug, Display, Formatter},
+};
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests;

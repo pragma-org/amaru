@@ -18,9 +18,9 @@ use crate::stages::consensus::forward_chain::client_protocol::PrettyPoint;
 use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
 use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_consensus::consensus::tip::AsHeaderTip;
-use amaru_kernel::{Hash, Header, HeaderHash, from_cbor};
+use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor};
+use amaru_ouroboros_traits::ChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::{

@@ -18,9 +18,8 @@ use super::client_state::{ClientState, find_headers_between};
 use crate::stages::AsTip;
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_consensus::ChainStore;
-use amaru_kernel::{Hash, HeaderHash, to_cbor};
+use amaru_kernel::{Hash, HeaderHash, IsHeader, to_cbor};
 use amaru_network::point::to_network_point;
-use amaru_ouroboros_traits::IsHeader;
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{

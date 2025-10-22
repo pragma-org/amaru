@@ -15,8 +15,8 @@
 use super::client_state::tests::ChainStoreExt;
 use super::test_infra::{BRANCH_47, ClientMsg, LOST_47, Setup, TIP_47, WINNER_47, hash};
 use crate::stages::AsTip;
+use amaru_kernel::IsHeader;
 use amaru_network::point::to_network_point;
-use amaru_ouroboros_traits::IsHeader;
 
 #[tokio::test]
 async fn test_chain_sync() {

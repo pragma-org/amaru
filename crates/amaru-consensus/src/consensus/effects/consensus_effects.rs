@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::Store;
-use crate::consensus::effects::metrics_effects::{Metrics, MetricsOps};
-use crate::consensus::effects::{Base, BaseOps};
-use crate::consensus::effects::{Ledger, LedgerOps};
-use crate::consensus::effects::{Network, NetworkOps};
-use amaru_ouroboros_traits::{BlockHeader, ChainStore};
+use crate::consensus::effects::{
+    Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps, Store,
+    metrics_effects::{Metrics, MetricsOps},
+};
+use amaru_kernel::BlockHeader;
+use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{Effects, SendData};
 use std::sync::Arc;
 
@@ -102,9 +102,7 @@ pub mod tests {
     use amaru_metrics::ledger::LedgerMetrics;
     use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{
-        BlockHeader, BlockValidationError, HasStakeDistribution, PoolSummary,
-    };
+    use amaru_ouroboros_traits::{BlockValidationError, HasStakeDistribution, PoolSummary};
     use amaru_slot_arithmetic::Slot;
     use pure_stage::{BoxFuture, Instant, StageRef};
     use std::collections::BTreeMap;

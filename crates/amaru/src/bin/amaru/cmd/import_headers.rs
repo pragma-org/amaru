@@ -13,9 +13,8 @@
 // limitations under the License.
 
 use crate::cmd::WorkerError;
-use amaru_consensus::BlockHeader;
-use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName};
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use amaru_kernel::{BlockHeader, IsHeader, default_chain_dir, from_cbor, network::NetworkName};
+use amaru_ouroboros_traits::ChainStore;
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use std::{

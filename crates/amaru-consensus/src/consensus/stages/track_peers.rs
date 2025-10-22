@@ -14,8 +14,8 @@
 
 use crate::consensus::EVENT_TARGET;
 use crate::consensus::effects::ConsensusOps;
-use crate::consensus::events::ChainSyncEvent;
 use crate::consensus::span::HasSpan;
+use amaru_kernel::consensus_events::ChainSyncEvent;
 use amaru_kernel::peer::Peer;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, fmt::Debug};

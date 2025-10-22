@@ -19,7 +19,7 @@ use proptest::test_runner::{Config, RngSeed, TestRunner};
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
-    use amaru_kernel::Bytes;
+    use crate::Bytes;
     use pallas_primitives::VrfCert;
     use pallas_primitives::babbage::PseudoHeader;
     use pallas_primitives::conway::OperationalCert;

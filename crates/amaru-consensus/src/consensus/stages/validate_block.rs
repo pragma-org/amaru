@@ -14,9 +14,9 @@
 
 use crate::consensus::effects::{BaseOps, ConsensusOps, MetricsOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
-use crate::consensus::events::{DecodedChainSyncEvent, ValidateBlockEvent};
 use crate::consensus::span::HasSpan;
-use amaru_ouroboros_traits::IsHeader;
+use amaru_kernel::IsHeader;
+use amaru_kernel::consensus_events::{DecodedChainSyncEvent, ValidateBlockEvent};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Level, error, span};

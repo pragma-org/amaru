@@ -15,7 +15,6 @@
 use amaru_consensus::consensus::{
     effects::{ConsensusEffects, DisconnectEffect},
     errors::{ProcessingFailed, ValidationFailed},
-    events::ChainSyncEvent,
     stages::{
         fetch_block, forward_chain, receive_header,
         select_chain::{self, SelectChain},
@@ -24,6 +23,7 @@ use amaru_consensus::consensus::{
     },
     tip::HeaderTip,
 };
+use amaru_kernel::consensus_events::ChainSyncEvent;
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the consensus protocol.

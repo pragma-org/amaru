@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    EraHistory, Hash, HeaderHash, Nonce, Point, default_chain_dir, network::NetworkName,
-    parse_nonce,
+    BlockHeader, EraHistory, Hash, HeaderHash, Nonce, Point, default_chain_dir,
+    network::NetworkName, parse_nonce,
 };
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, Nonces};
+use amaru_ouroboros_traits::{ChainStore, Nonces};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

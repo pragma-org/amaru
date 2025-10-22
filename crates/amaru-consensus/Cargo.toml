@@ -16,7 +16,6 @@ rust-version.workspace = true
 default = []
 profiling = ["dep:pprof"]
 test-utils = ["proptest", "dep:rand", "serde_json"]
-amaru-upstream = ["dep:pallas-network", "dep:rand", "dep:amaru-network"]
 
 [dependencies]
 acto.workspace = true

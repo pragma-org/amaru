@@ -30,19 +30,19 @@ use amaru_consensus::consensus::{
         ForwardEvent, ForwardEventListener, ResourceBlockValidation, ResourceForwardEventListener,
         ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
     },
-    events::ChainSyncEvent,
     headers_tree::HeadersTreeState,
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
     tip::HeaderTip,
 };
+use amaru_kernel::consensus_events::ChainSyncEvent;
 use amaru_kernel::string_utils::{ListDebug, ListToString};
+use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
     Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
-use amaru_ouroboros::BlockHeader;
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateHeaders;
 use amaru_ouroboros::{
-    ChainStore, IsHeader, can_validate_blocks::mock::MockCanValidateBlocks,
+    ChainStore, can_validate_blocks::mock::MockCanValidateBlocks,
     in_memory_consensus_store::InMemConsensusStore,
 };
 use async_trait::async_trait;
@@ -202,6 +202,7 @@ pub fn spawn_node(
         &AcTokio::from_handle("upstream", rt.handle().clone()),
         0,
         resource_header_store,
+        async |_, _, _, _, _| {},
     ));
 
     (receiver.without_state(), rx1, Receiver::new(rx2))

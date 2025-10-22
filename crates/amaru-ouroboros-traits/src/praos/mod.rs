@@ -44,8 +44,7 @@ Summarizing:
                                       └─────────────────────────┘
 */
 
-use crate::is_header::IsHeader;
-use amaru_kernel::{Hash, HeaderHash, Nonce, cbor};
+use amaru_kernel::{Hash, HeaderHash, IsHeader, Nonce, cbor};
 use amaru_slot_arithmetic::Epoch;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]

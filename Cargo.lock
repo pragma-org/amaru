@@ -158,15 +158,18 @@ version = "0.1.0"
 dependencies = [
  "amaru-minicbor-extra",
  "amaru-slot-arithmetic",
+ "anyhow",
  "bech32 0.11.0",
  "hex",
  "itertools 0.14.0",
+ "minicbor",
  "pallas-addresses",
  "pallas-codec",
  "pallas-crypto",
  "pallas-math",
  "pallas-primitives",
  "pallas-traverse",
+ "parking_lot",
  "proptest",
  "rand 0.9.2",
  "serde",
@@ -174,6 +177,8 @@ dependencies = [
  "sha3",
  "test-case",
  "thiserror 2.0.17",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -224,12 +229,16 @@ dependencies = [
 name = "amaru-network"
 version = "0.1.0"
 dependencies = [
+ "acto",
  "amaru-kernel",
+ "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "anyhow",
  "async-trait",
+ "futures-util",
  "pallas-network",
  "pallas-traverse",
+ "pure-stage",
  "thiserror 2.0.17",
  "tokio",
  "tracing",

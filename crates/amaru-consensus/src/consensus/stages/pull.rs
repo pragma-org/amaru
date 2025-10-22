@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{effects::ChainSyncEffect, events::ChainSyncEvent};
+use crate::consensus::effects::ChainSyncEffect;
+use amaru_kernel::consensus_events::ChainSyncEvent;
 use pure_stage::{Effects, StageRef};
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -20,32 +20,40 @@
 //!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<BlockHeader>` of a given depth.
 //!
 
-use crate::consensus::errors::ConsensusError;
-use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
-use crate::consensus::headers_tree::data_generation::SelectionResult::{Back, Forward};
-use crate::consensus::headers_tree::data_generation::any_tree_of_headers_and_best_chain;
-use crate::consensus::headers_tree::tree::Tree;
-use crate::consensus::headers_tree::{HeadersTree, Tracker};
-use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
-use crate::consensus::stages::select_chain::{ForwardChainSelection, RollbackChainSelection};
-use amaru_kernel::peer::Peer;
-use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::{HEADER_HASH_SIZE, HeaderHash, Point};
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::tests::make_header;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
+use crate::consensus::{
+    errors::ConsensusError,
+    headers_tree::{
+        HeadersTree,
+        Tracker::{self, Me, SomePeer},
+        data_generation::{
+            SelectionResult::{Back, Forward},
+            any_tree_of_headers_and_best_chain,
+        },
+        tree::Tree,
+    },
+    stages::select_chain::{
+        ForwardChainSelection,
+        RollbackChainSelection::{self, RollbackBeyondLimit},
+    },
+};
+use amaru_kernel::{
+    BlockHeader, HEADER_HASH_SIZE, HeaderHash, IsHeader, Point, is_header::tests::make_header,
+    peer::Peer, string_utils::ListToString,
+};
+use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use hex::FromHexError;
 use itertools::Itertools;
 use pallas_crypto::hash::Hash;
 use proptest::prelude::Strategy;
-use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{Rng, SeedableRng, prelude::StdRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::cmp::Reverse;
-use std::collections::BTreeMap;
-use std::fmt::{Debug, Display, Formatter};
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{
+    cmp::Reverse,
+    collections::BTreeMap,
+    fmt::{Debug, Display, Formatter},
+    str::FromStr,
+    sync::Arc,
+};
 
 /// This data type models the events sent by the ChainSync mini-protocol with simplified data for the tests.
 /// The serialization is adjusted to make concise string representations when transforming

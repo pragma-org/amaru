@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ChainStore, ReadOnlyChainStore, StoreError};
-use crate::{IsHeader, Nonces};
-use amaru_kernel::{HeaderHash, ORIGIN_HASH, RawBlock};
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
+use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, RawBlock};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 /// An in-memory implementation of a ChainStore used by the consensus stages.
 #[derive(Clone)]

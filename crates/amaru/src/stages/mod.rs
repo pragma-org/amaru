@@ -17,24 +17,20 @@ use crate::stages::{
     consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
 };
 use acto::AcTokio;
-use amaru_consensus::{
-    BlockHeader,
-    consensus::{
-        effects::{
-            NetworkResource, ResourceBlockValidation, ResourceForwardEventListener,
-            ResourceHeaderStore, ResourceHeaderValidation, ResourceMeter, ResourceParameters,
-        },
-        errors::ConsensusError,
-        headers_tree::HeadersTreeState,
-        stages::{
-            pull, select_chain::SelectChain, track_peers::SyncTracker,
-            validate_header::ValidateHeader,
-        },
-        tip::{AsHeaderTip, HeaderTip},
+use amaru_consensus::consensus::{
+    effects::{
+        NetworkResource, ResourceBlockValidation, ResourceForwardEventListener,
+        ResourceHeaderStore, ResourceHeaderValidation, ResourceMeter, ResourceParameters,
     },
+    errors::ConsensusError,
+    headers_tree::HeadersTreeState,
+    stages::{
+        pull, select_chain::SelectChain, track_peers::SyncTracker, validate_header::ValidateHeader,
+    },
+    tip::{AsHeaderTip, HeaderTip},
 };
 use amaru_kernel::{
-    EraHistory, HeaderHash, ORIGIN_HASH, Point,
+    BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
     network::NetworkName,
     peer::Peer,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
@@ -43,7 +39,7 @@ use amaru_ledger::block_validator::BlockValidator;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::point::to_network_point;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
+    CanValidateBlocks, ChainStore, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
 };
 use amaru_stores::{
@@ -249,6 +245,7 @@ pub async fn bootstrap(
         &acto_runtime,
         config.network_magic.into(),
         chain_store,
+        amaru_network::acto_connection::actor,
     ));
 
     if let Some(provider) = meter_provider {

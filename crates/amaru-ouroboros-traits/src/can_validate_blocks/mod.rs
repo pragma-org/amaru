@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::BlockHeader;
-use amaru_kernel::{Point, RawBlock};
+use amaru_kernel::{BlockHeader, Point, RawBlock};
 use amaru_metrics::ledger::LedgerMetrics;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};

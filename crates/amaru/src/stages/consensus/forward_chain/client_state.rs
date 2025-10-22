@@ -14,8 +14,9 @@
 
 use crate::stages::AsTip;
 use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
+use amaru_kernel::IsHeader;
 use amaru_network::point::to_network_point;
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use amaru_ouroboros_traits::ChainStore;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -110,8 +111,8 @@ pub(crate) mod tests {
     use crate::stages::consensus::forward_chain::test_infra::{
         BRANCH_47, CHAIN_47, LOST_47, TIP_47, WINNER_47, hash, mk_store,
     };
-    use amaru_kernel::HeaderHash;
-    use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
+    use amaru_kernel::{BlockHeader, HeaderHash, IsHeader};
+    use amaru_ouroboros_traits::ChainStore;
     use pallas_network::miniprotocols::Point;
     use pallas_network::miniprotocols::chainsync::Tip;
     use std::sync::Arc;

@@ -14,10 +14,9 @@
 
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
-use crate::consensus::events::{ChainSyncEvent, DecodedChainSyncEvent};
 use crate::consensus::span::HasSpan;
-use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
-use amaru_ouroboros_traits::{BlockHeader, IsHeader};
+use amaru_kernel::consensus_events::{ChainSyncEvent, DecodedChainSyncEvent};
+use amaru_kernel::{BlockHeader, Hash, Header, IsHeader, MintedHeader, Point, cbor};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Level, instrument, span};
@@ -140,10 +139,9 @@ mod tests {
     use super::*;
     use crate::consensus::effects::mock_consensus_ops;
     use crate::consensus::errors::ValidationFailed;
-    use crate::consensus::events::DecodedChainSyncEvent;
+    use amaru_kernel::is_header::tests::{any_header, run};
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::tests::{any_header, run};
-    use amaru_ouroboros_traits::{ChainStore, IsHeader};
+    use amaru_ouroboros::ChainStore;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;

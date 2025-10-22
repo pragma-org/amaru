@@ -34,8 +34,9 @@ fn main() {
         Ratio, execute_actions_on_tree, generate_header_tree, generate_random_walks,
     };
     use amaru_consensus::consensus::stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
+    use amaru_kernel::{BlockHeader, IsHeader};
+    use amaru_ouroboros_traits::ChainStore;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};
     use std::fs::File;
     use std::sync::Arc;

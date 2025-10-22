@@ -14,7 +14,6 @@
 
 pub mod effects;
 pub mod errors;
-pub mod events;
 pub mod headers_tree;
 pub mod span;
 pub mod stages;

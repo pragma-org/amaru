@@ -16,12 +16,15 @@ use crate::consensus::{
     EVENT_TARGET,
     effects::{BaseOps, ConsensusOps},
     errors::{ConsensusError, ValidationFailed},
-    events::{BlockValidationResult, DecodedChainSyncEvent, ValidateHeaderEvent},
     headers_tree::{HeadersTree, HeadersTreeState},
     span::HasSpan,
 };
-use amaru_kernel::{HeaderHash, Point, peer::Peer, string_utils::ListToString};
-use amaru_ouroboros::{BlockHeader, IsHeader};
+use amaru_kernel::{
+    BlockHeader, HeaderHash, IsHeader, Point,
+    consensus_events::{BlockValidationResult, DecodedChainSyncEvent, ValidateHeaderEvent},
+    peer::Peer,
+    string_utils::ListToString,
+};
 use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{BoxFuture, StageRef};
 use serde::{Deserialize, Serialize};
@@ -329,13 +332,10 @@ mod tests {
     use super::*;
     use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
     use crate::consensus::{
-        effects::mock_consensus_ops,
-        errors::ValidationFailed,
-        events::{BlockValidationResult::BlockValidated, DecodedChainSyncEvent},
-        headers_tree::Tracker,
+        effects::mock_consensus_ops, errors::ValidationFailed, headers_tree::Tracker,
     };
+    use amaru_kernel::is_header::tests::{any_header, any_headers_chain, run};
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::tests::{any_header, any_headers_chain, run};
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;
@@ -455,7 +455,7 @@ mod tests {
     }
 
     fn make_block_validated_event(peer: &Peer, header: &BlockHeader) -> BlockValidationResult {
-        BlockValidated {
+        BlockValidationResult::BlockValidated {
             peer: peer.clone(),
             header: header.clone(),
             span: Span::current(),
