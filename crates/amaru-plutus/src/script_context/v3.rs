@@ -910,7 +910,7 @@ mod tests {
 
     macro_rules! fixture {
         ($title:literal) => {
-            test_vectors::get_test_vector($title)
+            test_vectors::get_test_vector($title, 3)
         };
     }
 

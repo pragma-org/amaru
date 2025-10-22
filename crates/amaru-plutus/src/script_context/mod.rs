@@ -523,8 +523,8 @@ pub mod test_vectors {
             .collect()
     }
 
-    pub fn get_test_vector(title: &str) -> &'static TestVector {
-        TEST_VECTORS
+    pub fn get_test_vector(title: &str, ver: u8) -> &'static TestVector {
+        get_test_vectors(ver)
             .iter()
             .find(|vector| vector.meta.title == title)
             .unwrap_or_else(|| panic!("Test case not found: {title}"))
