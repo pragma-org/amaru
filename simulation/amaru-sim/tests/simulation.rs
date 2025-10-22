@@ -40,29 +40,25 @@ fn run_simulator() {
             "AMARU_GENERATED_CHAIN_DEPTH",
             node_config.generated_chain_depth,
         ),
-        generated_chain_rollback_ratio: get_env_var(
-            "AMARU_GENERATED_CHAIN_ROLLBACK_RATIO",
-            node_config.generated_chain_rollback_ratio,
-        ),
-        generated_chain_branching_ratio: get_env_var(
-            "AMARU_GENERATED_CHAIN_BRANCHING_RATIO",
-            node_config.generated_chain_branching_ratio,
-        ),
         disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true("AMARU_PERSIST_ON_SUCCESS"),
     };
 
     let amaru_logs = get_env_var::<String>("AMARU_SIMULATION_LOG", "".to_string());
-    tracing_subscriber::fmt()
+    let amaru_logs_as_json = is_true("AMARU_SIMULATION_LOG_AS_JSON");
+    let formatter = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
             EnvFilter::builder()
                 .parse(format!("none,{}", amaru_logs))
                 .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
-        )
-        .json()
-        .init();
+        );
+    if amaru_logs_as_json {
+        formatter.json().init();
+    } else {
+        formatter.init();
+    }
 
     run(Runtime::new().unwrap(), args);
 }

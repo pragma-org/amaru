@@ -17,33 +17,46 @@ use crate::simulator::bytes::Bytes;
 use crate::simulator::data_generation::base_generators::generate_arrival_times;
 use crate::simulator::{Entry, NodeConfig};
 use crate::sync::ChainSyncMessage;
-use amaru_consensus::consensus::headers_tree::data_generation::{Action, Chain, any_select_chains};
+use amaru_consensus::consensus::headers_tree::data_generation::{
+    Action, GeneratedActions, any_select_chains_from_tree, any_tree_of_headers,
+};
 use amaru_kernel::{IsHeader, is_header::tests::run_with_rng, peer::Peer, to_cbor};
 use amaru_slot_arithmetic::Slot;
 use pure_stage::Instant;
 use rand::Rng;
 
+/// Generates a sequence of chain sync entries based on random actions from peers on a tree of
+/// headers generated with a specified depth.
+///
+/// FIXME: since we are generating data with a `proptest` strategy the simulation framework can not
+/// for now shrink the list of actions generated here. This means that if a test fails the generated data
+/// will not be minimized to find a smaller failing case. The generation is deterministic though based on the
+/// RNG passed as a parameter.
 pub fn generate_entries<R: Rng>(
     node_config: &NodeConfig,
     start_time: Instant,
     mean_millis: f64,
-) -> impl Fn(&mut R) -> (Vec<Entry<ChainSyncMessage>>, Chain) {
+) -> impl Fn(&mut R) -> (Vec<Entry<ChainSyncMessage>>, GeneratedActions) {
     move |rng: &mut R| {
-        let (actions, best_chain) = run_with_rng(
+        let generated_tree = run_with_rng(
             rng,
-            any_select_chains(
+            any_tree_of_headers(node_config.generated_chain_depth as usize),
+        );
+
+        let generated_actions = run_with_rng(
+            rng,
+            any_select_chains_from_tree(
+                &generated_tree,
                 node_config.number_of_upstream_peers as usize,
-                node_config.generated_chain_depth as usize,
-                node_config.generated_chain_rollback_ratio,
-                node_config.generated_chain_branching_ratio,
             ),
         );
 
-        let arrival_times = generate_arrival_times(start_time, mean_millis)(actions.len(), rng);
+        let arrival_times =
+            generate_arrival_times(start_time, mean_millis)(generated_actions.len(), rng);
         let mut messages = Vec::new();
 
         for (msg_id, (action, arrival_time)) in
-            (0_u64..).zip(actions.into_iter().zip(arrival_times.iter()))
+            (0_u64..).zip(generated_actions.actions().iter().zip(arrival_times.iter()))
         {
             let message = match &action {
                 Action::RollForward { header, .. } => ChainSyncMessage::Fwd {
@@ -64,7 +77,7 @@ pub fn generate_entries<R: Rng>(
             };
             messages.push(make_entry(action.peer(), arrival_time, message));
         }
-        (messages, best_chain)
+        (messages, generated_actions)
     }
 }
 

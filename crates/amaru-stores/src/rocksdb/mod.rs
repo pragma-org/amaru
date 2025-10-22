@@ -131,7 +131,7 @@ pub struct RocksDB {
 
 #[derive(Clone)]
 pub struct RocksDbConfig {
-    dir: PathBuf,
+    pub dir: PathBuf,
     env: Option<rocksdb::Env>,
 }
 
@@ -155,9 +155,15 @@ impl RocksDbConfig {
 
 impl From<RocksDbConfig> for Options {
     fn from(config: RocksDbConfig) -> Self {
+        From::from(&config)
+    }
+}
+
+impl From<&RocksDbConfig> for Options {
+    fn from(config: &RocksDbConfig) -> Self {
         let mut opts = Options::default();
-        if let Some(env) = config.env {
-            opts.set_env(&env);
+        if let Some(ref env) = config.env {
+            opts.set_env(env);
         }
         opts
     }
@@ -169,10 +175,10 @@ impl std::fmt::Display for RocksDbConfig {
             write!(
                 f,
                 "RocksDbConfig {{ dir: {}, env: shared }}",
-                self.dir.display()
+                self.dir.display(),
             )
         } else {
-            write!(f, "RocksDbConfig {{ dir: {} }}", self.dir.display())
+            write!(f, "RocksDbConfig {{ dir: {} }}", self.dir.display(),)
         }
     }
 }

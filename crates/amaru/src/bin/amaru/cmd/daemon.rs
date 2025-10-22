@@ -79,6 +79,11 @@ pub struct Args {
     /// Path to the PID file, managed by Amaru.
     #[arg(long, value_name = "FILE", env = "AMARU_PID_FILE")]
     pid_file: Option<PathBuf>,
+
+    /// Flag to automatically migrate the chain database if needed.
+    /// By default, the migration is not performed automatically, checkout `migrate-chain-db` command.
+    #[arg(long, action = ArgAction::SetTrue, default_value_t = false, env = "AMARU_MIGRATE_CHAIN_DB")]
+    migrate_chain_db: bool,
 }
 
 pub async fn run(
@@ -126,6 +131,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         listen_address: args.listen_address,
         max_downstream_peers: args.max_downstream_peers,
         max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
+        migrate_chain_db: args.migrate_chain_db,
     })
 }
 

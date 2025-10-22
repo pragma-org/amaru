@@ -22,6 +22,7 @@ use gasket::framework::WorkerError;
 use pallas_primitives::babbage::{Header, MintedHeader};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::fmt::{Display, Formatter};
 use tracing::Span;
 
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
@@ -126,6 +127,46 @@ impl fmt::Debug for ChainSyncMessage {
                     &hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)]),
                 )
                 .finish(),
+        }
+    }
+}
+
+impl Display for ChainSyncMessage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ChainSyncMessage::Init {
+                msg_id,
+                node_id,
+                node_ids,
+            } => write!(
+                f,
+                "Init ({}) node_id={}, node_ids=[{}]",
+                msg_id,
+                node_id,
+                node_ids.join(", ")
+            ),
+            ChainSyncMessage::InitOk { in_reply_to } => {
+                write!(f, "InitOk ({})", in_reply_to)
+            }
+            ChainSyncMessage::Fwd {
+                msg_id,
+                slot,
+                hash,
+                header: _,
+            } => write!(
+                f,
+                "Forward ({}) {}/{}",
+                msg_id,
+                slot,
+                hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
+            ),
+            ChainSyncMessage::Bck { msg_id, slot, hash } => write!(
+                f,
+                "Backward ({}) {}/{}",
+                msg_id,
+                slot,
+                hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
+            ),
         }
     }
 }

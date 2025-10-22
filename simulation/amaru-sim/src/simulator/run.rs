@@ -23,7 +23,7 @@ use acto::AcTokio;
 use amaru::stages::build_stage_graph::build_stage_graph;
 use amaru_consensus::consensus::effects::{FetchBlockEffect, NetworkResource};
 use amaru_consensus::consensus::errors::ConsensusError;
-use amaru_consensus::consensus::headers_tree::data_generation::Chain;
+use amaru_consensus::consensus::headers_tree::data_generation::{Chain, GeneratedActions};
 use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_consensus::consensus::{
     effects::{
@@ -35,7 +35,7 @@ use amaru_consensus::consensus::{
     tip::HeaderTip,
 };
 use amaru_kernel::consensus_events::ChainSyncEvent;
-use amaru_kernel::string_utils::{ListDebug, ListToString};
+use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
 use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
     Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
@@ -83,6 +83,7 @@ pub fn run(rt: Runtime, args: Args) {
     let simulate_config = SimulateConfig::from(args.clone());
     simulate(
         &simulate_config,
+        &node_config,
         spawn,
         generate_entries(
             &node_config,
@@ -90,6 +91,7 @@ pub fn run(rt: Runtime, args: Args) {
             200.0,
         ),
         chain_property(),
+        display_entries_statistics,
         trace_buffer.clone(),
         args.persist_on_success,
     )
@@ -224,7 +226,11 @@ fn init_node(
     let peers = (1..=node_config.number_of_upstream_peers)
         .map(|i| Peer::new(&format!("c{}", i)))
         .collect::<Vec<_>>();
-    let select_chain = make_chain_selector(chain_store.clone(), &peers);
+    let select_chain = make_chain_selector(
+        chain_store.clone(),
+        node_config.generated_chain_depth,
+        &peers,
+    );
     let sync_tracker = SyncTracker::new(&peers);
 
     (
@@ -238,9 +244,17 @@ fn init_node(
 
 fn make_chain_selector(
     chain_store: Arc<dyn ChainStore<BlockHeader>>,
+    generated_chain_depth: u64,
     peers: &Vec<Peer>,
 ) -> SelectChain {
-    let mut tree_state = HeadersTreeState::new(DEFAULT_MAXIMUM_FRAGMENT_LENGTH);
+    // Set the maximum length for the best fragment based on the generated chain depth
+    // so we generated roll forwards that move the best chain anchor.
+    let max_length = if generated_chain_depth > DEFAULT_MAXIMUM_FRAGMENT_LENGTH as u64 {
+        DEFAULT_MAXIMUM_FRAGMENT_LENGTH
+    } else {
+        generated_chain_depth as usize - 1
+    };
+    let mut tree_state = HeadersTreeState::new(max_length);
     let anchor = chain_store.get_anchor_hash();
     for peer in peers {
         tree_state
@@ -251,23 +265,62 @@ fn make_chain_selector(
 }
 
 /// Property: at the end of the simulation, the chain built from the history of messages received
-/// downstream must match the best chain built directly from messages coming from upstream peers.
-fn chain_property() -> impl Fn(&History<ChainSyncMessage>, &Chain) -> Result<(), String> {
-    move |history, expected| {
-        let actual = make_best_chain_from_downstream_messages(history);
-        let actual_chain = actual.list_to_string(",\n ");
-        let expected_chain = expected.list_to_string(",\n ");
-        assert_eq!(
-            &actual, expected,
-            "\nThe actual chain\n{}\n\nis not the best chain\n\n{}\n\nThe history is:\n{:?}",
-            actual_chain, expected_chain, history,
-        );
-        Ok(())
+/// downstream must match one of the best chains built directly from messages coming from upstream peers.
+///
+/// FIXME: at some point we should implement a deterministic tie breaker when multiple best chains exist
+/// based on the VRF key of the received headers.
+fn chain_property() -> impl Fn(&History<ChainSyncMessage>, &GeneratedActions) -> Result<(), String>
+{
+    move |history, generated_actions| {
+        let actual = make_best_chain_from_downstream_messages(history)?;
+        let generated_tree = generated_actions.generated_tree();
+        let best_chains = generated_tree.best_chains();
+
+        if !best_chains.contains(&actual) {
+            let actions_as_string: String = generated_actions
+                .actions()
+                .iter()
+                .map(|action| action.pretty_print())
+                .collect::<Vec<_>>()
+                .list_to_string(",\n");
+
+            Err(format!(
+                r#"
+The actual chain
+{}
+is not in the best chains
+{}
+The history is:
+{:?}
+The headers tree is
+{}
+The actions are
+{}
+"#,
+                actual.list_to_string(",\n"),
+                best_chains.lists_to_string(",\n", ",\n"),
+                history,
+                generated_actions.generated_tree().tree(),
+                actions_as_string
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Generate statistics from actions and log them.
+fn display_entries_statistics(generated_actions: &GeneratedActions) {
+    let statistics = generated_actions.statistics();
+    for statistic in statistics.lines() {
+        info!("{}", statistic);
     }
 }
 
 /// Build the best chain from messages sent to downstream peers.
-pub fn make_best_chain_from_downstream_messages(history: &History<ChainSyncMessage>) -> Chain {
+fn make_best_chain_from_downstream_messages(
+    history: &History<ChainSyncMessage>,
+) -> Result<Chain, String> {
     let mut best_chain = vec![];
     for (i, message) in history.0.iter().enumerate() {
         // only consider messages sent to the first peer
@@ -286,20 +339,20 @@ pub fn make_best_chain_from_downstream_messages(history: &History<ChainSyncMessa
                     if let Some(rollback_position) = rollback_position {
                         best_chain.truncate(rollback_position + 1);
                     } else {
-                        panic!(
+                        Err(format!(
                             "after the action {}, we have a rollback position that does not exist with hash {}.\nThe best chain is:\n{}. The history is:\n{}",
                             i + 1,
                             header_hash,
                             best_chain.list_to_string(",\n"),
                             history.0.iter().collect::<Vec<_>>().list_debug("\n")
-                        );
+                        ))?;
                     }
                 }
             }
             _ => (),
         }
     }
-    best_chain
+    Ok(best_chain)
 }
 
 /// This implementation of ForwardEventListener sends the received events a Sender that can collect them

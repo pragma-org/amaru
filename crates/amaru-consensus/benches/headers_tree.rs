@@ -31,7 +31,7 @@
 fn main() {
     use amaru_consensus::consensus::headers_tree::HeadersTree;
     use amaru_consensus::consensus::headers_tree::data_generation::{
-        Ratio, execute_actions_on_tree, generate_header_tree, generate_random_walks,
+        execute_actions_on_tree, generate_random_walks,
     };
     use amaru_consensus::consensus::stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
     use amaru_kernel::{BlockHeader, IsHeader};
@@ -51,33 +51,32 @@ fn main() {
     // the maximum length is reached for the best chain.
     let depth = max_length + 200;
 
-    // This ratio controls how often we generate branches on top of the main chain.
-    let branching_ratio = Ratio(1, 20);
-
-    // When the random walk is generated on the tree, this ratio controls how often we roll back
-    // from a given node.
-    let rollback_ratio = Ratio(1, 20);
-
     // A more realistic bench would use around 200 peers but this would make the bench take a really
     // long time to run.
     let peers_nb = 10;
 
     // Create a large tree of headers and random actions to be executed on a HeadersTree
     // from the list of peers.
-    let tree = generate_header_tree(depth, seed, branching_ratio);
-    assert!(tree.leaves().len() > 10000);
+    let generated_tree = generate_tree_of_headers(depth, seed);
+    let tree = generated_tree.tree();
+    assert!(
+        tree.nodes().len() > 5000,
+        "there are {} nodes",
+        tree.nodes().len()
+    );
 
-    let actions = generate_random_walks(&tree, peers_nb, rollback_ratio, seed);
-    assert!(actions.len() > 5000);
+    let generated_actions = generate_random_walks(&generated_tree, peers_nb);
+    let actions = generated_actions.actions();
+    assert!(actions.len() > 10000);
 
     // Initialize an empty HeadersTree and execute the actions on it while measuring the time taken.
     let store = if in_memory {
         Arc::new(InMemConsensusStore::new())
     } else {
-        use amaru_stores::rocksdb::consensus::initialise_test_rw_store;
         let tempdir = tempfile::tempdir().unwrap();
-        let store: Arc<dyn ChainStore<BlockHeader>> =
-            Arc::new(initialise_test_rw_store(tempdir.path()));
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(
+            RocksDBStore::create(RocksDbConfig::new(tempdir.path().to_path_buf())).unwrap(),
+        );
         store
     };
 
@@ -96,7 +95,7 @@ fn main() {
 
     let start = std::time::Instant::now();
     eprintln!("start executing the actions");
-    let results = execute_actions_on_tree(store, &mut headers_tree, &actions, false).unwrap();
+    let results = execute_actions_on_tree(store, &mut headers_tree, actions, false).unwrap();
 
     let elapsed = start.elapsed();
     let time_per_action = elapsed / (actions.len() as u32);

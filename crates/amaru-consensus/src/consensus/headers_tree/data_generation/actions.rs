@@ -26,8 +26,9 @@ use crate::consensus::{
         HeadersTree,
         Tracker::{self, Me, SomePeer},
         data_generation::{
+            GeneratedTree,
             SelectionResult::{Back, Forward},
-            any_tree_of_headers_and_best_chain,
+            any_tree_of_headers,
         },
         tree::Tree,
     },
@@ -42,16 +43,13 @@ use amaru_kernel::{
 };
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use hex::FromHexError;
-use itertools::Itertools;
 use pallas_crypto::hash::Hash;
-use proptest::prelude::Strategy;
-use rand::{Rng, SeedableRng, prelude::StdRng};
+use proptest::prelude::{Just, Strategy};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
-    cmp::Reverse,
     collections::BTreeMap,
     fmt::{Debug, Display, Formatter},
-    str::FromStr,
     sync::Arc,
 };
 
@@ -62,6 +60,32 @@ use std::{
 pub enum Action {
     RollForward { peer: Peer, header: BlockHeader },
     RollBack { peer: Peer, rollback_point: Point },
+}
+
+impl Action {
+    pub fn hash(&self) -> HeaderHash {
+        match self {
+            Action::RollForward { header, .. } => header.hash(),
+            Action::RollBack { rollback_point, .. } => rollback_point.hash(),
+        }
+    }
+
+    pub fn set_peer(self, peer: &Peer) -> Self {
+        match self {
+            Action::RollForward { header, .. } => Action::RollForward {
+                peer: peer.clone(),
+                header,
+            },
+            Action::RollBack { rollback_point, .. } => Action::RollBack {
+                peer: peer.clone(),
+                rollback_point,
+            },
+        }
+    }
+
+    pub fn pretty_print(&self) -> String {
+        format!("r#\"{}\"#", &serde_json::to_string(self).unwrap())
+    }
 }
 
 struct SimplifiedHeader(BlockHeader);
@@ -237,48 +261,10 @@ impl Display for SelectionResult {
 }
 
 /// Generate a random list of Actions for a given peer on a given tree of headers.
-/// `max_length` is provided to make sure that we don't generate rollbacks that are beyond the tree root.
-/// (because this would makes assertions harder to check).
-///
-/// The generation is recursive:
-///
-///  - The current node in the tree gives rise to a roll forward.
-///  - For each of its children we:
-///     - Create another random walk starting from that child.
-///     - Randomly decide if there could be a rollback to the current node following the child's random walk.
-///     - Then the next child would have its own random walk.
-///
-/// The children are processed in decreasing order of their depth so that we can make sure to generate
-/// some branches with a maximum depth.
-///
-/// For example, given the tree:
-///
-///  +- 1
-///     +- 2
-///     +- 3
-///        +- 4
-///           +- 5
-///           +- 6
-///        +- 7
-///     +- 8
-///        +- 9
-///           +- 10
-///
-/// We could generate (F = Forward, R = Rollback):
-///
-///   - F1, F2, F3, F4, F5, F6, R3, F7, R1, F8, F9, R9
-///
-/// In the sequence above, after generating a random walk starting from 4, we rollback to 3, then
-/// generate a roll forward to 7.
-/// Similarly, after generating a random walk starting from 3, we rollback to 1, then generate
-/// roll forwards to 8, 9.
-/// Finally there's a rollback to 9 but since 9 doesn't have any more children the overall walk stops.
-///
-pub fn random_walk(
-    rng: &mut StdRng,
+pub fn random_walk<R: Rng>(
+    peer_rng: &mut R,
     tree: &Tree<BlockHeader>,
     peer: &Peer,
-    rollback_ratio: Ratio,
     result: &mut BTreeMap<Peer, Vec<Action>>,
 ) {
     if !result.contains_key(peer) {
@@ -292,69 +278,26 @@ pub fn random_walk(
         })
     }
 
-    // Process the children in decreasing order of their depth
-    for child in tree.children.iter().sorted_by_key(|c| Reverse(c.depth())) {
-        random_walk(rng, child, peer, rollback_ratio, result);
+    // Process the children in a random order based on a peer-specific RNG
+    let mut children: Vec<_> = tree.children.clone().into_iter().collect();
+    children.sort_by_key(|_c| peer_rng.random_bool(0.5));
 
-        // Depending on the desired rollback ratio, add a rollback from the current node to the next
-        // branch in the tree.
-        if rng.random_ratio(rollback_ratio.0, rollback_ratio.1)
-            && let Some(actions) = result.get_mut(peer)
-        {
-            actions.push(Action::RollBack {
-                peer: peer.clone(),
-                // We don't have the parent slot here but this is not important for the tests.
-                rollback_point: Point::Specific(tree.value.slot(), tree.value.hash().to_vec()),
-            })
-        }
+    // Start a new random walk for each child
+    for child in children.iter() {
+        random_walk(peer_rng, child, peer, result);
     }
 
+    // Come back to the parent node to explore another tree branch
     if let Some(parent) = tree.value.parent()
         && let Some(actions) = result.get_mut(peer)
     {
-        actions.push(Action::RollBack {
+        let rollback = Action::RollBack {
             peer: peer.clone(),
             rollback_point: Point::Specific(tree.value.slot(), parent.to_vec()),
-        })
-    }
-}
-
-/// This ratio is used to control the data generation for the branching of the header tree +
-/// the amount of rollbacks in the random walk.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct Ratio(pub u32, pub u32);
-
-impl Display for Ratio {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.0, self.1)
-    }
-}
-
-impl FromStr for Ratio {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split('/').collect();
-        if parts.len() != 2 {
-            return Err("Ratio must be in the form 'numerator/denominator'".to_string());
+        };
+        if actions.last().map(|h| h.hash()) != Some(rollback.hash()) {
+            actions.push(rollback)
         }
-        let numerator = parts[0]
-            .parse::<u32>()
-            .map_err(|_| format!("Invalid numerator in ratio: {}", parts[0]))?;
-        let denominator = parts[1]
-            .parse::<u32>()
-            .map_err(|_| format!("Invalid denominator in ratio: {}", parts[1]))?;
-
-        if denominator == 0 {
-            return Err("Ratio denominator must be > 0".to_string());
-        }
-        if numerator > denominator {
-            return Err(format!(
-                "Ratio must be <= 1.0, got {}/{}",
-                numerator, denominator
-            ));
-        }
-        Ok(Ratio(numerator, denominator))
     }
 }
 
@@ -365,54 +308,131 @@ impl FromStr for Ratio {
 /// Otherwise, if we had all the actions from peer 1, then all the actions from peer 2, etc...
 /// we could end up with a tree growing beyond the `max_length` causing the tree to be pruned and
 /// the root header to be removed.
-pub fn generate_random_walks(
-    tree: &Tree<BlockHeader>,
-    peers_nb: usize,
-    rollback_ratio: Ratio,
-    seed: u64,
-) -> Vec<Action> {
-    let mut rng = StdRng::seed_from_u64(seed);
-    let mut result = BTreeMap::new();
+pub fn generate_random_walks(generated_tree: &GeneratedTree, peers_nb: usize) -> GeneratedActions {
+    let mut actions_per_peer = BTreeMap::new();
+
     for i in 0..peers_nb {
-        let peer = Peer::new(&format!("{}", i + 1));
-        random_walk(&mut rng, tree, &peer, rollback_ratio, &mut result);
+        let current_peer = Peer::new(&format!("{}", i + 1));
+        let mut peer_rng = SmallRng::seed_from_u64(i as u64);
+
+        random_walk(
+            &mut peer_rng,
+            generated_tree.tree(),
+            &current_peer,
+            &mut actions_per_peer,
+        );
     }
 
-    transpose(result.values())
+    // If more than 2 peers are required, duplicate peer 2 with the actions of peer 1
+    if peers_nb > 2 {
+        let peer_1 = Peer::new("1");
+        let peer_2 = Peer::new("2");
+        let mut duplicate_actions = vec![];
+        for action in actions_per_peer.get(&peer_1).cloned().unwrap_or_default() {
+            duplicate_actions.push(action.set_peer(&peer_2));
+        }
+        actions_per_peer.insert(peer_2, duplicate_actions);
+    }
+
+    // Truncate actions to avoid a final list of rollbacks to the root of the tree
+    for actions in actions_per_peer.values_mut() {
+        while let Some(Action::RollBack { .. }) = actions.last() {
+            actions.pop();
+        }
+    }
+
+    // Transpose the actions per peer to interleave them
+    let actions = transpose(actions_per_peer.values())
         .into_iter()
         .flatten()
         .cloned()
-        .collect()
+        .collect();
+    GeneratedActions {
+        tree: generated_tree.clone(),
+        actions,
+        actions_per_peer,
+    }
+}
+
+/// List of actions generated for a set of peers on a given tree of headers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedActions {
+    tree: GeneratedTree,
+    actions_per_peer: BTreeMap<Peer, Vec<Action>>,
+    actions: Vec<Action>,
+}
+
+impl GeneratedActions {
+    pub fn generated_tree(&self) -> &GeneratedTree {
+        &self.tree
+    }
+
+    pub fn best_chains(&self) -> Vec<Chain> {
+        self.tree.best_chains()
+    }
+
+    pub fn actions(&self) -> &Vec<Action> {
+        &self.actions
+    }
+
+    pub fn len(&self) -> usize {
+        self.actions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.actions.is_empty()
+    }
+
+    pub fn statistics(&self) -> GeneratedActionsStatistics {
+        let fork_nodes = self.tree.fork_nodes();
+        GeneratedActionsStatistics {
+            tree_depth: self.tree.depth(),
+            number_of_nodes: self.tree.nodes().len(),
+            number_of_fork_nodes: fork_nodes.len(),
+        }
+    }
+}
+
+pub struct GeneratedActionsStatistics {
+    tree_depth: usize,
+    number_of_nodes: usize,
+    number_of_fork_nodes: usize,
+}
+
+impl Display for GeneratedActionsStatistics {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for statistic in self.lines() {
+            f.write_str(&format!("{}\n", statistic))?;
+        }
+        Ok(())
+    }
+}
+
+impl GeneratedActionsStatistics {
+    pub fn lines(&self) -> Vec<String> {
+        let mut result = vec![];
+        result.push(format!("Tree depth: {}", self.tree_depth));
+        result.push(format!("Total number of nodes: {}", self.number_of_nodes));
+        result.push(format!("Number of forks: {}", self.number_of_fork_nodes));
+        result
+    }
 }
 
 /// Generate a random list of actions, for a number of peers.
 ///
-/// We first generate a tree of headers of depth `depth` with a given `branching_ratio`
-/// (the probability that a branch is created from an original spine of headers).
-///
-/// Then we execute a random walk on that tree for `peers_nb` peers, with a given `rollback_ratio`,
-/// which is how often a given peer will rollback.
-///
-/// Important note: this function returns a prop test strategy but the random walks are generated
-/// using a `StdRng` generator. This makes the generator reproducible, because the `StdGenerator`
-/// is given a seed controlled by `proptest` but this makes the resulting list of actions non-shrinkable.
-///
-pub fn any_select_chains(
+/// We first generate a tree of headers of depth `depth` with some branches.
+/// Then we execute a random walk on that tree for `peers_nb` peers.
+pub fn any_select_chains(depth: usize, peers_nb: usize) -> impl Strategy<Value = GeneratedActions> {
+    any_tree_of_headers(depth)
+        .prop_map(move |generated_tree| generate_random_walks(&generated_tree, peers_nb))
+}
+
+/// Generate a random list of actions, for a fixed number of peers, with a given tree of headers.
+pub fn any_select_chains_from_tree(
+    tree: &GeneratedTree,
     peers_nb: usize,
-    depth: usize,
-    rollback_ratio: Ratio,
-    branching_ratio: Ratio,
-) -> impl Strategy<Value = (Vec<Action>, Chain)> {
-    any_tree_of_headers_and_best_chain(depth, branching_ratio).prop_flat_map(
-        move |(tree, best_chain)| {
-            (1..u64::MAX).prop_map(move |seed| {
-                (
-                    generate_random_walks(&tree, peers_nb, rollback_ratio, seed),
-                    best_chain.clone(),
-                )
-            })
-        },
-    )
+) -> impl Strategy<Value = GeneratedActions> {
+    Just(generate_random_walks(tree, peers_nb))
 }
 
 /// Create an empty `HeadersTree` handling chains of maximum length `max_length` and
@@ -500,10 +520,7 @@ fn print_diagnostics(
         eprintln!(
             "Reproduce the current test case with the following actions and 'execute_json_actions':\n"
         );
-        let all_lines: Vec<String> = actions
-            .iter()
-            .map(|action| format!("#r\"{}\"#", &serde_json::to_string(action).unwrap()))
-            .collect();
+        let all_lines: Vec<String> = actions.iter().map(|action| action.pretty_print()).collect();
         eprintln!("[\n{}\n]", all_lines.list_to_string(",\n"));
         eprintln!("\n----------------------------------------");
     }
@@ -640,6 +657,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amaru_kernel::is_header::tests::run;
+    use std::collections::BTreeSet;
 
     #[test]
     fn transpose_works() {
@@ -662,32 +681,41 @@ mod tests {
     }
 
     #[test]
-    fn parse_ratio_works() {
-        let ratio: Ratio = "3/4".parse().unwrap();
-        assert_eq!(ratio, Ratio(3, 4));
+    fn generate_random_walks() {
+        let generated_actions = run(any_select_chains(10, 3));
+        let statistics = generated_actions.statistics();
+        // uncomment for inspecting the generated tree and actions
+        // let generated_tree = generated_actions.generated_tree();
+        // println!("tree\n{}", generated_tree.tree());
+        // println!("statistics\n{}", statistics);
+        // for (peer, actions) in generated_actions.actions_per_peer.iter() {
+        //     println!("peer {peer}\n{}", actions.list_to_string(",\n"));
+        // }
 
-        let ratio: super::Ratio = "0/1".parse().unwrap();
-        assert_eq!(ratio, Ratio(0, 1));
+        assert!(
+            statistics.number_of_fork_nodes >= 3 && statistics.number_of_fork_nodes <= 4,
+            "statistics.number_of_fork_nodes {}",
+            statistics.number_of_fork_nodes
+        );
 
-        let ratio: super::Ratio = "1/1".parse().unwrap();
-        assert_eq!(ratio, Ratio(1, 1));
-    }
-
-    #[test]
-    fn parse_ratio_with_errors() {
-        let err = "3".parse::<Ratio>().unwrap_err();
-        assert_eq!(err, "Ratio must be in the form 'numerator/denominator'");
-
-        let err = "a/2".parse::<Ratio>().unwrap_err();
-        assert_eq!(err, "Invalid numerator in ratio: a");
-
-        let err = "1/b".parse::<Ratio>().unwrap_err();
-        assert_eq!(err, "Invalid denominator in ratio: b");
-
-        let err = "1/0".parse::<Ratio>().unwrap_err();
-        assert_eq!(err, "Ratio denominator must be > 0");
-
-        let err = "5/4".parse::<Ratio>().unwrap_err();
-        assert_eq!(err, "Ratio must be <= 1.0, got 5/4");
+        let actions_chains: Vec<String> = generated_actions
+            .actions_per_peer
+            .values()
+            .map(|actions| {
+                actions
+                    .iter()
+                    .map(|a: &Action| a.clone().set_peer(&Peer::new("0")))
+                    .collect::<Vec<_>>()
+                    .list_to_string(",\n")
+            })
+            .collect();
+        let actions_set: BTreeSet<String> = actions_chains.iter().cloned().collect();
+        assert_eq!(
+            actions_set.len(),
+            2,
+            "there must be at least 2 peers with the same list of actions\nall actions\n{}\n\nall actions as a set\n{}",
+            actions_chains.list_to_string("\n\n"),
+            actions_set.list_to_string("\n\n")
+        );
     }
 }

@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::effects::FetchBlockEffect;
-use amaru_consensus::consensus::errors::ConsensusError;
-use amaru_consensus::consensus::headers_tree::data_generation::{Chain, Ratio};
-use amaru_sim::simulator::run::spawn_node;
-use amaru_sim::simulator::simulate::simulate;
-use amaru_sim::simulator::{Args, NodeConfig, NodeHandle, SimulateConfig, generate_entries};
+use amaru_consensus::consensus::{effects::FetchBlockEffect, errors::ConsensusError};
+use amaru_sim::simulator::{
+    Args, NodeConfig, NodeHandle, SimulateConfig, generate_entries, run::spawn_node,
+    simulate::simulate,
+};
 use amaru_tracing_json::assert_spans_trees;
-use pure_stage::simulation::{OverrideResult, SimulationBuilder};
-use pure_stage::{Instant, StageGraph};
+use pure_stage::{
+    Instant, StageGraph,
+    simulation::{OverrideResult, SimulationBuilder},
+};
 use rand::prelude::StdRng;
 use serde_json::json;
 use std::time::Duration;
@@ -34,8 +35,6 @@ fn run_simulator_with_traces() {
         number_of_upstream_peers: 1,
         number_of_downstream_peers: 1,
         generated_chain_depth: 1,
-        generated_chain_rollback_ratio: Ratio(1, 2),
-        generated_chain_branching_ratio: Ratio(1, 2),
         disable_shrinking: true,
         seed: None,
         persist_on_success: false,
@@ -68,9 +67,11 @@ fn run_simulator_with_traces() {
     let execute = || {
         simulate(
             &simulate_config,
+            &NodeConfig::default(),
             spawn,
             generate_one,
-            |_, _: &Chain| Ok(()),
+            |_, _| Ok(()),
+            |_| (),
             Default::default(),
             false,
         )

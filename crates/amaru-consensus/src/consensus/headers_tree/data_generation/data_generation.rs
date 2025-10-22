@@ -21,7 +21,7 @@
 //!
 
 use crate::consensus::headers_tree::HeadersTree;
-use crate::consensus::headers_tree::data_generation::{Chain, Ratio};
+use crate::consensus::headers_tree::data_generation::Chain;
 use crate::consensus::headers_tree::tree::Tree;
 use amaru_kernel::is_header::tests::make_header;
 use amaru_kernel::peer::Peer;
@@ -33,66 +33,89 @@ use rand::prelude::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
 use std::sync::Arc;
 
-/// Return a `proptest` Strategy producing a random `Tree<BlockHeader>` of a given depth
-/// Additionally, we return the best chain corresponding to the spine of the tree.
-pub fn any_tree_of_headers_and_best_chain(
-    depth: usize,
-    branching_ratio: Ratio,
-) -> impl Strategy<Value = (Tree<BlockHeader>, Chain)> {
-    (0..u64::MAX)
-        .prop_map(move |seed| generate_header_tree_and_best_chain(depth, seed, branching_ratio))
+/// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
+pub fn any_headers_tree(depth: usize) -> impl Strategy<Value = Tree<BlockHeader>> {
+    any_tree_of_headers(depth).prop_map(|generated_tree| generated_tree.tree)
 }
 
-/// Return a `proptest` Strategy producing a random `Tree<BlockHeader>` of a given depth
-pub fn any_tree_of_headers(
+/// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
+pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value = GeneratedTree> {
+    (0..u64::MAX).prop_map(move |seed| generate_tree_of_headers(depth, seed))
+}
+
+/// A generated tree of `BlockHeader`s.
+/// The depth that was used to generate the tree can be accessed.
+///
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedTree {
+    tree: Tree<BlockHeader>,
     depth: usize,
-    branching_ratio: Ratio,
-) -> impl Strategy<Value = Tree<BlockHeader>> {
-    any_tree_of_headers_and_best_chain(depth, branching_ratio).prop_map(|(tree, _)| tree)
+}
+
+impl GeneratedTree {
+    pub fn tree(&self) -> &Tree<BlockHeader> {
+        &self.tree
+    }
+
+    pub fn best_chains(&self) -> Vec<Chain> {
+        self.tree.branches()
+    }
+
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+
+    pub fn nodes(&self) -> Vec<BlockHeader> {
+        self.tree.nodes()
+    }
+
+    pub fn fork_nodes(&self) -> Vec<BlockHeader> {
+        self.tree.fork_nodes()
+    }
+
+    pub fn leaves(&self) -> Vec<BlockHeader> {
+        self.tree.leaves()
+    }
 }
 
 /// Generate a tree of headers of a given depth.
 /// A seed is used to control the random generation of subtrees on top of a spine of length `depth`.
-///
-/// We also return the chain corresponding to the spine of the tree. This is the best chain.
-pub fn generate_header_tree_and_best_chain(
-    depth: usize,
-    seed: u64,
-    branching_ratio: Ratio,
-) -> (Tree<BlockHeader>, Chain) {
+pub fn generate_tree_of_headers(depth: usize, seed: u64) -> GeneratedTree {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let root = generate_header(1, 1, None, &mut rng);
     let mut root_tree = Tree::make_leaf(&root);
-    let mut spine = generate_header_subtree(&mut rng, &mut root_tree, depth - 1, branching_ratio);
+    let mut spine = generate_header_subtree(&mut rng, &mut root_tree, depth, depth - 1);
     spine.insert(0, root);
-    (root_tree, spine)
+    GeneratedTree {
+        tree: root_tree,
+        depth,
+    }
 }
 
-/// Generate a tree of headers of a given depth.
-/// A seed is used to control the random generation of subtrees on top of a spine of length `depth`.
-pub fn generate_header_tree(depth: usize, seed: u64, branching_ratio: Ratio) -> Tree<BlockHeader> {
-    generate_header_tree_and_best_chain(depth, seed, branching_ratio).0
+/// Return only the generated tree of headers of a given depth.
+pub fn generate_headers_tree(depth: usize, seed: u64) -> Tree<BlockHeader> {
+    generate_tree_of_headers(depth, seed).tree
 }
 
 /// Given a random generator and a tree:
 ///
 ///  - Generate a spine (a chain of `TestHeaders`).
-///  - Randomly add subtrees to nodes of that spine.
+///  - Add subtrees to nodes of that spine.
 ///  - Graft the spine on the last child of `tree`.
 ///
-/// The depth is used so that the subtrees added to the spine don't have a higher depth than the spine.
-/// The branching ratio is used to control how often subtrees are added to the spine.
+/// We currently generate branches at every 1/3rd level of the spine and
+/// randomly generate an additional branch at the same forking point
 ///
 fn generate_header_subtree(
     rng: &mut StdRng,
     tree: &mut Tree<BlockHeader>,
-    depth: usize,
-    branching_ratio: Ratio,
+    total_depth: usize,
+    current_depth: usize,
 ) -> Chain {
     let header_body = tree.value.header_body().clone();
     let mut spine = generate_headers(
-        depth,
+        current_depth,
         header_body.block_number,
         header_body.slot,
         Some(tree.value.hash()),
@@ -105,12 +128,18 @@ fn generate_header_subtree(
         current.add_child(child);
         current = current.get_last_child_mut().unwrap();
         current_size += 1;
-        let other_branch_depth = rng.random_range(
-            0..((depth - current_size) * branching_ratio.0 as usize / branching_ratio.1 as usize
-                + 1),
-        );
-        if other_branch_depth > 0 {
-            generate_header_subtree(rng, current, other_branch_depth, branching_ratio);
+
+        // We decide to branch at 1/3rd and 2/3rds of the total depth
+        let must_branch = if total_depth >= 3 {
+            current_size % (total_depth / 3) == 0
+        } else {
+            false
+        };
+        if must_branch {
+            generate_header_subtree(rng, current, total_depth, current_depth - current_size);
+            if rng.random_bool(0.2) {
+                generate_header_subtree(rng, current, total_depth, current_depth - current_size);
+            }
         }
     }
     spine
@@ -231,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_generate_headers_tree() {
-        let tree = generate_header_tree(5, 42, Ratio(1, 2));
+        let tree = generate_tree_of_headers(5, 42).tree;
         assert_eq!(tree.depth(), 5);
         check_nodes(&tree);
     }
