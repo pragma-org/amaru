@@ -112,7 +112,7 @@ pub(crate) mod tests {
         ClientState, find_headers_between,
     };
     use crate::stages::consensus::forward_chain::test_infra::{
-        BRANCH_47, CHAIN_47, LOST_47, TIP_47, WINNER_47, hash, mk_store,
+        FORK_47, CHAIN_47, LOST_47, TIP_47, WINNER_47, hash, mk_store,
     };
     use amaru_kernel::HeaderHash;
     use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
@@ -151,16 +151,16 @@ pub(crate) mod tests {
         let store = mk_store(CHAIN_47);
 
         let tip = store.get_point(TIP_47);
-        let points = [store.get_point(BRANCH_47)];
-        let peer = store.get_point(BRANCH_47);
+        let points = [store.get_point(FORK_47)];
+        let peer = store.get_point(FORK_47);
 
         let ClientState { ops, tip } = find_headers_between(store.clone(), &tip, &points).unwrap();
         assert_eq!(
             (ops.len() as u64, tip.0, tip.1),
             (
-                store.get_height(TIP_47) - store.get_height(BRANCH_47),
+                store.get_height(TIP_47) - store.get_height(FORK_47),
                 peer,
-                store.get_height(BRANCH_47)
+                store.get_height(FORK_47)
             )
         );
     }
@@ -173,7 +173,7 @@ pub(crate) mod tests {
         // Note that the below scheme does not match the documented behaviour, which shall pick the first from
         // the list that is on the same chain. But that doesn't make sense to me at all.
         let points = [
-            store.get_point(BRANCH_47), // this will lose to the (taller) winner
+            store.get_point(FORK_47), // this will lose to the (taller) winner
             store.get_point(LOST_47),   // this is not on the same chain
             store.get_point(WINNER_47), // this is the winner after the branch
         ];

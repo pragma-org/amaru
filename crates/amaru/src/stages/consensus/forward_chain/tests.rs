@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::client_state::tests::ChainStoreExt;
-use super::test_infra::{BRANCH_47, ClientMsg, LOST_47, Setup, TIP_47, WINNER_47, hash};
+use super::test_infra::{FORK_47, ClientMsg, LOST_47, Setup, TIP_47, WINNER_47, hash};
 use crate::stages::{AsTip, PallasPoint};
 use amaru_ouroboros_traits::IsHeader;
 
@@ -25,7 +25,7 @@ async fn test_chain_sync() {
     let (point, tip) = client.find_intersect(vec![chain[6].pallas_point()]).await;
 
     let lost = setup.store.load_header(&hash(LOST_47)).unwrap().clone();
-    assert_eq!(point, Some(setup.store.get_point(BRANCH_47)));
+    assert_eq!(point, Some(setup.store.get_point(FORK_47)));
     assert_eq!(tip.0, lost.pallas_point());
     assert_eq!(tip.1, lost.block_height());
 
@@ -35,7 +35,7 @@ async fn test_chain_sync() {
         vec![ClientMsg::Forward(lost.clone(), lost.as_tip())]
     );
 
-    setup.send_backward(BRANCH_47).await;
+    setup.send_backward(FORK_47).await;
     setup.send_forward(WINNER_47).await;
     setup.send_forward(&chain[8].hash().to_string()).await;
     let msg = client.recv_after_await().await;
@@ -81,7 +81,7 @@ async fn test_sync_optimising_rollback() {
         ]
     );
 
-    setup.send_backward(BRANCH_47).await;
+    setup.send_backward(FORK_47).await;
     setup.send_forward(&chain[7].hash().to_string()).await;
     setup.send_forward(&chain[8].hash().to_string()).await;
     setup.send_forward(&chain[9].hash().to_string()).await;
