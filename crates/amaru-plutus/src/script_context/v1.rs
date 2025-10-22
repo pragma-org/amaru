@@ -76,7 +76,7 @@ impl TxInfo {
         tx: &MintedTransactionBody<'_>,
         id: &Hash<32>,
         witness_set: &MintedWitnessSet<'_>,
-        utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+        utxo: &BTreeMap<TransactionInput, MemoizedTransactionOutput>,
         era_history: &EraHistory,
         slot: &Slot,
         network: NetworkName,
@@ -181,7 +181,7 @@ impl TxInfo {
 
     fn translate_inputs(
         inputs: &[TransactionInput],
-        utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+        utxo: &BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     ) -> Result<Vec<OutputRef>, V1InputTranslationError> {
         inputs
             .iter()
@@ -450,5 +450,79 @@ impl ToPlutusData<1> for Withdrawals {
 impl ToPlutusData<1> for Datums {
     fn to_plutus_data(&self) -> PlutusData {
         <Vec<_> as ToPlutusData<1>>::to_plutus_data(&self.0.iter().collect::<Vec<_>>())
+    }
+}
+
+// This test logic is basically 100% duplicated with v3. Should be able to simplify.
+#[cfg(test)]
+mod tests {
+    use super::super::test_vectors::{self, TestVector};
+    use super::*;
+    use amaru_kernel::{MintedTx, OriginalHash, to_cbor};
+    use test_case::test_case;
+
+    const PLUTUS_VERSION: u8 = 1;
+
+    macro_rules! fixture {
+        ($title:literal) => {
+            test_vectors::get_test_vector($title, PLUTUS_VERSION)
+        };
+    }
+
+    #[test_case(fixture!("simple_send"); "simple send")]
+    #[test_case(fixture!("mint"); "mint")]
+    fn test_plutus_v1(test_vector: &TestVector) {
+        // Ensure we're testing against the right Plutus version.
+        // If not, we should fail early.
+        assert_eq!(test_vector.meta.plutus_version, PLUTUS_VERSION);
+
+        // this should probably be encoded in the TestVector itself
+        let network = NetworkName::Preprod;
+
+        let transaction: MintedTx<'_> =
+            minicbor::decode(&test_vector.input.transaction_bytes).unwrap();
+
+        let redeemers = normalize_redeemers(
+            transaction
+                .transaction_witness_set
+                .redeemer
+                .clone()
+                .expect("no redeemers provided")
+                .unwrap(),
+        );
+
+        let produced_contexts = redeemers
+            .iter()
+            .map(|redeemer| {
+                let tx_info = TxInfo::new(
+                    &transaction.transaction_body,
+                    &transaction.transaction_body.original_hash(),
+                    &transaction.transaction_witness_set,
+                    &test_vector.input.utxo,
+                    network.into(),
+                    &0.into(),
+                    network,
+                )
+                .unwrap();
+
+                let script_context = ScriptContext::new(tx_info, redeemer).unwrap();
+                let plutus_data = to_cbor(&<ScriptContext as ToPlutusData<1>>::to_plutus_data(
+                    &script_context,
+                ));
+
+                hex::encode(plutus_data)
+            })
+            .collect::<Vec<_>>();
+
+        let found_match = produced_contexts
+            .iter()
+            .any(|context| context == &test_vector.expectations.script_context);
+
+        assert!(
+            found_match,
+            "No redeemer produced the expected script context: {}\nProduced script contexts: {}",
+            test_vector.expectations.script_context,
+            produced_contexts.join("\n\n")
+        );
     }
 }
