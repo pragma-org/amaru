@@ -35,8 +35,6 @@ use crate::{
 pub enum PlutusV1Error {
     #[error("failed to translate inputs: {0}")]
     InputTranslationError(#[from] V1InputTranslationError),
-    #[error("reference inputs are not allowed in the v1 script context")]
-    ReferenceInputsIncluded,
     #[error("invalid validity range: {0}")]
     InvalidValidityRange(#[from] EraHistoryError),
     #[error("invalid redeemer at index {0}")]
@@ -81,10 +79,6 @@ impl TxInfo {
         slot: &Slot,
         network: NetworkName,
     ) -> Result<Self, PlutusV1Error> {
-        if tx.reference_inputs.is_some() {
-            return Err(PlutusV1Error::ReferenceInputsIncluded);
-        }
-
         let inputs = Self::translate_inputs(&tx.inputs, utxo)
             .map_err(PlutusV1Error::InputTranslationError)?;
 
