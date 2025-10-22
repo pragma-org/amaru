@@ -281,24 +281,22 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
                 Some(tip.hash()),
                 Some(tip.hash()),
             )
-        } else {
-            if self.extends_best_chains(tip) {
-                self.update_peer(peer, tip);
-                // If the tip is extending _the_ best chain
-                let result = if tip.parent().as_ref() == Some(&self.best_chain()) {
-                    Ok(ForwardChainSelection::NewTip {
-                        peer: peer.clone(),
-                        tip: tip.clone(),
-                    })
-                } else {
-                    let fork = self.make_fork(peer, &self.best_chain(), &tip.hash());
-                    Ok(ForwardChainSelection::SwitchToFork(fork))
-                };
-                (result, None, Some(tip.hash()))
+        } else if self.extends_best_chains(tip) {
+            self.update_peer(peer, tip);
+            // If the tip is extending _the_ best chain
+            let result = if tip.parent().as_ref() == Some(&self.best_chain()) {
+                Ok(ForwardChainSelection::NewTip {
+                    peer: peer.clone(),
+                    tip: tip.clone(),
+                })
             } else {
-                self.update_peer(peer, tip);
-                (Ok(ForwardChainSelection::NoChange), None, None)
-            }
+                let fork = self.make_fork(peer, &self.best_chain(), &tip.hash());
+                Ok(ForwardChainSelection::SwitchToFork(fork))
+            };
+            (result, None, Some(tip.hash()))
+        } else {
+            self.update_peer(peer, tip);
+            (Ok(ForwardChainSelection::NoChange), None, None)
         };
 
         let new_anchor = self.trim_chain()?;

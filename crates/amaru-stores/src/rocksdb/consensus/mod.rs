@@ -360,7 +360,7 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
 #[cfg(test)]
 pub mod test {
     use crate::rocksdb::consensus::migration::migrate_db_path;
-    use crate::rocksdb::consensus::util::{CHAIN_DB_VERSION, CHAIN_PREFIX};
+    use crate::rocksdb::consensus::util::CHAIN_DB_VERSION;
 
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
@@ -374,7 +374,11 @@ pub mod test {
     use std::collections::BTreeMap;
     use std::path::Path;
     use std::sync::Arc;
-    use std::{assert_matches::assert_matches, fs, io};
+    use std::{fs, io};
+
+    /// "chain"
+    /// TODO: move to util once we are ready to implement chain tracking
+    const CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"chain";
 
     #[test]
     fn both_rw_and_ro_can_be_open_on_same_dir() {
@@ -736,7 +740,7 @@ pub mod test {
         for slot in 1..10 {
             let prefix = [&CHAIN_PREFIX[..], &(slot as u64).to_be_bytes()[..]].concat();
             let header_hash = random_hash();
-            db.put(&prefix, &header_hash)
+            db.put(&prefix, header_hash)
                 .expect("should put data successfully");
         }
         // iterate over chain from 4 to 8
@@ -752,7 +756,7 @@ pub mod test {
         readopts.set_iterate_upper_bound([&CHAIN_PREFIX[..], &slot10[..]].concat());
         let mut iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
         let mut count = 0;
-        while let Some(Ok((k, v))) = iter.next()
+        while let Some(Ok((_, v))) = iter.next()
             && count < 3
         {
             let _header_hash: HeaderHash = Hash::from(v.as_ref());
@@ -774,11 +778,6 @@ pub mod test {
             *(iter.next().unwrap().unwrap().0),
             [&CHAIN_PREFIX[..], &slot9].concat()
         );
-
-        let mut iter = db.full_iterator(IteratorMode::From(&prefix, Direction::Forward));
-        while let Some(Ok((k, v))) = iter.next() {
-            println!("Key: {}, Value: {:?}", hex::encode(&k), v);
-        }
     }
 
     const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";

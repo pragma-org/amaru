@@ -14,7 +14,7 @@
 
 use crate::point::from_network_point;
 
-use super::client_state::{ClientState, find_headers_between};
+use super::client_state::ChainFollower;
 use crate::stages::{AsTip, PallasPoint};
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_consensus::ChainStore;
@@ -190,14 +190,14 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
         our_tip.0,
         requested_points
     );
-    let Some(mut state) = find_headers_between(store, &our_tip.0, &requested_points) else {
+    let Some(mut chain_follower) = ChainFollower::new(store, &our_tip.0, &requested_points) else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
         return Err(ClientError::NoIntersection.into());
     };
-    tracing::debug!("intersection found: {:?}", state.tip);
+    tracing::debug!("intersection found: {:?}", chain_follower.tip);
     server
-        .send_intersect_found(state.tip.0.clone(), our_tip.clone())
+        .send_intersect_found(chain_follower.tip.0.clone(), our_tip.clone())
         .await?;
 
     let parent = cell.me();
@@ -213,8 +213,8 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
             ActoInput::Message(ChainSyncMsg::Op(op)) => {
                 tracing::debug!("got op {op:?}");
                 our_tip = op.tip();
-                state.add_op(op);
-                if waiting && let Some(op) = state.next_op() {
+                chain_follower.add_op(op);
+                if waiting && let Some(op) = chain_follower.next_op() {
                     tracing::debug!("sending op {op:?} to waiting handler");
                     waiting = false;
                     handler.send(Some((op, our_tip.clone())));
@@ -222,7 +222,7 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
             }
             ActoInput::Message(ChainSyncMsg::ReqNext) => {
                 tracing::debug!("got req next");
-                if let Some(op) = state.next_op() {
+                if let Some(op) = chain_follower.next_op() {
                     tracing::debug!("sending op {op:?} to handler");
                     handler.send(Some((op, our_tip.clone())));
                 } else {

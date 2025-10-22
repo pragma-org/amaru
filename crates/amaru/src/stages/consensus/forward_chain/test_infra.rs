@@ -79,14 +79,14 @@ pub fn amaru_point(slot: u64, hash: &str) -> amaru_kernel::Point {
     amaru_kernel::Point::Specific(slot, hex(hash))
 }
 
-pub struct Setup {
+pub struct TestChainForwarder {
     pub store: Arc<dyn ChainStore<BlockHeader>>,
     listener: TcpForwardChainServer<BlockHeader>,
     port: u16,
 }
 
-impl Setup {
-    pub async fn new(our_tip: &str) -> anyhow::Result<Setup> {
+impl TestChainForwarder {
+    pub async fn new(our_tip: &str) -> anyhow::Result<TestChainForwarder> {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .with_test_writer()
@@ -106,7 +106,7 @@ impl Setup {
             header.as_header_tip(),
         )?;
 
-        Ok(Setup {
+        Ok(TestChainForwarder {
             store,
             listener,
             port,
