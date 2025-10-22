@@ -341,15 +341,8 @@ pub fn generate_random_walks(generated_tree: &GeneratedTree, peers_nb: usize) ->
         }
     }
 
-    // Transpose the actions per peer to interleave them
-    let actions = transpose(actions_per_peer.values())
-        .into_iter()
-        .flatten()
-        .cloned()
-        .collect();
     GeneratedActions {
         tree: generated_tree.clone(),
-        actions,
         actions_per_peer,
     }
 }
@@ -359,7 +352,6 @@ pub fn generate_random_walks(generated_tree: &GeneratedTree, peers_nb: usize) ->
 pub struct GeneratedActions {
     tree: GeneratedTree,
     actions_per_peer: BTreeMap<Peer, Vec<Action>>,
-    actions: Vec<Action>,
 }
 
 impl GeneratedActions {
@@ -371,16 +363,25 @@ impl GeneratedActions {
         self.tree.best_chains()
     }
 
-    pub fn actions(&self) -> &Vec<Action> {
-        &self.actions
+    pub fn actions_per_peer(&self) -> BTreeMap<Peer, Vec<Action>> {
+        self.actions_per_peer.clone()
+    }
+
+    pub fn actions(&self) -> Vec<Action> {
+        // Transpose the actions per peer to interleave them
+        transpose(self.actions_per_peer.values())
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect()
     }
 
     pub fn len(&self) -> usize {
-        self.actions.len()
+        self.actions().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.actions.is_empty()
+        self.actions().is_empty()
     }
 
     pub fn statistics(&self) -> GeneratedActionsStatistics {
@@ -409,6 +410,7 @@ impl Display for GeneratedActionsStatistics {
 }
 
 impl GeneratedActionsStatistics {
+    /// Return the statistics as a list of lines, ready to be printed out
     pub fn lines(&self) -> Vec<String> {
         let mut result = vec![];
         result.push(format!("Tree depth: {}", self.tree_depth));
@@ -628,7 +630,7 @@ pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Chain> 
 }
 
 /// Transpose a list of rows into a list of columns (even if the rows have different lengths).
-fn transpose<I, R, T>(rows: I) -> Vec<Vec<T>>
+pub fn transpose<I, R, T>(rows: I) -> Vec<Vec<T>>
 where
     I: IntoIterator<Item = R>,
     R: IntoIterator<Item = T>,

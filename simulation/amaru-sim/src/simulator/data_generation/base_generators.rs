@@ -15,8 +15,7 @@
 use pure_stage::Instant;
 use rand::Rng;
 use rand::prelude::StdRng;
-use rand_distr::Distribution;
-use rand_distr::Exp;
+use rand_distr::{Distribution, LogNormal};
 use std::time::Duration;
 
 /// Given a generator for type A, produce a generator for Vec<A> of a given size.
@@ -66,18 +65,28 @@ pub fn generate_zip_with<A: Copy, B: Copy, C>(
 /// where the delay between arrivals is exponentially distributed with mean `mean_millis`.
 pub fn generate_arrival_times<R: Rng>(
     start_time: Instant,
-    mean_millis: f64,
+    deviation_millis: f64,
 ) -> impl Fn(usize, &mut R) -> Vec<Instant> {
     move |size, rng| {
-        let mut time: Instant = start_time;
-        let mut arrival_times = Vec::new();
+        let mut arrival_times = Vec::with_capacity(size);
 
-        let exp = Exp::new(1.0 / mean_millis).unwrap_or_else(|err| panic!("{}", err));
-        for _ in 0..size {
-            arrival_times.push(time);
-            let delay = exp.sample(rng);
-            let delay_ms = delay.ceil().min(u64::MAX as f64) as u64;
-            time = time + Duration::from_millis(delay_ms);
+        // μ and σ of the underlying normal (in log-space)
+        // σ controls skew: higher σ = more skewed
+        let sigma = 0.6;
+        let mu = (deviation_millis / 2.0).ln() - (sigma * sigma) / 2.0;
+        let log_normal = LogNormal::new(mu, sigma).expect("log_normal definition issue");
+
+        for i in 0..size {
+            let base = (i * 1000) as f64;
+            let mut jitter = log_normal.sample(rng);
+            // Occasionally make jitter negative to allow some arrivals to be earlier than the base time.
+            if rng.random_bool(0.1) {
+                jitter = -jitter * rng.random_range(0.2..0.8) // smaller magnitude negatives
+            };
+            let time_offset_ms = base + jitter;
+
+            let arrival_time = start_time + Duration::from_millis(time_offset_ms as u64);
+            arrival_times.push(arrival_time);
         }
         arrival_times
     }
@@ -138,15 +147,23 @@ mod tests {
         let seed = 1;
         let mut rng = StdRng::seed_from_u64(seed);
         let result =
-            generate_arrival_times(Instant::at_offset(Duration::new(0, 0)), 200.0)(5, &mut rng);
+            generate_arrival_times(Instant::at_offset(Duration::new(0, 0)), 200.0)(10, &mut rng);
+
+        // We want arrival times that are roughly 1000ms apart, with some positive jitter
+        // and occasional small negative jitter (for example 4956)
         assert_eq!(
             result,
             vec![
-                Instant::at_offset(Duration::from_millis(0)),
-                Instant::at_offset(Duration::from_millis(409)),
-                Instant::at_offset(Duration::from_millis(753)),
-                Instant::at_offset(Duration::from_millis(810)),
-                Instant::at_offset(Duration::from_millis(837)),
+                Instant::at_offset(Duration::from_millis(226)),
+                Instant::at_offset(Duration::from_millis(1077)),
+                Instant::at_offset(Duration::from_millis(2048)),
+                Instant::at_offset(Duration::from_millis(3076)),
+                Instant::at_offset(Duration::from_millis(4086)),
+                Instant::at_offset(Duration::from_millis(4956)),
+                Instant::at_offset(Duration::from_millis(6075)),
+                Instant::at_offset(Duration::from_millis(7040)),
+                Instant::at_offset(Duration::from_millis(8070)),
+                Instant::at_offset(Duration::from_millis(9051)),
             ]
         )
     }

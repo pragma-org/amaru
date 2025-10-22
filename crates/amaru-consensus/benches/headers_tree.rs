@@ -96,7 +96,7 @@ fn main() {
 
     let start = std::time::Instant::now();
     eprintln!("start executing the actions");
-    let results = execute_actions_on_tree(store, &mut headers_tree, actions, false).unwrap();
+    let results = execute_actions_on_tree(store, &mut headers_tree, &actions, false).unwrap();
 
     let elapsed = start.elapsed();
     let time_per_action = elapsed / (actions.len() as u32);

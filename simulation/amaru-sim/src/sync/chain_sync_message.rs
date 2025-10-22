@@ -64,12 +64,30 @@ impl ChainSyncMessage {
         }
     }
 
+    /// Return the message slot if available
+    pub fn slot(&self) -> Option<Slot> {
+        match self {
+            ChainSyncMessage::Fwd { slot, .. } => Some(*slot),
+            ChainSyncMessage::Bck { slot, .. } => Some(*slot),
+            _ => None,
+        }
+    }
+
     /// Attempt to decode a header hash from a `Fwd` or `Bck` message.
     pub fn header_hash(&self) -> Option<HeaderHash> {
         match self {
             ChainSyncMessage::Fwd { hash, .. } => Some(HeaderHash::from(hash.bytes.as_slice())),
             ChainSyncMessage::Bck { hash, .. } => Some(HeaderHash::from(hash.bytes.as_slice())),
             _ => None,
+        }
+    }
+
+    /// Return the header parent hash if available
+    pub fn header_parent_hash(&self) -> Option<HeaderHash> {
+        if let Some(header) = self.decode_block_header() {
+            header.header_body().prev_hash
+        } else {
+            None
         }
     }
 }

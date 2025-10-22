@@ -107,6 +107,9 @@ pub fn generate_headers_tree(depth: usize, seed: u64) -> Tree<BlockHeader> {
 /// We currently generate branches at every 1/3rd level of the spine and
 /// randomly generate an additional branch at the same forking point
 ///
+/// Slots are assigned to headers according to their depth so that 2 different forks would produce
+/// headers at the same slot.
+///
 fn generate_header_subtree(
     rng: &mut StdRng,
     tree: &mut Tree<BlockHeader>,
@@ -117,7 +120,7 @@ fn generate_header_subtree(
     let mut spine = generate_headers(
         current_depth,
         header_body.block_number,
-        header_body.slot,
+        (total_depth - current_depth) as u64,
         Some(tree.value.hash()),
         rng,
     );

@@ -24,11 +24,11 @@
 // Go to 3 and continue until heap is empty;
 // Make assertions on the history to ensure the execution was correct, if not, shrink and present minimal history that breaks the assertion together with the seed that allows us to reproduce the execution.
 
-use crate::simulator::NodeConfig;
 use crate::simulator::shrink::shrink;
 use crate::simulator::simulate_config::SimulateConfig;
 use crate::simulator::world::{Entry, NodeHandle};
 pub(crate) use crate::simulator::world::{History, World};
+use crate::simulator::{GeneratedEntries, NodeConfig};
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
 use rand::{SeedableRng, rngs::StdRng};
@@ -52,7 +52,7 @@ pub fn simulate<Msg, GenerationContext, F>(
     simulate_config: &SimulateConfig,
     node_config: &NodeConfig,
     spawn: F,
-    generator: impl Fn(&mut StdRng) -> (Vec<Entry<Msg>>, GenerationContext),
+    generator: impl Fn(&mut StdRng) -> GeneratedEntries<Msg, GenerationContext>,
     property: impl Fn(&History<Msg>, &GenerationContext) -> Result<(), String>,
     display_test_stats: impl Fn(&GenerationContext),
     trace_buffer: Arc<Mutex<TraceBuffer>>,
@@ -70,17 +70,20 @@ where
             "Generating test data for test {}/{}",
             test_number, simulate_config.number_of_tests
         );
-        let (entries, generation_context) = generator(&mut rng);
+        let generated_entries = generator(&mut rng);
+        let entries = generated_entries.entries();
+        let generation_context = generated_entries.generation_context();
         info!("Test data generated, now sending messages");
-        display_test_stats(&generation_context);
+        display_test_stats(generation_context);
 
         let test = test_nodes(
             simulate_config.number_of_nodes,
             &spawn,
-            &generation_context,
+            generation_context,
             &property,
         );
-        let result = test(&entries);
+
+        let result = test(entries);
         match result {
             (history, Err(reason)) => {
                 let failure_message = if simulate_config.disable_shrinking {
@@ -96,12 +99,14 @@ where
                     )
                 } else {
                     let (shrunk_entries, (shrunk_history, result), number_of_shrinks) =
-                        shrink(test, entries, |result| result.1 == Err(reason.clone()));
+                        shrink(test, entries.clone(), |result| {
+                            result.1 == Err(reason.clone())
+                        });
                     assert_eq!(Err(reason.clone()), result);
                     create_failure_message(
                         test_number,
                         simulate_config.seed,
-                        shrunk_entries,
+                        &shrunk_entries,
                         number_of_shrinks,
                         shrunk_history,
                         trace_buffer.clone(),
@@ -111,7 +116,7 @@ where
                 return Err(failure_message);
             }
             (_history, Ok(())) => {
-                display_test_stats(&generation_context);
+                display_test_stats(generation_context);
                 info!(
                     "Test {test_number}/{} succeeded!",
                     simulate_config.number_of_tests
@@ -176,7 +181,7 @@ fn display_test_configuration(simulate_config: &SimulateConfig, node_config: &No
 fn create_failure_message<Msg: Debug>(
     test_number: u32,
     seed: u64,
-    entries: Vec<Entry<Msg>>,
+    entries: &[Entry<Msg>],
     number_of_shrinks: u32,
     history: History<Msg>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
@@ -184,7 +189,7 @@ fn create_failure_message<Msg: Debug>(
 ) -> String {
     let mut test_case = String::new();
     entries
-        .into_iter()
+        .iter()
         .for_each(|entry| test_case += &format!("  {:?}\n", entry.envelope));
     let mut history_string = String::new();
     history

@@ -1290,9 +1290,9 @@ mod tests {
         #[test]
         fn run_chain_selection(generated_actions in any_select_chains(DEPTH, 5)) {
             let actions = generated_actions.actions();
-            let results = execute_actions(MAX_LENGTH, actions, false).unwrap();
+            let results = execute_actions(MAX_LENGTH, &actions, false).unwrap();
             let actual_chains = make_best_chains_from_results(&results);
-            let expected_chains = make_best_chains_from_actions(actions);
+            let expected_chains = make_best_chains_from_actions(&actions);
             for (i, (actual, expected)) in actual_chains.iter().zip(expected_chains).enumerate() {
                 prop_assert!(expected.contains(actual), "\nFor action {}, the actual chain\n{}\n\nis not contained in the best chains\n\n{}\n\n", i+1,
                     actual.list_to_string(",\n "), expected.lists_to_string(",\n ", "\n "));
