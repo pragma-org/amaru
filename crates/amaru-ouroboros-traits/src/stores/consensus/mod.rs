@@ -14,7 +14,7 @@
 
 pub mod in_memory_consensus_store;
 
-use crate::{IsHeader, Nonces};
+use crate::{BlockHeader, IsHeader, Nonces};
 use amaru_kernel::{HeaderHash, RawBlock};
 use std::fmt::Display;
 use std::iter::successors;
@@ -24,12 +24,9 @@ pub trait ReadOnlyChainStore<H>
 where
     H: IsHeader,
 {
+    /// Try to load a header by its hash.
     fn load_header(&self, hash: &HeaderHash) -> Option<H>;
-    fn load_headers(&self) -> Box<dyn Iterator<Item = H> + '_>;
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_>;
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_>;
-    fn load_parents_children(&self)
-    -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_>;
+
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
     fn get_anchor_hash(&self) -> HeaderHash;
     fn get_best_chain_hash(&self) -> HeaderHash;
@@ -88,27 +85,24 @@ where
     }
 }
 
+/// A chain store interface that exposes diagnostic methods to load raw data.
+pub trait DiagnosticChainStore {
+    /// Load all headers in the store.
+    ///
+    /// NOTE: This can be very expensive for large stores and is only
+    /// used for diagnostics and testing purposes.
+    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_>;
+
+    /// Load all nonces in the store.
+    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_>;
+    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_>;
+    fn load_parents_children(&self)
+    -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_>;
+}
+
 impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
     fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         self.as_ref().load_header(hash)
-    }
-
-    fn load_headers(&self) -> Box<dyn Iterator<Item = H> + '_> {
-        self.as_ref().load_headers()
-    }
-
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
-        self.as_ref().load_nonces()
-    }
-
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
-        self.as_ref().load_blocks()
-    }
-
-    fn load_parents_children(
-        &self,
-    ) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
-        self.as_ref().load_parents_children()
     }
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
