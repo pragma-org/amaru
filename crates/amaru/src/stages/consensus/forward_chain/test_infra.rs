@@ -35,7 +35,7 @@ use tracing_subscriber::EnvFilter;
 pub const CHAIN_47: &str = "tests/data/chain41.json";
 pub const TIP_47: &str = "fcb4a51804f14f3f5b5ad841199b557aed0187280f7855736bdb153b0d202bb6";
 pub const LOST_47: &str = "bd41b102018a21e068d504e64b282512a3b7d5c3883b743aa070ad9244691125";
-pub const BRANCH_47: &str = "64565f22fb23476baaa6f82e0e2d68636ceadabded697099fb376c23226bdf03";
+pub const FORK_47: &str = "64565f22fb23476baaa6f82e0e2d68636ceadabded697099fb376c23226bdf03";
 pub const WINNER_47: &str = "66c90f54f9073cfc03a334f5b15b1617f6bf6fe6c892fad8368e16abe20b0f4f";
 
 pub fn mk_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHeader>> {
@@ -79,14 +79,14 @@ pub fn amaru_point(slot: u64, hash: &str) -> amaru_kernel::Point {
     amaru_kernel::Point::Specific(slot, hex(hash))
 }
 
-pub struct Setup {
+pub struct TestChainForwarder {
     pub store: Arc<dyn ChainStore<BlockHeader>>,
     listener: TcpForwardChainServer<BlockHeader>,
     port: u16,
 }
 
-impl Setup {
-    pub async fn new(our_tip: &str) -> anyhow::Result<Setup> {
+impl TestChainForwarder {
+    pub async fn new(our_tip: &str) -> anyhow::Result<TestChainForwarder> {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .with_test_writer()
@@ -106,7 +106,7 @@ impl Setup {
             header.as_header_tip(),
         )?;
 
-        Ok(Setup {
+        Ok(TestChainForwarder {
             store,
             listener,
             port,

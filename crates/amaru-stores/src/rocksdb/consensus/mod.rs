@@ -370,10 +370,15 @@ pub mod test {
     use amaru_ouroboros_traits::tests::{
         any_header_with_parent, any_headers_chain, make_header, run,
     };
+    use rocksdb::Direction;
     use std::collections::BTreeMap;
     use std::path::Path;
     use std::sync::Arc;
     use std::{fs, io};
+
+    /// "chain"
+    /// TODO: move to util once we are ready to implement chain tracking
+    const CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"chain";
 
     #[test]
     fn both_rw_and_ro_can_be_open_on_same_dir() {
@@ -722,6 +727,57 @@ pub mod test {
         let version = get_version(&store.db).expect("should read version successfully");
 
         assert_eq!(version, CHAIN_DB_VERSION);
+    }
+
+    #[test]
+    fn iterator_over_chain() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target = tempdir.path();
+        let config = RocksDbConfig::new(target.to_path_buf());
+        let (_, db) = open_or_create_db(&config).expect("should open DB successfully");
+
+        // populate DB
+        for slot in 1..10 {
+            let prefix = [&CHAIN_PREFIX[..], &(slot as u64).to_be_bytes()[..]].concat();
+            let header_hash = random_hash();
+            db.put(&prefix, header_hash)
+                .expect("should put data successfully");
+        }
+        // iterate over chain from 4 to 8
+        let slot4 = 4u64.to_be_bytes();
+        let slot6 = 6u64.to_be_bytes();
+        let slot7 = 7u64.to_be_bytes();
+        let slot8 = 8u64.to_be_bytes();
+        let slot9 = 9u64.to_be_bytes();
+        let slot10 = 10u64.to_be_bytes();
+        let prefix = [&CHAIN_PREFIX[..], &slot4].concat();
+
+        let mut readopts = ReadOptions::default();
+        readopts.set_iterate_upper_bound([&CHAIN_PREFIX[..], &slot10[..]].concat());
+        let mut iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
+        let mut count = 0;
+        while let Some(Ok((_, v))) = iter.next()
+            && count < 3
+        {
+            let _header_hash: HeaderHash = Hash::from(v.as_ref());
+            count += 1;
+        }
+
+        // we can delete keys the iterator has seen and not seen
+        db.delete([&CHAIN_PREFIX[..], &slot6].concat())
+            .expect("should delete data successfully");
+        db.delete([&CHAIN_PREFIX[..], &slot7].concat())
+            .expect("should delete data successfully");
+
+        // iterator continues from where it left off, skipping deleted keys
+        assert_eq!(
+            *(iter.next().unwrap().unwrap().0),
+            [&CHAIN_PREFIX[..], &slot8].concat()
+        );
+        assert_eq!(
+            *(iter.next().unwrap().unwrap().0),
+            [&CHAIN_PREFIX[..], &slot9].concat()
+        );
     }
 
     const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";
