@@ -18,6 +18,7 @@ use crate::stages::consensus::forward_chain::client_protocol::PrettyPoint;
 use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
 use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_consensus::consensus::tip::AsHeaderTip;
+use amaru_consensus::ReadOnlyChainStore;
 use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor};
 use amaru_ouroboros_traits::ChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
@@ -50,6 +51,7 @@ pub fn mk_in_memory_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHea
     let store = InMemConsensusStore::new();
     let mut anchor_set = false;
 
+    // store headers
     for header in headers {
         let header = header.pointer("/header").unwrap().as_str().unwrap();
         let header = hex::decode(header).unwrap();
@@ -59,6 +61,16 @@ pub fn mk_in_memory_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHea
             anchor_set = true
         }
         store.store_header(&header).unwrap();
+    }
+
+    store.set_best_chain_hash(&hash(TIP_47)).unwrap();
+
+    // store best chain
+    for h in store.retrieve_best_chain() {
+        if let Some(header) = store.load_header(&h) {
+            store.roll_forward_chain(&header.point()).unwrap();
+            continue;
+        }
     }
     Arc::new(store)
 }

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod chain_follower;
 pub mod client_protocol;
-pub mod client_state;
 pub mod tcp_forward_chain_server;
 
 #[cfg(test)]
