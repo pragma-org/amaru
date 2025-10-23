@@ -25,12 +25,12 @@ pub(crate) const CONSENSUS_PREFIX_LEN: usize = 5;
 /// function from the previous version.
 pub const CHAIN_DB_VERSION: u16 = 1;
 
-pub(crate) const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"heade";
-pub(crate) const NONCES_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"nonce";
-pub(crate) const BLOCK_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"block";
 pub(crate) const ANCHOR_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"ancho";
 pub(crate) const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"best_";
+pub(crate) const BLOCK_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"block";
 pub(crate) const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"child";
+pub(crate) const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"heade";
+pub(crate) const NONCES_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"nonce";
 
 /// Open a Chain DB for reading and writing.
 /// The DB _must_ exist otherwise the function will return an error.

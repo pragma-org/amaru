@@ -21,7 +21,9 @@ use amaru_kernel::{
     HEADER_HASH_SIZE, Hash, HeaderHash, ORIGIN_HASH, RawBlock, cbor, from_cbor, to_cbor,
 };
 use amaru_ouroboros_traits::is_header::IsHeader;
-use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
+use amaru_ouroboros_traits::{
+    BlockHeader, ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError,
+};
 use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
 use std::fs::{self};
 use std::ops::Deref;
@@ -121,94 +123,6 @@ macro_rules! impl_ReadOnlyChainStore {
                     .and_then(|bytes| from_cbor(bytes?.as_ref()))
             }
 
-            fn load_headers(&self) -> Box<dyn Iterator<Item=H> + '_> {
-                Box::new(self.db
-                    .prefix_iterator(&HEADER_PREFIX).filter_map(|item| {
-                    match item {
-                        Ok((_k, v)) => {
-                            from_cbor(v.as_ref())
-                        }
-                        Err(err) => panic!("error iterating over headers: {}", err),
-                    }
-                }).into_iter())
-            }
-
-            fn load_nonces(&self) -> Box<dyn Iterator<Item=(HeaderHash, Nonces)> + '_> {
-                Box::new(self.db
-                    .prefix_iterator(&NONCES_PREFIX).filter_map(|item| {
-                    match item {
-                        Ok((k, v)) => {
-                            let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
-                            if let Some(nonces) = from_cbor(&v) {
-                                Some((hash, nonces))
-                            } else {
-                                None
-                            }
-                        }
-                        Err(err) => panic!("error iterating over nonces: {}", err),
-                    }
-                }).into_iter())
-            }
-
-            fn load_blocks(&self) -> Box<dyn Iterator<Item=(HeaderHash, RawBlock)> + '_> {
-                Box::new(self.db
-                    .prefix_iterator(&BLOCK_PREFIX).map(|item| {
-                    match item {
-                        Ok((k, v)) => {
-                            let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
-                                (hash, RawBlock::from(v.deref()))
-                        }
-                        Err(err) => panic!("error iterating over blocks: {}", err),
-                    }
-                }).into_iter())
-            }
-
-            fn load_parents_children(&self) -> Box<dyn Iterator<Item=(HeaderHash, Vec<HeaderHash>)> + '_> {
-                let mut groups: Vec<(HeaderHash, Vec<HeaderHash>)> = Vec::new();
-                let mut current_parent: Option<HeaderHash> = None;
-                let mut current_children: Vec<HeaderHash> = Vec::new();
-
-                for kv in self
-                    .db
-                    .prefix_iterator(&CHILD_PREFIX) {
-                    let (k, _v) = kv.expect("error iterating over children keys");
-
-                    // Key layout: [CHILD_PREFIX][parent][child]
-                    let parent_start = CONSENSUS_PREFIX_LEN;
-                    let parent_end = parent_start + HEADER_HASH_SIZE;
-                    let child_start = parent_end;
-                    let child_end = child_start + HEADER_HASH_SIZE;
-
-                    let mut parent_arr = [0u8; HEADER_HASH_SIZE];
-                    parent_arr.copy_from_slice(&k[parent_start..parent_end]);
-                    let parent_hash = Hash::from(parent_arr);
-
-                    let mut child_arr = [0u8; HEADER_HASH_SIZE];
-                    child_arr.copy_from_slice(&k[child_start..child_end]);
-                    let child_hash = Hash::from(child_arr);
-
-                    match &current_parent {
-                        Some(p) if p == &parent_hash => {
-                            current_children.push(child_hash);
-                        }
-                        Some(prev_parent) => {
-                            groups.push((*prev_parent, std::mem::take(&mut current_children)));
-                            current_parent = Some(parent_hash);
-                            current_children.push(child_hash);
-                        }
-                        None => {
-                            current_parent = Some(parent_hash);
-                            current_children.push(child_hash);
-                        }
-                    }
-                }
-
-                if let Some(p) = current_parent {
-                    groups.push((p, current_children));
-                }
-
-                Box::new(groups.into_iter())
-            }
 
             fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
                 let mut result = Vec::new();
@@ -284,11 +198,107 @@ macro_rules! impl_ReadOnlyChainStore {
                     .map(|bytes| bytes.as_ref().into())
             }
 
+
         })*
     }
 }
 
 impl_ReadOnlyChainStore!(for ReadOnlyChainDB, RocksDBStore);
+
+impl DiagnosticChainStore for ReadOnlyChainDB {
+    #[allow(clippy::panic)]
+    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
+        Box::new(
+            self.db
+                .prefix_iterator(HEADER_PREFIX)
+                .filter_map(|item| match item {
+                    Ok((_k, v)) => from_cbor(v.as_ref()),
+                    Err(err) => panic!("error iterating over headers: {}", err),
+                }),
+        )
+    }
+
+    #[allow(clippy::panic)]
+    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
+        Box::new(
+            self.db
+                .prefix_iterator(NONCES_PREFIX)
+                .filter_map(|item| match item {
+                    Ok((k, v)) => {
+                        let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
+                        from_cbor(&v).map(|nonces| (hash, nonces))
+                    }
+                    Err(err) => panic!("error iterating over nonces: {}", err),
+                }),
+        )
+    }
+
+    #[allow(clippy::panic)]
+    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
+        Box::new(
+            self.db
+                .prefix_iterator(BLOCK_PREFIX)
+                .map(|item| match item {
+                    Ok((k, v)) => {
+                        let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
+                        (hash, RawBlock::from(v.deref()))
+                    }
+                    Err(err) => panic!("error iterating over blocks: {}", err),
+                }),
+        )
+    }
+
+    #[allow(clippy::expect_used)]
+    fn load_parents_children(
+        &self,
+    ) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
+        let mut groups: Vec<(HeaderHash, Vec<HeaderHash>)> = Vec::new();
+        let mut current_parent: Option<HeaderHash> = None;
+        let mut current_children: Vec<HeaderHash> = Vec::new();
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange(&CHILD_PREFIX[..]));
+
+        for kv in self.db.iterator_opt(IteratorMode::Start, opts) {
+            let (k, _v) = kv.expect("error iterating over children keys");
+
+            //Key layout: [CHILD_PREFIX][parent][child]
+            let parent_start = CONSENSUS_PREFIX_LEN;
+            let parent_end = parent_start + HEADER_HASH_SIZE;
+            let child_start = parent_end;
+            let child_end = child_start + HEADER_HASH_SIZE;
+
+            let mut parent_arr = [0u8; HEADER_HASH_SIZE];
+            parent_arr.copy_from_slice(&k[parent_start..parent_end]);
+            let parent_hash = Hash::from(parent_arr);
+
+            let mut child_arr = [0u8; HEADER_HASH_SIZE];
+
+            child_arr.copy_from_slice(&k[child_start..child_end]);
+            let child_hash = Hash::from(child_arr);
+
+            match &current_parent {
+                Some(p) if p == &parent_hash => {
+                    current_children.push(child_hash);
+                }
+                Some(prev_parent) => {
+                    groups.push((*prev_parent, std::mem::take(&mut current_children)));
+                    current_parent = Some(parent_hash);
+                    current_children.push(child_hash);
+                }
+                None => {
+                    current_parent = Some(parent_hash);
+                    current_children.push(child_hash);
+                }
+            }
+        }
+
+        if let Some(p) = current_parent {
+            groups.push((p, current_children));
+        }
+
+        Box::new(groups.into_iter())
+    }
+}
 
 impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     #[instrument(level = Level::TRACE, skip_all, fields(header = header.hash().to_string()))]
@@ -365,11 +375,11 @@ pub mod test {
     use super::*;
     use amaru_kernel::tests::{random_bytes, random_hash};
     use amaru_kernel::{HeaderHash, Nonce, ORIGIN_HASH};
-    use amaru_ouroboros_traits::ChainStore;
     use amaru_ouroboros_traits::is_header::BlockHeader;
     use amaru_ouroboros_traits::tests::{
         any_header_with_parent, any_headers_chain, make_header, run,
     };
+    use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore};
     use rocksdb::Direction;
     use std::collections::BTreeMap;
     use std::path::Path;
@@ -492,7 +502,7 @@ pub mod test {
 
     #[test]
     fn load_all_headers() {
-        with_db(|db| {
+        with_db_path(|(db, path)| {
             let mut headers: Vec<BlockHeader> = vec![];
             for i in 0..10usize {
                 let parent = if i == 0 {
@@ -505,7 +515,10 @@ pub mod test {
                 headers.push(header);
             }
             headers.sort();
-            let mut result = db.load_headers().collect::<Vec<_>>();
+
+            let db = initialise_test_ro_store(path).unwrap();
+
+            let mut result: Vec<BlockHeader> = db.load_headers().collect();
             result.sort();
             assert_eq!(result, headers);
         })
@@ -513,7 +526,7 @@ pub mod test {
 
     #[test]
     fn load_parents_children() {
-        with_db(|db| {
+        with_db_path(|(db, path)| {
             // h0 -> h1 -> h2
             //      \
             //       -> h3 -> h4
@@ -535,6 +548,8 @@ pub mod test {
                 db.store_header(header).unwrap();
             }
 
+            let db = initialise_test_ro_store(path).unwrap();
+
             let result = sort_entries(db.load_parents_children().collect::<Vec<_>>());
             let expected = sort_entries(expected.into_iter().collect::<Vec<_>>());
             assert_eq!(result, expected);
@@ -543,7 +558,7 @@ pub mod test {
 
     #[test]
     fn load_nonces() {
-        with_db(|db| {
+        with_db_path(|(db, path)| {
             let chain = run(any_headers_chain(3));
             let mut expected = BTreeMap::new();
             for header in &chain {
@@ -558,6 +573,8 @@ pub mod test {
                 expected.insert(header.hash(), nonces);
             }
 
+            let db = initialise_test_ro_store(path).unwrap();
+
             let mut result = db.load_nonces().collect::<Vec<_>>();
             result.sort();
             let mut expected = expected.into_iter().collect::<Vec<_>>();
@@ -568,7 +585,7 @@ pub mod test {
 
     #[test]
     fn load_blocks() {
-        with_db(|db| {
+        with_db_path(|(db, path)| {
             let chain = run(any_headers_chain(3));
             let mut expected = BTreeMap::new();
             for header in &chain {
@@ -576,6 +593,8 @@ pub mod test {
                 db.store_block(&header.hash(), &block).unwrap();
                 expected.insert(header.hash(), block);
             }
+
+            let db = initialise_test_ro_store(path).unwrap();
 
             let mut result = db.load_blocks().collect::<Vec<_>>();
             result.sort();
@@ -840,6 +859,13 @@ pub mod test {
         let rw_store: Arc<dyn ChainStore<BlockHeader>> =
             Arc::new(initialise_test_rw_store(tempdir.path()));
         f(rw_store);
+    }
+
+    fn with_db_path(f: impl Fn((Arc<dyn ChainStore<BlockHeader>>, &Path))) {
+        let tempdir = tempfile::tempdir().unwrap();
+        let rw_store: Arc<dyn ChainStore<BlockHeader>> =
+            Arc::new(initialise_test_rw_store(tempdir.path()));
+        f((rw_store, tempdir.path()));
     }
 
     fn sort_entries(

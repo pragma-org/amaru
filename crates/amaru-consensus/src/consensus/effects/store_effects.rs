@@ -14,7 +14,6 @@
 
 use amaru_kernel::{HeaderHash, RawBlock, protocol_parameters::GlobalParameters};
 use amaru_ouroboros_traits::{BlockHeader, ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use pallas_crypto::hash::Hash;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 
@@ -41,27 +40,6 @@ impl<T> Store<T> {
 impl<T: SendData + Sync> ReadOnlyChainStore<BlockHeader> for Store<T> {
     fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         self.external_sync(LoadHeaderEffect::new(*hash))
-    }
-
-    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
-        Box::new(self.external_sync(LoadHeadersEffect::new()).into_iter())
-    }
-
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
-        Box::new(self.external_sync(LoadNoncesEffect::new()).into_iter())
-    }
-
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
-        Box::new(self.external_sync(LoadBlocksEffect::new()).into_iter())
-    }
-
-    fn load_parents_children(
-        &self,
-    ) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
-        Box::new(
-            self.external_sync(LoadParentsChildrenEffect::new())
-                .into_iter(),
-        )
     }
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
@@ -453,110 +431,6 @@ impl ExternalEffect for LoadBlockEffect {
 
 impl ExternalEffectAPI for LoadBlockEffect {
     type Response = Result<RawBlock, StoreError>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct LoadHeadersEffect;
-
-impl LoadHeadersEffect {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl ExternalEffect for LoadHeadersEffect {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("LoadHeadersEffect requires a chain store")
-                .clone();
-            store.load_headers().collect::<Vec<_>>()
-        })
-    }
-}
-
-impl ExternalEffectAPI for LoadHeadersEffect {
-    type Response = Vec<BlockHeader>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct LoadNoncesEffect;
-
-impl LoadNoncesEffect {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl ExternalEffect for LoadNoncesEffect {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("LoadNoncesEffect requires a chain store")
-                .clone();
-            store.load_nonces().collect::<Vec<_>>()
-        })
-    }
-}
-
-impl ExternalEffectAPI for LoadNoncesEffect {
-    type Response = Vec<(Hash<32>, Nonces)>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct LoadBlocksEffect;
-
-impl LoadBlocksEffect {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl ExternalEffect for LoadBlocksEffect {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("LoadBlocksEffect requires a chain store")
-                .clone();
-            store.load_blocks().collect::<Vec<_>>()
-        })
-    }
-}
-
-impl ExternalEffectAPI for LoadBlocksEffect {
-    type Response = Vec<(HeaderHash, RawBlock)>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct LoadParentsChildrenEffect;
-
-impl LoadParentsChildrenEffect {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl ExternalEffect for LoadParentsChildrenEffect {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("LoadParentsChildrenEffect requires a chain store")
-                .clone();
-            store.load_parents_children().collect::<Vec<_>>()
-        })
-    }
-}
-
-impl ExternalEffectAPI for LoadParentsChildrenEffect {
-    type Response = Vec<(HeaderHash, Vec<HeaderHash>)>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

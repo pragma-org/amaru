@@ -279,24 +279,6 @@ mod tests {
             self.store.load_block(hash)
         }
 
-        fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
-            self.store.load_headers()
-        }
-
-        fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
-            self.store.load_nonces()
-        }
-
-        fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
-            self.store.load_blocks()
-        }
-
-        fn load_parents_children(
-            &self,
-        ) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
-            self.store.load_parents_children()
-        }
-
         fn get_nonces(&self, hash: &HeaderHash) -> Option<Nonces> {
             self.store.get_nonces(hash)
         }
