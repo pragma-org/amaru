@@ -44,8 +44,9 @@ use amaru_kernel::{
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use hex::FromHexError;
 use pallas_crypto::hash::Hash;
-use proptest::prelude::{Just, Strategy};
-use rand::{Rng, SeedableRng, rngs::SmallRng};
+use proptest::prelude::{Strategy};
+use rand::prelude::SmallRng;
+use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::BTreeMap,
@@ -153,7 +154,7 @@ impl Serialize for Action {
                 peer: peer.to_string(),
                 header: SimplifiedHeader(header.clone()),
             }
-            .serialize(serializer),
+                .serialize(serializer),
             Action::RollBack {
                 peer,
                 rollback_point,
@@ -161,7 +162,7 @@ impl Serialize for Action {
                 peer: peer.to_string(),
                 rollback_point: rollback_point.clone(),
             }
-            .serialize(serializer),
+                .serialize(serializer),
         }
     }
 }
@@ -262,7 +263,7 @@ impl Display for SelectionResult {
 
 /// Generate a random list of Actions for a given peer on a given tree of headers.
 pub fn random_walk<R: Rng>(
-    peer_rng: &mut R,
+    rng: &mut R,
     tree: &Tree<BlockHeader>,
     peer: &Peer,
     result: &mut BTreeMap<Peer, Vec<Action>>,
@@ -278,13 +279,13 @@ pub fn random_walk<R: Rng>(
         })
     }
 
-    // Process the children in a random order based on a peer-specific RNG
+    // Process the children in a random order based on a the rng
     let mut children: Vec<_> = tree.children.clone().into_iter().collect();
-    children.sort_by_key(|_c| peer_rng.random_bool(0.5));
+    children.sort_by_key(|_c| rng.random_bool(0.5));
 
     // Start a new random walk for each child
     for child in children.iter() {
-        random_walk(peer_rng, child, peer, result);
+        random_walk(rng, child, peer, result);
     }
 
     // Come back to the parent node to explore another tree branch
@@ -308,15 +309,15 @@ pub fn random_walk<R: Rng>(
 /// Otherwise, if we had all the actions from peer 1, then all the actions from peer 2, etc...
 /// we could end up with a tree growing beyond the `max_length` causing the tree to be pruned and
 /// the root header to be removed.
-pub fn generate_random_walks(generated_tree: &GeneratedTree, peers_nb: usize) -> GeneratedActions {
+pub fn generate_random_walks(seed: u64, generated_tree: &GeneratedTree, peers_nb: usize) -> GeneratedActions {
     let mut actions_per_peer = BTreeMap::new();
+    let mut rng = &mut SmallRng::seed_from_u64(seed as u64);
 
     for i in 0..peers_nb {
         let current_peer = Peer::new(&format!("{}", i + 1));
-        let mut peer_rng = SmallRng::seed_from_u64(i as u64);
 
         random_walk(
-            &mut peer_rng,
+            &mut rng,
             generated_tree.tree(),
             &current_peer,
             &mut actions_per_peer,
@@ -424,17 +425,17 @@ impl GeneratedActionsStatistics {
 ///
 /// We first generate a tree of headers of depth `depth` with some branches.
 /// Then we execute a random walk on that tree for `peers_nb` peers.
-pub fn any_select_chains(depth: usize, peers_nb: usize) -> impl Strategy<Value = GeneratedActions> {
+pub fn any_select_chains(depth: usize, peers_nb: usize) -> impl Strategy<Value=GeneratedActions> {
     any_tree_of_headers(depth)
-        .prop_map(move |generated_tree| generate_random_walks(&generated_tree, peers_nb))
+        .prop_flat_map(move |generated_tree| (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, &generated_tree, peers_nb)))
 }
 
 /// Generate a random list of actions, for a fixed number of peers, with a given tree of headers.
 pub fn any_select_chains_from_tree(
     tree: &GeneratedTree,
     peers_nb: usize,
-) -> impl Strategy<Value = GeneratedActions> {
-    Just(generate_random_walks(tree, peers_nb))
+) -> impl Strategy<Value=GeneratedActions> {
+    (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, tree, peers_nb))
 }
 
 /// Create an empty `HeadersTree` handling chains of maximum length `max_length` and
@@ -542,7 +543,7 @@ pub fn execute_json_actions(
             .collect::<Vec<_>>()
             .list_to_string(",")
     ))
-    .unwrap();
+        .unwrap();
     execute_actions(max_length, &actions, print)
 }
 
@@ -632,8 +633,8 @@ pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Chain> 
 /// Transpose a list of rows into a list of columns (even if the rows have different lengths).
 pub fn transpose<I, R, T>(rows: I) -> Vec<Vec<T>>
 where
-    I: IntoIterator<Item = R>,
-    R: IntoIterator<Item = T>,
+    I: IntoIterator<Item=R>,
+    R: IntoIterator<Item=T>,
 {
     let mut iterators: Vec<_> = rows.into_iter().map(|r| r.into_iter()).collect();
     let mut result: Vec<Vec<T>> = vec![];

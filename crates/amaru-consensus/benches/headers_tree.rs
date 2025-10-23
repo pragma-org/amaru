@@ -66,7 +66,7 @@ fn main() {
         tree.nodes().len()
     );
 
-    let generated_actions = generate_random_walks(&generated_tree, peers_nb);
+    let generated_actions = generate_random_walks(seed, &generated_tree, peers_nb);
     let actions = generated_actions.actions();
     assert!(actions.len() > 10000);
 

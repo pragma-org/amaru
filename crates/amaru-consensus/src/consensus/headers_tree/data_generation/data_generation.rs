@@ -31,15 +31,16 @@ use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use proptest::prelude::Strategy;
 use rand::prelude::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
+use std::cmp::max;
 use std::sync::Arc;
 
 /// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
-pub fn any_headers_tree(depth: usize) -> impl Strategy<Value = Tree<BlockHeader>> {
+pub fn any_headers_tree(depth: usize) -> impl Strategy<Value=Tree<BlockHeader>> {
     any_tree_of_headers(depth).prop_map(|generated_tree| generated_tree.tree)
 }
 
 /// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
-pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value = GeneratedTree> {
+pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value=GeneratedTree> {
     (0..u64::MAX).prop_map(move |seed| generate_tree_of_headers(depth, seed))
 }
 
@@ -75,6 +76,10 @@ impl GeneratedTree {
 
     pub fn leaves(&self) -> Vec<BlockHeader> {
         self.tree.leaves()
+    }
+
+    pub fn as_json(&self) -> serde_json::Value {
+        self.tree.as_json()
     }
 }
 
@@ -114,13 +119,13 @@ fn generate_header_subtree(
     rng: &mut StdRng,
     tree: &mut Tree<BlockHeader>,
     total_depth: usize,
-    current_depth: usize,
+    current_branch_expected_depth: usize,
 ) -> Chain {
     let header_body = tree.value.header_body().clone();
     let mut spine = generate_headers(
-        current_depth,
+        current_branch_expected_depth,
         header_body.block_number,
-        (total_depth - current_depth) as u64,
+        tree.value.slot(),
         Some(tree.value.hash()),
         rng,
     );
@@ -139,9 +144,13 @@ fn generate_header_subtree(
             false
         };
         if must_branch {
-            generate_header_subtree(rng, current, total_depth, current_depth - current_size);
+            let min_subtree_size = (current_branch_expected_depth - current_size) / 2;
+            let max_subtree_size = max(2, current_branch_expected_depth - current_size);
+            let subtree_size = rng.random_range(min_subtree_size..=max_subtree_size);
+            generate_header_subtree(rng, current, total_depth, subtree_size);
             if rng.random_bool(0.2) {
-                generate_header_subtree(rng, current, total_depth, current_depth - current_size);
+                let subtree_size = rng.random_range(min_subtree_size..=max_subtree_size);
+                generate_header_subtree(rng, current, total_depth, subtree_size);
             }
         }
     }

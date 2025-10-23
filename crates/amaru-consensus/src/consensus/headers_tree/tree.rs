@@ -248,6 +248,14 @@ impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
             child.to_map_recursive(map);
         }
     }
+
+    pub fn as_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "slot": self.value.slot().to_string(),
+            "hash": self.value.hash().to_string().chars().take(6).collect::<String>(),
+            "children": self.children.iter().map(|child| { child.as_json() }).collect::<Vec<serde_json::Value>>()
+        })
+    }
 }
 
 #[cfg(test)]
