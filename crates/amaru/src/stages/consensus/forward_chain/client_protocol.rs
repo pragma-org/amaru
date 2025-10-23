@@ -14,7 +14,7 @@
 
 use crate::point::from_network_point;
 
-use super::client_state::ChainFollower;
+use super::chain_follower::ChainFollower;
 use crate::stages::AsTip;
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_consensus::ChainStore;
@@ -187,17 +187,20 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
 
     tracing::debug!(
         points = ?requested_points,
-        tip = our_tip.1,
+        tip = ?our_tip,
         "request interception",
     );
+
     let Some(mut chain_follower) = ChainFollower::new(store, &our_tip.0, &requested_points) else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
         return Err(ClientError::NoIntersection.into());
     };
-    tracing::debug!(intersection = ?chain_follower.tip, "intersection found");
+
+    tracing::debug!(intersection = ?chain_follower.intersection, "intersection found");
+
     server
-        .send_intersect_found(chain_follower.tip.0.clone(), our_tip.clone())
+        .send_intersect_found(chain_follower.intersection.clone(), our_tip.clone())
         .await?;
 
     let parent = cell.me();
