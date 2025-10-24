@@ -423,3 +423,13 @@ where
         }
     }
 }
+
+impl<const V: u8, T> ToPlutusData<V> for Cow<'_, T>
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+    T: ToPlutusData<V> + ToOwned,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        self.as_ref().to_plutus_data()
+    }
+}
