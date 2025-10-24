@@ -75,60 +75,6 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_headers(&self) -> Box<dyn Iterator<Item = H>> {
-        let inner = self.inner.lock().unwrap();
-        Box::new(
-            inner
-                .headers
-                .values()
-                .cloned()
-                .collect::<Vec<H>>()
-                .into_iter(),
-        )
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
-        let inner = self.inner.lock().unwrap();
-        Box::new(
-            inner
-                .nonces
-                .iter()
-                .map(|(h, n)| (*h, n.clone()))
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
-        let inner = self.inner.lock().unwrap();
-        Box::new(
-            inner
-                .blocks
-                .iter()
-                .map(|(h, b)| (*h, b.clone()))
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn load_parents_children(
-        &self,
-    ) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
-        let inner = self.inner.lock().unwrap();
-        Box::new(
-            inner
-                .parent_child_relationship
-                .iter()
-                .map(|(k, v)| (*k, v.to_vec()))
-                .collect::<Vec<(HeaderHash, Vec<HeaderHash>)>>()
-                .into_iter(),
-        )
-    }
-
-    #[expect(clippy::unwrap_used)]
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
         let inner = self.inner.lock().unwrap();
         inner.nonces.get(header).cloned()
