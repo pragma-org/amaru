@@ -26,7 +26,7 @@ use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
     *,
 };
-use pallas_primitives::conway::{MintedPostAlonzoTransactionOutput, NativeScript, RedeemerTag};
+use pallas_primitives::conway::{MintedPostAlonzoTransactionOutput, RedeemerTag};
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
@@ -62,8 +62,8 @@ pub use pallas_primitives::{
         DatumOption, DnsName, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId,
         HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, Mint, MintedBlock,
         MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PlutusData, PlutusScript,
-        PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
+        MintedTx, MintedWitnessSet, Multiasset, NativeScript, NonEmptySet, NonZeroInt, PlutusData,
+        PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
         ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
         Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners, RewardAccount, ScriptHash,
@@ -303,25 +303,21 @@ pub type Nonce = Hash<32>;
 pub type Withdrawal = (StakeAddress, Lovelace);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProposalIdAdapter(pub ProposalId);
+pub struct ProposalIdAdapter<'a>(pub &'a ProposalId);
 
-impl ProposalIdAdapter {
-    pub fn new(gov_action_id: ProposalId) -> Self {
+impl<'a> ProposalIdAdapter<'a> {
+    pub fn new(gov_action_id: &'a ProposalId) -> Self {
         Self(gov_action_id)
-    }
-
-    pub fn into_inner(self) -> ProposalId {
-        self.0
     }
 }
 
-impl PartialOrd for ProposalIdAdapter {
+impl PartialOrd for ProposalIdAdapter<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ProposalIdAdapter {
+impl Ord for ProposalIdAdapter<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.0
             .transaction_id
@@ -330,23 +326,23 @@ impl Ord for ProposalIdAdapter {
     }
 }
 
-impl From<ProposalId> for ProposalIdAdapter {
-    fn from(proposal_id: ProposalId) -> Self {
+impl<'a> From<&'a ProposalId> for ProposalIdAdapter<'a> {
+    fn from(proposal_id: &'a ProposalId) -> Self {
         Self(proposal_id)
     }
 }
 
-impl Deref for ProposalIdAdapter {
+impl Deref for ProposalIdAdapter<'_> {
     type Target = ProposalId;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0
     }
 }
 
-impl AsRef<ProposalId> for ProposalIdAdapter {
+impl AsRef<ProposalId> for ProposalIdAdapter<'_> {
     fn as_ref(&self) -> &ProposalId {
-        &self.0
+        self.0
     }
 }
 
@@ -990,16 +986,18 @@ impl HasRedeemers for Redeemers {
     }
 }
 
-pub fn normalize_redeemers(redeemers: Redeemers) -> Vec<Redeemer> {
+pub fn normalize_redeemers(redeemers: &Redeemers) -> Vec<Cow<'_, Redeemer>> {
     match redeemers {
-        Redeemers::List(list) => list.to_vec(),
+        Redeemers::List(list) => list.iter().map(Cow::Borrowed).collect(),
         Redeemers::Map(map) => map
-            .into_iter()
-            .map(|(tag, value)| Redeemer {
-                tag: tag.tag,
-                index: tag.index,
-                data: value.data,
-                ex_units: value.ex_units,
+            .iter()
+            .map(|(tag, value)| {
+                Cow::Owned(Redeemer {
+                    tag: tag.tag,
+                    index: tag.index,
+                    data: value.data.clone(),
+                    ex_units: value.ex_units,
+                })
             })
             .collect(),
     }

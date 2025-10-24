@@ -24,22 +24,22 @@ pub use crate::script_context::v1::ScriptContext;
 use amaru_kernel::StakeAddress;
 
 // Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V2/Contexts.hs#L82
-pub struct TxInfo {
-    inputs: Vec<OutputRef>,
-    reference_inputs: Vec<OutputRef>,
-    outputs: Vec<TransactionOutput>,
-    fee: Value,
-    mint: Value,
+pub struct TxInfo<'a> {
+    inputs: Vec<OutputRef<'a>>,
+    reference_inputs: Vec<OutputRef<'a>>,
+    outputs: Vec<TransactionOutput<'a>>,
+    fee: Value<'a>,
+    mint: Value<'a>,
     certificates: Vec<Certificate>,
     withdrawals: KeyValuePairs<StakeAddress, Lovelace>,
     valid_range: TimeRange,
     signatories: Vec<AddrKeyhash>,
-    redeemers: KeyValuePairs<ScriptPurpose, Redeemer>,
+    redeemers: KeyValuePairs<ScriptPurpose<'a>, Redeemer>,
     data: KeyValuePairs<DatumHash, PlutusData>,
     id: TransactionId,
 }
 
-impl ToPlutusData<2> for TxInfo {
+impl ToPlutusData<2> for TxInfo<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v2!(
             0,
@@ -61,14 +61,13 @@ impl ToPlutusData<2> for TxInfo {
     }
 }
 
-impl ToPlutusData<2> for OutputRef {
+impl ToPlutusData<2> for OutputRef<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v2!(0, [self.input, self.output])
     }
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-impl ToPlutusData<2> for TransactionOutput {
+impl ToPlutusData<2> for TransactionOutput<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v2!(0, [self.address, self.value, self.datum, self.script])
     }

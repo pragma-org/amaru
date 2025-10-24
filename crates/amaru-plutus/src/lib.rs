@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use amaru_kernel::{
-    Address, BigInt, Bytes, ComputeHash, Constr, DatumOption, Hash, Int, KeyValuePairs,
-    MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable,
+    Address, BigInt, Bytes, ComputeHash, Constr, DatumOption as KernelDatumOption, Hash, Int,
+    KeyValuePairs, MaybeIndefArray, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable,
     PlutusData, PseudoScript, Redeemer, ShelleyDelegationPart, ShelleyPaymentPart,
     StakeAddress as KernelStakeAddress, StakeCredential, StakePayload,
 };
 
-use crate::script_context::{CurrencySymbol, StakeAddress, TimeRange};
+use crate::script_context::{CurrencySymbol, DatumOption, Script, StakeAddress, TimeRange};
 
 pub const DEFAULT_TAG: u64 = 102;
 
@@ -130,28 +130,28 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for MemoizedDatum
+impl<const V: u8> ToPlutusData<V> for DatumOption<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            MemoizedDatum::None => constr!(0),
-            MemoizedDatum::Hash(hash) => constr!(1, [hash]),
-            MemoizedDatum::Inline(data) => constr!(2, [data.as_ref()]),
+            Self::None => constr!(0),
+            Self::Hash(hash) => constr!(1, [**hash]),
+            Self::Inline(data) => constr!(2, [**data]),
         }
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for Option<DatumOption>
+impl<const V: u8> ToPlutusData<V> for Option<KernelDatumOption>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             Some(datum_option) => match datum_option {
-                DatumOption::Hash(hash) => constr!(1, [hash]),
-                DatumOption::Data(data) => constr!(2, [data.0]),
+                KernelDatumOption::Hash(hash) => constr!(1, [hash]),
+                KernelDatumOption::Data(data) => constr!(2, [data.0]),
             },
             None => constr!(0),
         }
@@ -291,6 +291,20 @@ where
 {
     fn to_plutus_data(&self) -> PlutusData {
         PlutusData::BoundedBytes(self.to_vec().into())
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for Script<'_>
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        match *self {
+            Self::Native(native_script) => native_script.compute_hash().to_plutus_data(),
+            Self::PlutusV1(plutus_script) => plutus_script.compute_hash().to_plutus_data(),
+            Self::PlutusV2(plutus_script) => plutus_script.compute_hash().to_plutus_data(),
+            Self::PlutusV3(plutus_script) => plutus_script.compute_hash().to_plutus_data(),
+        }
     }
 }
 
@@ -505,5 +519,15 @@ where
             Nullable::Some(t) => constr!(0, [t]),
             Nullable::Null | Nullable::Undefined => constr!(1),
         }
+    }
+}
+
+impl<const V: u8, T> ToPlutusData<V> for Cow<'_, T>
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+    T: ToPlutusData<V> + ToOwned,
+{
+    fn to_plutus_data(&self) -> PlutusData {
+        self.as_ref().to_plutus_data()
     }
 }
