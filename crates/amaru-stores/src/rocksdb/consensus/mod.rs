@@ -264,9 +264,11 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
 
     #[allow(clippy::panic)]
     fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange(&BLOCK_PREFIX[..]));
         Box::new(
             self.db
-                .prefix_iterator(BLOCK_PREFIX)
+                .iterator_opt(IteratorMode::Start, opts)
                 .map(|item| match item {
                     Ok((k, v)) => {
                         let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
