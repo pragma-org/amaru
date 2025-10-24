@@ -18,8 +18,8 @@ pub mod util;
 pub use migration::*;
 
 use amaru_kernel::{
-    BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, Slot,
-    cbor, from_cbor, to_cbor,
+    BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor,
+    from_cbor, to_cbor,
 };
 use amaru_ouroboros_traits::{
     ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError,
@@ -399,23 +399,6 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
     }
 
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
-        let tip_hash = <Self as ReadOnlyChainStore<BlockHeader>>::get_best_chain_hash(self);
-
-        if let Some(header) =
-            <Self as ReadOnlyChainStore<BlockHeader>>::load_header(self, &tip_hash)
-        {
-            let slot = Slot::from(header.slot());
-            if slot >= point.slot_or_default() {
-                return Err(StoreError::ReadError {
-                    error: format!(
-                        "Cannot roll forward chain to point {:?} as current tip {:?} is at equal or higher slot",
-                        point,
-                        header.slot(),
-                    ),
-                });
-            }
-        }
-
         store_chain_point(&self.db, point)
     }
 
