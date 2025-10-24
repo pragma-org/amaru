@@ -12,78 +12,339 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, ops::Deref};
+use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
-    Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
-    ExUnits, GovAction, Mint, PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate,
-    RationalNumber, StakeAddress, StakeCredential, Value as KernelValue, Vote,
+    Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, EraHistory, ExUnitPrices,
+    ExUnits, GovAction, Hash, MemoizedTransactionOutput, MintedTransactionBody, MintedWitnessSet,
+    PolicyId, PoolVotingThresholds, Proposal, ProposalId, ProposalIdAdapter, ProtocolParamUpdate,
+    RationalNumber, ScriptPurpose as RedeemerTag, Slot, StakeCredential, TransactionInputAdapter,
+    Value as KernelValue, Vote, network::NetworkName, normalize_redeemers,
 };
+use amaru_slot_arithmetic::EraHistoryError;
+use itertools::Itertools;
 use num::Integer;
+use thiserror::Error;
 
 use crate::{
     Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr, constr_v3,
     script_context::{
-        AddrKeyhash, Certificate, CurrencySymbol, DatumHash, KeyValuePairs, Lovelace, OutputRef,
-        PlutusData, PolicyId, Redeemer, TimeRange, TransactionId, TransactionInput,
-        TransactionOutput, Value, Voter,
+        Certificate, CurrencySymbol, Datums, KeyValuePairs, Lovelace, Mint, OutputRef, PlutusData,
+        Redeemer, Redeemers, RequiredSigners, TimeRange, TransactionId, TransactionInput,
+        TransactionOutput, Utxos, Value, Voter, Votes, Withdrawals,
     },
 };
 
+#[derive(Debug, Error)]
+pub enum PlutusV3Error {
+    #[error("failed to translate input: {0}")]
+    InputTranslationError(#[from] V3InputTranslationError),
+    #[error("{0}")]
+    UnspecifiedError(String),
+    #[error("invalid validity range: {0}")]
+    InvalidValidityRange(#[from] EraHistoryError),
+    #[error("invalid redeemer at index {0}")]
+    InvalidRedeemer(usize),
+}
+
+#[derive(Debug, Error)]
+pub enum V3InputTranslationError {
+    #[error("unknown input: {0}")]
+    UnknownInput(TransactionInputAdapter),
+    // TODO: verify this is actually needed, I'm not sure it is
+    #[error("byron address not allowed: {0}")]
+    ByronAddressNotAllowed(TransactionInputAdapter),
+}
+
 // Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V3/Data/Contexts.hs#L572
-pub struct TxInfo {
-    inputs: Vec<OutputRef>,
-    reference_inputs: Vec<OutputRef>,
-    outputs: Vec<TransactionOutput>,
+pub struct TxInfo<'a> {
+    inputs: Vec<OutputRef<'a>>,
+    reference_inputs: Vec<OutputRef<'a>>,
+    outputs: Vec<TransactionOutput<'a>>,
     fee: Lovelace,
-    mint: Mint,
-    certificates: Vec<Certificate>,
-    withdrawals: KeyValuePairs<StakeAddress, Lovelace>,
+    mint: Mint<'a>,
+    certificates: Vec<&'a Certificate>,
+    withdrawals: Withdrawals,
     valid_range: TimeRange,
-    signatories: Vec<AddrKeyhash>,
-    redeemers: KeyValuePairs<ScriptPurpose, Redeemer>,
-    data: KeyValuePairs<DatumHash, PlutusData>,
+    signatories: RequiredSigners,
+    redeemers: Redeemers<'a, ScriptPurpose<'a>>,
+    data: Datums<'a>,
     id: TransactionId,
-    votes: KeyValuePairs<Voter, KeyValuePairs<ProposalId, Vote>>,
-    proposal_procedures: Vec<Proposal>,
+    votes: Votes<'a>,
+    proposal_procedures: Vec<&'a Proposal>,
     current_treasury_amount: Option<Lovelace>,
     treasury_donation: Option<Lovelace>,
 }
 
-#[derive(Clone)]
-pub struct ScriptPurpose(ScriptInfo);
+// Much of this implementation is the same as V1 and, in turn, V2.
+// It almost certainly makes sense to have a single struct that represents the superset
+// of the `TxInfo` structs. Then each one should have a parameterized implementation to reduce (prevent?) illegal states
+impl<'a> TxInfo<'a> {
+    #[allow(clippy::expect_used)]
+    pub fn new(
+        tx: &'a MintedTransactionBody<'_>,
+        id: &Hash<32>,
+        witness_set: &'a MintedWitnessSet<'_>,
+        utxo: &'a Utxos,
+        era_history: &EraHistory,
+        slot: &Slot,
+        network: NetworkName,
+    ) -> Result<Self, PlutusV3Error> {
+        let inputs =
+            translate_inputs(&tx.inputs, utxo).map_err(PlutusV3Error::InputTranslationError)?;
+        let reference_inputs = tx
+            .reference_inputs
+            .as_ref()
+            .map(|reference_inputs| {
+                translate_inputs(reference_inputs, utxo)
+                    .map_err(PlutusV3Error::InputTranslationError)
+            })
+            .transpose()?
+            .unwrap_or_default();
 
-impl Deref for ScriptPurpose {
-    type Target = ScriptInfo;
+        let outputs = tx
+            .outputs
+            .iter()
+            .map(TransactionOutput::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                PlutusV3Error::UnspecifiedError(format!(
+                    "failed to parse transaction output: {}",
+                    e
+                ))
+            })?;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        let mint = tx.mint.as_ref().map(|mint| mint.into()).unwrap_or_default();
+
+        let certificates: Vec<&'a Certificate> = tx
+            .certificates
+            .as_ref()
+            .map(|set| set.iter().collect())
+            .unwrap_or_default();
+
+        let withdrawals = tx
+            .withdrawals
+            .as_ref()
+            .map(Withdrawals::try_from)
+            .transpose()
+            .map_err(PlutusV3Error::UnspecifiedError)?
+            .unwrap_or_default();
+
+        let valid_range = TimeRange::new(
+            tx.validity_interval_start.map(Slot::from),
+            tx.ttl.map(Slot::from),
+            slot,
+            era_history,
+            network,
+        )
+        .map_err(PlutusV3Error::InvalidValidityRange)?;
+
+        let proposal_procedures: Vec<_> = tx
+            .proposal_procedures
+            .as_ref()
+            .map(|proposals| proposals.iter().collect())
+            .unwrap_or_default();
+
+        let votes = tx
+            .voting_procedures
+            .as_ref()
+            .map(Votes::from)
+            .unwrap_or_default();
+
+        let redeemers = Redeemers(
+            witness_set
+                .redeemer
+                .as_ref()
+                .map(|redeemers| {
+                    normalize_redeemers(redeemers.deref())
+                        .into_iter()
+                        .enumerate()
+                        .map(|(ix, redeemer)| {
+                            let purpose = ScriptPurpose::builder(
+                                &redeemer,
+                                &inputs[..],
+                                &mint,
+                                &withdrawals,
+                                &certificates,
+                                &proposal_procedures,
+                                &votes,
+                            )
+                            .ok_or(PlutusV3Error::InvalidRedeemer(ix))?;
+
+                            Ok((purpose, redeemer))
+                        })
+                        .collect::<Result<Vec<(ScriptPurpose<'a>, Cow<'a, Redeemer>)>, PlutusV3Error>>()
+                })
+                .transpose()?
+                .unwrap_or_default(),
+        );
+
+        let datums = witness_set
+            .plutus_data
+            .as_ref()
+            .map(Datums::from)
+            .unwrap_or_default();
+
+        Ok(Self {
+            inputs,
+            reference_inputs,
+            outputs,
+            fee: tx.fee,
+            mint,
+            certificates,
+            withdrawals,
+            valid_range,
+            signatories: tx
+                .required_signers
+                .as_ref()
+                .map(RequiredSigners::from)
+                .unwrap_or_default(),
+            redeemers,
+            data: datums,
+            id: *id,
+            votes,
+            proposal_procedures,
+            current_treasury_amount: tx.treasury_value,
+            treasury_donation: tx.donation.map(|donation| donation.into()),
+        })
+    }
+}
+
+fn translate_inputs<'a>(
+    inputs: &'a [TransactionInput],
+    utxo: &'a BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+) -> Result<Vec<OutputRef<'a>>, V3InputTranslationError> {
+    inputs
+        .iter()
+        .sorted()
+        .map(|input| {
+            let utxo = match utxo.get(input) {
+                Some(resolved) => resolved,
+                None => {
+                    return Err(V3InputTranslationError::UnknownInput(input.clone().into()));
+                }
+            };
+
+            match utxo.address {
+                Address::Byron(_) => {
+                    return Err(V3InputTranslationError::ByronAddressNotAllowed(
+                        input.clone().into(),
+                    ));
+                }
+                Address::Stake(_) => {
+                    unreachable!("stake address in UTxO")
+                }
+                _ => {}
+            };
+
+            Ok(OutputRef {
+                input,
+                output: utxo.into(),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+}
+
+pub type ScriptPurpose<'a> = ScriptInfo<'a, ()>;
+
+impl<'a> ScriptPurpose<'a> {
+    pub fn builder(
+        redeemer: &Redeemer,
+        inputs: &[OutputRef<'a>],
+        mint: &Mint<'a>,
+        withdrawals: &Withdrawals,
+        certs: &[&'a Certificate],
+        proposal_procedures: &[&'a Proposal],
+        votes: &Votes<'a>,
+    ) -> Option<Self> {
+        let index = redeemer.index as usize;
+        match redeemer.tag {
+            RedeemerTag::Spend => inputs
+                .get(index)
+                .map(|output_ref| ScriptPurpose::Spending(output_ref.input, ())),
+            RedeemerTag::Mint => mint
+                .0
+                .keys()
+                .nth(index)
+                .copied()
+                .map(ScriptPurpose::Minting),
+            RedeemerTag::Reward => withdrawals.0.keys().nth(index).map(|stake| {
+                ScriptPurpose::Rewarding(match stake.0.payload() {
+                    amaru_kernel::StakePayload::Stake(hash) => StakeCredential::AddrKeyhash(*hash),
+                    amaru_kernel::StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
+                })
+            }),
+            RedeemerTag::Cert => certs
+                .get(index)
+                .map(|cert| ScriptPurpose::Certifying(index, cert)),
+            RedeemerTag::Vote => votes
+                .0
+                .keys()
+                .nth(index)
+                .map(|voter| ScriptPurpose::Voting(voter)),
+            RedeemerTag::Propose => proposal_procedures
+                .get(index)
+                .map(|p| ScriptPurpose::Proposing(index, p)),
+        }
+    }
+
+    pub fn to_script_info(self, data: Option<PlutusData>) -> ScriptInfo<'a, Option<PlutusData>> {
+        match self {
+            ScriptInfo::Spending(input, _) => ScriptInfo::Spending(input, data),
+            ScriptInfo::Minting(p) => ScriptInfo::Minting(p),
+            ScriptInfo::Rewarding(s) => ScriptInfo::Rewarding(s),
+            ScriptInfo::Certifying(i, c) => ScriptInfo::Certifying(i, c),
+            ScriptInfo::Voting(v) => ScriptInfo::Voting(v),
+            ScriptInfo::Proposing(i, p) => ScriptInfo::Proposing(i, p),
+        }
     }
 }
 
 #[derive(Clone)]
-pub enum ScriptInfo {
+pub enum ScriptInfo<'a, T: Clone> {
     Minting(PolicyId),
-    Spending(TransactionInput, Option<DatumOption>),
+    Spending(&'a TransactionInput, T),
     Rewarding(StakeCredential),
-    Certifying(usize, Certificate),
-    Voting(Voter),
-    Proposing(usize, Proposal),
+    Certifying(usize, &'a Certificate),
+    Voting(&'a Voter),
+    Proposing(usize, &'a Proposal),
 }
 
-pub struct ScriptContext {
-    tx_info: TxInfo,
+pub struct ScriptContext<'a> {
+    tx_info: TxInfo<'a>,
     redeemer: Redeemer,
-    script_info: ScriptInfo,
+    script_info: ScriptInfo<'a, Option<PlutusData>>,
 }
 
-impl ToPlutusData<3> for ScriptContext {
+impl<'a> ScriptContext<'a> {
+    pub fn new(tx_info: TxInfo<'a>, redeemer: &Redeemer, data: Option<PlutusData>) -> Option<Self> {
+        let purpose = tx_info
+            .redeemers
+            .0
+            .iter()
+            .find_map(|(purpose, tx_redeemer)| {
+                if redeemer.tag == tx_redeemer.tag && redeemer.index == tx_redeemer.index {
+                    Some(purpose.clone())
+                } else {
+                    None
+                }
+            });
+
+        purpose.map(|purpose| ScriptContext {
+            tx_info,
+            redeemer: redeemer.clone(),
+            script_info: purpose.to_script_info(data),
+        })
+    }
+}
+
+impl<'a> ToPlutusData<3> for ScriptContext<'a> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v3!(0, [self.tx_info, self.redeemer, self.script_info])
     }
 }
 
-impl ToPlutusData<3> for TxInfo {
+impl<'a> ToPlutusData<3> for TxInfo<'a> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v3!(
             0,
@@ -109,20 +370,20 @@ impl ToPlutusData<3> for TxInfo {
     }
 }
 
-impl ToPlutusData<3> for ScriptPurpose {
+impl ToPlutusData<3> for ScriptPurpose<'_> {
     fn to_plutus_data(&self) -> PlutusData {
-        match self.deref() {
-            ScriptInfo::Minting(policy_id) => constr_v3!(0, [policy_id]),
-            ScriptInfo::Spending(out_ref, _) => constr_v3!(1, [out_ref]),
-            ScriptInfo::Rewarding(stake_credential) => constr_v3!(2, [stake_credential]),
-            ScriptInfo::Certifying(ix, certificate) => constr_v3!(3, [ix, certificate]),
-            ScriptInfo::Voting(voter) => constr_v3!(4, [voter]),
-            ScriptInfo::Proposing(ix, procedure) => constr_v3!(5, [ix, procedure]),
+        match self {
+            ScriptPurpose::Minting(policy_id) => constr_v3!(0, [policy_id]),
+            ScriptPurpose::Spending(out_ref, _) => constr_v3!(1, [out_ref]),
+            ScriptPurpose::Rewarding(stake_credential) => constr_v3!(2, [stake_credential]),
+            ScriptPurpose::Certifying(ix, certificate) => constr_v3!(3, [ix, certificate]),
+            ScriptPurpose::Voting(voter) => constr_v3!(4, [voter]),
+            ScriptPurpose::Proposing(ix, procedure) => constr_v3!(5, [ix, procedure]),
         }
     }
 }
 
-impl ToPlutusData<3> for ScriptInfo {
+impl ToPlutusData<3> for ScriptInfo<'_, Option<PlutusData>> {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             ScriptInfo::Minting(policy_id) => constr_v3!(0, [policy_id]),
@@ -135,7 +396,7 @@ impl ToPlutusData<3> for ScriptInfo {
     }
 }
 
-impl ToPlutusData<3> for OutputRef {
+impl<'a> ToPlutusData<3> for OutputRef<'a> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v3!(0, [self.input, self.output])
     }
@@ -148,13 +409,13 @@ impl ToPlutusData<3> for TransactionInput {
 }
 
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-impl ToPlutusData<3> for TransactionOutput {
+impl ToPlutusData<3> for TransactionOutput<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v3!(0, [self.address, self.value, self.datum, self.script])
     }
 }
 
-impl ToPlutusData<3> for Value {
+impl ToPlutusData<3> for Value<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         if self.ada().is_none() {
             <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(
@@ -169,6 +430,7 @@ impl ToPlutusData<3> for Value {
         }
     }
 }
+
 impl ToPlutusData<3> for KernelValue {
     fn to_plutus_data(&self) -> PlutusData {
         fn ada_entry(coin: &u64) -> (PlutusData, PlutusData) {
@@ -221,20 +483,27 @@ impl ToPlutusData<3> for DRep {
     }
 }
 
+// The Haskell implementation depends on the protocol version when encoding the `RegDepositTxCert` and `UnRegDepositTxCert`
+// In v9, the `coin` is always `Nothing` (Haskell `Just`, equivalent of  `Option::None`)
+// In v10, the coin is encoded as `Just coin` (equivalent of `Option::Some(coin))
+//
+// Whether or not this is relevant is an open question; it is possible that there are no scripts that were executed during v9
+// which depend on the `RegDepositTxCert` and `UnRegDepositTxCert`. If that is true, which is likely, we can just ignore the descrepency.
+// If it is not, we will have to depend on the protocol version as well.
 impl ToPlutusData<3> for Certificate {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             Certificate::StakeRegistration(stake_credential) => {
                 constr_v3!(0, [stake_credential, None::<PlutusData>])
             }
-            Certificate::Reg(stake_credential, _) => {
-                constr_v3!(0, [stake_credential, None::<PlutusData>])
+            Certificate::Reg(stake_credential, coin) => {
+                constr_v3!(0, [stake_credential, Some(coin)])
             }
             Certificate::StakeDeregistration(stake_credential) => {
                 constr_v3!(1, [stake_credential, None::<PlutusData>])
             }
-            Certificate::UnReg(stake_credential, _) => {
-                constr_v3!(1, [stake_credential, None::<PlutusData>])
+            Certificate::UnReg(stake_credential, coin) => {
+                constr_v3!(1, [stake_credential, Some(coin)])
             }
             Certificate::StakeDelegation(stake_credential, pool_id) => {
                 constr_v3!(2, [stake_credential, constr_v3!(0, [pool_id])])
@@ -379,6 +648,12 @@ impl ToPlutusData<3> for ProposalId {
     }
 }
 
+impl ToPlutusData<3> for ProposalIdAdapter<'_> {
+    fn to_plutus_data(&self) -> PlutusData {
+        self.deref().to_plutus_data()
+    }
+}
+
 impl ToPlutusData<3> for ProtocolParamUpdate {
     fn to_plutus_data(&self) -> PlutusData {
         let mut pparams = Vec::with_capacity(30);
@@ -512,6 +787,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         PlutusData::Map(KeyValuePairs::Def(pparams))
     }
 }
+
 // Do I need the tag encoding?
 impl ToPlutusData<3> for RationalNumber {
     fn to_plutus_data(&self) -> PlutusData {
@@ -573,5 +849,153 @@ impl ToPlutusData<3> for Vote {
             Vote::Yes => constr!(1),
             Vote::Abstain => constr!(2),
         }
+    }
+}
+
+impl ToPlutusData<3> for Mint<'_> {
+    fn to_plutus_data(&self) -> PlutusData {
+        // Unlike in V2 and V3, we do not include zero ADA value
+        <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
+    }
+}
+
+impl ToPlutusData<3> for Withdrawals {
+    fn to_plutus_data(&self) -> PlutusData {
+        <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
+    }
+}
+
+impl ToPlutusData<3> for Redeemers<'_, ScriptPurpose<'_>> {
+    fn to_plutus_data(&self) -> PlutusData {
+        PlutusData::Map(KeyValuePairs::Def(
+            self.0
+                .iter()
+                .map(|(purpose, data)| {
+                    (
+                        purpose.to_plutus_data(),
+                        <Redeemer as ToPlutusData<3>>::to_plutus_data(data),
+                    )
+                })
+                .collect(),
+        ))
+    }
+}
+
+impl ToPlutusData<3> for RequiredSigners {
+    fn to_plutus_data(&self) -> PlutusData {
+        let vec = self.0.iter().collect::<Vec<_>>();
+
+        <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec)
+    }
+}
+
+impl ToPlutusData<3> for Datums<'_> {
+    fn to_plutus_data(&self) -> PlutusData {
+        <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
+    }
+}
+
+impl ToPlutusData<3> for Votes<'_> {
+    fn to_plutus_data(&self) -> PlutusData {
+        <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_vectors::{self, TestVector};
+    use super::*;
+    use amaru_kernel::{MintedTx, OriginalHash, to_cbor};
+    use test_case::test_case;
+
+    macro_rules! fixture {
+        ($title:literal) => {
+            test_vectors::get_test_vector($title, 3)
+        };
+    }
+
+    #[test_case(fixture!("simple_send"); "simple send")]
+    #[test_case(fixture!("simple_spend_no_datum"); "simple spend no datum")]
+    #[test_case(fixture!("mint"); "mint")]
+    #[test_case(fixture!("certificates_v10"); "certificates (protocol ver 10")]
+    // The following test is commented out because we are disregarding protocol version 9.
+    // See the comment on the `ToPlutusData` implementation for `Certificate` for more information
+    // #[test_case(fixture!("certificates_v9"); "certificates (protocol ver 9")]
+    fn test_plutus_v3(test_vector: &TestVector) {
+        // Ensure we're testing against the right Plutus version.
+        // If not, we should fail early.
+        assert_eq!(test_vector.meta.plutus_version, 3);
+
+        // this should probably be encoded in the TestVector itself
+        let network = NetworkName::Preprod;
+
+        let transaction: MintedTx<'_> =
+            minicbor::decode(&test_vector.input.transaction_bytes).unwrap();
+
+        let redeemers = normalize_redeemers(
+            transaction
+                .transaction_witness_set
+                .redeemer
+                .as_ref()
+                .expect("no redeemers provided")
+                .deref(),
+        );
+
+        let produced_contexts = redeemers
+            .iter()
+            .map(|redeemer| {
+                let datum = if let RedeemerTag::Spend = redeemer.tag {
+                    let input = transaction
+                        .transaction_body
+                        .inputs
+                        .get(redeemer.index as usize)
+                        .expect("invalid redeemer index");
+                    match &test_vector
+                        .input
+                        .utxo
+                        .get(input)
+                        .expect("missing input in utxo set")
+                        .datum
+                    {
+                        amaru_kernel::MemoizedDatum::None => None,
+                        amaru_kernel::MemoizedDatum::Hash(hash) => {
+                            Some(PlutusData::BoundedBytes(hash.to_vec().into()))
+                        }
+                        amaru_kernel::MemoizedDatum::Inline(memoized_plutus_data) => {
+                            Some(memoized_plutus_data.as_ref().clone())
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                let tx_info = TxInfo::new(
+                    &transaction.transaction_body,
+                    &transaction.transaction_body.original_hash(),
+                    &transaction.transaction_witness_set,
+                    &test_vector.input.utxo,
+                    network.into(),
+                    &0.into(),
+                    network,
+                )
+                .unwrap();
+
+                let script_context = ScriptContext::new(tx_info, redeemer, datum).unwrap();
+                let plutus_data = to_cbor(&script_context.to_plutus_data());
+
+                hex::encode(plutus_data)
+            })
+            .collect::<Vec<_>>();
+
+        let found_match = produced_contexts
+            .iter()
+            .any(|context| context == &test_vector.expectations.script_context);
+
+        assert!(
+            found_match,
+            "No redeemer produced the expected script context: {}\nProduced script contexts: {}",
+            test_vector.expectations.script_context,
+            produced_contexts.join("\n\n")
+        );
     }
 }

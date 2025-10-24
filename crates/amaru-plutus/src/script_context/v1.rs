@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
     Address, EraHistory, Hash, MemoizedDatum, MemoizedTransactionOutput, MintedTransactionBody,
@@ -27,8 +27,9 @@ use crate::{
     Constr, DEFAULT_TAG, IsKnownPlutusVersion, MaybeIndefArray, PlutusVersion, ToConstrTag,
     ToPlutusData, constr, constr_v1,
     script_context::{
-        Certificate, Datums, IsPrePlutusVersion3, Mint, OutputRef, PlutusData, RequiredSigners,
-        TimeRange, TransactionId, TransactionOutput, Value, Withdrawals,
+        Certificate, DatumOption, Datums, IsPrePlutusVersion3, Mint, OutputRef, PlutusData,
+        Redeemers, RequiredSigners, TimeRange, TransactionId, TransactionOutput, Utxos, Value,
+        Withdrawals,
     },
 };
 
@@ -36,8 +37,6 @@ use crate::{
 pub enum PlutusV1Error {
     #[error("failed to translate inputs: {0}")]
     InputTranslationError(#[from] V1InputTranslationError),
-    #[error("reference inputs are not allowed in the v1 script context")]
-    ReferenceInputsIncluded,
     #[error("invalid validity range: {0}")]
     InvalidValidityRange(#[from] EraHistoryError),
     #[error("invalid redeemer at index {0}")]
@@ -57,44 +56,38 @@ pub enum V1InputTranslationError {
 }
 
 // Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V1/Data/Contexts.hs#L148
-pub struct TxInfo {
-    inputs: Vec<OutputRef>,
-    outputs: Vec<TransactionOutput>,
-    fee: Value,
-    mint: Mint,
-    certificates: Vec<Certificate>,
+pub struct TxInfo<'a> {
+    inputs: Vec<OutputRef<'a>>,
+    outputs: Vec<TransactionOutput<'a>>,
+    fee: Value<'a>,
+    mint: Mint<'a>,
+    certificates: Vec<&'a Certificate>,
     withdrawals: Withdrawals,
     valid_range: TimeRange,
     signatories: RequiredSigners,
-    data: Datums,
-    redeemers: Redeemers,
+    data: Datums<'a>,
+    redeemers: Redeemers<'a, ScriptPurpose<'a>>,
     id: TransactionId,
 }
 
-impl TxInfo {
+impl<'a> TxInfo<'a> {
     #[allow(clippy::expect_used)]
     pub fn new(
-        tx: &MintedTransactionBody<'_>,
+        tx: &'a MintedTransactionBody<'a>,
         id: &Hash<32>,
-        witness_set: &MintedWitnessSet<'_>,
-        utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+        witness_set: &'a MintedWitnessSet<'a>,
+        utxo: &'a Utxos,
         era_history: &EraHistory,
         slot: &Slot,
         network: NetworkName,
     ) -> Result<Self, PlutusV1Error> {
-        if tx.reference_inputs.is_some() {
-            return Err(PlutusV1Error::ReferenceInputsIncluded);
-        }
-
         let inputs = Self::translate_inputs(&tx.inputs, utxo)
             .map_err(PlutusV1Error::InputTranslationError)?;
 
         let outputs = tx
             .outputs
             .iter()
-            .map(|output| {
-                MemoizedTransactionOutput::try_from(output.clone()).map(TransactionOutput::from)
-            })
+            .map(TransactionOutput::try_from)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| {
                 PlutusV1Error::UnspecifiedError(format!(
@@ -103,39 +96,39 @@ impl TxInfo {
                 ))
             })?;
 
-        let certificates = tx
+        let certificates: Vec<_> = tx
             .certificates
-            .clone()
-            .map(|set| set.to_vec())
+            .as_ref()
+            .map(|set| set.iter().collect())
             .unwrap_or_default();
 
         let withdrawals = tx
             .withdrawals
-            .clone()
+            .as_ref()
             .map(Withdrawals::try_from)
             .transpose()
             .map_err(PlutusV1Error::UnspecifiedError)?
             .unwrap_or_default();
 
-        let mint = tx.mint.clone().map(Mint::from).unwrap_or_default();
+        let mint = tx.mint.as_ref().map(Mint::from).unwrap_or_default();
 
         let signatories: RequiredSigners = tx
             .required_signers
-            .clone()
+            .as_ref()
             .map(RequiredSigners::from)
             .unwrap_or_default();
 
         let datums = witness_set
             .plutus_data
-            .clone()
+            .as_ref()
             .map(Datums::from)
             .unwrap_or_default();
 
         let redeemers = witness_set
             .redeemer
-            .clone()
+            .as_ref()
             .map(|redeemers| {
-                normalize_redeemers(redeemers.unwrap())
+                normalize_redeemers(redeemers.deref())
                     .into_iter()
                     .enumerate()
                     .map(|(ix, redeemer)| {
@@ -150,7 +143,7 @@ impl TxInfo {
 
                         Ok((purpose, redeemer))
                     })
-                    .collect::<Result<Vec<(ScriptPurpose, Redeemer)>, PlutusV1Error>>()
+                    .collect::<Result<Vec<(ScriptPurpose<'_>, Cow<'_, Redeemer>)>, PlutusV1Error>>()
             })
             .transpose()?
             .unwrap_or_default();
@@ -181,9 +174,9 @@ impl TxInfo {
     }
 
     fn translate_inputs(
-        inputs: &[TransactionInput],
-        utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
-    ) -> Result<Vec<OutputRef>, V1InputTranslationError> {
+        inputs: &'a [TransactionInput],
+        utxo: &'a BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    ) -> Result<Vec<OutputRef<'a>>, V1InputTranslationError> {
         inputs
             .iter()
             .sorted()
@@ -218,8 +211,8 @@ impl TxInfo {
                 }
 
                 Some(Ok(OutputRef {
-                    input: input.clone(),
-                    output: utxo.clone().into(),
+                    input,
+                    output: utxo.into(),
                 }))
             })
             .collect::<Result<Vec<_>, _>>()
@@ -227,30 +220,27 @@ impl TxInfo {
 }
 
 #[derive(Clone)]
-pub enum ScriptPurpose {
+pub enum ScriptPurpose<'a> {
     Minting(PolicyId),
-    Spending(TransactionInput),
+    Spending(&'a TransactionInput),
     Rewarding(StakeCredential),
-    Certifying(Certificate),
+    Certifying(&'a Certificate),
 }
 
-// FIXME: This should probably be a BTreeMap
-pub struct Redeemers(pub Vec<(ScriptPurpose, Redeemer)>);
-
-impl ScriptPurpose {
+impl<'a> ScriptPurpose<'a> {
     #[allow(clippy::result_unit_err)]
     pub fn builder(
         redeemer: &Redeemer,
-        inputs: &[OutputRef],
-        mint: &Mint,
+        inputs: &[OutputRef<'a>],
+        mint: &Mint<'a>,
         withdrawals: &Withdrawals,
-        certs: &[Certificate],
+        certs: &[&'a Certificate],
     ) -> Result<Self, ()> {
         let index = redeemer.index as usize;
         match redeemer.tag {
             RedeemerTag::Spend => inputs
                 .get(index)
-                .map(|output_ref| ScriptPurpose::Spending(output_ref.input.clone())),
+                .map(|output_ref| ScriptPurpose::Spending(output_ref.input)),
             RedeemerTag::Mint => mint
                 .0
                 .keys()
@@ -262,22 +252,20 @@ impl ScriptPurpose {
                     amaru_kernel::StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
                 })
             }),
-            RedeemerTag::Cert => certs
-                .get(index)
-                .map(|cert| ScriptPurpose::Certifying(cert.clone())),
+            RedeemerTag::Cert => certs.get(index).map(|cert| ScriptPurpose::Certifying(cert)),
             RedeemerTag::Vote | RedeemerTag::Propose => None,
         }
         .ok_or(())
     }
 }
 
-pub struct ScriptContext {
-    tx_info: TxInfo,
-    purpose: ScriptPurpose,
+pub struct ScriptContext<'a> {
+    tx_info: TxInfo<'a>,
+    purpose: ScriptPurpose<'a>,
 }
 
-impl ScriptContext {
-    pub fn new(tx_info: TxInfo, redeemer: &Redeemer) -> Option<Self> {
+impl<'a> ScriptContext<'a> {
+    pub fn new(tx_info: TxInfo<'a>, redeemer: &Redeemer) -> Option<Self> {
         let purpose = tx_info
             .redeemers
             .0
@@ -294,7 +282,7 @@ impl ScriptContext {
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for ScriptContext
+impl<const V: u8> ToPlutusData<V> for ScriptContext<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
@@ -303,7 +291,7 @@ where
     }
 }
 
-impl ToPlutusData<1> for TxInfo {
+impl ToPlutusData<1> for TxInfo<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v1!(
             0,
@@ -323,7 +311,7 @@ impl ToPlutusData<1> for TxInfo {
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for ScriptPurpose
+impl<const V: u8> ToPlutusData<V> for ScriptPurpose<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
@@ -339,7 +327,7 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for Value
+impl<const V: u8> ToPlutusData<V> for Value<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
@@ -392,13 +380,13 @@ where
     }
 }
 
-impl ToPlutusData<1> for OutputRef {
+impl ToPlutusData<1> for OutputRef<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v1!(0, [self.input, self.output])
     }
 }
 
-impl ToPlutusData<1> for TransactionOutput {
+impl ToPlutusData<1> for TransactionOutput<'_> {
     #[allow(clippy::wildcard_enum_match_arm)]
     fn to_plutus_data(&self) -> PlutusData {
         constr_v1!(
@@ -407,7 +395,7 @@ impl ToPlutusData<1> for TransactionOutput {
                 self.address,
                 self.value,
                 match self.datum {
-                    MemoizedDatum::Hash(hash) => Some(hash),
+                    DatumOption::Hash(hash) => Some(*hash),
                     _ => None::<Hash<32>>,
                 },
             ]
@@ -415,7 +403,7 @@ impl ToPlutusData<1> for TransactionOutput {
     }
 }
 
-impl ToPlutusData<1> for Mint {
+impl ToPlutusData<1> for Mint<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         // In V1, we need to provide the zero ADA asset as well
         let mut mint = self
@@ -424,7 +412,7 @@ impl ToPlutusData<1> for Mint {
             .map(|(policy, multiasset)| (policy.to_vec(), multiasset))
             .collect::<BTreeMap<_, _>>();
 
-        let ada_bundle = BTreeMap::from([(vec![].into(), 0)]);
+        let ada_bundle = BTreeMap::from([(Cow::Owned(vec![].into()), 0)]);
         mint.insert(vec![], &ada_bundle);
 
         <BTreeMap<_, _> as ToPlutusData<1>>::to_plutus_data(&mint)
@@ -451,8 +439,82 @@ impl ToPlutusData<1> for Withdrawals {
     }
 }
 
-impl ToPlutusData<1> for Datums {
+impl ToPlutusData<1> for Datums<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         <Vec<_> as ToPlutusData<1>>::to_plutus_data(&self.0.iter().collect::<Vec<_>>())
+    }
+}
+
+// This test logic is basically 100% duplicated with v3. Should be able to simplify.
+#[cfg(test)]
+mod tests {
+    use super::super::test_vectors::{self, TestVector};
+    use super::*;
+    use amaru_kernel::{MintedTx, OriginalHash, to_cbor};
+    use test_case::test_case;
+
+    const PLUTUS_VERSION: u8 = 1;
+
+    macro_rules! fixture {
+        ($title:literal) => {
+            test_vectors::get_test_vector($title, PLUTUS_VERSION)
+        };
+    }
+
+    #[test_case(fixture!("simple_send"); "simple send")]
+    #[test_case(fixture!("mint"); "mint")]
+    fn test_plutus_v1(test_vector: &TestVector) {
+        // Ensure we're testing against the right Plutus version.
+        // If not, we should fail early.
+        assert_eq!(test_vector.meta.plutus_version, PLUTUS_VERSION);
+
+        // this should probably be encoded in the TestVector itself
+        let network = NetworkName::Preprod;
+
+        let transaction: MintedTx<'_> =
+            minicbor::decode(&test_vector.input.transaction_bytes).unwrap();
+
+        let redeemers = normalize_redeemers(
+            transaction
+                .transaction_witness_set
+                .redeemer
+                .as_ref()
+                .expect("no redeemers provided")
+                .deref(),
+        );
+
+        let produced_contexts = redeemers
+            .iter()
+            .map(|redeemer| {
+                let tx_info = TxInfo::new(
+                    &transaction.transaction_body,
+                    &transaction.transaction_body.original_hash(),
+                    &transaction.transaction_witness_set,
+                    &test_vector.input.utxo,
+                    network.into(),
+                    &0.into(),
+                    network,
+                )
+                .unwrap();
+
+                let script_context = ScriptContext::new(tx_info, redeemer).unwrap();
+                let plutus_data = to_cbor(&<ScriptContext<'_> as ToPlutusData<1>>::to_plutus_data(
+                    &script_context,
+                ));
+
+                hex::encode(plutus_data)
+            })
+            .collect::<Vec<_>>();
+
+        let found_match = produced_contexts
+            .iter()
+            .any(|context| context == &test_vector.expectations.script_context);
+
+        assert!(
+            found_match,
+            "No redeemer produced the expected script context: {}\nProduced script contexts: {}",
+            test_vector.expectations.script_context,
+            produced_contexts.join("\n\n")
+        );
     }
 }
