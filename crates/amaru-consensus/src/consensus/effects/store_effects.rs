@@ -92,7 +92,11 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
         self.external_sync(PutNoncesEffect::new(*header, nonces.clone()))
     }
 
-    fn set_best_chain(&self, point: &Point) -> Result<(), StoreError> {
+    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
+        todo!()
+    }
+
+    fn roll_back_chain(&self, point: &Point) -> Result<usize, StoreError> {
         todo!()
     }
 }

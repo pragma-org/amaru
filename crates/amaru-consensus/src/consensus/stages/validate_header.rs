@@ -306,7 +306,11 @@ mod tests {
             self.store.put_nonces(hash, nonces)
         }
 
-        fn set_best_chain(&self, point: &Point) -> Result<(), StoreError> {
+        fn roll_forward_chain(&self, _point: &Point) -> Result<(), StoreError> {
+            todo!()
+        }
+
+        fn roll_back_chain(&self, _point: &Point) -> Result<usize, StoreError> {
             todo!()
         }
     }

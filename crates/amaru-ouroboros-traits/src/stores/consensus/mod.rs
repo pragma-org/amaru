@@ -150,8 +150,14 @@ where
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError>;
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError>;
 
-    /// Set the best chain tip to the given point.
-    fn set_best_chain(&self, point: &Point) -> Result<(), StoreError>;
+    /// Roll forward the best chain to the given point.
+    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError>;
+
+    /// Rollback the best chain tip at the given point.
+    /// The point must exist on the best chain, and all points on chain after that
+    /// point will be deleted.
+    /// Returns the number of headers that were rolled back.
+    fn roll_back_chain(&self, point: &Point) -> Result<usize, StoreError>;
 }
 
 #[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]

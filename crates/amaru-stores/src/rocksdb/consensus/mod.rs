@@ -108,6 +108,18 @@ impl RocksDBStore {
     pub fn create_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
         self.db.transaction()
     }
+
+    pub fn with_transaction<R, F>(&self, f: F) -> Result<R, StoreError>
+    where
+        F: FnOnce(&rocksdb::Transaction<'_, OptimisticTransactionDB>) -> Result<R, StoreError>,
+    {
+        let tx = self.db.transaction();
+        let result = f(&tx);
+        tx.commit().map_err(|e| StoreError::WriteError {
+            error: e.to_string(),
+        })?;
+        result
+    }
 }
 
 macro_rules! impl_ReadOnlyChainStore {
@@ -198,7 +210,6 @@ macro_rules! impl_ReadOnlyChainStore {
 
             fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
                 let slot = u64::from(point.slot_or_default()).to_be_bytes();
-                println!("looking for best chain header at slot {:?}", slot);
                 self.db
                     .get_pinned([&CHAIN_PREFIX[..], &slot[..]].concat())
                     .ok()
@@ -366,7 +377,8 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             })
     }
 
-    fn set_best_chain(&self, point: &Point) -> Result<(), StoreError> {
+    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
+        // TODO: check point is strictly following current best chain tip
         let slot = u64::from(point.slot_or_default()).to_be_bytes();
         self.db
             .put(
@@ -376,6 +388,29 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),
             })
+    }
+
+    fn roll_back_chain(&self, point: &Point) -> Result<usize, StoreError> {
+        // TODO: check point is on the chain
+        let slot = (u64::from(point.slot_or_default()) + 1).to_be_bytes();
+        let mut count = 0usize;
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange(&CHAIN_PREFIX[..]));
+        let starting_point = [&CHAIN_PREFIX[..], &slot[..]].concat();
+        let mode = IteratorMode::From(starting_point.as_slice(), rocksdb::Direction::Forward);
+
+        self.with_transaction(|tx| {
+            for kv in tx.iterator_opt(mode, opts) {
+                if let Ok((k, _v)) = kv {
+                    tx.delete(k).map_err(|e| StoreError::WriteError {
+                        error: e.to_string(),
+                    })?;
+                }
+                count += 1;
+            }
+
+            Ok(count)
+        })
     }
 }
 
