@@ -168,6 +168,30 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn raises_error_if_rollback_is_not_on_best_chain() -> anyhow::Result<()> {
+        let chain = generate_headers_chain(10);
+        let store = create_db();
+        let store_chain = StoreChain::new(&chain[0]);
+
+        for i in 0..5 {
+            let header = &chain[i];
+            store_chain.roll_forward(store.clone(), header).await?;
+            store.set_best_chain_hash(&header.hash())?;
+            store.store_header(header)?;
+        }
+
+        let result = store_chain.rollback(store.clone(), &chain[5].point()).await;
+
+        match result {
+            Ok(_) => panic!("expected test to fail"),
+            Err(e) => {
+                assert_matches!(e, ConsensusError::SetBestChainHashFailed(_, _));
+                Ok(())
+            }
+        }
+    }
+
     fn create_db() -> Arc<dyn ChainStore<BlockHeader>> {
         let tempdir = tempfile::tempdir().unwrap();
         let path = tempdir.path();

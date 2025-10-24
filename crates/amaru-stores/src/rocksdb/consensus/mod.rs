@@ -407,7 +407,15 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
     }
 
     fn roll_back_chain(&self, point: &Point) -> Result<usize, StoreError> {
-        // TODO: check point is on the chain
+        if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(&self, point).is_none() {
+            return Err(StoreError::ReadError {
+                error: format!(
+                    "Cannot roll back chain to point {:?} as it does not exist on the best chain",
+                    point
+                ),
+            });
+        };
+
         let slot = (u64::from(point.slot_or_default()) + 1).to_be_bytes();
         let mut count = 0usize;
         let mut opts = ReadOptions::default();
