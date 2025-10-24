@@ -157,7 +157,7 @@ where
     /// The point must exist on the best chain, and all points on chain after that
     /// point will be deleted.
     /// Returns the number of headers that were rolled back.
-    fn roll_back_chain(&self, point: &Point) -> Result<usize, StoreError>;
+    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError>;
 }
 
 #[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]

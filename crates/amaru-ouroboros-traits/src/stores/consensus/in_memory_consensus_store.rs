@@ -46,6 +46,7 @@ struct InMemConsensusStoreInner<H> {
     anchor: HeaderHash,
     best_chain: HeaderHash,
     blocks: BTreeMap<HeaderHash, RawBlock>,
+    chain: Vec<Point>,
 }
 
 impl<H> Default for InMemConsensusStoreInner<H> {
@@ -63,6 +64,7 @@ impl<H> InMemConsensusStoreInner<H> {
             anchor: ORIGIN_HASH,
             best_chain: ORIGIN_HASH,
             blocks: BTreeMap::new(),
+            chain: Vec::new(),
         }
     }
 }
@@ -119,7 +121,8 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 
     fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
-        None
+        let inner = self.inner.lock().unwrap();
+        inner.chain.iter().find(|p| *p == point).map(|p| p.hash())
     }
 }
 
@@ -168,10 +171,17 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
 
 
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
-        todo!()
+        let mut inner = self.inner.lock().unwrap();
+        inner.chain.push(point.clone());
+        Ok(())
     }
 
-    fn roll_back_chain(&self, point: &Point) -> Result<usize, StoreError> {
-        todo!()
+    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        let init_len = inner.chain.len();
+        inner
+            .chain
+            .retain(|p| p.slot_or_default() < point.slot_or_default());
+        Ok(init_len - inner.chain.len())
     }
 }

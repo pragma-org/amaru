@@ -411,7 +411,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             })
     }
 
-    fn roll_back_chain(&self, point: &Point) -> Result<usize, StoreError> {
+    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
         if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(&self, point).is_none() {
             return Err(StoreError::ReadError {
                 error: format!(
