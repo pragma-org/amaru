@@ -65,7 +65,7 @@ impl StoreChain {
         Self { tip: tip.clone() }
     }
 
-    pub async fn forward_block(
+    pub async fn roll_forward(
         &self,
         store: Arc<dyn ChainStore<BlockHeader>>,
         header: &BlockHeader,
@@ -88,7 +88,7 @@ impl StoreChain {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{assert_matches::assert_matches, sync::Arc};
 
     use amaru_kernel::{
         BlockHeader, IsHeader, consensus_events::BlockValidationResult, peer::Peer,
@@ -97,6 +97,7 @@ mod tests {
     use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 
     use crate::consensus::{
+        errors::ConsensusError,
         headers_tree::data_generation::{generate_headers_chain, generate_headers_chain_from},
         stages::store_chain::StoreChain,
     };
@@ -109,7 +110,8 @@ mod tests {
 
         for i in 1..10 {
             let header = &chain[i];
-            store_chain.forward_block(store.clone(), header).await?;
+            store.set_best_chain_hash(&header.hash())?;
+            store_chain.roll_forward(store.clone(), header).await?;
         }
 
         assert_eq!(
@@ -127,7 +129,7 @@ mod tests {
 
         for i in 1..10 {
             let header = &chain[i];
-            store_chain.forward_block(store.clone(), header).await?;
+            store_chain.roll_forward(store.clone(), header).await?;
         }
 
         store_chain
@@ -140,6 +142,30 @@ mod tests {
             Some(chain[5].hash())
         );
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn raises_error_if_forward_is_not_a_child_of_best_chain() -> anyhow::Result<()> {
+        let chain = generate_headers_chain(10);
+        let store = create_db();
+        let store_chain = StoreChain::new(&chain[0]);
+
+        for i in 0..10 {
+            let header = &chain[i];
+            store_chain.roll_forward(store.clone(), header).await?;
+            store.set_best_chain_hash(&header.hash())?;
+            store.store_header(header)?;
+        }
+
+        let result = store_chain.roll_forward(store.clone(), &chain[8]).await;
+
+        match result {
+            Ok(()) => panic!("expected test to fail"),
+            Err(e) => {
+                assert_matches!(e, ConsensusError::SetBestChainHashFailed(_, _));
+                Ok(())
+            }
+        }
     }
 
     fn create_db() -> Arc<dyn ChainStore<BlockHeader>> {
