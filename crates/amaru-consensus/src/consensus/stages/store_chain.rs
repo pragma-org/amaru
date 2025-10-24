@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::ProcessingFailed;
+use crate::consensus::errors::{ConsensusError, ProcessingFailed};
 use crate::consensus::span::HasSpan;
+use amaru_kernel::BlockHeader;
 use amaru_kernel::consensus_events::BlockValidationResult;
+use amaru_ouroboros::{ChainStore, StoreError};
 use pure_stage::StageRef;
 use tracing::{Level, span};
 
@@ -48,4 +52,66 @@ pub async fn stage(state: State, msg: BlockValidationResult, eff: impl Consensus
         }
     }
     (downstream, processing_errors)
+}
+
+/// State of chain store
+pub struct StoreChain {
+    /// Current tip
+    tip: BlockHeader,
+}
+
+impl StoreChain {
+    fn new(tip: &BlockHeader) -> Self {
+        Self { tip: tip.clone() }
+    }
+
+    pub async fn forward_block(
+        &self,
+        store: Arc<dyn ChainStore<BlockHeader>>,
+        header: &BlockHeader,
+    ) -> Result<(), ConsensusError> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use amaru_kernel::{BlockHeader, IsHeader, peer::Peer};
+    use amaru_ouroboros::ChainStore;
+    use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
+
+    use crate::consensus::{
+        headers_tree::data_generation::generate_headers_chain, stages::store_chain::StoreChain,
+    };
+
+    #[tokio::test]
+    async fn update_best_chain_to_block_slot_given_new_block_is_valid() {
+        let chain = generate_headers_chain(10);
+        let store = create_db();
+        let store_chain = StoreChain::new(&chain[0]);
+
+        for i in 1..10 {
+            let header = &chain[i];
+            store_chain.forward_block(store.clone(), header).await;
+        }
+
+        assert_eq!(
+            store.load_from_best_chain(&chain[9].point()),
+            Some(chain[9].clone())
+        );
+    }
+
+    fn create_db() -> Arc<dyn ChainStore<BlockHeader>> {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir.path();
+        let basedir = path.join("rocksdb_chain_store");
+        use std::fs::create_dir_all;
+        create_dir_all(&basedir).expect("fail to create test dir");
+        let config = RocksDbConfig::new(basedir);
+
+        let store = RocksDBStore::create(config).expect("fail to initialise RocksDB");
+        Arc::new(store)
+    }
 }

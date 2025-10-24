@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, RawBlock};
+use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -116,6 +116,10 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     fn get_best_chain_hash(&self) -> HeaderHash {
         let inner = self.inner.lock().unwrap();
         inner.best_chain
+    }
+
+    fn load_from_best_chain(&self, point: &Point) -> Option<H> {
+        None
     }
 }
 

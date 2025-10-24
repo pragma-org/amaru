@@ -169,6 +169,7 @@ mod tests {
     use crate::consensus;
     use crate::consensus::effects::MockLedgerOps;
     use crate::consensus::errors::ConsensusError::NoncesError;
+    use amaru_kernel::Point;
     use amaru_kernel::is_header::tests::{any_header_with_some_parent, run};
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::{
@@ -277,6 +278,10 @@ mod tests {
 
         fn get_nonces(&self, hash: &HeaderHash) -> Option<Nonces> {
             self.store.get_nonces(hash)
+        }
+
+        fn load_from_best_chain(&self, point: &Point) -> Option<BlockHeader> {
+            self.store.load_from_best_chain(point)
         }
     }
 

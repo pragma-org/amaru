@@ -18,7 +18,7 @@ pub mod util;
 pub use migration::*;
 
 use amaru_kernel::{
-    BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, ORIGIN_HASH, RawBlock, cbor,
+    BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor,
     from_cbor, to_cbor,
 };
 use amaru_ouroboros_traits::{
@@ -196,6 +196,9 @@ macro_rules! impl_ReadOnlyChainStore {
                     .map(|bytes| bytes.as_ref().into())
             }
 
+            fn load_from_best_chain(&self, point: &Point) -> Option<H> {
+                unimplemented!()
+            }
 
         })*
     }

@@ -15,7 +15,7 @@
 pub mod in_memory_consensus_store;
 
 use crate::Nonces;
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, RawBlock};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, RawBlock};
 use std::fmt::Display;
 use std::iter::successors;
 use thiserror::Error;
@@ -30,6 +30,11 @@ where
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
     fn get_anchor_hash(&self) -> HeaderHash;
     fn get_best_chain_hash(&self) -> HeaderHash;
+
+    /// Load a header from the best chain.
+    /// Returns `None` if the point is not in the best chain, or the header.
+    fn load_from_best_chain(&self, point: &Point) -> Option<H>;
+
     fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
     fn has_header(&self, hash: &HeaderHash) -> bool;
@@ -127,6 +132,10 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
 
     fn has_header(&self, hash: &HeaderHash) -> bool {
         self.as_ref().has_header(hash)
+    }
+
+    fn load_from_best_chain(&self, point: &Point) -> Option<H> {
+        self.as_ref().load_from_best_chain(point)
     }
 }
 
