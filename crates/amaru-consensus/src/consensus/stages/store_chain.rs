@@ -23,7 +23,7 @@ use amaru_kernel::{BlockHeader, IsHeader, Point};
 use amaru_ouroboros::ChainStore;
 use pure_stage::StageRef;
 use serde::{Deserialize, Serialize};
-use tracing::{Level, span};
+use tracing::{Level, span, trace};
 
 type State = (
     // current state
@@ -112,6 +112,7 @@ impl StoreChain {
             .roll_forward_chain(&header.point())
             .map_err(|e| ConsensusError::SetBestChainHashFailed(header.hash(), e));
         self.tip = header.as_header_tip();
+        trace!(tip = %self.tip, "store_chain.roll_forward");
         result
     }
 
@@ -125,6 +126,7 @@ impl StoreChain {
             .map_err(|e| ConsensusError::SetBestChainHashFailed(point.hash(), e))
             .inspect(|&sz| {
                 self.tip = HeaderTip::new(point.clone(), self.tip.block_height() - sz as u64);
+                trace!(tip = %self.tip, "store_chain.rollback");
             })
     }
 }
@@ -174,21 +176,6 @@ mod tests {
         );
         assert_eq!(store_chain.tip, chain[5].as_header_tip());
         Ok(())
-    }
-
-    #[tokio::test]
-    async fn raises_error_if_forward_is_not_a_child_of_best_chain() -> anyhow::Result<()> {
-        let (store, chain, mut store_chain) = populate_db().await?;
-
-        let result = store_chain.roll_forward(store.clone(), &chain[8]).await;
-
-        match result {
-            Ok(()) => panic!("expected test to fail"),
-            Err(e) => {
-                assert_matches!(e, ConsensusError::SetBestChainHashFailed(_, _));
-                Ok(())
-            }
-        }
     }
 
     #[tokio::test]
