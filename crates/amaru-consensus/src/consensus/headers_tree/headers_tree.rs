@@ -18,11 +18,12 @@ use crate::consensus::headers_tree::headers_tree::Tracker::{Me, SomePeer};
 use crate::consensus::headers_tree::tree::Tree;
 use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
 use crate::consensus::stages::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
+use amaru_kernel::IsHeader;
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HeaderHash, ORIGIN_HASH, Point, peer::Peer};
+use amaru_ouroboros_traits::ChainStore;
 #[cfg(any(test, feature = "test-utils"))]
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -699,9 +700,9 @@ mod tests {
     use crate::consensus::headers_tree::data_generation::*;
     use crate::consensus::stages::select_chain::Fork;
     use crate::consensus::stages::select_chain::ForwardChainSelection::SwitchToFork;
+    use amaru_kernel::BlockHeader;
     use amaru_kernel::string_utils::{ListDebug, ListsToString};
     use amaru_kernel::tests::random_hash;
-    use amaru_ouroboros_traits::BlockHeader;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use proptest::{prop_assert, proptest};
     use std::assert_matches::assert_matches;

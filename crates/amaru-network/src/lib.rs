@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod block_fetch_client;
+pub mod acto_connection;
 pub mod chain_sync_client;
 pub mod mux;
+pub mod network_resource;
 pub mod point;
 pub mod protocol;
 pub mod session;
+
+pub use network_resource::NetworkResource;

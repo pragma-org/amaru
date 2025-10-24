@@ -16,7 +16,7 @@ use amaru_consensus::{DiagnosticChainStore, ReadOnlyChainStore};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::to_cbor;
-use amaru_ouroboros_traits::{BlockHeader, IsHeader};
+use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_stores::rocksdb::consensus::{ReadOnlyChainDB, RocksDBStore};
 use clap::{Parser, arg};

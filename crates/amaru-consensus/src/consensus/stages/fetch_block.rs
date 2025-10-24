@@ -13,18 +13,12 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps, NetworkOps};
-use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
-use crate::consensus::events::{ValidateBlockEvent, ValidateHeaderEvent};
+use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
 use crate::consensus::span::HasSpan;
-use amaru_kernel::{Point, RawBlock, peer::Peer};
-use amaru_ouroboros_traits::{CanFetchBlock, IsHeader};
-use anyhow::anyhow;
-use async_trait::async_trait;
+use amaru_kernel::consensus_events::{ValidateBlockEvent, ValidateHeaderEvent};
+use amaru_kernel::{IsHeader, RawBlock};
 use pure_stage::StageRef;
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{Level, error, span};
+use tracing::Level;
 
 type State = (
     StageRef<ValidateBlockEvent>,
@@ -39,20 +33,20 @@ pub async fn stage(
     msg: ValidateHeaderEvent,
     eff: impl ConsensusOps,
 ) -> State {
-    let span = span!(parent: msg.span(), Level::TRACE, "stage.fetch_block");
+    let span = tracing::span!(parent: msg.span(), Level::TRACE, "stage.fetch_block");
     let _entered = span.enter();
 
     match msg {
         ValidateHeaderEvent::Validated { peer, header, span } => {
             let point = header.point();
-            match eff.network().fetch_block(&peer, &point).await {
+            match eff.network().fetch_block(peer.clone(), point).await {
                 Ok(block) => {
                     let block = RawBlock::from(&*block);
 
                     let result = eff.store().store_block(&header.hash(), &block);
                     if let Err(e) = result {
                         eff.base()
-                            .send(&errors, ProcessingFailed::new(&peer, anyhow!(e)))
+                            .send(&errors, ProcessingFailed::new(&peer, e.into()))
                             .await;
                         return (downstream, failures, errors);
                     }
@@ -97,66 +91,13 @@ pub async fn stage(
     (downstream, failures, errors)
 }
 
-/// A trait for fetching blocks from peers.
-#[async_trait]
-pub trait BlockFetcher {
-    async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError>;
-}
-
-/// This is a map of clients used to fetch blocks, with one client per peer.
-pub struct ClientsBlockFetcher {
-    clients: RwLock<BTreeMap<Peer, Arc<dyn CanFetchBlock>>>,
-}
-
-impl ClientsBlockFetcher {
-    /// Retrieve a block from a peer at a given point.
-    async fn fetch(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
-        // FIXME: should not fail if the peer is not found
-        // the block should be fetched from any other valid peer
-        // which is known to have it
-        let client = {
-            let clients = self.clients.read().await;
-            clients
-                .get(peer)
-                .cloned()
-                .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?
-        };
-        client
-            .fetch_block(point)
-            .await
-            .map_err(|e| {
-                error!(target: "amaru::consensus", "failed to fetch block from peer {}: {}", peer.name, e);
-                ConsensusError::FetchBlockFailed(point.clone())
-            })
-    }
-}
-
-impl ClientsBlockFetcher {
-    pub fn new(clients: Vec<(Peer, Arc<dyn CanFetchBlock>)>) -> Self {
-        let mut cs = BTreeMap::new();
-        for (peer, client) in clients {
-            cs.insert(peer, client);
-        }
-        Self {
-            clients: RwLock::new(cs),
-        }
-    }
-}
-
-#[async_trait]
-impl BlockFetcher for ClientsBlockFetcher {
-    async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
-        self.fetch(peer, point).await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::consensus::effects::mock_consensus_ops;
     use crate::consensus::errors::ValidationFailed;
+    use amaru_kernel::is_header::tests::{any_header, run};
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::tests::{any_header, run};
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;

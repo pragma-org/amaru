@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use crate::consensus::errors::ProcessingFailed;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::{Point, RawBlock};
+use amaru_kernel::{BlockHeader, Point, RawBlock, peer::Peer};
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::can_validate_blocks::{CanValidateHeaders, HeaderValidationError};
-use amaru_ouroboros_traits::{BlockHeader, BlockValidationError, CanValidateBlocks};
+use amaru_ouroboros_traits::{
+    BlockValidationError, CanValidateBlocks,
+    can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
+};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 

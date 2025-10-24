@@ -14,10 +14,9 @@
 
 use crate::echo::Envelope;
 use crate::simulator::bytes::Bytes;
-use amaru_consensus::consensus::events::ChainSyncEvent;
+use amaru_kernel::consensus_events::ChainSyncEvent;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{HeaderHash, Point, cbor};
-use amaru_ouroboros_traits::BlockHeader;
+use amaru_kernel::{BlockHeader, HeaderHash, Point, cbor};
 use amaru_slot_arithmetic::Slot;
 use gasket::framework::WorkerError;
 use pallas_primitives::babbage::{Header, MintedHeader};

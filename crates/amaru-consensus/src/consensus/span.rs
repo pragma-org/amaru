@@ -15,7 +15,7 @@
 pub use impls::*;
 
 mod impls {
-    use crate::consensus::events::{
+    use amaru_kernel::consensus_events::{
         BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, ValidateBlockEvent,
         ValidateHeaderEvent,
     };

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::HeaderHash;
-use amaru_ouroboros_traits::IsHeader;
+use amaru_kernel::IsHeader;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 

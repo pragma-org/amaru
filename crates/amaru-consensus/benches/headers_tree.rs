@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::headers_tree::data_generation::generate_tree_of_headers;
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
-use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
-
 /// This benchmark generates a large random header tree and a long sequence of actions
 /// (adding headers from random peers and rollbacks) to be executed on a `HeadersTree`.
 /// It then measures the average time taken to execute each action.
@@ -36,9 +31,13 @@ use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 fn main() {
     use amaru_consensus::consensus::headers_tree::HeadersTree;
     use amaru_consensus::consensus::headers_tree::data_generation::{
-        execute_actions_on_tree, generate_random_walks,
+        execute_actions_on_tree, generate_random_walks, generate_tree_of_headers,
     };
     use amaru_consensus::consensus::stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
+    use amaru_kernel::{BlockHeader, IsHeader};
+    use amaru_ouroboros_traits::ChainStore;
+    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+    use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};
     use std::fs::File;
     use std::sync::Arc;
@@ -130,5 +129,5 @@ fn main() {
 }
 
 /// On Windows, benchmarking is not supported because we hit a stack overflow error during the generation.
-#[cfg(windows)]
+#[cfg(not(all(unix, feature = "profiling", feature = "test-utils")))]
 fn main() {}

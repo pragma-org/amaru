@@ -14,6 +14,7 @@
 
 pub mod fetch_block;
 pub mod forward_chain;
+pub mod pull;
 pub mod receive_header;
 pub mod select_chain;
 pub mod track_peers;

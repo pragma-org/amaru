@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::protocol_parameters::ConsensusParameters;
-use amaru_kernel::{HeaderHash, Nonce, Point};
+use amaru_kernel::{HeaderHash, IsHeader, Nonce, Point, protocol_parameters::ConsensusParameters};
 use amaru_ouroboros::praos::nonce;
-use amaru_ouroboros_traits::{ChainStore, IsHeader, Nonces, Praos, StoreError};
+use amaru_ouroboros_traits::{ChainStore, Nonces, Praos, StoreError};
 use amaru_slot_arithmetic::EraHistoryError;
 use std::sync::Arc;
 use thiserror::Error;
@@ -154,10 +153,10 @@ pub enum NoncesError {
 mod test {
     use super::*;
     use crate::test::include_header;
-    use amaru_kernel::protocol_parameters::GlobalParameters;
+    use amaru_kernel::{BlockHeader, IsHeader, protocol_parameters::GlobalParameters};
     use amaru_kernel::{from_cbor, hash, network::NetworkName, to_cbor};
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{BlockHeader, IsHeader, Praos, ReadOnlyChainStore};
+    use amaru_ouroboros_traits::{Praos, ReadOnlyChainStore};
     use amaru_slot_arithmetic::Epoch;
     use proptest::{prelude::*, prop_compose, proptest};
     use std::sync::{Arc, LazyLock};

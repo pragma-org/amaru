@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HeaderHash, RawBlock, protocol_parameters::GlobalParameters};
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, Nonces, ReadOnlyChainStore, StoreError};
+use amaru_kernel::{BlockHeader, HeaderHash, RawBlock, protocol_parameters::GlobalParameters};
+use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 

@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::stages::AsTip;
 use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
-use crate::stages::{AsTip, PallasPoint};
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use amaru_kernel::IsHeader;
+use amaru_network::point::to_network_point;
+use amaru_ouroboros_traits::ChainStore;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -86,7 +88,7 @@ impl<H: IsHeader + Clone> ChainFollower<H> {
             ClientOp::Backward(tip) => {
                 if let Some((index, _)) =
                     self.ops.iter().enumerate().rfind(
-                        |(_, op)| matches!(op, ClientOp::Forward(header2) if header2.point().pallas_point() == tip.0),
+                        |(_, op)| matches!(op, ClientOp::Forward(header2) if to_network_point(header2.point()) == tip.0),
                     )
                 {
                     self.ops.truncate(index + 1);
@@ -104,14 +106,16 @@ impl<H: IsHeader + Clone> ChainFollower<H> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::stages::AsTip;
     use crate::stages::consensus::forward_chain::client_protocol::ClientOp;
     use crate::stages::consensus::forward_chain::client_state::ChainFollower;
     use crate::stages::consensus::forward_chain::test_infra::{
         CHAIN_47, FORK_47, LOST_47, TIP_47, WINNER_47, hash, mk_store,
     };
-    use crate::stages::{AsTip, PallasPoint};
+    use amaru_kernel::{BlockHeader, IsHeader};
     use amaru_kernel::{Hash, HeaderHash};
-    use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
+    use amaru_network::point::to_network_point;
+    use amaru_ouroboros_traits::ChainStore;
     use pallas_network::miniprotocols::Point;
     use pallas_network::miniprotocols::chainsync::Tip;
     use std::sync::Arc;
@@ -241,7 +245,7 @@ pub(crate) mod tests {
 
         fn get_point(&self, h: &str) -> Point {
             let header = self.load_header(&hash(h)).unwrap();
-            header.pallas_point()
+            to_network_point(header.point())
         }
 
         fn get_height(&self, h: &str) -> u64 {

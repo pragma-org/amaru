@@ -23,11 +23,11 @@
 use crate::consensus::headers_tree::HeadersTree;
 use crate::consensus::headers_tree::data_generation::Chain;
 use crate::consensus::headers_tree::tree::Tree;
+use amaru_kernel::is_header::tests::make_header;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{Bytes, HEADER_HASH_SIZE, Header, HeaderHash};
+use amaru_kernel::{BlockHeader, Bytes, HEADER_HASH_SIZE, Header, HeaderHash, IsHeader};
+use amaru_ouroboros::ChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::tests::make_header;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
 use proptest::prelude::Strategy;
 use rand::prelude::StdRng;
 use rand::{Rng, RngCore, SeedableRng};

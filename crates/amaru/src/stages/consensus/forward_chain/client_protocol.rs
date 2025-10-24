@@ -15,11 +15,11 @@
 use crate::point::from_network_point;
 
 use super::client_state::ChainFollower;
-use crate::stages::{AsTip, PallasPoint};
+use crate::stages::AsTip;
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_consensus::ChainStore;
-use amaru_kernel::{Hash, HeaderHash, to_cbor};
-use amaru_ouroboros_traits::IsHeader;
+use amaru_kernel::{Hash, HeaderHash, IsHeader, to_cbor};
+use amaru_network::point::to_network_point;
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{
@@ -80,14 +80,14 @@ impl<H: IsHeader> std::fmt::Debug for ClientOp<H> {
                     "header",
                     &(
                         header.block_height(),
-                        PrettyPoint(&header.point().pallas_point()),
+                        PrettyPoint(&to_network_point(header.point())),
                     ),
                 )
                 .field(
                     "tip",
                     &(
                         header.as_tip().1,
-                        PrettyPoint(&header.point().pallas_point()),
+                        PrettyPoint(&to_network_point(header.point())),
                     ),
                 )
                 .finish(),

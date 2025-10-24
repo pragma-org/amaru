@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Point, RawBlock, peer::Peer};
-use amaru_ouroboros_traits::{BlockHeader, IsHeader};
+use crate::{BlockHeader, IsHeader, Point, RawBlock, peer::Peer};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Debug, Formatter};

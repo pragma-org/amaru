@@ -15,11 +15,10 @@
 use crate::consensus::effects::NetworkOps;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
-use crate::consensus::events::BlockValidationResult;
 use crate::consensus::span::HasSpan;
 use crate::consensus::tip::{AsHeaderTip, HeaderTip};
-use amaru_kernel::Point;
-use amaru_ouroboros_traits::IsHeader;
+use amaru_kernel::consensus_events::BlockValidationResult;
+use amaru_kernel::{IsHeader, Point};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Level, error, info, span, trace};
@@ -57,7 +56,7 @@ pub async fn stage(state: State, msg: BlockValidationResult, eff: impl Consensus
 
             if let Err(e) = eff
                 .network()
-                .send_forward_event(&peer, header.clone())
+                .send_forward_event(peer.clone(), header.clone())
                 .await
             {
                 error!(
@@ -84,7 +83,7 @@ pub async fn stage(state: State, msg: BlockValidationResult, eff: impl Consensus
             our_tip = rollback_header.as_header_tip();
             if let Err(e) = eff
                 .network()
-                .send_backward_event(&peer, rollback_header.as_header_tip())
+                .send_backward_event(peer.clone(), rollback_header.as_header_tip())
                 .await
             {
                 error!(

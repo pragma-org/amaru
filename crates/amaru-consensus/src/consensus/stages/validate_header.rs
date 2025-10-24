@@ -13,19 +13,15 @@
 // limitations under the License.
 
 use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::events::ValidateHeaderEvent;
+use crate::consensus::errors::{ConsensusError, ValidationFailed};
 use crate::consensus::span::HasSpan;
 use crate::consensus::store::PraosChainStore;
-use crate::consensus::{
-    errors::{ConsensusError, ValidationFailed},
-    events::DecodedChainSyncEvent,
-};
-use amaru_kernel::protocol_parameters::ConsensusParameters;
-use amaru_kernel::{Nonce, to_cbor};
+use amaru_kernel::IsHeader;
+use amaru_kernel::consensus_events::{DecodedChainSyncEvent, ValidateHeaderEvent};
+use amaru_kernel::{BlockHeader, Nonce, protocol_parameters::ConsensusParameters, to_cbor};
 use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::IsHeader;
 use amaru_ouroboros_traits::can_validate_blocks::{CanValidateHeaders, HeaderValidationError};
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, HasStakeDistribution, Praos};
+use amaru_ouroboros_traits::{ChainStore, HasStakeDistribution, Praos};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
@@ -173,6 +169,7 @@ mod tests {
     use crate::consensus;
     use crate::consensus::effects::MockLedgerOps;
     use crate::consensus::errors::ConsensusError::NoncesError;
+    use amaru_kernel::is_header::tests::{any_header_with_some_parent, run};
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::{
         HeaderHash, RawBlock,
@@ -180,8 +177,7 @@ mod tests {
     };
     use amaru_ouroboros_traits::Nonces;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::tests::{any_header_with_some_parent, run};
-    use amaru_ouroboros_traits::{ChainStore, IsHeader, ReadOnlyChainStore, StoreError};
+    use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
     use std::sync::Arc;
 
     #[tokio::test]

@@ -12,12 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::run::spawn_node;
-use amaru_sim::simulator::simulate::simulate;
-use amaru_sim::simulator::{Args, NodeConfig, NodeHandle, SimulateConfig, generate_entries};
+use amaru_consensus::consensus::{effects::FetchBlockEffect, errors::ConsensusError};
+use amaru_sim::simulator::{
+    Args, NodeConfig, NodeHandle, SimulateConfig, generate_entries, run::spawn_node,
+    simulate::simulate,
+};
 use amaru_tracing_json::assert_spans_trees;
-use pure_stage::simulation::SimulationBuilder;
-use pure_stage::{Instant, StageGraph};
+use pure_stage::{
+    Instant, StageGraph,
+    simulation::{OverrideResult, SimulationBuilder},
+};
 use rand::prelude::StdRng;
 use serde_json::json;
 use std::time::Duration;
@@ -40,8 +44,12 @@ fn run_simulator_with_traces() {
     let rt = Runtime::new().unwrap();
     let spawn = |node_id: String| {
         let mut network = SimulationBuilder::default();
-        let (input, init_messages, output) = spawn_node(node_id, node_config.clone(), &mut network);
-        let running = network.run(rt.handle().clone());
+        let (input, init_messages, output) =
+            spawn_node(node_id, node_config.clone(), &mut network, &rt);
+        let mut running = network.run(rt.handle().clone());
+        running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
+            OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
+        });
         NodeHandle::from_pure_stage(input, init_messages, output, running).unwrap()
     };
 

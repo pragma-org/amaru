@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Point;
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Display, Formatter};
+use crate::Point;
+use parking_lot::Mutex;
+use std::{fmt, sync::Arc};
+use tokio::sync::oneshot;
 
-pub mod mock;
+pub type BlockSender = Arc<Mutex<Option<oneshot::Sender<Result<Vec<u8>, BlockFetchClientError>>>>>;
 
-#[async_trait]
-pub trait CanFetchBlock: Send + Sync {
-    async fn fetch_block(&self, point: &Point) -> Result<Vec<u8>, BlockFetchClientError>;
+#[allow(dead_code)]
+pub enum ConnMsg {
+    FetchBlock(Point, BlockSender),
+    Disconnect,
 }
 
 #[derive(Debug)]
@@ -36,13 +37,15 @@ impl BlockFetchClientError {
         self.0
     }
 
-    pub fn downcast<T: std::error::Error + Debug + Send + Sync + 'static>(
+    pub fn downcast<T: std::error::Error + fmt::Debug + Send + Sync + 'static>(
         self,
     ) -> Result<T, anyhow::Error> {
         self.0.downcast::<T>()
     }
 
-    pub fn downcast_ref<T: std::error::Error + Debug + Send + Sync + 'static>(&self) -> Option<&T> {
+    pub fn downcast_ref<T: std::error::Error + fmt::Debug + Send + Sync + 'static>(
+        &self,
+    ) -> Option<&T> {
         self.0.downcast_ref::<T>()
     }
 }
@@ -53,13 +56,13 @@ impl From<anyhow::Error> for BlockFetchClientError {
     }
 }
 
-impl Display for BlockFetchClientError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for BlockFetchClientError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BlockFetchClientError: {}", self.0)
     }
 }
 
-impl Serialize for BlockFetchClientError {
+impl serde::Serialize for BlockFetchClientError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -71,7 +74,7 @@ impl Serialize for BlockFetchClientError {
 /// This deserialization implementation is a best-effort attempt to
 /// recover the error message. The original error type is lost during
 /// serialization, so we can only reconstruct the error message as a string.
-impl<'de> Deserialize<'de> for BlockFetchClientError {
+impl<'de> serde::Deserialize<'de> for BlockFetchClientError {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,

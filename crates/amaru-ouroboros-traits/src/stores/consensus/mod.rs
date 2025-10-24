@@ -14,8 +14,8 @@
 
 pub mod in_memory_consensus_store;
 
-use crate::{BlockHeader, IsHeader, Nonces};
-use amaru_kernel::{HeaderHash, RawBlock};
+use crate::Nonces;
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, RawBlock};
 use std::fmt::Display;
 use std::iter::successors;
 use thiserror::Error;

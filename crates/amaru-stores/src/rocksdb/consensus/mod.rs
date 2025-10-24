@@ -18,16 +18,14 @@ pub mod util;
 pub use migration::*;
 
 use amaru_kernel::{
-    HEADER_HASH_SIZE, Hash, HeaderHash, ORIGIN_HASH, RawBlock, cbor, from_cbor, to_cbor,
+    BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, ORIGIN_HASH, RawBlock, cbor,
+    from_cbor, to_cbor,
 };
-use amaru_ouroboros_traits::is_header::IsHeader;
 use amaru_ouroboros_traits::{
-    BlockHeader, ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError,
+    ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError,
 };
 use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
-use std::fs::{self};
-use std::ops::Deref;
-use std::path::PathBuf;
+use std::{fs, ops::Deref, path::PathBuf};
 use tracing::{Level, instrument};
 
 use crate::rocksdb::RocksDbConfig;
@@ -373,11 +371,10 @@ pub mod test {
     use crate::rocksdb::consensus::util::CHAIN_DB_VERSION;
 
     use super::*;
-    use amaru_kernel::tests::{random_bytes, random_hash};
-    use amaru_kernel::{HeaderHash, Nonce, ORIGIN_HASH};
-    use amaru_ouroboros_traits::is_header::BlockHeader;
-    use amaru_ouroboros_traits::tests::{
-        any_header_with_parent, any_headers_chain, make_header, run,
+    use amaru_kernel::{
+        BlockHeader, Nonce, ORIGIN_HASH,
+        is_header::tests::{any_header_with_parent, any_headers_chain, make_header, run},
+        tests::{random_bytes, random_hash},
     };
     use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore};
     use rocksdb::Direction;
