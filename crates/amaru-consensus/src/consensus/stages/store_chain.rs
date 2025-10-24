@@ -17,13 +17,17 @@ use std::sync::Arc;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed};
 use crate::consensus::span::HasSpan;
+use crate::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::consensus_events::BlockValidationResult;
 use amaru_kernel::{BlockHeader, IsHeader, Point};
 use amaru_ouroboros::{ChainStore, StoreError};
 use pure_stage::StageRef;
+use serde::{Deserialize, Serialize};
 use tracing::{Level, span};
 
 type State = (
+    // current state
+    StoreChain,
     // downstream stage to which we simply pass along events
     StageRef<BlockValidationResult>,
     // where to send processing errors
@@ -42,47 +46,87 @@ type State = (
 pub async fn stage(state: State, msg: BlockValidationResult, eff: impl ConsensusOps) -> State {
     let span = span!(parent: msg.span(), Level::TRACE, "stage.store_chain");
     let _entered = span.enter();
+    let store = eff.store();
 
-    let (downstream, processing_errors) = state;
+    let (mut store_chain, downstream, processing_errors) = state;
     match msg {
-        BlockValidationResult::BlockValidated { .. } => eff.base().send(&downstream, msg).await,
-        BlockValidationResult::RolledBackTo { .. } => eff.base().send(&downstream, msg).await,
+        BlockValidationResult::BlockValidated { ref header, .. } => {
+            match store_chain.roll_forward(store, header).await {
+                Ok(()) => eff.base().send(&downstream, msg).await,
+                Err(e) => {
+                    eff.base()
+                        .send(
+                            &processing_errors,
+                            ProcessingFailed {
+                                peer: None,
+                                error: e.into(),
+                            },
+                        )
+                        .await
+                }
+            }
+        }
+        BlockValidationResult::RolledBackTo {
+            ref rollback_header,
+            ..
+        } => match store_chain.rollback(store, &rollback_header.point()).await {
+            Ok(_size) => eff.base().send(&downstream, msg).await,
+            Err(e) => {
+                eff.base()
+                    .send(
+                        &processing_errors,
+                        ProcessingFailed {
+                            peer: None,
+                            error: e.into(),
+                        },
+                    )
+                    .await
+            }
+        },
+
         BlockValidationResult::BlockValidationFailed { .. } => {
             eff.base().send(&downstream, msg).await
         }
     }
-    (downstream, processing_errors)
+    (store_chain, downstream, processing_errors)
 }
 
 /// State of chain store
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct StoreChain {
     /// Current tip
-    tip: BlockHeader,
+    tip: HeaderTip,
 }
 
 impl StoreChain {
-    fn new(tip: &BlockHeader) -> Self {
+    pub fn new(tip: &HeaderTip) -> Self {
         Self { tip: tip.clone() }
     }
 
     pub async fn roll_forward(
-        &self,
+        &mut self,
         store: Arc<dyn ChainStore<BlockHeader>>,
         header: &BlockHeader,
     ) -> Result<(), ConsensusError> {
-        store
+        let result = store
             .roll_forward_chain(&header.point())
-            .map_err(|e| ConsensusError::SetBestChainHashFailed(header.hash(), e))
+            .map_err(|e| ConsensusError::SetBestChainHashFailed(header.hash(), e));
+        self.tip = header.as_header_tip();
+        result
     }
 
     pub async fn rollback(
-        &self,
+        &mut self,
         store: Arc<dyn ChainStore<BlockHeader>>,
         point: &Point,
     ) -> Result<usize, ConsensusError> {
         store
             .roll_back_chain(point)
             .map_err(|e| ConsensusError::SetBestChainHashFailed(point.hash(), e))
+            .map(|sz| {
+                self.tip = HeaderTip::new(point.clone(), self.tip.block_height() - sz as u64);
+                sz
+            })
     }
 }
 
@@ -100,37 +144,27 @@ mod tests {
         errors::ConsensusError,
         headers_tree::data_generation::{generate_headers_chain, generate_headers_chain_from},
         stages::store_chain::StoreChain,
+        tip::AsHeaderTip,
     };
 
     #[tokio::test]
     async fn update_best_chain_to_block_slot_given_new_block_is_valid() -> anyhow::Result<()> {
-        let chain = generate_headers_chain(10);
-        let store = create_db();
-        let store_chain = StoreChain::new(&chain[0]);
+        let (store, chain, mut store_chain) = populate_db().await?;
+        let new_tip = generate_headers_chain_from(1, &chain[9])[0].clone();
 
-        for i in 1..10 {
-            let header = &chain[i];
-            store.set_best_chain_hash(&header.hash())?;
-            store_chain.roll_forward(store.clone(), header).await?;
-        }
+        store_chain.roll_forward(store.clone(), &new_tip).await?;
 
         assert_eq!(
-            store.load_from_best_chain(&chain[9].point()),
-            Some(chain[9].hash())
+            store.load_from_best_chain(&new_tip.point()),
+            Some(new_tip.hash())
         );
+        assert_eq!(store_chain.tip, new_tip.as_header_tip());
         Ok(())
     }
 
     #[tokio::test]
     async fn update_best_chain_to_rollback_point() -> anyhow::Result<()> {
-        let chain = generate_headers_chain(10);
-        let store = create_db();
-        let store_chain = StoreChain::new(&chain[0]);
-
-        for i in 1..10 {
-            let header = &chain[i];
-            store_chain.roll_forward(store.clone(), header).await?;
-        }
+        let (store, chain, mut store_chain) = populate_db().await?;
 
         store_chain
             .rollback(store.clone(), &chain[5].point())
@@ -141,21 +175,13 @@ mod tests {
             store.load_from_best_chain(&chain[5].point()),
             Some(chain[5].hash())
         );
+        assert_eq!(store_chain.tip, chain[5].as_header_tip());
         Ok(())
     }
 
     #[tokio::test]
     async fn raises_error_if_forward_is_not_a_child_of_best_chain() -> anyhow::Result<()> {
-        let chain = generate_headers_chain(10);
-        let store = create_db();
-        let store_chain = StoreChain::new(&chain[0]);
-
-        for i in 0..10 {
-            let header = &chain[i];
-            store_chain.roll_forward(store.clone(), header).await?;
-            store.set_best_chain_hash(&header.hash())?;
-            store.store_header(header)?;
-        }
+        let (store, chain, mut store_chain) = populate_db().await?;
 
         let result = store_chain.roll_forward(store.clone(), &chain[8]).await;
 
@@ -170,18 +196,10 @@ mod tests {
 
     #[tokio::test]
     async fn raises_error_if_rollback_is_not_on_best_chain() -> anyhow::Result<()> {
-        let chain = generate_headers_chain(10);
-        let store = create_db();
-        let store_chain = StoreChain::new(&chain[0]);
+        let (store, chain, mut store_chain) = populate_db().await?;
+        let new_tip = generate_headers_chain_from(1, &chain[6])[0].clone();
 
-        for i in 0..5 {
-            let header = &chain[i];
-            store_chain.roll_forward(store.clone(), header).await?;
-            store.set_best_chain_hash(&header.hash())?;
-            store.store_header(header)?;
-        }
-
-        let result = store_chain.rollback(store.clone(), &chain[5].point()).await;
+        let result = store_chain.rollback(store.clone(), &new_tip.point()).await;
 
         match result {
             Ok(_) => panic!("expected test to fail"),
@@ -190,6 +208,26 @@ mod tests {
                 Ok(())
             }
         }
+    }
+
+    // HELPERS
+
+    async fn populate_db() -> anyhow::Result<(
+        Arc<dyn ChainStore<BlockHeader>>,
+        Vec<BlockHeader>,
+        StoreChain,
+    )> {
+        let chain = generate_headers_chain(10);
+        let store = create_db();
+        let mut store_chain = StoreChain::new(&chain[0].as_header_tip());
+
+        for i in 1..10 {
+            let header = &chain[i];
+            store.set_best_chain_hash(&header.hash())?;
+            store_chain.roll_forward(store.clone(), header).await?;
+            store.store_header(&header)?;
+        }
+        Ok((store, chain, store_chain))
     }
 
     fn create_db() -> Arc<dyn ChainStore<BlockHeader>> {
