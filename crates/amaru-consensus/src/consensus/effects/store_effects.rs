@@ -66,7 +66,7 @@ impl<T: SendData + Sync> ReadOnlyChainStore<BlockHeader> for Store<T> {
         self.external_sync(HasHeaderEffect::new(*hash))
     }
 
-    fn load_from_best_chain(&self, _point: &Point) -> Option<BlockHeader> {
+    fn load_from_best_chain(&self, _point: &Point) -> Option<HeaderHash> {
         None
     }
 }
@@ -90,6 +90,10 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
 
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
         self.external_sync(PutNoncesEffect::new(*header, nonces.clone()))
+    }
+
+    fn set_best_chain(&self, hash: &BlockHeader) -> Result<(), StoreError> {
+        todo!()
     }
 }
 

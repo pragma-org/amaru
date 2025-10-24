@@ -33,7 +33,7 @@ where
 
     /// Load a header from the best chain.
     /// Returns `None` if the point is not in the best chain, or the header.
-    fn load_from_best_chain(&self, point: &Point) -> Option<H>;
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash>;
 
     fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
@@ -134,7 +134,7 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
         self.as_ref().has_header(hash)
     }
 
-    fn load_from_best_chain(&self, point: &Point) -> Option<H> {
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
         self.as_ref().load_from_best_chain(point)
     }
 }
@@ -149,6 +149,9 @@ where
     fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError>;
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError>;
+
+    /// Set the best chain tip to the given header.
+    fn set_best_chain(&self, hash: &H) -> Result<(), StoreError>;
 }
 
 #[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]

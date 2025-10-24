@@ -30,8 +30,8 @@ use tracing::{Level, instrument};
 
 use crate::rocksdb::RocksDbConfig;
 use crate::rocksdb::consensus::util::{
-    ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN,
-    HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
+    ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX,
+    CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
 };
 
 pub struct RocksDBStore {
@@ -196,8 +196,20 @@ macro_rules! impl_ReadOnlyChainStore {
                     .map(|bytes| bytes.as_ref().into())
             }
 
-            fn load_from_best_chain(&self, point: &Point) -> Option<H> {
-                unimplemented!()
+            fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+                let slot = u64::from(point.slot_or_default()).to_be_bytes();
+                println!("looking for best chain header at slot {:?}", slot);
+                self.db
+                    .get_pinned([&CHAIN_PREFIX[..], &slot[..]].concat())
+                    .ok()
+                    .flatten()
+                    .and_then(|bytes| {
+                        if bytes.len() == HEADER_HASH_SIZE {
+                            Some(Hash::from(bytes.as_ref()))
+                        } else {
+                            None
+                        }
+                    })
             }
 
         })*
@@ -301,7 +313,8 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
     }
 }
 
-impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
+use std::fmt::Debug;
+impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     #[instrument(level = Level::TRACE, skip_all, fields(header = header.hash().to_string()))]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();
@@ -352,6 +365,19 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
                 error: e.to_string(),
             })
     }
+
+    fn set_best_chain(&self, header: &H) -> Result<(), StoreError> {
+        let slot = header.slot().to_be_bytes();
+        println!("storing best chain header {:?} at slot {:?}", header, slot);
+        self.db
+            .put(
+                [&CHAIN_PREFIX[..], &slot[..]].concat(),
+                header.hash().as_ref(),
+            )
+            .map_err(|e| StoreError::WriteError {
+                error: e.to_string(),
+            })
+    }
 }
 
 #[cfg(test)]
@@ -371,10 +397,6 @@ pub mod test {
     use std::path::Path;
     use std::sync::Arc;
     use std::{fs, io};
-
-    /// "chain"
-    /// TODO: move to util once we are ready to implement chain tracking
-    const CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"chain";
 
     #[test]
     fn both_rw_and_ro_can_be_open_on_same_dir() {

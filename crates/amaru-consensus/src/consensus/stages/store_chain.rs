@@ -17,8 +17,8 @@ use std::sync::Arc;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed};
 use crate::consensus::span::HasSpan;
-use amaru_kernel::BlockHeader;
 use amaru_kernel::consensus_events::BlockValidationResult;
+use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_ouroboros::{ChainStore, StoreError};
 use pure_stage::StageRef;
 use tracing::{Level, span};
@@ -70,7 +70,9 @@ impl StoreChain {
         store: Arc<dyn ChainStore<BlockHeader>>,
         header: &BlockHeader,
     ) -> Result<(), ConsensusError> {
-        Ok(())
+        store
+            .set_best_chain(header)
+            .map_err(|e| ConsensusError::SetBestChainHashFailed(header.hash(), e))
     }
 }
 
@@ -99,7 +101,7 @@ mod tests {
 
         assert_eq!(
             store.load_from_best_chain(&chain[9].point()),
-            Some(chain[9].clone())
+            Some(chain[9].hash())
         );
     }
 

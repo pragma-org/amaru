@@ -280,7 +280,7 @@ mod tests {
             self.store.get_nonces(hash)
         }
 
-        fn load_from_best_chain(&self, point: &Point) -> Option<BlockHeader> {
+        fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
             self.store.load_from_best_chain(point)
         }
     }
@@ -304,6 +304,10 @@ mod tests {
 
         fn put_nonces(&self, hash: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
             self.store.put_nonces(hash, nonces)
+        }
+
+        fn set_best_chain(&self, hash: &BlockHeader) -> Result<(), StoreError> {
+            todo!()
         }
     }
 
