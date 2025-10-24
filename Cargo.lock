@@ -116,7 +116,6 @@ dependencies = [
 name = "amaru-consensus"
 version = "0.1.0"
 dependencies = [
- "acto",
  "amaru-kernel",
  "amaru-metrics",
  "amaru-ouroboros",
@@ -128,7 +127,6 @@ dependencies = [
  "hex",
  "itertools 0.14.0",
  "pallas-crypto",
- "parking_lot",
  "pprof",
  "proptest",
  "pure-stage",
