@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, ops::Deref};
+use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
     Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, EraHistory, ExUnitPrices,
@@ -57,21 +57,21 @@ pub enum V3InputTranslationError {
 }
 
 // Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V3/Data/Contexts.hs#L572
-pub struct TxInfo {
-    inputs: Vec<OutputRef>,
-    reference_inputs: Vec<OutputRef>,
-    outputs: Vec<TransactionOutput>,
+pub struct TxInfo<'a> {
+    inputs: Vec<OutputRef<'a>>,
+    reference_inputs: Vec<OutputRef<'a>>,
+    outputs: Vec<TransactionOutput<'a>>,
     fee: Lovelace,
-    mint: Mint,
-    certificates: Vec<Certificate>,
+    mint: Mint<'a>,
+    certificates: Vec<&'a Certificate>,
     withdrawals: Withdrawals,
     valid_range: TimeRange,
     signatories: RequiredSigners,
-    redeemers: Redeemers<ScriptPurpose>,
-    data: Datums,
+    redeemers: Redeemers<'a, ScriptPurpose<'a>>,
+    data: Datums<'a>,
     id: TransactionId,
-    votes: Votes,
-    proposal_procedures: Vec<Proposal>,
+    votes: Votes<'a>,
+    proposal_procedures: Vec<&'a Proposal>,
     current_treasury_amount: Option<Lovelace>,
     treasury_donation: Option<Lovelace>,
 }
@@ -79,13 +79,13 @@ pub struct TxInfo {
 // Much of this implementation is the same as V1 and, in turn, V2.
 // It almost certainly makes sense to have a single struct that represents the superset
 // of the `TxInfo` structs. Then each one should have a parameterized implementation to reduce (prevent?) illegal states
-impl TxInfo {
+impl<'a> TxInfo<'a> {
     #[allow(clippy::expect_used)]
     pub fn new(
-        tx: &MintedTransactionBody<'_>,
+        tx: &'a MintedTransactionBody<'_>,
         id: &Hash<32>,
-        witness_set: &MintedWitnessSet<'_>,
-        utxo: &Utxos,
+        witness_set: &'a MintedWitnessSet<'_>,
+        utxo: &'a Utxos,
         era_history: &EraHistory,
         slot: &Slot,
         network: NetworkName,
@@ -105,9 +105,7 @@ impl TxInfo {
         let outputs = tx
             .outputs
             .iter()
-            .map(|output| {
-                MemoizedTransactionOutput::try_from(output.clone()).map(TransactionOutput::from)
-            })
+            .map(TransactionOutput::try_from)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| {
                 PlutusV3Error::UnspecifiedError(format!(
@@ -116,17 +114,17 @@ impl TxInfo {
                 ))
             })?;
 
-        let mint = tx.mint.clone().map(|mint| mint.into()).unwrap_or_default();
+        let mint = tx.mint.as_ref().map(|mint| mint.into()).unwrap_or_default();
 
-        let certificates = tx
+        let certificates: Vec<&'a Certificate> = tx
             .certificates
-            .clone()
-            .map(|set| set.to_vec())
+            .as_ref()
+            .map(|set| set.iter().collect())
             .unwrap_or_default();
 
         let withdrawals = tx
             .withdrawals
-            .clone()
+            .as_ref()
             .map(Withdrawals::try_from)
             .transpose()
             .map_err(PlutusV3Error::UnspecifiedError)?
@@ -141,22 +139,24 @@ impl TxInfo {
         )
         .map_err(PlutusV3Error::InvalidValidityRange)?;
 
-        let proposal_procedures = tx
+        let proposal_procedures: Vec<_> = tx
             .proposal_procedures
-            .clone()
-            .map(|proposals| proposals.to_vec())
+            .as_ref()
+            .map(|proposals| proposals.iter().collect())
             .unwrap_or_default();
+
         let votes = tx
             .voting_procedures
-            .clone()
+            .as_ref()
             .map(Votes::from)
             .unwrap_or_default();
+
         let redeemers = Redeemers(
             witness_set
                 .redeemer
-                .clone()
+                .as_ref()
                 .map(|redeemers| {
-                    normalize_redeemers(redeemers.unwrap())
+                    normalize_redeemers(redeemers.deref())
                         .into_iter()
                         .enumerate()
                         .map(|(ix, redeemer)| {
@@ -173,7 +173,7 @@ impl TxInfo {
 
                             Ok((purpose, redeemer))
                         })
-                        .collect::<Result<Vec<(ScriptPurpose, Redeemer)>, PlutusV3Error>>()
+                        .collect::<Result<Vec<(ScriptPurpose<'a>, Cow<'a, Redeemer>)>, PlutusV3Error>>()
                 })
                 .transpose()?
                 .unwrap_or_default(),
@@ -181,7 +181,7 @@ impl TxInfo {
 
         let datums = witness_set
             .plutus_data
-            .clone()
+            .as_ref()
             .map(Datums::from)
             .unwrap_or_default();
 
@@ -196,7 +196,7 @@ impl TxInfo {
             valid_range,
             signatories: tx
                 .required_signers
-                .clone()
+                .as_ref()
                 .map(RequiredSigners::from)
                 .unwrap_or_default(),
             redeemers,
@@ -210,10 +210,10 @@ impl TxInfo {
     }
 }
 
-fn translate_inputs(
-    inputs: &[TransactionInput],
-    utxo: &BTreeMap<TransactionInput, MemoizedTransactionOutput>,
-) -> Result<Vec<OutputRef>, V3InputTranslationError> {
+fn translate_inputs<'a>(
+    inputs: &'a [TransactionInput],
+    utxo: &'a BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+) -> Result<Vec<OutputRef<'a>>, V3InputTranslationError> {
     inputs
         .iter()
         .sorted()
@@ -238,30 +238,30 @@ fn translate_inputs(
             };
 
             Ok(OutputRef {
-                input: input.clone(),
-                output: utxo.clone().into(),
+                input,
+                output: utxo.into(),
             })
         })
         .collect::<Result<Vec<_>, _>>()
 }
 
-pub type ScriptPurpose = ScriptInfo<()>;
+pub type ScriptPurpose<'a> = ScriptInfo<'a, ()>;
 
-impl ScriptPurpose {
+impl<'a> ScriptPurpose<'a> {
     pub fn builder(
         redeemer: &Redeemer,
-        inputs: &[OutputRef],
-        mint: &Mint,
+        inputs: &[OutputRef<'a>],
+        mint: &Mint<'a>,
         withdrawals: &Withdrawals,
-        certs: &[Certificate],
-        proposal_procedures: &[Proposal],
-        votes: &Votes,
+        certs: &[&'a Certificate],
+        proposal_procedures: &[&'a Proposal],
+        votes: &Votes<'a>,
     ) -> Option<Self> {
         let index = redeemer.index as usize;
         match redeemer.tag {
             RedeemerTag::Spend => inputs
                 .get(index)
-                .map(|output_ref| ScriptPurpose::Spending(output_ref.input.clone(), ())),
+                .map(|output_ref| ScriptPurpose::Spending(output_ref.input, ())),
             RedeemerTag::Mint => mint
                 .0
                 .keys()
@@ -276,20 +276,19 @@ impl ScriptPurpose {
             }),
             RedeemerTag::Cert => certs
                 .get(index)
-                .map(|cert| ScriptPurpose::Certifying(index, cert.clone())),
+                .map(|cert| ScriptPurpose::Certifying(index, cert)),
             RedeemerTag::Vote => votes
                 .0
                 .keys()
                 .nth(index)
-                .cloned()
-                .map(ScriptPurpose::Voting),
+                .map(|voter| ScriptPurpose::Voting(voter)),
             RedeemerTag::Propose => proposal_procedures
                 .get(index)
-                .map(|p| ScriptPurpose::Proposing(index, p.clone())),
+                .map(|p| ScriptPurpose::Proposing(index, p)),
         }
     }
 
-    pub fn to_script_info(self, data: Option<PlutusData>) -> ScriptInfo<Option<PlutusData>> {
+    pub fn to_script_info(self, data: Option<PlutusData>) -> ScriptInfo<'a, Option<PlutusData>> {
         match self {
             ScriptInfo::Spending(input, _) => ScriptInfo::Spending(input, data),
             ScriptInfo::Minting(p) => ScriptInfo::Minting(p),
@@ -302,23 +301,23 @@ impl ScriptPurpose {
 }
 
 #[derive(Clone)]
-pub enum ScriptInfo<T: Clone> {
+pub enum ScriptInfo<'a, T: Clone> {
     Minting(PolicyId),
-    Spending(TransactionInput, T),
+    Spending(&'a TransactionInput, T),
     Rewarding(StakeCredential),
-    Certifying(usize, Certificate),
-    Voting(Voter),
-    Proposing(usize, Proposal),
+    Certifying(usize, &'a Certificate),
+    Voting(&'a Voter),
+    Proposing(usize, &'a Proposal),
 }
 
-pub struct ScriptContext {
-    tx_info: TxInfo,
+pub struct ScriptContext<'a> {
+    tx_info: TxInfo<'a>,
     redeemer: Redeemer,
-    script_info: ScriptInfo<Option<PlutusData>>,
+    script_info: ScriptInfo<'a, Option<PlutusData>>,
 }
 
-impl ScriptContext {
-    pub fn new(tx_info: TxInfo, redeemer: &Redeemer, data: Option<PlutusData>) -> Option<Self> {
+impl<'a> ScriptContext<'a> {
+    pub fn new(tx_info: TxInfo<'a>, redeemer: &Redeemer, data: Option<PlutusData>) -> Option<Self> {
         let purpose = tx_info
             .redeemers
             .0
@@ -339,13 +338,13 @@ impl ScriptContext {
     }
 }
 
-impl ToPlutusData<3> for ScriptContext {
+impl<'a> ToPlutusData<3> for ScriptContext<'a> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v3!(0, [self.tx_info, self.redeemer, self.script_info])
     }
 }
 
-impl ToPlutusData<3> for TxInfo {
+impl<'a> ToPlutusData<3> for TxInfo<'a> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v3!(
             0,
@@ -371,7 +370,7 @@ impl ToPlutusData<3> for TxInfo {
     }
 }
 
-impl ToPlutusData<3> for ScriptPurpose {
+impl ToPlutusData<3> for ScriptPurpose<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             ScriptPurpose::Minting(policy_id) => constr_v3!(0, [policy_id]),
@@ -384,7 +383,7 @@ impl ToPlutusData<3> for ScriptPurpose {
     }
 }
 
-impl ToPlutusData<3> for ScriptInfo<Option<PlutusData>> {
+impl ToPlutusData<3> for ScriptInfo<'_, Option<PlutusData>> {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             ScriptInfo::Minting(policy_id) => constr_v3!(0, [policy_id]),
@@ -397,7 +396,7 @@ impl ToPlutusData<3> for ScriptInfo<Option<PlutusData>> {
     }
 }
 
-impl ToPlutusData<3> for OutputRef {
+impl<'a> ToPlutusData<3> for OutputRef<'a> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v3!(0, [self.input, self.output])
     }
@@ -410,13 +409,13 @@ impl ToPlutusData<3> for TransactionInput {
 }
 
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-impl ToPlutusData<3> for TransactionOutput {
+impl ToPlutusData<3> for TransactionOutput<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         constr_v3!(0, [self.address, self.value, self.datum, self.script])
     }
 }
 
-impl ToPlutusData<3> for Value {
+impl ToPlutusData<3> for Value<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         if self.ada().is_none() {
             <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(
@@ -431,7 +430,12 @@ impl ToPlutusData<3> for Value {
         }
     }
 }
+<<<<<<< HEAD
 impl ToPlutusData<3> for amaru_kernel::Value {
+=======
+
+impl ToPlutusData<3> for KernelValue {
+>>>>>>> 1a8b5622 (chore(amaru-plutus): reduce clones when constructing ScriptContext)
     fn to_plutus_data(&self) -> PlutusData {
         fn ada_entry(coin: &u64) -> (PlutusData, PlutusData) {
             (
@@ -648,7 +652,7 @@ impl ToPlutusData<3> for ProposalId {
     }
 }
 
-impl ToPlutusData<3> for ProposalIdAdapter {
+impl ToPlutusData<3> for ProposalIdAdapter<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         self.deref().to_plutus_data()
     }
@@ -852,7 +856,7 @@ impl ToPlutusData<3> for Vote {
     }
 }
 
-impl ToPlutusData<3> for Mint {
+impl ToPlutusData<3> for Mint<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         // Unlike in V2 and V3, we do not include zero ADA value
         <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
@@ -865,7 +869,7 @@ impl ToPlutusData<3> for Withdrawals {
     }
 }
 
-impl ToPlutusData<3> for Redeemers<ScriptPurpose> {
+impl ToPlutusData<3> for Redeemers<'_, ScriptPurpose<'_>> {
     fn to_plutus_data(&self) -> PlutusData {
         PlutusData::Map(KeyValuePairs::Def(
             self.0
@@ -889,13 +893,13 @@ impl ToPlutusData<3> for RequiredSigners {
     }
 }
 
-impl ToPlutusData<3> for Datums {
+impl ToPlutusData<3> for Datums<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
     }
 }
 
-impl ToPlutusData<3> for Votes {
+impl ToPlutusData<3> for Votes<'_> {
     fn to_plutus_data(&self) -> PlutusData {
         <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
     }
@@ -936,9 +940,9 @@ mod tests {
             transaction
                 .transaction_witness_set
                 .redeemer
-                .clone()
+                .as_ref()
                 .expect("no redeemers provided")
-                .unwrap(),
+                .deref(),
         );
 
         let produced_contexts = redeemers
