@@ -906,6 +906,9 @@ pub mod test {
             <RocksDBStore as ChainStore<BlockHeader>>::put_nonces(&db, &header.hash(), &nonces)
                 .unwrap();
         }
+        <RocksDBStore as ChainStore<BlockHeader>>::set_anchor_hash(&db, &chain[1].hash()).unwrap();
+        <RocksDBStore as ChainStore<BlockHeader>>::set_best_chain_hash(&db, &chain[9].hash())
+            .unwrap();
     }
 
     fn with_db(f: impl Fn(Arc<dyn ChainStore<BlockHeader>>)) {
