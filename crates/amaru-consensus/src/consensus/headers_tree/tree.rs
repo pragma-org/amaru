@@ -295,15 +295,13 @@ mod tests {
 
     #[test]
     fn test_pretty_print() {
-        let tree = generate_headers_tree(4, 42);
+        let tree = generate_headers_tree(42, 4);
         let expected = r#"
 BlockHeader { hash: "ede0bf92248771ce3f7295de922779309a9835eea7a82d883b371bbbfef19585", slot: 1, parent: None }
     └── BlockHeader { hash: "20fe63078d93756d7eb18a559924988caaec5dd8ac4db4ef152dd60c98a0555e", slot: 2, parent: Some("ede0bf92248771ce3f7295de922779309a9835eea7a82d883b371bbbfef19585") }
-        ├── BlockHeader { hash: "48b20250f4748664ab000d358f45e79b433e9636a74f25cc537644c8fc1e913b", slot: 3, parent: Some("20fe63078d93756d7eb18a559924988caaec5dd8ac4db4ef152dd60c98a0555e") }
-        │   ├── BlockHeader { hash: "279d65710f6de344f8a47d4825d9250d7d7668a1f235c307377ce2c29b2e0674", slot: 4, parent: Some("48b20250f4748664ab000d358f45e79b433e9636a74f25cc537644c8fc1e913b") }
-        │   └── BlockHeader { hash: "817f2c3bdb88f599bbf8db744ca0068ea237802d0111ffd4ba73e34c96bf289b", slot: 4, parent: Some("48b20250f4748664ab000d358f45e79b433e9636a74f25cc537644c8fc1e913b") }
+        ├── BlockHeader { hash: "4ed077ccdf51c0f66bf6a28fd507babccf48f6548aa59167c5f07d3b0e0c948f", slot: 3, parent: Some("20fe63078d93756d7eb18a559924988caaec5dd8ac4db4ef152dd60c98a0555e") }
+        │   └── BlockHeader { hash: "d0d064e1efbf615a34df2eeba733f7801f76ae92208f7e5105f1742e7a437b4c", slot: 4, parent: Some("4ed077ccdf51c0f66bf6a28fd507babccf48f6548aa59167c5f07d3b0e0c948f") }
         └── BlockHeader { hash: "7ce670b4aa39be3850a5d5a6c81b05f11f847d52b09f1176c9cb337049f4cac7", slot: 3, parent: Some("20fe63078d93756d7eb18a559924988caaec5dd8ac4db4ef152dd60c98a0555e") }
-            ├── BlockHeader { hash: "5a3f1c5dfcdd26a0715100b7b2460e48b4cab2530b44a9d11c1313b5befb43e5", slot: 4, parent: Some("7ce670b4aa39be3850a5d5a6c81b05f11f847d52b09f1176c9cb337049f4cac7") }
             └── BlockHeader { hash: "6dca7547629ab45ae3e46160c6ea00b0d537bb27b0232a8030ec8ee122c56550", slot: 4, parent: Some("7ce670b4aa39be3850a5d5a6c81b05f11f847d52b09f1176c9cb337049f4cac7") }
 "#;
         assert_eq!(

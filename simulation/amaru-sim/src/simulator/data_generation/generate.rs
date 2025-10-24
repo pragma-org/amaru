@@ -20,7 +20,7 @@ use crate::sync::ChainSyncMessage;
 use amaru_consensus::consensus::headers_tree::data_generation::{
     Action, GeneratedActions, any_select_chains_from_tree, any_tree_of_headers, transpose,
 };
-use amaru_kernel::{IsHeader, is_header::tests::run_with_rng, peer::Peer, Point, to_cbor};
+use amaru_kernel::{IsHeader, Point, is_header::tests::run_with_rng, peer::Peer, to_cbor};
 use amaru_slot_arithmetic::Slot;
 use pure_stage::Instant;
 use rand::Rng;
@@ -94,7 +94,7 @@ impl GeneratedEntries<ChainSyncMessage, GeneratedActions> {
         let entries_json: Vec<serde_json::Value> = self
             .entries()
             .iter()
-            .map(|entry| to_value(&GeneratedEntry::from(entry.clone())).unwrap())
+            .map(|entry| to_value(GeneratedEntry::from(entry.clone())).unwrap())
             .collect();
 
         serde_json::json!({
@@ -192,7 +192,10 @@ pub fn generate_entries<R: Rng>(
         for (peer, actions) in generated_actions.actions_per_peer().iter() {
             // introduce a random start delay for each peer simulate different connection times
             let start_delay = rng.random_range(0..(mean_millis as u64 * 10));
-            let arrival_times = generate_arrival_times(start_time + Duration::from_millis(start_delay), mean_millis)(actions.len(), rng);
+            let arrival_times = generate_arrival_times(
+                start_time + Duration::from_millis(start_delay),
+                mean_millis,
+            )(actions.len(), rng);
             make_entries_for_peer(&mut entries_by_peer, peer, actions.clone(), arrival_times);
         }
 
@@ -264,7 +267,7 @@ mod tests {
             number_of_downstream_peers: 1,
             generated_chain_depth: 15,
         };
-        let start_time = Instant::at_offset(std::time::Duration::from_secs(1));
+        let start_time = Instant::at_offset(Duration::from_secs(1));
         let deviation_millis = 200.0;
 
         let mut rng = StdRng::seed_from_u64(42);

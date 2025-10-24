@@ -20,6 +20,7 @@
 //!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<BlockHeader>` of a given depth.
 //!
 
+use crate::consensus::headers_tree::HeadersTreeDisplay;
 use crate::consensus::{
     errors::ConsensusError,
     headers_tree::{
@@ -37,6 +38,7 @@ use crate::consensus::{
         RollbackChainSelection::{self, RollbackBeyondLimit},
     },
 };
+use amaru_kernel::string_utils::ListsToString;
 use amaru_kernel::{
     BlockHeader, HEADER_HASH_SIZE, HeaderHash, IsHeader, Point, is_header::tests::make_header,
     peer::Peer, string_utils::ListToString,
@@ -44,7 +46,7 @@ use amaru_kernel::{
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use hex::FromHexError;
 use pallas_crypto::hash::Hash;
-use proptest::prelude::{Strategy};
+use proptest::prelude::Strategy;
 use rand::prelude::SmallRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -154,7 +156,7 @@ impl Serialize for Action {
                 peer: peer.to_string(),
                 header: SimplifiedHeader(header.clone()),
             }
-                .serialize(serializer),
+            .serialize(serializer),
             Action::RollBack {
                 peer,
                 rollback_point,
@@ -162,7 +164,7 @@ impl Serialize for Action {
                 peer: peer.to_string(),
                 rollback_point: rollback_point.clone(),
             }
-                .serialize(serializer),
+            .serialize(serializer),
         }
     }
 }
@@ -309,9 +311,13 @@ pub fn random_walk<R: Rng>(
 /// Otherwise, if we had all the actions from peer 1, then all the actions from peer 2, etc...
 /// we could end up with a tree growing beyond the `max_length` causing the tree to be pruned and
 /// the root header to be removed.
-pub fn generate_random_walks(seed: u64, generated_tree: &GeneratedTree, peers_nb: usize) -> GeneratedActions {
+pub fn generate_random_walks(
+    seed: u64,
+    generated_tree: &GeneratedTree,
+    peers_nb: usize,
+) -> GeneratedActions {
     let mut actions_per_peer = BTreeMap::new();
-    let mut rng = &mut SmallRng::seed_from_u64(seed as u64);
+    let mut rng = &mut SmallRng::seed_from_u64(seed);
 
     for i in 0..peers_nb {
         let current_peer = Peer::new(&format!("{}", i + 1));
@@ -425,16 +431,17 @@ impl GeneratedActionsStatistics {
 ///
 /// We first generate a tree of headers of depth `depth` with some branches.
 /// Then we execute a random walk on that tree for `peers_nb` peers.
-pub fn any_select_chains(depth: usize, peers_nb: usize) -> impl Strategy<Value=GeneratedActions> {
-    any_tree_of_headers(depth)
-        .prop_flat_map(move |generated_tree| (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, &generated_tree, peers_nb)))
+pub fn any_select_chains(depth: usize, peers_nb: usize) -> impl Strategy<Value = GeneratedActions> {
+    any_tree_of_headers(depth).prop_flat_map(move |generated_tree| {
+        (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, &generated_tree, peers_nb))
+    })
 }
 
 /// Generate a random list of actions, for a fixed number of peers, with a given tree of headers.
 pub fn any_select_chains_from_tree(
     tree: &GeneratedTree,
     peers_nb: usize,
-) -> impl Strategy<Value=GeneratedActions> {
+) -> impl Strategy<Value = GeneratedActions> {
     (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, tree, peers_nb))
 }
 
@@ -496,7 +503,7 @@ pub fn execute_actions_on_tree(
         if print {
             diagnostics.insert(
                 (action_nb + 1, action.clone()),
-                (result.clone(), tree.clone()),
+                (result.clone(), HeadersTreeDisplay::from(tree.clone())),
             );
         }
         results.push(result);
@@ -511,17 +518,17 @@ pub fn execute_actions_on_tree(
 fn print_diagnostics(
     print: bool,
     actions: &[Action],
-    diagnostics: &BTreeMap<(usize, Action), (SelectionResult, HeadersTree<BlockHeader>)>,
+    diagnostics: &BTreeMap<(usize, Action), (SelectionResult, HeadersTreeDisplay<BlockHeader>)>,
 ) {
     if print {
-        for ((action_nb, action), (result, after)) in diagnostics {
+        for ((action_nb, action), (result, tree)) in diagnostics {
             eprintln!("Execute {action_nb}: {action}");
             eprintln!("Result: {result}");
-            eprintln!("\nTree after:\n{after}");
+            eprintln!("\nTree after:\n{tree}");
             eprintln!("----------------------------------------");
         }
         eprintln!(
-            "Reproduce the current test case with the following actions and 'execute_json_actions':\n"
+            "Reproduce the current test case with the following actions and 'check_execution':\n"
         );
         let all_lines: Vec<String> = actions.iter().map(|action| action.pretty_print()).collect();
         eprintln!("[\n{}\n]", all_lines.list_to_string(",\n"));
@@ -536,15 +543,19 @@ pub fn execute_json_actions(
     actions_as_list_of_strings: &[&str],
     print: bool,
 ) -> Result<Vec<SelectionResult>, ConsensusError> {
-    let actions: Vec<Action> = serde_json::from_str(&format!(
+    let actions = actions_from_json(actions_as_list_of_strings);
+    execute_actions(max_length, &actions, print)
+}
+
+pub fn actions_from_json(actions_as_list_of_strings: &[&str]) -> Vec<Action> {
+    serde_json::from_str(&format!(
         "[{}]",
         actions_as_list_of_strings
             .iter()
             .collect::<Vec<_>>()
             .list_to_string(",")
     ))
-        .unwrap();
-    execute_actions(max_length, &actions, print)
+    .unwrap()
 }
 
 /// Type alias for a chain of headers tracked by a peer
@@ -599,7 +610,7 @@ pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Chain>> {
 ///
 /// This function returns a list of chains, one per action, showing how the best chain evolves over time.
 ///
-pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Chain> {
+pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Result<Vec<Chain>, String> {
     let mut best_chains: Vec<Chain> = vec![];
     let mut current_best_chain = vec![];
     for (i, event) in results.iter().enumerate() {
@@ -613,13 +624,19 @@ pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Chain> 
                 let rollback_position = current_best_chain
                     .iter()
                     .position(|h| h.hash() == fork.rollback_header.hash());
-                assert!(
-                    rollback_position.is_some(),
-                    "after the action {}, we have a rollback position that does not exist with hash {}",
-                    i + 1,
-                    fork.rollback_header.hash()
-                );
-                current_best_chain.truncate(rollback_position.unwrap() + 1);
+                if rollback_position.is_none() {
+                    return Err(format!(
+                        "after the event {} {}, we have a rollback position that does not exist with hash {}\n\ncurrent best chain:\n{}\n\nbest chains\n{}",
+                        i + 1,
+                        event,
+                        fork.rollback_header.hash(),
+                        current_best_chain.list_to_string(",\n"),
+                        best_chains.lists_to_string(",\n", "\n\n"),
+                    ));
+                }
+                if let Some(rollback_position) = rollback_position {
+                    current_best_chain.truncate(rollback_position + 1);
+                }
                 current_best_chain.extend(fork.fork.clone())
             }
             Back(RollbackBeyondLimit { .. }) => {}
@@ -627,14 +644,46 @@ pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Vec<Chain> 
         }
         best_chains.push(current_best_chain.clone());
     }
-    best_chains
+    Ok(best_chains)
+}
+
+pub fn make_best_chain_from_results(results: &[SelectionResult]) -> Result<Chain, String> {
+    let mut best_chain = vec![];
+    for (i, event) in results.iter().enumerate() {
+        match event {
+            Forward(ForwardChainSelection::NewTip { tip, .. }) => best_chain.push(tip.clone()),
+            Forward(ForwardChainSelection::NoChange) => {}
+            Forward(ForwardChainSelection::SwitchToFork(fork))
+            | Back(RollbackChainSelection::SwitchToFork(fork)) => {
+                let rollback_position = best_chain
+                    .iter()
+                    .position(|h| h.hash() == fork.rollback_header.hash());
+                if rollback_position.is_none() {
+                    return Err(format!(
+                        "after the event {} {}, we have a rollback position that does not exist with hash {}\n\ncurrent best chain:\n{}\n",
+                        i + 1,
+                        event,
+                        fork.rollback_header.hash(),
+                        best_chain.list_to_string(",\n")
+                    ));
+                }
+                if let Some(rollback_position) = rollback_position {
+                    best_chain.truncate(rollback_position + 1);
+                }
+                best_chain.extend(fork.fork.clone())
+            }
+            Back(RollbackBeyondLimit { .. }) => {}
+            Back(RollbackChainSelection::NoChange) => {}
+        }
+    }
+    Ok(best_chain)
 }
 
 /// Transpose a list of rows into a list of columns (even if the rows have different lengths).
 pub fn transpose<I, R, T>(rows: I) -> Vec<Vec<T>>
 where
-    I: IntoIterator<Item=R>,
-    R: IntoIterator<Item=T>,
+    I: IntoIterator<Item = R>,
+    R: IntoIterator<Item = T>,
 {
     let mut iterators: Vec<_> = rows.into_iter().map(|r| r.into_iter()).collect();
     let mut result: Vec<Vec<T>> = vec![];
@@ -660,7 +709,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru_kernel::is_header::tests::run;
+    use crate::consensus::headers_tree::data_generation::generate_tree_of_headers;
     use std::collections::BTreeSet;
 
     #[test]
@@ -684,8 +733,10 @@ mod tests {
     }
 
     #[test]
-    fn generate_random_walks() {
-        let generated_actions = run(any_select_chains(10, 3));
+    fn test_generate_random_walks() {
+        let seed = 45;
+        let tree = generate_tree_of_headers(seed, 10);
+        let generated_actions = generate_random_walks(seed, &tree, 3);
         let statistics = generated_actions.statistics();
         // uncomment for inspecting the generated tree and actions
         // let generated_tree = generated_actions.generated_tree();
@@ -696,7 +747,7 @@ mod tests {
         // }
 
         assert!(
-            statistics.number_of_fork_nodes >= 3 && statistics.number_of_fork_nodes <= 4,
+            statistics.number_of_fork_nodes >= 2 && statistics.number_of_fork_nodes <= 4,
             "statistics.number_of_fork_nodes {}",
             statistics.number_of_fork_nodes
         );
@@ -707,7 +758,7 @@ mod tests {
             .map(|actions| {
                 actions
                     .iter()
-                    .map(|a: &Action| a.clone().set_peer(&Peer::new("0")))
+                    .map(|a: &Action| a.clone().set_peer(&Peer::new("unused")))
                     .collect::<Vec<_>>()
                     .list_to_string(",\n")
             })

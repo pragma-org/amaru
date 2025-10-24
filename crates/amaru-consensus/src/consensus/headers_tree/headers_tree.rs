@@ -14,6 +14,7 @@
 
 use crate::consensus::errors::ConsensusError::UnknownPoint;
 use crate::consensus::errors::{ConsensusError, InvalidHeaderParentData};
+use crate::consensus::headers_tree::HeadersTreeDisplay;
 use crate::consensus::headers_tree::headers_tree::Tracker::{Me, SomePeer};
 use crate::consensus::headers_tree::tree::Tree;
 use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
@@ -59,6 +60,22 @@ impl<H> HeadersTree<H> {
 pub struct HeadersTreeState {
     max_length: usize,
     peers: BTreeMap<Tracker, Vec<HeaderHash>>,
+}
+
+impl Display for HeadersTreeState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "  peers: {}",
+            &self
+                .peers
+                .iter()
+                .map(|(p, hs)| format!("{} -> [{}]", p, hs.list_to_string(", ")))
+                .join(", ")
+        )?;
+        writeln!(f, "  max_length: {}", &self.max_length)?;
+        Ok(())
+    }
 }
 
 impl HeadersTreeState {
@@ -135,45 +152,18 @@ impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display f
     }
 }
 
-impl<H: IsHeader + Debug + Clone + PartialEq + Eq> HeadersTree<H> {
-    /// Common function to format the headers tree either for Debug or Display
+impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
     fn format(
         &self,
         f: &mut Formatter<'_>,
         header_to_string: fn(&H) -> String,
     ) -> std::fmt::Result {
-        f.write_str("HeadersTree {\n")?;
-        if let Some(tree) = self.to_tree() {
-            writeln!(
-                f,
-                "  headers:\n    {}",
-                &tree.pretty_print_with(header_to_string)
-            )?;
-        }
-        writeln!(f, "  root: {}", &self.anchor())?;
-        writeln!(
-            f,
-            "  peers: {}",
-            &self
-                .tree_state
-                .peers
-                .iter()
-                .map(|(p, hs)| format!("{} -> [{}]", p, hs.list_to_string(", ")))
-                .join(", ")
-        )?;
-        writeln!(f, "  best_chain: {}", &self.best_chain())?;
-        writeln!(
-            f,
-            "  best_chains: [{}]",
-            &self.best_chains().list_to_string(", ")
-        )?;
-        writeln!(f, "  best_length: {}", &self.best_length())?;
-        writeln!(f, "  max_length: {}", &self.tree_state.max_length)?;
-        f.write_str("}\n")
+        let tree_display = HeadersTreeDisplay::from(self.clone());
+        tree_display.format(f, header_to_string)
     }
 
     /// Return the tree representation of the headers tree.
-    fn to_tree(&self) -> Option<Tree<H>> {
+    pub fn to_tree(&self) -> Option<Tree<H>> {
         let mut as_map = BTreeMap::new();
         for header in self.load_headers(&self.anchor()) {
             let _ = as_map.insert(header.hash(), header);
@@ -271,17 +261,15 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
             return Err(e);
         };
 
-        let (result, anchor, tip) = if self.is_empty_tree() {
+        let result = if self.is_empty_tree() {
             // special case for the first header added to an empty tree
             self.update_peer(peer, tip);
-            (
-                Ok(ForwardChainSelection::NewTip {
-                    peer: peer.clone(),
-                    tip: tip.clone(),
-                }),
-                Some(tip.hash()),
-                Some(tip.hash()),
-            )
+            self.set_anchor(&tip.hash())?;
+            self.set_best_chain(&tip.hash())?;
+            Ok(ForwardChainSelection::NewTip {
+                peer: peer.clone(),
+                tip: tip.clone(),
+            })
         } else if self.extends_best_chains(tip) {
             self.update_peer(peer, tip);
             // If the tip is extending _the_ best chain
@@ -294,14 +282,14 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
                 let fork = self.make_fork(peer, &self.best_chain(), &tip.hash());
                 Ok(ForwardChainSelection::SwitchToFork(fork))
             };
-            (result, None, Some(tip.hash()))
+            self.set_best_chain(&tip.hash())?;
+            result
         } else {
             self.update_peer(peer, tip);
-            (Ok(ForwardChainSelection::NoChange), None, None)
+            Ok(ForwardChainSelection::NoChange)
         };
 
-        let new_anchor = self.trim_chain()?;
-        self.update_best_chain(anchor.or(new_anchor), tip)?;
+        self.trim_chain()?;
         result
     }
 
@@ -371,7 +359,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
     }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
+impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     /// Return the length of the best chain currently known.
     pub fn best_length(&self) -> usize {
         self.tree_state
@@ -399,7 +387,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the list of the best chains currently known.
-    fn best_chains(&self) -> Vec<&HeaderHash> {
+    pub fn best_chains(&self) -> Vec<&HeaderHash> {
         let mut best_length = 0;
         let mut best_chains = vec![];
         for chain in self.tree_state.peers.values() {
@@ -422,7 +410,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the root of the tree
-    fn anchor(&self) -> HeaderHash {
+    pub fn anchor(&self) -> HeaderHash {
         self.chain_store.get_anchor_hash()
     }
 
@@ -457,6 +445,8 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
             if let Some(parent) = current.parent() {
                 fork_fragment.push(current.clone());
                 current = self.unsafe_get_header(&parent);
+            } else {
+                break;
             }
         }
         fork_fragment.reverse();
@@ -525,7 +515,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the best currently known tip
-    fn best_chain(&self) -> HeaderHash {
+    pub(crate) fn best_chain(&self) -> HeaderHash {
         self.chain_store.get_best_chain_hash()
     }
 
@@ -541,31 +531,12 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
         Ok(())
     }
 
-    /// Update the anchor and the best chain atomically if they are both provided.
-    fn update_best_chain(
-        &mut self,
-        anchor: Option<HeaderHash>,
-        tip: Option<HeaderHash>,
-    ) -> Result<(), ConsensusError> {
-        match (anchor, tip) {
-            (Some(anchor), Some(tip)) => {
-                self.chain_store
-                    .update_best_chain(&anchor, &tip)
-                    .map_err(|e| ConsensusError::UpdateBestChainFailed(anchor, tip, e))?;
-                self.tree_state
-                    .peers
-                    .insert(Me, self.best_chain_fragment_hashes());
-                Ok(())
-            }
-            (Some(anchor), _) => {
-                self.chain_store
-                    .set_anchor_hash(&anchor)
-                    .map_err(|e| ConsensusError::SetAnchorHashFailed(anchor, e))?;
-                Ok(())
-            }
-            (None, Some(tip)) => self.set_best_chain(&tip),
-            (None, None) => Ok(()),
-        }
+    /// Store the current chain anchor if it has changed.
+    fn set_anchor(&mut self, hash: &HeaderHash) -> Result<(), ConsensusError> {
+        self.chain_store
+            .set_anchor_hash(hash)
+            .map_err(|e| ConsensusError::SetAnchorHashFailed(*hash, e))?;
+        Ok(())
     }
 
     /// Return the hash of the best header of a registered peer
@@ -607,9 +578,9 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// When the best chain exceeds the maximum length, move its root up one level and
     /// remove the peers that do not contain the new anchor.
     #[instrument(level = "trace", skip_all)]
-    fn trim_chain(&mut self) -> Result<Option<HeaderHash>, ConsensusError> {
+    fn trim_chain(&mut self) -> Result<(), ConsensusError> {
         if self.best_length() <= self.tree_state.max_length {
-            return Ok(None);
+            return Ok(());
         }
 
         // Get the first two headers of the best chain fragment
@@ -630,9 +601,10 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
                 }
             });
             self.tree_state.peers.retain(|_p, hs| !hs.is_empty());
-            Ok(Some(second))
+            self.set_anchor(&second)?;
+            Ok(())
         } else {
-            Ok(None)
+            Ok(())
         }
     }
 
@@ -704,7 +676,7 @@ mod tests {
     use amaru_kernel::string_utils::{ListDebug, ListsToString};
     use amaru_kernel::tests::random_hash;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use proptest::{prop_assert, proptest};
+    use proptest::proptest;
     use std::assert_matches::assert_matches;
 
     #[test]
@@ -1266,11 +1238,64 @@ mod tests {
             r#"{"RollForward":{"peer":"3","header":{"hash":"c5132318d38536501a886ed85652242083a81e922b8f79b9ea2a726315028f04","block":1,"slot":4,"parent":"85e972660750a9f00e07abde7731c2343ab1b7d9a5edc0e5ff820227fdba3fbf"}}}"#,
         ];
 
-        let results = execute_json_actions(10, &actions, false).unwrap();
+        let results = check_execution(100, &actions, false);
         assert_matches!(
             results.last(),
             Some(Forward(ForwardChainSelection::NoChange))
         );
+    }
+
+    #[test]
+    fn test_rollforward_with_trim_chain() {
+        // This test covers the scenario where two peers are rolling forward and
+        // a fork triggers the trimming of the headers tree.
+        let actions = [
+            r#"{"RollForward":{"peer":"1","header":{"hash":"8acbec9278c423b6a00502d9519b8e445e2b709afdd7a0093044274ba631f83a","block":1,"slot":1,"parent":null}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"8acbec9278c423b6a00502d9519b8e445e2b709afdd7a0093044274ba631f83a","block":1,"slot":1,"parent":null}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"ebabaacc3dc4b8a6a3c43c6ca5010f1712ad6b7b12cbf8363f3e218eae62b574","block":2,"slot":2,"parent":"8acbec9278c423b6a00502d9519b8e445e2b709afdd7a0093044274ba631f83a"}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"ebabaacc3dc4b8a6a3c43c6ca5010f1712ad6b7b12cbf8363f3e218eae62b574","block":2,"slot":2,"parent":"8acbec9278c423b6a00502d9519b8e445e2b709afdd7a0093044274ba631f83a"}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"992e19bfc0fc0a124d4c7878d9229c2bcc3511c56f6fc1052e8d0fde29af51db","block":3,"slot":3,"parent":"ebabaacc3dc4b8a6a3c43c6ca5010f1712ad6b7b12cbf8363f3e218eae62b574"}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"e12d4821181f94971c59c2028177031a3356a9c00034f0e0738c9032369362b7","block":3,"slot":3,"parent":"ebabaacc3dc4b8a6a3c43c6ca5010f1712ad6b7b12cbf8363f3e218eae62b574"}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"377428929c248c39e31989aa5c0931040b2b4a3568cfe8137ddec0a7fc628fa4","block":4,"slot":4,"parent":"992e19bfc0fc0a124d4c7878d9229c2bcc3511c56f6fc1052e8d0fde29af51db"}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"222518db44df8eb9d3a5b9d3f9c20dd4e516708235f52e20489faeefbe9596ae","block":4,"slot":4,"parent":"e12d4821181f94971c59c2028177031a3356a9c00034f0e0738c9032369362b7"}}}"#,
+            r#"{"RollBack":{"peer":"1","rollback_point":"4.992e19bfc0fc0a124d4c7878d9229c2bcc3511c56f6fc1052e8d0fde29af51db"}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"49c94d2ca3c6dc00cf111a66db84119373173f252f181117b846ff18fb8e6030","block":5,"slot":5,"parent":"222518db44df8eb9d3a5b9d3f9c20dd4e516708235f52e20489faeefbe9596ae"}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"7d3e516e65d18827535aa6f080a7d1820e4b854a16aa62ab8d92b6f17925f566","block":4,"slot":4,"parent":"992e19bfc0fc0a124d4c7878d9229c2bcc3511c56f6fc1052e8d0fde29af51db"}}}"#,
+            r#"{"RollBack":{"peer":"2","rollback_point":"5.222518db44df8eb9d3a5b9d3f9c20dd4e516708235f52e20489faeefbe9596ae"}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"74d30dbdee704742033d5761f86c6a595bfa33db9724dcfd9f649b9784890ed6","block":5,"slot":5,"parent":"7d3e516e65d18827535aa6f080a7d1820e4b854a16aa62ab8d92b6f17925f566"}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"586181a92e0f8ec2ec8a37cec708d62e8c97ef57650792e693e4da5bbe0c61fc","block":5,"slot":5,"parent":"222518db44df8eb9d3a5b9d3f9c20dd4e516708235f52e20489faeefbe9596ae"}}}"#,
+            r#"{"RollBack":{"peer":"1","rollback_point":"5.7d3e516e65d18827535aa6f080a7d1820e4b854a16aa62ab8d92b6f17925f566"}}"#,
+            r#"{"RollBack":{"peer":"2","rollback_point":"5.222518db44df8eb9d3a5b9d3f9c20dd4e516708235f52e20489faeefbe9596ae"}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"f3fc9434e61c348fa7794951ceaced314b0a1b2e25470e1cbf8e968710752177","block":5,"slot":5,"parent":"7d3e516e65d18827535aa6f080a7d1820e4b854a16aa62ab8d92b6f17925f566"}}}"#,
+            r#"{"RollBack":{"peer":"2","rollback_point":"4.e12d4821181f94971c59c2028177031a3356a9c00034f0e0738c9032369362b7"}}"#,
+            r#"{"RollBack":{"peer":"1","rollback_point":"5.7d3e516e65d18827535aa6f080a7d1820e4b854a16aa62ab8d92b6f17925f566"}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"3502f9c76d97c36b5f93e0fb272357be8c5e560832cb1afd5f1d77c97e2b9c66","block":4,"slot":4,"parent":"e12d4821181f94971c59c2028177031a3356a9c00034f0e0738c9032369362b7"}}}"#,
+            r#"{"RollBack":{"peer":"1","rollback_point":"4.992e19bfc0fc0a124d4c7878d9229c2bcc3511c56f6fc1052e8d0fde29af51db"}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"1f0a669cfcde0b6724bbc87c5b1c53cd4da65dbcbe4c0c470f6d9defed7d060f","block":5,"slot":5,"parent":"3502f9c76d97c36b5f93e0fb272357be8c5e560832cb1afd5f1d77c97e2b9c66"}}}"#,
+            r#"{"RollBack":{"peer":"1","rollback_point":"3.ebabaacc3dc4b8a6a3c43c6ca5010f1712ad6b7b12cbf8363f3e218eae62b574"}}"#,
+            r#"{"RollBack":{"peer":"2","rollback_point":"5.3502f9c76d97c36b5f93e0fb272357be8c5e560832cb1afd5f1d77c97e2b9c66"}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"e12d4821181f94971c59c2028177031a3356a9c00034f0e0738c9032369362b7","block":3,"slot":3,"parent":"ebabaacc3dc4b8a6a3c43c6ca5010f1712ad6b7b12cbf8363f3e218eae62b574"}}}"#,
+            r#"{"RollBack":{"peer":"2","rollback_point":"4.e12d4821181f94971c59c2028177031a3356a9c00034f0e0738c9032369362b7"}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"222518db44df8eb9d3a5b9d3f9c20dd4e516708235f52e20489faeefbe9596ae","block":4,"slot":4,"parent":"e12d4821181f94971c59c2028177031a3356a9c00034f0e0738c9032369362b7"}}}"#,
+            r#"{"RollBack":{"peer":"2","rollback_point":"3.ebabaacc3dc4b8a6a3c43c6ca5010f1712ad6b7b12cbf8363f3e218eae62b574"}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"49c94d2ca3c6dc00cf111a66db84119373173f252f181117b846ff18fb8e6030","block":5,"slot":5,"parent":"222518db44df8eb9d3a5b9d3f9c20dd4e516708235f52e20489faeefbe9596ae"}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"992e19bfc0fc0a124d4c7878d9229c2bcc3511c56f6fc1052e8d0fde29af51db","block":3,"slot":3,"parent":"ebabaacc3dc4b8a6a3c43c6ca5010f1712ad6b7b12cbf8363f3e218eae62b574"}}}"#,
+            r#"{"RollBack":{"peer":"1","rollback_point":"5.222518db44df8eb9d3a5b9d3f9c20dd4e516708235f52e20489faeefbe9596ae"}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"7d3e516e65d18827535aa6f080a7d1820e4b854a16aa62ab8d92b6f17925f566","block":4,"slot":4,"parent":"992e19bfc0fc0a124d4c7878d9229c2bcc3511c56f6fc1052e8d0fde29af51db"}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"586181a92e0f8ec2ec8a37cec708d62e8c97ef57650792e693e4da5bbe0c61fc","block":5,"slot":5,"parent":"222518db44df8eb9d3a5b9d3f9c20dd4e516708235f52e20489faeefbe9596ae"}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"74d30dbdee704742033d5761f86c6a595bfa33db9724dcfd9f649b9784890ed6","block":5,"slot":5,"parent":"7d3e516e65d18827535aa6f080a7d1820e4b854a16aa62ab8d92b6f17925f566"}}}"#,
+            r#"{"RollBack":{"peer":"1","rollback_point":"5.222518db44df8eb9d3a5b9d3f9c20dd4e516708235f52e20489faeefbe9596ae"}}"#,
+            r#"{"RollBack":{"peer":"2","rollback_point":"5.7d3e516e65d18827535aa6f080a7d1820e4b854a16aa62ab8d92b6f17925f566"}}"#,
+            r#"{"RollBack":{"peer":"1","rollback_point":"4.e12d4821181f94971c59c2028177031a3356a9c00034f0e0738c9032369362b7"}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"f3fc9434e61c348fa7794951ceaced314b0a1b2e25470e1cbf8e968710752177","block":5,"slot":5,"parent":"7d3e516e65d18827535aa6f080a7d1820e4b854a16aa62ab8d92b6f17925f566"}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"3502f9c76d97c36b5f93e0fb272357be8c5e560832cb1afd5f1d77c97e2b9c66","block":4,"slot":4,"parent":"e12d4821181f94971c59c2028177031a3356a9c00034f0e0738c9032369362b7"}}}"#,
+            r#"{"RollBack":{"peer":"2","rollback_point":"5.7d3e516e65d18827535aa6f080a7d1820e4b854a16aa62ab8d92b6f17925f566"}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"1f0a669cfcde0b6724bbc87c5b1c53cd4da65dbcbe4c0c470f6d9defed7d060f","block":5,"slot":5,"parent":"3502f9c76d97c36b5f93e0fb272357be8c5e560832cb1afd5f1d77c97e2b9c66"}}}"#,
+            r#"{"RollBack":{"peer":"2","rollback_point":"4.992e19bfc0fc0a124d4c7878d9229c2bcc3511c56f6fc1052e8d0fde29af51db"}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"377428929c248c39e31989aa5c0931040b2b4a3568cfe8137ddec0a7fc628fa4","block":4,"slot":4,"parent":"992e19bfc0fc0a124d4c7878d9229c2bcc3511c56f6fc1052e8d0fde29af51db"}}}"#,
+        ];
+
+        check_execution(3, &actions, false);
     }
 
     #[test]
@@ -1284,19 +1309,19 @@ mod tests {
     const DEPTH: usize = 10;
     const MAX_LENGTH: usize = 5;
     const TEST_CASES_NB: u32 = 1000;
+    const PEERS_NB: usize = 2;
 
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(TEST_CASES_NB).end())]
         #[test]
-        fn run_chain_selection(generated_actions in any_select_chains(DEPTH, 5)) {
-            let actions = generated_actions.actions();
-            let results = execute_actions(MAX_LENGTH, &actions, false).unwrap();
-            let actual_chains = make_best_chains_from_results(&results);
-            let expected_chains = make_best_chains_from_actions(&actions);
-            for (i, (actual, expected)) in actual_chains.iter().zip(expected_chains).enumerate() {
-                prop_assert!(expected.contains(actual), "\nFor action {}, the actual chain\n{}\n\nis not contained in the best chains\n\n{}\n\n", i+1,
-                    actual.list_to_string(",\n "), expected.lists_to_string(",\n ", "\n "));
-            }
+        fn run_chain_selection(generated_actions in any_select_chains(DEPTH, PEERS_NB)) {
+            let results = execute_actions(MAX_LENGTH, &generated_actions.actions(), false).unwrap();
+            let actual = make_best_chain_from_results(&results).unwrap();
+            let expected = generated_actions.generated_tree().best_chains();
+
+            proptest::prop_assert!(expected.contains(&actual),
+                "\nthe actual chain\n {}\n\nis not contained in the best chains\n\n{}\n\n",
+                               actual.list_to_string(",\n "), expected.list_debug(",\n "));
         }
     }
 
@@ -1323,5 +1348,37 @@ mod tests {
             parent = next_header;
         }
         result
+    }
+
+    pub fn check_execution(
+        max_length: usize,
+        actions: &[&str],
+        print: bool,
+    ) -> Vec<SelectionResult> {
+        match check_actions_execution(max_length, actions_from_json(actions), print) {
+            Ok(results) => results,
+            Err(e) => panic!("{e}"),
+        }
+    }
+
+    pub fn check_actions_execution(
+        max_length: usize,
+        actions: Vec<Action>,
+        print: bool,
+    ) -> Result<Vec<SelectionResult>, String> {
+        let results = execute_actions(max_length, &actions, print).unwrap();
+        let actual_chains = make_best_chains_from_results(&results)?;
+        let expected_chains = make_best_chains_from_actions(&actions);
+        for (i, (actual, expected)) in actual_chains.iter().zip(expected_chains).enumerate() {
+            if !expected.contains(actual) {
+                return Err(format!(
+                    "\nFor action {}, the actual chain\n {}\n\nis not contained in the best chains\n\n{}\n\n",
+                    i + 1,
+                    actual.list_to_string(",\n "),
+                    expected.lists_to_string(",\n ", "\n\n")
+                ));
+            }
+        }
+        Ok(results)
     }
 }

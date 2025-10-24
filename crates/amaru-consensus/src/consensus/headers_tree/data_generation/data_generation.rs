@@ -31,17 +31,16 @@ use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use proptest::prelude::Strategy;
 use rand::prelude::StdRng;
 use rand::{Rng, RngCore, SeedableRng};
-use std::cmp::max;
 use std::sync::Arc;
 
 /// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
-pub fn any_headers_tree(depth: usize) -> impl Strategy<Value=Tree<BlockHeader>> {
+pub fn any_headers_tree(depth: usize) -> impl Strategy<Value = Tree<BlockHeader>> {
     any_tree_of_headers(depth).prop_map(|generated_tree| generated_tree.tree)
 }
 
 /// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
-pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value=GeneratedTree> {
-    (0..u64::MAX).prop_map(move |seed| generate_tree_of_headers(depth, seed))
+pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value = GeneratedTree> {
+    (0..u64::MAX).prop_map(move |seed| generate_tree_of_headers(seed, depth))
 }
 
 /// A generated tree of `BlockHeader`s.
@@ -85,7 +84,7 @@ impl GeneratedTree {
 
 /// Generate a tree of headers of a given depth.
 /// A seed is used to control the random generation of subtrees on top of a spine of length `depth`.
-pub fn generate_tree_of_headers(depth: usize, seed: u64) -> GeneratedTree {
+pub fn generate_tree_of_headers(seed: u64, depth: usize) -> GeneratedTree {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let root = generate_header(1, 1, None, &mut rng);
@@ -99,8 +98,8 @@ pub fn generate_tree_of_headers(depth: usize, seed: u64) -> GeneratedTree {
 }
 
 /// Return only the generated tree of headers of a given depth.
-pub fn generate_headers_tree(depth: usize, seed: u64) -> Tree<BlockHeader> {
-    generate_tree_of_headers(depth, seed).tree
+pub fn generate_headers_tree(seed: u64, depth: usize) -> Tree<BlockHeader> {
+    generate_tree_of_headers(seed, depth).tree
 }
 
 /// Given a random generator and a tree:
@@ -145,7 +144,7 @@ fn generate_header_subtree(
         };
         if must_branch {
             let min_subtree_size = (current_branch_expected_depth - current_size) / 2;
-            let max_subtree_size = max(2, current_branch_expected_depth - current_size);
+            let max_subtree_size = current_branch_expected_depth - current_size;
             let subtree_size = rng.random_range(min_subtree_size..=max_subtree_size);
             generate_header_subtree(rng, current, total_depth, subtree_size);
             if rng.random_bool(0.2) {
@@ -272,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_generate_headers_tree() {
-        let tree = generate_tree_of_headers(5, 42).tree;
+        let tree = generate_tree_of_headers(42, 5).tree;
         assert_eq!(tree.depth(), 5);
         check_nodes(&tree);
     }

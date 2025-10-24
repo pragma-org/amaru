@@ -14,8 +14,8 @@
 
 use amaru_consensus::consensus::{effects::FetchBlockEffect, errors::ConsensusError};
 use amaru_sim::simulator::{
-    Args, NodeConfig, NodeHandle, GeneratedEntries, SimulateConfig, generate_entries, run::spawn_node,
-    simulate::simulate,
+    Args, GeneratedEntries, NodeConfig, NodeHandle, SimulateConfig, generate_entries,
+    run::spawn_node, simulate::simulate,
 };
 use amaru_tracing_json::assert_spans_trees;
 use pure_stage::{
@@ -36,7 +36,7 @@ fn run_simulator_with_traces() {
         number_of_downstream_peers: 1,
         generated_chain_depth: 1,
         disable_shrinking: true,
-        seed: None,
+        seed: Some(42),
         persist_on_success: false,
     };
     let node_config = NodeConfig::from(args.clone());

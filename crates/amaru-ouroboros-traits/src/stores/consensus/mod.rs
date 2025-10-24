@@ -138,7 +138,6 @@ where
     fn store_header(&self, header: &H) -> Result<(), StoreError>;
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
     fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
-    fn update_best_chain(&self, anchor: &HeaderHash, tip: &HeaderHash) -> Result<(), StoreError>;
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError>;
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError>;
 }
