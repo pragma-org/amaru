@@ -42,6 +42,7 @@ tracing.workspace = true
 amaru.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-consensus = { workspace = true, features = ["test-utils"] }
+amaru-network.workspace = true
 amaru-ouroboros.workspace = true
 amaru-slot-arithmetic.workspace = true
 

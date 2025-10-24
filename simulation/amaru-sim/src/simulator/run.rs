@@ -21,7 +21,7 @@ use crate::simulator::{
 use crate::sync::ChainSyncMessage;
 use acto::AcTokio;
 use amaru::stages::build_stage_graph::build_stage_graph;
-use amaru_consensus::consensus::effects::{FetchBlockEffect, NetworkResource};
+use amaru_consensus::consensus::effects::FetchBlockEffect;
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::headers_tree::data_generation::{Chain, GeneratedActions};
 use amaru_consensus::consensus::stages::track_peers::SyncTracker;
@@ -40,7 +40,9 @@ use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
     Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
+use amaru_network::NetworkResource;
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateHeaders;
+use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use amaru_ouroboros::{
     ChainStore, can_validate_blocks::mock::MockCanValidateBlocks,
     in_memory_consensus_store::InMemConsensusStore,
@@ -199,13 +201,14 @@ pub fn spawn_node(
     network
         .resources()
         .put::<ResourceForwardEventListener>(Arc::new(listener));
-    network.resources().put(NetworkResource::new(
-        [],
-        &AcTokio::from_handle("upstream", rt.handle().clone()),
-        0,
-        resource_header_store,
-        async |_, _, _, _, _| {},
-    ));
+    network
+        .resources()
+        .put::<ResourceNetworkOperations>(Arc::new(NetworkResource::new(
+            [],
+            &AcTokio::from_handle("upstream", rt.handle().clone()),
+            0,
+            resource_header_store,
+        )));
 
     (receiver.without_state(), rx1, Receiver::new(rx2))
 }

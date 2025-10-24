@@ -16,21 +16,13 @@ use crate::consensus::{
     errors::{ConsensusError, ProcessingFailed},
     tip::HeaderTip,
 };
-use acto::{AcTokioRuntime, ActoCell, ActoRef, ActoRuntime};
-use amaru_kernel::{
-    BlockHeader, IsHeader, Point,
-    connection::{BlockFetchClientError, ConnMsg},
-    consensus_events::ChainSyncEvent,
-    peer::Peer,
-};
-use amaru_ouroboros::ChainStore;
+use amaru_kernel::{BlockHeader, IsHeader, Point, consensus_events::ChainSyncEvent, peer::Peer};
+use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use anyhow::anyhow;
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fmt::Display, ops::Deref, sync::Arc};
-use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
+use std::{fmt::Display, sync::Arc};
 
 /// Network operations available to a stage: fetch block and forward events to peers.
 /// This trait can have mock implementations for unit testing a stage.
@@ -189,8 +181,8 @@ impl ExternalEffect for ChainSyncEffect {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
             let network = resources
-                .get::<NetworkResource>()
-                .expect("ChainSyncEffect requires a NetworkResource")
+                .get::<ResourceNetworkOperations>()
+                .expect("ChainSyncEffect requires a NetworkOperations")
                 .clone();
             network.next_sync().await
         })
@@ -218,8 +210,8 @@ impl ExternalEffect for FetchBlockEffect {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
             let network = resources
-                .get::<NetworkResource>()
-                .expect("FetchBlockEffect requires a NetworkResource")
+                .get::<ResourceNetworkOperations>()
+                .expect("FetchBlockEffect requires a NetworkOperations")
                 .clone();
             let point = self.point.clone();
             network
@@ -253,101 +245,10 @@ impl ExternalEffect for DisconnectEffect {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
             let network = resources
-                .get::<NetworkResource>()
-                .expect("DisconnectEffect requires a NetworkResource")
+                .get::<ResourceNetworkOperations>()
+                .expect("DisconnectEffect requires a NetworkOperations")
                 .clone();
             network.disconnect(&self.peer).await
         })
-    }
-}
-
-#[derive(Clone)]
-pub struct NetworkResource {
-    inner: Arc<NetworkInner>,
-}
-
-impl Deref for NetworkResource {
-    type Target = NetworkInner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl NetworkResource {
-    pub fn new<F: Future<Output = ()> + Send + 'static>(
-        peers: impl IntoIterator<Item = Peer>,
-        rt: &AcTokioRuntime,
-        magic: u64,
-        store: Arc<dyn ChainStore<BlockHeader>>,
-        mut actor: impl FnMut(
-            ActoCell<ConnMsg, AcTokioRuntime>,
-            Peer,
-            u64,
-            mpsc::Sender<ChainSyncEvent>,
-            Arc<dyn ChainStore<BlockHeader>>,
-        ) -> F
-        + Send
-        + 'static,
-    ) -> Self {
-        let (hd_tx, hd_rx) = mpsc::channel(100);
-        let connections = peers
-            .into_iter()
-            .map(|peer| {
-                (
-                    peer.clone(),
-                    rt.spawn_actor(&format!("conn-{}", peer), |cell| {
-                        actor(cell, peer, magic, hd_tx.clone(), store.clone())
-                    })
-                    .me,
-                )
-            })
-            .collect();
-        Self {
-            inner: Arc::new(NetworkInner {
-                connections,
-                hd_rx: AsyncMutex::new(hd_rx),
-            }),
-        }
-    }
-}
-
-pub struct NetworkInner {
-    connections: BTreeMap<Peer, ActoRef<ConnMsg>>,
-    hd_rx: AsyncMutex<mpsc::Receiver<ChainSyncEvent>>,
-}
-
-impl NetworkInner {
-    pub async fn next_sync(&self) -> ChainSyncEvent {
-        #[expect(clippy::expect_used)]
-        self.hd_rx
-            .lock()
-            .await
-            .recv()
-            .await
-            .expect("upstream funnel will never stop")
-    }
-
-    pub async fn fetch_block(
-        &self,
-        peer: &Peer,
-        point: Point,
-    ) -> Result<Vec<u8>, BlockFetchClientError> {
-        let (tx, rx) = oneshot::channel();
-        let tx = Arc::new(Mutex::new(Some(tx)));
-        if let Some(peer) = self.connections.get(peer) {
-            peer.send(ConnMsg::FetchBlock(point.clone(), tx.clone()));
-        }
-        drop(tx);
-        // if no sends were made then the drop above ensures that the below errors instead of deadlock
-        rx.await
-            .map_err(|e| BlockFetchClientError::new(e.into()))
-            .flatten()
-    }
-
-    pub async fn disconnect(&self, peer: &Peer) {
-        if let Some(p) = self.connections.get(peer) {
-            p.send_wait(ConnMsg::Disconnect).await;
-        }
     }
 }

@@ -15,6 +15,9 @@
 pub mod acto_connection;
 pub mod chain_sync_client;
 pub mod mux;
+pub mod network_resource;
 pub mod point;
 pub mod protocol;
 pub mod session;
+
+pub use network_resource::NetworkResource;

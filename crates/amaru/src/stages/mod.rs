@@ -17,17 +17,21 @@ use crate::stages::{
     consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
 };
 use acto::AcTokio;
-use amaru_consensus::consensus::{
-    effects::{
-        NetworkResource, ResourceBlockValidation, ResourceForwardEventListener,
-        ResourceHeaderStore, ResourceHeaderValidation, ResourceMeter, ResourceParameters,
+use amaru_consensus::{
+    consensus::{
+        effects::{
+            ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
+            ResourceHeaderValidation, ResourceMeter, ResourceParameters,
+        },
+        errors::ConsensusError,
+        headers_tree::HeadersTreeState,
+        stages::{
+            pull, select_chain::SelectChain, track_peers::SyncTracker,
+            validate_header::ValidateHeader,
+        },
+        tip::{AsHeaderTip, HeaderTip},
     },
-    errors::ConsensusError,
-    headers_tree::HeadersTreeState,
-    stages::{
-        pull, select_chain::SelectChain, track_peers::SyncTracker, validate_header::ValidateHeader,
-    },
-    tip::{AsHeaderTip, HeaderTip},
+    network_operations::ResourceNetworkOperations,
 };
 use amaru_kernel::{
     BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
@@ -37,6 +41,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_metrics::METRICS_METER_NAME;
+use amaru_network::NetworkResource;
 use amaru_network::point::to_network_point;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, HasStakeDistribution,
@@ -242,13 +247,14 @@ pub async fn bootstrap(
     network
         .resources()
         .put::<ResourceForwardEventListener>(forward_event_listener);
-    network.resources().put(NetworkResource::new(
-        peers,
-        &acto_runtime,
-        config.network_magic.into(),
-        chain_store,
-        amaru_network::acto_connection::actor,
-    ));
+    network
+        .resources()
+        .put::<ResourceNetworkOperations>(Arc::new(NetworkResource::new(
+            peers,
+            &acto_runtime,
+            config.network_magic.into(),
+            chain_store,
+        )));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);
