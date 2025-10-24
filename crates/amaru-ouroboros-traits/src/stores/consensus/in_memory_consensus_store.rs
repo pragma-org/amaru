@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, RawBlock};
+use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -46,6 +46,7 @@ struct InMemConsensusStoreInner<H> {
     anchor: HeaderHash,
     best_chain: HeaderHash,
     blocks: BTreeMap<HeaderHash, RawBlock>,
+    chain: Vec<Point>,
 }
 
 impl<H> Default for InMemConsensusStoreInner<H> {
@@ -63,6 +64,7 @@ impl<H> InMemConsensusStoreInner<H> {
             anchor: ORIGIN_HASH,
             best_chain: ORIGIN_HASH,
             blocks: BTreeMap::new(),
+            chain: Vec::new(),
         }
     }
 }
@@ -117,6 +119,12 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
         let inner = self.inner.lock().unwrap();
         inner.best_chain
     }
+
+    #[expect(clippy::unwrap_used)]
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        let inner = self.inner.lock().unwrap();
+        inner.chain.iter().find(|p| *p == point).map(|p| p.hash())
+    }
 }
 
 impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsensusStore<H> {
@@ -168,5 +176,22 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
         inner.anchor = *anchor;
         inner.best_chain = *tip;
         Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.chain.push(point.clone());
+        Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        let init_len = inner.chain.len();
+        inner
+            .chain
+            .retain(|p| p.slot_or_default() < point.slot_or_default());
+        Ok(init_len - inner.chain.len())
     }
 }
