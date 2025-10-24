@@ -20,7 +20,7 @@ use crate::consensus::span::HasSpan;
 use crate::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::consensus_events::BlockValidationResult;
 use amaru_kernel::{BlockHeader, IsHeader, Point};
-use amaru_ouroboros::{ChainStore, StoreError};
+use amaru_ouroboros::ChainStore;
 use pure_stage::StageRef;
 use serde::{Deserialize, Serialize};
 use tracing::{Level, span};
@@ -123,9 +123,8 @@ impl StoreChain {
         store
             .rollback_chain(point)
             .map_err(|e| ConsensusError::SetBestChainHashFailed(point.hash(), e))
-            .map(|sz| {
+            .inspect(|&sz| {
                 self.tip = HeaderTip::new(point.clone(), self.tip.block_height() - sz as u64);
-                sz
             })
     }
 }
@@ -134,9 +133,7 @@ impl StoreChain {
 mod tests {
     use std::{assert_matches::assert_matches, sync::Arc};
 
-    use amaru_kernel::{
-        BlockHeader, IsHeader, consensus_events::BlockValidationResult, peer::Peer,
-    };
+    use amaru_kernel::{BlockHeader, IsHeader};
     use amaru_ouroboros::ChainStore;
     use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 
@@ -221,11 +218,10 @@ mod tests {
         let store = create_db();
         let mut store_chain = StoreChain::new(&chain[0].as_header_tip());
 
-        for i in 1..10 {
-            let header = &chain[i];
+        for header in chain.iter() {
             store.set_best_chain_hash(&header.hash())?;
             store_chain.roll_forward(store.clone(), header).await?;
-            store.store_header(&header)?;
+            store.store_header(header)?;
         }
         Ok((store, chain, store_chain))
     }

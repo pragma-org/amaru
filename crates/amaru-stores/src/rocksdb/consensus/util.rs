@@ -23,7 +23,7 @@ pub(crate) const CONSENSUS_PREFIX_LEN: usize = 5;
 /// Increment this number by 1 every time the "schema" is updated, eg. a new
 /// type of keys is added, prefixes are changed, etc. then provide a migration
 /// function from the previous version.
-pub const CHAIN_DB_VERSION: u16 = 1;
+pub const CHAIN_DB_VERSION: u16 = 2;
 
 pub(crate) const ANCHOR_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"ancho";
 pub(crate) const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"best_";

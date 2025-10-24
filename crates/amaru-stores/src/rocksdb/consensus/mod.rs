@@ -18,8 +18,8 @@ pub mod util;
 pub use migration::*;
 
 use amaru_kernel::{
-    BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, Slot, cbor,
-    from_cbor, to_cbor,
+    BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, Slot,
+    cbor, from_cbor, to_cbor,
 };
 use amaru_ouroboros_traits::{
     ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError,
@@ -120,6 +120,20 @@ impl RocksDBStore {
         })?;
         result
     }
+}
+
+pub(crate) fn store_chain_point(
+    db: &OptimisticTransactionDB,
+    point: &Point,
+) -> Result<(), StoreError> {
+    let slot = u64::from(point.slot_or_default()).to_be_bytes();
+    db.put(
+        [&CHAIN_PREFIX[..], &slot[..]].concat(),
+        point.hash().as_ref(),
+    )
+    .map_err(|e| StoreError::WriteError {
+        error: e.to_string(),
+    })
 }
 
 macro_rules! impl_ReadOnlyChainStore {
@@ -385,10 +399,10 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
     }
 
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
-        let tip_hash = <Self as ReadOnlyChainStore<BlockHeader>>::get_best_chain_hash(&self);
+        let tip_hash = <Self as ReadOnlyChainStore<BlockHeader>>::get_best_chain_hash(self);
 
         if let Some(header) =
-            <Self as ReadOnlyChainStore<BlockHeader>>::load_header(&self, &tip_hash)
+            <Self as ReadOnlyChainStore<BlockHeader>>::load_header(self, &tip_hash)
         {
             let slot = Slot::from(header.slot());
             if slot >= point.slot_or_default() {
@@ -402,19 +416,11 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             }
         }
 
-        let slot = u64::from(point.slot_or_default()).to_be_bytes();
-        self.db
-            .put(
-                [&CHAIN_PREFIX[..], &slot[..]].concat(),
-                point.hash().as_ref(),
-            )
-            .map_err(|e| StoreError::WriteError {
-                error: e.to_string(),
-            })
+        store_chain_point(&self.db, point)
     }
 
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
-        if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(&self, point).is_none() {
+        if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(self, point).is_none() {
             return Err(StoreError::ReadError {
                 error: format!(
                     "Cannot roll back chain to point {:?} as it does not exist on the best chain",
@@ -767,14 +773,43 @@ pub mod test {
 
         copy_recursively(source, target).unwrap();
 
+        let (_, db) = open_db(&config).expect("cannot open sample v0 DB");
+        migrate_to_v1(&db).expect("Migration should succeed");
+
+        let header: Option<BlockHeader> = db
+            .get_pinned(
+                [
+                    &HEADER_PREFIX[..],
+                    hex::decode(SAMPLE_HASH).unwrap().as_slice(),
+                ]
+                .concat(),
+            )
+            .ok()
+            .and_then(|bytes| from_cbor(bytes?.as_ref()));
+
+        assert!(header.is_some(), "Sample data should be preserved");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn can_convert_v1_sample_db_to_v2() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target = tempdir.path();
+        let config = RocksDbConfig::new(target.to_path_buf());
+        let source = PathBuf::from("sample-chain-db/v1");
+
+        copy_recursively(source, target).unwrap();
+
         let result = migrate_db_path(target).expect("Migration should succeed");
 
         let db = RocksDBStore::open(config)
             .expect("DB should successfully be opened as it's been migrated");
-        assert_eq!((0, 1), result);
-        let header: Option<BlockHeader> = db.load_header(&HeaderHash::from(
-            hex::decode(SAMPLE_HASH).unwrap().as_slice(),
-        ));
+        assert_eq!((1, 2), result);
+        let header: Option<HeaderHash> =
+            <RocksDBStore as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(
+                &db,
+                &Point::Specific(5, hex::decode(SAMPLE_HASH).unwrap()),
+            );
         assert!(header.is_some(), "Sample data should be preserved");
     }
 
@@ -861,7 +896,7 @@ pub mod test {
         );
     }
 
-    const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";
+    const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b0089e6e81c947";
     // HELPERS
 
     pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {

@@ -120,6 +120,7 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
         inner.best_chain
     }
 
+    #[expect(clippy::unwrap_used)]
     fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
         let inner = self.inner.lock().unwrap();
         inner.chain.iter().find(|p| *p == point).map(|p| p.hash())
@@ -170,12 +171,14 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     }
 
 
+    #[expect(clippy::unwrap_used)]
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.chain.push(point.clone());
         Ok(())
     }
 
+    #[expect(clippy::unwrap_used)]
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
         let mut inner = self.inner.lock().unwrap();
         let init_len = inner.chain.len();

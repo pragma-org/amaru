@@ -20,7 +20,9 @@ pub const HEADER_HASH_SIZE: usize = 32;
 /// Type alias for a header hash to improve readability
 pub type HeaderHash = Hash<HEADER_HASH_SIZE>;
 
-#[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize, Default)]
+#[derive(
+    Clone, Eq, PartialEq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize, Default,
+)]
 pub enum Point {
     #[default]
     Origin,
