@@ -27,14 +27,25 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 use std::collections::BTreeMap;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::time::Duration;
 
 /// Holds a list of generated entries along with the context used to generate them.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct GeneratedEntries<Msg, GenerationContext> {
     entries: Vec<Entry<Msg>>,
     generation_context: GenerationContext,
+}
+
+impl<GenerationContext: Debug> Debug for GeneratedEntries<ChainSyncMessage, GenerationContext> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let lines = self.display_as_lines();
+        for line in lines {
+            writeln!(f, "{}", line)?;
+        }
+        self.generation_context.fmt(f)?;
+        Ok(())
+    }
 }
 
 impl<Msg, GenerationContext> GeneratedEntries<Msg, GenerationContext> {
@@ -55,8 +66,9 @@ impl<Msg, GenerationContext> GeneratedEntries<Msg, GenerationContext> {
 }
 
 impl<GenerationContext> GeneratedEntries<ChainSyncMessage, GenerationContext> {
-    /// Return the entries as a list of lines, ready to be printed out
-    pub fn lines(&self) -> Vec<String> {
+    /// Return the entries as a list of lines, ready to be printed out.
+    /// This is used in the Debug implementation but can also be fed to logs
+    pub fn display_as_lines(&self) -> Vec<String> {
         let entries = self.entries();
         let mut result = vec![];
         result.push("ALL ENTRIES".to_string());
@@ -104,6 +116,7 @@ impl GeneratedEntries<ChainSyncMessage, GeneratedActions> {
     }
 }
 
+/// A single generated entry formatted for display and serialization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct GeneratedEntry {
     message_type: String,
@@ -141,7 +154,7 @@ impl From<Entry<ChainSyncMessage>> for GeneratedEntry {
             .header_hash()
             .unwrap_or(Point::Origin.hash());
 
-        let header_parent_hash = &entry
+        let header_parent_hash = entry
             .envelope
             .body
             .header_parent_hash()
@@ -174,11 +187,13 @@ pub fn generate_entries<R: Rng>(
     mean_millis: f64,
 ) -> impl Fn(&mut R) -> GeneratedEntries<ChainSyncMessage, GeneratedActions> {
     move |rng: &mut R| {
+        // Generate a tree of headers.
         let generated_tree = run_with_rng(
             rng,
             any_tree_of_headers(node_config.generated_chain_depth as usize),
         );
 
+        // Generate actions corresponding to peers doing roll forwards and roll backs on the tree.
         let generated_actions = run_with_rng(
             rng,
             any_select_chains_from_tree(
@@ -187,8 +202,8 @@ pub fn generate_entries<R: Rng>(
             ),
         );
 
+        // Generate arrivale times and make entries for each peer.
         let mut entries_by_peer: BTreeMap<Peer, Vec<Entry<ChainSyncMessage>>> = BTreeMap::new();
-
         for (peer, actions) in generated_actions.actions_per_peer().iter() {
             // introduce a random start delay for each peer simulate different connection times
             let start_delay = rng.random_range(0..(mean_millis as u64 * 10));
@@ -199,6 +214,7 @@ pub fn generate_entries<R: Rng>(
             make_entries_for_peer(&mut entries_by_peer, peer, actions.clone(), arrival_times);
         }
 
+        // Interleave the peers entries to simulate concurrent arrivals.
         let entries = transpose(entries_by_peer.values())
             .into_iter()
             .flatten()
@@ -212,6 +228,7 @@ pub fn generate_entries<R: Rng>(
     }
 }
 
+/// Create entries for a given peer based on the actions and arrival times.
 fn make_entries_for_peer(
     entries: &mut BTreeMap<Peer, Vec<Entry<ChainSyncMessage>>>,
     peer: &Peer,
@@ -219,10 +236,14 @@ fn make_entries_for_peer(
     arrival_times: Vec<Instant>,
 ) {
     let mut peer_entries = vec![];
-    for (action, arrival_time) in actions.into_iter().zip(arrival_times.into_iter()) {
+    for (msg_id, (action, arrival_time)) in actions
+        .into_iter()
+        .zip(arrival_times.into_iter())
+        .enumerate()
+    {
         let message = match &action {
             Action::RollForward { header, .. } => ChainSyncMessage::Fwd {
-                msg_id: 0, // Placeholder, should be set properly
+                msg_id: msg_id as u64,
                 slot: Slot::from(header.slot()),
                 hash: Bytes {
                     bytes: header.hash().to_vec(),
@@ -232,7 +253,7 @@ fn make_entries_for_peer(
                 },
             },
             Action::RollBack { rollback_point, .. } => ChainSyncMessage::Bck {
-                msg_id: 0, // Placeholder, should be set properly
+                msg_id: msg_id as u64,
                 slot: rollback_point.slot_or_default(),
                 hash: Bytes::from(rollback_point.hash().to_vec()),
             },
@@ -242,6 +263,8 @@ fn make_entries_for_peer(
     entries.insert(peer.clone(), peer_entries);
 }
 
+/// Create an entry for a given peer, arrival time and message body.
+/// The source name for the envelope is prefixed with "c" to indicate it's a client peer.
 fn make_entry<T>(peer: &Peer, arrival_time: &Instant, body: T) -> Entry<T> {
     Entry {
         arrival_time: *arrival_time,
@@ -260,6 +283,10 @@ mod tests {
     use rand::SeedableRng;
     use rand::prelude::StdRng;
 
+    /// This test checks that the generated entries have reasonable slot values
+    /// compared to their arrival times.
+    ///
+    /// Additionally this test can be used to generate data for the animation in tests/animation/animation.html.
     #[test]
     fn test_generate_entries() {
         let node_config = NodeConfig {

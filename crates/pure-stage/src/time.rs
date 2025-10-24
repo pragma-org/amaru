@@ -67,9 +67,9 @@ impl Display for Instant {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let duration = self.saturating_since(*EPOCH);
         if duration.as_secs() == 0 {
-            f.write_str(&format!("{:?}", duration))
+            write!(f, "{:?}", duration)
         } else {
-            f.write_str(&format!("{:.3?}", duration))
+            write!(f, "{:.3?}", duration)
         }
     }
 }

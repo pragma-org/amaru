@@ -374,21 +374,14 @@ impl GeneratedActions {
         self.actions_per_peer.clone()
     }
 
+    /// Transpose the actions per peer to interleave them
+    /// so that we don't have all the actions from one peer first, then all the actions from another peer, etc...
     pub fn actions(&self) -> Vec<Action> {
-        // Transpose the actions per peer to interleave them
         transpose(self.actions_per_peer.values())
             .into_iter()
             .flatten()
             .cloned()
             .collect()
-    }
-
-    pub fn len(&self) -> usize {
-        self.actions().len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.actions().is_empty()
     }
 
     pub fn statistics(&self) -> GeneratedActionsStatistics {
@@ -409,7 +402,7 @@ pub struct GeneratedActionsStatistics {
 
 impl Display for GeneratedActionsStatistics {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for statistic in self.lines() {
+        for statistic in self.display_as_lines() {
             f.write_str(&format!("{}\n", statistic))?;
         }
         Ok(())
@@ -418,7 +411,8 @@ impl Display for GeneratedActionsStatistics {
 
 impl GeneratedActionsStatistics {
     /// Return the statistics as a list of lines, ready to be printed out
-    pub fn lines(&self) -> Vec<String> {
+    /// This is used in the Debug implementation but can also be fed to logs
+    pub fn display_as_lines(&self) -> Vec<String> {
         let mut result = vec![];
         result.push(format!("Tree depth: {}", self.tree_depth));
         result.push(format!("Total number of nodes: {}", self.number_of_nodes));
@@ -521,10 +515,10 @@ fn print_diagnostics(
     diagnostics: &BTreeMap<(usize, Action), (SelectionResult, HeadersTreeDisplay<BlockHeader>)>,
 ) {
     if print {
-        for ((action_nb, action), (result, tree)) in diagnostics {
+        for ((action_nb, action), (result, after)) in diagnostics {
             eprintln!("Execute {action_nb}: {action}");
             eprintln!("Result: {result}");
-            eprintln!("\nTree after:\n{tree}");
+            eprintln!("\nTree after:\n{after}");
             eprintln!("----------------------------------------");
         }
         eprintln!(

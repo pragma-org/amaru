@@ -83,9 +83,10 @@ pub fn generate_arrival_times<R: Rng>(
             if rng.random_bool(0.1) {
                 jitter = -jitter * rng.random_range(0.2..0.8) // smaller magnitude negatives
             };
-            let time_offset_ms = base + jitter;
 
-            let arrival_time = start_time + Duration::from_millis(time_offset_ms as u64);
+            let time_offset_ms = (base + jitter).max(0.0).round() as u64;
+            let arrival_time = start_time + Duration::from_millis(time_offset_ms);
+
             arrival_times.push(arrival_time);
         }
         arrival_times
@@ -154,14 +155,14 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                Instant::at_offset(Duration::from_millis(226)),
+                Instant::at_offset(Duration::from_millis(227)),
                 Instant::at_offset(Duration::from_millis(1077)),
                 Instant::at_offset(Duration::from_millis(2048)),
                 Instant::at_offset(Duration::from_millis(3076)),
                 Instant::at_offset(Duration::from_millis(4086)),
                 Instant::at_offset(Duration::from_millis(4956)),
                 Instant::at_offset(Duration::from_millis(6075)),
-                Instant::at_offset(Duration::from_millis(7040)),
+                Instant::at_offset(Duration::from_millis(7041)),
                 Instant::at_offset(Duration::from_millis(8070)),
                 Instant::at_offset(Duration::from_millis(9051)),
             ]

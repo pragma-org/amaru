@@ -1317,6 +1317,8 @@ mod tests {
         fn run_chain_selection(generated_actions in any_select_chains(DEPTH, PEERS_NB)) {
             let results = execute_actions(MAX_LENGTH, &generated_actions.actions(), false).unwrap();
             let actual = make_best_chain_from_results(&results).unwrap();
+            // check the actual best chain is one of the expected best chains
+            // as given by the longest chains in the generated tree of headers.
             let expected = generated_actions.generated_tree().best_chains();
 
             proptest::prop_assert!(expected.contains(&actual),
@@ -1350,18 +1352,24 @@ mod tests {
         result
     }
 
-    pub fn check_execution(
-        max_length: usize,
-        actions: &[&str],
-        print: bool,
-    ) -> Vec<SelectionResult> {
+    /// Execute a list of actions encoded as JSON strings
+    /// and verify, at every step, that the best chain resulting from
+    /// the execution is one of the expected best chains.
+    ///
+    /// The print bool enables printing additional debug information during execution.
+    fn check_execution(max_length: usize, actions: &[&str], print: bool) -> Vec<SelectionResult> {
         match check_actions_execution(max_length, actions_from_json(actions), print) {
             Ok(results) => results,
             Err(e) => panic!("{e}"),
         }
     }
 
-    pub fn check_actions_execution(
+    /// Execute a list of actions encoded as JSON strings
+    /// and verify, at every step, that the best chain resulting from
+    /// the execution is one of the expected best chains.
+    ///
+    /// The print bool enables printing additional debug information during execution.
+    fn check_actions_execution(
         max_length: usize,
         actions: Vec<Action>,
         print: bool,

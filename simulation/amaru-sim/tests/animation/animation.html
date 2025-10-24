@@ -257,7 +257,7 @@
     let running = false;
     let simStart = 0;      // performance.now() baseline
     let pausedAt = 0;
-    let speed = 0.30;      // default from slider
+    let speed = 1.0;      // default from slider
     let schedule = [];     // [{arrival: Number(sec), src: 'c1'|'c2', hash: string, shown: boolean}]
     // Keep one live badge per src (e.g., c1, c2) and move it on each arrival
     const srcBadges = new Map(); // src -> { g, rect, text }
@@ -288,7 +288,7 @@
     const latestTimeEl = document.getElementById('latestTime');
 
     // Initialize speed UI
-    speed = parseFloat(speedSlider.value || '0.30');
+    speed = parseFloat(speedSlider.value || '1.0');
     speedVal.textContent = speed.toFixed(2) + '×';
 
     playPauseBtn.addEventListener('click', () => {
@@ -304,11 +304,11 @@
     });
 
     restartBtn.addEventListener('click', () => {
-        resetSimulation(true);
+        resetSimulation();
     });
 
     speedSlider.addEventListener('input', () => {
-        speed = parseFloat(speedSlider.value || '1');
+        speed = parseFloat(speedSlider.value || '1.0');
         speedVal.textContent = speed.toFixed(2) + '×';
     });
 
@@ -711,7 +711,7 @@
         updateDeepestHighlightOnArrival(hash);
     }
 
-    function resetSimulation(hard = false) {
+    function resetSimulation() {
         // Clear any existing badges
         Array.from(svg.querySelectorAll('.srcBadge')).forEach(n => n.remove());
         srcBadges.clear();
@@ -736,12 +736,6 @@
         playPauseBtn.textContent = 'Pause';
         latestTimeEl.textContent = 'Latest arrival: 0.000s';
         if (!rafId) startLoop();
-    }
-
-    function currentSimTimeSec() {
-        const now = performance.now();
-        const base = running ? simStart : (simStart + (pausedAt ? pausedAt - simStart : 0));
-        return ((now - simStart) / 1000) * speed;
     }
 
     function startLoop() {
@@ -775,7 +769,7 @@
 
     function startVisualization(treeData, messagesData) {
         messages = messagesData; // ensure global
-        resetSimulation(true);
+        resetSimulation();
     }
 </script>
 </body>
