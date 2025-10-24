@@ -366,13 +366,12 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             })
     }
 
-    fn set_best_chain(&self, header: &H) -> Result<(), StoreError> {
-        let slot = header.slot().to_be_bytes();
-        println!("storing best chain header {:?} at slot {:?}", header, slot);
+    fn set_best_chain(&self, point: &Point) -> Result<(), StoreError> {
+        let slot = u64::from(point.slot_or_default()).to_be_bytes();
         self.db
             .put(
                 [&CHAIN_PREFIX[..], &slot[..]].concat(),
-                header.hash().as_ref(),
+                point.hash().as_ref(),
             )
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),

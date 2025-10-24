@@ -71,7 +71,7 @@ impl StoreChain {
         header: &BlockHeader,
     ) -> Result<(), ConsensusError> {
         store
-            .set_best_chain(header)
+            .set_best_chain(&header.point())
             .map_err(|e| ConsensusError::SetBestChainHashFailed(header.hash(), e))
     }
 }

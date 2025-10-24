@@ -166,7 +166,8 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
         Ok(())
     }
 
-    fn set_best_chain(&self, hash: &H) -> Result<(), StoreError> {
+
+    fn set_best_chain(&self, point: &Point) -> Result<(), StoreError> {
         todo!()
     }
 }

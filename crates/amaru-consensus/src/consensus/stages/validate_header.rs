@@ -306,7 +306,7 @@ mod tests {
             self.store.put_nonces(hash, nonces)
         }
 
-        fn set_best_chain(&self, hash: &BlockHeader) -> Result<(), StoreError> {
+        fn set_best_chain(&self, point: &Point) -> Result<(), StoreError> {
             todo!()
         }
     }

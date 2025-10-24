@@ -150,8 +150,8 @@ where
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError>;
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError>;
 
-    /// Set the best chain tip to the given header.
-    fn set_best_chain(&self, hash: &H) -> Result<(), StoreError>;
+    /// Set the best chain tip to the given point.
+    fn set_best_chain(&self, point: &Point) -> Result<(), StoreError>;
 }
 
 #[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
