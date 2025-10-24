@@ -118,7 +118,7 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
         inner.best_chain
     }
 
-    fn load_from_best_chain(&self, point: &Point) -> Option<H> {
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
         None
     }
 }
@@ -172,5 +172,9 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
         inner.anchor = *anchor;
         inner.best_chain = *tip;
         Ok(())
+    }
+
+    fn set_best_chain(&self, hash: &H) -> Result<(), StoreError> {
+        todo!()
     }
 }
