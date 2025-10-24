@@ -216,7 +216,12 @@ macro_rules! impl_ReadOnlyChainStore {
                     .flatten()
                     .and_then(|bytes| {
                         if bytes.len() == HEADER_HASH_SIZE {
-                            Some(Hash::from(bytes.as_ref()))
+                            let hash = Hash::from(bytes.as_ref());
+                            if *hash == *point.hash() {
+                                Some(hash)
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }

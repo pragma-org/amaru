@@ -93,11 +93,11 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
     }
 
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
-        todo!()
+        self.external_sync(RollForwardChainEffect::new(point.clone()))
     }
 
     fn roll_back_chain(&self, point: &Point) -> Result<usize, StoreError> {
-        todo!()
+        self.external_sync(RollBackChainEffect::new(point.clone()))
     }
 }
 
@@ -438,4 +438,60 @@ impl ExternalEffect for GetNoncesEffect {
 
 impl ExternalEffectAPI for GetNoncesEffect {
     type Response = Option<Nonces>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct RollForwardChainEffect {
+    point: Point,
+}
+
+impl RollForwardChainEffect {
+    pub fn new(point: Point) -> Self {
+        Self { point }
+    }
+}
+
+impl ExternalEffect for RollForwardChainEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("RollForwardChainEffect requires a chain store")
+                .clone();
+            store.roll_forward_chain(&self.point)
+        })
+    }
+}
+
+impl ExternalEffectAPI for RollForwardChainEffect {
+    type Response = Result<(), StoreError>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct RollBackChainEffect {
+    point: Point,
+}
+
+impl RollBackChainEffect {
+    pub fn new(point: Point) -> Self {
+        Self { point }
+    }
+}
+
+impl ExternalEffect for RollBackChainEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("RollBackChainEffect requires a chain store")
+                .clone();
+            store.roll_back_chain(&self.point)
+        })
+    }
+}
+
+impl ExternalEffectAPI for RollBackChainEffect {
+    type Response = Result<usize, StoreError>;
 }

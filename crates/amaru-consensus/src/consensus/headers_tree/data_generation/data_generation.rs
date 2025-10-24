@@ -171,7 +171,13 @@ pub fn generate_headers_chain(length: usize) -> Vec<BlockHeader> {
 /// them to the previous header, starting from `root`.
 pub fn generate_headers_chain_from(length: usize, root: &BlockHeader) -> Vec<BlockHeader> {
     let mut rng = StdRng::seed_from_u64(42);
-    generate_headers(length, 1, 1, Some(root.hash()), &mut rng)
+    generate_headers(
+        length,
+        root.block_height() + 1,
+        root.slot() + 1,
+        Some(root.hash()),
+        &mut rng,
+    )
 }
 
 /// Generate just one header

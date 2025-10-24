@@ -18,7 +18,7 @@ use amaru_consensus::consensus::{
     stages::{
         fetch_block, forward_chain, receive_header,
         select_chain::{self, SelectChain},
-        store_chain,
+        store_chain::{self, StoreChain},
         track_peers::{self, SyncTracker},
         validate_block, validate_header,
     },
@@ -80,6 +80,7 @@ pub fn build_stage_graph(
     let validation_errors_stage = network.wire_up(validation_errors_stage, ());
     let processing_errors_stage = network.wire_up(processing_errors_stage, ());
 
+    let store_chain = StoreChain::new(&our_tip);
     let forward_chain_stage = network.wire_up(
         forward_chain_stage,
         (
@@ -88,9 +89,11 @@ pub fn build_stage_graph(
             processing_errors_stage.clone().without_state(),
         ),
     );
+
     let store_chain_stage = network.wire_up(
         store_chain_stage,
         (
+            store_chain,
             forward_chain_stage.without_state(),
             processing_errors_stage.clone().without_state(),
         ),
