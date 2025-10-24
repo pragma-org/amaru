@@ -18,7 +18,7 @@ use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed};
 use crate::consensus::span::HasSpan;
 use amaru_kernel::consensus_events::BlockValidationResult;
-use amaru_kernel::{BlockHeader, IsHeader};
+use amaru_kernel::{BlockHeader, IsHeader, Point};
 use amaru_ouroboros::{ChainStore, StoreError};
 use pure_stage::StageRef;
 use tracing::{Level, span};
@@ -71,8 +71,18 @@ impl StoreChain {
         header: &BlockHeader,
     ) -> Result<(), ConsensusError> {
         store
-            .set_best_chain(&header.point())
+            .roll_forward_chain(&header.point())
             .map_err(|e| ConsensusError::SetBestChainHashFailed(header.hash(), e))
+    }
+
+    pub async fn rollback(
+        &self,
+        store: Arc<dyn ChainStore<BlockHeader>>,
+        point: &Point,
+    ) -> Result<usize, ConsensusError> {
+        store
+            .roll_back_chain(point)
+            .map_err(|e| ConsensusError::SetBestChainHashFailed(point.hash(), e))
     }
 }
 
@@ -80,29 +90,56 @@ impl StoreChain {
 mod tests {
     use std::sync::Arc;
 
-    use amaru_kernel::{BlockHeader, IsHeader, peer::Peer};
+    use amaru_kernel::{
+        BlockHeader, IsHeader, consensus_events::BlockValidationResult, peer::Peer,
+    };
     use amaru_ouroboros::ChainStore;
     use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 
     use crate::consensus::{
-        headers_tree::data_generation::generate_headers_chain, stages::store_chain::StoreChain,
+        headers_tree::data_generation::{generate_headers_chain, generate_headers_chain_from},
+        stages::store_chain::StoreChain,
     };
 
     #[tokio::test]
-    async fn update_best_chain_to_block_slot_given_new_block_is_valid() {
+    async fn update_best_chain_to_block_slot_given_new_block_is_valid() -> anyhow::Result<()> {
         let chain = generate_headers_chain(10);
         let store = create_db();
         let store_chain = StoreChain::new(&chain[0]);
 
         for i in 1..10 {
             let header = &chain[i];
-            store_chain.forward_block(store.clone(), header).await;
+            store_chain.forward_block(store.clone(), header).await?;
         }
 
         assert_eq!(
             store.load_from_best_chain(&chain[9].point()),
             Some(chain[9].hash())
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_best_chain_to_rollback_point() -> anyhow::Result<()> {
+        let chain = generate_headers_chain(10);
+        let store = create_db();
+        let store_chain = StoreChain::new(&chain[0]);
+
+        for i in 1..10 {
+            let header = &chain[i];
+            store_chain.forward_block(store.clone(), header).await?;
+        }
+
+        store_chain
+            .rollback(store.clone(), &chain[5].point())
+            .await?;
+
+        assert_eq!(store.load_from_best_chain(&chain[9].point()), None);
+        assert_eq!(
+            store.load_from_best_chain(&chain[5].point()),
+            Some(chain[5].hash())
+        );
+        Ok(())
     }
 
     fn create_db() -> Arc<dyn ChainStore<BlockHeader>> {
