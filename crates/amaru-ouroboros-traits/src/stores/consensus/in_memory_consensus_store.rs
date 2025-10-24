@@ -161,12 +161,4 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
         inner.best_chain = *hash;
         Ok(())
     }
-
-    #[expect(clippy::unwrap_used)]
-    fn update_best_chain(&self, anchor: &HeaderHash, tip: &HeaderHash) -> Result<(), StoreError> {
-        let mut inner = self.inner.lock().unwrap();
-        inner.anchor = *anchor;
-        inner.best_chain = *tip;
-        Ok(())
-    }
 }

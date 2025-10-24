@@ -289,14 +289,6 @@ mod tests {
             self.store.set_best_chain_hash(hash)
         }
 
-        fn update_best_chain(
-            &self,
-            anchor: &HeaderHash,
-            tip: &HeaderHash,
-        ) -> Result<(), StoreError> {
-            self.store.update_best_chain(anchor, tip)
-        }
-
         fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
             self.store.store_header(header)
         }

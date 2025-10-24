@@ -315,7 +315,7 @@ The actions are
 /// Generate statistics from actions and log them.
 fn display_entries_statistics(generated_actions: &GeneratedActions) {
     let statistics = generated_actions.statistics();
-    for statistic in statistics.lines() {
+    for statistic in statistics.display_as_lines() {
         info!("{}", statistic);
     }
 }

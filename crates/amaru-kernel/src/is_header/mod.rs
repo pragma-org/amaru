@@ -64,6 +64,20 @@ pub struct BlockHeader {
     hash: HeaderHash,
 }
 
+impl Display for BlockHeader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(&format!(
+            "{}. {}{}",
+            self.slot(),
+            self.hash(),
+            self.parent_hash()
+                .map(|p| format!(" ({p})"))
+                .unwrap_or_default()
+        ))?;
+        Ok(())
+    }
+}
+
 impl Serialize for BlockHeader {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -108,12 +122,6 @@ impl Ord for BlockHeader {
 impl core::hash::Hash for BlockHeader {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.hash.hash(state);
-    }
-}
-
-impl Display for BlockHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
     }
 }
 

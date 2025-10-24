@@ -40,7 +40,7 @@ pub fn any_headers_tree(depth: usize) -> impl Strategy<Value = Tree<BlockHeader>
 
 /// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
 pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value = GeneratedTree> {
-    (0..u64::MAX).prop_map(move |seed| generate_tree_of_headers(depth, seed))
+    (0..u64::MAX).prop_map(move |seed| generate_tree_of_headers(seed, depth))
 }
 
 /// A generated tree of `BlockHeader`s.
@@ -76,11 +76,15 @@ impl GeneratedTree {
     pub fn leaves(&self) -> Vec<BlockHeader> {
         self.tree.leaves()
     }
+
+    pub fn as_json(&self) -> serde_json::Value {
+        self.tree.as_json()
+    }
 }
 
 /// Generate a tree of headers of a given depth.
 /// A seed is used to control the random generation of subtrees on top of a spine of length `depth`.
-pub fn generate_tree_of_headers(depth: usize, seed: u64) -> GeneratedTree {
+pub fn generate_tree_of_headers(seed: u64, depth: usize) -> GeneratedTree {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let root = generate_header(1, 1, None, &mut rng);
@@ -94,8 +98,8 @@ pub fn generate_tree_of_headers(depth: usize, seed: u64) -> GeneratedTree {
 }
 
 /// Return only the generated tree of headers of a given depth.
-pub fn generate_headers_tree(depth: usize, seed: u64) -> Tree<BlockHeader> {
-    generate_tree_of_headers(depth, seed).tree
+pub fn generate_headers_tree(seed: u64, depth: usize) -> Tree<BlockHeader> {
+    generate_tree_of_headers(seed, depth).tree
 }
 
 /// Given a random generator and a tree:
@@ -107,17 +111,20 @@ pub fn generate_headers_tree(depth: usize, seed: u64) -> Tree<BlockHeader> {
 /// We currently generate branches at every 1/3rd level of the spine and
 /// randomly generate an additional branch at the same forking point
 ///
+/// Slots are assigned to headers according to their depth so that 2 different forks would produce
+/// headers at the same slot.
+///
 fn generate_header_subtree(
     rng: &mut StdRng,
     tree: &mut Tree<BlockHeader>,
     total_depth: usize,
-    current_depth: usize,
+    current_branch_expected_depth: usize,
 ) -> Chain {
     let header_body = tree.value.header_body().clone();
     let mut spine = generate_headers(
-        current_depth,
+        current_branch_expected_depth,
         header_body.block_number,
-        header_body.slot,
+        tree.value.slot(),
         Some(tree.value.hash()),
         rng,
     );
@@ -136,9 +143,13 @@ fn generate_header_subtree(
             false
         };
         if must_branch {
-            generate_header_subtree(rng, current, total_depth, current_depth - current_size);
+            let min_subtree_size = (current_branch_expected_depth - current_size) / 2;
+            let max_subtree_size = current_branch_expected_depth - current_size;
+            let subtree_size = rng.random_range(min_subtree_size..=max_subtree_size);
+            generate_header_subtree(rng, current, total_depth, subtree_size);
             if rng.random_bool(0.2) {
-                generate_header_subtree(rng, current, total_depth, current_depth - current_size);
+                let subtree_size = rng.random_range(min_subtree_size..=max_subtree_size);
+                generate_header_subtree(rng, current, total_depth, subtree_size);
             }
         }
     }
@@ -260,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_generate_headers_tree() {
-        let tree = generate_tree_of_headers(5, 42).tree;
+        let tree = generate_tree_of_headers(42, 5).tree;
         assert_eq!(tree.depth(), 5);
         check_nodes(&tree);
     }

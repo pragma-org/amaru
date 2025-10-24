@@ -14,8 +14,8 @@
 
 use crate::echo::{EchoMessage, Envelope};
 use crate::simulator::{
-    Entry, History, NodeHandle, generate_arrival_times, generate_u8, generate_vec,
-    generate_zip_with,
+    Entry, GeneratedEntries, History, NodeHandle, generate_arrival_times, generate_u8,
+    generate_vec, generate_zip_with,
 };
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::{Instant, StageGraph, StageRef};
@@ -69,7 +69,7 @@ pub fn spawn_echo_node(_node_id: String) -> NodeHandle<EchoMessage> {
 }
 
 /// Generate some input echo messages at different arrival times.
-pub fn echo_generator(rng: &mut StdRng) -> (Vec<Entry<EchoMessage>>, ()) {
+pub fn echo_generator(rng: &mut StdRng) -> GeneratedEntries<EchoMessage, ()> {
     let now = Instant::at_offset(Duration::from_secs(0));
     let size = 20;
     let entries = generate_zip_with(
@@ -88,7 +88,8 @@ pub fn echo_generator(rng: &mut StdRng) -> (Vec<Entry<EchoMessage>>, ()) {
             },
         },
     )(rng);
-    (entries, ())
+
+    GeneratedEntries::new(entries, ())
 }
 
 /// Check that for every echo response from the node, there is a matching echo request that was sent to the node.

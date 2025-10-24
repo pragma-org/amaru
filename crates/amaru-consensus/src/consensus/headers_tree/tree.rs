@@ -160,12 +160,12 @@ impl<H> Tree<H> {
     where
         H: Clone,
     {
-        let mut result = vec![];
+        let mut result = Vec::new();
+        if self.children.len() > 1 {
+            result.push(self.value.clone());
+        }
         for child in &self.children {
-            if child.children.len() > 1 {
-                result.push(child.value.clone());
-            }
-            result.extend(child.fork_nodes())
+            result.extend(child.fork_nodes());
         }
         result
     }
@@ -248,6 +248,14 @@ impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
             child.to_map_recursive(map);
         }
     }
+
+    pub fn as_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "slot": self.value.slot().to_string(),
+            "hash": self.value.hash().to_string().chars().take(6).collect::<String>(),
+            "children": self.children.iter().map(|child| { child.as_json() }).collect::<Vec<serde_json::Value>>()
+        })
+    }
 }
 
 #[cfg(test)]
@@ -287,16 +295,16 @@ mod tests {
 
     #[test]
     fn test_pretty_print() {
-        let tree = generate_headers_tree(4, 42);
+        let tree = generate_headers_tree(45, 4);
         let expected = r#"
-BlockHeader { hash: "ede0bf92248771ce3f7295de922779309a9835eea7a82d883b371bbbfef19585", slot: 1, parent: None }
-    └── BlockHeader { hash: "20fe63078d93756d7eb18a559924988caaec5dd8ac4db4ef152dd60c98a0555e", slot: 2, parent: Some("ede0bf92248771ce3f7295de922779309a9835eea7a82d883b371bbbfef19585") }
-        ├── BlockHeader { hash: "48b20250f4748664ab000d358f45e79b433e9636a74f25cc537644c8fc1e913b", slot: 3, parent: Some("20fe63078d93756d7eb18a559924988caaec5dd8ac4db4ef152dd60c98a0555e") }
-        │   ├── BlockHeader { hash: "279d65710f6de344f8a47d4825d9250d7d7668a1f235c307377ce2c29b2e0674", slot: 4, parent: Some("48b20250f4748664ab000d358f45e79b433e9636a74f25cc537644c8fc1e913b") }
-        │   └── BlockHeader { hash: "817f2c3bdb88f599bbf8db744ca0068ea237802d0111ffd4ba73e34c96bf289b", slot: 4, parent: Some("48b20250f4748664ab000d358f45e79b433e9636a74f25cc537644c8fc1e913b") }
-        └── BlockHeader { hash: "7ce670b4aa39be3850a5d5a6c81b05f11f847d52b09f1176c9cb337049f4cac7", slot: 3, parent: Some("20fe63078d93756d7eb18a559924988caaec5dd8ac4db4ef152dd60c98a0555e") }
-            ├── BlockHeader { hash: "5a3f1c5dfcdd26a0715100b7b2460e48b4cab2530b44a9d11c1313b5befb43e5", slot: 4, parent: Some("7ce670b4aa39be3850a5d5a6c81b05f11f847d52b09f1176c9cb337049f4cac7") }
-            └── BlockHeader { hash: "6dca7547629ab45ae3e46160c6ea00b0d537bb27b0232a8030ec8ee122c56550", slot: 4, parent: Some("7ce670b4aa39be3850a5d5a6c81b05f11f847d52b09f1176c9cb337049f4cac7") }
+BlockHeader { hash: "61dabcd4169f7697aa96ff529765e685ed37b5ed315add9553b8458ec436bb21", slot: 1, parent: None }
+    └── BlockHeader { hash: "876e3bb62e1283922628f34a94e7b14713f5c8587de94f54ff041febac92413b", slot: 2, parent: Some("61dabcd4169f7697aa96ff529765e685ed37b5ed315add9553b8458ec436bb21") }
+        ├── BlockHeader { hash: "14fdd72ba5600579cf236ed4dc448260f210279b490602e3a9dbc3df2757139e", slot: 3, parent: Some("876e3bb62e1283922628f34a94e7b14713f5c8587de94f54ff041febac92413b") }
+        │   ├── BlockHeader { hash: "0db885f875eb1fc8869da502f4793e2bd5164fac754e5f93baaea070fbcdb810", slot: 4, parent: Some("14fdd72ba5600579cf236ed4dc448260f210279b490602e3a9dbc3df2757139e") }
+        │   └── BlockHeader { hash: "6f811c62bec2c9fe9700e5ffe12806b7254666ba897db37452932302e52f8c2f", slot: 4, parent: Some("14fdd72ba5600579cf236ed4dc448260f210279b490602e3a9dbc3df2757139e") }
+        └── BlockHeader { hash: "cbcea3db30be8975def2a54d38225a3165a321377b47274e5c76d6be28ddcdf9", slot: 3, parent: Some("876e3bb62e1283922628f34a94e7b14713f5c8587de94f54ff041febac92413b") }
+            ├── BlockHeader { hash: "72017dc26ed491361e0b056204cefb22250d5ee44a5efafc8e170b025199455e", slot: 4, parent: Some("cbcea3db30be8975def2a54d38225a3165a321377b47274e5c76d6be28ddcdf9") }
+            └── BlockHeader { hash: "bafdb5aac32cb7faf2b6f5e4819be86895fb63cc802ec076ee71c48c79721c73", slot: 4, parent: Some("cbcea3db30be8975def2a54d38225a3165a321377b47274e5c76d6be28ddcdf9") }
 "#;
         assert_eq!(
             format!("\n{tree:?}"),
@@ -304,6 +312,34 @@ BlockHeader { hash: "ede0bf92248771ce3f7295de922779309a9835eea7a82d883b371bbbfef
             "\n{}{}",
             &tree.pretty_print_debug(),
             expected
+        );
+    }
+
+    #[test]
+    fn test_fork_nodes() {
+        // 0
+        // ├── 1
+        // │   └── 3
+        // │       ├── 4
+        // │       └── 5
+        // └── 2
+
+        let mut root = Tree::make_leaf(&"0".to_string());
+        let mut leaf1 = Tree::make_leaf(&"1".to_string());
+        let leaf2 = Tree::make_leaf(&"2".to_string());
+        let mut leaf3 = Tree::make_leaf(&"3".to_string());
+        let leaf4 = Tree::make_leaf(&"4".to_string());
+        let leaf5 = Tree::make_leaf(&"5".to_string());
+        leaf3.children = vec![leaf4, leaf5];
+        leaf1.children = vec![leaf3];
+        root.children = vec![leaf1, leaf2];
+
+        // 1 is not a fork because it has only one child
+        assert_eq!(
+            root.fork_nodes(),
+            vec!["0".to_string(), "3".to_string()],
+            "{}",
+            root.pretty_print()
         );
     }
 }

@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Amaru simulation</title>
+    <style>
+        :root {
+            --bg: #ffffff; /* white background */
+            --panel: #f3f6fb; /* light control bar */
+            --ink: #1b1f23; /* dark text */
+            --muted: #6b7280; /* subtle gray */
+            --accent: #2563eb; /* blue accent */
+            --fwd: #22c55e; /* green forward messages */
+            --bck: #ef4444; /* red backward messages */
+            --link: #94a3b8; /* light gray for tree links */
+            --node: #f8fafc; /* very light fill for nodes */
+            --node-stroke: #2563eb; /* blue outline */
+            --src1: #a855f7;
+            --src2: #ec4899;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden; /* prevent page scroll; canvas will scroll */
+        }
+
+        header {
+            padding: 12px 16px;
+            background: var(--panel);
+            border-bottom: 1px solid #d1d5db;
+            display: grid;
+            grid-template-columns: auto auto auto 1fr;
+            gap: 12px;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 16px;
+            margin: 0;
+            font-weight: 600;
+            color: var(--ink);
+        }
+
+        .controls {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+            background: #f8fafc;
+            padding: 8px 10px;
+            border-radius: 10px;
+            border: 1px solid #d1d5db;
+            height: 48px;
+            box-sizing: border-box;
+        }
+
+        .controls button {
+            padding: 6px 10px;
+            background: white;
+            color: var(--ink);
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .controls button:hover {
+            background: #e0e7ff;
+        }
+
+        .controls label {
+            font-size: 12px;
+            color: var(--muted);
+            margin-right: 6px;
+        }
+
+        .controls input[type="range"] {
+            width: 160px;
+        }
+
+        #latestTime {
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            padding: 8px 10px;
+            background: #f8fafc;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            color: var(--accent);
+            height: 22px;
+        }
+
+        #latestTime {
+            justify-self: end;
+        }
+
+        #canvasWrap {
+            flex: 1 1 auto;
+            min-height: 0; /* required for scroll inside flex item */
+            position: relative;
+            background: white;
+            overflow: auto;
+            overscroll-behavior: contain;
+        }
+
+        svg {
+            /* Let the SVG use its intrinsic width/height so #canvasWrap can scroll */
+            display: block;
+            background: white;
+            max-width: none;
+            max-height: none;
+        }
+
+        .link {
+            stroke: var(--link);
+            stroke-width: 2;
+            fill: none;
+        }
+
+        .node {
+            fill: var(--node);
+            stroke: var(--node-stroke);
+            stroke-width: 2;
+        }
+
+        .node--highlight {
+            stroke: #10b981; /* emerald */
+            stroke-width: 4;
+            filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.6));
+        }
+
+        .node text {
+            fill: var(--muted);
+            font-size: 11px;
+            pointer-events: none;
+        }
+
+        .node .hash {
+            font-weight: 600;
+            fill: var(--ink);
+            font-size: 12px;
+        }
+
+        .slot {
+            fill: var(--ink);
+            font-size: 12px;
+            font-weight: 700;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            pointer-events: none;
+        }
+
+        .source {
+            fill: white;
+            stroke: #cbd5e1;
+            stroke-width: 2;
+            rx: 10;
+            ry: 10;
+        }
+
+        .msg {
+            r: 6;
+        }
+
+        .msg.fwd {
+            fill: var(--fwd);
+        }
+
+        .msg.bck {
+            fill: var(--bck);
+        }
+
+        .msgLabel {
+            fill: #f9fafb;
+            stroke: #cbd5e1;
+            stroke-width: 1;
+            rx: 6;
+            ry: 6;
+            opacity: 0.95;
+        }
+
+        .msgText {
+            fill: var(--ink);
+            font-size: 11px;
+            pointer-events: none;
+        }
+
+        .srcBadge {
+            pointer-events: none;
+        }
+
+        .srcBadge rect {
+            fill: #ffffff;
+            stroke: #cbd5e1;
+            stroke-width: 1;
+            rx: 6;
+            ry: 6;
+            opacity: 0.95;
+        }
+
+        .srcBadge text {
+            font-size: 12px;
+            font-weight: 600;
+            fill: var(--ink);
+        }
+    </style>
+</head>
+<body>
+<header>
+
+    <div class="controls">
+        <button id="loadDataBtn">Load Data</button>
+        <input type="file" id="dataFile" accept=".json" hidden>
+        <button id="playPause">Pause</button>
+        <button id="restart">Restart</button>
+    </div>
+
+    <div class="controls">
+        <button id="zoomOut">−</button>
+        <button id="zoomIn">+</button>
+        <button id="zoomFit">Fit</button>
+    </div>
+
+    <div class="controls">
+        <label for="speed">Speed</label>
+        <input id="speed" type="range" min="0.05" max="2.0" step="0.05" value="1.0"/>
+        <span id="speedVal">1.0×</span>
+    </div>
+
+    <div id="latestTime">Latest arrival: 0.000s</div>
+</header>
+
+<div id="canvasWrap">
+    <svg id="svg"></svg>
+</div>
+
+<script>
+    let tree = null, messages = null;
+    let animInstance = null;
+
+    let sceneWidth = 1000;
+    let sceneHeight = 600;
+    let zoomScale = 1; // 1 = 100%
+    let gScene = null;           // <g> containing all drawn content
+    let contentBounds = {x: 0, y: 0, width: 0, height: 0};
+
+    let nodeByHash = new Map(); // hash -> { x, y, slot, gEl, circleEl }
+    let rafId = null;
+    let running = false;
+    let simStart = 0;      // performance.now() baseline
+    let pausedAt = 0;
+    let speed = 1.0;      // default from slider
+    let schedule = [];     // [{arrival: Number(sec), src: 'c1'|'c2', hash: string, shown: boolean}]
+    // Keep one live badge per src (e.g., c1, c2) and move it on each arrival
+    const srcBadges = new Map(); // src -> { g, rect, text }
+    const srcAtNode = new Map();     // src -> node hash where it currently sits
+    const nodeStacks = new Map();    // node hash -> array of { src, arrival } objects
+    const STACK_GAP = 6;             // px gap between stacked labels
+    const reachedNodes = new Set(); // set of node hashes reached by any src
+    let currentDeepestSlot = -Infinity;
+    let currentDeepestHash = null;
+
+    const loadDataBtn = document.getElementById('loadDataBtn');
+    const dataFile = document.getElementById('dataFile');
+    const svg = document.getElementById('svg');
+    const canvas = document.getElementById('canvasWrap');
+    // Ensure the empty canvas matches the current screen size initially
+    (function initCanvasSize() {
+        const cw = Math.max(1, canvas.clientWidth);
+        const ch = Math.max(1, canvas.clientHeight);
+        svg.setAttribute('width', cw);
+        svg.setAttribute('height', ch);
+        svg.setAttribute('viewBox', `0 0 ${cw} ${ch}`);
+    })();
+
+    const playPauseBtn = document.getElementById('playPause');
+    const restartBtn = document.getElementById('restart');
+    const speedSlider = document.getElementById('speed');
+    const speedVal = document.getElementById('speedVal');
+    const latestTimeEl = document.getElementById('latestTime');
+
+    // Initialize speed UI
+    speed = parseFloat(speedSlider.value || '1.0');
+    speedVal.textContent = speed.toFixed(2) + '×';
+
+    playPauseBtn.addEventListener('click', () => {
+        if (!running) {
+            startLoop();
+            return;
+        }
+        running = false;
+        pausedAt = performance.now();
+        playPauseBtn.textContent = 'Play';
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = null;
+    });
+
+    restartBtn.addEventListener('click', () => {
+        resetSimulation();
+    });
+
+    speedSlider.addEventListener('input', () => {
+        speed = parseFloat(speedSlider.value || '1.0');
+        speedVal.textContent = speed.toFixed(2) + '×';
+    });
+
+    loadDataBtn.onclick = () => dataFile.click();
+
+    // Keyboard shortcuts to load data
+    //  - Press "L" (or "l")
+    //  - Or Cmd/Ctrl + Shift + D
+    window.addEventListener('keydown', (e) => {
+        // Ignore when focused on an input/textarea to avoid interfering with typing
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+        if (tag === 'input' || tag === 'textarea') return;
+
+        const key = (e.key || '').toLowerCase();
+        const combo = (e.shiftKey && (e.ctrlKey || e.metaKey) && key === 'd');
+        if (key === 'l' || combo) {
+            e.preventDefault();
+            dataFile.click();
+        }
+
+        if (key === 'f') {
+            e.preventDefault();
+            zoomFit();
+        }
+    });
+
+    dataFile.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                const payload = JSON.parse(reader.result);
+                if (!payload || typeof payload !== 'object') throw new Error('Invalid JSON root.');
+                if (!payload.tree || !payload.messages) throw new Error('Missing "tree" or "messages" fields.');
+                tree = payload.tree;
+                messages = payload.messages;
+                // Stop any existing animation loop and prepare to restart
+                if (rafId) {
+                    cancelAnimationFrame(rafId);
+                    rafId = null;
+                }
+                running = false;
+                playPauseBtn.textContent = 'Pause';
+                // draw tree immediately and start simulation
+                drawTree(tree);
+                zoomFit();          // fill the canvas
+                startVisualization(tree, messages);
+                // Allow reloading the same file again (reset the file input)
+                dataFile.value = '';
+            } catch (err) {
+                alert('Failed to load data.json: ' + (err && err.message ? err.message : String(err)));
+            }
+        };
+        reader.readAsText(file);
+    });
+
+    function clearSvg() {
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        // Size the SVG to the current visible canvas only (no window fallback)
+        const cw = Math.max(1, canvas.clientWidth);
+        const ch = Math.max(1, canvas.clientHeight);
+        svg.setAttribute('width', cw);
+        svg.setAttribute('height', ch);
+        svg.setAttribute('viewBox', `0 0 ${cw} ${ch}`);
+    }
+
+    // Draw only the tree (no animation yet)
+    function drawTree(tree) {
+        clearSvg();
+        // Fresh node index for a new dataset
+        nodeByHash.clear();
+
+        const svgns = "http://www.w3.org/2000/svg";
+        const margin = {top: 40, right: 40, bottom: 40, left: 140};
+        const xGap = 140, yGap = 80;
+        const levelX = (slot) => margin.left + (Number(slot) - 1) * xGap;
+
+        gScene = document.createElementNS(svgns, 'g');
+        gScene.setAttribute('id', 'scene');
+        svg.appendChild(gScene);
+
+        const nodes = [], links = [];
+
+        function traverse(node, yRef = {i: 0}, parent = null) {
+            const x = levelX(node.slot);
+            const y = margin.top + yRef.i * yGap;
+            yRef.i++;
+            const flat = {slot: node.slot, hash: node.hash, x, y, parent: parent?.hash || null};
+            nodes.push(flat);
+            if (parent) links.push({source: parent, target: flat});
+            (node.children || []).forEach(c => traverse(c, yRef, flat));
+        }
+
+        traverse(tree);
+
+        // Compute bounds
+        const minX = Math.min(...nodes.map(n => n.x));
+        const maxX = Math.max(...nodes.map(n => n.x));
+        const minY = Math.min(...nodes.map(n => n.y));
+        const maxY = Math.max(...nodes.map(n => n.y));
+        const pad = 80;
+        sceneWidth = Math.max(600, (maxX - minX) + pad * 2);
+        sceneHeight = Math.max(400, (maxY - minY) + pad * 2);
+
+        // Shift all coordinates so content starts within padding
+        const dx = pad - minX;
+        const dy = pad - minY;
+
+        // Draw links
+        links.forEach(l => {
+            const line = document.createElementNS(svgns, 'line');
+            line.setAttribute('x1', l.source.x + dx);
+            line.setAttribute('y1', l.source.y + dy);
+            line.setAttribute('x2', l.target.x + dx);
+            line.setAttribute('y2', l.target.y + dy);
+            line.setAttribute('class', 'link');
+            gScene.appendChild(line);
+        });
+
+        // Draw nodes
+        nodes.forEach(n => {
+            const g = document.createElementNS(svgns, 'g');
+            g.setAttribute('transform', `translate(${n.x + dx},${n.y + dy})`);
+            const circle = document.createElementNS(svgns, 'circle');
+            circle.setAttribute('r', 18);
+            circle.setAttribute('class', 'node');
+            g.appendChild(circle);
+            // Slot number centered inside the node
+            const slotText = document.createElementNS(svgns, 'text');
+            slotText.setAttribute('class', 'slot');
+            slotText.setAttribute('x', 0);
+            slotText.setAttribute('y', 0);
+            slotText.setAttribute('text-anchor', 'middle');
+            slotText.setAttribute('dominant-baseline', 'middle');
+            slotText.textContent = String(n.slot);
+            g.appendChild(slotText);
+            const label = document.createElementNS(svgns, 'text');
+            label.setAttribute('y', -24);
+            label.setAttribute('class', 'hash');
+            label.setAttribute('text-anchor', 'middle');
+            label.textContent = n.hash;
+            g.appendChild(label);
+            gScene.appendChild(g);
+            nodeByHash.set(n.hash, {x: n.x + dx, y: n.y + dy, slot: Number(n.slot), gEl: g, circleEl: circle});
+        });
+
+        // Compute precise content bounds from the rendered group
+        const bbox = gScene.getBBox();
+        const padVB = 40; // small padding in viewBox space
+
+        // Total scene size including padding
+        sceneWidth = Math.max(1, Math.ceil(bbox.width + padVB * 2));
+        sceneHeight = Math.max(1, Math.ceil(bbox.height + padVB * 2));
+
+        // Shift the overall scene origin so content starts at padVB
+        // (we already applied dx/dy so bbox.x/y is around pad; normalize content bounds to [0,0])
+        contentBounds = {x: 0, y: 0, width: sceneWidth, height: sceneHeight};
+
+        // Size SVG to content to enable scrolling in #canvasWrap
+        svg.setAttribute('width', sceneWidth);
+        svg.setAttribute('height', sceneHeight);
+        // Start with 1:1 mapping; zoom will adjust viewBox later
+        svg.setAttribute('viewBox', `0 0 ${sceneWidth} ${sceneHeight}`);
+    }
+
+    // --- Zoom controls ---
+    const zoomInBtn = document.getElementById('zoomIn');
+    const zoomOutBtn = document.getElementById('zoomOut');
+    const zoomFitBtn = document.getElementById('zoomFit');
+
+    function applyViewBox() {
+        // Read current viewBox
+        const vb = (svg.getAttribute('viewBox') || '0 0 ' + sceneWidth + ' ' + sceneHeight).split(/\s+/).map(Number);
+        let [vx, vy, vw, vh] = vb.length === 4 ? vb : [0, 0, sceneWidth, sceneHeight];
+
+        // Keep the same center while changing zoom
+        const cx = vx + vw / 2;
+        const cy = vy + vh / 2;
+
+        const newVW = canvas.clientWidth / zoomScale;
+        const newVH = canvas.clientHeight / zoomScale;
+        const newVX = cx - newVW / 2;
+        const newVY = cy - newVH / 2;
+        svg.setAttribute('viewBox', `${newVX} ${newVY} ${newVW} ${newVH}`);
+    }
+
+    function zoomIn() {
+        zoomScale = Math.min(8, zoomScale * 1.2);
+        applyViewBox();
+    }
+
+    function zoomOut() {
+        zoomScale = Math.max(0.125, zoomScale / 1.2);
+        applyViewBox();
+    }
+
+    function zoomFit() {
+        const cw = Math.max(1, canvas.clientWidth);
+        const ch = Math.max(1, canvas.clientHeight);
+
+        const pad = 0; // contentBounds already includes padding
+        const contentW = Math.max(1, contentBounds.width - pad);
+        const contentH = Math.max(1, contentBounds.height - pad);
+
+        const scaleX = cw / contentW;
+        const scaleY = ch / contentH;
+        zoomScale = Math.max(0.125, Math.min(scaleX, scaleY));
+
+        const vw = cw / zoomScale;
+        const vh = ch / zoomScale;
+
+        const cx = contentBounds.x + contentW / 2;
+        const cy = contentBounds.y + contentH / 2;
+        const vx = cx - vw / 2;
+        const vy = cy - vh / 2;
+        // Make the SVG element itself match the canvas so the fit truly fills the viewport
+        svg.setAttribute('width', cw);
+        svg.setAttribute('height', ch);
+        svg.setAttribute('viewBox', `${vx} ${vy} ${vw} ${vh}`);
+    }
+
+    if (zoomInBtn && zoomOutBtn && zoomFitBtn) {
+        zoomInBtn.addEventListener('click', zoomIn);
+        zoomOutBtn.addEventListener('click', zoomOut);
+        zoomFitBtn.addEventListener('click', zoomFit);
+    }
+
+    // Optional: Ctrl + wheel to zoom
+    canvas.addEventListener('wheel', (e) => {
+        if (!e.ctrlKey) return;
+        e.preventDefault();
+        if (e.deltaY < 0) zoomIn(); else zoomOut();
+    }, {passive: false});
+
+    // Only refit on resize
+    window.addEventListener('resize', () => {
+        if (gScene) zoomFit();
+    });
+
+    function parseSeconds(s) {
+        if (typeof s === 'number') return s;
+        if (!s) return 0;
+        const v = parseFloat(String(s).replace(/s$/, '').trim());
+        return isNaN(v) ? 0 : v;
+    }
+
+    function ensureBadgeForSrc(src) {
+        let entry = srcBadges.get(src);
+        if (entry) return entry;
+        const svgns = 'http://www.w3.org/2000/svg';
+        const g = document.createElementNS(svgns, 'g');
+        g.setAttribute('class', 'srcBadge');
+        g.dataset.src = src;
+        const r = document.createElementNS(svgns, 'rect');
+        const tx = document.createElementNS(svgns, 'text');
+        tx.setAttribute('text-anchor', 'middle');
+        tx.textContent = src.toUpperCase();
+        // Apply deterministic per-src colors (inline styles override CSS)
+        const {bg, border, text} = colorForSrc(src);
+        r.style.fill = bg;
+        r.style.stroke = border;
+        tx.style.fill = text;
+        r.style.opacity = '1';
+        g.appendChild(r);
+        g.appendChild(tx);
+        svg.appendChild(g);
+        entry = {g, rect: r, text: tx};
+        srcBadges.set(src, entry);
+        return entry;
+    }
+
+    function measureLabel(labelText) {
+        const svgns = 'http://www.w3.org/2000/svg';
+        const tmp = document.createElementNS(svgns, 'text');
+        tmp.setAttribute('text-anchor', 'middle');
+        tmp.textContent = labelText;
+        svg.appendChild(tmp);
+        const bb = tmp.getBBox();
+        tmp.remove();
+        const padX = 8, padY = 4;
+        return {w: bb.width + padX * 2, h: bb.height + padY * 2};
+    }
+
+    function colorForSrc(src) {
+        // Deterministic rainbow pastel based on src, using golden-ratio hashing for even hue spread
+        let h = 0;
+        for (let i = 0; i < src.length; i++) h = (h * 31 + src.charCodeAt(i)) >>> 0;
+        // Golden angle to distribute hues uniformly on the circle
+        const golden = 137.50776405003785; // degrees
+        const hue = ((h * golden) % 360 + 360) % 360;
+        // Pastel settings
+        const sat = 60;   // % saturation
+        const light = 86; // % lightness
+        const bg = `hsl(${hue.toFixed(2)}, ${sat}%, ${light}%)`;
+        const border = `hsl(${hue.toFixed(2)}, ${Math.max(40, sat - 12)}%, ${Math.max(55, light - 22)}%)`;
+        const text = '#1b1f23'; // dark text for light pastels
+        return {bg, border, text};
+    }
+
+    function repositionNodeBadges(nodeHash) {
+        let list = nodeStacks.get(nodeHash);
+        if (!list || !list.length) return;
+        // Sort by arrival time ascending (earliest first)
+        list = [...list].sort((a, b) => a.arrival - b.arrival);
+        nodeStacks.set(nodeHash, list);
+
+        const pos = nodeByHash.get(nodeHash);
+        if (!pos) return;
+        const baseY = pos.y - 28; // start stacking above the node
+        let currentOffset = 0;
+
+        // Iterate from end to start so the earliest (index 0) is painted last and ends up on TOP
+        for (let idx = list.length - 1; idx >= 0; idx--) {
+            const {src, arrival} = list[idx];
+            // Label now includes the arrival time next to the src, e.g. "C1 1.234s"
+            const labelText = `${src.toUpperCase()} ${arrival.toFixed(3)}s`;
+
+            const {w, h} = measureLabel(labelText);
+            const entry = ensureBadgeForSrc(src);
+            // Re-apply deterministic per-src colors in case not set
+            const {bg, border, text} = colorForSrc(src);
+            entry.rect.style.fill = bg;
+            entry.rect.style.stroke = border;
+            entry.text.style.fill = text;
+            entry.rect.style.opacity = '1';
+            const y = baseY - currentOffset - h;
+            const x = pos.x - w / 2;
+
+            entry.rect.setAttribute('x', x);
+            entry.rect.setAttribute('y', y);
+            entry.rect.setAttribute('width', w);
+            entry.rect.setAttribute('height', h);
+            entry.rect.setAttribute('opacity', 1);
+
+            // Update text content to include arrival time
+            entry.text.textContent = labelText;
+            entry.text.setAttribute('x', pos.x);
+            entry.text.setAttribute('y', y + h / 2 + 4);
+            entry.text.setAttribute('opacity', 1);
+
+            currentOffset += h + STACK_GAP;
+            svg.appendChild(entry.g);
+        }
+    }
+
+    function updateDeepestHighlightOnArrival(hash) {
+        const meta = nodeByHash.get(hash);
+        if (!meta) return;
+
+        // If nothing highlighted yet, highlight the first reached node
+        if (currentDeepestHash == null) {
+            meta.circleEl.classList.add('node--highlight');
+            currentDeepestHash = hash;
+            currentDeepestSlot = meta.slot;
+            return;
+        }
+
+        // Only switch highlight when a strictly greater depth is reached
+        if (meta.slot > currentDeepestSlot) {
+            const prev = nodeByHash.get(currentDeepestHash);
+            if (prev) prev.circleEl.classList.remove('node--highlight');
+            meta.circleEl.classList.add('node--highlight');
+            currentDeepestHash = hash;
+            currentDeepestSlot = meta.slot;
+        }
+        // If meta.slot === currentDeepestSlot or less, do nothing (keep current highlight)
+    }
+
+
+    function showSrcBadge(hash, src, atSeconds) {
+        const pos = nodeByHash.get(hash);
+        if (!pos) return;
+        const labelText = src.toUpperCase();
+        // Ensure the badge exists
+        ensureBadgeForSrc(src);
+
+        // 1) Remove src from previous node stack (if any) and restack that old node
+        const prevHash = srcAtNode.get(src);
+        if (prevHash && nodeStacks.has(prevHash)) {
+            const arr = nodeStacks.get(prevHash);
+            const idx = arr.findIndex(e => e.src === src);
+            if (idx >= 0) {
+                arr.splice(idx, 1);
+                nodeStacks.set(prevHash, arr);
+                repositionNodeBadges(prevHash);
+            }
+        }
+
+        // 2) Add src with its arrival time to the new node stack
+        const list = nodeStacks.get(hash) || [];
+        list.push({src, arrival: atSeconds});
+        nodeStacks.set(hash, list);
+        srcAtNode.set(src, hash);
+
+        // 3) Reposition badges for this node (all stacked neatly)
+        repositionNodeBadges(hash);
+        // Mark this node as reached and recompute deepest highlight
+        reachedNodes.add(hash);
+        updateDeepestHighlightOnArrival(hash);
+    }
+
+    function resetSimulation() {
+        // Clear any existing badges
+        Array.from(svg.querySelectorAll('.srcBadge')).forEach(n => n.remove());
+        srcBadges.clear();
+        srcAtNode.clear();
+        nodeStacks.clear();
+        reachedNodes.clear();
+        // remove any lingering highlight
+        for (const meta of nodeByHash.values()) {
+            meta.circleEl.classList.remove('node--highlight');
+        }
+        currentDeepestSlot = -Infinity;
+        currentDeepestHash = null;
+        // Build schedule from messages
+        schedule = (messages || []).map(m => ({
+            arrival: parseSeconds(m.arrival_time),
+            src: m.src,
+            hash: m.hash,
+            shown: false
+        })).sort((a, b) => a.arrival - b.arrival);
+        simStart = performance.now();
+        running = true;
+        playPauseBtn.textContent = 'Pause';
+        latestTimeEl.textContent = 'Latest arrival: 0.000s';
+        if (!rafId) startLoop();
+    }
+
+    function startLoop() {
+        if (rafId) cancelAnimationFrame(rafId);
+        // If resuming from pause, shift simStart so time continuity holds
+        if (!running) {
+            const now = performance.now();
+            const pausedDur = now - pausedAt;
+            simStart += pausedDur;
+            running = true;
+            playPauseBtn.textContent = 'Pause';
+        }
+        const step = () => {
+            const t = ((performance.now() - simStart) / 1000) * speed;
+
+            // Fire any arrivals whose time has come
+            let latest = 0;
+            for (const item of schedule) {
+                if (!item.shown && t >= item.arrival) {
+                    showSrcBadge(item.hash, item.src, item.arrival);
+                    item.shown = true;
+                }
+                if (item.shown) latest = Math.max(latest, item.arrival);
+            }
+            latestTimeEl.textContent = `Latest arrival: ${latest.toFixed(3)}s`;
+
+            if (running) rafId = requestAnimationFrame(step);
+        };
+        rafId = requestAnimationFrame(step);
+    }
+
+    function startVisualization(treeData, messagesData) {
+        messages = messagesData; // ensure global
+        resetSimulation();
+    }
+</script>
+</body>
+</html>

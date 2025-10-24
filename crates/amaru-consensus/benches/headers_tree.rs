@@ -58,17 +58,17 @@ fn main() {
 
     // Create a large tree of headers and random actions to be executed on a HeadersTree
     // from the list of peers.
-    let generated_tree = generate_tree_of_headers(depth, seed);
+    let generated_tree = generate_tree_of_headers(seed, depth);
     let tree = generated_tree.tree();
     assert!(
-        tree.nodes().len() > 5000,
+        tree.nodes().len() > 3000,
         "there are {} nodes",
         tree.nodes().len()
     );
 
-    let generated_actions = generate_random_walks(&generated_tree, peers_nb);
+    let generated_actions = generate_random_walks(seed, &generated_tree, peers_nb);
     let actions = generated_actions.actions();
-    assert!(actions.len() > 10000);
+    assert!(actions.len() > 5000);
 
     // Initialize an empty HeadersTree and execute the actions on it while measuring the time taken.
     let store = if in_memory {
@@ -96,7 +96,7 @@ fn main() {
 
     let start = std::time::Instant::now();
     eprintln!("start executing the actions");
-    let results = execute_actions_on_tree(store, &mut headers_tree, actions, false).unwrap();
+    let results = execute_actions_on_tree(store, &mut headers_tree, &actions, false).unwrap();
 
     let elapsed = start.elapsed();
     let time_per_action = elapsed / (actions.len() as u32);
