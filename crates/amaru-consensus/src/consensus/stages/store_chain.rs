@@ -121,7 +121,7 @@ impl StoreChain {
         point: &Point,
     ) -> Result<usize, ConsensusError> {
         store
-            .roll_back_chain(point)
+            .rollback_chain(point)
             .map_err(|e| ConsensusError::SetBestChainHashFailed(point.hash(), e))
             .map(|sz| {
                 self.tip = HeaderTip::new(point.clone(), self.tip.block_height() - sz as u64);

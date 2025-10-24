@@ -100,7 +100,7 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
         self.external_sync(RollForwardChainEffect::new(point.clone()))
     }
 
-    fn roll_back_chain(&self, point: &Point) -> Result<usize, StoreError> {
+    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
         self.external_sync(RollBackChainEffect::new(point.clone()))
     }
 }
@@ -520,7 +520,7 @@ impl ExternalEffect for RollBackChainEffect {
                 .get::<ResourceHeaderStore>()
                 .expect("RollBackChainEffect requires a chain store")
                 .clone();
-            store.roll_back_chain(&self.point)
+            store.rollback_chain(&self.point)
         })
     }
 }
