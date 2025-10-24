@@ -264,7 +264,9 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
         let result = if self.is_empty_tree() {
             // special case for the first header added to an empty tree
             self.update_peer(peer, tip);
-            self.set_anchor(&tip.hash())?;
+            if self.anchor() == ORIGIN_HASH {
+                self.set_anchor(&tip.hash())?;
+            }
             self.set_best_chain(&tip.hash())?;
             Ok(ForwardChainSelection::NewTip {
                 peer: peer.clone(),
@@ -1323,7 +1325,7 @@ mod tests {
 
             proptest::prop_assert!(expected.contains(&actual),
                 "\nthe actual chain\n {}\n\nis not contained in the best chains\n\n{}\n\n",
-                               actual.list_to_string(",\n "), expected.list_debug(",\n "));
+                               actual.list_to_string(",\n "), expected.lists_to_string(",\n ", "\n\n"));
         }
     }
 
