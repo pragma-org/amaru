@@ -391,7 +391,7 @@ mod test {
     ) {
         import_all(network, expected_paths, ledger_dir)
             .await
-            .unwrap_or_else(|_| panic!("fail to import snapshots {expected_paths:?}"));
+            .unwrap_or_else(|e| panic!("fail to import snapshots: {e}\n{expected_paths:?}"));
     }
 
     #[tokio::test]

@@ -30,7 +30,6 @@ use amaru_kernel::{
     protocol_parameters::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters},
 };
 use amaru_progress_bar::ProgressBar;
-use anyhow::anyhow;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs, iter,
@@ -38,7 +37,7 @@ use std::{
     rc::Rc,
     sync::LazyLock,
 };
-use tracing::info;
+use tracing::{info, warn};
 
 const BATCH_SIZE: usize = 1000;
 
@@ -465,21 +464,23 @@ fn import_utxo(
     network: NetworkName,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if db.iter_utxos()?.next().is_some() {
-        Err(anyhow!("given storage is not empty: it contains UTxO"))?;
+        warn!("given storage is not empty: it contains UTxO; overwriting");
     }
 
-    let estimated_size: usize = decoder.with_decoder(|d| {
+    let size: Option<usize> = decoder.with_decoder(|d| {
         d.array()?;
         let size = d.map()?;
-        // Get the size from the serialised snapshot, or give a broad estimate. It's only used for
-        // reporting progress.
-        Ok(size.map(|s| s as usize).unwrap_or_else(|| match network {
-            NetworkName::Mainnet => 11_000_000,
-            NetworkName::Preview => 1_500_000,
-            NetworkName::Preprod => 1_000_000,
-            NetworkName::Testnet(..) => 1,
-        }))
+        Ok(size.map(|s| s as usize))
     })?;
+
+    // Get the size from the serialised snapshot, or give a broad estimate. It's only used for
+    // reporting progress.
+    let estimated_size = size.unwrap_or(match network {
+        NetworkName::Mainnet => 11_000_000,
+        NetworkName::Preview => 1_500_000,
+        NetworkName::Preprod => 1_000_000,
+        NetworkName::Testnet(..) => 1,
+    });
 
     let progress = with_progress(estimated_size, "  UTxO entries {bar:70} {pos:>7}/{len:7}");
 
@@ -492,9 +493,16 @@ fn import_utxo(
             type I = TransactionInput;
             type O = MemoizedTransactionOutput;
 
+            let mut chunk_size = 0;
+
             loop {
                 if d.datatype()? == cbor::data::Type::Break {
                     d.skip()?;
+                    done = true;
+                    break;
+                }
+
+                if size.is_some_and(|s| actual_size + chunk_size >= s) {
                     done = true;
                     break;
                 }
@@ -506,6 +514,7 @@ fn import_utxo(
                     .and_then(|i| probe.decode::<O>().map(|o| (i, o)));
 
                 if let Ok((i, o)) = io {
+                    chunk_size += 1;
                     d.skip()?;
                     d.skip()?;
                     utxo.insert(i, o);
@@ -662,7 +671,7 @@ fn import_proposals(
     proposals: &[ProposalState],
 ) -> Result<(), Box<dyn std::error::Error>> {
     if db.iter_proposals()?.next().is_some() {
-        Err(anyhow!("given storage is not empty: it contains proposals"))?;
+        warn!("given storage is not empty: it contains proposals; overwriting");
     }
 
     let transaction = db.create_transaction();
@@ -815,7 +824,7 @@ fn import_accounts(
     rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if db.iter_accounts()?.next().is_some() {
-        Err(anyhow!("given storage is not empty: it contains accounts"))?;
+        warn!("given storage is not empty: it contains accounts; overwriting");
     }
 
     let transaction = db.create_transaction();
