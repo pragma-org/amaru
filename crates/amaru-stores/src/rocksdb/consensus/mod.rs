@@ -49,8 +49,8 @@ impl RocksDBStore {
     /// This function will fail if:
     /// * the DB does not exist
     /// * the DB exists but with an incompatible version
-    pub fn open(config: RocksDbConfig) -> Result<Self, StoreError> {
-        let (basedir, db) = open_db(&config)?;
+    pub fn open(config: &RocksDbConfig) -> Result<Self, StoreError> {
+        let (basedir, db) = open_db(config)?;
 
         check_db_version(&db)?;
 
@@ -87,15 +87,15 @@ impl RocksDBStore {
     ///
     /// This function is deemed "unsafe" because it automatically tries to migrate the
     /// DB it opens or creates which can potentially causes data corruption.
-    pub fn open_and_migrate(config: RocksDbConfig) -> Result<Self, StoreError> {
-        let (basedir, db) = open_or_create_db(&config)?;
+    pub fn open_and_migrate(config: &RocksDbConfig) -> Result<Self, StoreError> {
+        let (basedir, db) = open_or_create_db(config)?;
 
         migrate_db(&db)?;
 
         Ok(Self { db, basedir })
     }
 
-    pub fn open_for_readonly(config: RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
+    pub fn open_for_readonly(config: &RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
         let basedir = config.dir.clone();
         let opts: Options = config.into();
         DB::open_for_read_only(&opts, basedir, false)

@@ -38,6 +38,10 @@ bootstrap: clear-dbs ## &start Bootstrap Amaru from scratch (snapshots + headers
 		--ledger-dir $(AMARU_LEDGER_DIR) \
 		--chain-dir $(AMARU_CHAIN_DIR)
 
+sync-from-mithril:
+	@cargo run --bin amaru-ledger mithril
+	@cargo run --bin amaru-ledger sync
+
 snapshots/$(AMARU_NETWORK): ## &start Download initial snapshots
 	@if [ ! -f "${SNAPSHOTS_FILE}" ]; then echo "SNAPSHOTS_FILE not found: ${SNAPSHOTS_FILE}"; exit 1; fi;
 	mkdir -p "$@"

@@ -12,6 +12,15 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 build = "build.rs"
+default-run = "amaru"
+
+[[bin]]
+name = "amaru"
+path = "src/bin/amaru/main.rs"
+
+[[bin]]
+name = "amaru-ledger"
+path = "src/bin/ledger/main.rs"
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -22,12 +31,16 @@ async-trait.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 hex.workspace = true
+indicatif.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
+mithril-client.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
+pallas-hardano.workspace = true
 pallas-network.workspace = true
+pallas-traverse.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -56,6 +69,8 @@ amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-slot-arithmetic.workspace = true
 amaru-metrics.workspace = true
 pure-stage.workspace = true
+tar = "0.4.44"
+flate2 = "1.1.2"
 
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.10.2"

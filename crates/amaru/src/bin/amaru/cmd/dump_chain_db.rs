@@ -44,7 +44,7 @@ pub struct Args {
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir;
-    let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(RocksDbConfig::new(chain_dir))?;
+    let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
 
     print_iterator(
         "headers",
