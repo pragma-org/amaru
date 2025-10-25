@@ -17,6 +17,9 @@ use std::fmt::{self, Debug, Display};
 
 pub const HEADER_HASH_SIZE: usize = 32;
 
+/// Type alias for a header hash to improve readability
+pub type HeaderHash = Hash<HEADER_HASH_SIZE>;
+
 #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Point {
     Origin,
@@ -31,7 +34,7 @@ impl Point {
         }
     }
 
-    pub fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+    pub fn hash(&self) -> HeaderHash {
         match self {
             // By convention, the hash of `Genesis` is all 0s.
             Point::Origin => Hash::from([0; HEADER_HASH_SIZE]),
@@ -55,7 +58,7 @@ impl Display for Point {
     }
 }
 
-impl From<&Point> for Hash<HEADER_HASH_SIZE> {
+impl From<&Point> for HeaderHash {
     fn from(point: &Point) -> Self {
         point.hash()
     }
@@ -131,13 +134,13 @@ impl<'b> cbor::decode::Decode<'b, ()> for Point {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::Point;
-    use crate::HEADER_HASH_SIZE;
     use crate::tests::random_bytes;
+    use crate::{HEADER_HASH_SIZE, HeaderHash};
     use pallas_crypto::hash::Hash;
     use proptest::prelude::*;
 
     /// Generate a random Hash that could be the hash of a `H: IsHeader` value.
-    pub fn random_hash() -> Hash<HEADER_HASH_SIZE> {
+    pub fn random_hash() -> HeaderHash {
         Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice())
     }
 

@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::effects::ConsensusEffects;
-use amaru_consensus::consensus::errors::{ProcessingFailed, ValidationFailed};
-use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_consensus::consensus::stages::select_chain::SelectChain;
-use amaru_consensus::consensus::stages::track_peers::SyncTracker;
-use amaru_consensus::consensus::stages::{
-    fetch_block, forward_chain, receive_header, select_chain, track_peers, validate_block,
-    validate_header,
+use amaru_consensus::consensus::{
+    effects::{ConsensusEffects, DisconnectEffect},
+    errors::{ProcessingFailed, ValidationFailed},
+    stages::{
+        fetch_block, forward_chain, receive_header,
+        select_chain::{self, SelectChain},
+        track_peers::{self, SyncTracker},
+        validate_block, validate_header,
+    },
+    tip::HeaderTip,
 };
-use amaru_consensus::consensus::tip::HeaderTip;
+use amaru_kernel::consensus_events::ChainSyncEvent;
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the consensus protocol.
@@ -57,15 +59,11 @@ pub fn build_stage_graph(
     );
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
-    let validation_errors_stage = network.stage(
-        "validation_errors",
-        async |_, error: ValidationFailed, eff| {
-            tracing::error!(%error, "stage error");
-            // TODO: implement specific actions once we have an upstream network
-            // termination here will tear down the entire stage graph
-            eff.terminate().await
-        },
-    );
+    let validation_errors_stage = network.stage("validation_errors", async |_, error, eff| {
+        let ValidationFailed { peer, error } = error;
+        tracing::error!(%peer, %error, "peer error");
+        eff.external(DisconnectEffect::new(peer)).await;
+    });
 
     let processing_errors_stage = network.stage(
         "processing_errors",

@@ -14,10 +14,9 @@
 
 use crate::consensus;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{HEADER_HASH_SIZE, Point};
+use amaru_kernel::{HeaderHash, Point};
 use amaru_ouroboros_traits::StoreError;
 use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
-use pallas_crypto::hash::Hash;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -33,17 +32,26 @@ pub enum ConsensusError {
     #[error("Failed to validate header at {0}: {1}")]
     InvalidHeader(Point, HeaderValidationError),
     #[error("Failed to store header at {0}: {1}")]
-    StoreHeaderFailed(Hash<HEADER_HASH_SIZE>, StoreError),
+    StoreHeaderFailed(HeaderHash, StoreError),
     #[error("Failed to remove header at {0}: {1}")]
-    RemoveHeaderFailed(Hash<HEADER_HASH_SIZE>, StoreError),
+    RemoveHeaderFailed(HeaderHash, StoreError),
     #[error("Failed to set a new anchor at {0}: {1}")]
-    SetAnchorHashFailed(Hash<HEADER_HASH_SIZE>, StoreError),
+    SetAnchorHashFailed(HeaderHash, StoreError),
     #[error("Failed to set a best chain at {0}: {1}")]
-    SetBestChainHashFailed(Hash<HEADER_HASH_SIZE>, StoreError),
+    SetBestChainHashFailed(HeaderHash, StoreError),
     #[error("Failed to update a best chain at {0}->{1}: {2}")]
-    UpdateBestChainFailed(Hash<HEADER_HASH_SIZE>, Hash<HEADER_HASH_SIZE>, StoreError),
+    UpdateBestChainFailed(HeaderHash, HeaderHash, StoreError),
     #[error("Failed to store block body at {0}: {1}")]
     StoreBlockFailed(Point, StoreError),
+    #[error(
+        "Header point {} does not match expected point {}",
+        actual_point,
+        expected_point
+    )]
+    HeaderPointMismatch {
+        actual_point: Point,
+        expected_point: Point,
+    },
     #[error(
         "Failed to decode header at {}: {} ({})",
         point,
@@ -58,7 +66,7 @@ pub enum ConsensusError {
     #[error("Unknown peer {0}, bailing out")]
     UnknownPeer(Peer),
     #[error("Unknown point {0}, bailing out")]
-    UnknownPoint(Hash<HEADER_HASH_SIZE>),
+    UnknownPoint(HeaderHash),
     #[error(
         "Invalid rollback {} from peer {}, cannot go further than {}",
         rollback_point,
@@ -67,8 +75,8 @@ pub enum ConsensusError {
     )]
     InvalidRollback {
         peer: Peer,
-        rollback_point: Hash<HEADER_HASH_SIZE>,
-        max_point: Hash<HEADER_HASH_SIZE>,
+        rollback_point: HeaderHash,
+        max_point: HeaderHash,
     },
     #[error("Invalid block from peer {} at {}", peer, point)]
     InvalidBlock { peer: Peer, point: Point },
@@ -82,7 +90,7 @@ pub enum ConsensusError {
 pub struct InvalidHeaderParentData {
     pub(crate) peer: Peer,
     pub(crate) forwarded: Point,
-    pub(crate) actual: Option<Hash<HEADER_HASH_SIZE>>,
+    pub(crate) actual: Option<HeaderHash>,
     pub(crate) expected: Point,
 }
 

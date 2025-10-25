@@ -12,15 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::EVENT_TARGET;
-use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ConsensusError, ValidationFailed};
-use crate::consensus::events::{BlockValidationResult, DecodedChainSyncEvent, ValidateHeaderEvent};
-use crate::consensus::headers_tree::{HeadersTree, HeadersTreeState};
-use crate::consensus::span::HasSpan;
-use amaru_kernel::{HEADER_HASH_SIZE, Point, peer::Peer, string_utils::ListToString};
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
-use pallas_crypto::hash::Hash;
+use crate::consensus::{
+    EVENT_TARGET,
+    effects::{BaseOps, ConsensusOps},
+    errors::{ConsensusError, ValidationFailed},
+    headers_tree::{HeadersTree, HeadersTreeState},
+    span::HasSpan,
+};
+use amaru_kernel::{
+    BlockHeader, HeaderHash, IsHeader, Point,
+    consensus_events::{BlockValidationResult, DecodedChainSyncEvent, ValidateHeaderEvent},
+    peer::Peer,
+    string_utils::ListToString,
+};
+use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{BoxFuture, StageRef};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -32,7 +37,7 @@ use tracing::{Level, Span, info, span, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SelectChain {
     tree_state: HeadersTreeState,
 }
@@ -152,13 +157,13 @@ impl SelectChain {
             match chain_sync {
                 DecodedChainSyncEvent::RollForward {
                     peer, header, span, ..
-                } => self.select_chain(store, peer, header, span).await,
+                } => self.select_chain(store.clone(), peer, header, span).await,
                 DecodedChainSyncEvent::Rollback {
                     peer,
                     rollback_point,
                     span,
                 } => {
-                    self.select_rollback(store, peer, rollback_point, span)
+                    self.select_rollback(store.clone(), peer, rollback_point, span)
                         .await
                 }
             }
@@ -223,8 +228,8 @@ pub enum RollbackChainSelection<H: IsHeader> {
     /// The peer tried to rollback beyond the limit
     RollbackBeyondLimit {
         peer: Peer,
-        rollback_point: Hash<HEADER_HASH_SIZE>,
-        max_point: Hash<HEADER_HASH_SIZE>,
+        rollback_point: HeaderHash,
+        max_point: HeaderHash,
     },
 
     /// The current best chain has not changed
@@ -325,14 +330,12 @@ pub async fn stage(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::effects::mock_consensus_ops;
-    use crate::consensus::errors::ValidationFailed;
-    use crate::consensus::events::BlockValidationResult::BlockValidated;
-    use crate::consensus::events::DecodedChainSyncEvent;
-    use crate::consensus::headers_tree::Tracker;
     use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
+    use crate::consensus::{
+        effects::mock_consensus_ops, errors::ValidationFailed, headers_tree::Tracker,
+    };
+    use amaru_kernel::is_header::tests::{any_header, any_headers_chain, run};
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::tests::{any_header, any_headers_chain, run};
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;
@@ -343,15 +346,15 @@ mod tests {
         let header = run(any_header());
         let message = make_roll_forward_message(&peer, &header);
         let consensus_ops = mock_consensus_ops();
+        consensus_ops.store().store_header(&header).unwrap();
 
         let store = consensus_ops.store();
+        if let Some(parent_hash) = header.parent() {
+            store.set_anchor_hash(&parent_hash)?;
+        }
         let anchor = store.get_anchor_hash();
-        let (select_chain, _, _) = stage(
-            make_state(store.clone(), &peer, &anchor),
-            message.clone(),
-            consensus_ops.clone(),
-        )
-        .await;
+        let state = make_state(store.clone(), &peer, &anchor);
+        let (select_chain, _, _) = stage(state, message.clone(), consensus_ops.clone()).await;
         let output = make_block_validated_event(&peer, &header);
 
         assert_eq!(
@@ -384,13 +387,17 @@ mod tests {
         let message3 = make_rollback_message(&peer, &header1);
 
         let consensus_ops = mock_consensus_ops();
-        let anchor = consensus_ops.store().get_anchor_hash();
-        let state = stage(
-            make_state(consensus_ops.store(), &peer, &anchor),
-            message1,
-            consensus_ops.clone(),
-        )
-        .await;
+        let store = consensus_ops.store();
+        if let Some(parent_hash) = header1.parent() {
+            store.set_anchor_hash(&parent_hash)?;
+        }
+
+        store.store_header(&header1).unwrap();
+        store.store_header(&header2).unwrap();
+
+        let anchor = store.get_anchor_hash();
+        let state = make_state(consensus_ops.store(), &peer, &anchor);
+        let state = stage(state, message1, consensus_ops.clone()).await;
         let state = stage(state, message2, consensus_ops.clone()).await;
         let (select_chain, _, _) = stage(state, message3.clone(), consensus_ops.clone()).await;
 
@@ -420,7 +427,7 @@ mod tests {
     fn make_state(
         store: Arc<dyn ChainStore<BlockHeader>>,
         peer: &Peer,
-        anchor: &Hash<HEADER_HASH_SIZE>,
+        anchor: &HeaderHash,
     ) -> State {
         let downstream: StageRef<BlockValidationResult> = StageRef::named("downstream");
         let errors: StageRef<ValidationFailed> = StageRef::named("errors");
@@ -434,7 +441,6 @@ mod tests {
     fn make_roll_forward_message(peer: &Peer, header: &BlockHeader) -> DecodedChainSyncEvent {
         DecodedChainSyncEvent::RollForward {
             peer: peer.clone(),
-            point: header.point(),
             header: header.clone(),
             span: Span::current(),
         }
@@ -449,14 +455,14 @@ mod tests {
     }
 
     fn make_block_validated_event(peer: &Peer, header: &BlockHeader) -> BlockValidationResult {
-        BlockValidated {
+        BlockValidationResult::BlockValidated {
             peer: peer.clone(),
             header: header.clone(),
             span: Span::current(),
         }
     }
 
-    fn check_peers(select_chain: SelectChain, expected: Vec<(Tracker, Vec<Hash<32>>)>) {
+    fn check_peers(select_chain: SelectChain, expected: Vec<(Tracker, Vec<HeaderHash>)>) {
         let actual = select_chain
             .tree_state
             .peers()

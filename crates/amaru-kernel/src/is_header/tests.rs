@@ -15,11 +15,11 @@
 use super::*;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
-use proptest::test_runner::TestRunner;
+use proptest::test_runner::{Config, RngSeed, TestRunner};
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
-    use amaru_kernel::Bytes;
+    use crate::Bytes;
     use pallas_primitives::VrfCert;
     use pallas_primitives::babbage::PseudoHeader;
     use pallas_primitives::conway::OperationalCert;
@@ -33,7 +33,7 @@ pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) 
             vrf_vkey: Bytes::from(vec![]),
             vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
             block_body_size: 0,
-            block_body_hash: Hash::<32>::from([0u8; 32]),
+            block_body_hash: HeaderHash::from([0u8; 32]),
             operational_cert: OperationalCert {
                 operational_cert_hot_vkey: Bytes::from(vec![]),
                 operational_cert_sequence_number: 0,
@@ -85,16 +85,21 @@ pub fn any_header() -> impl Strategy<Value = BlockHeader> {
         })
 }
 
-/// Create an arbitrary BlockHeader, with an arbitrary parent, possibly set to None
+/// Create an arbitrary BlockHeader, with an arbitrary parent
 pub fn any_header_with_parent(parent: HeaderHash) -> impl Strategy<Value = BlockHeader> {
     (0u64..=1_000_000, 0u64..=1_000_000).prop_map(move |(block_number, slot)| {
         BlockHeader::from(make_header(block_number, slot, Some(parent)))
     })
 }
 
+/// Create an arbitrary BlockHeader, with an arbitrary parent that is guaranteed to be Some
+pub fn any_header_with_some_parent() -> impl Strategy<Value = BlockHeader> {
+    any_header().prop_flat_map(|h| any_header_with_parent(h.hash()))
+}
+
 /// Create an arbitrary header hash with the right number of bytes
-pub fn any_header_hash() -> impl Strategy<Value = Hash<HEADER_HASH_SIZE>> {
-    any::<[u8; HEADER_HASH_SIZE]>().prop_map(Hash::from)
+pub fn any_header_hash() -> impl Strategy<Value = HeaderHash> {
+    any::<[u8; HEADER_HASH_SIZE]>().prop_map(HeaderHash::from)
 }
 
 /// Create an arbitrary FakeHeader
@@ -114,5 +119,17 @@ pub fn any_fake_header() -> impl Strategy<Value = BlockHeader> {
 #[expect(clippy::unwrap_used)]
 pub fn run<T>(s: impl Strategy<Value = T>) -> T {
     let mut runner = TestRunner::default();
+    s.new_tree(&mut runner).unwrap().current()
+}
+
+/// Run a strategy with a seed provided by a random generator
+/// and return the generated value, panicking if generation fails.
+#[expect(clippy::unwrap_used)]
+pub fn run_with_rng<T, RNG: Rng>(rng: &mut RNG, s: impl Strategy<Value = T>) -> T {
+    let config = Config {
+        rng_seed: RngSeed::Fixed(rng.random()),
+        ..Default::default()
+    };
+    let mut runner = TestRunner::new(config);
     s.new_tree(&mut runner).unwrap().current()
 }

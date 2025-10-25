@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Point, RawBlock, peer::Peer};
-use amaru_ouroboros_traits::{BlockHeader, IsHeader};
+use crate::{BlockHeader, IsHeader, Point, RawBlock, peer::Peer};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -79,7 +78,6 @@ impl fmt::Debug for ChainSyncEvent {
 pub enum DecodedChainSyncEvent {
     RollForward {
         peer: Peer,
-        point: Point,
         header: BlockHeader,
         #[serde(skip, default = "Span::none")]
         span: Span,
@@ -104,15 +102,9 @@ impl DecodedChainSyncEvent {
 impl fmt::Debug for DecodedChainSyncEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DecodedChainSyncEvent::RollForward {
-                peer,
-                point,
-                header,
-                ..
-            } => f
+            DecodedChainSyncEvent::RollForward { peer, header, .. } => f
                 .debug_struct("RollForward")
                 .field("peer", &peer.name)
-                .field("point", &point.to_string())
                 .field("header", &header.hash().to_string())
                 .finish(),
             DecodedChainSyncEvent::Rollback {

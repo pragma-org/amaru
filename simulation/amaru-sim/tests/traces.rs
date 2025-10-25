@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::run::spawn_node;
-use amaru_sim::simulator::simulate::simulate;
-use amaru_sim::simulator::{Args, NodeConfig, NodeHandle, SimulateConfig, generate_entries};
+use amaru_consensus::consensus::{effects::FetchBlockEffect, errors::ConsensusError};
+use amaru_sim::simulator::{
+    Args, NodeConfig, NodeHandle, SimulateConfig, generate_entries, run::spawn_node,
+    simulate::simulate,
+};
 use amaru_tracing_json::assert_spans_trees;
-use pallas_crypto::hash::Hash;
-use pure_stage::simulation::SimulationBuilder;
-use pure_stage::{Instant, StageGraph};
+use pure_stage::{
+    Instant, StageGraph,
+    simulation::{OverrideResult, SimulationBuilder},
+};
 use rand::prelude::StdRng;
 use serde_json::json;
 use std::time::Duration;
@@ -27,15 +30,11 @@ use tokio::runtime::Runtime;
 #[test]
 fn run_simulator_with_traces() {
     let args = Args {
-        stake_distribution_file: "tests/data/stake-distribution.json".into(),
-        consensus_context_file: "tests/data/consensus-context.json".into(),
-        chain_dir: "./chain.db".into(),
-        block_tree_file: "tests/data/chain.json".into(),
-        start_header: Hash::from([0; 32]),
         number_of_tests: 1,
         number_of_nodes: 1,
         number_of_upstream_peers: 1,
         number_of_downstream_peers: 1,
+        generated_chain_depth: 1,
         disable_shrinking: true,
         seed: None,
         persist_on_success: false,
@@ -45,20 +44,22 @@ fn run_simulator_with_traces() {
     let rt = Runtime::new().unwrap();
     let spawn = |node_id: String| {
         let mut network = SimulationBuilder::default();
-        let (input, init_messages, output) = spawn_node(node_id, node_config.clone(), &mut network);
-        let running = network.run(rt.handle().clone());
+        let (input, init_messages, output) =
+            spawn_node(node_id, node_config.clone(), &mut network, &rt);
+        let mut running = network.run(rt.handle().clone());
+        running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
+            OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
+        });
         NodeHandle::from_pure_stage(input, init_messages, output, running).unwrap()
     };
 
     let generate_one = |rng: &mut StdRng| {
-        generate_entries(
+        let (entries, best_chain) = generate_entries(
             &node_config,
             Instant::at_offset(Duration::from_secs(0)),
             200.0,
-        )(rng)
-        .into_iter()
-        .take(1)
-        .collect()
+        )(rng);
+        (entries.into_iter().take(1).collect(), best_chain)
     };
 
     let simulate_config = SimulateConfig::from(args.clone());
@@ -66,9 +67,11 @@ fn run_simulator_with_traces() {
     let execute = || {
         simulate(
             &simulate_config,
+            &NodeConfig::default(),
             spawn,
             generate_one,
-            |_| Ok(()),
+            |_, _| Ok(()),
+            |_| (),
             Default::default(),
             false,
         )

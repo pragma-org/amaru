@@ -20,7 +20,6 @@ use crate::simulator::{
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::{Instant, StageGraph, StageRef};
 use rand::prelude::StdRng;
-use std::cmp::Reverse;
 use std::time::Duration;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -70,33 +69,35 @@ pub fn spawn_echo_node(_node_id: String) -> NodeHandle<EchoMessage> {
 }
 
 /// Generate some input echo messages at different arrival times.
-pub fn echo_generator(rng: &mut StdRng) -> Vec<Reverse<Entry<EchoMessage>>> {
+pub fn echo_generator(rng: &mut StdRng) -> (Vec<Entry<EchoMessage>>, ()) {
     let now = Instant::at_offset(Duration::from_secs(0));
     let size = 20;
-    generate_zip_with(
+    let entries = generate_zip_with(
         size,
         generate_vec(generate_u8(0, 128)),
         generate_arrival_times(now, 200.0),
-        |msg, arrival_time| {
-            Reverse(Entry {
-                arrival_time,
-                envelope: Envelope {
-                    src: "c1".to_string(),
-                    dest: "n1".to_string(),
-                    body: EchoMessage::Echo {
-                        msg_id: 0,
-                        echo: format!("Please echo {}", msg),
-                    },
+        |msg, arrival_time| Entry {
+            arrival_time,
+            envelope: Envelope {
+                src: "c1".to_string(),
+                dest: "n1".to_string(),
+                body: EchoMessage::Echo {
+                    msg_id: 0,
+                    echo: format!("Please echo {}", msg),
                 },
-            })
+            },
         },
-    )(rng)
+    )(rng);
+    (entries, ())
 }
 
 /// Check that for every echo response from the node, there is a matching echo request that was sent to the node.
 /// The response must have the same `in_reply_to` as the request's `msg_id`, and the echoed message must
 /// match the original message.
-pub fn echo_property(history: &History<EchoMessage>) -> Result<(), String> {
+pub fn echo_property(
+    history: &History<EchoMessage>,
+    _generation_context: &(),
+) -> Result<(), String> {
     // TODO: Take response time into account.
     for (index, msg) in history
         .0

@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2024 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,17 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::can_fetch_block::{BlockFetchClientError, CanFetchBlock};
-use amaru_kernel::Point;
-use async_trait::async_trait;
+use crate::consensus::effects::ChainSyncEffect;
+use amaru_kernel::consensus_events::ChainSyncEvent;
+use pure_stage::{Effects, StageRef};
 
-/// A block fetcher.
-#[derive(Clone, Debug, Default)]
-pub struct MockCanFetchBlock;
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NextSync;
 
-#[async_trait]
-impl CanFetchBlock for MockCanFetchBlock {
-    async fn fetch_block(&self, _point: &Point) -> Result<Vec<u8>, BlockFetchClientError> {
-        Ok(vec![])
-    }
+pub async fn stage(
+    downstream: StageRef<ChainSyncEvent>,
+    _msg: NextSync,
+    eff: Effects<NextSync>,
+) -> StageRef<ChainSyncEvent> {
+    let msg = eff.external(ChainSyncEffect).await;
+    eff.send(&downstream, msg).await;
+    eff.send(eff.me_ref(), NextSync).await;
+    downstream
 }

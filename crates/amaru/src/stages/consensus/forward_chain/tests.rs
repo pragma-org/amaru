@@ -13,38 +13,52 @@
 // limitations under the License.
 
 use super::client_state::tests::ChainStoreExt;
-use super::test_infra::{BRANCH_47, ClientMsg, LOST_47, Setup, TIP_47, WINNER_47, hash};
-use crate::stages::{AsTip, PallasPoint};
-use amaru_ouroboros_traits::IsHeader;
+use super::test_infra::{ClientMsg, FORK_47, LOST_47, TIP_47, TestChainForwarder, WINNER_47, hash};
+use crate::stages::AsTip;
+use amaru_kernel::IsHeader;
+use amaru_kernel::Point;
+use amaru_network::point::to_network_point;
 
 #[tokio::test]
 async fn test_chain_sync() {
-    let mut setup = Setup::new(LOST_47).await.unwrap();
-    let mut client = setup.connect().await;
-    let chain = setup.store.get_chain(TIP_47);
-    let (point, tip) = client.find_intersect(vec![chain[6].pallas_point()]).await;
+    let mut chain_forwarder = TestChainForwarder::new(LOST_47).await.unwrap();
+    let mut client = chain_forwarder.connect().await;
+    let chain = chain_forwarder.store.get_chain(TIP_47);
+    let header142 = chain[6].clone();
+    let (point, tip) = client
+        .find_intersect(vec![to_network_point(header142.point())])
+        .await;
 
-    let lost = setup.store.load_header(&hash(LOST_47)).unwrap().clone();
-    assert_eq!(point, Some(setup.store.get_point(BRANCH_47)));
-    assert_eq!(tip.0, lost.pallas_point());
+    let lost = chain_forwarder
+        .store
+        .load_header(&hash(LOST_47))
+        .unwrap()
+        .clone();
+    assert_eq!(point, Some(chain_forwarder.store.get_point(FORK_47)));
+    assert_eq!(tip.0, to_network_point(lost.point()));
     assert_eq!(tip.1, lost.block_height());
 
     let headers = client.recv_until_await().await;
     assert_eq!(
         headers,
-        vec![ClientMsg::Forward(lost.clone(), lost.as_tip())]
+        vec![ClientMsg::Backward(
+            to_network_point(header142.point()),
+            lost.as_tip()
+        )]
     );
 
-    setup.send_backward(BRANCH_47).await;
-    setup.send_forward(WINNER_47).await;
-    setup.send_forward(&chain[8].hash().to_string()).await;
+    chain_forwarder.send_backward(FORK_47).await;
+    chain_forwarder.send_forward(WINNER_47).await;
+    chain_forwarder
+        .send_forward(&chain[8].hash().to_string())
+        .await;
     let msg = client.recv_after_await().await;
     assert_eq!(
         msg,
         // out tip comes out as chain[6] here because previously client.recv_until_await already
         // asked for the next op, which means the Backward got sent before the Forward
         // updated the `our_tip` pointer
-        ClientMsg::Backward(chain[6].pallas_point(), chain[6].as_tip())
+        ClientMsg::Backward(to_network_point(header142.point()), chain[6].as_tip())
     );
 
     let headers = client.recv_until_await().await;
@@ -59,7 +73,7 @@ async fn test_chain_sync() {
 
 #[tokio::test]
 async fn test_sync_optimising_rollback() {
-    let mut setup = Setup::new(LOST_47).await.unwrap();
+    let mut setup = TestChainForwarder::new(LOST_47).await.unwrap();
 
     let mut client = setup.connect().await;
     client
@@ -68,12 +82,13 @@ async fn test_sync_optimising_rollback() {
         .0
         .expect("no intersection");
 
-    let msgs = client.recv_n::<4>().await;
+    let msgs = client.recv_n::<5>().await;
     let chain = setup.store.get_chain(TIP_47);
     let lost = setup.store.load_header(&hash(LOST_47)).unwrap().clone();
     assert_eq!(
         msgs,
         [
+            ClientMsg::Backward(to_network_point(Point::Origin), lost.as_tip()),
             ClientMsg::Forward(chain[0].clone(), lost.as_tip()),
             ClientMsg::Forward(chain[1].clone(), lost.as_tip()),
             ClientMsg::Forward(chain[2].clone(), lost.as_tip()),
@@ -81,7 +96,7 @@ async fn test_sync_optimising_rollback() {
         ]
     );
 
-    setup.send_backward(BRANCH_47).await;
+    setup.send_backward(FORK_47).await;
     setup.send_forward(&chain[7].hash().to_string()).await;
     setup.send_forward(&chain[8].hash().to_string()).await;
     setup.send_forward(&chain[9].hash().to_string()).await;

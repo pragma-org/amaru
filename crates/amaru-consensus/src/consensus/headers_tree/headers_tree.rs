@@ -18,11 +18,12 @@ use crate::consensus::headers_tree::headers_tree::Tracker::{Me, SomePeer};
 use crate::consensus::headers_tree::tree::Tree;
 use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
 use crate::consensus::stages::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
+use amaru_kernel::IsHeader;
 use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::{ORIGIN_HASH, Point, peer::Peer};
+use amaru_kernel::{HeaderHash, ORIGIN_HASH, Point, peer::Peer};
+use amaru_ouroboros_traits::ChainStore;
 #[cfg(any(test, feature = "test-utils"))]
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, HeaderHash, IsHeader};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -271,6 +272,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
         };
 
         let (result, anchor, tip) = if self.is_empty_tree() {
+            // special case for the first header added to an empty tree
             self.update_peer(peer, tip);
             (
                 Ok(ForwardChainSelection::NewTip {
@@ -280,34 +282,33 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
                 Some(tip.hash()),
                 Some(tip.hash()),
             )
-        } else {
-            // If the tip extends one of the best chains
-            if self
-                .best_chains()
-                .iter()
-                .any(|h| Some(*h) == tip.parent().as_ref())
-            {
-                self.update_peer(peer, tip);
-                // If the tip is extending _the_ best chain
-                let result = if tip.parent().as_ref() == Some(&self.best_chain()) {
-                    Ok(ForwardChainSelection::NewTip {
-                        peer: peer.clone(),
-                        tip: tip.clone(),
-                    })
-                } else {
-                    let fork = self.make_fork(peer, &self.best_chain(), &tip.hash());
-                    Ok(ForwardChainSelection::SwitchToFork(fork))
-                };
-                (result, None, Some(tip.hash()))
+        } else if self.extends_best_chains(tip) {
+            self.update_peer(peer, tip);
+            // If the tip is extending _the_ best chain
+            let result = if tip.parent().as_ref() == Some(&self.best_chain()) {
+                Ok(ForwardChainSelection::NewTip {
+                    peer: peer.clone(),
+                    tip: tip.clone(),
+                })
             } else {
-                self.update_peer(peer, tip);
-                (Ok(ForwardChainSelection::NoChange), None, None)
-            }
+                let fork = self.make_fork(peer, &self.best_chain(), &tip.hash());
+                Ok(ForwardChainSelection::SwitchToFork(fork))
+            };
+            (result, None, Some(tip.hash()))
+        } else {
+            self.update_peer(peer, tip);
+            (Ok(ForwardChainSelection::NoChange), None, None)
         };
 
         let new_anchor = self.trim_chain()?;
         self.update_best_chain(anchor.or(new_anchor), tip)?;
         result
+    }
+
+    fn extends_best_chains(&mut self, tip: &H) -> bool {
+        self.best_chains()
+            .iter()
+            .any(|h| Some(*h) == tip.parent().as_ref())
     }
 
     /// Rollback to an existing header for an upstream peer.
@@ -699,9 +700,9 @@ mod tests {
     use crate::consensus::headers_tree::data_generation::*;
     use crate::consensus::stages::select_chain::Fork;
     use crate::consensus::stages::select_chain::ForwardChainSelection::SwitchToFork;
+    use amaru_kernel::BlockHeader;
     use amaru_kernel::string_utils::{ListDebug, ListsToString};
     use amaru_kernel::tests::random_hash;
-    use amaru_ouroboros_traits::BlockHeader;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use proptest::{prop_assert, proptest};
     use std::assert_matches::assert_matches;
@@ -1283,15 +1284,15 @@ mod tests {
     const DEPTH: usize = 10;
     const MAX_LENGTH: usize = 5;
     const TEST_CASES_NB: u32 = 1000;
-    const ROLLBACK_RATIO: Ratio = Ratio(1, 2);
 
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(TEST_CASES_NB).end())]
         #[test]
-        fn run_chain_selection(actions in any_select_chains(DEPTH, ROLLBACK_RATIO)) {
-            let results = execute_actions(MAX_LENGTH, &actions, false).unwrap();
+        fn run_chain_selection(generated_actions in any_select_chains(DEPTH, 5)) {
+            let actions = generated_actions.actions();
+            let results = execute_actions(MAX_LENGTH, actions, false).unwrap();
             let actual_chains = make_best_chains_from_results(&results);
-            let expected_chains = make_best_chains_from_actions(&actions);
+            let expected_chains = make_best_chains_from_actions(actions);
             for (i, (actual, expected)) in actual_chains.iter().zip(expected_chains).enumerate() {
                 prop_assert!(expected.contains(actual), "\nFor action {}, the actual chain\n{}\n\nis not contained in the best chains\n\n{}\n\n", i+1,
                     actual.list_to_string(",\n "), expected.lists_to_string(",\n ", "\n "));

@@ -198,13 +198,13 @@ mod tests {
     use std::{path::PathBuf, str::FromStr};
 
     use crate::cmd::import_ledger_state::{make_era_history, sort_snapshots_by_slot};
-    use amaru_kernel::{HEADER_HASH_SIZE, Hash, Point, Slot, network::NetworkName};
+    use amaru_kernel::{Hash, HeaderHash, Point, Slot, network::NetworkName};
     use amaru_slot_arithmetic::TimeMs;
 
     #[test]
     fn make_era_history_for_tesnet_given_file_exists() {
         let dir = PathBuf::from("tests/data/");
-        let hash: Hash<HEADER_HASH_SIZE> =
+        let hash: HeaderHash =
             Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")
                 .unwrap();
         let point = Point::Specific(56073562, hash.to_vec());

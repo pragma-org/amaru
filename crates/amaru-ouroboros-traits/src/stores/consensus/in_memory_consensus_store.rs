@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ChainStore, ReadOnlyChainStore, StoreError};
-use crate::{IsHeader, Nonces};
-use amaru_kernel::{HEADER_HASH_SIZE, Hash, ORIGIN_HASH, RawBlock};
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
+use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, RawBlock};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 /// An in-memory implementation of a ChainStore used by the consensus stages.
 #[derive(Clone)]
@@ -39,12 +40,12 @@ impl<H> InMemConsensusStore<H> {
 }
 
 struct InMemConsensusStoreInner<H> {
-    nonces: BTreeMap<Hash<32>, Nonces>,
-    headers: BTreeMap<Hash<32>, H>,
-    parent_child_relationship: BTreeMap<Hash<32>, Vec<Hash<32>>>,
-    anchor: Hash<32>,
-    best_chain: Hash<32>,
-    blocks: BTreeMap<Hash<32>, RawBlock>,
+    nonces: BTreeMap<HeaderHash, Nonces>,
+    headers: BTreeMap<HeaderHash, H>,
+    parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
+    anchor: HeaderHash,
+    best_chain: HeaderHash,
+    blocks: BTreeMap<HeaderHash, RawBlock>,
 }
 
 impl<H> Default for InMemConsensusStoreInner<H> {
@@ -68,73 +69,19 @@ impl<H> InMemConsensusStoreInner<H> {
 
 impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMemConsensusStore<H> {
     #[expect(clippy::unwrap_used)]
-    fn load_header(&self, hash: &Hash<32>) -> Option<H> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         let inner = self.inner.lock().unwrap();
         inner.headers.get(hash).cloned()
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_headers(&self) -> Box<dyn Iterator<Item = H>> {
-        let inner = self.inner.lock().unwrap();
-        Box::new(
-            inner
-                .headers
-                .values()
-                .cloned()
-                .collect::<Vec<H>>()
-                .into_iter(),
-        )
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (Hash<32>, Nonces)> + '_> {
-        let inner = self.inner.lock().unwrap();
-        Box::new(
-            inner
-                .nonces
-                .iter()
-                .map(|(h, n)| (*h, n.clone()))
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (Hash<32>, RawBlock)> + '_> {
-        let inner = self.inner.lock().unwrap();
-        Box::new(
-            inner
-                .blocks
-                .iter()
-                .map(|(h, b)| (*h, b.clone()))
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn load_parents_children(
-        &self,
-    ) -> Box<dyn Iterator<Item = (Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)> + '_> {
-        let inner = self.inner.lock().unwrap();
-        Box::new(
-            inner
-                .parent_child_relationship
-                .iter()
-                .map(|(k, v)| (*k, v.to_vec()))
-                .collect::<Vec<(Hash<HEADER_HASH_SIZE>, Vec<Hash<HEADER_HASH_SIZE>>)>>()
-                .into_iter(),
-        )
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
         let inner = self.inner.lock().unwrap();
         inner.nonces.get(header).cloned()
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
         let inner = self.inner.lock().unwrap();
         inner
             .blocks
@@ -144,13 +91,13 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 
     #[expect(clippy::unwrap_used)]
-    fn has_header(&self, hash: &Hash<32>) -> bool {
+    fn has_header(&self, hash: &HeaderHash) -> bool {
         let inner = self.inner.lock().unwrap();
         inner.headers.contains_key(hash)
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_children(&self, hash: &Hash<32>) -> Vec<Hash<32>> {
+    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
         let inner = self.inner.lock().unwrap();
         inner
             .parent_child_relationship
@@ -160,13 +107,13 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_anchor_hash(&self) -> Hash<32> {
+    fn get_anchor_hash(&self) -> HeaderHash {
         let inner = self.inner.lock().unwrap();
         inner.anchor
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_best_chain_hash(&self) -> Hash<32> {
+    fn get_best_chain_hash(&self) -> HeaderHash {
         let inner = self.inner.lock().unwrap();
         inner.best_chain
     }
@@ -188,57 +135,35 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     }
 
     #[expect(clippy::unwrap_used)]
-    fn put_nonces(&self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
+    fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.nonces.insert(*header, nonces.clone());
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn store_block(&self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
+    fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.blocks.insert(*hash, (*block).clone());
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn remove_header(&self, hash: &Hash<32>) -> Result<(), StoreError> {
-        let mut inner = self.inner.lock().unwrap();
-        // unlink from parent's children list if present
-        if let Some(parent) = inner.headers.get(hash).and_then(|h| h.parent())
-            && let Some(children) = inner.parent_child_relationship.get_mut(&parent)
-        {
-            if let Some(pos) = children.iter().position(|h| h == hash) {
-                children.swap_remove(pos);
-            }
-            if children.is_empty() {
-                inner.parent_child_relationship.remove(&parent);
-            }
-        }
-
-        // remove this node's children list
-        inner.parent_child_relationship.remove(hash);
-        // finally remove the header
-        inner.headers.remove(hash);
-        Ok(())
-    }
-
-    #[expect(clippy::unwrap_used)]
-    fn set_anchor_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.anchor = *hash;
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn set_best_chain_hash(&self, hash: &Hash<32>) -> Result<(), StoreError> {
+    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.best_chain = *hash;
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn update_best_chain(&self, anchor: &Hash<32>, tip: &Hash<32>) -> Result<(), StoreError> {
+    fn update_best_chain(&self, anchor: &HeaderHash, tip: &HeaderHash) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.anchor = *anchor;
         inner.best_chain = *tip;

@@ -24,6 +24,7 @@
 // Go to 3 and continue until heap is empty;
 // Make assertions on the history to ensure the execution was correct, if not, shrink and present minimal history that breaks the assertion together with the seed that allows us to reproduce the execution.
 
+use crate::simulator::NodeConfig;
 use crate::simulator::shrink::shrink;
 use crate::simulator::simulate_config::SimulateConfig;
 use crate::simulator::world::{Entry, NodeHandle};
@@ -32,11 +33,12 @@ use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
 use rand::{SeedableRng, rngs::StdRng};
 use serde::Serialize;
+use std::fmt::Display;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
-use std::{cmp::Reverse, fmt::Debug, io::Write, path::Path};
+use std::{fmt::Debug, io::Write, path::Path};
 use tracing::{info, warn};
 
 /// Run the simulation
@@ -45,32 +47,47 @@ use tracing::{info, warn};
 /// - Spawn the nodes, send them messages, collect messages, and check the property.
 /// - If there a property fails, shrink the input messages to find a minimal failing case.
 /// - Persist the schedule of messages to a file for later replay.
-///
-pub fn simulate<Msg, F>(
-    config: &SimulateConfig,
+#[allow(clippy::too_many_arguments)]
+pub fn simulate<Msg, GenerationContext, F>(
+    simulate_config: &SimulateConfig,
+    node_config: &NodeConfig,
     spawn: F,
-    generator: impl Fn(&mut StdRng) -> Vec<Reverse<Entry<Msg>>>,
-    property: impl Fn(&History<Msg>) -> Result<(), String>,
+    generator: impl Fn(&mut StdRng) -> (Vec<Entry<Msg>>, GenerationContext),
+    property: impl Fn(&History<Msg>, &GenerationContext) -> Result<(), String>,
+    display_test_stats: impl Fn(&GenerationContext),
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     persist_on_success: bool,
 ) -> Result<(), String>
 where
-    Msg: Debug + PartialEq + Clone + Serialize,
+    Msg: Debug + PartialEq + Clone + Serialize + Display,
     F: Fn(String) -> NodeHandle<Msg>,
 {
-    let mut rng = StdRng::seed_from_u64(config.seed);
+    let mut rng = StdRng::seed_from_u64(simulate_config.seed);
 
-    for test_number in 1..=config.number_of_tests {
-        let entries: Vec<Reverse<Entry<Msg>>> = generator(&mut rng);
+    for test_number in 1..=simulate_config.number_of_tests {
+        info!("");
+        info!(
+            "Generating test data for test {}/{}",
+            test_number, simulate_config.number_of_tests
+        );
+        let (entries, generation_context) = generator(&mut rng);
+        info!("Test data generated, now sending messages");
+        display_test_stats(&generation_context);
 
-        let test = test_nodes(config.number_of_nodes, &spawn, &property);
-        match test(&entries) {
+        let test = test_nodes(
+            simulate_config.number_of_nodes,
+            &spawn,
+            &generation_context,
+            &property,
+        );
+        let result = test(&entries);
+        match result {
             (history, Err(reason)) => {
-                let failure_message = if config.disable_shrinking {
+                let failure_message = if simulate_config.disable_shrinking {
                     let number_of_shrinks = 0;
                     create_failure_message(
                         test_number,
-                        config.seed,
+                        simulate_config.seed,
                         entries,
                         number_of_shrinks,
                         history,
@@ -83,7 +100,7 @@ where
                     assert_eq!(Err(reason.clone()), result);
                     create_failure_message(
                         test_number,
-                        config.seed,
+                        simulate_config.seed,
                         shrunk_entries,
                         number_of_shrinks,
                         shrunk_history,
@@ -93,24 +110,36 @@ where
                 };
                 return Err(failure_message);
             }
-            (_history, Ok(())) => continue,
+            (_history, Ok(())) => {
+                display_test_stats(&generation_context);
+                info!(
+                    "Test {test_number}/{} succeeded!",
+                    simulate_config.number_of_tests
+                );
+                info!("");
+            }
         }
     }
     if persist_on_success {
         persist_schedule(Path::new("."), "success", trace_buffer)
     }
-    info!("Success! ({} tests passed.)", config.number_of_tests);
+    info!(
+        "Success! ({} tests passed)",
+        simulate_config.number_of_tests
+    );
+    display_test_configuration(simulate_config, node_config);
     Ok(())
 }
 
 /// Spawn a given number of nodes, run the simulation and check the property.
-fn test_nodes<Msg, F>(
+fn test_nodes<Msg, GenerationContext, F>(
     number_of_nodes: u8,
     spawn: F,
-    property: impl Fn(&History<Msg>) -> Result<(), String>,
-) -> impl Fn(&[Reverse<Entry<Msg>>]) -> (History<Msg>, Result<(), String>)
+    generation_context: &GenerationContext,
+    property: impl Fn(&History<Msg>, &GenerationContext) -> Result<(), String>,
+) -> impl Fn(&[Entry<Msg>]) -> (History<Msg>, Result<(), String>)
 where
-    Msg: Debug + PartialEq + Clone,
+    Msg: Debug + PartialEq + Clone + Display,
     F: Fn(String) -> NodeHandle<Msg>,
 {
     move |entries| {
@@ -126,7 +155,7 @@ where
         match world.run_world() {
             Ok(history) => {
                 let history = History(history.to_vec());
-                let result = property(&history);
+                let result = property(&history, generation_context);
                 (history, result)
             }
             Err((reason, history)) => (History(history.to_vec()), Err(reason)),
@@ -134,12 +163,20 @@ where
     }
 }
 
+fn display_test_configuration(simulate_config: &SimulateConfig, node_config: &NodeConfig) {
+    info!("Number of tests: {}", simulate_config.number_of_tests);
+    info!(
+        "Number of upstream peers: {}",
+        node_config.number_of_upstream_peers
+    );
+}
+
 /// Create a detailed failure message including the test number, seed, shrunk entries,
 /// number of shrinks, history and reason for failure.
 fn create_failure_message<Msg: Debug>(
     test_number: u32,
     seed: u64,
-    entries: Vec<Reverse<Entry<Msg>>>,
+    entries: Vec<Entry<Msg>>,
     number_of_shrinks: u32,
     history: History<Msg>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
@@ -148,7 +185,7 @@ fn create_failure_message<Msg: Debug>(
     let mut test_case = String::new();
     entries
         .into_iter()
-        .for_each(|entry| test_case += &format!("  {:?}\n", entry.0.envelope));
+        .for_each(|entry| test_case += &format!("  {:?}\n", entry.envelope));
     let mut history_string = String::new();
     history
         .0
@@ -239,17 +276,20 @@ mod tests {
 
     #[test]
     fn simulate_pure_stage_echo() {
-        let config = SimulateConfig::default()
+        let simulate_config = SimulateConfig::default()
             .with_number_of_tests(100)
             .with_seed(42)
             .with_number_of_nodes(1)
             .disable_shrinking();
+        let node_config = NodeConfig::default();
 
         let failure = simulate(
-            &config,
+            &simulate_config,
+            &node_config,
             spawn_echo_node,
             echo_generator,
             echo_property,
+            |_| (),
             TraceBuffer::new_shared(0, 0),
             false,
         )
@@ -262,21 +302,24 @@ mod tests {
     #[expect(dead_code)]
     #[ignore]
     fn blackbox_test_echo() {
-        let config = SimulateConfig::default()
+        let simulate_config = SimulateConfig::default()
             .with_number_of_tests(100)
             .with_seed(42)
             .with_number_of_nodes(1)
             .disable_shrinking();
+        let node_config = NodeConfig::default();
 
         let spawn: fn(String) -> NodeHandle<EchoMessage> = |_node_id| {
             NodeHandle::from_executable(Path::new("../../target/debug/echo"), &[])
                 .expect("node handle failed")
         };
         let failure_message = simulate(
-            &config,
+            &simulate_config,
+            &node_config,
             spawn,
             echo_generator,
             echo_property,
+            |_| (),
             TraceBuffer::new_shared(0, 0),
             false,
         )

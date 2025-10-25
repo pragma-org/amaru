@@ -28,14 +28,12 @@ use std::{
 use tracing::info;
 
 use amaru_kernel::{
-    EraHistory, Header, Point, RawBlock, default_chain_dir, default_ledger_dir,
+    BlockHeader, EraHistory, Header, Point, RawBlock, default_chain_dir, default_ledger_dir,
     network::NetworkName,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::{block_validator::BlockValidator, rules::parse_block};
-use amaru_ouroboros_traits::{
-    BlockHeader, ChainStore, Praos, can_validate_blocks::CanValidateBlocks,
-};
+use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
 
 use flate2::read::GzDecoder;
 use tar::Archive;
@@ -197,7 +195,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let block_validator = new_block_validator(network, ledger_dir)?;
     let tip = block_validator.get_tip();
     let chain_store: Arc<dyn ChainStore<BlockHeader>> =
-        Arc::new(RocksDBStore::new(&RocksDbConfig::new(chain_dir))?);
+        Arc::new(RocksDBStore::open(&RocksDbConfig::new(chain_dir))?);
     let praos_chain_store =
         create_praos_chain_store(global_parameters.clone(), chain_store.clone(), era_history);
 

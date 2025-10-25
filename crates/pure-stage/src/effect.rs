@@ -91,6 +91,14 @@ impl<M: SendData> Effects<M> {
         self.me.clone()
     }
 
+    /// Obtain a reference to the current stage.
+    ///
+    /// Returns a borrowed reference without cloning. Use this e.g. when sending a
+    /// message to the current stage. For owned access, see [`me()`](Self::me).
+    pub fn me_ref(&self) -> &StageRef<M> {
+        &self.me
+    }
+
     /// Obtain a handle for sending messages to the current stage from outside the network.
     /// This allows you to perform arbitrary asynchronous tasks outside the control of the
     /// StageGraph and then feed the results into the network.

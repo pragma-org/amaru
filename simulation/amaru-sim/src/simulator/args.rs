@@ -13,35 +13,12 @@
 // limitations under the License.
 
 use clap::Parser;
-use pallas_crypto::hash::Hash;
-use std::path::PathBuf;
 
 #[derive(Debug, Parser, Clone)]
 #[clap(name = "Amaru Simulator")]
 #[clap(bin_name = "amaru-sim")]
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
-    /// Path of JSON-formatted stake distribution file.
-    #[arg(long, default_value = "./stake_distribution.json")]
-    pub stake_distribution_file: PathBuf,
-
-    /// Path of JSON-formatted consensus context file.
-    #[arg(long, default_value = "./consensus_context.json")]
-    pub consensus_context_file: PathBuf,
-
-    /// Path of the chain on-disk storage.
-    #[arg(long, default_value = "./chain.db/")]
-    pub chain_dir: PathBuf,
-
-    /// Generated "block tree" file in JSON
-    #[arg(long, default_value = "./chain.json")]
-    pub block_tree_file: PathBuf,
-
-    /// Starting point for the (simulated) chain.
-    /// Default to genesis hash, eg. all-zero hash.
-    #[arg(long, default_value_t = Hash::from([0; 32]))]
-    pub start_header: Hash<32>,
-
     /// Number of tests to run in simulation
     #[arg(long, default_value = "50")]
     pub number_of_tests: u32,
@@ -57,6 +34,10 @@ pub struct Args {
     /// Number of downstream peers to simulate
     #[arg(long, default_value = "1")]
     pub number_of_downstream_peers: u8,
+
+    /// Maximum depth of the generated chain for a given peer
+    #[arg(long, default_value = "10")]
+    pub generated_chain_depth: u64,
 
     #[arg(long)]
     pub disable_shrinking: bool,

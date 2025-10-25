@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Hash;
 use amaru_sim::simulator::run::run;
 use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
 use std::env;
@@ -27,11 +26,6 @@ fn run_simulator() {
     let simulate_config = SimulateConfig::default();
     let node_config = NodeConfig::default();
     let args = Args {
-        stake_distribution_file: "tests/data/stake-distribution.json".into(),
-        consensus_context_file: "tests/data/consensus-context.json".into(),
-        chain_dir: "./chain.db".into(),
-        block_tree_file: "tests/data/chain.json".into(),
-        start_header: Hash::from([0; 32]),
         number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", simulate_config.number_of_tests),
         number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", simulate_config.number_of_nodes),
         number_of_upstream_peers: get_env_var(
@@ -42,21 +36,29 @@ fn run_simulator() {
             "AMARU_NUMBER_OF_DOWNSTREAM_PEERS",
             node_config.number_of_downstream_peers,
         ),
+        generated_chain_depth: get_env_var(
+            "AMARU_GENERATED_CHAIN_DEPTH",
+            node_config.generated_chain_depth,
+        ),
         disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true("AMARU_PERSIST_ON_SUCCESS"),
     };
 
     let amaru_logs = get_env_var::<String>("AMARU_SIMULATION_LOG", "".to_string());
-    tracing_subscriber::fmt()
+    let amaru_logs_as_json = is_true("AMARU_SIMULATION_LOG_AS_JSON");
+    let formatter = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
             EnvFilter::builder()
                 .parse(format!("none,{}", amaru_logs))
                 .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
-        )
-        .json()
-        .init();
+        );
+    if amaru_logs_as_json {
+        formatter.json().init();
+    } else {
+        formatter.init();
+    }
 
     run(Runtime::new().unwrap(), args);
 }
@@ -74,7 +76,7 @@ fn get_optional_env_var<T: FromStr>(var_name: &str) -> Option<T> {
     env::var(var_name).ok().and_then(|v| v.parse::<T>().ok())
 }
 
-/// Return true if the environment variable `var_name` is set to "1".
+/// Return true if the environment variable `var_name` is set to "1" or "true".
 fn is_true(var_name: &str) -> bool {
-    env::var(var_name).is_ok_and(|v| v == "1")
+    env::var(var_name).is_ok_and(|v| v == "1" || v == "true")
 }

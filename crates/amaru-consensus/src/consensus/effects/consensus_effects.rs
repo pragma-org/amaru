@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::Store;
-use crate::consensus::effects::metrics_effects::{Metrics, MetricsOps};
-use crate::consensus::effects::{Base, BaseOps};
-use crate::consensus::effects::{Ledger, LedgerOps};
-use crate::consensus::effects::{Network, NetworkOps};
-use amaru_ouroboros_traits::{BlockHeader, ChainStore};
+use crate::consensus::effects::{
+    Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps, Store,
+    metrics_effects::{Metrics, MetricsOps},
+};
+use amaru_kernel::BlockHeader;
+use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{Effects, SendData};
 use std::sync::Arc;
 
@@ -102,12 +102,11 @@ pub mod tests {
     use amaru_metrics::ledger::LedgerMetrics;
     use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{
-        BlockHeader, BlockValidationError, HasStakeDistribution, PoolSummary,
-    };
+    use amaru_ouroboros_traits::{BlockValidationError, HasStakeDistribution, PoolSummary};
     use amaru_slot_arithmetic::Slot;
     use pure_stage::{BoxFuture, Instant, StageRef};
     use std::collections::BTreeMap;
+    use std::future::ready;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -167,8 +166,8 @@ pub mod tests {
     impl NetworkOps for MockNetworkOps {
         fn fetch_block(
             &self,
-            _peer: &Peer,
-            point: &Point,
+            _peer: Peer,
+            point: Point,
         ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>> {
             let point_clone = point.clone();
             Box::pin(async move {
@@ -182,18 +181,22 @@ pub mod tests {
 
         fn send_forward_event(
             &self,
-            _peer: &Peer,
+            _peer: Peer,
             _header: BlockHeader,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-            Box::pin(async { Ok(()) })
+            Box::pin(ready(Ok(())))
         }
 
         fn send_backward_event(
             &self,
-            _peer: &Peer,
+            _peer: Peer,
             _header_tip: HeaderTip,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-            Box::pin(async { Ok(()) })
+            Box::pin(ready(Ok(())))
+        }
+
+        fn disconnect(&self, _peer: Peer) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+            Box::pin(ready(Ok(())))
         }
     }
 
@@ -203,7 +206,6 @@ pub mod tests {
     impl LedgerOps for MockLedgerOps {
         fn validate_header(
             &self,
-            _point: &Point,
             _header: &BlockHeader,
         ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
             Box::pin(async { Ok(()) })

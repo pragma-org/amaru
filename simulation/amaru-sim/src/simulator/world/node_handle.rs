@@ -17,11 +17,11 @@ use anyhow::anyhow;
 use pure_stage::simulation::SimulationRunning;
 use pure_stage::{Receiver, StageRef};
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use tracing::{info, info_span};
+use tracing::{debug, info_span};
 
 /// A `NodeHandle` is an async function that sends an Envelope<Msg> to a node and returns a list of Envelope<Msg>.
 /// as the result of processing that message (Envelope holds source/destination values representing node ids).
@@ -65,10 +65,16 @@ impl<Msg> NodeHandle<Msg> {
         mut running: SimulationRunning,
     ) -> anyhow::Result<NodeHandle<Msg>>
     where
-        Msg: PartialEq + Send + Debug + serde::Serialize + serde::de::DeserializeOwned + 'static,
+        Msg: PartialEq
+            + Send
+            + Debug
+            + Display
+            + serde::Serialize
+            + serde::de::DeserializeOwned
+            + 'static,
     {
         let handle = Box::new(move |msg: Envelope<Msg>| {
-            info!(msg = ?msg, "enqueuing");
+            debug!(msg = %msg, "enqueuing");
             running.enqueue_msg(&input, [msg]);
             running.run_until_blocked().assert_idle();
             let mut result = init_messages.drain().collect::<Vec<_>>();

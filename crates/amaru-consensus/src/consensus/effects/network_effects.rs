@@ -12,40 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::errors::ConsensusError;
-use crate::consensus::errors::ProcessingFailed;
-use crate::consensus::stages::fetch_block::BlockFetcher;
-use crate::consensus::tip::HeaderTip;
-use amaru_kernel::Point;
-use amaru_kernel::peer::Peer;
-use amaru_ouroboros_traits::{BlockHeader, IsHeader};
+use crate::consensus::{
+    errors::{ConsensusError, ProcessingFailed},
+    tip::HeaderTip,
+};
+use amaru_kernel::{BlockHeader, IsHeader, Point, consensus_events::ChainSyncEvent, peer::Peer};
+use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 
 /// Network operations available to a stage: fetch block and forward events to peers.
 /// This trait can have mock implementations for unit testing a stage.
 pub trait NetworkOps {
     fn fetch_block(
         &self,
-        peer: &Peer,
-        point: &Point,
+        peer: Peer,
+        point: Point,
     ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>>;
 
     fn send_forward_event(
         &self,
-        peer: &Peer,
+        peer: Peer,
         header: BlockHeader,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 
     fn send_backward_event(
         &self,
-        peer: &Peer,
+        peer: Peer,
         header_tip: HeaderTip,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
+
+    fn disconnect(&self, peer: Peer) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 }
 
 /// Implementation of NetworkOps using pure_stage::Effects.
@@ -60,15 +60,15 @@ impl<'a, T> Network<'a, T> {
 impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
     fn fetch_block(
         &self,
-        peer: &Peer,
-        point: &Point,
+        peer: Peer,
+        point: Point,
     ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>> {
         self.0.external(FetchBlockEffect::new(peer, point))
     }
 
     fn send_forward_event(
         &self,
-        peer: &Peer,
+        peer: Peer,
         header: BlockHeader,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
         self.0
@@ -77,7 +77,7 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
 
     fn send_backward_event(
         &self,
-        peer: &Peer,
+        peer: Peer,
         header_tip: HeaderTip,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
         self.0.external(ForwardEventEffect::new(
@@ -85,50 +85,17 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
             ForwardEvent::Backward(header_tip),
         ))
     }
+
+    fn disconnect(&self, peer: Peer) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+        let f = self.0.external(DisconnectEffect::new(peer));
+        #[allow(clippy::unit_arg)]
+        Box::pin(async move { Ok(f.await) })
+    }
 }
 
 // EXTERNAL EFFECTS DEFINITIONS
 
-pub type ResourceBlockFetcher = Arc<dyn BlockFetcher + Send + Sync>;
 pub type ResourceForwardEventListener = Arc<dyn ForwardEventListener + Send + Sync>;
-
-/// This effect is used to fetch a block from a peer given a point (hash + slot).
-/// The effect response is either a vector of bytes representing the block,
-/// or a ConsensusError if the block could not be fetched.
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FetchBlockEffect {
-    peer: Peer,
-    point: Point,
-}
-
-impl ExternalEffectAPI for FetchBlockEffect {
-    type Response = Result<Vec<u8>, ConsensusError>;
-}
-
-impl FetchBlockEffect {
-    pub fn new(peer: &Peer, point: &Point) -> Self {
-        Self {
-            peer: peer.clone(),
-            point: point.clone(),
-        }
-    }
-}
-
-impl ExternalEffect for FetchBlockEffect {
-    #[expect(clippy::expect_used)]
-    fn run(
-        self: Box<Self>,
-        resources: Resources,
-    ) -> pure_stage::BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let block_fetcher = resources
-                .get::<ResourceBlockFetcher>()
-                .expect("FetchBlockEffect requires a BlockFetcher")
-                .clone();
-            block_fetcher.fetch_block(&self.peer, &self.point).await
-        })
-    }
-}
 
 /// A listener interface for forward events (new headers or rollbacks).
 /// These events are either caught for tests or forwarded to downstream peers (see the TcpForwardEventListener implementation).
@@ -168,11 +135,8 @@ pub struct ForwardEventEffect {
 }
 
 impl ForwardEventEffect {
-    pub fn new(peer: &Peer, event: ForwardEvent) -> Self {
-        Self {
-            peer: peer.clone(),
-            event,
-        }
+    pub fn new(peer: Peer, event: ForwardEvent) -> Self {
+        Self { peer, event }
     }
 }
 
@@ -203,4 +167,88 @@ impl ExternalEffect for ForwardEventEffect {
 
 impl ExternalEffectAPI for ForwardEventEffect {
     type Response = Result<(), ProcessingFailed>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChainSyncEffect;
+
+impl ExternalEffectAPI for ChainSyncEffect {
+    type Response = ChainSyncEvent;
+}
+
+impl ExternalEffect for ChainSyncEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let network = resources
+                .get::<ResourceNetworkOperations>()
+                .expect("ChainSyncEffect requires a NetworkOperations")
+                .clone();
+            network.next_sync().await
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FetchBlockEffect {
+    peer: Peer,
+    point: Point,
+}
+
+impl ExternalEffectAPI for FetchBlockEffect {
+    type Response = Result<Vec<u8>, ConsensusError>;
+}
+
+impl FetchBlockEffect {
+    pub fn new(peer: Peer, point: Point) -> Self {
+        Self { peer, point }
+    }
+}
+
+impl ExternalEffect for FetchBlockEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let network = resources
+                .get::<ResourceNetworkOperations>()
+                .expect("FetchBlockEffect requires a NetworkOperations")
+                .clone();
+            let point = self.point.clone();
+            network
+                .fetch_block(&self.peer, self.point)
+                .await
+                .map_err(|err| {
+                    tracing::warn!(%point, %err, "fetch block failed");
+                    ConsensusError::FetchBlockFailed(point)
+                })
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DisconnectEffect {
+    peer: Peer,
+}
+
+impl ExternalEffectAPI for DisconnectEffect {
+    type Response = ();
+}
+
+impl DisconnectEffect {
+    pub fn new(peer: Peer) -> Self {
+        Self { peer }
+    }
+}
+
+impl ExternalEffect for DisconnectEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let network = resources
+                .get::<ResourceNetworkOperations>()
+                .expect("DisconnectEffect requires a NetworkOperations")
+                .clone();
+            network.disconnect(&self.peer).await
+        })
+    }
 }

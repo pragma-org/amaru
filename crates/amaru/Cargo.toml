@@ -30,7 +30,6 @@ async-compression.workspace = true
 async-trait.workspace = true
 clap.workspace = true
 futures-util.workspace = true
-gasket.workspace = true
 hex.workspace = true
 indicatif.workspace = true
 indoc.workspace = true
@@ -60,7 +59,7 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru-consensus.workspace = true
+amaru-consensus = { workspace = true, features = [] }
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-network.workspace = true

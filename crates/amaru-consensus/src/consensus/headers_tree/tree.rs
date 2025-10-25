@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_ouroboros_traits::{HeaderHash, IsHeader};
+use amaru_kernel::HeaderHash;
+use amaru_kernel::IsHeader;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -155,6 +156,20 @@ impl<H> Tree<H> {
         result
     }
 
+    pub fn fork_nodes(&self) -> Vec<H>
+    where
+        H: Clone,
+    {
+        let mut result = vec![];
+        for child in &self.children {
+            if child.children.len() > 1 {
+                result.push(child.value.clone());
+            }
+            result.extend(child.fork_nodes())
+        }
+        result
+    }
+
     /// Return the leaves of a `Tree`
     pub fn leaves(&self) -> Vec<H>
     where
@@ -164,6 +179,26 @@ impl<H> Tree<H> {
             vec![self.value.clone()]
         } else {
             self.children.iter().flat_map(|c| c.leaves()).collect()
+        }
+    }
+
+    /// Return the branches of a `Tree`
+    pub fn branches(&self) -> Vec<Vec<H>>
+    where
+        H: Clone,
+    {
+        if self.children.is_empty() {
+            vec![vec![self.value.clone()]]
+        } else {
+            let mut result = vec![];
+            for child in &self.children {
+                for mut branch in child.branches() {
+                    let mut new_branch = vec![self.value.clone()];
+                    new_branch.append(&mut branch);
+                    result.push(new_branch);
+                }
+            }
+            result
         }
     }
 
@@ -219,14 +254,14 @@ impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
 mod tests {
     use super::*;
     use crate::consensus::headers_tree::data_generation::{
-        Ratio, any_tree_of_headers, config_begin, generate_header_tree, generate_headers_chain,
+        any_headers_tree, config_begin, generate_headers_chain, generate_headers_tree,
     };
     use proptest::{prop_assert_eq, proptest};
 
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(1).end())]
         #[test]
-        fn test_creation_from_map(tree in any_tree_of_headers(7, Ratio(1, 5))) {
+        fn test_creation_from_map(tree in any_headers_tree(7)) {
             let as_map = tree.to_map();
             if let Some(actual) = Tree::from(&as_map) {
                 prop_assert_eq!(actual.size(), tree.size());
@@ -252,11 +287,15 @@ mod tests {
 
     #[test]
     fn test_pretty_print() {
-        let tree = generate_header_tree(4, 42, Ratio(1, 10));
+        let tree = generate_headers_tree(4, 42);
         let expected = r#"
 BlockHeader { hash: "ede0bf92248771ce3f7295de922779309a9835eea7a82d883b371bbbfef19585", slot: 1, parent: None }
     └── BlockHeader { hash: "20fe63078d93756d7eb18a559924988caaec5dd8ac4db4ef152dd60c98a0555e", slot: 2, parent: Some("ede0bf92248771ce3f7295de922779309a9835eea7a82d883b371bbbfef19585") }
+        ├── BlockHeader { hash: "48b20250f4748664ab000d358f45e79b433e9636a74f25cc537644c8fc1e913b", slot: 3, parent: Some("20fe63078d93756d7eb18a559924988caaec5dd8ac4db4ef152dd60c98a0555e") }
+        │   ├── BlockHeader { hash: "279d65710f6de344f8a47d4825d9250d7d7668a1f235c307377ce2c29b2e0674", slot: 4, parent: Some("48b20250f4748664ab000d358f45e79b433e9636a74f25cc537644c8fc1e913b") }
+        │   └── BlockHeader { hash: "817f2c3bdb88f599bbf8db744ca0068ea237802d0111ffd4ba73e34c96bf289b", slot: 4, parent: Some("48b20250f4748664ab000d358f45e79b433e9636a74f25cc537644c8fc1e913b") }
         └── BlockHeader { hash: "7ce670b4aa39be3850a5d5a6c81b05f11f847d52b09f1176c9cb337049f4cac7", slot: 3, parent: Some("20fe63078d93756d7eb18a559924988caaec5dd8ac4db4ef152dd60c98a0555e") }
+            ├── BlockHeader { hash: "5a3f1c5dfcdd26a0715100b7b2460e48b4cab2530b44a9d11c1313b5befb43e5", slot: 4, parent: Some("7ce670b4aa39be3850a5d5a6c81b05f11f847d52b09f1176c9cb337049f4cac7") }
             └── BlockHeader { hash: "6dca7547629ab45ae3e46160c6ea00b0d537bb27b0232a8030ec8ee122c56550", slot: 4, parent: Some("7ce670b4aa39be3850a5d5a6c81b05f11f847d52b09f1176c9cb337049f4cac7") }
 "#;
         assert_eq!(

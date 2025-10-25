@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use crate::consensus::errors::ProcessingFailed;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::{Point, RawBlock};
+use amaru_kernel::{BlockHeader, Point, RawBlock, peer::Peer};
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::can_validate_blocks::{CanValidateHeaders, HeaderValidationError};
-use amaru_ouroboros_traits::{BlockHeader, BlockValidationError, CanValidateBlocks};
+use amaru_ouroboros_traits::{
+    BlockValidationError, CanValidateBlocks,
+    can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
+};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 
@@ -26,7 +27,6 @@ use std::sync::Arc;
 pub trait LedgerOps: Send + Sync {
     fn validate_header(
         &self,
-        point: &Point,
         header: &BlockHeader,
     ) -> BoxFuture<'_, Result<(), HeaderValidationError>>;
 
@@ -56,10 +56,9 @@ impl<T> Ledger<T> {
 impl<T: SendData + Sync> LedgerOps for Ledger<T> {
     fn validate_header(
         &self,
-        point: &Point,
         header: &BlockHeader,
     ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
-        self.0.external(ValidateHeaderEffect::new(point, header))
+        self.0.external(ValidateHeaderEffect::new(header))
     }
 
     fn validate_block(
@@ -124,14 +123,12 @@ impl ExternalEffectAPI for ValidateBlockEffect {
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateHeaderEffect {
-    point: Point,
     header: BlockHeader,
 }
 
 impl ValidateHeaderEffect {
-    pub fn new(point: &Point, header: &BlockHeader) -> Self {
+    pub fn new(header: &BlockHeader) -> Self {
         Self {
-            point: point.clone(),
             header: header.clone(),
         }
     }
@@ -145,7 +142,7 @@ impl ExternalEffect for ValidateHeaderEffect {
                 .get::<ResourceHeaderValidation>()
                 .expect("ValidateHeaderEffect requires a ResourceHeaderValidation resource")
                 .clone();
-            validator.validate_header(&self.point, &self.header)
+            validator.validate_header(&self.header)
         })
     }
 }

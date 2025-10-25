@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_consensus::{DiagnosticChainStore, ReadOnlyChainStore};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::to_cbor;
-use amaru_ouroboros_traits::{BlockHeader, ChainStore, IsHeader};
+use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_stores::rocksdb::RocksDbConfig;
-use amaru_stores::rocksdb::consensus::RocksDBStore;
+use amaru_stores::rocksdb::consensus::{ReadOnlyChainDB, RocksDBStore};
 use clap::{Parser, arg};
 use std::fmt::Display;
-use std::sync::Arc;
 use std::{error::Error, path::PathBuf};
 
 #[derive(Debug, Parser)]
@@ -44,8 +44,7 @@ pub struct Args {
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir;
-    let db: Arc<dyn ChainStore<BlockHeader>> =
-        Arc::new(RocksDBStore::new(&RocksDbConfig::new(chain_dir))?);
+    let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
 
     print_iterator(
         "headers",
@@ -76,9 +75,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 }
 
 #[expect(clippy::print_stdout)]
-pub fn print_best_chain(db: Arc<dyn ChainStore<BlockHeader>>) {
+pub fn print_best_chain(db: ReadOnlyChainDB) {
     println!();
-    let best_chain = db.retrieve_best_chain();
+    let best_chain = <ReadOnlyChainDB as ReadOnlyChainStore<BlockHeader>>::retrieve_best_chain(&db);
     println!(
         "The best chain is:\n  {}",
         best_chain.list_to_string("\n  ")
@@ -86,8 +85,14 @@ pub fn print_best_chain(db: Arc<dyn ChainStore<BlockHeader>>) {
 
     println!();
     println!("The best chain length is: {}", best_chain.len());
-    println!("The best chain anchor is: {}", db.get_anchor_hash());
-    println!("The best chain tip is: {}", db.get_best_chain_hash());
+    println!(
+        "The best chain anchor is: {}",
+        <ReadOnlyChainDB as ReadOnlyChainStore<BlockHeader>>::get_anchor_hash(&db)
+    );
+    println!(
+        "The best chain tip is: {}",
+        <ReadOnlyChainDB as ReadOnlyChainStore<BlockHeader>>::get_best_chain_hash(&db)
+    );
 }
 
 #[expect(clippy::print_stdout)]

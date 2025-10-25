@@ -33,7 +33,7 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher, Lovelace,
+    ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher, IsHeader, Lovelace,
     MemoizedTransactionOutput, MintedBlock, Network, Point, PoolId, RawBlock, Slot,
     StakeCredential, StakeCredentialType, TransactionInput, expect_stake_credential,
     network::NetworkName,
@@ -41,7 +41,7 @@ use amaru_kernel::{
     stake_credential_hash,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, PoolSummary};
+use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use anyhow::{Context, anyhow};
 use std::{

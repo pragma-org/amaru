@@ -24,8 +24,8 @@ pub use consensus_effects::{ConsensusEffects, ConsensusOps};
 pub use ledger_effects::{Ledger, LedgerOps, ResourceBlockValidation, ResourceHeaderValidation};
 pub use metrics_effects::{MetricsOps, ResourceMeter};
 pub use network_effects::{
-    ForwardEvent, ForwardEventListener, Network, NetworkOps, ResourceBlockFetcher,
-    ResourceForwardEventListener,
+    ChainSyncEffect, DisconnectEffect, FetchBlockEffect, ForwardEvent, ForwardEventListener,
+    Network, NetworkOps, ResourceForwardEventListener,
 };
 pub use store_effects::{ResourceHeaderStore, ResourceParameters, Store};
 

@@ -131,7 +131,7 @@ pub struct RocksDB {
 
 #[derive(Clone)]
 pub struct RocksDbConfig {
-    dir: PathBuf,
+    pub dir: PathBuf,
     env: Option<rocksdb::Env>,
 }
 
@@ -169,10 +169,10 @@ impl std::fmt::Display for RocksDbConfig {
             write!(
                 f,
                 "RocksDbConfig {{ dir: {}, env: shared }}",
-                self.dir.display()
+                self.dir.display(),
             )
         } else {
-            write!(f, "RocksDbConfig {{ dir: {} }}", self.dir.display())
+            write!(f, "RocksDbConfig {{ dir: {} }}", self.dir.display(),)
         }
     }
 }

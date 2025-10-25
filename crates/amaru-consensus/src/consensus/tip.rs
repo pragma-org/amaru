@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HEADER_HASH_SIZE, ORIGIN_HASH, Point, cbor};
-use amaru_ouroboros_traits::is_header::IsHeader;
-use pallas_crypto::hash::Hash;
+use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, cbor};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 
@@ -93,7 +91,7 @@ impl<H: IsHeader> Tip<H> {
     }
 }
 impl<H: IsHeader> IsHeader for Tip<H> {
-    fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+    fn hash(&self) -> HeaderHash {
         match self {
             Tip::Genesis => ORIGIN_HASH,
             Tip::Hdr(header) => header.hash(),
@@ -107,7 +105,7 @@ impl<H: IsHeader> IsHeader for Tip<H> {
         }
     }
 
-    fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>> {
+    fn parent(&self) -> Option<HeaderHash> {
         match self {
             Tip::Genesis => None,
             Tip::Hdr(header) => header.parent(),
@@ -164,7 +162,7 @@ impl HeaderTip {
         Self(point, block_height)
     }
 
-    pub fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+    pub fn hash(&self) -> HeaderHash {
         self.0.hash()
     }
 

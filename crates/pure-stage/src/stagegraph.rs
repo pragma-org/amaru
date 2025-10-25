@@ -179,6 +179,18 @@ pub trait StageGraph {
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
 
+    /// Preload the given stage’s mailbox with the given messages.
+    ///
+    /// Since the stage is not running yet, this will return false and drop messages
+    /// as soon as the mailbox is full.
+    ///
+    /// Returns true if the messages were successfully preloaded.
+    fn preload<Msg: SendData>(
+        &mut self,
+        stage: impl AsRef<StageRef<Msg>>,
+        messages: impl IntoIterator<Item = Msg>,
+    ) -> bool;
+
     /// Consume this network builder and start the network — the precise meaning of this
     /// depends on the `StageGraph` implementation used.
     ///
