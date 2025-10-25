@@ -144,7 +144,7 @@ pub async fn import_one(
 
     fs::create_dir_all(ledger_dir)?;
     let db = RocksDB::empty(RocksDbConfig::new(ledger_dir.into()))?;
-    let bytes = fs::read(snapshot)?;
+    let mut file = fs::File::open(snapshot)?;
     let dir = snapshot
         .parent()
         .ok_or(Error::InvalidSnapshotFile(snapshot.into()))?;
@@ -152,9 +152,10 @@ pub async fn import_one(
     let era_history = make_era_history(dir, &point, network)?;
     let epoch = import_initial_snapshot(
         &db,
-        &bytes,
+        &mut file,
         &point,
         &era_history,
+        network,
         new_terminal_progress_bar,
         None,
         true,

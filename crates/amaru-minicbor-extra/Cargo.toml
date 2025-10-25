@@ -12,5 +12,10 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+tracing = ["dep:tracing"]
+
 [dependencies]
 minicbor.workspace = true
+tracing = { workspace = true, optional = true }
