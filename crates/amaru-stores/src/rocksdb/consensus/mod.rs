@@ -677,6 +677,49 @@ pub mod test {
         })
     }
 
+    #[test]
+    fn update_best_chain_to_block_slot_given_new_block_is_valid() {
+        let (store, chain) = populate_db();
+        let new_tip = run(any_header_with_parent(chain[9].hash()));
+
+        store
+            .roll_forward_chain(&new_tip.point())
+            .expect("should roll forward successfully");
+
+        assert_eq!(
+            store.load_from_best_chain(&new_tip.point()),
+            Some(new_tip.hash())
+        );
+    }
+
+    #[test]
+    fn update_best_chain_to_rollback_point() {
+        let (store, chain) = populate_db();
+
+        store
+            .rollback_chain(&chain[5].point())
+            .expect("should rollback successfully");
+
+        assert_eq!(store.load_from_best_chain(&chain[9].point()), None);
+        assert_eq!(
+            store.load_from_best_chain(&chain[5].point()),
+            Some(chain[5].hash())
+        );
+    }
+
+    #[test]
+    fn raises_error_if_rollback_is_not_on_best_chain() {
+        let (store, chain) = populate_db();
+        let new_tip = run(any_header_with_parent(chain[6].hash()));
+
+        let result = store.rollback_chain(&new_tip.point());
+
+        match result {
+            Ok(_) => panic!("expected test to fail"),
+            Err(_) => (), // expected
+        }
+    }
+
     // MIGRATIONS
 
     #[test]
@@ -879,8 +922,29 @@ pub mod test {
         );
     }
 
-    const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b0089e6e81c947";
     // HELPERS
+
+    const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b0089e6e81c947";
+
+    fn populate_db() -> (Arc<dyn ChainStore<BlockHeader>>, Vec<BlockHeader>) {
+        let tempdir = tempfile::tempdir().unwrap();
+        let chain = run(any_headers_chain(10));
+        let store: Arc<dyn ChainStore<BlockHeader>> =
+            Arc::new(initialise_test_rw_store(tempdir.path()));
+
+        for header in chain.iter() {
+            store
+                .set_best_chain_hash(&header.hash())
+                .expect("should set best chain hash successfully");
+            store
+                .roll_forward_chain(&header.point())
+                .expect("should roll forward successfully");
+            store
+                .store_header(header)
+                .expect("should store header successfully");
+        }
+        (store, chain)
+    }
 
     pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
         let basedir = init_dir(path);
