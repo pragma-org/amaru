@@ -225,14 +225,14 @@ impl<T> DerefMut for MpscSender<T> {
     }
 }
 
-#[expect(dead_code)]
+#[allow(dead_code)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MpscReceiver<T> {
     #[serde(skip, default = "dummy_receiver")]
     pub receiver: mpsc::Receiver<T>,
 }
 
-#[expect(dead_code)]
+#[allow(dead_code)]
 fn dummy_receiver<T>() -> mpsc::Receiver<T> {
     mpsc::channel(1).1
 }
@@ -264,21 +264,115 @@ impl<T> DerefMut for MpscReceiver<T> {
     }
 }
 
+/// An extension trait that allows termination or early return within a stage.
 pub trait TryInStage {
+    /// The successful result of this container type.
     type Result;
+    /// The error type of this container type.
     type Error;
 
-    #[expect(async_fn_in_trait)]
+    /// Terminate the stage if the container is empty, otherwise return the contained value.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use pure_stage::{simulation::SimulationBuilder, StageGraph, TryInStage};
+    ///
+    /// let mut network = SimulationBuilder::default();
+    /// network.stage("demo", async |_state: (), msg: Result<u32, String>, eff| {
+    ///     let msg: u32 = msg.or_terminate(&eff, async |error: String| {
+    ///         tracing::error!("error: {}", error);
+    ///         // could also run effects here
+    ///     })
+    ///     .await;
+    ///     tracing::info!("received message: {}", msg);
+    /// });
+    /// ```
+    #[allow(async_fn_in_trait)]
     async fn or_terminate<M>(
         self,
         eff: &Effects<M>,
         alt: impl AsyncFnOnce(Self::Error),
     ) -> Self::Result;
+
+    /// Return a value from the stage if the container is empty, otherwise continue with the contained value.
+    ///
+    /// This is only useful in conjunction with [`StageGraph::stage_ret`](crate::StageGraph::stage_ret).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use pure_stage::{simulation::SimulationBuilder, StageGraph, State, TryInStage};
+    ///
+    /// let mut network = SimulationBuilder::default();
+    /// network.stage_ret("demo", async |state: u32, msg: Result<u32, String>, eff| {
+    ///     let state: u32 = msg.or_return(async |error: String| {
+    ///         tracing::error!("error: {}", error);
+    ///         // could also run effects here
+    ///         10
+    ///     })
+    ///     .await?;
+    ///     tracing::info!("received message: {}", state);
+    ///     State(state)
+    /// });
+    #[allow(async_fn_in_trait)]
+    #[cfg(feature = "nightly")]
+    async fn or_return<S>(
+        self,
+        alt: impl AsyncFnOnce(Self::Error) -> S,
+    ) -> OrReturn<Self::Result, S>;
+}
+
+/// A wrapper type used with [`StageGraph::stage_ret`](crate::StageGraph::stage_ret)
+/// to allow short-circuiting with the `?` operator.
+pub struct State<S>(pub S);
+
+#[cfg(feature = "nightly")]
+impl<S> std::ops::FromResidual<OrReturn<std::convert::Infallible, S>> for State<S> {
+    fn from_residual(residual: OrReturn<std::convert::Infallible, S>) -> Self {
+        match residual {
+            OrReturn::Return(value) => State(value),
+        }
+    }
+}
+
+/// A wrapper type used with [`TryInStage::or_return`](crate::TryInStage::or_return)
+/// to allow short-circuiting with the `?` operator with a stage crated using
+/// [`StageGraph::stage_ret`](crate::StageGraph::stage_ret).
+#[cfg(feature = "nightly")]
+pub enum OrReturn<T, S> {
+    Continue(T),
+    Return(S),
+}
+
+#[cfg(feature = "nightly")]
+impl<T, S> std::ops::Try for OrReturn<T, S> {
+    type Output = T;
+    type Residual = OrReturn<std::convert::Infallible, S>;
+
+    fn from_output(output: Self::Output) -> Self {
+        OrReturn::Continue(output)
+    }
+
+    fn branch(self) -> std::ops::ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            OrReturn::Continue(value) => std::ops::ControlFlow::Continue(value),
+            OrReturn::Return(value) => std::ops::ControlFlow::Break(OrReturn::Return(value)),
+        }
+    }
+}
+
+#[cfg(feature = "nightly")]
+impl<T, S> std::ops::FromResidual<OrReturn<std::convert::Infallible, S>> for OrReturn<T, S> {
+    fn from_residual(residual: OrReturn<std::convert::Infallible, S>) -> Self {
+        match residual {
+            OrReturn::Return(value) => OrReturn::Return(value),
+        }
+    }
 }
 
 impl<T> TryInStage for Option<T> {
     type Result = T;
-
     type Error = ();
 
     async fn or_terminate<M>(
@@ -292,6 +386,17 @@ impl<T> TryInStage for Option<T> {
                 alt(()).await;
                 eff.terminate().await
             }
+        }
+    }
+
+    #[cfg(feature = "nightly")]
+    async fn or_return<S>(
+        self,
+        alt: impl AsyncFnOnce(Self::Error) -> S,
+    ) -> OrReturn<Self::Result, S> {
+        match self {
+            Some(value) => OrReturn::Continue(value),
+            None => OrReturn::Return(alt(()).await),
         }
     }
 }
@@ -314,12 +419,23 @@ impl<T, E> TryInStage for Result<T, E> {
             }
         }
     }
+
+    #[cfg(feature = "nightly")]
+    async fn or_return<S>(
+        self,
+        alt: impl AsyncFnOnce(Self::Error) -> S,
+    ) -> OrReturn<Self::Result, S> {
+        match self {
+            Ok(value) => OrReturn::Continue(value),
+            Err(error) => OrReturn::Return(alt(error).await),
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
     use crate::{
-        Effect, Instant, SendData, StageGraph, StageGraphRunning, StageResponse, TryInStage,
+        Effect, Instant, SendData, StageGraph, StageGraphRunning, StageResponse, State, TryInStage,
         serde::SendDataValue,
         simulation::SimulationBuilder,
         trace_buffer::{TraceBuffer, TraceEntry},
@@ -380,41 +496,19 @@ mod test {
 
         sim.enqueue_msg(&stage, [None]);
         sim.run_until_blocked();
-        assert_eq!(sim.is_terminated(), true);
+        assert!(sim.is_terminated());
 
         pretty_assertions::assert_eq!(
             trace.lock().hydrate(),
             vec![
-                TraceEntry::State {
-                    stage: "stage-0".into(),
-                    state: SendDataValue::boxed(0u32),
-                },
-                TraceEntry::Input {
-                    stage: "stage-0".into(),
-                    input: SendDataValue::boxed(Some(1u32))
-                },
-                TraceEntry::Resume {
-                    stage: "stage-0".into(),
-                    response: StageResponse::Unit
-                },
-                TraceEntry::State {
-                    stage: "stage-0".into(),
-                    state: SendDataValue::boxed(1u32),
-                },
-                TraceEntry::Suspend(Effect::Receive {
-                    at_stage: "stage-0".into()
-                }),
-                TraceEntry::Input {
-                    stage: "stage-0".into(),
-                    input: SendDataValue::boxed(None::<u32>),
-                },
-                TraceEntry::Resume {
-                    stage: "stage-0".into(),
-                    response: StageResponse::Unit
-                },
-                TraceEntry::Suspend(Effect::Terminate {
-                    at_stage: "stage-0".into()
-                })
+                TraceEntry::state("stage-0", SendDataValue::boxed(0u32)),
+                TraceEntry::input("stage-0", SendDataValue::boxed(Some(1u32))),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::state("stage-0", SendDataValue::boxed(1u32)),
+                TraceEntry::suspend(Effect::receive("stage-0")),
+                TraceEntry::input("stage-0", SendDataValue::boxed(None::<u32>)),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::suspend(Effect::terminate("stage-0"))
             ]
         );
     }
@@ -440,52 +534,108 @@ mod test {
 
         sim.enqueue_msg(&stage, [Err(2)]);
         sim.run_until_blocked();
-        assert_eq!(sim.is_terminated(), true);
+        assert!(sim.is_terminated());
+
+        let two_sec = Instant::at_offset(Duration::from_secs(2));
+        pretty_assertions::assert_eq!(
+            trace.lock().hydrate(),
+            vec![
+                TraceEntry::state("stage-0", SendDataValue::boxed(0u32)),
+                TraceEntry::input("stage-0", SendDataValue::boxed(Ok::<_, u32>(1u32))),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::state("stage-0", SendDataValue::boxed(1u32)),
+                TraceEntry::suspend(Effect::receive("stage-0")),
+                TraceEntry::input("stage-0", SendDataValue::boxed(Err::<u32, _>(2u32))),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::suspend(Effect::wait("stage-0", Duration::from_secs(2))),
+                TraceEntry::clock(two_sec),
+                TraceEntry::resume("stage-0", StageResponse::WaitResponse(two_sec)),
+                TraceEntry::suspend(Effect::terminate("stage-0"))
+            ]
+        );
+    }
+
+    #[test]
+    fn try_in_stage_option_return() {
+        let trace = TraceBuffer::new_shared(100, 1_000_000);
+        let mut network = SimulationBuilder::default().with_trace_buffer(trace.clone());
+        let stage = network.stage_ret("stage", async |_: u32, msg: Option<u32>, _eff| {
+            let state = msg.or_return(async |_| 10u32).await?;
+            State(state)
+        });
+        let stage = network.wire_up(stage, 0);
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut sim = network.run(rt.handle().clone());
+
+        sim.enqueue_msg(&stage, [Some(1)]);
+        sim.run_until_blocked();
+        assert_eq!(*sim.get_state(&stage).unwrap(), 1);
+
+        sim.enqueue_msg(&stage, [None]);
+        sim.run_until_blocked();
+        assert!(!sim.is_terminated());
+        assert_eq!(*sim.get_state(&stage).unwrap(), 10);
 
         pretty_assertions::assert_eq!(
             trace.lock().hydrate(),
             vec![
-                TraceEntry::State {
-                    stage: "stage-0".into(),
-                    state: SendDataValue::boxed(0u32),
-                },
-                TraceEntry::Input {
-                    stage: "stage-0".into(),
-                    input: SendDataValue::boxed(Ok::<_, u32>(1u32))
-                },
-                TraceEntry::Resume {
-                    stage: "stage-0".into(),
-                    response: StageResponse::Unit
-                },
-                TraceEntry::State {
-                    stage: "stage-0".into(),
-                    state: SendDataValue::boxed(1u32),
-                },
-                TraceEntry::Suspend(Effect::Receive {
-                    at_stage: "stage-0".into()
-                }),
-                TraceEntry::Input {
-                    stage: "stage-0".into(),
-                    input: SendDataValue::boxed(Err::<u32, _>(2u32)),
-                },
-                TraceEntry::Resume {
-                    stage: "stage-0".into(),
-                    response: StageResponse::Unit
-                },
-                TraceEntry::Suspend(Effect::Wait {
-                    at_stage: "stage-0".into(),
-                    duration: Duration::from_secs(2)
-                }),
-                TraceEntry::Clock(Instant::at_offset(Duration::from_secs(2))),
-                TraceEntry::Resume {
-                    stage: "stage-0".into(),
-                    response: StageResponse::WaitResponse(Instant::at_offset(Duration::from_secs(
-                        2
-                    )))
-                },
-                TraceEntry::Suspend(Effect::Terminate {
-                    at_stage: "stage-0".into()
+                TraceEntry::state("stage-0", SendDataValue::boxed(0u32)),
+                TraceEntry::input("stage-0", SendDataValue::boxed(Some(1u32))),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::state("stage-0", SendDataValue::boxed(1u32)),
+                TraceEntry::suspend(Effect::receive("stage-0")),
+                TraceEntry::input("stage-0", SendDataValue::boxed(None::<u32>)),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::state("stage-0", SendDataValue::boxed(10u32)),
+                TraceEntry::suspend(Effect::receive("stage-0"))
+            ]
+        );
+    }
+
+    #[test]
+    fn try_in_stage_result_return() {
+        let trace = TraceBuffer::new_shared(100, 1_000_000);
+        let mut network = SimulationBuilder::default().with_trace_buffer(trace.clone());
+        let stage = network.stage_ret("stage", async |_: u32, msg: Result<u32, u32>, eff| {
+            let state = msg
+                .or_return(async |error| {
+                    eff.wait(Duration::from_secs(error.into())).await;
+                    10
                 })
+                .await?;
+            State(state)
+        });
+        let stage = network.wire_up(stage, 0);
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut sim = network.run(rt.handle().clone());
+
+        sim.enqueue_msg(&stage, [Ok(1)]);
+        sim.run_until_blocked();
+        assert_eq!(*sim.get_state(&stage).unwrap(), 1);
+
+        sim.enqueue_msg(&stage, [Err(2)]);
+        sim.run_until_blocked();
+        assert!(!sim.is_terminated());
+        assert_eq!(*sim.get_state(&stage).unwrap(), 10);
+
+        let two_sec = Instant::at_offset(Duration::from_secs(2));
+        pretty_assertions::assert_eq!(
+            trace.lock().hydrate(),
+            vec![
+                TraceEntry::state("stage-0", SendDataValue::boxed(0u32)),
+                TraceEntry::input("stage-0", SendDataValue::boxed(Ok::<_, u32>(1u32))),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::state("stage-0", SendDataValue::boxed(1u32)),
+                TraceEntry::suspend(Effect::receive("stage-0")),
+                TraceEntry::input("stage-0", SendDataValue::boxed(Err::<u32, _>(2u32))),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::suspend(Effect::wait("stage-0", Duration::from_secs(2))),
+                TraceEntry::clock(two_sec),
+                TraceEntry::resume("stage-0", StageResponse::WaitResponse(two_sec)),
+                TraceEntry::state("stage-0", SendDataValue::boxed(10u32)),
+                TraceEntry::suspend(Effect::receive("stage-0")),
             ]
         );
     }

@@ -107,6 +107,11 @@ pub struct SendDataValue {
 }
 
 impl SendDataValue {
+    /// Construct a boxed [`SendData`](crate::SendData) value from a concrete type.
+    ///
+    /// This is a convenience function that serializes the value to a vector of bytes and then
+    /// deserializes it back into a boxed [`SendData`](crate::SendData) value. It is mostly
+    /// useful in tests.
     pub fn boxed<T: SendData>(value: T) -> Box<dyn SendData> {
         let mut buf = cbor4ii::serde::Serializer::new(BufWriter::new(Vec::new()));
         serialize_send_data::serialize(&(Box::new(value) as Box<dyn SendData>), &mut buf).unwrap();
