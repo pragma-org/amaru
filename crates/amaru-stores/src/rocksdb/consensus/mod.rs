@@ -714,9 +714,8 @@ pub mod test {
 
         let result = store.rollback_chain(&new_tip.point());
 
-        match result {
-            Ok(_) => panic!("expected test to fail"),
-            Err(_) => (), // expected
+        if result.is_ok() {
+            panic!("expected test to fail");
         }
     }
 

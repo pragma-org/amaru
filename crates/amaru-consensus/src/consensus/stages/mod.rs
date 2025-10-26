@@ -17,7 +17,6 @@ pub mod forward_chain;
 pub mod pull;
 pub mod receive_header;
 pub mod select_chain;
-pub mod store_chain;
 pub mod track_peers;
 pub mod validate_block;
 pub mod validate_header;

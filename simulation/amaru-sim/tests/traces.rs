@@ -120,9 +120,6 @@ fn run_simulator_with_traces() {
                   ]
                 },
                 {
-                  "name": "stage.store_chain"
-                },
-                {
                   "name": "stage.forward_chain"
                 }
               ]

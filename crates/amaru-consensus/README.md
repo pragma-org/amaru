@@ -12,7 +12,6 @@ graph TD
     fetch_block[fetch block]
     validate_block[validate block]
     select_chain[select chain]
-    store_chain[store chain]
     forward_chain[forward chain]
 
     downstream([downstream])
@@ -37,10 +36,7 @@ graph TD
     validate_block -- DecodedChainSyncEvent --> select_chain
 
     select_chain -.-> store
-    select_chain -- BlockValidationResult --> store_chain
-
-    store_chain -.-> store
-    store_chain -- BlockValidationResult --> forward_chain
+    select_chain -- BlockValidationResult --> forward_chain
 
     forward_chain --> downstream
     downstream -.-> net
