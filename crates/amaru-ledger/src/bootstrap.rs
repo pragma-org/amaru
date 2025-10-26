@@ -239,31 +239,6 @@ pub fn import_initial_snapshot(
 
     import_votes(db, point, era_history, &protocol_parameters, proposals)?;
 
-    // NOTE(INITIAL_BOOTSTRAP):
-    //
-    // It's important to import dreps *after* votes, because voting dreps from imported votes
-    // will get their expiry updated, However:
-    //
-    // 1. Votes here contain ALL votes up to the snapshot; not just the ones from the ongoing
-    //    epoch. So we might wrongly reset the expiry of DReps that voted in a previous epoch.
-    //
-    // 2. The DRep expiry is anyway stored in the drep's state, in the snapshot. So it'll be set
-    //    accordingly on import.
-    //
-    // This may cause a few warnings on import, but they can be safely ignored.
-    import_dreps(db, point, era_history, &protocol_parameters, epoch, dreps)?;
-
-    import_constitution(db, constitution)?;
-
-    import_constitutional_committee(
-        db,
-        point,
-        era_history,
-        &protocol_parameters,
-        cc_state,
-        cc_members,
-    )?;
-
     decoder.skip()?; // Previous Protocol Params
     decoder.skip()?; // Future Protocol Params
     decoder.with_decoder(|d| {
@@ -362,6 +337,31 @@ pub fn import_initial_snapshot(
         decoder.skip()?;
         decoder.skip()?;
     }
+
+    // NOTE(INITIAL_BOOTSTRAP):
+    //
+    // It's important to import dreps *after* votes, because voting dreps from imported votes
+    // will get their expiry updated, However:
+    //
+    // 1. Votes here contain ALL votes up to the snapshot; not just the ones from the ongoing
+    //    epoch. So we might wrongly reset the expiry of DReps that voted in a previous epoch.
+    //
+    // 2. The DRep expiry is anyway stored in the drep's state, in the snapshot. So it'll be set
+    //    accordingly on import.
+    //
+    // This may cause a few warnings on import, but they can be safely ignored.
+    import_dreps(db, point, era_history, &protocol_parameters, epoch, dreps)?;
+
+    import_constitution(db, constitution)?;
+
+    import_constitutional_committee(
+        db,
+        point,
+        era_history,
+        &protocol_parameters,
+        cc_state,
+        cc_members,
+    )?;
 
     save_point(
         db,

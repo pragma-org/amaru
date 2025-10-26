@@ -143,6 +143,11 @@ pub async fn import_one(
     .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
+
+    if fs::exists(ledger_dir.join("live"))? {
+        fs::remove_dir_all(ledger_dir.join("live"))?;
+    }
+
     let db = RocksDB::empty(RocksDbConfig::new(ledger_dir.into()))?;
     let mut file = fs::File::open(snapshot)?;
     let dir = snapshot
