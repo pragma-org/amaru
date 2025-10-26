@@ -15,7 +15,8 @@
 
 //! This module contains some serialization and deserialization code for the Pure Stage library.
 
-use cbor4ii::serde::to_writer;
+use crate::SendData;
+use cbor4ii::{core::utils::BufWriter, serde::to_writer};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::cell::RefCell;
 
@@ -103,6 +104,15 @@ pub mod serialize_send_data {
 pub struct SendDataValue {
     pub typetag: String,
     pub value: cbor4ii::core::Value,
+}
+
+impl SendDataValue {
+    pub fn boxed<T: SendData>(value: T) -> Box<dyn SendData> {
+        let mut buf = cbor4ii::serde::Serializer::new(BufWriter::new(Vec::new()));
+        serialize_send_data::serialize(&(Box::new(value) as Box<dyn SendData>), &mut buf).unwrap();
+        let bytes = buf.into_inner().into_inner();
+        Box::new(cbor4ii::serde::from_slice::<SendDataValue>(&bytes).unwrap())
+    }
 }
 
 #[cfg(test)]

@@ -37,6 +37,6 @@ pub use sender::Sender;
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning};
 pub use time::{Clock, EPOCH, Instant};
-pub use types::{BoxFuture, Name, SendData};
+pub use types::{BoxFuture, Name, SendData, TryInStage};
 
 pub use typetag;
