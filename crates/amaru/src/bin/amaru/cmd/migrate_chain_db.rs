@@ -40,7 +40,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     info!("already up to date, no migration needed.");
                     Ok(())
                 }
-                Err(StoreError::IncompatibleDbVersions { stored, current }) => {
+                Err(StoreError::IncompatibleChainStoreVersions { stored, current }) => {
                     info_span!("migrating database", from = stored, to = current)
                         .in_scope(|| migrate_db(&db))?;
                     Ok(())
