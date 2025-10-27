@@ -17,9 +17,11 @@ use crate::simulator::{
     Entry, GeneratedEntries, History, NodeHandle, generate_arrival_times, generate_u8,
     generate_vec, generate_zip_with,
 };
+use parking_lot::Mutex;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::{Instant, StageGraph, StageRef};
 use rand::prelude::StdRng;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -28,7 +30,7 @@ struct State(u64, StageRef<Envelope<EchoMessage>>);
 /// Start a node that has just one "echo" stage.
 /// The regular echo behavior is to respond with the same message that was sent.
 /// However we simulate a bug here where every 5th message is uppercased.
-pub fn spawn_echo_node(_node_id: String) -> NodeHandle<EchoMessage> {
+pub fn spawn_echo_node(_node_id: String, _: Arc<Mutex<StdRng>>) -> NodeHandle<EchoMessage> {
     let mut network = SimulationBuilder::default();
     let stage = network.stage(
         "echo",
@@ -69,9 +71,10 @@ pub fn spawn_echo_node(_node_id: String) -> NodeHandle<EchoMessage> {
 }
 
 /// Generate some input echo messages at different arrival times.
-pub fn echo_generator(rng: &mut StdRng) -> GeneratedEntries<EchoMessage, ()> {
+pub fn echo_generator(rng: Arc<Mutex<StdRng>>) -> GeneratedEntries<EchoMessage, ()> {
+    let mut rng = rng.lock();
     let now = Instant::at_offset(Duration::from_secs(0));
-    let size = 20;
+    let size = 10;
     let entries = generate_zip_with(
         size,
         generate_vec(generate_u8(0, 128)),
@@ -87,7 +90,7 @@ pub fn echo_generator(rng: &mut StdRng) -> GeneratedEntries<EchoMessage, ()> {
                 },
             },
         },
-    )(rng);
+    )(&mut rng);
 
     GeneratedEntries::new(entries, ())
 }

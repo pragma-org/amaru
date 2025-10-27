@@ -24,6 +24,7 @@ pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) 
     use pallas_primitives::babbage::PseudoHeader;
     use pallas_primitives::conway::OperationalCert;
 
+    let block_hash = Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&vec![block_number, slot]);
     PseudoHeader {
         header_body: HeaderBody {
             block_number,
@@ -33,7 +34,7 @@ pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) 
             vrf_vkey: Bytes::from(vec![]),
             vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
             block_body_size: 0,
-            block_body_hash: HeaderHash::from([0u8; 32]),
+            block_body_hash: HeaderHash::from(block_hash),
             operational_cert: OperationalCert {
                 operational_cert_hot_vkey: Bytes::from(vec![]),
                 operational_cert_sequence_number: 0,
@@ -61,8 +62,10 @@ fn make_headers() -> impl Fn(Vec<BlockHeader>) -> Vec<BlockHeader> {
             .map({
                 |(i, h)| {
                     let mut header = h.header().clone();
-                    header.header_body.block_number = i as u64;
-                    header.header_body.slot = i as u64;
+                    // NOTE: by convention, chain numbering starts at 1. There can't be a block 0
+                    // nor a block forged at slot 0
+                    header.header_body.block_number = (i + 1) as u64;
+                    header.header_body.slot = (i + 1) as u64;
                     header.header_body.prev_hash = parent;
                     let block_header = BlockHeader::from(header);
                     parent = Some(block_header.hash());

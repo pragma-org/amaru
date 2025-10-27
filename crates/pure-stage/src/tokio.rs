@@ -21,8 +21,8 @@ use crate::stage_ref::StageStateRef;
 use crate::{
     BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
     effect::{StageEffect, StageResponse},
+    effect_box::EffectBox,
     resources::Resources,
-    simulation::EffectBox,
     stagegraph::StageGraphRunning,
     time::Clock,
 };
@@ -81,7 +81,7 @@ impl Clock for TokioClock {
 /// A [`StageGraph`] implementation that dispatches each stage as a task on the Tokio global pool.
 ///
 /// *This is currently only a minimal sketch that will likely not fit the intended design.
-/// It is more likely that the effect handling will be done like in the [`SimulationBuilder`](crate::simulation::SimulationBuilder)
+/// It is more likely that the effect handling will be done like in the [`SimulationBuilder`](crate::effect_box::SimulationBuilder)
 /// implementation.*
 pub struct TokioBuilder {
     tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, ()>>>,
@@ -148,9 +148,16 @@ impl StageGraph for TokioBuilder {
             Box::pin(async move {
                 let me = StageRef::new(stage_name.clone());
                 let effect = Arc::new(Mutex::new(None));
+                let sync_effect = Arc::new(Mutex::new(None));
                 let sender = mk_sender(&stage_name, &inner);
-                let effects =
-                    Effects::new(me, effect.clone(), inner.clock.clone(), sender, resources);
+                let effects = Effects::new(
+                    me,
+                    effect.clone(),
+                    sync_effect.clone(),
+                    inner.clock.clone(),
+                    sender,
+                    resources,
+                );
                 while let Some(msg) = rx.recv().await {
                     let result = interpreter(
                         &inner,
@@ -268,6 +275,7 @@ async fn interpreter<St>(
             panic!("stage `{name}` used .await on something that was not a stage effect");
         };
         let resp = match eff {
+            #[cfg(feature = "simulation")]
             StageEffect::Receive => {
                 #[expect(clippy::panic)]
                 {
@@ -300,6 +308,7 @@ async fn interpreter<St>(
                 tokio::time::sleep(duration).await;
                 StageResponse::WaitResponse(now())
             }
+            #[cfg(feature = "simulation")]
             StageEffect::Call(..) => {
                 #[expect(clippy::panic)]
                 {
@@ -320,6 +329,13 @@ async fn interpreter<St>(
             StageEffect::External(effect) => {
                 tracing::debug!("stage `{name}` external effect: {:?}", effect);
                 StageResponse::ExternalResponse(effect.run(inner.resources.clone()).await)
+            }
+            StageEffect::ExternalSync(effect_type) => {
+                tracing::debug!(
+                    "stage `{name}` external sync effect with type: {:?}",
+                    effect_type
+                );
+                StageResponse::Unit
             }
             StageEffect::Terminate => {
                 tracing::warn!("stage `{name}` terminated");

@@ -13,19 +13,22 @@
 // limitations under the License.
 
 mod effect;
+mod effect_box;
 mod logging;
 mod output;
 mod receiver;
 mod resources;
 mod sender;
 pub mod serde;
-pub mod simulation;
 pub mod stage_ref;
 mod stagegraph;
 mod time;
 pub mod tokio;
 pub mod trace_buffer;
 mod types;
+
+#[cfg(feature = "simulation")]
+pub mod simulation;
 
 pub use effect::{
     Effect, Effects, ExternalEffect, ExternalEffectAPI, StageResponse, UnknownExternalEffect,

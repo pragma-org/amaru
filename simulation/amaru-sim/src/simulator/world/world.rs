@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::echo::Envelope;
-use crate::simulator::NodeHandle;
 use crate::simulator::world::world::Next::{Continue, Done, Panic};
+use crate::simulator::{NodeHandle, StepResult};
 use amaru_kernel::string_utils::ListToString;
 use pure_stage::Instant;
 use serde::Serialize;
@@ -128,43 +128,76 @@ impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
             {
                 info!(msg = %envelope, arrival = %arrival_time.to_string(), "stepping");
                 debug!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
+                if envelope.is_client_message() {
+                    self.history.0.push(envelope.clone());
+                }
 
                 match self.nodes.get_mut(&envelope.dest) {
-                    Some(node) => match node.handle_msg(envelope.clone()) {
-                        Ok(outgoing) => {
-                            if !outgoing.is_empty() {
-                                let outgoing_to_string =
-                                    format!("[{}]", outgoing.list_to_string(", "));
-                                info!(outgoing = %outgoing_to_string, "outgoing");
-                            }
-                            let (client_responses, outputs): (
-                                Vec<Envelope<Msg>>,
-                                Vec<Envelope<Msg>>,
-                            ) = outgoing
-                                .into_iter()
-                                .partition(|msg| msg.dest.starts_with("c"));
-                            outputs
-                                .iter()
-                                .map(|envelope| Entry {
-                                    arrival_time: arrival_time + Duration::from_millis(100),
-                                    envelope: envelope.clone(),
-                                })
-                                .for_each(|msg| self.heap.push(Reverse(msg)));
-                            if envelope.is_client_message() {
-                                self.history.0.push(envelope);
-                            }
-                            client_responses
-                                .iter()
-                                .for_each(|msg| self.history.0.push(msg.clone()));
+                    Some(node) => match node.handle_msg(Some(envelope.clone())) {
+                        Ok(Some(outgoing)) => {
+                            self.process_outgoing(arrival_time, outgoing);
                             Continue
                         }
+                        Ok(None) => Continue,
                         Err(err) => Panic(format!("{}", err)),
                     },
-                    None => panic!("unknown destination node '{}'", envelope.dest),
+                    None => Panic(format!("unknown destination node '{}'", envelope.dest)),
                 }
             }
-            None => Done,
+            None => {
+                let node_ids = self.nodes.keys().cloned().collect::<Vec<_>>();
+                let mut outgoing_messages = vec![];
+                let mut blocked_nodes_nb = 0;
+                for node_id in node_ids.iter() {
+                    let result = {
+                        let node = self.nodes.get_mut(node_id).expect("node exists");
+                        node.step()
+                    };
+                    match result {
+                        Ok(StepResult::Finished(outgoing)) => {
+                            blocked_nodes_nb += 1;
+                            outgoing_messages.extend(outgoing);
+                        }
+                        Ok(StepResult::Continue) => continue,
+                        Err(err) => return Panic(format!("{}", err)),
+                    }
+                }
+
+                let no_more_messages = outgoing_messages.is_empty();
+                // FIXME: use a better arrival time for outgoing messages
+                self.process_outgoing(
+                    Instant::at_offset(Duration::from_millis(100)),
+                    outgoing_messages,
+                );
+
+                if blocked_nodes_nb == self.nodes.len() && no_more_messages {
+                    info!("all nodes have finished processing messages");
+                    Done
+                } else {
+                    Continue
+                }
+            }
         }
+    }
+
+    fn process_outgoing(&mut self, arrival_time: Instant, outgoing: Vec<Envelope<Msg>>) {
+        if !outgoing.is_empty() {
+            let outgoing_to_string = format!("[{}]", outgoing.list_to_string(", "));
+            info!(outgoing = %outgoing_to_string, "outgoing");
+        }
+        let (client_responses, outputs): (Vec<Envelope<Msg>>, Vec<Envelope<Msg>>) = outgoing
+            .into_iter()
+            .partition(|msg| msg.dest.starts_with("c"));
+        outputs
+            .iter()
+            .map(|envelope| Entry {
+                arrival_time: arrival_time + Duration::from_millis(100),
+                envelope: envelope.clone(),
+            })
+            .for_each(|msg| self.heap.push(Reverse(msg)));
+        client_responses
+            .iter()
+            .for_each(|msg| self.history.0.push(msg.clone()));
     }
 }
 

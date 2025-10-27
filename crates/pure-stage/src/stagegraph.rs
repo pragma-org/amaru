@@ -38,7 +38,7 @@ impl CallId {
         Self(COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 
-    #[cfg(test)]
+    #[cfg(all(feature = "simulation", test))]
     pub(crate) fn from_u64(u: u64) -> Self {
         Self(u)
     }
@@ -84,7 +84,7 @@ impl<Resp: SendData> CallRef<Resp> {
     ///
     /// This is useful within test procedures to retain a properly typed reference
     /// that can be used as argument to [`assert_respond`](crate::Effect::assert_respond)
-    /// and [`resume_respond`](crate::simulation::SimulationRunning::resume_respond).
+    /// and [`resume_respond`](crate::effect_box::SimulationRunning::resume_respond).
     pub fn dummy(&self) -> Self {
         Self {
             target: self.target.clone(),
@@ -107,9 +107,9 @@ impl<Resp: SendData> CallRef<Resp> {
 ///
 /// Example:
 /// ```rust
-/// use pure_stage::{StageGraph, simulation::SimulationBuilder};
+/// use pure_stage::{StageGraph, tokio::TokioBuilder};
 ///
-/// let mut network = SimulationBuilder::default();
+/// let mut network = TokioBuilder::default();
 ///
 /// // phase 1: create stages
 /// let stage = network.stage("basic", async |(mut state, out), msg: u32, eff| {
@@ -195,7 +195,7 @@ pub trait StageGraph {
     /// depends on the `StageGraph` implementation used.
     ///
     /// For example [`TokioBuilder`](crate::tokio::TokioBuilder) will spawn each stage as
-    /// a task while [`SimulationBuilder`](crate::simulation::SimulationBuilder) won’t
+    /// a task while [`SimulationBuilder`](crate::effect_box::SimulationBuilder) won’t
     /// run anything unless explicitly requested by a test procedure.
     fn run(self, rt: Handle) -> Self::Running;
 

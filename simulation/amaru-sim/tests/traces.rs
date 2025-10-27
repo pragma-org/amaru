@@ -13,17 +13,20 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::{effects::FetchBlockEffect, errors::ConsensusError};
+use amaru_sim::simulator::simulate::run_test;
 use amaru_sim::simulator::{
     Args, GeneratedEntries, NodeConfig, NodeHandle, SimulateConfig, generate_entries,
-    run::spawn_node, simulate::simulate,
+    run::spawn_node,
 };
 use amaru_tracing_json::assert_spans_trees;
-use pure_stage::{
-    Instant, StageGraph,
-    simulation::{OverrideResult, SimulationBuilder},
-};
+use parking_lot::Mutex;
+use pure_stage::simulation::SimulationBuilder;
+use pure_stage::simulation::running::OverrideResult;
+use pure_stage::{Instant, StageGraph};
+use rand::SeedableRng;
 use rand::prelude::StdRng;
 use serde_json::json;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
@@ -42,7 +45,7 @@ fn run_simulator_with_traces() {
     let node_config = NodeConfig::from(args.clone());
 
     let rt = Runtime::new().unwrap();
-    let spawn = |node_id: String| {
+    let spawn = |node_id: String, _| {
         let mut network = SimulationBuilder::default();
         let (input, init_messages, output) =
             spawn_node(node_id, node_config.clone(), &mut network, &rt);
@@ -53,7 +56,7 @@ fn run_simulator_with_traces() {
         NodeHandle::from_pure_stage(input, init_messages, output, running).unwrap()
     };
 
-    let generate_one = |rng: &mut StdRng| {
+    let generate_one = |rng: Arc<Mutex<StdRng>>| {
         let generated_entries = generate_entries(
             &node_config,
             Instant::at_offset(Duration::from_secs(0)),
@@ -73,17 +76,17 @@ fn run_simulator_with_traces() {
     };
 
     let simulate_config = SimulateConfig::from(args.clone());
+    let rng = Arc::new(Mutex::new(StdRng::seed_from_u64(simulate_config.seed)));
+    let generated_entries = generate_one(rng.clone());
 
     let execute = || {
-        simulate(
+        run_test(
             &simulate_config,
-            &NodeConfig::default(),
-            spawn,
-            generate_one,
-            |_, _| Ok(()),
-            |_| (),
-            Default::default(),
-            false,
+            &spawn,
+            &|_, _| Ok(()),
+            rng,
+            1,
+            &generated_entries,
         )
         .unwrap_or_else(|e| panic!("{e}"))
     };

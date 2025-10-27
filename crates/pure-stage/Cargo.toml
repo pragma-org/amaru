@@ -10,13 +10,21 @@ homepage.workspace = true
 documentation = "https://docs.rs/pure-stage"
 rust-version.workspace = true
 
+[features]
+default = []
+simulation = ["dep:rand"]
+
 [dependencies]
 anyhow.workspace = true
 cbor4ii.workspace = true
 either.workspace = true
 futures-util.workspace = true
+hex.workspace = true
+itertools.workspace = true
 parking_lot.workspace = true
+rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive", "alloc", "rc"] }
+serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "time"] }
 tracing.workspace = true

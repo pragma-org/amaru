@@ -16,9 +16,11 @@
 //! This module contains some serialization and deserialization code for the Pure Stage library.
 
 use crate::SendData;
+use cbor4ii::core::Value;
 use cbor4ii::{core::utils::BufWriter, serde::to_writer};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::cell::RefCell;
+use std::fmt::Display;
 
 /// Helper type to wrap futures/functions/etc. and thus avoid having to handroll
 /// a `Debug` implementation for a type containing the wrapped value.
@@ -103,7 +105,82 @@ pub mod serialize_send_data {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SendDataValue {
     pub typetag: String,
-    pub value: cbor4ii::core::Value,
+    pub value: Value,
+}
+
+impl Display for SendDataValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        SendDataValue::format_cbor_value(&self.value, f)
+    }
+}
+
+impl SendDataValue {
+    /// Try to format the SendDataValue CBOR value as a human-readable string.
+    fn format_cbor_value(value: &Value, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match value {
+            Value::Text(s) => write!(f, "{}", s),
+            Value::Null => write!(f, "null"),
+            Value::Bool(v) => write!(f, "{v}"),
+            Value::Integer(v) => write!(f, "{v}"),
+            Value::Float(v) => write!(f, "{v}"),
+            Value::Bytes(_) => write!(f, "<bytes>"),
+            Value::Array(vs) => {
+                match SendDataValue::array_as_bytes(vs) {
+                    Some(bytes) => {
+                        write!(f, "{hash}", hash = hex::encode(bytes.as_slice()))?;
+                    }
+                    None => {
+                        write!(f, "[")?;
+                        let mut first = true;
+                        for v in vs {
+                            if first {
+                                first = false;
+                            } else {
+                                write!(f, ", ")?;
+                            }
+                            SendDataValue::format_cbor_value(v, f)?;
+                        }
+                        write!(f, "]")?;
+                    }
+                }
+                Ok(())
+            }
+            Value::Map(vs) => {
+                write!(f, "{{")?;
+                let mut first = true;
+                for (k, v) in vs {
+                    if first {
+                        first = false;
+                    } else {
+                        write!(f, ", ")?;
+                    }
+                    SendDataValue::format_cbor_value(k, f)?;
+                    write!(f, ": ")?;
+                    SendDataValue::format_cbor_value(v, f)?;
+                }
+                write!(f, "}}")?;
+                Ok(())
+            }
+            Value::Tag(_, v) => SendDataValue::format_cbor_value(v.as_ref(), f),
+            _ => Ok(()),
+        }
+    }
+
+    fn array_as_bytes(vs: &Vec<Value>) -> Option<Vec<u8>> {
+        let mut out = Vec::with_capacity(vs.len());
+        for v in vs {
+            if let Value::Integer(n) = v {
+                if *n < 0.into() || *n > (u8::MAX as u64).into() {
+                    return None;
+                } else {
+                    out.push(*n as u8);
+                }
+            } else {
+                return None;
+            }
+        }
+        Some(out)
+    }
 }
 
 impl SendDataValue {
