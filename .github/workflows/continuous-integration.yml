@@ -210,9 +210,9 @@ jobs:
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
           # (i.e. Full bootstrap below)
-          key: ${{ runner.OS }}-ledger-cache-v11-${{ steps.timestamp.outputs.value }}
+          key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
           restore-keys: |
-            ${{ runner.OS }}-ledger-cache-v11
+            ${{ runner.OS }}-ledger-cache-v12
 
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''
@@ -229,7 +229,7 @@ jobs:
         if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
         with:
           path: ./ledger.${{ matrix.network.name }}.db
-          key: ${{ runner.OS }}-ledger-cache-v11-${{ steps.timestamp.outputs.value }}
+          key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
 
       - name: Run node
         if: github.event_name == 'pull_request'
