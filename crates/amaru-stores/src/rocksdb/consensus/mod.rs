@@ -652,7 +652,7 @@ pub mod test {
 
         let result = RocksDBStore::open(config);
         match result {
-            Err(StoreError::IncompatibleDbVersions { stored, current }) => {
+            Err(StoreError::IncompatibleChainStoreVersions { stored, current }) => {
                 assert_eq!(stored, 0);
                 assert_eq!(current, CHAIN_DB_VERSION);
             }

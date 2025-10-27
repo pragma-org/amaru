@@ -169,6 +169,8 @@ pub async fn bootstrap(
 
     let global_parameters: &GlobalParameters = config.network.into();
 
+    let chain_store = open_chain_store(&config).context("Failed to open or create chain store. Check the error: if this is caused by incompatible database versions, try to run 'migrate-chain-db --chain-dir <chain directory>' command, pass --migrate-chain-db flag, or set 'AMARU_MIGRATE_CHAIN_DB=true'")?;
+
     let ledger = make_ledger(
         &config,
         config.network,
@@ -185,7 +187,8 @@ pub async fn bootstrap(
         "starting"
     );
 
-    let chain_store = make_chain_store(&config, &tip.hash())?;
+    make_chain_store(&config, &tip.hash(), chain_store.clone())?;
+
     let our_tip = chain_store
         .load_header(&tip.hash())
         .map(|h| h.as_header_tip())
@@ -272,17 +275,8 @@ pub async fn bootstrap(
 fn make_chain_store(
     config: &Config,
     tip: &HeaderHash,
-) -> anyhow::Result<Arc<dyn ChainStore<BlockHeader>>> {
-    let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
-        StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
-        StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
-            Arc::new(RocksDBStore::open_and_migrate(rocks_db_config.clone())?)
-        }
-        StoreType::RocksDb(ref rocks_db_config) => {
-            Arc::new(RocksDBStore::open(rocks_db_config.clone())?)
-        }
-    };
-
+    chain_store: Arc<dyn ChainStore<BlockHeader>>,
+) -> anyhow::Result<()> {
     if *tip != ORIGIN_HASH && chain_store.load_header(tip).is_none() {
         panic!(
             "Tip {} not found in chain database '{}'",
@@ -292,6 +286,19 @@ fn make_chain_store(
 
     chain_store.set_anchor_hash(tip)?;
     chain_store.set_best_chain_hash(tip)?;
+    Ok(())
+}
+
+fn open_chain_store(config: &Config) -> anyhow::Result<Arc<dyn ChainStore<BlockHeader>>> {
+    let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
+        StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
+        StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
+            Arc::new(RocksDBStore::open_and_migrate(rocks_db_config.clone())?)
+        }
+        StoreType::RocksDb(ref rocks_db_config) => {
+            Arc::new(RocksDBStore::open(rocks_db_config.clone())?)
+        }
+    };
     Ok(chain_store)
 }
 

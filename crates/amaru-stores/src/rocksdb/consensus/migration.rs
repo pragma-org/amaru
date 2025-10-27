@@ -68,7 +68,7 @@ static MIGRATIONS: [fn(&OptimisticTransactionDB) -> Result<(), StoreError>; 1] =
 pub fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
     get_version(db).and_then(|stored| {
         if stored != CHAIN_DB_VERSION {
-            Err(StoreError::IncompatibleDbVersions {
+            Err(StoreError::IncompatibleChainStoreVersions {
                 stored,
                 current: CHAIN_DB_VERSION,
             })

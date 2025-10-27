@@ -42,7 +42,7 @@ export AMARU_CHAIN_DIR=${AMARU_CHAIN_DIR:-./chain.${AMARU_NETWORK}.db}
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 
 AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-traces daemon | while read line; do
-  echo $line
+  echo "$line"
   EVENT=$(jq -r '.fields.message' <<< "$line" 2>/dev/null)
   SPAN=$(jq -r '.span.name' <<< "$line" 2>/dev/null)
   if [ "$EVENT" = "exit" ] && [ "$SPAN" = "epoch_transition" ]; then
