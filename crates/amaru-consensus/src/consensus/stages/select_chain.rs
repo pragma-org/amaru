@@ -334,7 +334,7 @@ mod tests {
     use crate::consensus::{
         effects::mock_consensus_ops, errors::ValidationFailed, headers_tree::Tracker,
     };
-    use amaru_kernel::is_header::tests::{any_header, any_headers_chain, run};
+    use amaru_kernel::is_header::tests::{any_headers_chain, run};
     use amaru_kernel::peer::Peer;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
@@ -343,19 +343,21 @@ mod tests {
     #[tokio::test]
     async fn a_roll_forward_updates_the_tree_state() -> anyhow::Result<()> {
         let peer = Peer::new("name");
-        let header = run(any_header());
-        let message = make_roll_forward_message(&peer, &header);
-        let consensus_ops = mock_consensus_ops();
-        consensus_ops.store().store_header(&header).unwrap();
+        let headers = run(any_headers_chain(2));
+        let header0 = headers[0].clone();
+        let header1 = headers[1].clone();
 
+        let consensus_ops = mock_consensus_ops();
         let store = consensus_ops.store();
-        if let Some(parent_hash) = header.parent() {
-            store.set_anchor_hash(&parent_hash)?;
-        }
-        let anchor = store.get_anchor_hash();
-        let state = make_state(store.clone(), &peer, &anchor);
+        store.store_header(&header0)?;
+        store.store_header(&header1)?;
+        store.set_anchor_hash(&header0.hash())?;
+        store.set_best_chain_hash(&header0.hash())?;
+
+        let state = make_state(store.clone(), &peer, &header0.hash());
+        let message = make_roll_forward_message(&peer, &header1);
         let (select_chain, _, _) = stage(state, message.clone(), consensus_ops.clone()).await;
-        let output = make_block_validated_event(&peer, &header);
+        let output = make_block_validated_event(&peer, &header1);
 
         assert_eq!(
             consensus_ops.mock_base.received(),
@@ -368,8 +370,8 @@ mod tests {
         check_peers(
             select_chain,
             vec![
-                (Me, vec![anchor, header.hash()]),
-                (SomePeer(peer), vec![anchor, header.hash()]),
+                (Me, vec![header0.hash(), header1.hash()]),
+                (SomePeer(peer), vec![header0.hash(), header1.hash()]),
             ],
         );
         Ok(())
@@ -378,25 +380,24 @@ mod tests {
     #[tokio::test]
     async fn a_rollback_updates_the_tree_state() -> anyhow::Result<()> {
         let peer = Peer::new("name");
-        let headers = run(any_headers_chain(2));
-        let header1 = headers[0].clone();
-        let header2 = headers[1].clone();
+        let headers = run(any_headers_chain(3));
+        let header0 = headers[0].clone();
+        let header1 = headers[1].clone();
+        let header2 = headers[2].clone();
 
+        let consensus_ops = mock_consensus_ops();
+        let store = consensus_ops.store();
+        store.store_header(&header0)?;
+        store.store_header(&header1)?;
+        store.store_header(&header2)?;
+        store.set_anchor_hash(&header0.hash())?;
+        store.set_best_chain_hash(&header0.hash())?;
+
+        let state = make_state(store, &peer, &header0.hash());
         let message1 = make_roll_forward_message(&peer, &header1);
         let message2 = make_roll_forward_message(&peer, &header2);
         let message3 = make_rollback_message(&peer, &header1);
 
-        let consensus_ops = mock_consensus_ops();
-        let store = consensus_ops.store();
-        if let Some(parent_hash) = header1.parent() {
-            store.set_anchor_hash(&parent_hash)?;
-        }
-
-        store.store_header(&header1).unwrap();
-        store.store_header(&header2).unwrap();
-
-        let anchor = store.get_anchor_hash();
-        let state = make_state(consensus_ops.store(), &peer, &anchor);
         let state = stage(state, message1, consensus_ops.clone()).await;
         let state = stage(state, message2, consensus_ops.clone()).await;
         let (select_chain, _, _) = stage(state, message3.clone(), consensus_ops.clone()).await;
@@ -415,8 +416,8 @@ mod tests {
         check_peers(
             select_chain,
             vec![
-                (Me, vec![anchor, header1.hash(), header2.hash()]),
-                (SomePeer(peer), vec![anchor, header1.hash()]),
+                (Me, vec![header0.hash(), header1.hash(), header2.hash()]),
+                (SomePeer(peer), vec![header0.hash(), header1.hash()]),
             ],
         );
         Ok(())
