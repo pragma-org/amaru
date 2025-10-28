@@ -420,6 +420,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             });
         };
 
+        // keep the rollback point so delete starting 1 slot after it
         let slot = (u64::from(point.slot_or_default()) + 1).to_be_bytes();
         let mut count = 0usize;
         let mut opts = ReadOptions::default();
@@ -429,12 +430,19 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
 
         self.with_transaction(|tx| {
             for kv in tx.iterator_opt(mode, opts) {
-                if let Ok((k, _v)) = kv {
-                    tx.delete(k).map_err(|e| StoreError::WriteError {
-                        error: e.to_string(),
-                    })?;
+                match kv {
+                    Ok((k, _v)) => {
+                        tx.delete(k).map_err(|e| StoreError::WriteError {
+                            error: e.to_string(),
+                        })?;
+                        count += 1;
+                    }
+                    Err(e) => {
+                        return Err(StoreError::ReadError {
+                            error: e.to_string(),
+                        });
+                    }
                 }
-                count += 1;
             }
 
             Ok(count)
