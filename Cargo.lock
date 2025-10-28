@@ -283,7 +283,6 @@ dependencies = [
  "amaru-kernel",
  "amaru-slot-arithmetic",
  "hex",
- "insta",
  "itertools 0.14.0",
  "minicbor",
  "num",
