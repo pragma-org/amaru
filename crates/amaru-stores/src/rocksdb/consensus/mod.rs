@@ -349,20 +349,6 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
                 error: e.to_string(),
             })
     }
-    fn update_best_chain(&self, anchor: &HeaderHash, tip: &HeaderHash) -> Result<(), StoreError> {
-        let tx = self.db.transaction();
-        tx.put(ANCHOR_PREFIX, anchor.as_ref())
-            .map_err(|e| StoreError::WriteError {
-                error: e.to_string(),
-            })?;
-        tx.put(BEST_CHAIN_PREFIX, tip.as_ref())
-            .map_err(|e| StoreError::WriteError {
-                error: e.to_string(),
-            })?;
-        tx.commit().map_err(|e| StoreError::WriteError {
-            error: e.to_string(),
-        })
-    }
 }
 
 #[cfg(test)]
@@ -461,17 +447,6 @@ pub mod test {
             let anchor = random_hash();
             db.set_anchor_hash(&anchor).unwrap();
             assert_eq!(db.get_anchor_hash(), anchor);
-        })
-    }
-
-    #[test]
-    fn update_best_chain() {
-        with_db(|db| {
-            let anchor = random_hash();
-            let tip = random_hash();
-            db.update_best_chain(&anchor, &tip).unwrap();
-            assert_eq!(db.get_anchor_hash(), anchor);
-            assert_eq!(db.get_best_chain_hash(), tip);
         })
     }
 

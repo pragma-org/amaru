@@ -76,10 +76,6 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
         self.external_sync(SetBestChainHashEffect::new(*hash))
     }
 
-    fn update_best_chain(&self, anchor: &HeaderHash, tip: &HeaderHash) -> Result<(), StoreError> {
-        self.external_sync(UpdateBestChainEffect::new(*anchor, *tip))
-    }
-
     fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
         self.external_sync(StoreHeaderEffect::new(header.clone()))
     }
@@ -208,35 +204,6 @@ impl ExternalEffect for SetBestChainHashEffect {
 }
 
 impl ExternalEffectAPI for SetBestChainHashEffect {
-    type Response = Result<(), StoreError>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct UpdateBestChainEffect {
-    anchor: HeaderHash,
-    tip: HeaderHash,
-}
-
-impl UpdateBestChainEffect {
-    pub fn new(anchor: HeaderHash, tip: HeaderHash) -> Self {
-        Self { anchor, tip }
-    }
-}
-
-impl ExternalEffect for UpdateBestChainEffect {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("UpdateBestChainEffect requires a chain store")
-                .clone();
-            store.update_best_chain(&self.anchor, &self.tip)
-        })
-    }
-}
-
-impl ExternalEffectAPI for UpdateBestChainEffect {
     type Response = Result<(), StoreError>;
 }
 

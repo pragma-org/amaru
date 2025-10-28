@@ -18,6 +18,8 @@ pub mod data_generation;
 
 #[expect(clippy::module_inception)]
 pub mod headers_tree;
+pub mod headers_tree_display;
 pub mod tree;
 
 pub use headers_tree::*;
+pub use headers_tree_display::*;
