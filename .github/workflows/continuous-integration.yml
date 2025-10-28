@@ -43,7 +43,7 @@ jobs:
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             title: x86_64/windows
-            command: test-amaru --profile dev-debug
+            command: test --workspace
 
           - runner: ubuntu-latest
             target: wasm32-unknown-unknown
