@@ -287,6 +287,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "amaru-plutus"
+version = "0.1.0"
+dependencies = [
+ "amaru-kernel",
+ "amaru-slot-arithmetic",
+ "hex",
+ "itertools 0.14.0",
+ "minicbor",
+ "num",
+ "pretty_assertions",
+ "serde",
+ "test-case",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "amaru-progress-bar"
 version = "0.1.0"
 dependencies = [

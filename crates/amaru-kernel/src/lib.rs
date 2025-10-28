@@ -26,11 +26,12 @@ use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
     *,
 };
-use pallas_primitives::conway::{MintedPostAlonzoTransactionOutput, NativeScript, RedeemerTag};
+use pallas_primitives::conway::{MintedPostAlonzoTransactionOutput, RedeemerTag};
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
     borrow::Cow,
+    cmp::Ordering,
     collections::BTreeMap,
     fmt::{self, Debug, Formatter},
     ops::Deref,
@@ -52,21 +53,23 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
-    alonzo::Value as AlonzoValue,
+    Fragment,
+    alonzo::{TransactionOutput as AlonzoTransactionOutput, Value as AlonzoValue},
     babbage::{Header, MintedHeader, PseudoHeader},
     conway::{
         AddrKeyhash, AssetName, AuxiliaryData, BigInt, Block, BootstrapWitness, Certificate, Coin,
         Constitution, Constr, CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash,
         DatumOption, DnsName, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId,
-        HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, MintedBlock, MintedDatumOption,
-        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
-        MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PlutusData, PlutusScript, PolicyId,
-        PoolMetadata, PoolVotingThresholds, Port, PositiveCoin, PostAlonzoTransactionOutput,
-        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
-        PseudoTransactionOutput, RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey,
-        Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody,
-        TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Vote, Voter,
-        VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, Mint, MintedBlock,
+        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
+        MintedTx, MintedWitnessSet, Multiasset, NativeScript, NonEmptySet, NonZeroInt, PlutusData,
+        PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
+        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
+        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners, RewardAccount, ScriptHash,
+        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
+        UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures,
+        VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -305,6 +308,50 @@ pub type PoolId = Hash<28>;
 pub type Nonce = Hash<32>;
 
 pub type Withdrawal = (StakeAddress, Lovelace);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalIdAdapter<'a>(pub &'a ProposalId);
+
+impl<'a> ProposalIdAdapter<'a> {
+    pub fn new(gov_action_id: &'a ProposalId) -> Self {
+        Self(gov_action_id)
+    }
+}
+
+impl PartialOrd for ProposalIdAdapter<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ProposalIdAdapter<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0
+            .transaction_id
+            .cmp(&other.0.transaction_id)
+            .then_with(|| self.0.action_index.cmp(&other.0.action_index))
+    }
+}
+
+impl<'a> From<&'a ProposalId> for ProposalIdAdapter<'a> {
+    fn from(proposal_id: &'a ProposalId) -> Self {
+        Self(proposal_id)
+    }
+}
+
+impl Deref for ProposalIdAdapter<'_> {
+    type Target = ProposalId;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl AsRef<ProposalId> for ProposalIdAdapter<'_> {
+    fn as_ref(&self) -> &ProposalId {
+        self.0
+    }
+}
 
 // Helpers
 // ----------------------------------------------------------------------------
@@ -943,6 +990,23 @@ impl HasRedeemers for Redeemers {
                 .map(|(key, redeemer)| (Cow::Borrowed(key), (&redeemer.ex_units, &redeemer.data)))
                 .collect(),
         }
+    }
+}
+
+pub fn normalize_redeemers(redeemers: &Redeemers) -> Vec<Cow<'_, Redeemer>> {
+    match redeemers {
+        Redeemers::List(list) => list.iter().map(Cow::Borrowed).collect(),
+        Redeemers::Map(map) => map
+            .iter()
+            .map(|(tag, value)| {
+                Cow::Owned(Redeemer {
+                    tag: tag.tag,
+                    index: tag.index,
+                    data: value.data.clone(),
+                    ex_units: value.ex_units,
+                })
+            })
+            .collect(),
     }
 }
 
