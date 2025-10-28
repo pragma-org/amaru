@@ -109,16 +109,24 @@ impl RocksDBStore {
         self.db.transaction()
     }
 
+    /// Runs the provided closure within a transaction.
+    ///
+    /// The transaction is committed if the closure returns `Ok`, otherwise it is rolled back.
+    /// Note the `commit` itself can also fail which is reported as a `StoreError::WriteError`.
     pub fn with_transaction<R, F>(&self, f: F) -> Result<R, StoreError>
     where
         F: FnOnce(&rocksdb::Transaction<'_, OptimisticTransactionDB>) -> Result<R, StoreError>,
     {
         let tx = self.db.transaction();
-        let result = f(&tx);
-        tx.commit().map_err(|e| StoreError::WriteError {
-            error: e.to_string(),
-        })?;
-        result
+        match f(&tx) {
+            Ok(result) => {
+                tx.commit().map_err(|e| StoreError::WriteError {
+                    error: e.to_string(),
+                })?;
+                Ok(result)
+            }
+            Err(err) => Err(err),
+        }
     }
 }
 
