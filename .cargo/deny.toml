@@ -97,7 +97,8 @@ allow = [
     "Unicode-3.0",
     "BlueOak-1.0.0",
     "MPL-2.0",
-    "CDLA-Permissive-2.0"
+    "CDLA-Permissive-2.0",
+    "Zlib"
 ]
 # The confidence threshold for detecting a license from license text.
 # The higher the value, the more closely the license text must be to the
