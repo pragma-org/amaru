@@ -31,8 +31,8 @@ where
     fn get_anchor_hash(&self) -> HeaderHash;
     fn get_best_chain_hash(&self) -> HeaderHash;
 
-    /// Load a header from the best chain.
-    /// Returns `None` if the point is not in the best chain, or the header.
+    /// Load a `HeaderHash` from the best chain.
+    /// Returns `None` if the point is not in the best chain.
     fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash>;
 
     fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError>;
