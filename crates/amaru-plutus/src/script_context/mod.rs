@@ -12,20 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
-
-use amaru_kernel::network::NetworkName;
-use amaru_kernel::protocol_parameters::GlobalParameters;
-use amaru_kernel::{
-    AddrKeyhash, Address, Certificate, ComputeHash, DatumHash, EraHistory, Hash, KeepRaw,
-    KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
-    Mint as KernelMint, Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PolicyId,
-    Redeemer, RequiredSigners as KernelRequiredSigners, RewardAccount,
-    StakeAddress as KernelStakeAddress, StakePayload, TransactionId, TransactionInput,
-    Value as KernelValue, Voter,
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
 };
-use amaru_kernel::{AssetName, Slot};
+
+use amaru_kernel::{
+    AddrKeyhash, Address, AssetName, Certificate, ComputeHash, DatumHash, EraHistory, Hash,
+    KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
+    Mint as KernelMint, Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PolicyId,
+    Redeemer, RequiredSigners as KernelRequiredSigners, RewardAccount, Slot,
+    StakeAddress as KernelStakeAddress, StakePayload, TransactionId, TransactionInput,
+    Value as KernelValue, Voter, network::NetworkName, protocol_parameters::GlobalParameters,
+};
 
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 
@@ -37,10 +36,8 @@ pub trait IsPrePlutusVersion3 {}
 impl IsPrePlutusVersion3 for PlutusVersion<1> {}
 impl IsPrePlutusVersion3 for PlutusVersion<2> {}
 
-pub use v1::ScriptContext as ScriptContextV1;
-pub use v1::TxInfo as TxInfoV1;
-pub use v2::ScriptContext as ScriptContextV2;
-pub use v2::TxInfo as TxInfoV2;
+pub use v1::{ScriptContext as ScriptContextV1, TxInfo as TxInfoV1};
+pub use v2::{ScriptContext as ScriptContextV2, TxInfo as TxInfoV2};
 pub use v3::TxInfo as TxInfoV3;
 
 use crate::PlutusVersion;

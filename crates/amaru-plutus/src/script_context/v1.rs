@@ -24,8 +24,7 @@ use itertools::Itertools;
 use thiserror::Error;
 
 use crate::{
-    Constr, DEFAULT_TAG, IsKnownPlutusVersion, MaybeIndefArray, PlutusVersion, ToConstrTag,
-    ToPlutusData, constr, constr_v1,
+    IsKnownPlutusVersion, PlutusVersion, ToPlutusData, constr, constr_v1,
     script_context::{
         Certificate, Datums, IsPrePlutusVersion3, Mint, OutputRef, PlutusData, RequiredSigners,
         TimeRange, TransactionId, TransactionOutput, Value, Withdrawals,
@@ -353,7 +352,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        constr!(v: V, 0, [constr!(v: V, 0, [self.transaction_id]), self.index])
+        constr!(0, [constr!(0, [self.transaction_id]), self.index])
     }
 }
 
@@ -365,13 +364,13 @@ where
     fn to_plutus_data(&self) -> PlutusData {
         match self {
             Certificate::StakeRegistration(stake_credential) => {
-                constr!(v: V, 0, [stake_credential])
+                constr!(0, [stake_credential])
             }
             Certificate::StakeDeregistration(stake_credential) => {
-                constr!(v: V, 1, [stake_credential])
+                constr!(1, [stake_credential])
             }
             Certificate::StakeDelegation(stake_credential, hash) => {
-                constr!(v: V, 2, [stake_credential, hash])
+                constr!(2, [stake_credential, hash])
             }
             Certificate::PoolRegistration {
                 operator,
@@ -383,8 +382,8 @@ where
                 pool_owners: _,
                 relays: _,
                 pool_metadata: _,
-            } => constr!(v: V, 3, [operator, vrf_keyhash]),
-            Certificate::PoolRetirement(hash, epoch) => constr!(v: V, 4, [hash, epoch]),
+            } => constr!(3, [operator, vrf_keyhash]),
+            Certificate::PoolRetirement(hash, epoch) => constr!(4, [hash, epoch]),
             certificate => {
                 unreachable!("illegal certificate type in v{V:?} script context: {certificate:?}")
             }
