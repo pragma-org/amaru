@@ -19,13 +19,14 @@ test-utils = ["proptest", "amaru-slot-arithmetic/test-utils", "amaru-kernel/test
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
+async-trait.workspace = true
+hashbrown.workspace = true
 hex.workspace = true
 num.workspace = true
 proptest = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-async-trait.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true

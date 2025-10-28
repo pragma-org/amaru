@@ -109,7 +109,7 @@ pub fn tally(
             .pools
             .iter()
             .fold((0, 0), |(yes, abstain), (pool_id, pool)| {
-                match votes.get(pool_id) {
+                match votes.get(pool_id.as_ref()) {
                     Some(Vote::Yes) => (yes + pool.voting_stake, abstain),
                     Some(Vote::No) => (yes, abstain),
                     Some(Vote::Abstain) => (yes, abstain + pool.voting_stake),
@@ -133,7 +133,7 @@ pub fn tally(
                         let drep = stake_distribution
                             .accounts
                             .get(&reward_account)
-                            .and_then(|st| st.drep.as_ref());
+                            .and_then(|st| st.drep.as_deref());
 
                         match drep {
                             Some(DRep::NoConfidence) if proposal.is_no_confidence() => {
@@ -250,7 +250,7 @@ mod tests {
                             stake_distribution
                                     .accounts
                                     .get(&reward_account)
-                                    .map(|st| st.drep.as_ref() == Some(&DRep::Abstain))
+                                    .map(|st| st.drep.as_deref() == Some(&DRep::Abstain))
                                     .unwrap_or(false)
                         });
 
@@ -456,7 +456,12 @@ mod tests {
     pub fn any_votes(
         stake_distribution: &StakeDistribution,
     ) -> impl Strategy<Value = BTreeMap<PoolId, &'static Vote>> + use<> {
-        let pools: Vec<PoolId> = stake_distribution.pools.keys().cloned().collect();
+        let pools: Vec<PoolId> = stake_distribution
+            .pools
+            .keys()
+            .map(|p| p.as_ref())
+            .cloned()
+            .collect();
 
         let upper_bound = pools.len() - 1;
 

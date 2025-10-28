@@ -30,6 +30,7 @@ either = "1.15"
 futures-util = "0.3.31"
 gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
 hex = "0.4.3"
+hashbrown = "0.16.0"
 indicatif = "0.18.0"
 indoc = "2.0"
 itertools = "0.14.0"

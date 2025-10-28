@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod arc_interner;
 pub mod governance;
 pub mod rewards;
 pub mod serde;
@@ -24,6 +25,7 @@ use crate::{
 use ::serde::ser::SerializeStruct;
 use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber};
 use num::{BigUint, rational::Ratio};
+use std::sync::Arc;
 
 // ---------------------------------------------------------------- AccountState
 
@@ -31,16 +33,16 @@ use num::{BigUint, rational::Ratio};
 #[cfg_attr(test, derive(Clone))]
 pub struct AccountState {
     pub lovelace: Lovelace,
-    pub pool: Option<PoolId>,
-    pub drep: Option<DRep>,
+    pub pool: Option<Arc<PoolId>>,
+    pub drep: Option<Arc<DRep>>,
 }
 
 impl ::serde::Serialize for AccountState {
     fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("AccountState", 3)?;
         s.serialize_field("lovelace", &self.lovelace)?;
-        s.serialize_field("pool", &self.pool.as_ref().map(encode_pool_id))?;
-        s.serialize_field("drep", &self.drep.as_ref().map(encode_drep))?;
+        s.serialize_field("pool", &self.pool.as_deref().map(encode_pool_id))?;
+        s.serialize_field("drep", &self.drep.as_deref().map(encode_drep))?;
         s.end()
     }
 }
