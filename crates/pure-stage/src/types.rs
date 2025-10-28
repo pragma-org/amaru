@@ -225,14 +225,14 @@ impl<T> DerefMut for MpscSender<T> {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MpscReceiver<T> {
     #[serde(skip, default = "dummy_receiver")]
     pub receiver: mpsc::Receiver<T>,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn dummy_receiver<T>() -> mpsc::Receiver<T> {
     mpsc::channel(1).1
 }
@@ -325,13 +325,13 @@ pub trait TryInStage {
 
 /// A wrapper type used with [`StageGraph::stage_ret`](crate::StageGraph::stage_ret)
 /// to allow short-circuiting with the `?` operator.
-pub struct State<S>(pub S);
+pub struct WrapS<S>(pub S);
 
 #[cfg(feature = "nightly")]
-impl<S> std::ops::FromResidual<OrReturn<std::convert::Infallible, S>> for State<S> {
+impl<S> std::ops::FromResidual<OrReturn<std::convert::Infallible, S>> for WrapS<S> {
     fn from_residual(residual: OrReturn<std::convert::Infallible, S>) -> Self {
         match residual {
-            OrReturn::Return(value) => State(value),
+            OrReturn::Return(value) => WrapS(value),
         }
     }
 }
@@ -340,6 +340,7 @@ impl<S> std::ops::FromResidual<OrReturn<std::convert::Infallible, S>> for State<
 /// to allow short-circuiting with the `?` operator with a stage crated using
 /// [`StageGraph::stage_ret`](crate::StageGraph::stage_ret).
 #[cfg(feature = "nightly")]
+#[must_use = "this value only makes sense when followed by a `?` operator"]
 pub enum OrReturn<T, S> {
     Continue(T),
     Return(S),
@@ -435,7 +436,7 @@ impl<T, E> TryInStage for Result<T, E> {
 #[cfg(test)]
 mod test {
     use crate::{
-        Effect, Instant, SendData, StageGraph, StageGraphRunning, StageResponse, State, TryInStage,
+        Effect, Instant, SendData, StageGraph, StageGraphRunning, StageResponse, TryInStage, WrapS,
         serde::SendDataValue,
         simulation::SimulationBuilder,
         trace_buffer::{TraceBuffer, TraceEntry},
@@ -561,7 +562,7 @@ mod test {
         let mut network = SimulationBuilder::default().with_trace_buffer(trace.clone());
         let stage = network.stage_ret("stage", async |_: u32, msg: Option<u32>, _eff| {
             let state = msg.or_return(async |_| 10u32).await?;
-            State(state)
+            WrapS(state)
         });
         let stage = network.wire_up(stage, 0);
 
@@ -604,7 +605,7 @@ mod test {
                     10
                 })
                 .await?;
-            State(state)
+            WrapS(state)
         });
         let stage = network.wire_up(stage, 0);
 

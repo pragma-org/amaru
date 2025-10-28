@@ -197,7 +197,7 @@ pub trait StageGraph {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output = crate::State<St>> + 'static + Send,
+        Fut: Future<Output = crate::WrapS<St>> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
