@@ -445,7 +445,9 @@ pub mod test {
         is_header::tests::{any_header_with_parent, any_headers_chain, make_header, run},
         tests::{random_bytes, random_hash},
     };
-    use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore};
+    use amaru_ouroboros_traits::{
+        ChainStore, DiagnosticChainStore, in_memory_consensus_store::InMemConsensusStore,
+    };
     use rocksdb::Direction;
     use std::collections::BTreeMap;
     use std::path::Path;
@@ -679,44 +681,50 @@ pub mod test {
 
     #[test]
     fn update_best_chain_to_block_slot_given_new_block_is_valid() {
-        let (store, chain) = populate_db();
-        let new_tip = run(any_header_with_parent(chain[9].hash()));
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            let new_tip = run(any_header_with_parent(chain[9].hash()));
 
-        store
-            .roll_forward_chain(&new_tip.point())
-            .expect("should roll forward successfully");
+            store
+                .roll_forward_chain(&new_tip.point())
+                .expect("should roll forward successfully");
 
-        assert_eq!(
-            store.load_from_best_chain(&new_tip.point()),
-            Some(new_tip.hash())
-        );
+            assert_eq!(
+                store.load_from_best_chain(&new_tip.point()),
+                Some(new_tip.hash())
+            );
+        });
     }
 
     #[test]
     fn update_best_chain_to_rollback_point() {
-        let (store, chain) = populate_db();
+        with_db(|store| {
+            let chain = populate_db(store.clone());
 
-        store
-            .rollback_chain(&chain[5].point())
-            .expect("should rollback successfully");
+            store
+                .rollback_chain(&chain[5].point())
+                .expect("should rollback successfully");
 
-        assert_eq!(store.load_from_best_chain(&chain[9].point()), None);
-        assert_eq!(
-            store.load_from_best_chain(&chain[5].point()),
-            Some(chain[5].hash())
-        );
+            assert_eq!(store.load_from_best_chain(&chain[9].point()), None);
+            assert_eq!(
+                store.load_from_best_chain(&chain[5].point()),
+                Some(chain[5].hash())
+            );
+        });
     }
 
     #[test]
     fn raises_error_if_rollback_is_not_on_best_chain() {
-        let (store, chain) = populate_db();
-        let new_tip = run(any_header_with_parent(chain[6].hash()));
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            let new_tip = run(any_header_with_parent(chain[6].hash()));
 
-        let result = store.rollback_chain(&new_tip.point());
+            let result = store.rollback_chain(&new_tip.point());
 
-        if result.is_ok() {
-            panic!("expected test to fail");
-        }
+            if result.is_ok() {
+                panic!("expected test to fail");
+            }
+        });
     }
 
     // MIGRATIONS
@@ -925,11 +933,8 @@ pub mod test {
 
     const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b0089e6e81c947";
 
-    fn populate_db() -> (Arc<dyn ChainStore<BlockHeader>>, Vec<BlockHeader>) {
-        let tempdir = tempfile::tempdir().unwrap();
+    fn populate_db(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
         let chain = run(any_headers_chain(10));
-        let store: Arc<dyn ChainStore<BlockHeader>> =
-            Arc::new(initialise_test_rw_store(tempdir.path()));
 
         for header in chain.iter() {
             store
@@ -942,7 +947,7 @@ pub mod test {
                 .store_header(header)
                 .expect("should store header successfully");
         }
-        (store, chain)
+        chain
     }
 
     pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
@@ -995,10 +1000,10 @@ pub mod test {
     }
 
     fn with_db(f: impl Fn(Arc<dyn ChainStore<BlockHeader>>)) {
-        // // try first with in-memory store
-        // let in_memory_store: Arc<dyn ChainStore<BlockHeader>> =
-        //     Arc::new(InMemConsensusStore::new());
-        // f(in_memory_store);
+        // try first with in-memory store
+        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> =
+            Arc::new(InMemConsensusStore::new());
+        f(in_memory_store);
 
         // then with rocksdb store
         let tempdir = tempfile::tempdir().unwrap();

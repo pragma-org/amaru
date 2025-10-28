@@ -170,7 +170,6 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
         Ok(())
     }
 
-
     #[expect(clippy::unwrap_used)]
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
@@ -181,10 +180,17 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     #[expect(clippy::unwrap_used)]
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
         let mut inner = self.inner.lock().unwrap();
-        let init_len = inner.chain.len();
-        inner
-            .chain
-            .retain(|p| p.slot_or_default() < point.slot_or_default());
-        Ok(init_len - inner.chain.len())
+        if let Some(pos) = inner.chain.iter().rposition(|p| p == point) {
+            let removed = inner.chain.len().saturating_sub(pos + 1);
+            inner.chain.truncate(pos + 1); // keep the rollback point
+            Ok(removed)
+        } else {
+            Err(StoreError::ReadError {
+                error: format!(
+                    "Cannot roll back chain to point {:?} as it does not exist on the best chain",
+                    point
+                ),
+            })
+        }
     }
 }
