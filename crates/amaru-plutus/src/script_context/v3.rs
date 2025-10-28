@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, ops::Deref};
 use amaru_kernel::{
     Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
     ExUnits, GovAction, Mint, PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate,
-    RationalNumber, StakeAddress, StakeCredential, Value as KernelValue, Vote,
+    RationalNumber, StakeAddress, StakeCredential, Vote,
 };
 use num::Integer;
 
@@ -169,7 +169,7 @@ impl ToPlutusData<3> for Value {
         }
     }
 }
-impl ToPlutusData<3> for KernelValue {
+impl ToPlutusData<3> for amaru_kernel::Value {
     fn to_plutus_data(&self) -> PlutusData {
         fn ada_entry(coin: &u64) -> (PlutusData, PlutusData) {
             (
@@ -182,9 +182,9 @@ impl ToPlutusData<3> for KernelValue {
         }
 
         let entries = match self {
-            KernelValue::Coin(coin) if *coin > 0 => vec![ada_entry(coin)],
-            KernelValue::Coin(_) => vec![],
-            KernelValue::Multiasset(coin, multiasset) => {
+            amaru_kernel::Value::Coin(coin) if *coin > 0 => vec![ada_entry(coin)],
+            amaru_kernel::Value::Coin(_) => vec![],
+            amaru_kernel::Value::Multiasset(coin, multiasset) => {
                 let ada = (*coin > 0).then(|| ada_entry(coin));
                 let multiasset_entries = multiasset.iter().map(|(policy_id, assets)| {
                     (

@@ -12,21 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::{
+    AddrKeyhash, Address, AssetName, Certificate, ComputeHash, DatumHash, EraHistory, Hash,
+    KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
+    Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PolicyId, Redeemer, RewardAccount,
+    Slot, StakePayload, TransactionId, TransactionInput, Voter, network::NetworkName,
+    protocol_parameters::GlobalParameters,
+};
+use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
 };
-
-use amaru_kernel::{
-    AddrKeyhash, Address, AssetName, Certificate, ComputeHash, DatumHash, EraHistory, Hash,
-    KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
-    Mint as KernelMint, Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PolicyId,
-    Redeemer, RequiredSigners as KernelRequiredSigners, RewardAccount, Slot,
-    StakeAddress as KernelStakeAddress, StakePayload, TransactionId, TransactionInput,
-    Value as KernelValue, Voter, network::NetworkName, protocol_parameters::GlobalParameters,
-};
-
-use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 
 pub mod v1;
 pub mod v2;
@@ -91,13 +88,13 @@ impl From<Hash<28>> for CurrencySymbol {
 #[derive(Clone)]
 pub struct Value(pub BTreeMap<CurrencySymbol, BTreeMap<AssetName, u64>>);
 
-impl From<KernelValue> for Value {
-    fn from(value: KernelValue) -> Self {
+impl From<amaru_kernel::Value> for Value {
+    fn from(value: amaru_kernel::Value) -> Self {
         let assets = match value {
-            KernelValue::Coin(coin) => {
+            amaru_kernel::Value::Coin(coin) => {
                 BTreeMap::from([(CurrencySymbol::Ada, BTreeMap::from([(vec![].into(), coin)]))])
             }
-            KernelValue::Multiasset(coin, multiasset) => {
+            amaru_kernel::Value::Multiasset(coin, multiasset) => {
                 let mut map = BTreeMap::new();
                 map.insert(CurrencySymbol::Ada, BTreeMap::from([(vec![].into(), coin)]));
                 multiasset
@@ -167,8 +164,8 @@ impl From<MemoizedTransactionOutput> for TransactionOutput {
 #[derive(Debug, Default)]
 pub struct Mint(pub BTreeMap<Hash<28>, BTreeMap<AssetName, i64>>);
 
-impl From<KernelMint> for Mint {
-    fn from(value: KernelMint) -> Self {
+impl From<amaru_kernel::Mint> for Mint {
+    fn from(value: amaru_kernel::Mint) -> Self {
         let mints: BTreeMap<Hash<28>, BTreeMap<AssetName, i64>> = value
             .into_iter()
             .map(|(policy, multiasset)| {
@@ -189,8 +186,8 @@ impl From<KernelMint> for Mint {
 #[derive(Default)]
 pub struct RequiredSigners(pub BTreeSet<AddrKeyhash>);
 
-impl From<KernelRequiredSigners> for RequiredSigners {
-    fn from(value: KernelRequiredSigners) -> Self {
+impl From<amaru_kernel::RequiredSigners> for RequiredSigners {
+    fn from(value: amaru_kernel::RequiredSigners) -> Self {
         Self(value.to_vec().into_iter().collect())
     }
 }
@@ -199,9 +196,9 @@ impl From<KernelRequiredSigners> for RequiredSigners {
 pub struct Withdrawals(pub BTreeMap<StakeAddress, Lovelace>);
 
 #[derive(Clone)]
-pub struct StakeAddress(KernelStakeAddress);
+pub struct StakeAddress(amaru_kernel::StakeAddress);
 
-impl From<StakeAddress> for KernelStakeAddress {
+impl From<StakeAddress> for amaru_kernel::StakeAddress {
     fn from(value: StakeAddress) -> Self {
         value.0
     }

@@ -19,8 +19,8 @@ use crate::{
 use amaru_kernel::{
     Address, BigInt, Bytes, ComputeHash, DatumOption, Hash, Int, KeyValuePairs, MaybeIndefArray,
     MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData,
-    PseudoScript, Redeemer, ShelleyDelegationPart, ShelleyPaymentPart,
-    StakeAddress as KernelStakeAddress, StakeCredential, StakePayload,
+    PseudoScript, Redeemer, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential,
+    StakePayload,
 };
 use std::collections::BTreeMap;
 
@@ -146,7 +146,7 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for KernelStakeAddress
+impl<const V: u8> ToPlutusData<V> for amaru_kernel::StakeAddress
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
@@ -163,7 +163,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        KernelStakeAddress::from(self.clone()).to_plutus_data()
+        amaru_kernel::StakeAddress::from(self.clone()).to_plutus_data()
     }
 }
 
