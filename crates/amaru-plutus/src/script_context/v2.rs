@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr_v2,
+    ToPlutusData, constr_v2,
     script_context::{
         AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, OutputRef, PlutusData,
         Redeemer, TimeRange, TransactionId, TransactionOutput, Value, v1::ScriptPurpose,

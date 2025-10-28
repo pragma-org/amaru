@@ -22,7 +22,7 @@ use amaru_kernel::{
 use num::Integer;
 
 use crate::{
-    Constr, DEFAULT_TAG, MaybeIndefArray, ToConstrTag, ToPlutusData, constr, constr_v3,
+    ToPlutusData, constr, constr_v3,
     script_context::{
         AddrKeyhash, Certificate, CurrencySymbol, DatumHash, KeyValuePairs, Lovelace, OutputRef,
         PlutusData, PolicyId, Redeemer, TimeRange, TransactionId, TransactionInput,
