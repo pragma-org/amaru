@@ -16,9 +16,11 @@ use crate::{
     store::{Snapshot, StoreError, columns::*},
     summary::{
         AccountState, PoolState,
+        arc_interner::{ArcIntern, ArcInterner},
+        encode_drep, encode_pool_id,
         governance::{DRepState, GovernanceSummary},
         safe_ratio,
-        serde::{encode_drep, encode_pool_id, encode_stake_credential, serialize_map},
+        serde::{encode_stake_credential, serialize_map},
     },
 };
 use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
@@ -28,7 +30,7 @@ use amaru_kernel::{
 };
 use amaru_slot_arithmetic::Epoch;
 use serde::ser::SerializeStruct;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 use tracing::info;
 
 const EVENT_TARGET: &str = "amaru::ledger::state::stake_distribution";
@@ -60,13 +62,13 @@ pub struct StakeDistribution {
     /// Mapping of accounts' stake credentials to their respective state.
     ///
     /// Accounts that have stake but aren't delegated to any pools aren't present in the map.
-    pub accounts: BTreeMap<StakeCredential, AccountState>,
+    pub accounts: BTreeMap<Arc<StakeCredential>, AccountState>,
 
     /// Mapping of pools to their relative stake & parameters
-    pub pools: BTreeMap<PoolId, PoolState>,
+    pub pools: BTreeMap<Arc<PoolId>, PoolState>,
 
     /// Mapping of dreps to their relative stake
-    pub dreps: BTreeMap<DRep, DRepState>,
+    pub dreps: BTreeMap<Arc<DRep>, DRepState>,
 }
 
 impl StakeDistribution {
@@ -75,6 +77,7 @@ impl StakeDistribution {
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new(
         db: &impl Snapshot,
+        arc: &mut ArcInterner,
         protocol_parameters: &ProtocolParameters,
         GovernanceSummary {
             mut dreps,
@@ -111,7 +114,7 @@ impl StakeDistribution {
                 );
 
                 (
-                    pool,
+                    arc.intern(pool),
                     PoolState {
                         registered_at: row.registered_at,
                         stake: 0,
@@ -127,25 +130,25 @@ impl StakeDistribution {
                     },
                 )
             })
-            .collect::<BTreeMap<PoolId, PoolState>>();
+            .collect::<BTreeMap<Arc<PoolId>, PoolState>>();
 
         let mut accounts = db
             .iter_accounts()?
             .map(|(credential, account)| {
                 (
-                    credential,
+                    arc.intern(credential),
                     AccountState {
                         lovelace: account.rewards,
                         pool: account.pool.and_then(|(pool, since)| {
                             let PoolState { registered_at, .. } = pools.get(&pool)?;
                             if &since >= registered_at {
-                                Some(pool)
+                                Some(arc.intern(pool))
                             } else {
                                 None
                             }
                         }),
                         drep: account.drep.and_then(|(drep, since)| match drep {
-                            DRep::Abstain | DRep::NoConfidence => Some(drep),
+                            DRep::Abstain | DRep::NoConfidence => Some(arc.intern(drep)),
                             DRep::Key { .. } | DRep::Script { .. } => {
                                 let DRepState {
                                     previous_deregistration,
@@ -171,7 +174,7 @@ impl StakeDistribution {
                                 // So we fallback to checking that no de-registration happened
                                 // post-delegation.
                                 if &Some(since) > previous_deregistration {
-                                    Some(drep)
+                                    Some(arc.intern(drep))
                                 } else {
                                     None
                                 }
@@ -180,7 +183,7 @@ impl StakeDistribution {
                     },
                 )
             })
-            .collect::<BTreeMap<StakeCredential, AccountState>>();
+            .collect::<BTreeMap<Arc<StakeCredential>, AccountState>>();
 
         // TODO: This is the most expensive call in this whole function. It could be made
         // significantly cheaper if we only partially deserialize the UTxOs here. We only need the
@@ -189,9 +192,9 @@ impl StakeDistribution {
         db.iter_utxos()?.for_each(|(_, output)| {
             if let Some(credential) = output_stake_credential(&output) {
                 let value = output.lovelace();
-                accounts
-                    .entry(credential)
-                    .and_modify(|account| account.lovelace += value);
+                if let Some(account) = accounts.get_mut(&credential) {
+                    account.lovelace += value;
+                }
             }
         });
 
@@ -254,8 +257,8 @@ impl StakeDistribution {
                 }
 
                 // Only accounts delegated to active pools counts towards the active stake.
-                if let Some(pool_id) = account.pool {
-                    return match pools.get_mut(&pool_id) {
+                if let Some(pool_id) = account.pool.as_deref() {
+                    return match pools.get_mut(pool_id) {
                         None => false,
                         Some(pool) => {
                             // NOTE(POOL_VOTING_STAKE_DISTRIBUTION):
@@ -281,9 +284,9 @@ impl StakeDistribution {
 
         let block_issuers = db.iter_block_issuers()?;
         block_issuers.for_each(|(_, issuer)| {
-            pools
-                .entry(issuer.slot_leader)
-                .and_modify(|pool| pool.blocks_count += 1);
+            if let Some(pool) = pools.get_mut(&issuer.slot_leader) {
+                pool.blocks_count += 1;
+            }
         });
 
         info!(
@@ -346,7 +349,7 @@ pub mod tests {
         },
     };
     use proptest::{collection, option, prelude::*, prop_compose};
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, sync::Arc};
 
     prop_compose! {
         pub fn any_stake_distribution_no_pools(
@@ -355,8 +358,8 @@ pub mod tests {
         )(
             epoch in any::<u64>(),
             active_stake_delta in any::<Lovelace>(),
-            dreps in collection::btree_map(any_drep(), any_drep_state(min_epoch, max_epoch), 1..10),
-            accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
+            dreps in collection::btree_map(any_drep().prop_map(Arc::new), any_drep_state(min_epoch, max_epoch), 1..10),
+            accounts in collection::btree_map(any_stake_credential().prop_map(Arc::new), any_account_state(), 1..20),
         ) -> StakeDistribution {
             let dreps_voting_stake = dreps.values().fold(0, |total, st| total + st.stake);
 
@@ -381,8 +384,8 @@ pub mod tests {
     prop_compose! {
         pub fn any_stake_distribution_no_dreps()(
             epoch in any::<u64>(),
-            pools in collection::btree_map(any_pool_id(), any_pool_state(), 1..10),
-            accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
+            pools in collection::btree_map(any_pool_id().prop_map(Arc::new), any_pool_state(), 1..10),
+            accounts in collection::btree_map(any_stake_credential().prop_map(Arc::new), any_account_state(), 1..20),
         ) -> StakeDistribution {
             let active_stake = pools.values().fold(0, |total, st| total + st.stake);
             let pools_voting_stake = pools.values().fold(0, |total, st| total + st.voting_stake);
@@ -400,12 +403,12 @@ pub mod tests {
 
                 // Ensure some of the reward accounts do exists.
                 if ix % 2 == 0 {
-                        account = expect_stake_credential(&pool_st.parameters.reward_account);
+                    account = Arc::new(expect_stake_credential(&pool_st.parameters.reward_account));
                 }
 
                 // Make sure accounts are delegated to existing pools, when they are.
                 if let Some(delegation) = account_st.pool.as_mut() {
-                    *delegation = **pool;
+                    *delegation = (*pool).clone();
                 }
 
                 (account, account_st)
@@ -426,8 +429,8 @@ pub mod tests {
     prop_compose! {
         pub fn any_account_state()(
             lovelace in any::<Lovelace>(),
-            pool in option::of(any_pool_id()),
-            drep in option::of(any_drep()),
+            pool in option::of(any_pool_id().prop_map(Arc::new)),
+            drep in option::of(any_drep().prop_map(Arc::new)),
         ) -> AccountState {
             AccountState {
                 lovelace,

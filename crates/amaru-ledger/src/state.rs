@@ -26,6 +26,7 @@ use crate::{
         columns::{pools, proposals},
     },
     summary::{
+        arc_interner::ArcInterner,
         governance::{self, GovernanceSummary},
         into_safe_ratio,
         rewards::RewardsSummary,
@@ -98,6 +99,8 @@ where
     /// Our own in-memory vector of volatile deltas to apply onto the stable store in due time.
     volatile: VolatileDB,
 
+    arc: ArcInterner,
+
     /// The computed rewards summary to be applied on the next epoch boundary. This is computed
     /// once in the epoch, and held until the end where it is reset.
     ///
@@ -152,7 +155,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let governance_activity = stable.governance_activity()?;
 
-        let stake_distributions = initial_stake_distributions(&snapshots, &era_history)?;
+        let mut arc = ArcInterner::default();
+
+        let stake_distributions = initial_stake_distributions(&snapshots, &mut arc, &era_history)?;
 
         Ok(Self::new_with(
             stable,
@@ -163,6 +168,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             protocol_parameters,
             governance_activity,
             stake_distributions,
+            arc,
         ))
     }
 
@@ -176,8 +182,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         protocol_parameters: ProtocolParameters,
         governance_activity: GovernanceActivity,
         stake_distributions: VecDeque<StakeDistribution>,
+        arc: ArcInterner,
     ) -> Self {
         Self {
+            arc,
+
             stable: Arc::new(Mutex::new(stable)),
 
             snapshots,
@@ -288,6 +297,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             let protocol_parameters =
                 self.epoch_transition(&mut *db, &self.snapshots, current_epoch, rewards_summary)?;
 
+            self.arc.free_orphans();
             self.protocol_parameters = protocol_parameters;
             self.governance_activity = db.governance_activity()?;
 
@@ -437,6 +447,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let snapshot = self.snapshots.for_epoch(epoch)?;
         let rewards_summary = RewardsSummary::new(
             &snapshot,
+            &mut self.arc,
             stake_distribution,
             &self.global_parameters,
             &self.protocol_parameters,
@@ -445,6 +456,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         stake_distributions.push_front(recover_stake_distribution(
             &snapshot,
+            &mut self.arc,
             &self.era_history,
             &self.protocol_parameters,
         )?);
@@ -712,6 +724,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 // the ongoing epoch, not yet finished (and so, not available as snapshot).
 pub fn initial_stake_distributions(
     snapshots: &impl HistoricalStores,
+    arc: &mut ArcInterner,
     era_history: &EraHistory,
 ) -> Result<VecDeque<StakeDistribution>, StoreError> {
     let latest_epoch = snapshots.most_recent_snapshot();
@@ -723,7 +736,7 @@ pub fn initial_stake_distributions(
         let protocol_parameters = snapshot.protocol_parameters()?;
 
         stake_distributions.push_front(
-            recover_stake_distribution(&snapshot, era_history, &protocol_parameters)
+            recover_stake_distribution(&snapshot, arc, era_history, &protocol_parameters)
                 .map_err(|err| StoreError::Internal(err.into()))?,
         );
     }
@@ -740,15 +753,12 @@ pub fn initial_stake_distributions(
 )]
 pub fn recover_stake_distribution(
     snapshot: &impl Snapshot,
+    arc: &mut ArcInterner,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
-    StakeDistribution::new(
-        snapshot,
-        protocol_parameters,
-        GovernanceSummary::new(snapshot, era_history)?,
-    )
-    .map_err(StateError::Storage)
+    let summary = GovernanceSummary::new(snapshot, arc, era_history)?;
+    StakeDistribution::new(snapshot, arc, protocol_parameters, summary).map_err(StateError::Storage)
 }
 
 // Epoch Transitions

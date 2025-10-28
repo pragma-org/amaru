@@ -12,18 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::store::{GovernanceActivity, Snapshot, StoreError, columns::dreps};
+use crate::{
+    store::{GovernanceActivity, Snapshot, StoreError, columns::dreps},
+    summary::arc_interner::{ArcIntern, ArcInterner},
+};
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, Lovelace, Slot, StakeCredential, TransactionPointer,
     expect_stake_credential, network::EraHistory,
 };
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 #[derive(Debug)]
 pub struct GovernanceSummary {
-    pub dreps: BTreeMap<DRep, DRepState>,
-    pub deposits: BTreeMap<StakeCredential, Vec<ProposalState>>,
+    pub dreps: BTreeMap<Arc<DRep>, DRepState>,
+    pub deposits: BTreeMap<Arc<StakeCredential>, Vec<ProposalState>>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -60,7 +66,11 @@ pub enum Error {
 }
 
 impl GovernanceSummary {
-    pub fn new(db: &impl Snapshot, era_history: &EraHistory) -> Result<Self, Error> {
+    pub fn new(
+        db: &impl Snapshot,
+        arc: &mut ArcInterner,
+        era_history: &EraHistory,
+    ) -> Result<Self, Error> {
         let current_epoch = db.epoch();
 
         let mut proposals = BTreeSet::new();
@@ -88,7 +98,7 @@ impl GovernanceSummary {
                     };
 
                     deposits
-                        .entry(expect_stake_credential(&row.proposal.reward_account))
+                        .entry(arc.intern(expect_stake_credential(&row.proposal.reward_account)))
                         .and_modify(|proposals: &mut Vec<ProposalState>| proposals.push(proposal()))
                         .or_insert_with(|| vec![proposal()]);
                 }
@@ -125,7 +135,7 @@ impl GovernanceSummary {
                     };
 
                     Ok((
-                        drep,
+                        arc.intern(drep),
                         DRepState {
                             registered_at,
                             previous_deregistration,
@@ -153,8 +163,8 @@ impl GovernanceSummary {
             previous_deregistration: None,
         };
 
-        dreps.insert(DRep::Abstain, default_protocol_drep());
-        dreps.insert(DRep::NoConfidence, default_protocol_drep());
+        dreps.insert(Arc::new(DRep::Abstain), default_protocol_drep());
+        dreps.insert(Arc::new(DRep::NoConfidence), default_protocol_drep());
 
         Ok(GovernanceSummary { dreps, deposits })
     }

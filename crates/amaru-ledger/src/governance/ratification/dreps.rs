@@ -186,7 +186,7 @@ pub fn tally(
             .iter()
             .fold((0, 0), |(yes, denominator), (drep, st)| {
                 if st.is_active(epoch) {
-                    match drep {
+                    match drep.as_ref() {
                         DRep::Abstain => (yes, denominator),
                         DRep::NoConfidence if proposal.is_no_confidence() => {
                             (yes + st.stake, denominator + st.stake)
@@ -344,7 +344,12 @@ mod tests {
     pub fn any_votes(
         stake_distribution: &StakeDistribution,
     ) -> impl Strategy<Value = BTreeMap<DRep, &'static Vote>> + use<> {
-        let dreps: Vec<DRep> = stake_distribution.dreps.keys().cloned().collect();
+        let dreps: Vec<DRep> = stake_distribution
+            .dreps
+            .keys()
+            .map(|k| k.as_ref())
+            .cloned()
+            .collect();
 
         let upper_bound = dreps.len() - 1;
 
