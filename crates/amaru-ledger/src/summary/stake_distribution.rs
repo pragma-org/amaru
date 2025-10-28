@@ -456,7 +456,7 @@ pub mod tests {
                 stake,
                 voting_stake: stake.max(voting_stake),
                 margin,
-                parameters,
+                parameters: Box::new(parameters),
             }
         }
     }

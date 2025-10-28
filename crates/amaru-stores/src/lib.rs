@@ -328,7 +328,8 @@ pub mod tests {
         let stored_pool = stored_pool.unwrap();
 
         assert_eq!(
-            stored_pool.current_params, fixture.pool_params,
+            stored_pool.current_params.as_ref(),
+            &fixture.pool_params,
             "current pool params mismatch"
         );
         assert_eq!(

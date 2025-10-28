@@ -72,7 +72,7 @@ pub struct PoolState {
     pub margin: SafeRatio,
 
     /// The pool's parameters, as define per its last registration certificate.
-    pub parameters: PoolParams,
+    pub parameters: Box<PoolParams>,
 }
 
 impl ::serde::Serialize for PoolState {
