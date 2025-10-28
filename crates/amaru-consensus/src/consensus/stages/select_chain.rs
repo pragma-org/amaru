@@ -304,7 +304,7 @@ pub async fn stage(
                                 &errors,
                                 ValidationFailed {
                                     peer,
-                                    error: ConsensusError::SetBestChainHashFailed(header.hash(), e),
+                                    error: ConsensusError::RollForwardChainFailed(header.hash(), e),
                                 },
                             )
                             .await
@@ -331,8 +331,8 @@ pub async fn stage(
                                 &errors,
                                 ValidationFailed {
                                     peer,
-                                    error: ConsensusError::SetBestChainHashFailed(
-                                        rollback_header.hash(),
+                                    error: ConsensusError::RollbackChainFailed(
+                                        rollback_header.point(),
                                         e,
                                     ),
                                 },

@@ -84,6 +84,10 @@ pub enum ConsensusError {
     NoncesError(#[from] consensus::store::NoncesError),
     #[error("{0}")]
     InvalidHeaderParent(Box<InvalidHeaderParentData>),
+    #[error("Failed to roll forward chain from {0}: {1}")]
+    RollForwardChainFailed(amaru_kernel::Hash<32>, amaru_ouroboros::StoreError),
+    #[error("Failed to rollback chain at {0}: {1}")]
+    RollbackChainFailed(Point, amaru_ouroboros::StoreError),
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
