@@ -430,12 +430,7 @@ impl ToPlutusData<3> for Value<'_> {
         }
     }
 }
-<<<<<<< HEAD
 impl ToPlutusData<3> for amaru_kernel::Value {
-=======
-
-impl ToPlutusData<3> for KernelValue {
->>>>>>> 1a8b5622 (chore(amaru-plutus): reduce clones when constructing ScriptContext)
     fn to_plutus_data(&self) -> PlutusData {
         fn ada_entry(coin: &u64) -> (PlutusData, PlutusData) {
             (
