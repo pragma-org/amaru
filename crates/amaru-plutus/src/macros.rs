@@ -28,8 +28,13 @@ macro_rules! constr {
     }};
 
     ($index:expr $(,)?) => {{
-        constr!(ToPlutusData, $index, [])
-    }};
+        let maybe_constr_tag = $crate::to_cbor_tag($index);
+                amaru_kernel::PlutusData::Constr(amaru_kernel::Constr {
+                    tag: maybe_constr_tag.unwrap_or(102),
+                    any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
+                    fields: amaru_kernel::MaybeIndefArray::Def(vec![]),  // Changed to Def
+                })
+            }};
 }
 
 #[macro_export]

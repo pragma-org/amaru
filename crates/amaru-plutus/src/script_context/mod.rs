@@ -12,36 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-<<<<<<< HEAD
 use amaru_kernel::{
-    AddrKeyhash, Address, AssetName, Certificate, ComputeHash, DatumHash, EraHistory, Hash,
-    KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
-    Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, ProposalIdAdapter, Redeemer,
-    RewardAccount, Slot, StakePayload, TransactionId, TransactionInput, Vote, Voter,
-    VotingProcedures, network::NetworkName, protocol_parameters::GlobalParameters,
-=======
-use std::borrow::Cow;
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
-use std::ops::Deref;
-
-use amaru_kernel::network::NetworkName;
-use amaru_kernel::protocol_parameters::GlobalParameters;
-use amaru_kernel::{
-    AddrKeyhash, Address, AlonzoValue, Bytes, CborWrap, Certificate, ComputeHash, DatumHash,
-    EraHistory, Hash, KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript,
-    MemoizedTransactionOutput, Mint as KernelMint, MintedDatumOption, MintedScriptRef,
-    MintedTransactionOutput, NativeScript, Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData,
-    PlutusScript, ProposalIdAdapter, PseudoScript, Redeemer,
-    RequiredSigners as KernelRequiredSigners, RewardAccount, StakeAddress as KernelStakeAddress,
-    StakePayload, TransactionId, TransactionInput, Value as KernelValue, Vote, Voter,
-    VotingProcedures,
->>>>>>> 1a8b5622 (chore(amaru-plutus): reduce clones when constructing ScriptContext)
+    AddrKeyhash, Address, AlonzoValue, AssetName, Bytes, CborWrap, Certificate, ComputeHash,
+    DatumHash, EraHistory, Hash, KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript,
+    MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef, MintedTransactionOutput,
+    NativeScript, Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PlutusScript,
+    ProposalIdAdapter, PseudoScript, Redeemer, RewardAccount, Slot, StakePayload, TransactionId,
+    TransactionInput, Vote, Voter, VotingProcedures, network::NetworkName,
+    protocol_parameters::GlobalParameters,
 };
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 use std::{
+    borrow::Cow,
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
+    ops::Deref,
 };
 
 pub mod v1;
@@ -109,24 +94,14 @@ impl From<Hash<28>> for CurrencySymbol {
 #[derive(Clone)]
 pub struct Value<'a>(pub BTreeMap<CurrencySymbol, BTreeMap<Cow<'a, AssetName>, u64>>);
 
-<<<<<<< HEAD
-impl From<amaru_kernel::Value> for Value {
-    fn from(value: amaru_kernel::Value) -> Self {
+impl<'a> From<&'a amaru_kernel::Value> for Value<'a> {
+    fn from(value: &'a amaru_kernel::Value) -> Self {
         let assets = match value {
-            amaru_kernel::Value::Coin(coin) => {
-                BTreeMap::from([(CurrencySymbol::Ada, BTreeMap::from([(vec![].into(), coin)]))])
-            }
-            amaru_kernel::Value::Multiasset(coin, multiasset) => {
-=======
-impl<'a> From<&'a KernelValue> for Value<'a> {
-    fn from(value: &'a KernelValue) -> Self {
-        let assets = match value {
-            KernelValue::Coin(coin) => BTreeMap::from([(
+            amaru_kernel::Value::Coin(coin) => BTreeMap::from([(
                 CurrencySymbol::Ada,
                 BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), *coin)]),
             )]),
-            KernelValue::Multiasset(coin, multiasset) => {
->>>>>>> 1a8b5622 (chore(amaru-plutus): reduce clones when constructing ScriptContext)
+            amaru_kernel::Value::Multiasset(coin, multiasset) => {
                 let mut map = BTreeMap::new();
                 map.insert(
                     CurrencySymbol::Ada,
@@ -150,14 +125,14 @@ impl<'a> From<&'a KernelValue> for Value<'a> {
     }
 }
 
-impl<'a> From<KernelValue> for Value<'a> {
-    fn from(value: KernelValue) -> Self {
+impl<'a> From<amaru_kernel::Value> for Value<'a> {
+    fn from(value: amaru_kernel::Value) -> Self {
         let assets = match value {
-            KernelValue::Coin(coin) => BTreeMap::from([(
+            amaru_kernel::Value::Coin(coin) => BTreeMap::from([(
                 CurrencySymbol::Ada,
                 BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]),
             )]),
-            KernelValue::Multiasset(coin, multiasset) => {
+            amaru_kernel::Value::Multiasset(coin, multiasset) => {
                 let mut map = BTreeMap::new();
                 map.insert(
                     CurrencySymbol::Ada,
@@ -366,17 +341,10 @@ impl<'a> TryFrom<&'a MintedTransactionOutput<'a>> for TransactionOutput<'a> {
 #[derive(Debug, Default)]
 pub struct Mint<'a>(pub BTreeMap<Hash<28>, BTreeMap<Cow<'a, AssetName>, i64>>);
 
-<<<<<<< HEAD
-impl From<amaru_kernel::Mint> for Mint {
-    fn from(value: amaru_kernel::Mint) -> Self {
-        let mints: BTreeMap<Hash<28>, BTreeMap<AssetName, i64>> = value
-            .into_iter()
-=======
-impl<'a> From<&'a KernelMint> for Mint<'a> {
-    fn from(value: &'a KernelMint) -> Self {
+impl<'a> From<&'a amaru_kernel::Mint> for Mint<'a> {
+    fn from(value: &'a amaru_kernel::Mint) -> Self {
         let mints = value
             .iter()
->>>>>>> 1a8b5622 (chore(amaru-plutus): reduce clones when constructing ScriptContext)
             .map(|(policy, multiasset)| {
                 (
                     *policy,
@@ -395,15 +363,9 @@ impl<'a> From<&'a KernelMint> for Mint<'a> {
 #[derive(Default)]
 pub struct RequiredSigners(pub BTreeSet<AddrKeyhash>);
 
-<<<<<<< HEAD
-impl From<amaru_kernel::RequiredSigners> for RequiredSigners {
-    fn from(value: amaru_kernel::RequiredSigners) -> Self {
-        Self(value.to_vec().into_iter().collect())
-=======
-impl<'a> From<&'a KernelRequiredSigners> for RequiredSigners {
-    fn from(value: &'a KernelRequiredSigners) -> Self {
+impl<'a> From<&'a amaru_kernel::RequiredSigners> for RequiredSigners {
+    fn from(value: &'a amaru_kernel::RequiredSigners) -> Self {
         Self(value.iter().copied().collect())
->>>>>>> 1a8b5622 (chore(amaru-plutus): reduce clones when constructing ScriptContext)
     }
 }
 

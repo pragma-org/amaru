@@ -14,15 +14,14 @@
 
 use crate::{
     constr,
-    script_context::{CurrencySymbol, StakeAddress, TimeRange},
+    script_context::{CurrencySymbol, DatumOption, Script, StakeAddress, TimeRange},
 };
 use amaru_kernel::{
-    Address, BigInt, Bytes, ComputeHash, DatumOption, Hash, Int, KeyValuePairs, MaybeIndefArray,
-    MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData,
-    PseudoScript, Redeemer, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential,
-    StakePayload,
+    Address, BigInt, Bytes, ComputeHash, Hash, Int, KeyValuePairs, MaybeIndefArray, MemoizedDatum,
+    NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ShelleyDelegationPart,
+    ShelleyPaymentPart, StakeCredential, StakePayload,
 };
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 /// Serializing a type to PlutusData, which can then be serialised to CBOR.
 pub trait ToPlutusData<const VERSION: u8> {
@@ -63,17 +62,15 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for Option<DatumOption>
+impl<const V: u8> ToPlutusData<V> for DatumOption<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            Some(datum_option) => match datum_option {
-                DatumOption::Hash(hash) => constr!(1, [hash]),
-                DatumOption::Data(data) => constr!(2, [data.0]),
-            },
-            None => constr!(0),
+            DatumOption::None => constr!(0),
+            DatumOption::Hash(hash) => constr!(1, [hash]),
+            DatumOption::Inline(data) => constr!(2, [data]),
         }
     }
 }
@@ -190,8 +187,8 @@ where
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            None => constr!(0),
-            Some(data) => constr!(1, [data]),
+            None => constr!(1),
+            Some(data) => constr!(0, [data]),
         }
     }
 }
@@ -214,24 +211,16 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for MemoizedScript
+impl<const V: u8> ToPlutusData<V> for Script<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> PlutusData {
         match self {
-            PseudoScript::NativeScript(native_script) => {
-                native_script.as_ref().compute_hash().to_plutus_data()
-            }
-            PseudoScript::PlutusV1Script(plutus_script) => {
-                plutus_script.compute_hash().to_plutus_data()
-            }
-            PseudoScript::PlutusV2Script(plutus_script) => {
-                plutus_script.compute_hash().to_plutus_data()
-            }
-            PseudoScript::PlutusV3Script(plutus_script) => {
-                plutus_script.compute_hash().to_plutus_data()
-            }
+            Script::Native(native) => native.compute_hash().to_plutus_data(),
+            Script::PlutusV1(plutus) => plutus.compute_hash().to_plutus_data(),
+            Script::PlutusV2(plutus) => plutus.compute_hash().to_plutus_data(),
+            Script::PlutusV3(plutus) => plutus.compute_hash().to_plutus_data(),
         }
     }
 }
@@ -303,9 +292,13 @@ where
     T: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::Array(MaybeIndefArray::Def(
-            self.iter().map(|a| a.to_plutus_data()).collect(),
-        ))
+        if self.is_empty() {
+            PlutusData::Array(MaybeIndefArray::Def(vec![]))
+        } else {
+            PlutusData::Array(MaybeIndefArray::Indef(
+                self.iter().map(|a| a.to_plutus_data()).collect(),
+            ))
+        }
     }
 }
 
