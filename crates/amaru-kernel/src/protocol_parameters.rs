@@ -67,11 +67,11 @@ pub struct ProtocolParameters {
     pub optimal_stake_pools_count: u16,
     pub pledge_influence: RationalNumber,
     pub collateral_percentage: u16,
-    pub cost_models: CostModels,
+    pub cost_models: Box<CostModels>,
 
     // Governance group
-    pub pool_voting_thresholds: PoolVotingThresholds,
-    pub drep_voting_thresholds: DRepVotingThresholds,
+    pub pool_voting_thresholds: Box<PoolVotingThresholds>,
+    pub drep_voting_thresholds: Box<DRepVotingThresholds>,
     pub min_committee_size: u16,
     pub max_committee_term_length: EpochInterval,
     pub gov_action_lifetime: EpochInterval,
@@ -146,8 +146,14 @@ impl ProtocolParameters {
             // FIXME: update in Pallas; should be a u16
             u.max_collateral_inputs.map(|x| x as u16),
         );
-        set(&mut self.pool_voting_thresholds, u.pool_voting_thresholds);
-        set(&mut self.drep_voting_thresholds, u.drep_voting_thresholds);
+        set(
+            &mut self.pool_voting_thresholds,
+            u.pool_voting_thresholds.map(Box::new),
+        );
+        set(
+            &mut self.drep_voting_thresholds,
+            u.drep_voting_thresholds.map(Box::new),
+        );
         set(
             &mut self.min_committee_size,
             // FIXME: update in Pallas; should be a u16
@@ -279,11 +285,11 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
             treasury_expansion_rate,
             min_pool_cost,
             lovelace_per_utxo_byte,
-            cost_models: CostModels {
+            cost_models: Box::new(CostModels {
                 plutus_v1,
                 plutus_v2,
                 plutus_v3,
-            },
+            }),
             prices,
             max_tx_ex_units,
             max_block_ex_units,
@@ -930,9 +936,9 @@ pub mod tests {
             optimal_stake_pools_count,
             pledge_influence,
             collateral_percentage,
-            cost_models,
-            pool_voting_thresholds,
-            drep_voting_thresholds,
+            cost_models: Box::new(cost_models),
+            pool_voting_thresholds: Box::new(pool_voting_thresholds),
+            drep_voting_thresholds: Box::new(drep_voting_thresholds),
             min_committee_size,
             max_committee_term_length,
             gov_action_lifetime,
