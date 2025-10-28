@@ -192,7 +192,7 @@ pub async fn bootstrap(
     let our_tip = chain_store
         .load_header(&tip.hash())
         .map(|h| h.as_header_tip())
-        .unwrap_or(HeaderTip::new(Point::Origin, 0));
+        .unwrap_or(HeaderTip::new(Point::Origin, 0)); // FIXME: should fail if our tip is not found
 
     let chain_selector = make_chain_selector(
         chain_store.clone(),

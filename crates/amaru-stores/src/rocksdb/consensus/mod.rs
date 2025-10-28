@@ -18,7 +18,7 @@ pub mod util;
 pub use migration::*;
 
 use amaru_kernel::{
-    BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, ORIGIN_HASH, RawBlock, cbor,
+    BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor,
     from_cbor, to_cbor,
 };
 use amaru_ouroboros_traits::{
@@ -30,8 +30,8 @@ use tracing::{Level, instrument};
 
 use crate::rocksdb::RocksDbConfig;
 use crate::rocksdb::consensus::util::{
-    ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN,
-    HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
+    ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX,
+    CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
 };
 
 pub struct RocksDBStore {
@@ -108,6 +108,40 @@ impl RocksDBStore {
     pub fn create_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
         self.db.transaction()
     }
+
+    /// Runs the provided closure within a transaction.
+    ///
+    /// The transaction is committed if the closure returns `Ok`, otherwise it is rolled back.
+    /// Note the `commit` itself can also fail which is reported as a `StoreError::WriteError`.
+    pub fn with_transaction<R, F>(&self, f: F) -> Result<R, StoreError>
+    where
+        F: FnOnce(&rocksdb::Transaction<'_, OptimisticTransactionDB>) -> Result<R, StoreError>,
+    {
+        let tx = self.db.transaction();
+        match f(&tx) {
+            Ok(result) => {
+                tx.commit().map_err(|e| StoreError::WriteError {
+                    error: e.to_string(),
+                })?;
+                Ok(result)
+            }
+            Err(err) => Err(err),
+        }
+    }
+}
+
+pub(crate) fn store_chain_point(
+    db: &OptimisticTransactionDB,
+    point: &Point,
+) -> Result<(), StoreError> {
+    let slot = u64::from(point.slot_or_default()).to_be_bytes();
+    db.put(
+        [&CHAIN_PREFIX[..], &slot[..]].concat(),
+        point.hash().as_ref(),
+    )
+    .map_err(|e| StoreError::WriteError {
+        error: e.to_string(),
+    })
 }
 
 macro_rules! impl_ReadOnlyChainStore {
@@ -196,6 +230,25 @@ macro_rules! impl_ReadOnlyChainStore {
                     .map(|bytes| bytes.as_ref().into())
             }
 
+            fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+                let slot = u64::from(point.slot_or_default()).to_be_bytes();
+                self.db
+                    .get_pinned([&CHAIN_PREFIX[..], &slot[..]].concat())
+                    .ok()
+                    .flatten()
+                    .and_then(|bytes| {
+                        if bytes.len() == HEADER_HASH_SIZE {
+                            let hash = Hash::from(bytes.as_ref());
+                            if *hash == *point.hash() {
+                                Some(hash)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+            }
 
         })*
     }
@@ -233,9 +286,11 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
 
     #[allow(clippy::panic)]
     fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange(&BLOCK_PREFIX[..]));
         Box::new(
             self.db
-                .prefix_iterator(BLOCK_PREFIX)
+                .iterator_opt(IteratorMode::Start, opts)
                 .map(|item| match item {
                     Ok((k, v)) => {
                         let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
@@ -298,7 +353,8 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
     }
 }
 
-impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
+use std::fmt::Debug;
+impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     #[instrument(level = Level::TRACE, skip_all, fields(header = header.hash().to_string()))]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();
@@ -349,6 +405,49 @@ impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for Rocks
                 error: e.to_string(),
             })
     }
+
+    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
+        store_chain_point(&self.db, point)
+    }
+
+    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
+        if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(self, point).is_none() {
+            return Err(StoreError::ReadError {
+                error: format!(
+                    "Cannot roll back chain to point {:?} as it does not exist on the best chain",
+                    point
+                ),
+            });
+        };
+
+        // keep the rollback point so delete starting 1 slot after it
+        let slot = (u64::from(point.slot_or_default()) + 1).to_be_bytes();
+        let mut count = 0usize;
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange(&CHAIN_PREFIX[..]));
+        let starting_point = [&CHAIN_PREFIX[..], &slot[..]].concat();
+        let mode = IteratorMode::From(starting_point.as_slice(), rocksdb::Direction::Forward);
+
+        self.with_transaction(|tx| {
+            for kv in tx.iterator_opt(mode, opts) {
+                match kv {
+                    Ok((k, _v)) => {
+                        tx.delete(k).map_err(|e| StoreError::WriteError {
+                            error: e.to_string(),
+                        })?;
+                        count += 1;
+                    }
+                    Err(e) => {
+                        return Err(StoreError::ReadError {
+                            error: e.to_string(),
+                        });
+                    }
+                }
+            }
+
+            Ok(count)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -362,16 +461,14 @@ pub mod test {
         is_header::tests::{any_header_with_parent, any_headers_chain, make_header, run},
         tests::{random_bytes, random_hash},
     };
-    use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore};
+    use amaru_ouroboros_traits::{
+        ChainStore, DiagnosticChainStore, in_memory_consensus_store::InMemConsensusStore,
+    };
     use rocksdb::Direction;
     use std::collections::BTreeMap;
     use std::path::Path;
     use std::sync::Arc;
     use std::{fs, io};
-
-    /// "chain"
-    /// TODO: move to util once we are ready to implement chain tracking
-    const CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"chain";
 
     #[test]
     fn both_rw_and_ro_can_be_open_on_same_dir() {
@@ -598,6 +695,54 @@ pub mod test {
         })
     }
 
+    #[test]
+    fn update_best_chain_to_block_slot_given_new_block_is_valid() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            let new_tip = run(any_header_with_parent(chain[9].hash()));
+
+            store
+                .roll_forward_chain(&new_tip.point())
+                .expect("should roll forward successfully");
+
+            assert_eq!(
+                store.load_from_best_chain(&new_tip.point()),
+                Some(new_tip.hash())
+            );
+        });
+    }
+
+    #[test]
+    fn update_best_chain_to_rollback_point() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+
+            store
+                .rollback_chain(&chain[5].point())
+                .expect("should rollback successfully");
+
+            assert_eq!(store.load_from_best_chain(&chain[9].point()), None);
+            assert_eq!(
+                store.load_from_best_chain(&chain[5].point()),
+                Some(chain[5].hash())
+            );
+        });
+    }
+
+    #[test]
+    fn raises_error_if_rollback_is_not_on_best_chain() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            let new_tip = run(any_header_with_parent(chain[6].hash()));
+
+            let result = store.rollback_chain(&new_tip.point());
+
+            if result.is_ok() {
+                panic!("expected test to fail");
+            }
+        });
+    }
+
     // MIGRATIONS
 
     #[test]
@@ -677,14 +822,43 @@ pub mod test {
 
         copy_recursively(source, target).unwrap();
 
+        let (_, db) = open_db(&config).expect("cannot open sample v0 DB");
+        migrate_to_v1(&db).expect("Migration should succeed");
+
+        let header: Option<BlockHeader> = db
+            .get_pinned(
+                [
+                    &HEADER_PREFIX[..],
+                    hex::decode(SAMPLE_HASH).unwrap().as_slice(),
+                ]
+                .concat(),
+            )
+            .ok()
+            .and_then(|bytes| from_cbor(bytes?.as_ref()));
+
+        assert!(header.is_some(), "Sample data should be preserved");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn can_convert_v1_sample_db_to_v2() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target = tempdir.path();
+        let config = RocksDbConfig::new(target.to_path_buf());
+        let source = PathBuf::from("sample-chain-db/v1");
+
+        copy_recursively(source, target).unwrap();
+
         let result = migrate_db_path(target).expect("Migration should succeed");
 
         let db = RocksDBStore::open(config)
             .expect("DB should successfully be opened as it's been migrated");
-        assert_eq!((0, 1), result);
-        let header: Option<BlockHeader> = db.load_header(&HeaderHash::from(
-            hex::decode(SAMPLE_HASH).unwrap().as_slice(),
-        ));
+        assert_eq!((1, 2), result);
+        let header: Option<HeaderHash> =
+            <RocksDBStore as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(
+                &db,
+                &Point::Specific(5, hex::decode(SAMPLE_HASH).unwrap()),
+            );
         assert!(header.is_some(), "Sample data should be preserved");
     }
 
@@ -771,8 +945,26 @@ pub mod test {
         );
     }
 
-    const SAMPLE_HASH: &str = "2e78d1386ae414e62c72933c753a1cc5f6fdaefe0e6f0ee462bee8bb24285c1b";
     // HELPERS
+
+    const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b0089e6e81c947";
+
+    fn populate_db(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
+        let chain = run(any_headers_chain(10));
+
+        for header in chain.iter() {
+            store
+                .set_best_chain_hash(&header.hash())
+                .expect("should set best chain hash successfully");
+            store
+                .roll_forward_chain(&header.point())
+                .expect("should roll forward successfully");
+            store
+                .store_header(header)
+                .expect("should store header successfully");
+        }
+        chain
+    }
 
     pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
         let basedir = init_dir(path);
@@ -818,13 +1010,16 @@ pub mod test {
             <RocksDBStore as ChainStore<BlockHeader>>::put_nonces(&db, &header.hash(), &nonces)
                 .unwrap();
         }
+        <RocksDBStore as ChainStore<BlockHeader>>::set_anchor_hash(&db, &chain[1].hash()).unwrap();
+        <RocksDBStore as ChainStore<BlockHeader>>::set_best_chain_hash(&db, &chain[9].hash())
+            .unwrap();
     }
 
     fn with_db(f: impl Fn(Arc<dyn ChainStore<BlockHeader>>)) {
-        // // try first with in-memory store
-        // let in_memory_store: Arc<dyn ChainStore<BlockHeader>> =
-        //     Arc::new(InMemConsensusStore::new());
-        // f(in_memory_store);
+        // try first with in-memory store
+        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> =
+            Arc::new(InMemConsensusStore::new());
+        f(in_memory_store);
 
         // then with rocksdb store
         let tempdir = tempfile::tempdir().unwrap();

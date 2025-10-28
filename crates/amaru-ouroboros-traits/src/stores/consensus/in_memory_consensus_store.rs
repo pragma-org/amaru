@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, RawBlock};
+use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -46,6 +46,7 @@ struct InMemConsensusStoreInner<H> {
     anchor: HeaderHash,
     best_chain: HeaderHash,
     blocks: BTreeMap<HeaderHash, RawBlock>,
+    chain: Vec<Point>,
 }
 
 impl<H> Default for InMemConsensusStoreInner<H> {
@@ -63,6 +64,7 @@ impl<H> InMemConsensusStoreInner<H> {
             anchor: ORIGIN_HASH,
             best_chain: ORIGIN_HASH,
             blocks: BTreeMap::new(),
+            chain: Vec::new(),
         }
     }
 }
@@ -117,6 +119,12 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
         let inner = self.inner.lock().unwrap();
         inner.best_chain
     }
+
+    #[expect(clippy::unwrap_used)]
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        let inner = self.inner.lock().unwrap();
+        inner.chain.iter().find(|p| *p == point).map(|p| p.hash())
+    }
 }
 
 impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsensusStore<H> {
@@ -160,5 +168,29 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
         let mut inner = self.inner.lock().unwrap();
         inner.best_chain = *hash;
         Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.chain.push(point.clone());
+        Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        if let Some(pos) = inner.chain.iter().rposition(|p| p == point) {
+            let removed = inner.chain.len().saturating_sub(pos + 1);
+            inner.chain.truncate(pos + 1); // keep the rollback point
+            Ok(removed)
+        } else {
+            Err(StoreError::ReadError {
+                error: format!(
+                    "Cannot roll back chain to point {:?} as it does not exist on the best chain",
+                    point
+                ),
+            })
+        }
     }
 }

@@ -85,6 +85,7 @@ pub fn build_stage_graph(
             processing_errors_stage.clone().without_state(),
         ),
     );
+
     let select_chain_stage = network.wire_up(
         select_chain_stage,
         (

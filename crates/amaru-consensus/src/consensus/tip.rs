@@ -148,7 +148,7 @@ impl<H: IsHeader> From<Option<H>> for Tip<H> {
 ///
 /// This can also replace Tip<Header> in places where we only need the Point and block height,
 /// without needing the full Header.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct HeaderTip(Point, u64);
 
 impl Display for HeaderTip {

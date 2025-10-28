@@ -15,7 +15,7 @@
 pub mod in_memory_consensus_store;
 
 use crate::Nonces;
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, RawBlock};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, RawBlock};
 use std::fmt::Display;
 use std::iter::successors;
 use thiserror::Error;
@@ -30,6 +30,11 @@ where
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
     fn get_anchor_hash(&self) -> HeaderHash;
     fn get_best_chain_hash(&self) -> HeaderHash;
+
+    /// Load a `HeaderHash` from the best chain.
+    /// Returns `None` if the point is not in the best chain.
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash>;
+
     fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
     fn has_header(&self, hash: &HeaderHash) -> bool;
@@ -128,6 +133,10 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
     fn has_header(&self, hash: &HeaderHash) -> bool {
         self.as_ref().has_header(hash)
     }
+
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        self.as_ref().load_from_best_chain(point)
+    }
 }
 
 /// A simple chain store interface that can store and retrieve headers indexed by their hash.
@@ -140,6 +149,15 @@ where
     fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError>;
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError>;
+
+    /// Roll forward the best chain to the given point.
+    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError>;
+
+    /// Rollback the best chain tip at the given point.
+    /// The point must exist on the best chain, and all points on chain after that
+    /// point will be deleted.
+    /// Returns the number of headers that were rolled back.
+    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError>;
 }
 
 #[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
