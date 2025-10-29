@@ -58,22 +58,22 @@ pub enum V3InputTranslationError {
 
 // Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V3/Data/Contexts.hs#L572
 pub struct TxInfo<'a> {
-    inputs: Vec<OutputRef<'a>>,
-    reference_inputs: Vec<OutputRef<'a>>,
-    outputs: Vec<TransactionOutput<'a>>,
-    fee: Lovelace,
-    mint: Mint<'a>,
-    certificates: Vec<&'a Certificate>,
-    withdrawals: Withdrawals,
-    valid_range: TimeRange,
-    signatories: RequiredSigners,
-    redeemers: Redeemers<'a, ScriptPurpose<'a>>,
-    data: Datums<'a>,
-    id: TransactionId,
-    votes: Votes<'a>,
-    proposal_procedures: Vec<&'a Proposal>,
-    current_treasury_amount: Option<Lovelace>,
-    treasury_donation: Option<Lovelace>,
+    pub inputs: Vec<OutputRef<'a>>,
+    pub reference_inputs: Vec<OutputRef<'a>>,
+    pub outputs: Vec<TransactionOutput<'a>>,
+    pub fee: Lovelace,
+    pub mint: Mint<'a>,
+    pub certificates: Vec<&'a Certificate>,
+    pub withdrawals: Withdrawals,
+    pub valid_range: TimeRange,
+    pub signatories: RequiredSigners,
+    pub redeemers: Redeemers<'a, ScriptPurpose<'a>>,
+    pub data: Datums<'a>,
+    pub id: TransactionId,
+    pub votes: Votes<'a>,
+    pub proposal_procedures: Vec<&'a Proposal>,
+    pub current_treasury_amount: Option<Lovelace>,
+    pub treasury_donation: Option<Lovelace>,
 }
 
 // Much of this implementation is the same as V1 and, in turn, V2.
@@ -311,9 +311,9 @@ pub enum ScriptInfo<'a, T: Clone> {
 }
 
 pub struct ScriptContext<'a> {
-    tx_info: TxInfo<'a>,
-    redeemer: Redeemer,
-    script_info: ScriptInfo<'a, Option<PlutusData>>,
+    pub tx_info: TxInfo<'a>,
+    pub redeemer: Redeemer,
+    pub script_info: ScriptInfo<'a, Option<PlutusData>>,
 }
 
 impl<'a> ScriptContext<'a> {

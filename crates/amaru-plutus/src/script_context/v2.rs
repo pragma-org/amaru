@@ -25,18 +25,18 @@ use amaru_kernel::StakeAddress;
 
 // Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V2/Contexts.hs#L82
 pub struct TxInfo<'a> {
-    inputs: Vec<OutputRef<'a>>,
-    reference_inputs: Vec<OutputRef<'a>>,
-    outputs: Vec<TransactionOutput<'a>>,
-    fee: Value<'a>,
-    mint: Value<'a>,
-    certificates: Vec<Certificate>,
-    withdrawals: KeyValuePairs<StakeAddress, Lovelace>,
-    valid_range: TimeRange,
-    signatories: Vec<AddrKeyhash>,
-    redeemers: KeyValuePairs<ScriptPurpose<'a>, Redeemer>,
-    data: KeyValuePairs<DatumHash, PlutusData>,
-    id: TransactionId,
+    pub inputs: Vec<OutputRef<'a>>,
+    pub reference_inputs: Vec<OutputRef<'a>>,
+    pub outputs: Vec<TransactionOutput<'a>>,
+    pub fee: Value<'a>,
+    pub mint: Value<'a>,
+    pub certificates: Vec<Certificate>,
+    pub withdrawals: KeyValuePairs<StakeAddress, Lovelace>,
+    pub valid_range: TimeRange,
+    pub signatories: Vec<AddrKeyhash>,
+    pub redeemers: KeyValuePairs<ScriptPurpose<'a>, Redeemer>,
+    pub data: KeyValuePairs<DatumHash, PlutusData>,
+    pub id: TransactionId,
 }
 
 impl ToPlutusData<2> for TxInfo<'_> {
