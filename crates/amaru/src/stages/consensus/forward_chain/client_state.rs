@@ -110,7 +110,7 @@ pub(crate) mod tests {
     use crate::stages::consensus::forward_chain::client_protocol::ClientOp;
     use crate::stages::consensus::forward_chain::client_state::ChainFollower;
     use crate::stages::consensus::forward_chain::test_infra::{
-        CHAIN_47, FORK_47, LOST_47, TIP_47, WINNER_47, hash, mk_store,
+        CHAIN_47, FORK_47, LOST_47, TIP_47, WINNER_47, hash, mk_in_memory_store,
     };
     use amaru_kernel::{BlockHeader, IsHeader};
     use amaru_kernel::{Hash, HeaderHash};
@@ -122,7 +122,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_mk_store() {
-        let store = mk_store(CHAIN_47);
+        let store = mk_in_memory_store(CHAIN_47);
         assert_eq!(store.len(), 48);
         let chain = store.get_chain(TIP_47);
         assert_eq!(chain.len(), 47);
@@ -134,7 +134,7 @@ pub(crate) mod tests {
 
     #[test]
     fn find_headers_starting_at_tip() {
-        let store = mk_store(CHAIN_47);
+        let store = mk_in_memory_store(CHAIN_47);
 
         let tip = store.get_point(TIP_47);
         let points = [store.get_point(TIP_47)];
@@ -147,7 +147,7 @@ pub(crate) mod tests {
 
     #[test]
     fn find_headers_starting_from_fork_point() {
-        let store = mk_store(CHAIN_47);
+        let store = mk_in_memory_store(CHAIN_47);
 
         let tip = store.get_point(TIP_47);
         let points = [store.get_point(FORK_47)];
@@ -162,7 +162,7 @@ pub(crate) mod tests {
 
     #[test]
     fn find_headers_between_tip_and_branches() {
-        let store = mk_store(CHAIN_47);
+        let store = mk_in_memory_store(CHAIN_47);
 
         let tip = store.get_point(TIP_47);
         // Note that the below scheme does not match the documented behaviour, which shall pick the first from
@@ -187,7 +187,7 @@ pub(crate) mod tests {
 
     #[test]
     fn find_headers_between_tip_and_lost() {
-        let store = mk_store(CHAIN_47);
+        let store = mk_in_memory_store(CHAIN_47);
 
         let tip = store.get_point(TIP_47);
         let points = [store.get_point(LOST_47)];

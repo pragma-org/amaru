@@ -34,7 +34,7 @@ use amaru_consensus::consensus::{
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
     tip::HeaderTip,
 };
-use amaru_kernel::consensus_events::ChainSyncEvent;
+use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
 use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
 use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
@@ -148,23 +148,23 @@ pub fn spawn_node(
                 } => {
                     eff.send(
                         &downstream,
-                        ChainSyncEvent::RollForward {
+                        Tracked::Wrapped(ChainSyncEvent::RollForward {
                             peer: Peer::new(&msg.src),
                             point: Point::Specific(slot.into(), hash.into()),
                             raw_header: header.into(),
                             span: Span::current(),
-                        },
+                        }),
                     )
                     .await
                 }
                 ChainSyncMessage::Bck { slot, hash, .. } => {
                     eff.send(
                         &downstream,
-                        ChainSyncEvent::Rollback {
+                        Tracked::Wrapped(ChainSyncEvent::Rollback {
                             peer: Peer::new(&msg.src),
                             rollback_point: Point::Specific(slot.into(), hash.into()),
                             span: Span::current(),
-                        },
+                        }),
                     )
                     .await
                 }
@@ -315,7 +315,7 @@ The actions are
 /// Generate statistics from actions and log them.
 fn display_entries_statistics(generated_actions: &GeneratedActions) {
     let statistics = generated_actions.statistics();
-    for statistic in statistics.lines() {
+    for statistic in statistics.display_as_lines() {
         info!("{}", statistic);
     }
 }

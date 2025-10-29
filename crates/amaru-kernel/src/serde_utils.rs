@@ -46,6 +46,14 @@ where
     Ok(option.map(T::from))
 }
 
+pub fn hex_to_bytes<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = serde::Deserialize::deserialize(deserializer)?;
+    hex::decode(s).map_err(serde::de::Error::custom)
+}
+
 // -------------------------------------------------------------------------------- TransactionInput
 
 impl HasProxy for TransactionInput {

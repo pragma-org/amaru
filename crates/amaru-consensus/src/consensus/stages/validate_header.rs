@@ -169,6 +169,7 @@ mod tests {
     use crate::consensus;
     use crate::consensus::effects::MockLedgerOps;
     use crate::consensus::errors::ConsensusError::NoncesError;
+    use amaru_kernel::Point;
     use amaru_kernel::is_header::tests::{any_header_with_some_parent, run};
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::{
@@ -278,6 +279,10 @@ mod tests {
         fn get_nonces(&self, hash: &HeaderHash) -> Option<Nonces> {
             self.store.get_nonces(hash)
         }
+
+        fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+            self.store.load_from_best_chain(point)
+        }
     }
 
     impl ChainStore<BlockHeader> for FailingStore {
@@ -287,14 +292,6 @@ mod tests {
 
         fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
             self.store.set_best_chain_hash(hash)
-        }
-
-        fn update_best_chain(
-            &self,
-            anchor: &HeaderHash,
-            tip: &HeaderHash,
-        ) -> Result<(), StoreError> {
-            self.store.update_best_chain(anchor, tip)
         }
 
         fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
@@ -307,6 +304,14 @@ mod tests {
 
         fn put_nonces(&self, hash: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
             self.store.put_nonces(hash, nonces)
+        }
+
+        fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
+            self.store.roll_forward_chain(point)
+        }
+
+        fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
+            self.store.rollback_chain(point)
         }
     }
 

@@ -18,6 +18,29 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 use tracing::Span;
 
+/// Wrapper type to factor out caught-up messages from real events.
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Tracked<T> {
+    CaughtUp {
+        peer: Peer,
+        #[serde(skip, default = "Span::none")]
+        span: Span,
+    },
+    Wrapped(T),
+}
+
+impl<T: Debug> fmt::Debug for Tracked<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Tracked::Wrapped(e) => write!(f, "{:?}", e),
+            Tracked::CaughtUp { peer, .. } => f
+                .debug_struct("CaughtUp")
+                .field("peer", &peer.name)
+                .finish(),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ChainSyncEvent {
     RollForward {
@@ -30,11 +53,6 @@ pub enum ChainSyncEvent {
     Rollback {
         peer: Peer,
         rollback_point: Point,
-        #[serde(skip, default = "Span::none")]
-        span: Span,
-    },
-    CaughtUp {
-        peer: Peer,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -66,10 +84,6 @@ impl fmt::Debug for ChainSyncEvent {
                 .field("peer", &peer.name)
                 .field("rollback_point", &rollback_point.to_string())
                 .finish(),
-            ChainSyncEvent::CaughtUp { peer, .. } => f
-                .debug_struct("CaughtUp")
-                .field("peer", &peer.name)
-                .finish(),
         }
     }
 }
@@ -95,6 +109,13 @@ impl DecodedChainSyncEvent {
         match self {
             DecodedChainSyncEvent::RollForward { peer, .. } => peer.clone(),
             DecodedChainSyncEvent::Rollback { peer, .. } => peer.clone(),
+        }
+    }
+
+    pub fn point(&self) -> Point {
+        match self {
+            DecodedChainSyncEvent::RollForward { header, .. } => header.point(),
+            DecodedChainSyncEvent::Rollback { rollback_point, .. } => rollback_point.clone(),
         }
     }
 }

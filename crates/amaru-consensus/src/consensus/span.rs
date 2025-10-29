@@ -16,7 +16,7 @@ pub use impls::*;
 
 mod impls {
     use amaru_kernel::consensus_events::{
-        BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, ValidateBlockEvent,
+        BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, Tracked, ValidateBlockEvent,
         ValidateHeaderEvent,
     };
     use tracing::Span;
@@ -31,7 +31,6 @@ mod impls {
             match self {
                 ChainSyncEvent::RollForward { span, .. } => span,
                 ChainSyncEvent::Rollback { span, .. } => span,
-                ChainSyncEvent::CaughtUp { span, .. } => span,
             }
         }
     }
@@ -69,6 +68,15 @@ mod impls {
                 BlockValidationResult::BlockValidated { span, .. } => span,
                 BlockValidationResult::BlockValidationFailed { span, .. } => span,
                 BlockValidationResult::RolledBackTo { span, .. } => span,
+            }
+        }
+    }
+
+    impl<T: HasSpan> HasSpan for Tracked<T> {
+        fn span(&self) -> &Span {
+            match self {
+                Tracked::Wrapped(e) => e.span(),
+                Tracked::CaughtUp { span, .. } => span,
             }
         }
     }
