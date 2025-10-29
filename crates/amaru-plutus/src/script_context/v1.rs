@@ -56,17 +56,17 @@ pub enum V1InputTranslationError {
 
 // Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V1/Data/Contexts.hs#L148
 pub struct TxInfo<'a> {
-    inputs: Vec<OutputRef<'a>>,
-    outputs: Vec<TransactionOutput<'a>>,
-    fee: Value<'a>,
-    mint: Mint<'a>,
-    certificates: Vec<&'a Certificate>,
-    withdrawals: Withdrawals,
-    valid_range: TimeRange,
-    signatories: RequiredSigners,
-    data: Datums<'a>,
-    redeemers: Redeemers<'a, ScriptPurpose<'a>>,
-    id: TransactionId,
+    pub inputs: Vec<OutputRef<'a>>,
+    pub outputs: Vec<TransactionOutput<'a>>,
+    pub fee: Value<'a>,
+    pub mint: Mint<'a>,
+    pub certificates: Vec<&'a Certificate>,
+    pub withdrawals: Withdrawals,
+    pub valid_range: TimeRange,
+    pub signatories: RequiredSigners,
+    pub data: Datums<'a>,
+    pub redeemers: Redeemers<'a, ScriptPurpose<'a>>,
+    pub id: TransactionId,
 }
 
 impl<'a> TxInfo<'a> {
@@ -259,8 +259,8 @@ impl<'a> ScriptPurpose<'a> {
 }
 
 pub struct ScriptContext<'a> {
-    tx_info: TxInfo<'a>,
-    purpose: ScriptPurpose<'a>,
+    pub tx_info: TxInfo<'a>,
+    pub purpose: ScriptPurpose<'a>,
 }
 
 impl<'a> ScriptContext<'a> {
