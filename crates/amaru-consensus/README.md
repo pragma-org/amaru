@@ -22,9 +22,10 @@ graph TD
     upstream -- chain sync --> pull
     pull -- ChainSyncEvent --> receive_header
 
-    receive_header -- DecodedChainSyncEvent --> validate_header
-    receive_header -- ChainSyncEvent::CaughtUp --> track_peers
+    receive_header -- Tracked<DecodedChainSyncEvent> --> track_peers
     receive_header -.-> store
+
+    track_peers -- DecodeChainSyncEvent --> validate_header
 
     validate_header -- ValidateHeaderEvent --> fetch_block
 

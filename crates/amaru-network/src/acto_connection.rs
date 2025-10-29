@@ -20,7 +20,7 @@ use acto::{AcTokioRuntime, ActoCell, ActoInput};
 use amaru_kernel::{
     BlockHeader, IsHeader, Point,
     connection::{BlockFetchClientError, BlockSender, ConnMsg},
-    consensus_events::ChainSyncEvent,
+    consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
 };
 use amaru_ouroboros::ChainStore;
@@ -53,7 +53,7 @@ pub async fn actor(
     mut cell: ActoCell<ConnMsg, AcTokioRuntime>,
     peer: Peer,
     magic: u64,
-    hd_tx: mpsc::Sender<ChainSyncEvent>,
+    hd_tx: mpsc::Sender<Tracked<ChainSyncEvent>>,
     store: Arc<dyn ChainStore<BlockHeader>>,
 ) {
     let mut req = VecDeque::new();
@@ -102,7 +102,7 @@ pub async fn actor(
                     }
                     NextResponse::Await => {
                         hd_tx
-                            .send(ChainSyncEvent::CaughtUp {
+                            .send(Tracked::CaughtUp {
                                 peer: peer2.clone(),
                                 span: Span::current(),
                             })
@@ -179,33 +179,33 @@ pub async fn actor(
 }
 
 async fn roll_forward(
-    hd_tx: &mpsc::Sender<ChainSyncEvent>,
+    hd_tx: &mpsc::Sender<Tracked<ChainSyncEvent>>,
     peer: &Peer,
     hd: HeaderContent,
 ) -> anyhow::Result<()> {
     let hd = to_traverse(&hd)?;
     hd_tx
-        .send(ChainSyncEvent::RollForward {
+        .send(Tracked::Wrapped(ChainSyncEvent::RollForward {
             peer: peer.clone(),
             point: Point::Specific(hd.slot(), hd.hash().to_vec()),
             raw_header: hd.cbor().to_vec(),
             span: Span::current(),
-        })
+        }))
         .await?;
     Ok(())
 }
 
 async fn roll_back(
-    hd_tx: &mpsc::Sender<ChainSyncEvent>,
+    hd_tx: &mpsc::Sender<Tracked<ChainSyncEvent>>,
     peer: &Peer,
     point: pallas_network::miniprotocols::Point,
 ) -> anyhow::Result<()> {
     hd_tx
-        .send(ChainSyncEvent::Rollback {
+        .send(Tracked::Wrapped(ChainSyncEvent::Rollback {
             peer: peer.clone(),
             rollback_point: from_network_point(&point),
             span: Span::current(),
-        })
+        }))
         .await?;
     Ok(())
 }
