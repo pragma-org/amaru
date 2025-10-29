@@ -13,8 +13,10 @@
 // limitations under the License.
 
 use crate::consensus::effects::ChainSyncEffect;
+use crate::consensus::span::HasSpan;
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
 use pure_stage::{Effects, StageRef};
+use tracing::{Level, span};
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NextSync;
@@ -25,6 +27,9 @@ pub async fn stage(
     eff: Effects<NextSync>,
 ) -> StageRef<Tracked<ChainSyncEvent>> {
     let msg = eff.external(ChainSyncEffect).await;
+    let span = span!(parent: msg.span(), Level::TRACE, "stage.pull");
+    let _entered = span.enter();
+
     eff.send(&downstream, msg).await;
     eff.send(eff.me_ref(), NextSync).await;
     downstream
