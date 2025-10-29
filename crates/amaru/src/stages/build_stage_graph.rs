@@ -23,7 +23,7 @@ use amaru_consensus::consensus::{
     },
     tip::HeaderTip,
 };
-use amaru_kernel::consensus_events::ChainSyncEvent;
+use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the consensus protocol.
@@ -34,7 +34,7 @@ pub fn build_stage_graph(
     sync_tracker: SyncTracker,
     our_tip: HeaderTip,
     network: &mut impl StageGraph,
-) -> StageRef<ChainSyncEvent> {
+) -> StageRef<Tracked<ChainSyncEvent>> {
     let receive_header_stage = network.stage(
         "receive_header",
         with_consensus_effects(receive_header::stage),
@@ -117,11 +117,13 @@ pub fn build_stage_graph(
             validation_errors_stage.clone().without_state(),
         ),
     );
-    let track_peers_stage = network.wire_up(track_peers_stage, sync_tracker);
+    let track_peers_stage = network.wire_up(
+        track_peers_stage,
+        (sync_tracker, validate_header_stage.without_state()),
+    );
     let receive_header_stage = network.wire_up(
         receive_header_stage,
         (
-            validate_header_stage.without_state(),
             track_peers_stage.without_state(),
             validation_errors_stage.without_state(),
             processing_errors_stage.without_state(),

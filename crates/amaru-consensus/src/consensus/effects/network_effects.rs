@@ -16,7 +16,11 @@ use crate::consensus::{
     errors::{ConsensusError, ProcessingFailed},
     tip::HeaderTip,
 };
-use amaru_kernel::{BlockHeader, IsHeader, Point, consensus_events::ChainSyncEvent, peer::Peer};
+use amaru_kernel::{
+    BlockHeader, IsHeader, Point,
+    consensus_events::{ChainSyncEvent, Tracked},
+    peer::Peer,
+};
 use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -173,7 +177,7 @@ impl ExternalEffectAPI for ForwardEventEffect {
 pub struct ChainSyncEffect;
 
 impl ExternalEffectAPI for ChainSyncEffect {
-    type Response = ChainSyncEvent;
+    type Response = Tracked<ChainSyncEvent>;
 }
 
 impl ExternalEffect for ChainSyncEffect {

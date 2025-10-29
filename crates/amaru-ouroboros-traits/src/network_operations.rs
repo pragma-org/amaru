@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Point, connection::BlockFetchClientError, consensus_events::ChainSyncEvent, peer::Peer,
+    Point,
+    connection::BlockFetchClientError,
+    consensus_events::{ChainSyncEvent, Tracked},
+    peer::Peer,
 };
 use std::sync::Arc;
 
@@ -24,7 +27,9 @@ pub type ResourceNetworkOperations = Arc<dyn NetworkOperations>;
 #[async_trait::async_trait]
 pub trait NetworkOperations: Send + Sync {
     /// Wait for the next chain sync event from upstream peers.
-    async fn next_sync(&self) -> ChainSyncEvent;
+    /// This can either be one of the `ChainSyncEvent` variants or a notification that
+    /// we caught up with this peer's chain.
+    async fn next_sync(&self) -> Tracked<ChainSyncEvent>;
 
     /// Fetch a block from a specific peer at a given point.
     async fn fetch_block(

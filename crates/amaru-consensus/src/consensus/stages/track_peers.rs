@@ -13,32 +13,39 @@
 // limitations under the License.
 
 use crate::consensus::EVENT_TARGET;
+use crate::consensus::effects::BaseOps;
 use crate::consensus::effects::ConsensusOps;
-use crate::consensus::span::HasSpan;
-use amaru_kernel::consensus_events::ChainSyncEvent;
+use amaru_kernel::consensus_events::{DecodedChainSyncEvent, Tracked};
 use amaru_kernel::peer::Peer;
+use pure_stage::StageRef;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, fmt::Debug};
-use tracing::{Level, debug, span, trace};
+use tracing::{debug, trace};
 
-type State = SyncTracker;
+type State = (SyncTracker, StageRef<DecodedChainSyncEvent>);
 
-pub async fn stage(mut state: State, msg: ChainSyncEvent, _eff: impl ConsensusOps) -> State {
-    let span = span!(parent: msg.span(), Level::TRACE, "stage.track_peers");
-    let _entered = span.enter();
+pub async fn stage(
+    state: State,
+    msg: Tracked<DecodedChainSyncEvent>,
+    eff: impl ConsensusOps,
+) -> State {
+    let (mut tracker, downstream) = state;
 
     match msg {
-        ChainSyncEvent::RollForward { peer, point, .. } => {
-            if state.is_caught_up() {
-                debug!(target: EVENT_TARGET, %peer, point = %point, "new tip");
+        Tracked::Wrapped(e @ DecodedChainSyncEvent::RollForward { .. }) => {
+            if tracker.is_caught_up() {
+                debug!(target: EVENT_TARGET, peer = %e.peer(), point = %e.point(), "new tip");
             } else {
-                trace!(target: EVENT_TARGET, %peer, point = %point, "new tip");
-            }
+                trace!(target: EVENT_TARGET, peer= %e.peer(), point = %e.point(), "new tip");
+            };
+            eff.base().send(&downstream, e).await;
         }
-        ChainSyncEvent::CaughtUp { peer, .. } => state.caught_up(&peer),
-        ChainSyncEvent::Rollback { .. } => {}
+        Tracked::Wrapped(e @ DecodedChainSyncEvent::Rollback { .. }) => {
+            eff.base().send(&downstream, e).await;
+        }
+        Tracked::CaughtUp { peer, .. } => tracker.caught_up(&peer),
     }
-    state
+    (tracker, downstream)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -69,8 +76,17 @@ pub enum SyncState {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use crate::consensus::effects::mock_consensus_ops;
+
     use super::*;
-    use amaru_kernel::peer::Peer;
+    use amaru_kernel::{
+        IsHeader,
+        is_header::tests::{any_header, run},
+        peer::Peer,
+    };
+    use tracing::Span;
 
     #[tokio::test]
     async fn is_caught_up_when_all_peers_are_caught_up() {
@@ -95,5 +111,64 @@ mod tests {
         tracker.caught_up(&alice);
 
         assert!(!tracker.is_caught_up());
+    }
+
+    #[tokio::test]
+    async fn roll_forward_is_sent_to_downstream() -> anyhow::Result<()> {
+        let message = DecodedChainSyncEvent::RollForward {
+            peer: Peer::new("alice"),
+            header: run(any_header()),
+            span: Span::current(),
+        };
+        let consensus_ops = mock_consensus_ops();
+
+        stage(
+            make_state(),
+            Tracked::Wrapped(message.clone()),
+            consensus_ops.clone(),
+        )
+        .await;
+        assert_eq!(
+            consensus_ops.mock_base.received(),
+            BTreeMap::from_iter(vec![(
+                "downstream".to_string(),
+                vec![format!("{message:?}")]
+            )])
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rollback_is_sent_to_downstream() -> anyhow::Result<()> {
+        let message = DecodedChainSyncEvent::Rollback {
+            peer: Peer::new("alice"),
+            rollback_point: run(any_header()).point(),
+            span: Span::current(),
+        };
+        let consensus_ops = mock_consensus_ops();
+
+        stage(
+            make_state(),
+            Tracked::Wrapped(message.clone()),
+            consensus_ops.clone(),
+        )
+        .await;
+        assert_eq!(
+            consensus_ops.mock_base.received(),
+            BTreeMap::from_iter(vec![(
+                "downstream".to_string(),
+                vec![format!("{message:?}")]
+            )])
+        );
+        Ok(())
+    }
+
+    fn make_state() -> State {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let peers = vec![alice.clone(), bob.clone()];
+        let tracker = SyncTracker::new(&peers);
+        let downstream: StageRef<DecodedChainSyncEvent> = StageRef::named("downstream");
+        (tracker, downstream)
     }
 }
