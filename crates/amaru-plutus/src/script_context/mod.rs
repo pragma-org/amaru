@@ -39,7 +39,7 @@ impl IsPrePlutusVersion3 for PlutusVersion<2> {}
 
 pub use v1::{ScriptContext as ScriptContextV1, TxInfo as TxInfoV1};
 pub use v2::{ScriptContext as ScriptContextV2, TxInfo as TxInfoV2};
-pub use v3::TxInfo as TxInfoV3;
+pub use v3::{ScriptContext as ScriptContextV3, TxInfo as TxInfoV3};
 
 use crate::PlutusVersion;
 
