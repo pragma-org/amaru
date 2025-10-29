@@ -32,6 +32,7 @@ gasket = { version = "0.8.0", features = ["derive"] } # More recent versions hav
 hex = "0.4.3"
 indicatif = "0.18.0"
 indoc = "2.0"
+intern-arc = { version = "0.6.2", features = ["serde"] }
 itertools = "0.14.0"
 minicbor = { version = "0.25.1", features = ["std", "half", "derive"] } # Must match the version used by pallas
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }

@@ -34,7 +34,6 @@ use std::{
     collections::BTreeMap,
     fmt::{self, Debug, Formatter},
     ops::Deref,
-    sync::Arc,
 };
 
 pub use amaru_minicbor_extra::*;
@@ -161,6 +160,7 @@ pub use strict_maybe::*;
 pub mod strict_maybe;
 
 use crate::string_utils::ListToString;
+use intern_arc::{InternedOrd, global::ord_interner};
 pub use transaction_pointer::*;
 
 pub mod transaction_pointer;
@@ -259,7 +259,7 @@ pub type AuxiliaryDataHash = Hash<32>;
 #[derive(
     Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
-pub struct RawBlock(Arc<[u8]>);
+pub struct RawBlock(InternedOrd<[u8]>);
 
 impl Deref for RawBlock {
     type Target = [u8];
@@ -271,7 +271,7 @@ impl Deref for RawBlock {
 
 impl From<&[u8]> for RawBlock {
     fn from(bytes: &[u8]) -> Self {
-        Self(Arc::from(bytes))
+        Self(ord_interner().intern_box(bytes.into()))
     }
 }
 

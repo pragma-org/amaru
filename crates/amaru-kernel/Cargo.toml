@@ -22,6 +22,7 @@ tracing = ["amaru-minicbor-extra/tracing"]
 anyhow.workspace = true
 bech32.workspace = true
 hex.workspace = true
+intern-arc.workspace = true
 itertools.workspace = true
 minicbor.workspace = true
 pallas-addresses.workspace = true
