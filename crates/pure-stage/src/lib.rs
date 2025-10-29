@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg_attr(feature = "nightly", feature(try_trait_v2))]
-
 mod effect;
 mod logging;
 mod output;
@@ -39,6 +37,6 @@ pub use sender::Sender;
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning};
 pub use time::{Clock, EPOCH, Instant};
-pub use types::{BoxFuture, Name, OrReturn, SendData, TryInStage, WrapS};
+pub use types::{BoxFuture, Name, SendData, TryInStage};
 
 pub use typetag;

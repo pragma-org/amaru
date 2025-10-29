@@ -15,7 +15,7 @@
 
 use pure_stage::{
     CallRef, Effect, ExternalEffect, Instant, OutputEffect, Receiver, Resources, SendData,
-    StageGraph, StageGraphRunning, StageRef,
+    StageGraph, StageGraphRunning, StageRef, TryInStage,
     simulation::{OverrideResult, SimulationBuilder},
     trace_buffer::TraceBuffer,
 };
@@ -365,15 +365,13 @@ fn call() {
 
     let mut network = SimulationBuilder::default();
     let caller = network.stage("caller", async |mut state: State3, msg: u32, eff| {
-        let Some(response) = eff
+        state.0 = eff
             .call(&state.1, Duration::from_secs(2), move |cr| {
                 Msg3(msg + 1, cr)
             })
             .await
-        else {
-            return eff.terminate().await;
-        };
-        state.0 = response;
+            .or_terminate(&eff, async |_| ())
+            .await;
         state
     });
 
@@ -424,18 +422,14 @@ fn call_timeout_terminates_graph() {
 
     // caller times out quickly; callee sleeps longer -> triggers terminate
     let caller = network.stage("caller", async |state: State3, msg: u32, eff| {
-        let Some(_) = eff
-            .call(&state.1, Duration::from_millis(10), move |cr| {
-                Msg3(msg + 1, cr)
-            })
-            .await
-        else {
-            // Returning terminate here should trigger graph termination
-            // (SimulationRunning.termination should complete)
-            // We return from the stage with terminate effect:
-            // NOTE: returning `eff.terminate().await` is the intended pattern.
-            return eff.terminate().await;
-        };
+        eff.call(&state.1, Duration::from_millis(10), move |cr| {
+            Msg3(msg + 1, cr)
+        })
+        .await
+        // Returning terminate here should trigger graph termination
+        // (SimulationRunning.termination should complete)
+        .or_terminate(&eff, async |_| {})
+        .await;
         state
     });
 

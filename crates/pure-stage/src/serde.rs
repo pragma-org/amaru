@@ -112,11 +112,16 @@ impl SendDataValue {
     /// This is a convenience function that serializes the value to a vector of bytes and then
     /// deserializes it back into a boxed [`SendData`](crate::SendData) value. It is mostly
     /// useful in tests.
+    #[expect(clippy::expect_used)]
     pub fn boxed<T: SendData>(value: T) -> Box<dyn SendData> {
         let mut buf = cbor4ii::serde::Serializer::new(BufWriter::new(Vec::new()));
-        serialize_send_data::serialize(&(Box::new(value) as Box<dyn SendData>), &mut buf).unwrap();
+        serialize_send_data::serialize(&(Box::new(value) as Box<dyn SendData>), &mut buf)
+            .expect("serialization should not fail");
         let bytes = buf.into_inner().into_inner();
-        Box::new(cbor4ii::serde::from_slice::<SendDataValue>(&bytes).unwrap())
+        Box::new(
+            cbor4ii::serde::from_slice::<SendDataValue>(&bytes)
+                .expect("deserialization of serialized SendDataValue should not fail"),
+        )
     }
 }
 

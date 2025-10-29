@@ -310,15 +310,9 @@ pub async fn stage(
                     eff.base().send(&downstream, event).await;
                 }
                 None => {
-                    eff.base()
-                        .send(
-                            &errors,
-                            ValidationFailed::new(
-                                &peer,
-                                ConsensusError::UnknownPoint(rollback_point.hash()),
-                            ),
-                        )
-                        .await
+                    let err = ConsensusError::UnknownPoint(rollback_point.hash());
+                    let msg = ValidationFailed::new(&peer, err);
+                    eff.base().send(&errors, msg).await
                 }
             },
         }

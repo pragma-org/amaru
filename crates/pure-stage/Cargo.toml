@@ -8,10 +8,7 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/pure-stage"
-# rust-version.workspace = true
-
-[features]
-nightly = []
+rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true

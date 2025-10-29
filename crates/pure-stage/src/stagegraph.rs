@@ -169,45 +169,6 @@ pub trait StageGraph {
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
 
-    /// Create a stage from an asynchronous transition function (state × message → state) and
-    /// an initial state.
-    ///
-    /// This is a variant of [`StageGraph::stage`](crate::StageGraph::stage) that allows the transition
-    /// function to return a value wrapped in [`State`](crate::State) to allow short-circuiting with the `?` operator.
-    ///
-    /// ```rust
-    /// use pure_stage::{simulation::SimulationBuilder, StageGraph, State, TryInStage};
-    ///
-    /// let mut network = SimulationBuilder::default();
-    /// network.stage_ret("demo", async |state: u32, msg: Result<u32, String>, eff| {
-    ///     let state: u32 = msg.or_return(async |error: String| {
-    ///         tracing::error!("error: {}", error);
-    ///         // could also run effects here
-    ///         10
-    ///     })
-    ///     .await?;
-    ///     tracing::info!("received message: {}", state);
-    ///     State(state)
-    /// });
-    #[cfg(feature = "nightly")]
-    fn stage_ret<Msg, St, F, Fut>(
-        &mut self,
-        name: impl AsRef<str>,
-        f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
-    where
-        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
-        Fut: Future<Output = crate::WrapS<St>> + 'static + Send,
-        Msg: SendData + serde::de::DeserializeOwned,
-        St: SendData,
-    {
-        let f = std::sync::Arc::new(parking_lot::Mutex::new(f));
-        self.stage(name, move |s, m, e| {
-            let f = (f.lock())(s, m, e);
-            async move { f.await.0 }
-        })
-    }
-
     /// Finalize the given stage by providing its initial state.
     fn wire_up<Msg, St>(
         &mut self,
