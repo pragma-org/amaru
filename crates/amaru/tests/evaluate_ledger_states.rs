@@ -211,10 +211,6 @@ fn import_vector(
     pparams_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let epoch = peek_epoch(&record.initial_state)?;
-    let point = Point::Specific(
-        epoch * 86400,
-        hex::decode("0000000000000000000000000000000000000000000000000000000000000000")?
-    );
 
     let mut decoder = minicbor::Decoder::new(&record.initial_state);
     let (mut validation_context, pparams_hash, governance_activity) = decode_ledger_state(&mut decoder)?;
@@ -226,6 +222,12 @@ fn import_vector(
             TestVectorEvent::Transaction(tx, success, slot) => (tx, success, slot),
             _ => continue,
         };
+
+        let point = Point::Specific(
+            slot,
+            hex::decode("0000000000000000000000000000000000000000000000000000000000000000")?
+        );
+
         let tx: MintedTx<'_> = minicbor::decode(&*tx_bytes)?;
 
         let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
@@ -236,6 +238,8 @@ fn import_vector(
 
         let pointer = TransactionPointer {
             slot: point.slot_or_default(),
+            // Using the loop index here is conterintuitive but ensures that tx pointers will be distinct even if
+            // the slots are the same. ultimately the pointers are made up since we do not have real blocks
             transaction_index: ix,
         };
 
