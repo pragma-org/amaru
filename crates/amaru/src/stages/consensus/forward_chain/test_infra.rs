@@ -38,6 +38,7 @@ pub const TIP_47: &str = "fcb4a51804f14f3f5b5ad841199b557aed0187280f7855736bdb15
 pub const LOST_47: &str = "bd41b102018a21e068d504e64b282512a3b7d5c3883b743aa070ad9244691125";
 pub const FORK_47: &str = "64565f22fb23476baaa6f82e0e2d68636ceadabded697099fb376c23226bdf03";
 pub const WINNER_47: &str = "66c90f54f9073cfc03a334f5b15b1617f6bf6fe6c892fad8368e16abe20b0f4f";
+pub const FIRST_HEADER: &str = "2487bd4f49c89e59bb3d2166510d3d49017674d3c3b430b95db2e260fedce45e";
 
 pub fn mk_in_memory_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHeader>> {
     let f = File::open(path).unwrap();
