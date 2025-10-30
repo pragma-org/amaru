@@ -17,7 +17,6 @@ use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFaile
 use crate::consensus::span::HasSpan;
 use amaru_kernel::consensus_events::{ChainSyncEvent, DecodedChainSyncEvent, Tracked};
 use amaru_kernel::{BlockHeader, Hash, Header, IsHeader, MintedHeader, Point, cbor};
-use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Level, instrument, span};
 
@@ -45,33 +44,7 @@ pub async fn stage(
             // TODO: check the point vs the deserialized header point and invalidate if they don't match
             // then simplify and don't pass the point separately
             let header = match decode_header(&point, raw_header.as_slice()) {
-                Ok(header) => {
-                    if header.point() != point {
-                        tracing::error!(%point, %peer, "Header point {} does not match expected point {point}", header.point());
-                        eff.base()
-                            .send(
-                                &failures,
-                                ValidationFailed::new(
-                                    &peer,
-                                    ConsensusError::HeaderPointMismatch {
-                                        actual_point: header.point(),
-                                        expected_point: point.clone(),
-                                    },
-                                ),
-                            )
-                            .await;
-                        return (downstream, failures, errors);
-                    } else {
-                        let result = eff.store().store_header(&header);
-                        if let Err(error) = result {
-                            eff.base()
-                                .send(&errors, ProcessingFailed::new(&peer, anyhow!(error)))
-                                .await;
-                            return (downstream, failures, errors);
-                        };
-                        header
-                    }
-                }
+                Ok(header) => header,
                 Err(error) => {
                     tracing::error!(%error, %point, %peer, "Failed to decode header");
                     eff.base()
@@ -80,6 +53,28 @@ pub async fn stage(
                     return (downstream, failures, errors);
                 }
             };
+
+            if header.point() != point {
+                tracing::error!(%point, %peer, "Header point {} does not match expected point {point}", header.point());
+                let msg = ValidationFailed::new(
+                    &peer,
+                    ConsensusError::HeaderPointMismatch {
+                        actual_point: header.point(),
+                        expected_point: point.clone(),
+                    },
+                );
+                eff.base().send(&failures, msg).await;
+                return (downstream, failures, errors);
+            } else {
+                let result = eff.store().store_header(&header);
+                if let Err(error) = result {
+                    eff.base()
+                        .send(&errors, ProcessingFailed::new(&peer, error.into()))
+                        .await;
+                    return (downstream, failures, errors);
+                };
+            }
+
             eff.base()
                 .send(
                     &downstream,
@@ -92,16 +87,12 @@ pub async fn stage(
             rollback_point,
             span,
         }) => {
-            eff.base()
-                .send(
-                    &downstream,
-                    Tracked::Wrapped(DecodedChainSyncEvent::Rollback {
-                        peer,
-                        rollback_point,
-                        span,
-                    }),
-                )
-                .await
+            let msg = Tracked::Wrapped(DecodedChainSyncEvent::Rollback {
+                peer,
+                rollback_point,
+                span,
+            });
+            eff.base().send(&downstream, msg).await
         }
         Tracked::CaughtUp { peer, span } => {
             eff.base()

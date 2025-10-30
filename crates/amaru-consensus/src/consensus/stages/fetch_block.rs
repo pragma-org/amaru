@@ -39,36 +39,33 @@ pub async fn stage(
     match msg {
         ValidateHeaderEvent::Validated { peer, header, span } => {
             let point = header.point();
-            match eff.network().fetch_block(peer.clone(), point).await {
-                Ok(block) => {
-                    let block = RawBlock::from(&*block);
-
-                    let result = eff.store().store_block(&header.hash(), &block);
-                    if let Err(e) = result {
-                        eff.base()
-                            .send(&errors, ProcessingFailed::new(&peer, e.into()))
-                            .await;
-                        return (downstream, failures, errors);
-                    }
-
-                    eff.base()
-                        .send(
-                            &downstream,
-                            ValidateBlockEvent::Validated {
-                                peer,
-                                header,
-                                block,
-                                span,
-                            },
-                        )
-                        .await
-                }
+            let block = match eff.network().fetch_block(peer.clone(), point).await {
+                Ok(block) => block,
                 Err(e) => {
                     eff.base()
                         .send(&failures, ValidationFailed::new(&peer, e))
-                        .await
+                        .await;
+                    return (downstream, failures, errors);
                 }
+            };
+
+            let block = RawBlock::from(&*block);
+
+            let result = eff.store().store_block(&header.hash(), &block);
+            if let Err(e) = result {
+                eff.base()
+                    .send(&errors, ProcessingFailed::new(&peer, e.into()))
+                    .await;
+                return (downstream, failures, errors);
             }
+
+            let validated = ValidateBlockEvent::Validated {
+                peer,
+                header,
+                block,
+                span,
+            };
+            eff.base().send(&downstream, validated).await
         }
         ValidateHeaderEvent::Rollback {
             peer,

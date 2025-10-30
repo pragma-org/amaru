@@ -59,6 +59,42 @@ pub enum TraceEntry {
     },
 }
 
+impl TraceEntry {
+    /// Construct a suspend entry.
+    pub fn suspend(effect: Effect) -> Self {
+        Self::Suspend(effect)
+    }
+
+    /// Construct a resume entry.
+    pub fn resume(stage: impl AsRef<str>, response: StageResponse) -> Self {
+        Self::Resume {
+            stage: Name::from(stage.as_ref()),
+            response,
+        }
+    }
+
+    /// Construct a clock entry.
+    pub fn clock(instant: Instant) -> Self {
+        Self::Clock(instant)
+    }
+
+    /// Construct an input entry.
+    pub fn input(stage: impl AsRef<str>, input: Box<dyn SendData>) -> Self {
+        Self::Input {
+            stage: Name::from(stage.as_ref()),
+            input,
+        }
+    }
+
+    /// Construct a state entry.
+    pub fn state(stage: impl AsRef<str>, state: Box<dyn SendData>) -> Self {
+        Self::State {
+            stage: Name::from(stage.as_ref()),
+            state,
+        }
+    }
+}
+
 /// A non-owning variant of [`TraceEntry`] that allows serializing an entry without consuming it.
 ///
 /// This structure cannot be deserialized, use the owned version for that.

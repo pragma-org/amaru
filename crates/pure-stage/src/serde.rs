@@ -15,7 +15,8 @@
 
 //! This module contains some serialization and deserialization code for the Pure Stage library.
 
-use cbor4ii::serde::to_writer;
+use crate::SendData;
+use cbor4ii::{core::utils::BufWriter, serde::to_writer};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::cell::RefCell;
 
@@ -103,6 +104,25 @@ pub mod serialize_send_data {
 pub struct SendDataValue {
     pub typetag: String,
     pub value: cbor4ii::core::Value,
+}
+
+impl SendDataValue {
+    /// Construct a boxed [`SendData`](crate::SendData) value from a concrete type.
+    ///
+    /// This is a convenience function that serializes the value to a vector of bytes and then
+    /// deserializes it back into a boxed [`SendData`](crate::SendData) value. It is mostly
+    /// useful in tests.
+    #[expect(clippy::expect_used)]
+    pub fn boxed<T: SendData>(value: T) -> Box<dyn SendData> {
+        let mut buf = cbor4ii::serde::Serializer::new(BufWriter::new(Vec::new()));
+        serialize_send_data::serialize(&(Box::new(value) as Box<dyn SendData>), &mut buf)
+            .expect("serialization should not fail");
+        let bytes = buf.into_inner().into_inner();
+        Box::new(
+            cbor4ii::serde::from_slice::<SendDataValue>(&bytes)
+                .expect("deserialization of serialized SendDataValue should not fail"),
+        )
+    }
 }
 
 #[cfg(test)]
