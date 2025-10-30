@@ -51,7 +51,7 @@ fn evaluate_vector(snapshot: &str) -> Result<(), Box<dyn std::error::Error>> {
     match get_test_context() {
         Ok(tc) => {
             let vector_file = fs::read(snapshot)?;
-            let record: TestVector = minicbor::decode(&vector_file)?;
+            let record: TestVector = cbor::decode(&vector_file)?;
             let () = import_vector(record, era_history, &tc.pparams_dir)?;
             Ok(())
         }
@@ -86,8 +86,8 @@ enum TestVectorEvent {
     PassEpoch(u64),
 }
 
-impl<'b, C> minicbor::decode::Decode<'b, C> for TestVectorEvent {
-    fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+impl<'b, C> cbor::decode::Decode<'b, C> for TestVectorEvent {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         let variant = d.u16()?;
 
@@ -99,7 +99,7 @@ impl<'b, C> minicbor::decode::Decode<'b, C> for TestVectorEvent {
             )),
             1 => Ok(TestVectorEvent::PassTick(d.decode_with(ctx)?)),
             2 => Ok(TestVectorEvent::PassEpoch(d.decode_with(ctx)?)),
-            _ => Err(minicbor::decode::Error::message(
+            _ => Err(cbor::decode::Error::message(
                 "invalid variant id for TestVectorEvent",
             )),
         }
@@ -110,14 +110,14 @@ impl<'b, C> minicbor::decode::Decode<'b, C> for TestVectorEvent {
 // each vector is very simple so we don't need to worry about every field. We really just care
 // about the utxos.
 fn decode_ledger_state<'b>(
-    d: &mut minicbor::Decoder<'b>,
+    d: &mut cbor::Decoder<'b>,
 ) -> Result<
     (
         DefaultValidationContext,
-        &'b minicbor::bytes::ByteSlice,
+        &'b cbor::bytes::ByteSlice,
         GovernanceActivity,
     ),
-    minicbor::decode::Error,
+    cbor::decode::Error,
 > {
     let _begin_nes = d.array()?;
     let _epoch_no = d.u64()?;
@@ -147,7 +147,7 @@ fn decode_ledger_state<'b>(
         }
         None => loop {
             let ty = d.datatype()?;
-            if ty == minicbor::data::Type::Break {
+            if ty == cbor::data::Type::Break {
                 break;
             }
             let tx_in = d.decode()?;
@@ -186,7 +186,7 @@ fn decode_ledger_state<'b>(
 
 fn decode_segregated_parameters(
     dir: &PathBuf,
-    hash: &minicbor::bytes::ByteSlice,
+    hash: &cbor::bytes::ByteSlice,
 ) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
     let pparams_file_path = fs::read_dir(dir)?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -209,7 +209,7 @@ fn import_vector(
     era_history: &EraHistory,
     pparams_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut decoder = minicbor::Decoder::new(&record.initial_state);
+    let mut decoder = cbor::Decoder::new(&record.initial_state);
     let (mut validation_context, pparams_hash, governance_activity) =
         decode_ledger_state(&mut decoder)?;
 
@@ -220,7 +220,7 @@ fn import_vector(
             TestVectorEvent::Transaction(tx, success, slot) => (tx, success, slot),
             _ => continue,
         };
-        let tx: MintedTx<'_> = minicbor::decode(tx_bytes.as_slice())?;
+        let tx: MintedTx<'_> = cbor::decode(tx_bytes.as_slice())?;
 
         let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
         let tx_witness_set: MintedWitnessSet<'_> = tx.transaction_witness_set.deref().clone();

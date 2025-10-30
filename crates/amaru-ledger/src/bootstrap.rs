@@ -1109,50 +1109,6 @@ fn import_votes(
     Ok(())
 }
 
-<<<<<<< HEAD
-fn decode_seggregated_parameters(
-    dir: &PathBuf,
-    hash: cbor::bytes::ByteVec,
-) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
-    let pparams_file_path = fs::read_dir(dir)?
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .find(|path| {
-            path.file_name()
-                .map(|filename| filename.to_str() == Some(&hex::encode(hash.as_slice())))
-                .unwrap_or(false)
-        })
-        .ok_or(Error::MissingPparamsFile)?;
-
-    let pparams_file = fs::read(pparams_file_path)?;
-
-    let pparams = cbor::Decoder::new(&pparams_file).decode()?;
-
-    Ok(pparams)
-}
-
-||||||| parent of 99b23f75 (remove db dependency)
-fn decode_seggregated_parameters(
-    dir: &PathBuf,
-    hash: &cbor::bytes::ByteSlice,
-) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
-    let pparams_file_path = fs::read_dir(dir)?
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .find(|path| {
-            path.file_name()
-                .map(|filename| filename.to_str() == Some(&hex::encode(hash.as_ref())))
-                .unwrap_or(false)
-        })
-        .ok_or(Error::MissingPparamsFile)?;
-
-    let pparams_file = fs::read(pparams_file_path)?;
-
-    let pparams = cbor::Decoder::new(&pparams_file).decode()?;
-
-    Ok(pparams)
-}
-
-=======
->>>>>>> 99b23f75 (remove db dependency)
 // TODO: Move to Pallas
 #[derive(Debug)]
 #[expect(dead_code)]
