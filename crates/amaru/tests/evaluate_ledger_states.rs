@@ -223,11 +223,6 @@ fn import_vector(
             _ => continue,
         };
 
-        let point = Point::Specific(
-            slot,
-            hex::decode("0000000000000000000000000000000000000000000000000000000000000000")?
-        );
-
         let tx: MintedTx<'_> = minicbor::decode(&*tx_bytes)?;
 
         let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
@@ -237,7 +232,7 @@ fn import_vector(
                 .map(|aux_data| Hasher::<256>::hash(aux_data.raw_cbor()));
 
         let pointer = TransactionPointer {
-            slot: point.slot_or_default(),
+            slot: slot.into(),
             // Using the loop index here is conterintuitive but ensures that tx pointers will be distinct even if
             // the slots are the same. ultimately the pointers are made up since we do not have real blocks
             transaction_index: ix,
