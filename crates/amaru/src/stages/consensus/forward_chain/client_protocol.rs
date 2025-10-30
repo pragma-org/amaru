@@ -191,16 +191,18 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
         "request interception",
     );
 
-    let Some(mut chain_follower) = ChainFollower::new(store, &our_tip.0, &requested_points) else {
+    let Some(mut chain_follower) = ChainFollower::new(store.clone(), &our_tip.0, &requested_points) else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
         return Err(ClientError::NoIntersection.into());
     };
 
-    tracing::debug!(intersection = ?chain_follower.intersection, "intersection found");
+    let intersection = chain_follower.intersection_found();
+
+    tracing::debug!(intersection = ?intersection, "intersection found");
 
     server
-        .send_intersect_found(chain_follower.intersection.clone(), our_tip.clone())
+        .send_intersect_found(intersection, our_tip.clone())
         .await?;
 
     let parent = cell.me();
@@ -217,7 +219,7 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
                 tracing::trace!(operation = ?op, "forward change");
                 our_tip = op.tip();
                 chain_follower.add_op(op);
-                if waiting && let Some(op) = chain_follower.next_op() {
+                if waiting && let Some(op) = chain_follower.next_op(store.clone()) {
                     tracing::trace!(operation = ?op, "reply await");
                     waiting = false;
                     handler.send(Some((op, our_tip.clone())));
@@ -225,7 +227,7 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
             }
             ActoInput::Message(ChainSyncMsg::ReqNext) => {
                 tracing::trace!("client request next");
-                if let Some(op) = chain_follower.next_op() {
+                if let Some(op) = chain_follower.next_op(store.clone()) {
                     tracing::trace!(operation = ?op, "forward next operation");
                     handler.send(Some((op, our_tip.clone())));
                 } else {

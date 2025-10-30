@@ -14,12 +14,12 @@
 
 use crate::stages::AsTip;
 use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
-use amaru_kernel::{HeaderHash, IsHeader, Slot};
+use amaru_consensus::ReadOnlyChainStore;
+use amaru_kernel::{HeaderHash, IsHeader};
 use amaru_network::point::{from_network_point, to_network_point};
 use amaru_ouroboros_traits::ChainStore;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
-use std::iter;
 use std::sync::Arc;
 use tracing::trace;
 
@@ -27,18 +27,25 @@ use tracing::trace;
 ///
 /// The `ops` list may contain up to one rollback at the front only.
 pub(super) struct ChainFollower<H> {
+    /// Initial rollback.
+    /// Should we send `Rollback` to client that just asked for an intersection?
+    initial: Option<Tip>,
+
+    /// The anchor at the time this follower was initialised.
+    /// The anchor gives us the threshold between immutable and volatile headers.
+    /// Until we cross this threshold, we should follow the chain from the
+    /// store then afterwards use the `ops` buffer.
+    anchor: HeaderHash,
+
     /// The buffer of _operations_ to send to the client.
     ops: VecDeque<ClientOp<H>>,
 
-    /// An iterator the part of the chain the follower should be served
-    /// that comes from the immutable (stored) headers
-    iterator: Box<dyn Iterator<Item = (u64, HeaderHash)>>,
-
-    /// The initial intersection `Tip` for this follower.
-    pub(super) intersection: Point,
+    /// The current tip `Tip` for this follower.
+    /// The `tip` starts at the intersection point.
+    tip: Tip,
 }
 
-impl<H: IsHeader + Clone> ChainFollower<H> {
+impl<H: IsHeader + Clone + Send> ChainFollower<H> {
     pub fn new(
         store: Arc<dyn ChainStore<H>>,
         current_tip: &Point,
@@ -46,17 +53,19 @@ impl<H: IsHeader + Clone> ChainFollower<H> {
     ) -> Option<Self> {
         let start_header = store.load_header(&hash_point(current_tip))?;
 
+        // find the anchor
+        let anchor = store.get_anchor_hash();
+
         // the client is at least as up-to-date as we are
         if points.contains(current_tip) {
+            let initial = Some(start_header.as_tip());
             return Some(Self {
-                ops: vec![ClientOp::Backward(start_header.as_tip())].into(),
-                iterator: Box::new(iter::empty()),
-                intersection: to_network_point(start_header.point()),
+                initial,
+                anchor,
+                ops: vec![].into(),
+                tip: start_header.as_tip(),
             });
         }
-
-        // find the anchor
-        let anchor_hash = store.get_anchor_hash();
 
         // the best intersection point from the requested points
         let best_intersection = points
@@ -68,7 +77,7 @@ impl<H: IsHeader + Clone> ChainFollower<H> {
             })
             .max_by_key(|(slot, _)| *slot);
 
-        trace!(%anchor_hash, ?current_tip, ?best_intersection, "best_intersection");
+        trace!(%anchor, ?current_tip, ?best_intersection, "best_intersection");
 
         let mut current_header = start_header;
         let mut headers = vec![];
@@ -85,7 +94,7 @@ impl<H: IsHeader + Clone> ChainFollower<H> {
                         .map(|(_, h)| *h == parent_hash)
                         .unwrap_or(false);
 
-                    if parent_hash == anchor_hash || is_intersection {
+                    if parent_hash == anchor || is_intersection {
                         break;
                     }
 
@@ -96,28 +105,27 @@ impl<H: IsHeader + Clone> ChainFollower<H> {
             }
         }
 
-        let store_iterator = needs_immutable(&best_intersection, &headers, &anchor_hash);
-
         // headers contains a list of Fwd operations in reverse order
-        // add backward operation to intersection point
-        headers.push(ClientOp::Backward(
-            best_intersection
-                .and_then(|(_, h)| store.load_header(&h))
-                .map(|h| h.as_tip())
-                .unwrap_or(Tip(Point::Origin, 0)),
-        ));
         headers.reverse();
 
+        let best_tip = best_intersection
+            .and_then(|(_, h)| store.load_header(&h))
+            .map(|h| h.as_tip())
+            .unwrap_or(Tip(Point::Origin, 0));
         Some(Self {
+            initial: Some(best_tip.clone()),
             ops: headers.into(),
-            iterator: store_iterator,
-            intersection: best_intersection
-                .map(|(s, h)| Point::Specific(s, h.to_vec()))
-                .unwrap_or(Point::Origin),
+            tip: best_tip,
+            anchor,
         })
     }
 
-    pub fn next_op(&mut self) -> Option<ClientOp<H>> {
+    pub fn next_op(&mut self, store: Arc<dyn ReadOnlyChainStore<H>>) -> Option<ClientOp<H>> {
+        if let Some(ref init_tip) = self.initial {
+            let result = Some(ClientOp::Backward(init_tip.clone()));
+            self.initial = None;
+            return result;
+        }
         self.ops.pop_front()
     }
 
@@ -140,14 +148,10 @@ impl<H: IsHeader + Clone> ChainFollower<H> {
             }
         }
     }
-}
 
-fn needs_immutable<H: IsHeader + Clone>(
-    best_intersection: &Option<(u64, HeaderHash)>,
-    headers: &[ClientOp<H>],
-    anchor_hash: &HeaderHash,
-) -> Box<dyn Iterator<Item = (u64, HeaderHash)>> {
-    Box::new(iter::empty())
+    pub(crate) fn intersection_found(&self) -> Point {
+        self.tip.0.clone()
+    }
 }
 
 #[cfg(test)]
@@ -191,9 +195,9 @@ pub(crate) mod tests {
         let points = [store.get_point(TIP_47)];
         let start = Tip(tip.clone(), store.get_height(TIP_47));
 
-        let mut chain_follower = ChainFollower::new(store, &tip, &points).unwrap();
+        let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
 
-        assert_eq!(chain_follower.next_op(), Some(ClientOp::Backward(start)));
+        assert_eq!(chain_follower.next_op(store.clone()), Some(ClientOp::Backward(start)));
     }
 
     #[test]
@@ -209,7 +213,7 @@ pub(crate) mod tests {
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
 
         assert_eq!(
-            chain_follower.next_op(),
+            chain_follower.next_op(store.clone()),
             Some(ClientOp::Backward(expected.as_tip()))
         );
     }
@@ -229,7 +233,7 @@ pub(crate) mod tests {
 
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
         assert_eq!(
-            chain_follower.next_op(),
+            chain_follower.next_op(store.clone()),
             Some(ClientOp::Backward(Tip(expected, 8)))
         );
     }
@@ -247,10 +251,10 @@ pub(crate) mod tests {
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
 
         assert_eq!(
-            chain_follower.next_op(),
+            chain_follower.next_op(store.clone()),
             Some(ClientOp::Backward(Tip(Point::Origin, 0)))
         );
-        assert_eq!(chain_follower.next_op(), Some(ClientOp::Forward(first)));
+        assert_eq!(chain_follower.next_op(store.clone()), Some(ClientOp::Forward(first)));
     }
 
     // HELPERS
