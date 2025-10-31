@@ -252,20 +252,11 @@ pub mod tests {
             );
 
             match result {
-                Ok(()) => {
-                    if success {
-                        // Ok(())
-                    } else {
-                        return Err("Expected failure, got success".into());
-                    }
+                Ok(()) if !success => return Err("Expected failure, got success".into()),
+                Err(e) if success => {
+                    return Err(format!("Expected success, got failure: {}", e).into());
                 }
-                Err(e) => {
-                    if !success {
-                        // Ok(())
-                    } else {
-                        return Err(format!("Expected success, got failure: {}", e).into());
-                    }
-                }
+                Ok(..) | Err(..) => (),
             }
         }
         Ok(())
