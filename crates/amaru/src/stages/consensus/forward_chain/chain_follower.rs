@@ -15,13 +15,13 @@
 use crate::stages::AsTip;
 use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
 use amaru_consensus::ReadOnlyChainStore;
-use amaru_kernel::{HeaderHash, IsHeader};
+use amaru_kernel::{Hash, IsHeader};
 use amaru_network::point::{from_network_point, to_network_point};
 use amaru_ouroboros_traits::ChainStore;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tracing::trace;
+use tracing::{debug, error, trace};
 
 /// A structure that maintains state to follow the best chain for a given client.
 ///
@@ -35,13 +35,14 @@ pub(super) struct ChainFollower<H> {
     /// The anchor gives us the threshold between immutable and volatile headers.
     /// Until we cross this threshold, we should follow the chain from the
     /// store then afterwards use the `ops` buffer.
-    anchor: HeaderHash,
+    anchor: Tip,
 
     /// The buffer of _operations_ to send to the client.
     ops: VecDeque<ClientOp<H>>,
 
     /// The current tip `Tip` for this follower.
-    /// The `tip` starts at the intersection point.
+    /// The `tip` starts at the intersection point, and should be the next
+    /// header to forward to client.
     tip: Tip,
 }
 
@@ -54,7 +55,11 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         let start_header = store.load_header(&hash_point(current_tip))?;
 
         // find the anchor
-        let anchor = store.get_anchor_hash();
+        let anchor_hash = store.get_anchor_hash();
+        let anchor = store
+            .load_header(&anchor_hash)
+            .map(|h| h.as_tip())
+            .unwrap_or(Tip(Point::Origin, 0));
 
         // the client is at least as up-to-date as we are
         if points.contains(current_tip) {
@@ -77,7 +82,12 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
             })
             .max_by_key(|(slot, _)| *slot);
 
-        trace!(%anchor, ?current_tip, ?best_intersection, "best_intersection");
+        trace!(
+            ?anchor,
+            ?current_tip,
+            ?best_intersection,
+            "best_intersection"
+        );
 
         let mut current_header = start_header;
         let mut headers = vec![];
@@ -94,7 +104,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
                         .map(|(_, h)| *h == parent_hash)
                         .unwrap_or(false);
 
-                    if parent_hash == anchor || is_intersection {
+                    if parent_hash == anchor_hash || is_intersection {
                         break;
                     }
 
@@ -120,12 +130,55 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         })
     }
 
+    #[allow(clippy::expect_used)]
     pub fn next_op(&mut self, store: Arc<dyn ReadOnlyChainStore<H>>) -> Option<ClientOp<H>> {
+        // is this initial rollback?
         if let Some(ref init_tip) = self.initial {
             let result = Some(ClientOp::Backward(init_tip.clone()));
             self.initial = None;
             return result;
         }
+
+        // is our tip behind anchor?
+        if self.tip.1 <= self.anchor.1 {
+            let next_point = store.next_best_chain(&from_network_point(&self.tip.0));
+
+            match (&next_point, &self.tip.0) {
+                // we are at origin, so we need to forward next point and set tip to
+                // this new point's child
+                (Some(point), Point::Origin) => {
+                    let header_hash = hash_point(&to_network_point(point.clone()));
+                    let tip_h = store.load_header(&header_hash).expect("TODO: wtf");
+                    let child = store
+                        .next_best_chain(point)
+                        .map(|h| {
+                            store
+                                .load_header(&hash_point(&to_network_point(h.clone())))
+                                .expect("TODO: wtf")
+                        })
+                        .expect("TODO: wtf");
+                    self.tip = child.as_tip();
+                    debug!(forwarded = %header_hash, anchor = ?self.anchor, new_tip = ?self.tip, "forwarding from origin");
+                    return Some(ClientOp::Forward(tip_h));
+                }
+                (Some(point), Point::Specific(_, h)) => {
+                    debug!(%point, anchor = ?self.anchor, tip = ?self.tip,"loading from tip");
+                    let header_hash = Hash::from(h.as_slice());
+                    let tip_h = store.load_header(&header_hash).expect("TODO: wtf");
+                    let child = store
+                        .load_header(&hash_point(&to_network_point(point.clone())))
+                        .expect("TODO: wtf");
+                    self.tip = child.as_tip();
+                    debug!(forwarded = %header_hash, anchor = ?self.anchor, new_tip = ?self.tip,"forwarding from tip");
+                    return Some(ClientOp::Forward(tip_h));
+                }
+                (None, cur_point) => {
+                    error!(tip = ?cur_point, anchor = ?self.anchor, "follow chain store");
+                    return None;
+                }
+            }
+        }
+
         self.ops.pop_front()
     }
 
@@ -197,7 +250,10 @@ pub(crate) mod tests {
 
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
 
-        assert_eq!(chain_follower.next_op(store.clone()), Some(ClientOp::Backward(start)));
+        assert_eq!(
+            chain_follower.next_op(store.clone()),
+            Some(ClientOp::Backward(start))
+        );
     }
 
     #[test]
@@ -254,7 +310,10 @@ pub(crate) mod tests {
             chain_follower.next_op(store.clone()),
             Some(ClientOp::Backward(Tip(Point::Origin, 0)))
         );
-        assert_eq!(chain_follower.next_op(store.clone()), Some(ClientOp::Forward(first)));
+        assert_eq!(
+            chain_follower.next_op(store.clone()),
+            Some(ClientOp::Forward(first))
+        );
     }
 
     // HELPERS

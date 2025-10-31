@@ -71,6 +71,10 @@ impl<T: SendData + Sync> ReadOnlyChainStore<BlockHeader> for Store<T> {
     fn load_from_best_chain(&self, _point: &Point) -> Option<HeaderHash> {
         None
     }
+
+    fn next_best_chain(&self, _point: &Point) -> Option<Point> {
+        None
+    }
 }
 
 impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
