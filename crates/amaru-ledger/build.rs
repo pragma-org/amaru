@@ -14,14 +14,13 @@
 
 use std::{env, fs, path::Path};
 
-#[expect(clippy::expect_used)]
 fn main() {
     get_conformance_test_vectors();
 }
 
 #[allow(clippy::unwrap_used)]
 fn get_conformance_test_vectors() {
-    let test_dir = "../../cardano-blueprint/src/ledger/conformance-test-vectors/eras/conway";
+    let test_dir = "tests/data/rules-conformance";
     println!("cargo:rerun-if-changed={}", test_dir);
 
     let mut files = Vec::new();
@@ -29,6 +28,12 @@ fn get_conformance_test_vectors() {
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("test_cases.rs");
+
+    if files.is_empty() {
+        println!(
+            "cargo:warning=no conformance ledger test vectors found; unpack them in amaru-ledger/tests/data/conformance"
+        );
+    }
 
     let mut output = String::new();
     for path in files {
@@ -42,7 +47,7 @@ fn get_conformance_test_vectors() {
     output.push_str(
         r#"
 #[allow(clippy::unwrap_used)]
-pub fn compare_snapshot_test_case(snapshot: &str) {
+pub fn rules_conformance_test_case(snapshot: &str) {
     evaluate_vector(snapshot).unwrap()
 }
 "#,

@@ -46,3 +46,6 @@ lcov.info
 **/proptest-regressions/**
 
 heaptrack.*.gz
+
+# Ledger conformance tests, for now only versioned as an archive.
+crates/amaru-ledger/tests/data/rules-conformance
