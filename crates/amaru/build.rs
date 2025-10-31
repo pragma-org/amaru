@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, fs, path::Path};
+use std::env;
 
 #[expect(clippy::expect_used)]
 fn main() {
