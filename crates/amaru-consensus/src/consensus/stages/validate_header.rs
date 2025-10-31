@@ -283,6 +283,10 @@ mod tests {
         fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
             self.store.load_from_best_chain(point)
         }
+
+        fn next_best_chain(&self, point: &Point) -> Option<Point> {
+            self.store.next_best_chain(point)
+        }
     }
 
     impl ChainStore<BlockHeader> for FailingStore {

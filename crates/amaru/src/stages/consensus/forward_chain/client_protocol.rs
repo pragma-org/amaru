@@ -191,7 +191,8 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
         "request interception",
     );
 
-    let Some(mut chain_follower) = ChainFollower::new(store.clone(), &our_tip.0, &requested_points) else {
+    let Some(mut chain_follower) = ChainFollower::new(store.clone(), &our_tip.0, &requested_points)
+    else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
         return Err(ClientError::NoIntersection.into());

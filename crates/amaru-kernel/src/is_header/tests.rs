@@ -61,8 +61,10 @@ fn make_headers() -> impl Fn(Vec<BlockHeader>) -> Vec<BlockHeader> {
             .map({
                 |(i, h)| {
                     let mut header = h.header().clone();
-                    header.header_body.block_number = i as u64;
-                    header.header_body.slot = i as u64;
+                    // NOTE: by convention, chain numbering starts at 1. There can't be a block 0
+                    // nor a block forged at slot 0
+                    header.header_body.block_number = (i + 1) as u64;
+                    header.header_body.slot = (i + 1) as u64;
                     header.header_body.prev_hash = parent;
                     let block_header = BlockHeader::from(header);
                     parent = Some(block_header.hash());
