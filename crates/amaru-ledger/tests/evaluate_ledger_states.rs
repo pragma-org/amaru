@@ -22,10 +22,8 @@ pub mod tests {
     use amaru_ledger::{
         self, context::DefaultValidationContext, rules::transaction, store::GovernanceActivity,
     };
-    use std::{collections::BTreeMap, env, fs, ops::Deref, path::PathBuf};
-
     use once_cell::sync::Lazy;
-    use std::sync::Mutex;
+    use std::{collections::BTreeMap, env, fs, ops::Deref, path::PathBuf, sync::Mutex};
 
     struct TestContext {
         pparams_dir: PathBuf,
@@ -84,7 +82,9 @@ pub mod tests {
 
     enum TestVectorEvent {
         Transaction(Bytes, bool, u64),
+        #[allow(dead_code)]
         PassTick(u64),
+        #[allow(dead_code)]
         PassEpoch(u64),
     }
 
@@ -123,18 +123,18 @@ pub mod tests {
     > {
         let _begin_nes = d.array()?;
         let _epoch_no = d.u64()?;
-        let _blocks_made = d.skip()?;
-        let _blocks_made = d.skip()?;
+        d.skip()?; // blocks_made
+        d.skip()?; // blocks_made
         let _begin_epoch_state = d.array()?;
-        let _begin_account_state = d.skip()?;
+        d.skip()?; // begin_account_state
         let _begin_ledger_state = d.array()?;
         let _cert_state = d.array()?;
         let _voting_state = d.array()?;
-        let _dreps = d.skip()?;
-        let _committee_state = d.skip()?;
+        d.skip()?; // dreps
+        d.skip()?; // committee_state
         let number_of_dormant_epochs: Epoch = d.decode()?;
-        let _p_state = d.skip()?;
-        let _d_state = d.skip()?;
+        d.skip()?; // p_state
+        d.skip()?; // d_state
         let _utxo_state = d.array()?;
 
         let mut utxos_map = BTreeMap::new();
@@ -157,25 +157,25 @@ pub mod tests {
                 utxos_map.insert(tx_in, tx_out);
             },
         }
-        let _deposited = d.skip()?;
-        let _fees = d.skip()?;
+        d.skip()?; // deposits
+        d.skip()?; // fees
 
         let _gov_state = d.array()?;
-        let _proposals = d.skip()?;
-        let _committee = d.skip()?;
-        let _constitution = d.skip()?;
+        d.skip()?; // proposals
+        d.skip()?; // committee
+        d.skip()?; // constitution
         let current_pparams_hash = d.decode()?;
-        let _previous_pparams_hash = d.skip()?;
-        let _future_pparams = d.skip()?;
-        let _drep_pulsing_state = d.skip()?;
+        d.skip()?; //previous_pparams_hash
+        d.skip()?; // future_pparams
+        d.skip()?; // drep_pulsing_state
 
-        let _stake_distr = d.skip()?;
-        let _donation = d.skip()?;
-        let _snapshots = d.skip()?;
-        let _non_myopic = d.skip()?;
-        let _pulsing_rew = d.skip()?;
-        let _pool_distr = d.skip()?;
-        let _stashed = d.skip()?;
+        d.skip()?; // stake distr
+        d.skip()?; // donation
+        d.skip()?; //snapshots
+        d.skip()?; // non-myopic
+        d.skip()?; // pulsing rewards
+        d.skip()?; // pool distribution
+        d.skip()?; // stashed
 
         Ok((
             DefaultValidationContext::new(utxos_map),
@@ -220,7 +220,7 @@ pub mod tests {
         for (ix, event) in record.events.into_iter().enumerate() {
             let (tx_bytes, success, slot): (Bytes, bool, u64) = match event {
                 TestVectorEvent::Transaction(tx, success, slot) => (tx, success, slot),
-                _ => continue,
+                TestVectorEvent::PassTick(..) | TestVectorEvent::PassEpoch(..) => continue,
             };
             let tx: MintedTx<'_> = cbor::decode(tx_bytes.as_slice())?;
 
