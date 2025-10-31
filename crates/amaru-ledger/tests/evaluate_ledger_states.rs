@@ -22,47 +22,21 @@ pub mod tests {
     use amaru_ledger::{
         self, context::DefaultValidationContext, rules::transaction, store::GovernanceActivity,
     };
-    use once_cell::sync::Lazy;
-    use std::{collections::BTreeMap, env, fs, ops::Deref, path::PathBuf, sync::Mutex};
-
-    struct TestContext {
-        pparams_dir: PathBuf,
-    }
-
-    fn get_test_context() -> Result<TestContext, Box<dyn std::error::Error>> {
-        let working_dir = env::current_dir()?;
-        Ok(TestContext {
-            pparams_dir: working_dir.join(PathBuf::from("../../cardano-blueprint/src/ledger/conformance-test-vectors/eras/conway/impl/dump/pparams-by-hash/")),
-        })
-    }
-
-    static TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(Mutex::default);
-
-    #[allow(unused_imports)]
-    use test_case::test_case;
+    use std::{collections::BTreeMap, env, fs, ops::Deref, path::Path};
 
     // Tests cases are constructed in build.rs, which generates the test_cases.rs file
     include!(concat!(env!("OUT_DIR"), "/test_cases.rs"));
 
-    fn evaluate_vector(snapshot: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let _shared = TEST_MUTEX.lock()?;
+    fn import_and_evaluate_vector(
+        snapshot: &str,
+        pparams_dir: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let network = NetworkName::Testnet(1);
         let era_history = network.into();
-        match get_test_context() {
-            Ok(tc) => {
-                let vector_file = fs::read(snapshot)?;
-                let record: TestVector = cbor::decode(&vector_file)?;
-                let () = import_vector(record, era_history, &tc.pparams_dir)?;
-                Ok(())
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "skipping vector evaluation because some env vars are missing: {}",
-                    e
-                );
-                Ok(())
-            }
-        }
+        let vector_file = fs::read(snapshot)?;
+        let record: TestVector = cbor::decode(&vector_file)?;
+        evaluate_vector(record, era_history, Path::new(pparams_dir))?;
+        Ok(())
     }
 
     #[derive(cbor::Decode)]
@@ -187,7 +161,7 @@ pub mod tests {
     }
 
     fn decode_segregated_parameters(
-        dir: &PathBuf,
+        dir: &Path,
         hash: &cbor::bytes::ByteSlice,
     ) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
         let pparams_file_path = fs::read_dir(dir)?
@@ -206,10 +180,10 @@ pub mod tests {
         Ok(pparams)
     }
 
-    fn import_vector(
+    fn evaluate_vector(
         record: TestVector,
         era_history: &EraHistory,
-        pparams_dir: &PathBuf,
+        pparams_dir: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut decoder = cbor::Decoder::new(&record.initial_state);
         let (mut validation_context, pparams_hash, governance_activity) =

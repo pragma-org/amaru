@@ -20,11 +20,11 @@ fn main() {
 
 #[allow(clippy::unwrap_used)]
 fn get_conformance_test_vectors() {
-    let test_dir = "tests/data/rules-conformance";
-    println!("cargo:rerun-if-changed={}", test_dir);
+    let test_dir = Path::new("tests/data/rules-conformance");
+    println!("cargo:rerun-if-changed={}", test_dir.to_str().unwrap());
 
     let mut files = Vec::new();
-    visit_dirs(Path::new(test_dir), &mut files);
+    visit_dirs(test_dir, &mut files);
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("test_cases.rs");
@@ -35,20 +35,25 @@ fn get_conformance_test_vectors() {
         );
     }
 
+    let pparams_dir = test_dir.join("eras/conway/impl/dump/pparams-by-hash");
+
     let mut output = String::new();
     for path in files {
         if path.contains("pparams-by-hash") {
             continue;
         }
 
-        output.push_str(&format!("#[test_case(\"{}\")]\n", path));
+        output.push_str(&format!(
+            "#[test_case::test_case(\"{}\", \"{}\")]\n",
+            path,
+            pparams_dir.to_str().unwrap()
+        ));
     }
 
     output.push_str(
         r#"
-#[allow(clippy::unwrap_used)]
-pub fn rules_conformance_test_case(snapshot: &str) {
-    evaluate_vector(snapshot).unwrap()
+pub fn rules_conformance_test_case(snapshot: &str, pparams_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+    import_and_evaluate_vector(snapshot, pparams_dir)
 }
 "#,
     );
