@@ -15,7 +15,7 @@
 use crate::stages::AsTip;
 use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
 use amaru_consensus::ReadOnlyChainStore;
-use amaru_kernel::{Hash, IsHeader};
+use amaru_kernel::IsHeader;
 use amaru_network::point::{from_network_point, to_network_point};
 use amaru_ouroboros_traits::ChainStore;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
@@ -43,7 +43,7 @@ pub(super) struct ChainFollower<H> {
     /// The current tip `Tip` for this follower.
     /// The `tip` starts at the intersection point, and should be the next
     /// header to forward to client.
-    tip: Tip,
+    intersection: Tip,
 }
 
 impl<H: IsHeader + Clone + Send> ChainFollower<H> {
@@ -68,7 +68,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
                 initial,
                 anchor,
                 ops: vec![].into(),
-                tip: start_header.as_tip(),
+                intersection: start_header.as_tip(),
             });
         }
 
@@ -125,7 +125,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         Some(Self {
             initial: Some(best_tip.clone()),
             ops: headers.into(),
-            tip: best_tip,
+            intersection: best_tip,
             anchor,
         })
     }
@@ -140,40 +140,20 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         }
 
         // is our tip behind anchor?
-        if self.tip.1 <= self.anchor.1 {
-            let next_point = store.next_best_chain(&from_network_point(&self.tip.0));
+        if self.intersection.1 < self.anchor.1 {
+            let next_point = store.next_best_chain(&from_network_point(&self.intersection.0));
 
-            match (&next_point, &self.tip.0) {
-                // we are at origin, so we need to forward next point and set tip to
-                // this new point's child
-                (Some(point), Point::Origin) => {
-                    let header_hash = hash_point(&to_network_point(point.clone()));
-                    let tip_h = store.load_header(&header_hash).expect("TODO: wtf");
-                    let child = store
-                        .next_best_chain(point)
-                        .map(|h| {
-                            store
-                                .load_header(&hash_point(&to_network_point(h.clone())))
-                                .expect("TODO: wtf")
-                        })
-                        .expect("TODO: wtf");
-                    self.tip = child.as_tip();
-                    debug!(forwarded = %header_hash, anchor = ?self.anchor, new_tip = ?self.tip, "forwarding from origin");
-                    return Some(ClientOp::Forward(tip_h));
-                }
-                (Some(point), Point::Specific(_, h)) => {
-                    debug!(%point, anchor = ?self.anchor, tip = ?self.tip,"loading from tip");
-                    let header_hash = Hash::from(h.as_slice());
-                    let tip_h = store.load_header(&header_hash).expect("TODO: wtf");
+            match next_point {
+                Some(point) => {
                     let child = store
                         .load_header(&hash_point(&to_network_point(point.clone())))
                         .expect("TODO: wtf");
-                    self.tip = child.as_tip();
-                    debug!(forwarded = %header_hash, anchor = ?self.anchor, new_tip = ?self.tip,"forwarding from tip");
-                    return Some(ClientOp::Forward(tip_h));
+                    self.intersection = child.as_tip();
+                    debug!(forwarded = %child.point(), anchor = ?self.anchor, "forwarding from store at origin");
+                    return Some(ClientOp::Forward(child));
                 }
-                (None, cur_point) => {
-                    error!(tip = ?cur_point, anchor = ?self.anchor, "follow chain store");
+                None => {
+                    error!(intersection = ?self.intersection, anchor = ?self.anchor, "no successor in store");
                     return None;
                 }
             }
@@ -203,7 +183,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
     }
 
     pub(crate) fn intersection_found(&self) -> Point {
-        self.tip.0.clone()
+        self.intersection.0.clone()
     }
 }
 
