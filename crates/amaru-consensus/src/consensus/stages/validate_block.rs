@@ -60,7 +60,7 @@ pub async fn stage(
                         .await
                 }
                 Ok(Err(err)) => {
-                    error!(?err, "Failed to validate a block");
+                    error!(?err, %point, "Failed to validate a block");
                     eff.base()
                         .send(
                             &validation_errors,
@@ -75,7 +75,7 @@ pub async fn stage(
                         .await;
                 }
                 Err(err) => {
-                    error!(?err, "Failed to roll forward block");
+                    error!(?err, %point, "Failed to roll forward block");
                     eff.base()
                         .send(
                             &processing_errors,
@@ -92,7 +92,7 @@ pub async fn stage(
             ..
         } => {
             if let Err(err) = eff.ledger().rollback(&peer, &rollback_point).await {
-                error!(?err, "Failed to rollback");
+                error!(?err, %rollback_point, "Failed to rollback");
                 eff.base().send(&processing_errors, err).await;
             } else {
                 eff.base()
