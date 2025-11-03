@@ -41,7 +41,7 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> From<HeadersTree<H>
             tree_state,
             anchor: value.anchor(),
             best_chain: value.best_chain(),
-            best_chains: value.best_chains().into_iter().cloned().collect(),
+            best_chains: value.best_peers_chains().into_iter().cloned().collect(),
             best_length: value.best_length(),
         }
     }
