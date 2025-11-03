@@ -50,6 +50,7 @@ use proptest::prelude::Strategy;
 use rand::prelude::SmallRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::BTreeSet;
 use std::{
     collections::BTreeMap,
     fmt::{Debug, Display, Formatter},
@@ -605,6 +606,8 @@ pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Chain>> {
 /// This function returns a list of chains, one per action, showing how the best chain evolves over time.
 ///
 pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Result<Vec<Chain>, String> {
+    check_duplicated_forks(results)?;
+
     let mut best_chains: Vec<Chain> = vec![];
     let mut current_best_chain = vec![];
     for (i, event) in results.iter().enumerate() {
@@ -639,6 +642,34 @@ pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Result<Vec<
         best_chains.push(current_best_chain.clone());
     }
     Ok(best_chains)
+}
+
+/// Check that there are no duplicated forks in the results.
+/// This wouldn't necessarily break correctness but it would send redundant headers downstream.
+fn check_duplicated_forks(results: &[SelectionResult]) -> Result<(), String> {
+    let mut seen_forks = BTreeSet::new();
+    for result in results {
+        match result {
+            Forward(ForwardChainSelection::SwitchToFork(fork)) => {
+                if !seen_forks.insert(fork) {
+                    return Err(format!(
+                        "duplicated fork {:?} following a select_forward found in results",
+                        fork,
+                    ));
+                }
+            }
+            Back(RollbackChainSelection::SwitchToFork(fork)) => {
+                if !seen_forks.insert(fork) {
+                    return Err(format!(
+                        "duplicated fork {:?} following a select_rollback found in results",
+                        fork,
+                    ));
+                }
+            }
+            Forward(_) | Back(_) => {}
+        }
+    }
+    Ok(())
 }
 
 pub fn make_best_chain_from_results(results: &[SelectionResult]) -> Result<Chain, String> {
