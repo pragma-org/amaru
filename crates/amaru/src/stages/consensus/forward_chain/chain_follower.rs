@@ -20,6 +20,7 @@ use amaru_network::point::{from_network_point, to_network_point};
 use amaru_ouroboros_traits::ChainStore;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
+use std::fmt;
 use std::sync::Arc;
 use tracing::{trace, warn};
 
@@ -48,6 +49,17 @@ pub(super) struct ChainFollower<H> {
     /// and represents the parent of the next header to forward to
     /// client.
     intersection: Tip,
+}
+
+impl<H: IsHeader> fmt::Debug for ChainFollower<H> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChainFollower")
+            .field("initial", &self.initial)
+            .field("anchor", &self.anchor)
+            .field("ops", &self.ops)
+            .field("intersection", &self.intersection)
+            .finish()
+    }
 }
 
 impl<H: IsHeader + Clone + Send> ChainFollower<H> {
@@ -114,7 +126,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
                     headers.push(ClientOp::Forward(header.clone()));
                     current_header = header;
                 }
-                None => return None, // Broken chain?
+                None => return None, // FIXME: Broken chain, shouldn't we panic?
             }
         }
 
@@ -133,7 +145,6 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         })
     }
 
-    #[allow(clippy::expect_used)]
     pub fn next_op(&mut self, store: Arc<dyn ReadOnlyChainStore<H>>) -> Option<ClientOp<H>> {
         // is this initial rollback?
         if let Some(ref init_tip) = self.initial {
@@ -148,12 +159,21 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
 
             match next_point {
                 Some(point) => {
-                    let child = store
-                        .load_header(&hash_point(&to_network_point(point.clone())))
-                        .expect("TODO: wtf");
-                    self.intersection = child.as_tip();
-                    trace!(forwarded = %child.point(), anchor = ?self.anchor, "forwarding from store at origin");
-                    return Some(ClientOp::Forward(child));
+                    let child_header =
+                        store.load_header(&hash_point(&to_network_point(point.clone())));
+                    match child_header {
+                        Some(child) => {
+                            self.intersection = child.as_tip();
+                            trace!(forwarded = %child.point(), anchor = ?self.anchor, "forwarding from store at origin");
+                            return Some(ClientOp::Forward(child));
+                        }
+                        None => {
+                            // FIXME: this seems possible in some circumstances given how our DB is structured
+                            // but this should never happen in practice. Perhaps turn into a proper `panic!`?
+                            warn!(intersection = ?self.intersection, child = %point, anchor = ?self.anchor, "child not found in store");
+                            return None;
+                        }
+                    }
                 }
                 None => {
                     warn!(intersection = ?self.intersection, anchor = ?self.anchor, "no successor in store");
@@ -198,6 +218,7 @@ pub(crate) mod tests {
     use crate::stages::consensus::forward_chain::test_infra::{
         CHAIN_47, FIRST_HEADER, FORK_47, LOST_47, TIP_47, WINNER_47, hash, mk_in_memory_store,
     };
+    use amaru_kernel::is_header::tests::{any_header_with_parent, run};
     use amaru_kernel::{BlockHeader, IsHeader};
     use amaru_kernel::{Hash, HeaderHash};
     use amaru_network::point::from_network_point;
@@ -297,6 +318,53 @@ pub(crate) mod tests {
             chain_follower.next_op(store.clone()),
             Some(ClientOp::Forward(first))
         );
+    }
+
+    #[test]
+    fn next_op_returns_none_given_current_intersection_has_no_child_while_behind_anchor() {
+        let store = mk_in_memory_store(CHAIN_47);
+        let next_header = run(any_header_with_parent(Hash::from(
+            hex::decode(TIP_47).unwrap().as_slice(),
+        )));
+        store
+            .store_header(&next_header)
+            .expect("should store future header");
+        store
+            .set_anchor_hash(&next_header.hash())
+            .expect("should set anchor hash to the future");
+
+        let tip = store.get_point(TIP_47);
+        let points = [store.get_point(TIP_47)];
+
+        let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
+
+        let _ = chain_follower.next_op(store.clone()); // initial rollback
+        assert_eq!(chain_follower.next_op(store.clone()), None);
+    }
+
+    #[test]
+    fn next_op_returns_none_given_it_fails_to_load_child_header() {
+        let store = mk_in_memory_store(CHAIN_47);
+        let unstored_header = run(any_header_with_parent(Hash::from(
+            hex::decode(TIP_47).unwrap().as_slice(),
+        )));
+        let anchor_header = run(any_header_with_parent(unstored_header.hash()));
+        store
+            .store_header(&anchor_header)
+            .expect("should store future header");
+        store
+            .set_anchor_hash(&anchor_header.hash())
+            .expect("should set anchor hash to the future");
+        let tip = store.get_point(TIP_47);
+        store
+            .roll_forward_chain(&unstored_header.point())
+            .expect("should forward to some point");
+
+        let points = [store.get_point(TIP_47)];
+        let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
+
+        let _ = chain_follower.next_op(store.clone()); // initial rollback
+        assert_eq!(chain_follower.next_op(store.clone()), None);
     }
 
     // HELPERS
