@@ -38,7 +38,7 @@ pub const LOST_47: &str = "bd41b102018a21e068d504e64b282512a3b7d5c3883b743aa070a
 pub const FORK_47: &str = "64565f22fb23476baaa6f82e0e2d68636ceadabded697099fb376c23226bdf03";
 pub const WINNER_47: &str = "66c90f54f9073cfc03a334f5b15b1617f6bf6fe6c892fad8368e16abe20b0f4f";
 
-pub fn mk_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHeader>> {
+pub fn mk_in_memory_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHeader>> {
     let f = File::open(path).unwrap();
     let json: serde_json::Value = serde_json::from_reader(f).unwrap();
     let headers = json
@@ -92,7 +92,7 @@ impl TestChainForwarder {
             .with_test_writer()
             .try_init();
 
-        let store = mk_store(CHAIN_47);
+        let store = mk_in_memory_store(CHAIN_47);
         let header = store.load_header(&hash(our_tip)).unwrap();
 
         let tcp_listener = TcpListener::bind("127.0.0.1:0").await?;

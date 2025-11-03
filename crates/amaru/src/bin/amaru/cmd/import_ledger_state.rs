@@ -143,22 +143,39 @@ pub async fn import_one(
     .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
+
+    if fs::exists(ledger_dir.join("live"))? {
+        fs::remove_dir_all(ledger_dir.join("live"))?;
+    }
+
     let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.into()))?;
-    let bytes = fs::read(snapshot)?;
+    let mut file = fs::File::open(snapshot)?;
     let dir = snapshot
         .parent()
         .ok_or(Error::InvalidSnapshotFile(snapshot.into()))?;
 
     let era_history = make_era_history(dir, &point, network)?;
-    let epoch = import_initial_snapshot(
-        &db,
-        &bytes,
-        &point,
-        &era_history,
-        new_terminal_progress_bar,
-        None,
-        true,
-    )?;
+
+    // Increase the stack size slightly as for some reasons, the lazy decoder is greedy on the
+    // stack in some situations.
+    let builder = std::thread::Builder::new().stack_size(10_000_000);
+    let (db, epoch) = builder
+        .spawn(move || {
+            import_initial_snapshot(
+                &db,
+                &mut file,
+                &point,
+                &era_history,
+                network,
+                new_terminal_progress_bar,
+                true,
+            )
+            .map_err(|e| e.to_string())
+            .map(|epoch| (db, epoch))
+        })
+        .unwrap()
+        .join()
+        .unwrap()?;
 
     db.next_snapshot(epoch)?;
 

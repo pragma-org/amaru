@@ -17,7 +17,7 @@ use acto::{AcTokioRuntime, ActoRef, ActoRuntime};
 use amaru_kernel::{
     BlockHeader, Point,
     connection::{BlockFetchClientError, ConnMsg},
-    consensus_events::ChainSyncEvent,
+    consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
 };
 use amaru_ouroboros::ChainStore;
@@ -71,12 +71,12 @@ impl NetworkResource {
 
 pub struct NetworkInner {
     connections: BTreeMap<Peer, ActoRef<ConnMsg>>,
-    hd_rx: tokio::sync::Mutex<mpsc::Receiver<ChainSyncEvent>>,
+    hd_rx: tokio::sync::Mutex<mpsc::Receiver<Tracked<ChainSyncEvent>>>,
 }
 
 #[async_trait]
 impl NetworkOperations for NetworkResource {
-    async fn next_sync(&self) -> ChainSyncEvent {
+    async fn next_sync(&self) -> Tracked<ChainSyncEvent> {
         #[expect(clippy::expect_used)]
         self.inner
             .hd_rx

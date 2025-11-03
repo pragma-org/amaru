@@ -60,6 +60,7 @@ rocksdb = { version = "0.24.0", default-features = false, features = [
   "snappy",
   "multi-threaded-cf"
 ] }
+rustversion = "1.0.22"
 serde = { version = "1.0.228", default-features = false }
 serde_json = { version = "1.0.145", default-features = false }
 sha3 = "0.10.8"
@@ -89,6 +90,7 @@ amaru-minicbor-extra = { path = "crates/amaru-minicbor-extra" }
 amaru-network = { path = "crates/amaru-network" }
 amaru-ouroboros = { path = "crates/amaru-ouroboros" }
 amaru-ouroboros-traits = { path = "crates/amaru-ouroboros-traits" }
+amaru-plutus = {path = "crates/amaru-plutus"}
 amaru-progress-bar = { path = "crates/amaru-progress-bar" }
 amaru-sim = { path = "crates/amaru-sim" }
 amaru-slot-arithmetic = { path = "crates/amaru-slot-arithmetic" }

@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, HeaderHash, RawBlock, protocol_parameters::GlobalParameters};
+use amaru_kernel::{
+    BlockHeader, HeaderHash, Point, RawBlock, protocol_parameters::GlobalParameters,
+};
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
@@ -65,6 +67,10 @@ impl<T: SendData + Sync> ReadOnlyChainStore<BlockHeader> for Store<T> {
     fn has_header(&self, hash: &HeaderHash) -> bool {
         self.external_sync(HasHeaderEffect::new(*hash))
     }
+
+    fn load_from_best_chain(&self, _point: &Point) -> Option<HeaderHash> {
+        None
+    }
 }
 
 impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
@@ -74,10 +80,6 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
 
     fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         self.external_sync(SetBestChainHashEffect::new(*hash))
-    }
-
-    fn update_best_chain(&self, anchor: &HeaderHash, tip: &HeaderHash) -> Result<(), StoreError> {
-        self.external_sync(UpdateBestChainEffect::new(*anchor, *tip))
     }
 
     fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
@@ -90,6 +92,14 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
 
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
         self.external_sync(PutNoncesEffect::new(*header, nonces.clone()))
+    }
+
+    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
+        self.external_sync(RollForwardChainEffect::new(point.clone()))
+    }
+
+    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
+        self.external_sync(RollBackChainEffect::new(point.clone()))
     }
 }
 
@@ -208,35 +218,6 @@ impl ExternalEffect for SetBestChainHashEffect {
 }
 
 impl ExternalEffectAPI for SetBestChainHashEffect {
-    type Response = Result<(), StoreError>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct UpdateBestChainEffect {
-    anchor: HeaderHash,
-    tip: HeaderHash,
-}
-
-impl UpdateBestChainEffect {
-    pub fn new(anchor: HeaderHash, tip: HeaderHash) -> Self {
-        Self { anchor, tip }
-    }
-}
-
-impl ExternalEffect for UpdateBestChainEffect {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("UpdateBestChainEffect requires a chain store")
-                .clone();
-            store.update_best_chain(&self.anchor, &self.tip)
-        })
-    }
-}
-
-impl ExternalEffectAPI for UpdateBestChainEffect {
     type Response = Result<(), StoreError>;
 }
 
@@ -459,4 +440,60 @@ impl ExternalEffect for GetNoncesEffect {
 
 impl ExternalEffectAPI for GetNoncesEffect {
     type Response = Option<Nonces>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct RollForwardChainEffect {
+    point: Point,
+}
+
+impl RollForwardChainEffect {
+    pub fn new(point: Point) -> Self {
+        Self { point }
+    }
+}
+
+impl ExternalEffect for RollForwardChainEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("RollForwardChainEffect requires a chain store")
+                .clone();
+            store.roll_forward_chain(&self.point)
+        })
+    }
+}
+
+impl ExternalEffectAPI for RollForwardChainEffect {
+    type Response = Result<(), StoreError>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct RollBackChainEffect {
+    point: Point,
+}
+
+impl RollBackChainEffect {
+    pub fn new(point: Point) -> Self {
+        Self { point }
+    }
+}
+
+impl ExternalEffect for RollBackChainEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("RollBackChainEffect requires a chain store")
+                .clone();
+            store.rollback_chain(&self.point)
+        })
+    }
+}
+
+impl ExternalEffectAPI for RollBackChainEffect {
+    type Response = Result<usize, StoreError>;
 }

@@ -65,7 +65,12 @@ impl std::fmt::Debug for Instant {
 
 impl Display for Instant {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("{:?}", self.saturating_since(*EPOCH)))
+        let duration = self.saturating_since(*EPOCH);
+        if duration.as_secs() == 0 {
+            write!(f, "{:?}", duration)
+        } else {
+            write!(f, "{:.3?}", duration)
+        }
     }
 }
 

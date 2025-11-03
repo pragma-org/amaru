@@ -12,7 +12,7 @@ graph TD
     fetch_block[fetch block]
     validate_block[validate block]
     select_chain[select chain]
-    forward_header[forward header]
+    forward_chain[forward chain]
 
     downstream([downstream])
     store@{ shape: cyl, label: "Chain store" }
@@ -22,9 +22,10 @@ graph TD
     upstream -- chain sync --> pull
     pull -- ChainSyncEvent --> receive_header
 
-    receive_header -- DecodedChainSyncEvent --> validate_header
-    receive_header -- ChainSyncEvent::CaughtUp --> track_peers
+    receive_header -- Tracked<DecodedChainSyncEvent> --> track_peers
     receive_header -.-> store
+
+    track_peers -- DecodeChainSyncEvent --> validate_header
 
     validate_header -- ValidateHeaderEvent --> fetch_block
 
@@ -36,9 +37,9 @@ graph TD
     validate_block -- DecodedChainSyncEvent --> select_chain
 
     select_chain -.-> store
-    select_chain -- ForwardHeader --> forward_header
+    select_chain -- BlockValidationResult --> forward_chain
 
-    forward_header --> downstream
+    forward_chain --> downstream
     downstream -.-> net
 ```
 

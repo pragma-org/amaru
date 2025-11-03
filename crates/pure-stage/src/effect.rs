@@ -520,6 +520,74 @@ pub enum Effect {
 
 #[expect(clippy::wildcard_enum_match_arm, clippy::panic)]
 impl Effect {
+    /// Construct a receive effect.
+    pub fn receive(at_stage: impl AsRef<str>) -> Self {
+        Self::Receive {
+            at_stage: Name::from(at_stage.as_ref()),
+        }
+    }
+
+    /// Construct a send effect.
+    pub fn send(
+        from: impl AsRef<str>,
+        to: impl AsRef<str>,
+        msg: Box<dyn SendData>,
+        call: Option<(Duration, CallId)>,
+    ) -> Self {
+        Self::Send {
+            from: Name::from(from.as_ref()),
+            to: Name::from(to.as_ref()),
+            msg,
+            call,
+        }
+    }
+
+    /// Construct a clock effect.
+    pub fn clock(at_stage: impl AsRef<str>) -> Self {
+        Self::Clock {
+            at_stage: Name::from(at_stage.as_ref()),
+        }
+    }
+
+    /// Construct a wait effect.
+    pub fn wait(at_stage: impl AsRef<str>, duration: Duration) -> Self {
+        Self::Wait {
+            at_stage: Name::from(at_stage.as_ref()),
+            duration,
+        }
+    }
+
+    /// Construct a respond effect.
+    pub fn respond(
+        at_stage: impl AsRef<str>,
+        target: impl AsRef<str>,
+        id: CallId,
+        msg: Box<dyn SendData>,
+    ) -> Self {
+        Self::Respond {
+            at_stage: Name::from(at_stage.as_ref()),
+            target: Name::from(target.as_ref()),
+            id,
+            msg,
+        }
+    }
+
+    /// Construct an external effect.
+    pub fn external(at_stage: impl AsRef<str>, effect: Box<dyn ExternalEffect>) -> Self {
+        Self::External {
+            at_stage: Name::from(at_stage.as_ref()),
+            effect,
+        }
+    }
+
+    /// Construct a terminate effect.
+    pub fn terminate(at_stage: impl AsRef<str>) -> Self {
+        Self::Terminate {
+            at_stage: Name::from(at_stage.as_ref()),
+        }
+    }
+
+    /// Get the stage name of this effect.
     pub fn at_stage(&self) -> &Name {
         match self {
             Effect::Receive { at_stage, .. } => at_stage,
@@ -532,6 +600,7 @@ impl Effect {
         }
     }
 
+    /// Assert that this effect is a receive effect.
     pub fn assert_receive<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>) {
         let at_stage = at_stage.as_ref();
         match self {
@@ -543,6 +612,7 @@ impl Effect {
         }
     }
 
+    /// Assert that this effect is a send effect.
     #[expect(clippy::unwrap_used)]
     pub fn assert_send<Msg1, Msg2: SendData + PartialEq>(
         &self,
@@ -569,6 +639,7 @@ impl Effect {
         }
     }
 
+    /// Assert that this effect is a clock effect.
     pub fn assert_clock<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>) {
         let at_stage = at_stage.as_ref();
         match self {
@@ -580,6 +651,7 @@ impl Effect {
         }
     }
 
+    /// Assert that this effect is a wait effect.
     pub fn assert_wait<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>, duration: Duration) {
         let at_stage = at_stage.as_ref();
         match self {
@@ -594,6 +666,7 @@ impl Effect {
         }
     }
 
+    /// Assert that this effect is a call effect.
     pub fn assert_call<Msg1, Msg2: SendData, Out>(
         self,
         at_stage: impl AsRef<StageRef<Msg1>>,
@@ -620,6 +693,7 @@ impl Effect {
         }
     }
 
+    /// Assert that this effect is a respond effect.
     pub fn assert_respond<Msg, Msg2: SendData + PartialEq>(
         &self,
         at_stage: impl AsRef<StageRef<Msg>>,
@@ -643,6 +717,7 @@ impl Effect {
         }
     }
 
+    /// Assert that this effect is an external effect.
     pub fn assert_external<Msg, Eff: ExternalEffect + PartialEq>(
         &self,
         at_stage: impl AsRef<StageRef<Msg>>,
@@ -661,6 +736,7 @@ impl Effect {
         }
     }
 
+    /// Extract the external effect from this effect.
     pub fn extract_external<Eff: ExternalEffectAPI + PartialEq, Msg>(
         self,
         at_stage: impl AsRef<StageRef<Msg>>,
