@@ -632,7 +632,7 @@ pub mod test {
         let basedir = init_dir(path);
         let config = RocksDbConfig::new(basedir);
 
-        let result = RocksDBStore::open(config);
+        let result = RocksDBStore::open(&config);
         match result {
             Err(StoreError::OpenError { .. }) => (), // OK
             Err(e) => panic!("Expected OpenError error, got: {:?}", e),
@@ -650,7 +650,7 @@ pub mod test {
 
         copy_recursively(source, target).unwrap();
 
-        let result = RocksDBStore::open(config);
+        let result = RocksDBStore::open(&config);
         match result {
             Err(StoreError::IncompatibleDbVersions { stored, current }) => {
                 assert_eq!(stored, 0);
@@ -704,7 +704,7 @@ pub mod test {
 
         let result = migrate_db_path(target).expect("Migration should succeed");
 
-        let db = RocksDBStore::open(config)
+        let db = RocksDBStore::open(&config)
             .expect("DB should successfully be opened as it's been migrated");
         assert_eq!((0, 1), result);
         let header: Option<BlockHeader> = db.load_header(&HeaderHash::from(
@@ -739,7 +739,7 @@ pub mod test {
 
         copy_recursively(source, target).unwrap();
 
-        let store = RocksDBStore::open_and_migrate(config).expect("should create DB successfully");
+        let store = RocksDBStore::open_and_migrate(&config).expect("should create DB successfully");
         let version = get_version(&store.db).expect("should read version successfully");
 
         assert_eq!(version, CHAIN_DB_VERSION);
@@ -808,7 +808,7 @@ pub mod test {
 
     pub fn initialise_test_ro_store(path: &std::path::Path) -> Result<ReadOnlyChainDB, StoreError> {
         let basedir = init_dir(path);
-        RocksDBStore::open_for_readonly(RocksDbConfig::new(basedir))
+        RocksDBStore::open_for_readonly(&RocksDbConfig::new(basedir))
     }
 
     fn init_dir(path: &std::path::Path) -> PathBuf {
