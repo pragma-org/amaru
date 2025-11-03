@@ -21,7 +21,7 @@ use amaru_ouroboros_traits::ChainStore;
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tracing::{debug, error, trace};
+use tracing::{trace, warn};
 
 /// A structure that maintains state to follow the best chain for a given client.
 ///
@@ -32,17 +32,21 @@ pub(super) struct ChainFollower<H> {
     initial: Option<Tip>,
 
     /// The anchor at the time this follower was initialised.
-    /// The anchor gives us the threshold between immutable and volatile headers.
-    /// Until we cross this threshold, we should follow the chain from the
-    /// store then afterwards use the `ops` buffer.
+    ///
+    /// The anchor gives us the threshold between immutable and
+    /// volatile headers. Until we cross this threshold, we should
+    /// follow the chain from the store then afterwards use the `ops`
+    /// buffer.
     anchor: Tip,
 
     /// The buffer of _operations_ to send to the client.
     ops: VecDeque<ClientOp<H>>,
 
-    /// The current tip `Tip` for this follower.
-    /// The `tip` starts at the intersection point, and should be the next
-    /// header to forward to client.
+    /// The current intersection `Tip` for this follower.
+    ///
+    /// The `intersection` obviously starts at the intersection point,
+    /// and represents the parent of the next header to forward to
+    /// client.
     intersection: Tip,
 }
 
@@ -96,7 +100,6 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         // 1. we find our intersection
         // 2. or we find the anchor
         while let Some(parent_hash) = current_header.parent() {
-            trace!(%parent_hash, "walking back");
             match store.load_header(&parent_hash) {
                 Some(header) => {
                     let is_intersection = best_intersection
@@ -149,11 +152,11 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
                         .load_header(&hash_point(&to_network_point(point.clone())))
                         .expect("TODO: wtf");
                     self.intersection = child.as_tip();
-                    debug!(forwarded = %child.point(), anchor = ?self.anchor, "forwarding from store at origin");
+                    trace!(forwarded = %child.point(), anchor = ?self.anchor, "forwarding from store at origin");
                     return Some(ClientOp::Forward(child));
                 }
                 None => {
-                    error!(intersection = ?self.intersection, anchor = ?self.anchor, "no successor in store");
+                    warn!(intersection = ?self.intersection, anchor = ?self.anchor, "no successor in store");
                     return None;
                 }
             }
