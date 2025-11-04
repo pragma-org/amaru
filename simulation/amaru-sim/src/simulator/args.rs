@@ -46,7 +46,7 @@ pub struct Args {
     #[arg(long)]
     pub seed: Option<u64>,
 
-    /// Persist pure-stage's effect trace aka schedule even if the test passes.
+    /// Persist generated data and pure-stage traces even if the test passes.
     #[arg(long)]
     pub persist_on_success: bool,
 }

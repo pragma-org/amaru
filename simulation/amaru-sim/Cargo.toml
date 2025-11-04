@@ -22,16 +22,16 @@ hex.workspace = true
 pallas-crypto.workspace = true
 pallas-primitives.workspace = true
 parking_lot.workspace = true
-pure-stage.workspace = true
+pure-stage = { workspace = true, features = ["simulation"] }
 rand.workspace = true
 rand_distr.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = [
-    "rt",
-    "rt-multi-thread",
-    "signal",
-    "io-util",
+  "rt",
+  "rt-multi-thread",
+  "signal",
+  "io-util",
 ] }
 tokio-stream.workspace = true
 tokio-util.workspace = true
@@ -50,7 +50,6 @@ amaru-slot-arithmetic.workspace = true
 # External dependencies ───────────────────────────────────────────────────────┐
 proptest.workspace = true
 rand.workspace = true
-tempfile.workspace = true
 amaru-tracing-json.workspace = true
 
 [[bin]]

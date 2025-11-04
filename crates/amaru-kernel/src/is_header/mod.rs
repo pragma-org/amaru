@@ -205,7 +205,7 @@ impl IsHeader for BlockHeader {
 
 impl IsHeader for MintedHeader<'_> {
     fn hash(&self) -> HeaderHash {
-        Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&self)
+        Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&self.header_body)
     }
 
     fn parent(&self) -> Option<HeaderHash> {
