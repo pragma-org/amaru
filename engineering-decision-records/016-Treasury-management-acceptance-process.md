@@ -29,7 +29,7 @@ We would also like to use lessons learned and best practices from other industri
 
 - Once the work has been deemed acceptable, the contributor has to generate an invoice to "Amaru Maintainer Committee" "Dammstrasse 16, 6300 Zug, Switzerland" that mentions the scope and the work accomplished and send it via email with as Cc: Laura Dugan <laura@cag.xyz> and Damien Czapla <damien.czapla@openthelead.com>.
 
-- By receiving this invoice, the scope owner will do a `disburse` and the various proceedings behind the currency of payment specified in the contract will be enacted.
+- By receiving this invoice, the scope owner will do a `disburse` and the various proceedings behind the currency of payment specified in the contract will be enacted. The address to be used for the disburse is:   `addr1q8qrds2nnx7clx3kcpp2l0eu45twmdcahsfu9m0xcwy59j6xz3vs0hnfaz9nhje8z34kfnds4jyk7hs6dnrag6e2lfgqtyf4rl`
 
 - To complete the transparency aspect of the process, the scope contributor will: Upload a redacted invoice to IPFS, Upload a redacted agreement to IPFS and link the invoice and the agreement in the transaction's metadata
 
