@@ -288,6 +288,8 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> Heade
                     tip: tip.clone(),
                 })
             } else {
+                // Introduce a bug my creating an incorrect fork
+                // let fork = self.make_fork(peer, &tip.hash(), &tip.hash());
                 let fork = self.make_fork(peer, &self.best_chain(), &tip.hash());
                 Ok(ForwardChainSelection::SwitchToFork(fork))
             };
@@ -498,7 +500,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Return the hashes of the ancestors of the header, including the header hash itself.
-    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + '_> {
+    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item=HeaderHash> + '_> {
         self.chain_store.ancestors_hashes(hash)
     }
 
@@ -638,7 +640,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the best chain fragment currently known as a list of hashes.
     /// The list starts from the root.
-    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item = HeaderHash> {
+    fn best_chain_fragment_hashes_iterator(&self) -> impl Iterator<Item=HeaderHash> {
         let best_chain = self.best_chain();
         self.tree_state
             .peers
@@ -1395,6 +1397,69 @@ mod tests {
 
         check_execution(10, &actions, false);
     }
+
+    // #[test]
+    // fn test_bad_fork() {
+    //     let actions = [
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"87a115af6c5813a5eeeda3ba6c15c1a89b1a464faa07c1545178270ba9abe219","block":1,"slot":1,"parent":null}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"87a115af6c5813a5eeeda3ba6c15c1a89b1a464faa07c1545178270ba9abe219","block":1,"slot":1,"parent":null}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"87a115af6c5813a5eeeda3ba6c15c1a89b1a464faa07c1545178270ba9abe219","block":1,"slot":1,"parent":null}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"70f03470e9aac126981f77b190f833966373e9667689e02de71650a3108d0602","block":2,"slot":2,"parent":"87a115af6c5813a5eeeda3ba6c15c1a89b1a464faa07c1545178270ba9abe219"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"70f03470e9aac126981f77b190f833966373e9667689e02de71650a3108d0602","block":2,"slot":2,"parent":"87a115af6c5813a5eeeda3ba6c15c1a89b1a464faa07c1545178270ba9abe219"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"70f03470e9aac126981f77b190f833966373e9667689e02de71650a3108d0602","block":2,"slot":2,"parent":"87a115af6c5813a5eeeda3ba6c15c1a89b1a464faa07c1545178270ba9abe219"}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"a1de33285e0715bd630626f94a0f0680e7d45288713dd1eba40fffd64799f617","block":3,"slot":3,"parent":"70f03470e9aac126981f77b190f833966373e9667689e02de71650a3108d0602"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"a1de33285e0715bd630626f94a0f0680e7d45288713dd1eba40fffd64799f617","block":3,"slot":3,"parent":"70f03470e9aac126981f77b190f833966373e9667689e02de71650a3108d0602"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"a1de33285e0715bd630626f94a0f0680e7d45288713dd1eba40fffd64799f617","block":3,"slot":3,"parent":"70f03470e9aac126981f77b190f833966373e9667689e02de71650a3108d0602"}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d","block":4,"slot":4,"parent":"a1de33285e0715bd630626f94a0f0680e7d45288713dd1eba40fffd64799f617"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d","block":4,"slot":4,"parent":"a1de33285e0715bd630626f94a0f0680e7d45288713dd1eba40fffd64799f617"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d","block":4,"slot":4,"parent":"a1de33285e0715bd630626f94a0f0680e7d45288713dd1eba40fffd64799f617"}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"f70f5efd66c73b2bda3948abe3501398c404cad05d620b84d8f8b28bafd18290","block":5,"slot":5,"parent":"ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"f70f5efd66c73b2bda3948abe3501398c404cad05d620b84d8f8b28bafd18290","block":5,"slot":5,"parent":"ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"f70f5efd66c73b2bda3948abe3501398c404cad05d620b84d8f8b28bafd18290","block":5,"slot":5,"parent":"ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d"}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"1dea28f2e0ef8c708fcce43def8775a0a6cd8f088c287edbc8ebcd10c025180e","block":6,"slot":6,"parent":"f70f5efd66c73b2bda3948abe3501398c404cad05d620b84d8f8b28bafd18290"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"1dea28f2e0ef8c708fcce43def8775a0a6cd8f088c287edbc8ebcd10c025180e","block":6,"slot":6,"parent":"f70f5efd66c73b2bda3948abe3501398c404cad05d620b84d8f8b28bafd18290"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"1dea28f2e0ef8c708fcce43def8775a0a6cd8f088c287edbc8ebcd10c025180e","block":6,"slot":6,"parent":"f70f5efd66c73b2bda3948abe3501398c404cad05d620b84d8f8b28bafd18290"}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"14b8a0f113b8cb6905f94d82c57fbd53a6600b101b173b45af15f68b0ce9f537","block":7,"slot":7,"parent":"1dea28f2e0ef8c708fcce43def8775a0a6cd8f088c287edbc8ebcd10c025180e"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"14b8a0f113b8cb6905f94d82c57fbd53a6600b101b173b45af15f68b0ce9f537","block":7,"slot":7,"parent":"1dea28f2e0ef8c708fcce43def8775a0a6cd8f088c287edbc8ebcd10c025180e"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"14b8a0f113b8cb6905f94d82c57fbd53a6600b101b173b45af15f68b0ce9f537","block":7,"slot":7,"parent":"1dea28f2e0ef8c708fcce43def8775a0a6cd8f088c287edbc8ebcd10c025180e"}}}"#,
+    //         r#"{"RollBack":{"peer":"1","rollback_point":"7.1dea28f2e0ef8c708fcce43def8775a0a6cd8f088c287edbc8ebcd10c025180e"}}"#,
+    //         r#"{"RollBack":{"peer":"2","rollback_point":"7.1dea28f2e0ef8c708fcce43def8775a0a6cd8f088c287edbc8ebcd10c025180e"}}"#,
+    //         r#"{"RollBack":{"peer":"3","rollback_point":"7.1dea28f2e0ef8c708fcce43def8775a0a6cd8f088c287edbc8ebcd10c025180e"}}"#,
+    //         r#"{"RollBack":{"peer":"1","rollback_point":"6.f70f5efd66c73b2bda3948abe3501398c404cad05d620b84d8f8b28bafd18290"}}"#,
+    //         r#"{"RollBack":{"peer":"2","rollback_point":"6.f70f5efd66c73b2bda3948abe3501398c404cad05d620b84d8f8b28bafd18290"}}"#,
+    //         r#"{"RollBack":{"peer":"3","rollback_point":"6.f70f5efd66c73b2bda3948abe3501398c404cad05d620b84d8f8b28bafd18290"}}"#,
+    //         r#"{"RollBack":{"peer":"1","rollback_point":"5.ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d"}}"#,
+    //         r#"{"RollBack":{"peer":"2","rollback_point":"5.ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d"}}"#,
+    //         r#"{"RollBack":{"peer":"3","rollback_point":"5.ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d"}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"4522bb0e88be89b5287526fcd070dae7fc628fed33f5329919a3eeafa48ee3ec","block":5,"slot":5,"parent":"ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"4522bb0e88be89b5287526fcd070dae7fc628fed33f5329919a3eeafa48ee3ec","block":5,"slot":5,"parent":"ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"4522bb0e88be89b5287526fcd070dae7fc628fed33f5329919a3eeafa48ee3ec","block":5,"slot":5,"parent":"ff97fff27427b9aacafd8448a25b91f173ae55975bcd407ef1a301b87f7ca33d"}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"bebf1b19622c10c208433984baa72daf786f2b1ad743e1033827edc2555a04f5","block":6,"slot":6,"parent":"4522bb0e88be89b5287526fcd070dae7fc628fed33f5329919a3eeafa48ee3ec"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"bebf1b19622c10c208433984baa72daf786f2b1ad743e1033827edc2555a04f5","block":6,"slot":6,"parent":"4522bb0e88be89b5287526fcd070dae7fc628fed33f5329919a3eeafa48ee3ec"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"bebf1b19622c10c208433984baa72daf786f2b1ad743e1033827edc2555a04f5","block":6,"slot":6,"parent":"4522bb0e88be89b5287526fcd070dae7fc628fed33f5329919a3eeafa48ee3ec"}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4","block":7,"slot":7,"parent":"bebf1b19622c10c208433984baa72daf786f2b1ad743e1033827edc2555a04f5"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4","block":7,"slot":7,"parent":"bebf1b19622c10c208433984baa72daf786f2b1ad743e1033827edc2555a04f5"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4","block":7,"slot":7,"parent":"bebf1b19622c10c208433984baa72daf786f2b1ad743e1033827edc2555a04f5"}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"8d4ce6c35a98651a6c2e0e9440866aa6d9dce6d3fd899c8c2462df47124a555c","block":8,"slot":8,"parent":"9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"8d4ce6c35a98651a6c2e0e9440866aa6d9dce6d3fd899c8c2462df47124a555c","block":8,"slot":8,"parent":"9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"be60b13303b3b91636b41836386651730d2fa50635e9affa02ffdab46d619411","block":8,"slot":8,"parent":"9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4"}}}"#,
+    //         r#"{"RollBack":{"peer":"1","rollback_point":"8.9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4"}}"#,
+    //         r#"{"RollBack":{"peer":"2","rollback_point":"8.9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4"}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"13e03588036d9c75b1756ea696a95999e4e916560ce2522f54e29d6dbc2b6800","block":9,"slot":9,"parent":"be60b13303b3b91636b41836386651730d2fa50635e9affa02ffdab46d619411"}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"be60b13303b3b91636b41836386651730d2fa50635e9affa02ffdab46d619411","block":8,"slot":8,"parent":"9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"be60b13303b3b91636b41836386651730d2fa50635e9affa02ffdab46d619411","block":8,"slot":8,"parent":"9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4"}}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"d83bc3cb5766a0ead80c907c7735e43efa4b4d2d5a47b1bab9b0f545a3065135","block":10,"slot":10,"parent":"13e03588036d9c75b1756ea696a95999e4e916560ce2522f54e29d6dbc2b6800"}}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"13e03588036d9c75b1756ea696a95999e4e916560ce2522f54e29d6dbc2b6800","block":9,"slot":9,"parent":"be60b13303b3b91636b41836386651730d2fa50635e9affa02ffdab46d619411"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"13e03588036d9c75b1756ea696a95999e4e916560ce2522f54e29d6dbc2b6800","block":9,"slot":9,"parent":"be60b13303b3b91636b41836386651730d2fa50635e9affa02ffdab46d619411"}}}"#,
+    //         r#"{"RollBack":{"peer":"3","rollback_point":"10.13e03588036d9c75b1756ea696a95999e4e916560ce2522f54e29d6dbc2b6800"}}"#,
+    //         r#"{"RollForward":{"peer":"1","header":{"hash":"d83bc3cb5766a0ead80c907c7735e43efa4b4d2d5a47b1bab9b0f545a3065135","block":10,"slot":10,"parent":"13e03588036d9c75b1756ea696a95999e4e916560ce2522f54e29d6dbc2b6800"}}}"#,
+    //         r#"{"RollForward":{"peer":"2","header":{"hash":"d83bc3cb5766a0ead80c907c7735e43efa4b4d2d5a47b1bab9b0f545a3065135","block":10,"slot":10,"parent":"13e03588036d9c75b1756ea696a95999e4e916560ce2522f54e29d6dbc2b6800"}}}"#,
+    //         r#"{"RollBack":{"peer":"3","rollback_point":"9.be60b13303b3b91636b41836386651730d2fa50635e9affa02ffdab46d619411"}}"#,
+    //         r#"{"RollBack":{"peer":"3","rollback_point":"8.9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4"}}"#,
+    //         r#"{"RollForward":{"peer":"3","header":{"hash":"8d4ce6c35a98651a6c2e0e9440866aa6d9dce6d3fd899c8c2462df47124a555c","block":8,"slot":8,"parent":"9ce0c629d0ce1a1f1d22bb415045b1052f802245734bf568d69cace9a65ba4f4"}}}"#];
+    //
+    //     check_execution(10, &actions, true);
+    // }
 
     #[test]
     #[should_panic(

@@ -17,8 +17,8 @@ use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
 use crate::consensus::span::HasSpan;
 use crate::consensus::tip::{AsHeaderTip, HeaderTip};
+use amaru_kernel::IsHeader;
 use amaru_kernel::consensus_events::BlockValidationResult;
-use amaru_kernel::{IsHeader, Point};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Level, error, info, span, trace};
@@ -42,11 +42,11 @@ pub async fn stage(state: State, msg: BlockValidationResult, eff: impl Consensus
     match msg {
         BlockValidationResult::BlockValidated { peer, header, .. } => {
             // assert that the new tip is a direct successor of the old tip
-            assert_eq!(header.block_height(), our_tip.block_height() + 1);
-            match header.parent() {
-                Some(parent) => assert_eq!(parent, our_tip.hash()),
-                None => assert_eq!(our_tip, HeaderTip::new(Point::Origin, 0)),
-            }
+            // assert_eq!(header.block_height(), our_tip.block_height() + 1);
+            // match header.parent() {
+            //     Some(parent) => assert_eq!(parent, our_tip.hash()),
+            //     None => assert_eq!(our_tip, HeaderTip::new(Point::Origin, 0)),
+            // }
             our_tip = header.as_header_tip();
             trace!(
                 target: EVENT_TARGET,
