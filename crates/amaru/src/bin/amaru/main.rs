@@ -14,14 +14,30 @@
 
 use amaru::observability;
 use amaru::observability::{DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAULT_SERVICE_NAME};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use observability::OpenTelemetryConfig;
 use panic::panic_handler;
+use std::sync::LazyLock;
 
 mod cmd;
 mod metrics;
 mod panic;
 mod pid;
+
+mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
+/// Lazily initialized version string including git commit SHA.
+/// This provides a &'static str without manually leaking memory.
+static VERSION: LazyLock<String> = LazyLock::new(|| {
+    let version = built_info::PKG_VERSION;
+    match (built_info::GIT_COMMIT_HASH_SHORT, built_info::GIT_DIRTY) {
+        (Some(sha), Some(true)) => format!("{version} ({sha}+dirty)"),
+        (Some(sha), _) => format!("{version} ({sha})"),
+        _ => version.to_string(),
+    }
+});
 
 #[derive(Debug, Subcommand)]
 enum Command {
@@ -85,7 +101,7 @@ enum Command {
 #[derive(Debug, Parser)]
 #[clap(name = "Amaru")]
 #[clap(bin_name = "amaru")]
-#[clap(author, version, about, long_about = None)]
+#[clap(author, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -113,7 +129,10 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
 
-    let args = Cli::parse();
+    let matches = <Cli as CommandFactory>::command()
+        .version(VERSION.as_str())
+        .get_matches();
+    let args = <Cli as FromArgMatches>::from_arg_matches(&matches)?;
 
     let mut subscriber = observability::TracingSubscriber::new();
 
