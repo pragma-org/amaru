@@ -587,11 +587,15 @@ impl SimulationRunning {
             Effect::ExternalSync {
                 at_stage,
                 effect_type,
+                effect,
+                response,
             } => {
                 tracing::info!(stage = %at_stage, "external sync");
                 let effect = Effect::ExternalSync {
                     at_stage,
                     effect_type,
+                    effect,
+                    response,
                 };
                 self.trace_buffer.lock().push_suspend(&effect);
             }
