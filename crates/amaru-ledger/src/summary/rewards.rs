@@ -110,8 +110,10 @@ certain mutations are applied to the system.
 use crate::{
     store::{Snapshot, StoreError, columns::*},
     summary::{
-        AccountState, PoolState, Pots, SafeRatio, safe_ratio,
-        serde::{encode_pool_id, serialize_map},
+        AccountState, PoolState, Pots, SafeRatio,
+        arc_interner::{ArcIntern, ArcInterner},
+        encode_pool_id, safe_ratio,
+        serde::serialize_map,
         serialize_safe_ratio,
         stake_distribution::StakeDistribution,
     },
@@ -127,7 +129,7 @@ use num::{
     traits::{One, Zero},
 };
 use serde::ser::SerializeStruct;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 use tracing::info;
 
 const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
@@ -137,10 +139,10 @@ impl PoolState {
         lovelace_ratio(self.stake, total_stake)
     }
 
-    pub fn owner_stake(&self, accounts: &BTreeMap<StakeCredential, AccountState>) -> Lovelace {
+    pub fn owner_stake(&self, accounts: &BTreeMap<Arc<StakeCredential>, AccountState>) -> Lovelace {
         self.parameters.owners.iter().fold(0, |total, owner| {
             match accounts.get(&StakeCredential::AddrKeyhash(*owner)) {
-                Some(account) if account.pool == Some(self.parameters.id) => {
+                Some(account) if account.pool.as_deref() == Some(&self.parameters.id) => {
                     total + account.lovelace
                 }
                 _ => total,
@@ -362,10 +364,10 @@ pub struct RewardsSummary {
 
     /// Per-pool rewards determined from their (apparent) performances, available rewards and
     /// relative stake.
-    pools: BTreeMap<PoolId, PoolRewards>,
+    pools: BTreeMap<Arc<PoolId>, PoolRewards>,
 
     /// Per-account rewards, determined from their relative stake and their delegatee.
-    accounts: BTreeMap<StakeCredential, Lovelace>,
+    accounts: BTreeMap<Arc<StakeCredential>, Lovelace>,
 }
 
 impl serde::Serialize for RewardsSummary {
@@ -390,6 +392,7 @@ impl RewardsSummary {
 
     pub fn new(
         db: &impl Snapshot,
+        arc: &mut ArcInterner,
         stake_distribution: StakeDistribution,
         global_parameters: &GlobalParameters,
         protocol_parameters: &ProtocolParameters,
@@ -430,9 +433,9 @@ impl RewardsSummary {
 
         let total_stake: Lovelace = global_parameters.max_lovelace_supply - pots.reserves;
 
-        let mut accounts: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
+        let mut accounts: BTreeMap<Arc<StakeCredential>, Lovelace> = BTreeMap::new();
 
-        let mut pools: BTreeMap<PoolId, PoolRewards> = BTreeMap::new();
+        let mut pools: BTreeMap<Arc<PoolId>, PoolRewards> = BTreeMap::new();
 
         let mut effective_rewards =
             stake_distribution
@@ -440,6 +443,7 @@ impl RewardsSummary {
                 .iter()
                 .fold(0, |effective_rewards, (pool_id, pool)| {
                     let pool_rewards = RewardsSummary::apply_leader_rewards(
+                        arc,
                         &mut accounts,
                         &mut blocks_per_pool,
                         blocks_count,
@@ -452,7 +456,7 @@ impl RewardsSummary {
 
                     let rewards = effective_rewards + pool_rewards.leader;
 
-                    pools.insert(*pool_id, pool_rewards);
+                    pools.insert(Arc::clone(pool_id), pool_rewards);
 
                     rewards
                 });
@@ -576,11 +580,11 @@ impl RewardsSummary {
     }
 
     fn apply_member_rewards(
-        accounts: &mut BTreeMap<StakeCredential, Lovelace>,
+        accounts: &mut BTreeMap<Arc<StakeCredential>, Lovelace>,
         pool: &PoolState,
         pool_rewards: Option<&PoolRewards>,
         total_stake: Lovelace,
-        credential: StakeCredential,
+        credential: Arc<StakeCredential>,
         st: AccountState,
     ) -> Lovelace {
         if let Some(PoolRewards { pot, .. }) = pool_rewards {
@@ -599,7 +603,8 @@ impl RewardsSummary {
 
     #[expect(clippy::too_many_arguments)]
     fn apply_leader_rewards(
-        accounts: &mut BTreeMap<StakeCredential, Lovelace>,
+        arc: &mut ArcInterner,
+        accounts: &mut BTreeMap<Arc<StakeCredential>, Lovelace>,
         blocks_per_pool: &mut BTreeMap<PoolId, u64>,
         blocks_count: u64,
         available_rewards: Lovelace,
@@ -627,7 +632,7 @@ impl RewardsSummary {
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
         accounts
-            .entry(expect_stake_credential(&pool.parameters.reward_account))
+            .entry(arc.intern(expect_stake_credential(&pool.parameters.reward_account)))
             .and_modify(|rewards| *rewards += rewards_leader)
             .or_insert(rewards_leader);
 

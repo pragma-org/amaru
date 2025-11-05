@@ -23,4 +23,13 @@ fn main() {
     let network = env::var("NETWORK").unwrap_or_else(|_| "preprod".into());
     println!("cargo:rerun-if-env-changed=AMARU_NETWORK");
     println!("cargo:rustc-env=AMARU_NETWORK={}", network);
+
+    let jemalloc = std::env::var("CARGO_FEATURE_JEMALLOC").is_ok();
+    let mimalloc = std::env::var("CARGO_FEATURE_MIMALLOC").is_ok();
+
+    if jemalloc && mimalloc {
+        println!(
+            "cargo:warning=Features `jemalloc` and `mimalloc` are mutually exclusive yet both enabled; the default allocator will be used instead."
+        );
+    }
 }

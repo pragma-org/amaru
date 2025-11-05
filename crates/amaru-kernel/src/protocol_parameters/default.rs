@@ -140,7 +140,7 @@ pub static PREPROD_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
             },
             min_pool_cost: 340000000,
             collateral_percentage: 150,
-            cost_models: CostModels {
+            cost_models: Box::new(CostModels {
                 plutus_v1: Some(vec![
                     100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356,
                     4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 100,
@@ -192,8 +192,8 @@ pub static PREPROD_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                     281145, 18848, 0, 1, 180194, 159, 1, 1, 158519, 8942, 0, 1, 159378, 8813, 0, 1,
                     107490, 3298, 1, 106057, 655, 1, 1964219, 24520, 3,
                 ]),
-            },
-            pool_voting_thresholds: PoolVotingThresholds {
+            }),
+            pool_voting_thresholds: Box::new(PoolVotingThresholds {
                 motion_no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
@@ -214,8 +214,8 @@ pub static PREPROD_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                     numerator: 51,
                     denominator: 100,
                 },
-            },
-            drep_voting_thresholds: DRepVotingThresholds {
+            }),
+            drep_voting_thresholds: Box::new(DRepVotingThresholds {
                 motion_no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
@@ -256,7 +256,7 @@ pub static PREPROD_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                     numerator: 67,
                     denominator: 100,
                 },
-            },
+            }),
             min_committee_size: 7,
             max_committee_term_length: 146,
             gov_action_lifetime: 6,
@@ -363,7 +363,7 @@ pub static PREVIEW_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
             },
             min_pool_cost: 340000000,
             collateral_percentage: 150,
-            cost_models: CostModels {
+            cost_models: Box::new(CostModels {
                 plutus_v1: Some(vec![
                     100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356,
                     4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 100,
@@ -412,8 +412,8 @@ pub static PREVIEW_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                     36, 333849714, 1, 254006273, 72, 2174038, 72, 2261318, 64571, 4, 207616, 8310,
                     4, 1293828, 28716, 63, 0, 1, 1006041, 43623, 251, 0, 1,
                 ]),
-            },
-            pool_voting_thresholds: PoolVotingThresholds {
+            }),
+            pool_voting_thresholds: Box::new(PoolVotingThresholds {
                 motion_no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
@@ -434,8 +434,8 @@ pub static PREVIEW_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                     numerator: 51,
                     denominator: 100,
                 },
-            },
-            drep_voting_thresholds: DRepVotingThresholds {
+            }),
+            drep_voting_thresholds: Box::new(DRepVotingThresholds {
                 motion_no_confidence: RationalNumber {
                     numerator: 67,
                     denominator: 100,
@@ -476,7 +476,7 @@ pub static PREVIEW_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                     numerator: 67,
                     denominator: 100,
                 },
-            },
+            }),
             min_committee_size: 0,
             max_committee_term_length: 365,
             gov_action_lifetime: 30,

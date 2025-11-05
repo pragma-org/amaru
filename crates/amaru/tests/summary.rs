@@ -19,7 +19,7 @@ use amaru_kernel::{
 use amaru_ledger::{
     store::{ReadStore, Snapshot},
     summary::{
-        governance::GovernanceSummary, rewards::RewardsSummary,
+        arc_interner::ArcInterner, governance::GovernanceSummary, rewards::RewardsSummary,
         stake_distribution::StakeDistribution,
     },
 };
@@ -94,10 +94,12 @@ fn compare_snapshot(epoch: Epoch) {
 
     let era_history = <&EraHistory>::from(network);
 
-    let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history).unwrap();
+    let mut arc = ArcInterner::default();
+
+    let dreps = GovernanceSummary::new(snapshot.as_ref(), &mut arc, era_history).unwrap();
 
     let stake_distr =
-        StakeDistribution::new(snapshot.as_ref(), &protocol_parameters, dreps).unwrap();
+        StakeDistribution::new(snapshot.as_ref(), &mut arc, &protocol_parameters, dreps).unwrap();
 
     insta::with_settings!({
         snapshot_path => format!("snapshots/{}", network)
@@ -112,6 +114,7 @@ fn compare_snapshot(epoch: Epoch) {
 
     let rewards_summary = RewardsSummary::new(
         snapshot_from_the_future.as_ref(),
+        &mut arc,
         stake_distr,
         global_parameters,
         &protocol_parameters,

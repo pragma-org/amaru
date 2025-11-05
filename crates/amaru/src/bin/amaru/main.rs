@@ -12,11 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::observability;
-use amaru::observability::{DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAULT_SERVICE_NAME};
+use amaru::{
+    observability,
+    observability::{DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAULT_SERVICE_NAME},
+};
 use clap::{Parser, Subcommand};
 use observability::OpenTelemetryConfig;
 use panic::panic_handler;
+
+#[cfg(all(feature = "jemalloc", not(feature = "mimalloc")))]
+mod jemalloc {
+    use tikv_jemallocator::Jemalloc;
+    #[global_allocator]
+    static GLOBAL: Jemalloc = Jemalloc;
+}
+
+#[cfg(all(feature = "mimalloc", not(feature = "jemalloc")))]
+mod mimalloc {
+    use mimalloc::MiMalloc;
+    #[global_allocator]
+    static GLOBAL: MiMalloc = MiMalloc;
+}
 
 mod cmd;
 mod metrics;

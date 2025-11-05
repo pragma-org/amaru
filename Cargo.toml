@@ -30,6 +30,7 @@ either = "1.15"
 futures-util = "0.3.31"
 gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
 hex = "0.4.3"
+hashbrown = "0.16.0"
 indicatif = "0.18.0"
 indoc = "2.0"
 itertools = "0.14.0"
@@ -48,6 +49,7 @@ pallas-crypto = "0.33.0"
 pallas-math = "0.33.0"
 pallas-network = "0.33.0"
 pallas-primitives = "0.33.0"
+mimalloc = "0.1.48"
 pallas-traverse = "0.33.0"
 parking_lot = "0.12.3"
 rand = "0.9.2"
@@ -74,6 +76,7 @@ tracing-subscriber = { version = "0.3.20", features = [
   "std",
   "json",
 ] }
+tikv-jemallocator = "0.6.1"
 typetag = "0.2.21"
 
 # Internal dependencies

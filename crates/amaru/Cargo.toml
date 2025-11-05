@@ -13,6 +13,11 @@ documentation.workspace = true
 rust-version.workspace = true
 build = "build.rs"
 
+[features]
+default = []
+mimalloc = ["dep:mimalloc"]
+jemalloc = ["dep:tikv-jemallocator"]
+
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 acto.workspace = true
@@ -44,6 +49,10 @@ tokio-util.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
+
+# Optional dependencies ───────────────────────────────────────────────────────┐
+mimalloc = { workspace = true, optional = true }
+tikv-jemallocator = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-consensus = { workspace = true, features = [] }

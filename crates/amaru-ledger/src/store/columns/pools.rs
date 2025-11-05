@@ -31,7 +31,7 @@ pub type Key = PoolId;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
     pub registered_at: CertificatePointer,
-    pub current_params: PoolParams,
+    pub current_params: Box<PoolParams>,
     pub future_params: Vec<(Option<PoolParams>, Epoch)>,
 }
 
@@ -39,7 +39,7 @@ impl Row {
     pub fn new(registered_at: CertificatePointer, current_params: PoolParams) -> Self {
         Self {
             registered_at,
-            current_params,
+            current_params: Box::new(current_params),
             future_params: Vec::new(),
         }
     }
@@ -137,7 +137,7 @@ impl Row {
                     ?new_params,
                     "tick.updating"
                 );
-                pool.current_params = new_params;
+                pool.current_params = Box::new(new_params);
             }
 
             // Regardless, always prune future params from those that are now-obsolete.
@@ -262,7 +262,7 @@ pub mod tests {
             any_certificate_pointer(u64::MAX),
         )
             .prop_map(|(future_params, current_params, registered_at)| Row {
-                current_params,
+                current_params: Box::new(current_params),
                 future_params,
                 registered_at,
             })
@@ -370,7 +370,7 @@ pub mod tests {
                     Some(row) => {
                         prop_assert_eq!(
                             model.current.as_ref(),
-                            Some(&row.current_params),
+                            Some(row.current_params.as_ref()),
                             "current_epoch = {:?}, model = {:?}",
                             current_epoch,
                             model

@@ -16,9 +16,9 @@
 //! summaries.
 
 use amaru_kernel::{DRep, Network, PoolId, StakeCredential, encode_bech32};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Deref};
 
-pub fn encode_pool_id(pool_id: &PoolId) -> String {
+pub fn encode_pool_id<T: Deref<Target = PoolId>>(pool_id: T) -> String {
     encode_bech32("pool", pool_id.as_slice())
         .unwrap_or_else(|_| unreachable!("human-readable part 'pool' is okay"))
 }
@@ -62,8 +62,8 @@ pub fn encode_pool_id(pool_id: &PoolId) -> String {
 ///   "drep1ydpfkyjxzeqvalf6fgvj7lznrk8kcmfnvy9hyl6gr6ez6wgsjaelx",
 /// );
 /// ```
-pub fn encode_drep(drep: &DRep) -> String {
-    match drep {
+pub fn encode_drep<T: Deref<Target = DRep>>(drep: T) -> String {
+    match drep.deref() {
         DRep::Key(hash) => encode_bech32("drep", &[&[0x22], hash.as_slice()].concat()),
         DRep::Script(hash) => encode_bech32("drep", &[&[0x23], hash.as_slice()].concat()),
         DRep::Abstain => Ok("abstain".to_string()),
@@ -90,15 +90,22 @@ pub fn encode_stake_credential(network: Network, credential: &StakeCredential) -
     .unwrap_or_else(|_| unreachable!("human-readable part 'stake_test' is okay"))
 }
 
-pub fn serialize_map<K, V: serde::ser::Serialize, S: serde::ser::SerializeStruct>(
+pub fn serialize_map<
+    'k,
+    K: 'k,
+    KK: Deref<Target = K>,
+    V: serde::ser::Serialize,
+    S: serde::ser::SerializeStruct,
+>(
     field: &'static str,
     s: &mut S,
-    m: &BTreeMap<K, V>,
-    serialize_key: impl Fn(&K) -> String,
-) -> Result<(), S::Error> {
+    m: &'k BTreeMap<KK, V>,
+    serialize_key: impl Fn(&'k K) -> String,
+) -> Result<(), S::Error> where
+{
     let mut elems = m
         .iter()
-        .map(|(k, v)| (serialize_key(k), v))
+        .map(|(k, v)| (serialize_key(k.deref()), v))
         .collect::<Vec<_>>();
     elems.sort_by(|a, b| a.0.cmp(&b.0));
     s.serialize_field(field, &elems.into_iter().collect::<BTreeMap<String, &V>>())
