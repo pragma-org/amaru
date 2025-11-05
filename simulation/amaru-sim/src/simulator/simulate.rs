@@ -28,7 +28,7 @@ use crate::simulator::shrink::shrink;
 use crate::simulator::simulate_config::SimulateConfig;
 use crate::simulator::world::{Entry, NodeHandle};
 pub(crate) use crate::simulator::world::{History, World};
-use crate::simulator::{GeneratedEntries, NodeConfig};
+use crate::simulator::{Args, GeneratedEntries, NodeConfig};
 use crate::sync::ChainSyncMessage;
 use amaru_consensus::consensus::headers_tree::data_generation::{Action, GeneratedActions};
 use amaru_kernel::string_utils::ListToString;
@@ -99,7 +99,11 @@ where
         info!("Test data generated, now sending messages");
         display_test_stats(generation_context);
         if persist_on_success {
-            persist_generated_data(simulate_config, &test_run_dir_n, &generated_entries)?;
+            persist_generated_entries_as_json(test_run_dir_n.as_path(), &generated_entries)?;
+            persist_generated_actions_as_json(
+                test_run_dir_n.as_path(),
+                &generated_entries.generation_context().actions(),
+            )?;
         }
 
         match run_test(
@@ -135,6 +139,7 @@ where
     }
 
     if persist_on_success {
+        persist_args(test_run_dir.as_path(), simulate_config, node_config)?;
         persist_traces(test_run_dir.as_path(), trace_buffer.clone())?;
     }
     info!(
@@ -300,18 +305,24 @@ fn persist_traces_as_cbor(
         return Ok(());
     }
 
+    let messages: Vec<Vec<u8>> = trace_buffer.lock().iter().map(|b| b.to_vec()).collect();
     let path = dir.join("traces.cbor");
     let mut file = File::create(&path)?;
-    for bytes in trace_buffer.lock().iter() {
-        file.write_all(bytes)?;
-    }
+    cbor4ii::serde::to_writer(&mut file, &messages)?;
     Ok(())
 }
 
 /// Persist the seed to .seed file where the filename is the seed value
-fn persist_seed(dir: &Path, seed: u64) -> Result<(), anyhow::Error> {
-    let path = dir.join(format!("{seed}.seed"));
-    let _ = File::create(&path)?;
+fn persist_args(
+    dir: &Path,
+    simulate_config: &SimulateConfig,
+    node_config: &NodeConfig,
+) -> Result<(), anyhow::Error> {
+    let args = Args::from_configs(simulate_config, node_config);
+    let path = dir.join("args.json");
+    let mut file = File::create(&path)?;
+    let serialized = serde_json::to_string_pretty(&args)?;
+    file.write_all(serialized.as_bytes())?;
     Ok(())
 }
 

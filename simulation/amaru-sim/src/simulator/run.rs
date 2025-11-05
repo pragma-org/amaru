@@ -50,6 +50,7 @@ use amaru_ouroboros::{
 use async_trait::async_trait;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::simulation::running::OverrideResult;
+use pure_stage::trace_buffer::TraceEntry;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef, trace_buffer::TraceBuffer};
 use rand::rngs::StdRng;
 use std::{
@@ -66,7 +67,8 @@ use tracing::{Span, info};
 ///
 /// * Create a simulation environment.
 /// * Run the simulation.
-pub fn run(rt: Runtime, args: Args) {
+pub fn run(args: Args) {
+    let rt = Runtime::new().unwrap();
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
     let node_config = NodeConfig::from(args.clone());
 
@@ -360,6 +362,16 @@ fn make_best_chain_from_downstream_messages(
         }
     }
     Ok(best_chain)
+}
+
+/// Replay a previous simulation run:
+pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
+    let rt = Runtime::new()?;
+    let mut network = SimulationBuilder::default();
+    let node_config = NodeConfig::from(args);
+    let _ = spawn_node("n1".to_string(), node_config, &mut network, &rt);
+    let mut replay = network.replay();
+    replay.run_trace(traces)
 }
 
 /// This implementation of ForwardEventListener sends the received events a Sender that can collect them

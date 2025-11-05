@@ -291,7 +291,7 @@ mod test_send_data {
 /// `#[serde(with = "pure_stage::serde::serialize_external_effect")]` for serializing [`Box<dyn ExternalEffect>`](crate::ExternalEffect).
 pub mod serialize_external_effect {
     use super::*;
-    use crate::{ExternalEffect, effect::UnknownExternalEffect};
+    use crate::{effect::UnknownExternalEffect, ExternalEffect};
 
     pub fn serialize<S: Serializer>(
         data: &Box<dyn ExternalEffect>,
@@ -321,4 +321,9 @@ pub fn to_cbor<T: serde::Serialize>(value: &T) -> Vec<u8> {
         buffer.clear();
         ret
     })
+}
+
+/// Deserialize a value from a vector of bytes
+pub fn from_cbor<'a, T: serde::Deserialize<'a>>(value: &'a Vec<u8>) -> anyhow::Result<T> {
+    Ok(cbor4ii::serde::from_slice::<T>(value.as_slice())?)
 }
