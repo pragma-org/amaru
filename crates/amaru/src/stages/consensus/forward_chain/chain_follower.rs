@@ -14,7 +14,6 @@
 
 use crate::stages::AsTip;
 use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
-use amaru_consensus::ReadOnlyChainStore;
 use amaru_kernel::IsHeader;
 use amaru_network::point::{from_network_point, to_network_point};
 use amaru_ouroboros_traits::ChainStore;
@@ -49,6 +48,9 @@ pub(super) struct ChainFollower<H> {
     /// and represents the parent of the next header to forward to
     /// client.
     intersection: Tip,
+
+    /// The chain store
+    store: Arc<dyn ChainStore<H>>,
 }
 
 impl<H: IsHeader> fmt::Debug for ChainFollower<H> {
@@ -85,6 +87,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
                 anchor,
                 ops: vec![].into(),
                 intersection: start_header.as_tip(),
+                store: store.clone(),
             });
         }
 
@@ -142,10 +145,11 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
             ops: headers.into(),
             intersection: best_tip,
             anchor,
+            store: store.clone(),
         })
     }
 
-    pub fn next_op(&mut self, store: Arc<dyn ReadOnlyChainStore<H>>) -> Option<ClientOp<H>> {
+    pub fn next_op(&mut self) -> Option<ClientOp<H>> {
         // is this initial rollback?
         if let Some(ref init_tip) = self.initial {
             let result = Some(ClientOp::Backward(init_tip.clone()));
@@ -155,12 +159,15 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
 
         // is our tip behind anchor?
         if self.intersection.1 < self.anchor.1 {
-            let next_point = store.next_best_chain(&from_network_point(&self.intersection.0));
+            let next_point = self
+                .store
+                .next_best_chain(&from_network_point(&self.intersection.0));
 
             match next_point {
                 Some(point) => {
-                    let child_header =
-                        store.load_header(&hash_point(&to_network_point(point.clone())));
+                    let child_header = self
+                        .store
+                        .load_header(&hash_point(&to_network_point(point.clone())));
                     match child_header {
                         Some(child) => {
                             self.intersection = child.as_tip();
@@ -254,10 +261,7 @@ pub(crate) mod tests {
 
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
 
-        assert_eq!(
-            chain_follower.next_op(store.clone()),
-            Some(ClientOp::Backward(start))
-        );
+        assert_eq!(chain_follower.next_op(), Some(ClientOp::Backward(start)));
     }
 
     #[test]
@@ -273,7 +277,7 @@ pub(crate) mod tests {
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
 
         assert_eq!(
-            chain_follower.next_op(store.clone()),
+            chain_follower.next_op(),
             Some(ClientOp::Backward(expected.as_tip()))
         );
     }
@@ -293,7 +297,7 @@ pub(crate) mod tests {
 
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
         assert_eq!(
-            chain_follower.next_op(store.clone()),
+            chain_follower.next_op(),
             Some(ClientOp::Backward(Tip(expected, 8)))
         );
     }
@@ -311,13 +315,10 @@ pub(crate) mod tests {
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
 
         assert_eq!(
-            chain_follower.next_op(store.clone()),
+            chain_follower.next_op(),
             Some(ClientOp::Backward(Tip(Point::Origin, 0)))
         );
-        assert_eq!(
-            chain_follower.next_op(store.clone()),
-            Some(ClientOp::Forward(first))
-        );
+        assert_eq!(chain_follower.next_op(), Some(ClientOp::Forward(first)));
     }
 
     #[test]
@@ -338,8 +339,8 @@ pub(crate) mod tests {
 
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
 
-        let _ = chain_follower.next_op(store.clone()); // initial rollback
-        assert_eq!(chain_follower.next_op(store.clone()), None);
+        let _ = chain_follower.next_op(); // initial rollback
+        assert_eq!(chain_follower.next_op(), None);
     }
 
     #[test]
@@ -363,8 +364,8 @@ pub(crate) mod tests {
         let points = [store.get_point(TIP_47)];
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
 
-        let _ = chain_follower.next_op(store.clone()); // initial rollback
-        assert_eq!(chain_follower.next_op(store.clone()), None);
+        let _ = chain_follower.next_op(); // initial rollback
+        assert_eq!(chain_follower.next_op(), None);
     }
 
     // HELPERS

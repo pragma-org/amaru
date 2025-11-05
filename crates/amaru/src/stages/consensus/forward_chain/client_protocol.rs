@@ -220,7 +220,7 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
                 tracing::trace!(operation = ?op, "forward change");
                 our_tip = op.tip();
                 chain_follower.add_op(op);
-                if waiting && let Some(op) = chain_follower.next_op(store.clone()) {
+                if waiting && let Some(op) = chain_follower.next_op() {
                     tracing::trace!(operation = ?op, "reply await");
                     waiting = false;
                     handler.send(Some((op, our_tip.clone())));
@@ -228,7 +228,7 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
             }
             ActoInput::Message(ChainSyncMsg::ReqNext) => {
                 tracing::trace!("client request next");
-                if let Some(op) = chain_follower.next_op(store.clone()) {
+                if let Some(op) = chain_follower.next_op() {
                     tracing::trace!(operation = ?op, "forward next operation");
                     handler.send(Some((op, our_tip.clone())));
                 } else {
