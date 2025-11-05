@@ -31,7 +31,7 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 
 #[test]
-fn run_simulator_with_traces() {
+fn run_simulation_with_traces() {
     let args = Args {
         number_of_tests: 1,
         number_of_nodes: 1,
