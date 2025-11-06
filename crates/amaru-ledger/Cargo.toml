@@ -53,3 +53,7 @@ num = { workspace = true, default-features = false, features = [
   "alloc",
   "libm",
 ] }
+
+[build-dependencies]
+flate2.workspace = true
+tar.workspace = true

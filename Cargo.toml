@@ -27,6 +27,7 @@ bytes = "1.10.1"
 cbor4ii = { version = "1.1.1", features = ["serde1", "use_std"] }
 clap = { version = "4.5.48", features = ["derive", "env"] }
 either = "1.15"
+flate2 = "1.1"
 futures-util = "0.3.31"
 gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
 hex = "0.4.3"
@@ -63,6 +64,7 @@ serde = { version = "1.0.228", default-features = false }
 serde_json = { version = "1.0.145", default-features = false }
 sha3 = "0.10.8"
 sysinfo = "0.37.1"
+tar = "0.4"
 thiserror = "2.0.17"
 tokio = { version = "1.45.0", features = ["sync"] }
 tokio-util = "0.7.12"
@@ -88,7 +90,7 @@ amaru-minicbor-extra = { path = "crates/amaru-minicbor-extra" }
 amaru-network = { path = "crates/amaru-network" }
 amaru-ouroboros = { path = "crates/amaru-ouroboros" }
 amaru-ouroboros-traits = { path = "crates/amaru-ouroboros-traits" }
-amaru-plutus = {path = "crates/amaru-plutus"}
+amaru-plutus = { path = "crates/amaru-plutus" }
 amaru-progress-bar = { path = "crates/amaru-progress-bar" }
 amaru-sim = { path = "crates/amaru-sim" }
 amaru-slot-arithmetic = { path = "crates/amaru-slot-arithmetic" }

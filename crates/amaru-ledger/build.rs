@@ -12,16 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, fs, path::Path};
+use flate2::read::GzDecoder;
+use std::{env, fs, fs::File, path::Path};
+use tar::Archive;
 
 fn main() {
     get_conformance_test_vectors();
 }
 
 #[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 fn get_conformance_test_vectors() {
     let test_dir = Path::new("tests/data/rules-conformance");
     println!("cargo:rerun-if-changed={}", test_dir.to_str().unwrap());
+
+    let rules_conformance_tar_gz = Path::new("tests/data/rules-conformance.tar.gz");
+    if !test_dir.exists() && rules_conformance_tar_gz.exists() {
+        let tar_gz_file =
+            File::open(rules_conformance_tar_gz).expect("opening rules conformance tar.gz");
+        let tar = GzDecoder::new(tar_gz_file);
+        let mut archive = Archive::new(tar);
+        archive
+            .unpack(test_dir)
+            .expect("unpacking rules conformance tar.gz");
+    }
 
     let mut files = Vec::new();
     visit_dirs(test_dir, &mut files);
@@ -31,7 +45,7 @@ fn get_conformance_test_vectors() {
 
     if files.is_empty() {
         println!(
-            "cargo:warning=no conformance ledger test vectors found; unpack them in amaru-ledger/tests/data/conformance"
+            "cargo:warning=no conformance ledger test vectors found; unpack them in amaru-ledger/tests/data/rules-conformance"
         );
     }
 
