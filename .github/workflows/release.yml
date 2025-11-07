@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    tags: ["*.*.*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.environments.title }}
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        environments:
+          - title: linux-x86_64
+            target: x86_64-unknown-linux-musl
+            build: zigbuild
+            setup: |
+              sudo apt-get install -y pkg-config musl musl-dev musl-tools
+              sudo snap install zig --classic --beta
+              cargo install cargo-zigbuild
+              rustup target add x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+
+          - title: linux-aarch64
+            target: aarch64-unknown-linux-musl
+            build: zigbuild
+            setup: |
+              sudo apt-get install -y pkg-config musl musl-dev musl-tools
+              sudo snap install zig --classic --beta
+              cargo install cargo-zigbuild
+              rustup target add aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+
+          - title: macos-aarch64
+            target: aarch64-apple-darwin
+            build: build
+            runner: macos-15
+
+    runs-on: ${{ matrix.environments.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: build metadata
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="nightly-$(git rev-parse --short=8 HEAD)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: cargo build
+        shell: bash
+        run: |
+          set -e
+          if [[ -n "${{ matrix.environments.setup }}" ]]; then
+            ${{ matrix.environments.setup || 'echo "no setup needed..."' }}
+          fi
+          cargo ${{ matrix.environments.build }} --release --locked --target ${{ matrix.environments.target }}
+
+      - name: prepare files
+        id: pack
+        shell: bash
+        env:
+          OUT: amaru-${{ steps.meta.outputs.version}}-${{ matrix.environments.title }}
+        run: |
+          mkdir -p $OUT
+          mkdir -p $OUT/bin $OUT/etc
+          rsync -R ./data/{mainnet,preprod,preview}/{headers,nonces,snapshots,config}.json $OUT/etc
+          mv ./target/${{ matrix.environments.target }}/release/amaru $OUT/bin/amaru
+          chmod +x $OUT/bin/amaru
+          cp LICENSE README.md CHANGELOG.md $OUT
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: amaru-${{ steps.meta.outputs.version }}-${{ matrix.environments.title }}
+          path: ${{ steps.pack.outputs.path }}
