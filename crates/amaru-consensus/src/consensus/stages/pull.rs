@@ -15,28 +15,31 @@
 use crate::consensus::effects::ChainSyncEffect;
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
 use pure_stage::{Effects, StageRef};
-use tracing::{Level, span};
+use tracing::Instrument;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NextSync;
 
-pub async fn stage(
+pub fn stage(
     downstream: StageRef<Tracked<ChainSyncEvent>>,
     _msg: NextSync,
     eff: Effects<NextSync>,
-) -> StageRef<Tracked<ChainSyncEvent>> {
-    let span = span!(Level::TRACE, "stage.pull");
-    let _entered = span.enter();
+) -> impl Future<Output = StageRef<Tracked<ChainSyncEvent>>> {
+    let span = tracing::trace_span!("stage.pull");
+    let span_clone = span.clone();
 
-    let mut msg = eff.external(ChainSyncEffect).await;
+    async move {
+        let mut msg = eff.external(ChainSyncEffect).await;
 
-    // Set the span on the message so that stage.pull is the start of the trace
-    match &mut msg {
-        Tracked::Wrapped(event) => event.set_span(span.clone()),
-        Tracked::CaughtUp { span: s, .. } => *s = span.clone(),
-    };
+        // Set the span on the message so that stage.pull is the start of the trace
+        match &mut msg {
+            Tracked::Wrapped(event) => event.set_span(span_clone),
+            Tracked::CaughtUp { span: s, .. } => *s = span_clone,
+        };
 
-    eff.send(&downstream, msg).await;
-    eff.send(eff.me_ref(), NextSync).await;
-    downstream
+        eff.send(&downstream, msg).await;
+        eff.send(eff.me_ref(), NextSync).await;
+        downstream
+    }
+    .instrument(span)
 }

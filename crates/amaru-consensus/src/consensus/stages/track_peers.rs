@@ -15,37 +15,41 @@
 use crate::consensus::EVENT_TARGET;
 use crate::consensus::effects::BaseOps;
 use crate::consensus::effects::ConsensusOps;
+use crate::consensus::span::HasSpan;
 use amaru_kernel::consensus_events::{DecodedChainSyncEvent, Tracked};
 use amaru_kernel::peer::Peer;
 use pure_stage::StageRef;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, fmt::Debug};
-use tracing::{debug, trace};
+use tracing::{Instrument, debug, trace};
 
 type State = (SyncTracker, StageRef<DecodedChainSyncEvent>);
 
-pub async fn stage(
+pub fn stage(
     state: State,
     msg: Tracked<DecodedChainSyncEvent>,
     eff: impl ConsensusOps,
-) -> State {
-    let (mut tracker, downstream) = state;
-
-    match msg {
-        Tracked::Wrapped(e @ DecodedChainSyncEvent::RollForward { .. }) => {
-            if tracker.is_caught_up() {
-                debug!(target: EVENT_TARGET, peer = %e.peer(), point = %e.point(), "new tip");
-            } else {
-                trace!(target: EVENT_TARGET, peer= %e.peer(), point = %e.point(), "new tip");
-            };
-            eff.base().send(&downstream, e).await;
+) -> impl Future<Output = State> {
+    let span = tracing::trace_span!(parent: msg.span(), "stage.track_peers");
+    async move {
+        let (mut tracker, downstream) = state;
+        match msg {
+            Tracked::Wrapped(e @ DecodedChainSyncEvent::RollForward { .. }) => {
+                if tracker.is_caught_up() {
+                    debug!(target: EVENT_TARGET, peer = %e.peer(), point = %e.point(), "new tip");
+                } else {
+                    trace!(target: EVENT_TARGET, peer= %e.peer(), point = %e.point(), "new tip");
+                };
+                eff.base().send(&downstream, e).await;
+            }
+            Tracked::Wrapped(e @ DecodedChainSyncEvent::Rollback { .. }) => {
+                eff.base().send(&downstream, e).await;
+            }
+            Tracked::CaughtUp { peer, .. } => tracker.caught_up(&peer),
         }
-        Tracked::Wrapped(e @ DecodedChainSyncEvent::Rollback { .. }) => {
-            eff.base().send(&downstream, e).await;
-        }
-        Tracked::CaughtUp { peer, .. } => tracker.caught_up(&peer),
+        (tracker, downstream)
     }
-    (tracker, downstream)
+    .instrument(span)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]

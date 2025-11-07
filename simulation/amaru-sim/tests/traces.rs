@@ -106,6 +106,9 @@ fn run_simulator_with_traces() {
                   ]
                 },
                 {
+                  "name": "stage.track_peers",
+                },
+                {
                   "name": "stage.validate_header",
                 },
                 {
