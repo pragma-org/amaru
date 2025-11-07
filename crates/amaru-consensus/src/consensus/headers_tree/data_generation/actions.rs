@@ -576,7 +576,16 @@ pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Chain>> {
         let chain: &mut Chain = current_chains.get_mut(&tracker).unwrap();
         match action {
             Action::RollForward { header, .. } => {
-                chain.push(header.clone());
+                match (header.parent(), chain.last().map(|h| h.hash())) {
+                    (Some(parent_hash), Some(last_hash)) => {
+                        if parent_hash == last_hash {
+                            chain.push(header.clone())
+                        }
+                    }
+                    (None, None) => chain.push(header.clone()),
+                    (Some(_), None) => {}
+                    (None, Some(_)) => {}
+                }
             }
             Action::RollBack { rollback_point, .. } => {
                 if let Some(rollback_position) =

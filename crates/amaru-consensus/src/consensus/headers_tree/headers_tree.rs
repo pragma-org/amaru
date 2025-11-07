@@ -1359,11 +1359,11 @@ mod tests {
         check_execution(3, &actions, false);
     }
 
+    // This test checks that a single rollback is sent downstream when a peer rolls back but
+    // another peer still points to the best chain
+    // Before the fix for this test, an unnecessary fork was sent downstream.
     #[test]
     fn test_single_rollback() {
-        // This test checks that a single rollback is sent downstream when a peer rolls back but
-        // another peer still points to the best chain
-        // Before the fix for this test, an unnecessary fork was sent downstream.
         let actions = [
             r#"{"RollForward":{"peer":"1","header":{"hash":"d0635f3cb9d78db8c906e9cf3a2fd358385f6b3600d5d5eea51c9dad2cff77eb","block":1,"slot":1,"parent":null}}}"#,
             r#"{"RollForward":{"peer":"2","header":{"hash":"d0635f3cb9d78db8c906e9cf3a2fd358385f6b3600d5d5eea51c9dad2cff77eb","block":1,"slot":1,"parent":null}}}"#,
@@ -1391,6 +1391,26 @@ mod tests {
             r#"{"RollForward":{"peer":"3","header":{"hash":"193a775e51fd3d2cc0886c0063a788c95e01a9273d48f2eed41b02e2533f3fbc","block":8,"slot":8,"parent":"9634ecdedd16b9158fa302994fbdf1533db01fd6d596c6b711f578e12a0341d4"}}}"#,
             r#"{"RollBack":{"peer":"1","rollback_point":"8.9634ecdedd16b9158fa302994fbdf1533db01fd6d596c6b711f578e12a0341d4"}}"#,
             r#"{"RollBack":{"peer":"2","rollback_point":"8.9634ecdedd16b9158fa302994fbdf1533db01fd6d596c6b711f578e12a0341d4"}}"#,
+        ];
+
+        check_execution(10, &actions, false);
+    }
+
+    // This test makes sure that when a peer sends a header that doesn't have the correct parent
+    // we don't extend the peer chain when calculating what are the best expected chains.
+    #[test]
+    fn test_incorrect_oracle() {
+        let actions = [
+            r#"{"RollForward":{"peer":"2","header":{"hash":"cb7658fab53229df906a8fc62ea8e0c1d214372bb1f29a6e4c70dc7b77821cfe","block":1,"slot":1,"parent":null}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"cb7658fab53229df906a8fc62ea8e0c1d214372bb1f29a6e4c70dc7b77821cfe","block":1,"slot":1,"parent":null}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"9824ea150be25f6565e386248eeb24ea27f1789da97f1d78f26026cd4753a6b2","block":2,"slot":2,"parent":"cb7658fab53229df906a8fc62ea8e0c1d214372bb1f29a6e4c70dc7b77821cfe"}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"9824ea150be25f6565e386248eeb24ea27f1789da97f1d78f26026cd4753a6b2","block":2,"slot":2,"parent":"cb7658fab53229df906a8fc62ea8e0c1d214372bb1f29a6e4c70dc7b77821cfe"}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"52eac27a5404061ae4fbdd537d87baba9025d36b462d0eae035e19348bc09f76","block":3,"slot":3,"parent":"9824ea150be25f6565e386248eeb24ea27f1789da97f1d78f26026cd4753a6b2"}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"52eac27a5404061ae4fbdd537d87baba9025d36b462d0eae035e19348bc09f76","block":3,"slot":3,"parent":"9824ea150be25f6565e386248eeb24ea27f1789da97f1d78f26026cd4753a6b2"}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"d3ff232f1e542c5103930a5d6a4a77da76d1f68956f80f01a81425d7847bd8eb","block":4,"slot":4,"parent":"52eac27a5404061ae4fbdd537d87baba9025d36b462d0eae035e19348bc09f76"}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"16a42b547e7c5b46fd8f653e779c6154e3ae8c1a6b208e0bb175ed7990a3a278","block":5,"slot":5,"parent":"d3ff232f1e542c5103930a5d6a4a77da76d1f68956f80f01a81425d7847bd8eb"}}}"#,
+            r#"{"RollForward":{"peer":"2","header":{"hash":"d3ff232f1e542c5103930a5d6a4a77da76d1f68956f80f01a81425d7847bd8eb","block":4,"slot":4,"parent":"52eac27a5404061ae4fbdd537d87baba9025d36b462d0eae035e19348bc09f76"}}}"#,
+            r#"{"RollForward":{"peer":"1","header":{"hash":"16a42b547e7c5b46fd8f653e779c6154e3ae8c1a6b208e0bb175ed7990a3a278","block":5,"slot":5,"parent":"d3ff232f1e542c5103930a5d6a4a77da76d1f68956f80f01a81425d7847bd8eb"}}}"#,
         ];
 
         check_execution(10, &actions, false);
