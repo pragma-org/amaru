@@ -30,7 +30,7 @@ impl Default for SimulateConfig {
             number_of_tests: 50,
             seed: rand::rng().random::<u64>(),
             number_of_nodes: 1,
-            disable_shrinking: false,
+            disable_shrinking: true,
         }
     }
 }

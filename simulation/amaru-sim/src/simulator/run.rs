@@ -291,19 +291,22 @@ fn chain_property() -> impl Fn(&History<ChainSyncMessage>, &GeneratedActions) ->
             Err(format!(
                 r#"
 The actual chain
+
 {}
+
 is not in the best chains
+
 {}
-The history is:
-{:?}
+
 The headers tree is
 {}
+
 The actions are
+
 {}
 "#,
-                actual.list_to_string(",\n"),
-                best_chains.lists_to_string(",\n", ",\n"),
-                history,
+                actual.list_to_string(",\n  "),
+                best_chains.lists_to_string(",\n  ", ",\n  "),
                 generated_actions.generated_tree().tree(),
                 actions_as_string
             ))

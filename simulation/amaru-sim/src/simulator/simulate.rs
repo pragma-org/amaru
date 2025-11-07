@@ -99,12 +99,7 @@ where
         info!("Test data generated, now sending messages");
         display_test_stats(generation_context);
         if persist_on_success {
-            persist_seed(test_run_dir_n.as_path(), simulate_config.seed)?;
-            persist_generated_entries_as_json(test_run_dir_n.as_path(), &generated_entries)?;
-            persist_generated_actions_as_json(
-                test_run_dir_n.as_path(),
-                &generated_entries.generation_context().actions(),
-            )?;
+            persist_generated_data(simulate_config, &test_run_dir_n, &generated_entries)?;
         }
 
         match run_test(
@@ -116,6 +111,9 @@ where
             &generated_entries,
         ) {
             Err(error) => {
+                if !persist_on_success {
+                    persist_generated_data(simulate_config, &test_run_dir_n, &generated_entries)?;
+                }
                 persist_traces(test_run_dir.as_path(), trace_buffer.clone())?;
                 error!(
                     "Test {}/{} failed! You can inspect the test data in {}",
@@ -177,13 +175,12 @@ where
                 create_failure_message(
                     test_number,
                     simulate_config.seed,
-                    entries,
                     number_of_shrinks,
                     history,
                     reason,
                 )
             } else {
-                let (shrunk_entries, (shrunk_history, result), number_of_shrinks) =
+                let (_shrunk_entries, (shrunk_history, result), number_of_shrinks) =
                     shrink(test, entries.clone(), |result| {
                         result.1 == Err(reason.clone())
                     });
@@ -191,7 +188,6 @@ where
                 create_failure_message(
                     test_number,
                     simulate_config.seed,
-                    &shrunk_entries,
                     number_of_shrinks,
                     shrunk_history,
                     reason,
@@ -250,15 +246,10 @@ fn display_test_configuration(simulate_config: &SimulateConfig, node_config: &No
 fn create_failure_message<Msg: Debug>(
     test_number: u32,
     seed: u64,
-    entries: &[Entry<Msg>],
     number_of_shrinks: u32,
     history: History<Msg>,
     reason: String,
 ) -> String {
-    let mut test_case = String::new();
-    entries
-        .iter()
-        .for_each(|entry| test_case += &format!("  {:?}\n", entry.envelope));
     let mut history_string = String::new();
     history
         .0
@@ -273,12 +264,26 @@ fn create_failure_message<Msg: Debug>(
 
     format!(
         "\nFailed after {test_number} tests\n\n \
-                Minimised input ({number_of_shrinks} shrinks):\n\n{}\n \
+                Minimised input ({number_of_shrinks} shrinks):\n\n \
                 History:\n\n{}\n \
-                Error message:\n\n  {}\n\n \
+                Error message:\n  {}\n\n \
                 Seed: {}\n",
-        test_case, history_string, reason, seed
+        history_string, reason, seed
     )
+}
+
+fn persist_generated_data(
+    simulate_config: &SimulateConfig,
+    test_run_dir_n: &Path,
+    generated_entries: &GeneratedEntries<ChainSyncMessage, GeneratedActions>,
+) -> Result<(), anyhow::Error> {
+    persist_seed(test_run_dir_n, simulate_config.seed)?;
+    persist_generated_entries_as_json(test_run_dir_n, generated_entries)?;
+    persist_generated_actions_as_json(
+        test_run_dir_n,
+        &generated_entries.generation_context().actions(),
+    )?;
+    Ok(())
 }
 
 fn persist_traces(dir: &Path, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Result<(), anyhow::Error> {
