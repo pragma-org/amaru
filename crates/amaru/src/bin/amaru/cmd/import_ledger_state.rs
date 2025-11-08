@@ -47,7 +47,7 @@ pub struct Args {
     snapshot_dir: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
     ledger_dir: Option<PathBuf>,
 
     /// Network the snapshots are imported from.

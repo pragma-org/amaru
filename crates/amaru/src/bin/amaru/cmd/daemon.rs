@@ -47,11 +47,11 @@ pub struct Args {
     network: NetworkName,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", env("AMARU_LEDGER_DIR"))]
+    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
     ledger_dir: Option<PathBuf>,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR", env("AMARU_CHAIN_DIR"))]
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
 
     /// The address to listen on for incoming connections.

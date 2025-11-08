@@ -38,11 +38,11 @@ use tracing::info;
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
     ledger_dir: Option<PathBuf>,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
 
     /// Network to bootstrap the node for.
@@ -70,16 +70,13 @@ pub struct Args {
         long,
         value_name = "DIRECTORY",
         default_value = "data",
-        verbatim_doc_comment
+        verbatim_doc_comment,
+        env = "AMARU_CONFIG_DIR"
     )]
     config_dir: PathBuf,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    info!(config=?args.config_dir, ledger_dir=?args.ledger_dir, chain_dir=?args.chain_dir, network=%args.network,
-          "bootstrapping",
-    );
-
     let network = args.network;
 
     let ledger_dir = args
@@ -89,6 +86,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
+
+    info!(config=?args.config_dir, ledger_dir=?ledger_dir, chain_dir=?chain_dir, network=?network,
+          "bootstrapping",
+    );
 
     let network_dir = args.config_dir.join(&*network.to_string());
 

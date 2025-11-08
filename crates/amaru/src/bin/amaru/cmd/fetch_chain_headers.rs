@@ -58,7 +58,8 @@ pub struct Args {
         long,
         value_name = "DIRECTORY",
         default_value = "data",
-        verbatim_doc_comment
+        verbatim_doc_comment,
+        env = "AMARU_CONFIG_DIR"
     )]
     config_dir: PathBuf,
 
@@ -72,7 +73,8 @@ pub struct Args {
         long,
         value_name = "NETWORK_ADDRESS",
         default_value = "127.0.0.1:3001",
-        verbatim_doc_comment
+        verbatim_doc_comment,
+        env = "AMARU_PEER_ADDRESS"
     )]
     peer_address: String,
 }

@@ -15,8 +15,8 @@
 use amaru_consensus::{DiagnosticChainStore, ReadOnlyChainStore};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::to_cbor;
 use amaru_kernel::{BlockHeader, IsHeader};
+use amaru_kernel::{default_chain_dir, to_cbor};
 use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_stores::rocksdb::consensus::{ReadOnlyChainDB, RocksDBStore};
 use clap::{Parser, arg};
@@ -38,12 +38,20 @@ pub struct Args {
     network: NetworkName,
 
     /// The path to the chain database to dump
-    #[arg(long, value_name = "DIR", default_value = "chain.db")]
-    chain_dir: PathBuf,
+    #[arg(
+        long,
+        value_name = "DIR",
+        default_value = "chain.db",
+        env = "AMARU_CHAIN_DIR"
+    )]
+    chain_dir: Option<PathBuf>,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let chain_dir = args.chain_dir;
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(args.network).into());
+
     let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(RocksDbConfig::new(chain_dir))?;
 
     print_iterator(

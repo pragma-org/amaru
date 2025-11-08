@@ -26,7 +26,7 @@ use tracing::info;
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path of the consensus on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
 
     /// Point for which nonces data is imported.

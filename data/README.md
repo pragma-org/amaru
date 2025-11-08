@@ -89,7 +89,9 @@ Both Ogmios and the fetch script will automatically connect to the node once rea
 From the repository root, run:
 
 ```bash
-make fetch-chain-headers
+export AMARU_NETWORK=preprod
+export AMARU_CONFIG_DIR=data/
+cargo run -- fetch-chain-headers
 ```
 
 This will add `header.<slot>.<hash>.cbor` files to `data/<network>/headers`, which the bootstrap command consumes to initialize the Amaru node.
