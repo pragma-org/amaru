@@ -1,5 +1,6 @@
-AMARU_NETWORK ?= preprod
-AMARU_CONFIG_DIR ?= data
+export AMARU_NETWORK ?= preprod
+export AMARU_CONFIG_DIR ?= data
+export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
 DATA_FOLDER := $(AMARU_CONFIG_DIR)/$(AMARU_NETWORK)
 NONCES_FILE := $(DATA_FOLDER)/nonces.json
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
