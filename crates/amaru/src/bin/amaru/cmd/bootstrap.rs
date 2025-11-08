@@ -68,7 +68,7 @@ pub struct Args {
     /// * `data/preview/headers.json`: a list of `Point`s.
     #[arg(
         long,
-        value_name = "DIRECTORY",
+        value_name = "DIR",
         default_value = "data",
         verbatim_doc_comment,
         env = "AMARU_CONFIG_DIR"

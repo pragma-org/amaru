@@ -55,7 +55,7 @@ pub struct Args {
     chain_dir: Option<PathBuf>,
 
     /// The address to listen on for incoming connections.
-    #[arg(long, value_name = "LISTEN_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS
+    #[arg(long, value_name = "NETWORK_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS
     )]
     listen_address: String,
 

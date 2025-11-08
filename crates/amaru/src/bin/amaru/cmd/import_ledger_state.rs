@@ -40,7 +40,7 @@ pub struct Args {
     ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
     ///
     /// Can be repeated multiple times for multiple snapshots.
-    #[arg(long, value_name = "SNAPSHOT", env = "AMARU_SNAPSHOT", verbatim_doc_comment, num_args(0..))]
+    #[arg(long, value_name = "FILE", env = "AMARU_SNAPSHOT", verbatim_doc_comment, num_args(0..))]
     snapshot: Vec<PathBuf>,
     /// Path to a directory containing multiple CBOR snapshots to import.
     #[arg(long, value_name = "DIR", env = "AMARU_SNAPSHOT_DIR")]

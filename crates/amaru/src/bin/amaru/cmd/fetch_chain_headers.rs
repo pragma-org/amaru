@@ -56,7 +56,7 @@ pub struct Args {
     /// * `data/preview/headers`: a directory where the fetched chain headers will be stored.
     #[arg(
         long,
-        value_name = "DIRECTORY",
+        value_name = "DIR",
         default_value = "data",
         verbatim_doc_comment,
         env = "AMARU_CONFIG_DIR"

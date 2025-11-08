@@ -59,7 +59,7 @@ pub struct Args {
     /// `data/preview/headers/header.*.*.cbor`
     #[arg(
         long,
-        value_name = "DIRECTORY",
+        value_name = "DIR",
         default_value = "data",
         env = "AMARU_CONFIG_DIR",
         verbatim_doc_comment

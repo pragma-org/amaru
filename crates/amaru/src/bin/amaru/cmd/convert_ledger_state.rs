@@ -29,7 +29,7 @@ pub struct Args {
     /// node.
     #[arg(
         long,
-        value_name = "SNAPSHOT",
+        value_name = "DIR",
         env = "AMARU_SNAPSHOT_DIR",
         verbatim_doc_comment
     )]
@@ -44,7 +44,7 @@ pub struct Args {
     /// Network to convert snapshots for.
     #[arg(
         long,
-        value_name = "NETWORK_NAME",
+        value_name = "NETWORK",
         env = "AMARU_NETWORK",
         default_value_t = NetworkName::Preprod,
         verbatim_doc_comment
