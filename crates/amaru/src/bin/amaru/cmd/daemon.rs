@@ -60,7 +60,12 @@ pub struct Args {
     listen_address: String,
 
     /// The maximum number of downstream peers to connect to.
-    #[arg(long, value_name = "MAX_DOWNSTREAM_PEERS", default_value_t = 10)]
+    #[arg(
+        long,
+        value_name = "MAX_DOWNSTREAM_PEERS",
+        env = "AMARU_MAX_DOWNSTREAM_PEERS",
+        default_value_t = 10
+    )]
     max_downstream_peers: usize,
 
     /// The maximum number of additional ledger snapshots to keep around. By default, Amaru only
