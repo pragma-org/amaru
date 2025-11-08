@@ -29,11 +29,11 @@ pub struct Args {
     /// node.
     #[arg(
         long,
-        value_name = "DIR",
-        env = "AMARU_SNAPSHOT_DIR",
+        value_name = "FILE",
+        env = "AMARU_SNAPSHOT",
         verbatim_doc_comment
     )]
-    snapshot_dir: PathBuf,
+    snapshot: PathBuf,
 
     /// Directory to store converted snapshots into.
     ///
@@ -62,7 +62,7 @@ pub enum Error {
 
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let target_dir = args.target_dir.unwrap_or(PathBuf::from("."));
-    convert_one_snapshot_file(&target_dir, &args.snapshot_dir, &args.network).await?;
+    convert_one_snapshot_file(&target_dir, &args.snapshot, &args.network).await?;
     Ok(())
 }
 
@@ -366,9 +366,9 @@ mod test {
 
         let snapshots = dir_content(Path::new("tests/data/convert")).await.unwrap();
 
-        for snapshot_dir in snapshots {
+        for snapshot in snapshots {
             let args = super::Args {
-                snapshot_dir,
+                snapshot,
                 target_dir: Some(tempdir.path().to_path_buf()),
                 network,
             };
@@ -418,9 +418,9 @@ mod test {
 
         let snapshots = dir_content(Path::new("tests/data/convert")).await.unwrap();
 
-        for snapshot_dir in snapshots {
+        for snapshot in snapshots {
             let args = super::Args {
-                snapshot_dir,
+                snapshot,
                 target_dir: Some(target_dir.clone()),
                 network,
             };
