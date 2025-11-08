@@ -38,12 +38,7 @@ pub struct Args {
     network: NetworkName,
 
     /// The path to the chain database to dump
-    #[arg(
-        long,
-        value_name = "DIR",
-        default_value = "chain.db",
-        env = "AMARU_CHAIN_DIR"
-    )]
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
 }
 
