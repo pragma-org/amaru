@@ -12,34 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::ChainSyncEffect;
+use crate::consensus::{effects::ChainSyncEffect, span::HasSpan};
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
 use pure_stage::{Effects, StageRef};
 use tracing::Instrument;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NextSync;
 
-pub fn stage(
+pub async fn stage(
     downstream: StageRef<Tracked<ChainSyncEvent>>,
     _msg: NextSync,
     eff: Effects<NextSync>,
-) -> impl Future<Output = StageRef<Tracked<ChainSyncEvent>>> {
+) -> StageRef<Tracked<ChainSyncEvent>> {
+    let span = tracing::trace_span!("stage.pull_wait");
+    let mut msg = eff.external(ChainSyncEffect).instrument(span).await;
+
     let span = tracing::trace_span!("stage.pull");
-    let span_clone = span.clone();
+    #[allow(clippy::expect_used)]
+    span.set_parent(msg.span().context())
+        .expect("Otel trace parent cannot be set");
+    let entered = span.enter();
 
-    async move {
-        let mut msg = eff.external(ChainSyncEffect).await;
+    match &mut msg {
+        Tracked::Wrapped(event) => event.set_span(span.clone()),
+        Tracked::CaughtUp { span: s, .. } => *s = span.clone(),
+    };
 
-        // Set the span on the message so that stage.pull is the start of the trace
-        match &mut msg {
-            Tracked::Wrapped(event) => event.set_span(span_clone),
-            Tracked::CaughtUp { span: s, .. } => *s = span_clone,
-        };
-
+    drop(entered);
+    async {
         eff.send(&downstream, msg).await;
         eff.send(eff.me_ref(), NextSync).await;
-        downstream
     }
     .instrument(span)
+    .await;
+    downstream
 }

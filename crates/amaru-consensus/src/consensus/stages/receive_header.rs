@@ -176,7 +176,7 @@ mod tests {
         });
         let consensus_ops = mock_consensus_ops();
 
-        stage(make_state(), message.clone(), consensus_ops.clone()).await;
+        stage(make_state(), message, consensus_ops.clone()).await;
 
         let error = ValidationFailed::new(
             &peer,
@@ -207,7 +207,7 @@ mod tests {
         });
         let consensus_ops = mock_consensus_ops();
 
-        stage(make_state(), message.clone(), consensus_ops.clone()).await;
+        stage(make_state(), message, consensus_ops.clone()).await;
 
         let error = ValidationFailed::new(
             &peer,
@@ -231,12 +231,12 @@ mod tests {
         let message = Tracked::Wrapped(ChainSyncEvent::Rollback {
             peer: peer.clone(),
             rollback_point: header.point(),
-            span: span.clone(),
+            span: Span::current(),
         });
         let consensus_ops = mock_consensus_ops();
         consensus_ops.mock_store.store_header(&header)?;
 
-        stage(make_state(), message.clone(), consensus_ops.clone()).await;
+        stage(make_state(), message, consensus_ops.clone()).await;
 
         let expected = DecodedChainSyncEvent::Rollback {
             peer: peer.clone(),

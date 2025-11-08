@@ -25,7 +25,8 @@ use amaru_ouroboros_traits::{ChainStore, HasStakeDistribution, Praos};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
-use tracing::{Instrument, Level, instrument};
+use tracing::{Instrument, Level, Span, instrument};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub fn stage(
     state: State,
@@ -38,7 +39,11 @@ pub fn stage(
 
         match &msg {
             DecodedChainSyncEvent::RollForward { peer, header, span } => {
-                match eff.ledger().validate_header(header).await {
+                match eff
+                    .ledger()
+                    .validate_header(header, Span::current().context())
+                    .await
+                {
                     Ok(_) => {
                         let msg = ValidateHeaderEvent::Validated {
                             peer: peer.clone(),

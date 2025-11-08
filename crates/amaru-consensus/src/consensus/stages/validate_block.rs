@@ -19,7 +19,8 @@ use amaru_kernel::IsHeader;
 use amaru_kernel::consensus_events::{DecodedChainSyncEvent, ValidateBlockEvent};
 use anyhow::anyhow;
 use pure_stage::StageRef;
-use tracing::{Instrument, error};
+use tracing::{Instrument, Span, error};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 type State = (
     StageRef<DecodedChainSyncEvent>,
@@ -44,7 +45,11 @@ pub fn stage(
             } => {
                 let point = header.point();
 
-                match eff.ledger().validate_block(&peer, &point, block).await {
+                match eff
+                    .ledger()
+                    .validate_block(&peer, &point, block, Span::current().context())
+                    .await
+                {
                     Ok(Ok(metrics)) => {
                         eff.metrics().record(metrics.into()).await;
                         eff.base()
@@ -90,7 +95,11 @@ pub fn stage(
                 span,
                 ..
             } => {
-                if let Err(err) = eff.ledger().rollback(&peer, &rollback_point).await {
+                if let Err(err) = eff
+                    .ledger()
+                    .rollback(&peer, &rollback_point, Span::current().context())
+                    .await
+                {
                     error!(?err, "Failed to rollback");
                     eff.base().send(&processing_errors, err).await;
                 } else {

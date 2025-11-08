@@ -207,6 +207,7 @@ pub mod tests {
         fn validate_header(
             &self,
             _header: &BlockHeader,
+            _ctx: opentelemetry::Context,
         ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
             Box::pin(async { Ok(()) })
         }
@@ -216,6 +217,7 @@ pub mod tests {
             _peer: &Peer,
             _point: &Point,
             _block: RawBlock,
+            _ctx: opentelemetry::Context,
         ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>
         {
             Box::pin(async { Ok(Ok(LedgerMetrics::default())) })
@@ -225,6 +227,7 @@ pub mod tests {
             &self,
             _peer: &Peer,
             _point: &Point,
+            _ctx: opentelemetry::Context,
         ) -> BoxFuture<'static, anyhow::Result<(), ProcessingFailed>> {
             Box::pin(async { Ok(()) })
         }
