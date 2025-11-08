@@ -5,11 +5,11 @@ set -euo pipefail
 exitWithUsage () {
   echo -e "\033[1;31mError: missing argument(s)!\033[00m\n"
   echo -e "\033[1;32mUsage:\033[00m\n    $0 BUILD_PROFILE TARGET_EPOCH\n"
-  echo -e "\033[1mExamples:\033[00m \n    $0 release 127.0.0.1:3000 0.0.0.0:0    173\n    $0 debug 127.0.0.1:3001 0.0.0.0:8000 200 preprod"
+  echo -e "\033[1mExamples:\033[00m \n    $0 release 173"
   exit 1
 }
 
-if [ $# -lt 4 ] || [ $# -gt 5 ]; then
+if [ $# != 2 ]; then
     exitWithUsage
 fi
 
