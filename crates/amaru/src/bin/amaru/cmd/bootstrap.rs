@@ -15,9 +15,9 @@
 use super::{
     import_headers::import_headers_for_network, import_ledger_state::import_all_from_directory,
 };
-use crate::cmd::{DEFAULT_NETWORK, import_nonces::import_nonces_from_file};
+use crate::cmd::{default_chain_dir, default_ledger_dir, import_nonces::import_nonces_from_file};
 use amaru::snapshots_dir;
-use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
+use amaru_kernel::network::NetworkName;
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{Parser, arg};
 use futures_util::TryStreamExt;
@@ -53,7 +53,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = DEFAULT_NETWORK,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -69,7 +69,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "DIR",
-        default_value = "data",
+        default_value = super::DEFAULT_CONFIG_DIR,
         verbatim_doc_comment,
         env = "AMARU_CONFIG_DIR"
     )]
@@ -113,7 +113,7 @@ async fn import_nonces_for_network(
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     let nonces_file: PathBuf = config_dir.join("nonces.json");
-    import_nonces_from_file(network, &nonces_file, chain_dir).await?;
+    import_nonces_from_file(network.into(), &nonces_file, chain_dir).await?;
     Ok(())
 }
 

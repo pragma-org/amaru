@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraHistory, Point, default_ledger_dir, network::NetworkName};
+use amaru_kernel::{EraHistory, Point, network::NetworkName};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -25,6 +25,8 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::info;
+
+use crate::cmd::default_ledger_dir;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -58,7 +60,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }

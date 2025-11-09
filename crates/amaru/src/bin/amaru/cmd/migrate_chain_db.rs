@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_consensus::StoreError;
-use amaru_kernel::{default_chain_dir, network::NetworkName};
+use amaru_kernel::network::NetworkName;
 use amaru_stores::rocksdb::{
     RocksDbConfig,
     consensus::{check_db_version, migrate_db, util::open_db},
@@ -22,22 +22,19 @@ use clap::{Parser, arg};
 use std::{error::Error, path::PathBuf};
 use tracing::{error, info, info_span};
 
+use crate::cmd::default_chain_dir;
+
 #[derive(Debug, Parser)]
 pub struct Args {
     /// The path to the chain database to migrate
-    #[arg(
-        long,
-        value_name = "DIR",
-        default_value = "chain.db",
-        env = "AMARU_CHAIN_DIR"
-    )]
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
 
     #[arg(
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }

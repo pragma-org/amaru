@@ -15,13 +15,15 @@
 use amaru_consensus::{DiagnosticChainStore, ReadOnlyChainStore};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::string_utils::ListToString;
+use amaru_kernel::to_cbor;
 use amaru_kernel::{BlockHeader, IsHeader};
-use amaru_kernel::{default_chain_dir, to_cbor};
 use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_stores::rocksdb::consensus::{ReadOnlyChainDB, RocksDBStore};
 use clap::{Parser, arg};
 use std::fmt::Display;
 use std::{error::Error, path::PathBuf};
+
+use crate::cmd::default_chain_dir;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -33,7 +35,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 

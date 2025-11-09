@@ -1,8 +1,5 @@
 export AMARU_NETWORK ?= preprod
-export AMARU_CONFIG_DIR ?= data
 export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
-DATA_FOLDER := $(AMARU_CONFIG_DIR)/$(AMARU_NETWORK)
-NONCES_FILE := $(DATA_FOLDER)/nonces.json
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
 DEMO_TARGET_EPOCH ?= 182
 HASKELL_NODE_CONFIG_SOURCE := https://book.world.dev.cardano.org/environments
@@ -32,13 +29,7 @@ import-headers: ## &start Import initial headers
 	cargo run --profile $(BUILD_PROFILE) -- import-headers
 
 import-nonces: ## &start Import initial nonces
-	@if [ ! -f "$(NONCES_FILE)" ]; then echo "NONCES_FILE not found: $(NONCES_FILE)"; exit 1; fi; \
-	cargo run --profile $(BUILD_PROFILE) -- import-nonces \
-		--at $$(jq -r .at $(NONCES_FILE)) \
-		--active $$(jq -r .active $(NONCES_FILE)) \
-		--candidate $$(jq -r .candidate $(NONCES_FILE)) \
-		--evolving $$(jq -r .evolving $(NONCES_FILE)) \
-		--tail $$(jq -r .tail $(NONCES_FILE))
+	cargo run --profile $(BUILD_PROFILE) -- import-nonces
 
 download-haskell-config: ## &start Download Haskell node configuration files for $AMARU_NETWORK
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)
