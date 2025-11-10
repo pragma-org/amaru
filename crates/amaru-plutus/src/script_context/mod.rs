@@ -705,6 +705,8 @@ mod tests {
     use proptest::prelude::{Just, Strategy, any, prop};
     use proptest::{prop_assert, prop_oneof, proptest};
 
+    use crate::ToPlutusData;
+
     use super::*;
 
     fn network_strategy() -> impl Strategy<Value = Network> {
@@ -794,6 +796,84 @@ mod tests {
                             );
                         }
                     }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn proptest_value_zero_ada_excluded_in_v3() {
+        proptest!(|(policies in prop::collection::vec(any::<[u8; 28]>(), 1..5))| {
+            let mut value_map = BTreeMap::new();
+
+            // We should be excluding ADA values with a quantity of zero in Plutus V3
+            let mut ada_map = BTreeMap::new();
+            ada_map.insert(Cow::Owned(Bytes::from(vec![])), 0u64);
+            value_map.insert(CurrencySymbol::Ada, ada_map);
+
+            for policy_bytes in policies {
+                let mut asset_map = BTreeMap::new();
+                asset_map.insert(Cow::Owned(Bytes::from(vec![1])), 100);
+                value_map.insert(CurrencySymbol::Native(policy_bytes.into()), asset_map);
+            }
+
+            let value = Value(value_map);
+            let plutus_data = <Value<'_> as ToPlutusData<3>>::to_plutus_data(&value);
+
+            #[allow(clippy::wildcard_enum_match_arm)]
+            match plutus_data {
+                PlutusData::Map(KeyValuePairs::Def(pairs)) => {
+                    let has_ada = pairs.iter().any(|(key, _)| {
+                        matches!(key, PlutusData::BoundedBytes(b) if b.is_empty())
+                    });
+
+                    prop_assert!(!has_ada,
+                        "V3 Value should exclude ADA entry when amount is zero. Found {} pairs",
+                        pairs.len());
+
+                    prop_assert!(!pairs.is_empty(),
+                        "Should still have non-ADA assets in the map");
+                }
+                other => {
+                    prop_assert!(false, "Value should encode as Map, got: {:?}", other);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn proptest_value_nonzero_ada_included_in_v3() {
+        proptest!(|(
+            ada_amount in 1u64..,
+            policies in prop::collection::vec(any::<[u8; 28]>(), 1..5)
+        )| {
+            let mut value_map = BTreeMap::new();
+
+            let mut ada_map = BTreeMap::new();
+            ada_map.insert(Cow::Owned(Bytes::from(vec![])), ada_amount);
+            value_map.insert(CurrencySymbol::Ada, ada_map);
+
+            for policy_bytes in policies {
+                let mut asset_map = BTreeMap::new();
+                asset_map.insert(Cow::Owned(Bytes::from(vec![1])), 100);
+                value_map.insert(CurrencySymbol::Native(policy_bytes.into()), asset_map);
+            }
+
+            let value = Value(value_map);
+            let plutus_data = <Value<'_> as ToPlutusData<3>>::to_plutus_data(&value);
+
+            #[allow(clippy::wildcard_enum_match_arm)]
+            match plutus_data {
+                PlutusData::Map(KeyValuePairs::Def(pairs)) => {
+                    let ada_entry = pairs.iter().find(|(key, _)| {
+                        matches!(key, PlutusData::BoundedBytes(b) if b.is_empty())
+                    });
+
+                    prop_assert!(ada_entry.is_some(),
+                        "V3 Value should include ADA entry when amount is non-zero");
+                }
+                other => {
+                    prop_assert!(false, "Value should encode as Map, got: {:?}", other);
                 }
             }
         });
