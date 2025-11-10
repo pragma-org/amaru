@@ -111,6 +111,9 @@ pub mod drep_registration;
 pub use drep_state::*;
 pub mod drep_state;
 
+pub mod ignore_eq;
+pub use ignore_eq::IgnoreEq;
+
 pub mod is_header;
 pub use is_header::{BlockHeader, IsHeader};
 

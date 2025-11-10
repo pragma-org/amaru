@@ -125,6 +125,7 @@ dependencies = [
  "async-trait",
  "hex",
  "itertools 0.14.0",
+ "opentelemetry",
  "pallas-crypto",
  "pprof",
  "proptest",
@@ -137,6 +138,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -154,6 +156,7 @@ dependencies = [
  "amaru-slot-arithmetic",
  "anyhow",
  "bech32 0.11.0",
+ "getrandom 0.3.4",
  "hex",
  "itertools 0.14.0",
  "minicbor",

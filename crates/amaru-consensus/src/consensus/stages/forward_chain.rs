@@ -21,7 +21,7 @@ use amaru_kernel::consensus_events::BlockValidationResult;
 use amaru_kernel::{IsHeader, Point};
 use anyhow::anyhow;
 use pure_stage::StageRef;
-use tracing::{Level, error, info, span, trace};
+use tracing::{Instrument, error, info, trace};
 
 pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 
@@ -34,76 +34,81 @@ type State = (
 /// The forward chain stage forwards the headers of validated blocks to downstream peers, via the
 /// `ForwardEventEffect`. The current node tip is maintained in order to double check that the header
 /// we sent out is correct
-pub async fn stage(state: State, msg: BlockValidationResult, eff: impl ConsensusOps) -> State {
-    let span = span!(parent: msg.span(), Level::TRACE, "stage.forward_chain");
-    let _entered = span.enter();
+pub fn stage(
+    state: State,
+    msg: BlockValidationResult,
+    eff: impl ConsensusOps,
+) -> impl Future<Output = State> {
+    let span = tracing::trace_span!(parent: msg.span(), "stage.forward_chain");
+    async move {
+        let (mut our_tip, validation_errors, processing_errors) = state;
+        match msg {
+            BlockValidationResult::BlockValidated { peer, header, .. } => {
+                // assert that the new tip is a direct successor of the old tip
+                assert_eq!(header.block_height(), our_tip.block_height() + 1);
+                match header.parent() {
+                    Some(parent) => assert_eq!(parent, our_tip.hash()),
+                    None => assert_eq!(our_tip, HeaderTip::new(Point::Origin, 0)),
+                }
+                our_tip = header.as_header_tip();
+                trace!(
+                    target: EVENT_TARGET,
+                    tip = %header.point(),
+                    "tip_changed"
+                );
 
-    let (mut our_tip, validation_errors, processing_errors) = state;
-    match msg {
-        BlockValidationResult::BlockValidated { peer, header, .. } => {
-            // assert that the new tip is a direct successor of the old tip
-            assert_eq!(header.block_height(), our_tip.block_height() + 1);
-            match header.parent() {
-                Some(parent) => assert_eq!(parent, our_tip.hash()),
-                None => assert_eq!(our_tip, HeaderTip::new(Point::Origin, 0)),
+                if let Err(e) = eff
+                    .network()
+                    .send_forward_event(peer.clone(), header.clone())
+                    .await
+                {
+                    error!(
+                        target: EVENT_TARGET,
+                        %e,
+                        "failed to send forward event"
+                    );
+                    eff.base()
+                        .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
+                        .await
+                }
             }
-            our_tip = header.as_header_tip();
-            trace!(
-                target: EVENT_TARGET,
-                tip = %header.point(),
-                "tip_changed"
-            );
+            BlockValidationResult::RolledBackTo {
+                peer,
+                rollback_header,
+                ..
+            } => {
+                info!(
+                    target: EVENT_TARGET,
+                    point = %rollback_header.point(),
+                    "rolled_back_to"
+                );
 
-            if let Err(e) = eff
-                .network()
-                .send_forward_event(peer.clone(), header.clone())
-                .await
-            {
+                our_tip = rollback_header.as_header_tip();
+                if let Err(e) = eff
+                    .network()
+                    .send_backward_event(peer.clone(), rollback_header.as_header_tip())
+                    .await
+                {
+                    error!(
+                        target: EVENT_TARGET,
+                        %e,
+                        "failed to send backward event"
+                    );
+                    eff.base()
+                        .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
+                        .await
+                }
+            }
+            BlockValidationResult::BlockValidationFailed { point, .. } => {
                 error!(
                     target: EVENT_TARGET,
-                    %e,
-                    "failed to send forward event"
+                    slot = %point.slot_or_default(),
+                    hash = %point.hash(),
+                    "block validation failed"
                 );
-                eff.base()
-                    .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
-                    .await
             }
         }
-        BlockValidationResult::RolledBackTo {
-            peer,
-            rollback_header,
-            ..
-        } => {
-            info!(
-                target: EVENT_TARGET,
-                point = %rollback_header.point(),
-                "rolled_back_to"
-            );
-
-            our_tip = rollback_header.as_header_tip();
-            if let Err(e) = eff
-                .network()
-                .send_backward_event(peer.clone(), rollback_header.as_header_tip())
-                .await
-            {
-                error!(
-                    target: EVENT_TARGET,
-                    %e,
-                    "failed to send backward event"
-                );
-                eff.base()
-                    .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
-                    .await
-            }
-        }
-        BlockValidationResult::BlockValidationFailed { point, .. } => {
-            error!(
-                target: EVENT_TARGET,
-                slot = %point.slot_or_default(),
-                hash = %point.hash(),
-                "block validation failed"
-            );
-        }
+        (our_tip, validation_errors, processing_errors)
     }
-    (our_tip, validation_errors, processing_errors)
+    .instrument(span)
 }
