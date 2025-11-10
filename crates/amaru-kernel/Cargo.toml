@@ -54,3 +54,6 @@ test-case.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
+
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]

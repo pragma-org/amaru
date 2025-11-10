@@ -30,9 +30,7 @@ pub async fn stage(
     let mut msg = eff.external(ChainSyncEffect).instrument(span).await;
 
     let span = tracing::trace_span!("stage.pull");
-    #[allow(clippy::expect_used)]
-    span.set_parent(msg.span().context())
-        .expect("Otel trace parent cannot be set");
+    span.set_parent(msg.span().context()).ok();
     let entered = span.enter();
 
     match &mut msg {
