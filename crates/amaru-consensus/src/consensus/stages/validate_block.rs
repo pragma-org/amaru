@@ -64,7 +64,7 @@ pub fn stage(
                             .await
                     }
                     Ok(Err(err)) => {
-                        error!(?err, "Failed to validate a block");
+                        error!(?err, %point, "validate_block.roll_forward_failed");
                         eff.base()
                             .send(
                                 &validation_errors,
@@ -79,7 +79,7 @@ pub fn stage(
                             .await;
                     }
                     Err(err) => {
-                        error!(?err, "Failed to roll forward block");
+                        error!(?err, %point, "validate_block.roll_forward_failed");
                         eff.base()
                             .send(
                                 &processing_errors,
@@ -100,7 +100,7 @@ pub fn stage(
                     .rollback(&peer, &rollback_point, Span::current().context())
                     .await
                 {
-                    error!(?err, "Failed to rollback");
+                    error!(?err, %rollback_point, "validate_block.rollback_failed");
                     eff.base().send(&processing_errors, err).await;
                 } else {
                     eff.base()

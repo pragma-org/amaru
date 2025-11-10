@@ -92,7 +92,7 @@ pub fn stage(
                     error!(
                         target: EVENT_TARGET,
                         %e,
-                        "failed to send backward event"
+                        "forward_chain.rollback_failed"
                     );
                     eff.base()
                         .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
@@ -104,7 +104,7 @@ pub fn stage(
                     target: EVENT_TARGET,
                     slot = %point.slot_or_default(),
                     hash = %point.hash(),
-                    "block validation failed"
+                    "forward_chain.block_validation_failed"
                 );
             }
         }

@@ -53,7 +53,7 @@ pub fn stage(
                         eff.base().send(&downstream, msg).await
                     }
                     Err(error) => {
-                        tracing::error!(%peer, %error, "failed to handle roll forward");
+                        tracing::error!(%peer, %error, "validate_header.roll_forward_failed");
                         eff.base()
                             .send(
                                 &errors,

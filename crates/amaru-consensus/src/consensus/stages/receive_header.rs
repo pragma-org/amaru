@@ -45,7 +45,7 @@ pub fn stage(
                 let header = match decode_header(&point, raw_header.as_slice()) {
                     Ok(header) => header,
                     Err(error) => {
-                        tracing::error!(%error, %point, %peer, "Failed to decode header");
+                    tracing::error!(%error, %point, %peer, "receive_header.decode_failed");
                         eff.base()
                             .send(&failures, ValidationFailed::new(&peer, error))
                             .await;
@@ -54,7 +54,7 @@ pub fn stage(
                 };
 
                 if header.point() != point {
-                    tracing::error!(%point, %peer, "Header point {} does not match expected point {point}", header.point());
+                tracing::error!(%point, %peer, header_point=%header.point(), "receive_header.point_mismatch");
                     let msg = ValidationFailed::new(
                         &peer,
                         ConsensusError::HeaderPointMismatch {

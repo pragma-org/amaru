@@ -35,11 +35,11 @@ pub fn stage(
         let (mut tracker, downstream) = state;
         match msg {
             Tracked::Wrapped(e @ DecodedChainSyncEvent::RollForward { .. }) => {
-                if tracker.is_caught_up() {
-                    debug!(target: EVENT_TARGET, peer = %e.peer(), point = %e.point(), "new tip");
-                } else {
-                    trace!(target: EVENT_TARGET, peer= %e.peer(), point = %e.point(), "new tip");
-                };
+            if tracker.is_caught_up() {
+                debug!(target: EVENT_TARGET, peer = %e.peer(), point = %e.point(), "track_peers.caught_up.new_tip");
+            } else {
+                trace!(target: EVENT_TARGET, peer= %e.peer(), point = %e.point(), "track_peers.syncing.new_tip");
+            };
                 eff.base().send(&downstream, e).await;
             }
             Tracked::Wrapped(e @ DecodedChainSyncEvent::Rollback { .. }) => {
