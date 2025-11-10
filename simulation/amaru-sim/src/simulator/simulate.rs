@@ -116,7 +116,7 @@ where
         ) {
             Err(error) => {
                 if !persist_on_success {
-                    persist_generated_data(simulate_config, &test_run_dir_n, &generated_entries)?;
+                    persist_generated_data(&test_run_dir_n, &generated_entries)?;
                 }
                 persist_traces(test_run_dir.as_path(), trace_buffer.clone())?;
                 error!(
@@ -278,11 +278,9 @@ fn create_failure_message<Msg: Debug>(
 }
 
 fn persist_generated_data(
-    simulate_config: &SimulateConfig,
     test_run_dir_n: &Path,
     generated_entries: &GeneratedEntries<ChainSyncMessage, GeneratedActions>,
 ) -> Result<(), anyhow::Error> {
-    persist_seed(test_run_dir_n, simulate_config.seed)?;
     persist_generated_entries_as_json(test_run_dir_n, generated_entries)?;
     persist_generated_actions_as_json(
         test_run_dir_n,
