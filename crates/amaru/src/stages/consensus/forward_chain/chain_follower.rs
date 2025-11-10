@@ -145,6 +145,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         })
     }
 
+    #[allow(clippy::panic)]
     pub fn next_op(&mut self, store: Arc<dyn ReadOnlyChainStore<H>>) -> Option<ClientOp<H>> {
         // is this initial rollback?
         if let Some(ref init_tip) = self.initial {
@@ -167,12 +168,10 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
                             trace!(forwarded = %child.point(), anchor = ?self.anchor, "forwarding from store at origin");
                             return Some(ClientOp::Forward(child));
                         }
-                        None => {
-                            // FIXME: this seems possible in some circumstances given how our DB is structured
-                            // but this should never happen in practice. Perhaps turn into a proper `panic!`?
-                            warn!(intersection = ?self.intersection, child = %point, anchor = ?self.anchor, "child not found in store");
-                            return None;
-                        }
+                        None => panic!(
+                            "Store invariant violated:\nnext_best_chain returned {} but header not in store (intersection: {:?}, anchor: {:?})",
+                            point, self.intersection, self.anchor
+                        ),
                     }
                 }
                 None => {
@@ -182,7 +181,12 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
             }
         }
 
-        self.ops.pop_front()
+        if let Some(op) = self.ops.pop_front() {
+            self.intersection = op.tip();
+            Some(op)
+        } else {
+            None
+        }
     }
 
     pub fn add_op(&mut self, op: ClientOp<H>) {
@@ -248,11 +252,11 @@ pub(crate) mod tests {
     fn find_headers_starting_at_tip() {
         let store = mk_in_memory_store(CHAIN_47);
 
-        let tip = store.get_point(TIP_47);
+        let tip_point = store.get_point(TIP_47);
         let points = [store.get_point(TIP_47)];
-        let start = Tip(tip.clone(), store.get_height(TIP_47));
+        let start = Tip(tip_point.clone(), store.get_height(TIP_47));
 
-        let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
+        let mut chain_follower = ChainFollower::new(store.clone(), &tip_point, &points).unwrap();
 
         assert_eq!(
             chain_follower.next_op(store.clone()),
@@ -343,6 +347,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Store invariant violated")]
     fn next_op_returns_none_given_it_fails_to_load_child_header() {
         let store = mk_in_memory_store(CHAIN_47);
         let unstored_header = run(any_header_with_parent(Hash::from(
@@ -364,7 +369,8 @@ pub(crate) mod tests {
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
 
         let _ = chain_follower.next_op(store.clone()); // initial rollback
-        assert_eq!(chain_follower.next_op(store.clone()), None);
+
+        chain_follower.next_op(store.clone());
     }
 
     // HELPERS
