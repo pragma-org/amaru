@@ -301,6 +301,7 @@ dependencies = [
  "minicbor",
  "num",
  "pretty_assertions",
+ "proptest",
  "serde",
  "test-case",
  "thiserror 2.0.17",
