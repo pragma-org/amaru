@@ -17,7 +17,7 @@ increasing order of fidelity:
 # In-process deterministic testing
 
 This testing strategy uses a discrete-event simulator to model a network of nodes, receiving and sending messages to each other, simulating network delays,
-and allowing for controlled fault injections. 
+and allowing for controlled fault injections.
 
 A simulator run consists in n tests.
 For each test, the simulator performs three main steps:
@@ -26,7 +26,7 @@ For each test, the simulator performs three main steps:
     * A random tree of headers representing the blockchain;
     * A sequence of messages (roll forward and rollback) that peers will send to the node under test, based on that tree.
     * Some random delays reflected in messages arrival times.
-    
+
  2. The execution of the simulator (see [`simulate.rs`](src/simulator/simulate.rs)), which will:
     * Send input messages to nodes, one by one,
     * Randomly activate the nodes
@@ -46,19 +46,25 @@ For each test, the simulator performs three main steps:
 [A Rust `#test`](tests/simulation.rs) can be executed with the following parameters (environment variables can be used to override
 options, we show the default values here):
 
+```bash
+AMARU_NUMBER_OF_TESTS=50  \
+  AMARU_NUMBER_OF_NODES=1 \
+  AMARU_NUMBER_OF_UPSTREAM_PEERS=2 \
+  AMARU_NUMBER_OF_DOWNSTREAM_PEERS=1 \
+  AMARU_DISABLE_SHRINKING=true \
+  AMARU_TEST_SEED= \
+  AMARU_PERSIST_ON_SUCCESS=false \
+  AMARU_SIMULATION_LOG=error \
+  AMARU_SIMULATION_LOG_AS_JSON=false \
+  cargo test run_simulator
 ```
-AMARU_NUMBER_OF_TESTS=50             # Set the number of test cases to generate. \
-AMARU_NUMBER_OF_NODES=1              # Set the number of nodes in a simulation. \
-AMARU_NUMBER_OF_UPSTREAM_PEERS=2     # Set the number of upstream peers. \
-AMARU_NUMBER_OF_DOWNSTREAM_PEERS=1   # Set the number of downstream peers. \
-AMARU_DISABLE_SHRINKING=true         # Set to false to enable shrinking. \
-AMARU_TEST_SEED=                     # Seed to use to reproduce a test case. \
-AMARU_PERSIST_ON_SUCCESS=false       # Set to true to persist test data and pure-stage traces on success. \
-AMARU_SIMULATION_LOG=error           # Only show error-level logging. \
-AMARU_SIMULATION_LOG_AS_JSON=false   # Set to true to output the logs as JSON. \
-\
-cargo test run_simulator
-```
+
+> [!TIP]
+> To run those tests from the toplevel directory of the Amaru repository, one needs to explicitly sets the crate name:
+>
+> ```
+> cargo test -p amaru-sim run_simulator
+> ```
 
 ## Read test failures
 
@@ -152,7 +158,7 @@ This is a lot of information. Let's break it down:
 * The `History` presents the list of messages sent from the peers to the node under test but also the message emitted by the simulated nodes.
 * The `Error message` display the chain selection property failure;
 * The `Headers tree` shows the full tree of headers that was generated to produce roll forwards and rollback messages.
-* The `Actions` parts displays a list of actions that can be pasted to a unit test in the [`headers_tree.rs`](../amaru-consensus/src/consensus/headers_tree.rs) file to reproduce the failure if the issue is 
+* The `Actions` parts displays a list of actions that can be pasted to a unit test in the [`headers_tree.rs`](../amaru-consensus/src/consensus/headers_tree.rs) file to reproduce the failure if the issue is
   specifically related to the chain selection algorithm.
 * The seed is what was used to produce the test case, it can be used to replay the full test (see `AMARU_TEST_SEED` above).
 
@@ -177,13 +183,13 @@ the generated data and the pure-stage traces are persisted in the top-level `tar
         ├── args.json
         ├── traces.json
         ├── traces.cbor
-        └── test-1       
+        └── test-1
             ├── actions.json
             └── entries.json
-        ├── test-2       
-        └── test-3       
+        ├── test-2
+        └── test-3
 ```
- 
+
 * Data is organized by run (e.g. `1762347656/`), then by test (e.g. `test-1/`).
 * Each run directory contains:
   * `latest↗` symlink to the latest run.
