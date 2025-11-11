@@ -160,7 +160,6 @@ impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display f
 
 /// Debugging and formatting methods.
 impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
-
     /// Human-readable formatting of the headers tree.
     fn format(
         &self,
@@ -195,7 +194,6 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
 }
 
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
-
     /// Create a new HeadersTree
     pub(crate) fn create(
         chain_store: Arc<dyn ChainStore<H>>,
