@@ -18,7 +18,6 @@
 use crate::types::as_send_data_value;
 use crate::{Effect, Instant, Name, SendData, effect::StageResponse, serde::to_cbor};
 use cbor4ii::serde::from_slice;
-use itertools::Itertools;
 use parking_lot::Mutex;
 use std::fmt::{Debug, Display, Error, Formatter};
 use std::{collections::VecDeque, sync::Arc};
@@ -48,7 +47,6 @@ pub enum TraceEntry {
     Resume {
         stage: Name,
         response: StageResponse,
-        runnable: Vec<(Name, StageResponse)>,
     },
     Clock(Instant),
     Input {
@@ -70,20 +68,10 @@ impl TraceEntry {
                 "type": "suspend",
                 "effect": effect.to_json(),
             }),
-            TraceEntry::Resume {
-                stage,
-                response,
-                runnable,
-            } => serde_json::json!({
+            TraceEntry::Resume { stage, response } => serde_json::json!({
                 "type": "resume",
                 "stage": stage,
                 "response": response,
-                "runnable": runnable.iter().map(|(n, r)| {
-                    serde_json::json!({
-                        "name": n,
-                        "response": r.to_json(),
-                    })
-                }).collect::<Vec<_>>(),
             }),
             TraceEntry::Clock(instant) => serde_json::json!({
             "type": "clock",
@@ -135,14 +123,10 @@ impl Display for TraceEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TraceEntry::Suspend(effect) => write!(f, "suspend {stage}", stage = effect.at_stage()),
-            TraceEntry::Resume {
-                stage,
-                response,
-                runnable,
-            } => {
+            TraceEntry::Resume { stage, response } => {
                 write!(
                     f,
-                    "resume {stage}{response}{runnable}",
+                    "resume {stage}{response}",
                     stage = stage.as_str(),
                     response = match response {
                         StageResponse::Unit => "".to_string(),
@@ -151,25 +135,6 @@ impl Display for TraceEntry {
                         | other @ StageResponse::CallResponse(_)
                         | other @ StageResponse::CallTimeout
                         | other @ StageResponse::ExternalResponse(_) => format!(" -> {other}"),
-                    },
-                    runnable = if runnable.is_empty() {
-                        "".to_string()
-                    } else {
-                        format!(
-                            " [{}]",
-                            runnable
-                                .iter()
-                                .map(|(n, r)| match r {
-                                    StageResponse::Unit => format!("{n}"),
-                                    other @ StageResponse::ClockResponse(_)
-                                    | other @ StageResponse::WaitResponse(_)
-                                    | other @ StageResponse::CallResponse(_)
-                                    | other @ StageResponse::CallTimeout
-                                    | other @ StageResponse::ExternalResponse(_) =>
-                                        format!("{n}/{other}"),
-                                })
-                                .join(", ")
-                        )
                     },
                 )
             }
@@ -205,7 +170,6 @@ impl TraceEntry {
         Self::Resume {
             stage: Name::from(stage.as_ref()),
             response,
-            runnable: vec![],
         }
     }
 
