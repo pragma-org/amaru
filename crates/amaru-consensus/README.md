@@ -44,7 +44,7 @@ graph TD
     downstream -.-> net
 ```
 
-Stages:
+### Stages
 
 * [pull](src/consensus/stages/pull.rs): connects to upstream peers, running chain sync and block fetch protocols.
 * [receive header](src/consensus/stages/receive_header.rs): this stage is responsible for basic sanity check of _chain sync_
@@ -64,7 +64,7 @@ Stages:
 * [forward chain](src/consensus/stages/forward_chain.rs): forward newly selected chain to downstream peers (chain
   followers)
 
-Errors:
+### Errors
 
 ```mermaid
 graph LR
@@ -89,6 +89,29 @@ graph LR
 
 When the data received from a peer is malformed or invalid, the peer is disconnected. Other errors (eg. storage failure)
 are considered fatal and cause the node to panic.
+
+### Spans
+
+The consensus chain synchronisation pipeline emits the following spans (at `TRACE` level) when traces are enabled:
+
+* `diffusion.chain_sync`: toplevel trace and entry-point to the `ChainSync` protocol pipeline. Basically handles 2 types of messages: `RollForward <header>` and `Rollback <point>` from each peer the node is connected to
+* `chain_sync.receive_header`: sanity checks for headers
+  * `chain_sync.decode_header`: decoding of CBOR content of header
+  * `consensus.store.store_header`: store header on disk in ChainDB
+* `chain_sync.track_peers`: keep track of whether or not the node is _caught-up_ w.r.t. each of its peer
+* `chain_sync.validate_header`: full validation of received headers
+  * `validate_header.evolve_nonce`: apply nonces evolution logic
+  * `validate_header.validate`: check all headers validity rules (eg. VRF proofs, signatures, consistency...)
+* `diffusion.fetch_block`: retrieve block body from peer(s)
+  * `consensus.store.store_block`: store block on disk in ChainDB
+* `chain_sync.validate_block`: full validation of the block body against current tip's ledger state
+* `chain_sync.select_chain`: apply chain selection logic based on the given protocol message
+  * `consensus.store.roll_forward_chain`: store current chain state on disk
+* `diffusion.forward_chain`: propagage possible changes in node's best chain to downstream peers
+
+Tracing data can be collected through the OpenTelemetry exported, here is a rendering of such a trace using Jaeger UI:
+
+![Jaeger Trace Waterfall](./jaeger-trace.png)
 
 ## Chain Selection
 
