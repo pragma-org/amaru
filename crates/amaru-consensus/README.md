@@ -1,8 +1,9 @@
-# Consensus pipeline
+# Ouroboros Consensus
 
-The following graph represents a simplified sequence of _stages_ headers (either forwarded or rolled-back) undergo in
-the consensus module. Each square node is a processing step, and arrows are labelled with the type of messages flowing
-between the various steps.
+## Chain Diffusion Pipeline
+
+The following graph represents a simplified sequence of _stages_ a block undergoes in
+the consensus module to implement chain synchronisation and diffusion. Each square node is a processing step, and arrows are labelled with the type of messages flowing between the various steps.
 
 ```mermaid
 graph TD
@@ -45,23 +46,22 @@ graph TD
 
 Stages:
 
-* [pull](../amaru/src/stages/pull.rs): connects to upstream peers, running chain sync and block fetch protocols.
-* [receive header](src/consensus/receive_header.rs): this stage is responsible for basic sanity check of _chain sync_
+* [pull](src/consensus/stages/pull.rs): connects to upstream peers, running chain sync and block fetch protocols.
+* [receive header](src/consensus/stages/receive_header.rs): this stage is responsible for basic sanity check of _chain sync_
   messages, deserialising raw headers, and potentially checking whether or not they should be further processed (eg. if
   a header is already known to be invalid, or known to be valid because it's part of our best chain, let's not waste
   time processing it!). The received header is stored at this stage, indexed by its hash.
-* [track_peers](src/consensus/track_peers.rs): this stage logs a message to notify operators when we are caught up with
-  an upstream peer.
-* [validate header](src/consensus/validate_header.rs): protocol validation of the header, checks the correctness of the
+* [track_peers](src/consensus/stages/track_peers.rs): this stage keeps track of upstream peers' state and logs a message to notify operators when we are caught up with an upstream peer.
+* [validate header](src/consensus/stages/validate_header.rs): protocol validation of the header, checks the correctness of the
   VRF leader election w.r.t relevant stake distribution, and epoch nonce
-* [fetch block](../amaru/src/stages/consensus/fetch_block.rs): fetch block body corresponding to the new header, if any.
+* [fetch block](src/consensus/stages/fetch_block.rs): fetch block body corresponding to the new header, if any.
   The block body is stored, indexed by header hash.
-  It is stored _before_ validation in order to
+  It is stored _before_ validation in order to later
   support [pipelining](https://iohk.io/en/blog/posts/2022/02/01/introducing-pipelining-cardanos-consensus-layer-scaling-solution/).
-* [validate block](../amaru/src/stages/ledger.rs): validate the block body against its parent ledger state
-* [select chain](src/consensus/select_chain.rs): proceed to chain (candidate) selection, possibly changing the current
+* [validate block](src/consensus/effects/ledger_effects.rs): validate the block body against its parent ledger state and apply it
+* [select chain](src/consensus/stages/select_chain.rs): proceed to chain (candidate) selection, possibly changing the current
   best chain,
-* [forward chain](../amaru/src/stages/consensus/forward_chain/): forward newly selected chain to downstream peers (chain
+* [forward chain](src/consensus/stages/forward_chain.rs): forward newly selected chain to downstream peers (chain
   followers)
 
 Errors:
@@ -313,3 +313,5 @@ When a fork should happen:
 >
 
 ### Handling errors
+
+TBD
