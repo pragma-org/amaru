@@ -150,6 +150,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Reclaim Disk Space
+        run: |
+          # based on https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+
       - id: timestamp
         shell: bash
         run: |
