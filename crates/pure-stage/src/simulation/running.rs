@@ -19,7 +19,6 @@
     clippy::expect_used
 )]
 
-use crate::effect_box::SyncEffectBox;
 #[cfg(test)]
 use crate::simulation::SimulationBuilder;
 use crate::{
@@ -73,7 +72,6 @@ pub struct SimulationRunning {
     stages: BTreeMap<Name, StageData>,
     inputs: Inputs,
     effect: EffectBox,
-    sync_effect: SyncEffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
     runnable: VecDeque<(Name, StageResponse)>,
@@ -95,7 +93,6 @@ impl SimulationRunning {
         stages: BTreeMap<Name, StageData>,
         inputs: Inputs,
         effect: EffectBox,
-        sync_effect: SyncEffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
         resources: Resources,
         mailbox_size: usize,
@@ -108,7 +105,6 @@ impl SimulationRunning {
             stages,
             inputs,
             effect,
-            sync_effect,
             clock,
             resources,
             runnable: VecDeque::new(),
@@ -304,11 +300,7 @@ impl SimulationRunning {
         };
 
         tracing::info!(name = %name, "resuming stage");
-        self.trace_buffer.lock().push_resume(
-            &name,
-            &response,
-            &self.runnable.iter().collect::<Vec<_>>(),
-        );
+        self.trace_buffer.lock().push_resume(&name, &response);
 
         let data = self
             .stages
@@ -337,10 +329,6 @@ impl SimulationRunning {
             resume_call_internal(data, run, id).ok();
         }
 
-        if let Some(sync_effect) = self.sync_effect.lock().take() {
-            let (_, effect) = sync_effect.split(name);
-            self.trace_buffer.lock().push_suspend(&effect);
-        };
         self.trace_buffer.lock().push_suspend(&effect);
 
         Ok(effect)
@@ -583,21 +571,6 @@ impl SimulationRunning {
                 let data = self.stages.get_mut(&at_stage).unwrap();
                 resume_external_internal(data, result, run)
                     .expect("external effect is always runnable");
-            }
-            Effect::ExternalSync {
-                at_stage,
-                effect_type,
-                effect,
-                response,
-            } => {
-                tracing::info!(stage = %at_stage, "external sync");
-                let effect = Effect::ExternalSync {
-                    at_stage,
-                    effect_type,
-                    effect,
-                    response,
-                };
-                self.trace_buffer.lock().push_suspend(&effect);
             }
             Effect::Terminate { at_stage } => {
                 tracing::info!(stage = %at_stage, "terminated");

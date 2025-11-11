@@ -235,12 +235,11 @@ impl TraceEntry {
 ///
 /// This structure cannot be deserialized, use the owned version for that.
 #[derive(Debug, PartialEq, serde::Serialize)]
-pub enum TraceEntryRef<'a> {
+enum TraceEntryRef<'a> {
     Suspend(&'a Effect),
     Resume {
         stage: &'a Name,
         response: &'a StageResponse,
-        runnable: &'a [&'a (Name, StageResponse)],
     },
     Clock(Instant),
     Input {
@@ -251,6 +250,31 @@ pub enum TraceEntryRef<'a> {
         stage: &'a Name,
         state: &'a Box<dyn SendData>,
     },
+}
+
+/// Helper struct that has the same serialization format as TraceEntry but doesn’t require owned effect data.
+#[derive(serde::Serialize)]
+enum TraceEntryRefRef<'a> {
+    Suspend(EffectRef<'a>),
+    Resume {
+        stage: &'a Name,
+        response: StageResponseRef<'a>,
+    },
+}
+
+/// Helper struct that has the same serialization format as Effect but doesn’t require owned effect data.
+#[derive(serde::Serialize)]
+enum EffectRef<'a> {
+    External {
+        at_stage: &'a Name,
+        effect: &'a dyn crate::ExternalEffect,
+    },
+}
+
+/// Helper struct that has the same serialization format as StageResponse but doesn’t require owned response data.
+#[derive(serde::Serialize)]
+enum StageResponseRef<'a> {
+    ExternalResponse(&'a dyn SendData),
 }
 
 impl TraceBuffer {
@@ -280,17 +304,22 @@ impl TraceBuffer {
         self.push(to_cbor(&TraceEntryRef::Suspend(effect)));
     }
 
+    pub fn push_suspend_external(&mut self, at_stage: &Name, effect: &dyn crate::ExternalEffect) {
+        self.push(to_cbor(&TraceEntryRefRef::Suspend(EffectRef::External {
+            at_stage,
+            effect,
+        })));
+    }
+
     /// Push a resume event to the trace buffer.
-    pub fn push_resume(
-        &mut self,
-        stage: &Name,
-        response: &StageResponse,
-        runnable: &[&(Name, StageResponse)],
-    ) {
-        self.push(to_cbor(&TraceEntryRef::Resume {
+    pub fn push_resume(&mut self, stage: &Name, response: &StageResponse) {
+        self.push(to_cbor(&TraceEntryRef::Resume { stage, response }));
+    }
+
+    pub fn push_resume_external(&mut self, stage: &Name, response: &dyn SendData) {
+        self.push(to_cbor(&TraceEntryRefRef::Resume {
             stage,
-            response,
-            runnable,
+            response: StageResponseRef::ExternalResponse(response),
         }));
     }
 
@@ -390,5 +419,39 @@ impl TraceBuffer {
     /// Get the number of messages that have been dropped from the trace buffer.
     pub fn dropped_messages(&self) -> usize {
         self.dropped_messages
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::OutputEffect;
+    use tokio::sync::mpsc;
+
+    #[test]
+    fn test_serialization() {
+        let effect = OutputEffect::new(Name::from("test"), 42u32, mpsc::channel(1).0);
+        let trr = TraceEntryRefRef::Suspend(EffectRef::External {
+            at_stage: &Name::from("test"),
+            effect: &effect,
+        });
+        let rr = to_cbor(&trr);
+        let json = serde_json::to_string(&trr).unwrap();
+        let r = to_cbor(&TraceEntryRef::Suspend(&Effect::External {
+            at_stage: Name::from("test"),
+            effect: Box::new(effect),
+        }));
+        let effect = OutputEffect::new(Name::from("test"), 42u32, mpsc::channel(1).0);
+        let t = to_cbor(&TraceEntry::suspend(Effect::External {
+            at_stage: Name::from("test"),
+            effect: Box::new(effect),
+        }));
+        assert_eq!(rr, r);
+        assert_eq!(rr, t);
+
+        assert_eq!(
+            json,
+            r#"{"Suspend":{"External":{"at_stage":"test","effect":{"typetag":"pure_stage::output::OutputEffect<u32>","value":{"name":"test","msg":42,"sender":{}}}}}}"#
+        );
     }
 }
