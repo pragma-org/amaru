@@ -15,9 +15,9 @@
 use super::{
     import_headers::import_headers_for_network, import_ledger_state::import_all_from_directory,
 };
-use crate::cmd::{DEFAULT_NETWORK, import_nonces::import_nonces_from_file};
+use crate::cmd::{default_chain_dir, default_ledger_dir, import_nonces::import_nonces_from_file};
 use amaru::snapshots_dir;
-use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
+use amaru_kernel::network::NetworkName;
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{Parser, arg};
 use futures_util::TryStreamExt;
@@ -38,11 +38,11 @@ use tracing::info;
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
     ledger_dir: Option<PathBuf>,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
 
     /// Network to bootstrap the node for.
@@ -53,7 +53,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = DEFAULT_NETWORK,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -68,18 +68,15 @@ pub struct Args {
     /// * `data/preview/headers.json`: a list of `Point`s.
     #[arg(
         long,
-        value_name = "DIRECTORY",
-        default_value = "data",
-        verbatim_doc_comment
+        value_name = "DIR",
+        default_value = super::DEFAULT_CONFIG_DIR,
+        verbatim_doc_comment,
+        env = "AMARU_CONFIG_DIR"
     )]
     config_dir: PathBuf,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    info!(config=?args.config_dir, ledger_dir=?args.ledger_dir, chain_dir=?args.chain_dir, network=%args.network,
-          "bootstrapping",
-    );
-
     let network = args.network;
 
     let ledger_dir = args
@@ -89,6 +86,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
+
+    info!(config=?args.config_dir, ledger_dir=?ledger_dir, chain_dir=?chain_dir, network=?network,
+          "bootstrapping",
+    );
 
     let network_dir = args.config_dir.join(&*network.to_string());
 
@@ -112,7 +113,7 @@ async fn import_nonces_for_network(
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     let nonces_file: PathBuf = config_dir.join("nonces.json");
-    import_nonces_from_file(network, &nonces_file, chain_dir).await?;
+    import_nonces_from_file(network.into(), &nonces_file, chain_dir).await?;
     Ok(())
 }
 

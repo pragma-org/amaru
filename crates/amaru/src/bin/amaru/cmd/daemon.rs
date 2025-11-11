@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::metrics::track_system_metrics;
+use crate::cmd::default_chain_dir;
 use crate::pid::with_optional_pid_file;
+use crate::{cmd::default_ledger_dir, metrics::track_system_metrics};
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap};
+use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -30,7 +31,7 @@ pub struct Args {
     ///
     /// This option can be specified multiple times to connect to multiple peers.
     /// At least one peer address must be specified.
-    #[arg(long, value_name = "NETWORK_ADDRESS", env = "AMARU_PEER_ADDRESS",
+    #[arg(long, value_name = "NETWORK_ADDRESS", default_value = super::DEFAULT_PEER_ADDRESS, env = "AMARU_PEER_ADDRESS",
         action = ArgAction::Append, required = true, value_delimiter = ',')]
     peer_address: Vec<String>,
 
@@ -42,25 +43,30 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", env("AMARU_LEDGER_DIR"))]
+    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
     ledger_dir: Option<PathBuf>,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR", env("AMARU_CHAIN_DIR"))]
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
 
     /// The address to listen on for incoming connections.
-    #[arg(long, value_name = "LISTEN_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS
+    #[arg(long, value_name = "NETWORK_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS
     )]
     listen_address: String,
 
     /// The maximum number of downstream peers to connect to.
-    #[arg(long, value_name = "MAX_DOWNSTREAM_PEERS", default_value_t = 10)]
+    #[arg(
+        long,
+        value_name = "MAX_DOWNSTREAM_PEERS",
+        env = "AMARU_MAX_DOWNSTREAM_PEERS",
+        default_value_t = 10
+    )]
     max_downstream_peers: usize,
 
     /// The maximum number of additional ledger snapshots to keep around. By default, Amaru only

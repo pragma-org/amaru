@@ -98,7 +98,7 @@ jobs:
           if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
             cargo install --force cross --git https://github.com/cross-rs/cross
             # cross doesn't load .cargo/config.toml, see https://github.com/cross-rs/cross/issues/562
-            $HOME/.cargo/bin/cross $COMMAND --locked --all-features $SCOPE --target ${{ matrix.environments.target }}
+            $HOME/.cargo/bin/cross $COMMAND --locked $SCOPE --target ${{ matrix.environments.target }}
           else
             if [[ "${{ matrix.environments.target }}" == "x86_64-unknown-linux-gnu" ]] ; then
               cargo $EXTRA_ARGS $COMMAND $SCOPE --locked

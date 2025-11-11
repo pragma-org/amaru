@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraHistory, Point, default_ledger_dir, network::NetworkName};
+use amaru_kernel::{EraHistory, Point, network::NetworkName};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -25,6 +25,8 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::info;
+
+use crate::cmd::default_ledger_dir;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -40,14 +42,14 @@ pub struct Args {
     ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
     ///
     /// Can be repeated multiple times for multiple snapshots.
-    #[arg(long, value_name = "SNAPSHOT", verbatim_doc_comment, num_args(0..))]
+    #[arg(long, value_name = "FILE", env = "AMARU_SNAPSHOT", verbatim_doc_comment, num_args(0..))]
     snapshot: Vec<PathBuf>,
     /// Path to a directory containing multiple CBOR snapshots to import.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_SNAPSHOT_DIR")]
     snapshot_dir: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
     ledger_dir: Option<PathBuf>,
 
     /// Network the snapshots are imported from.
@@ -58,7 +60,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }

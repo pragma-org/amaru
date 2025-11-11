@@ -27,7 +27,12 @@ use crate::cmd::import_nonces::InitialNonces;
 pub struct Args {
     /// Path to the CBOR encoded ledger state snapshot as serialised by Haskell
     /// node.
-    #[arg(long, value_name = "SNAPSHOT", verbatim_doc_comment)]
+    #[arg(
+        long,
+        value_name = "FILE",
+        env = "AMARU_SNAPSHOT",
+        verbatim_doc_comment
+    )]
     snapshot: PathBuf,
 
     /// Directory to store converted snapshots into.
@@ -39,9 +44,9 @@ pub struct Args {
     /// Network to convert snapshots for.
     #[arg(
         long,
-        value_name = "NETWORK_NAME",
+        value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
         verbatim_doc_comment
     )]
     network: NetworkName,

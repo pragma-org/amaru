@@ -23,6 +23,8 @@ use clap::{Parser, arg};
 use std::fmt::Display;
 use std::{error::Error, path::PathBuf};
 
+use crate::cmd::default_chain_dir;
+
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Network for which we are importing headers.
@@ -33,17 +35,20 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
     /// The path to the chain database to dump
-    #[arg(long, value_name = "DIR", default_value = "chain.db")]
-    chain_dir: PathBuf,
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
+    chain_dir: Option<PathBuf>,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let chain_dir = args.chain_dir;
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(args.network).into());
+
     let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(RocksDbConfig::new(chain_dir))?;
 
     print_iterator(
