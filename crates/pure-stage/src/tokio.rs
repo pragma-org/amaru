@@ -330,7 +330,7 @@ async fn interpreter<St>(
                 tracing::debug!("stage `{name}` external effect: {:?}", effect);
                 StageResponse::ExternalResponse(effect.run(inner.resources.clone()).await)
             }
-            StageEffect::ExternalSync(effect_type) => {
+            StageEffect::ExternalSync(effect_type, _effect, _response) => {
                 tracing::debug!(
                     "stage `{name}` external sync effect with type: {:?}",
                     effect_type

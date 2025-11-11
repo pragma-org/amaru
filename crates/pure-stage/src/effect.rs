@@ -221,18 +221,28 @@ impl<M> Effects<M> {
 
     /// Run an effect that is not part of the StageGraph as a synchronous effect.
     /// In that case we return the response directly.
-    pub fn external_sync<T: ExternalEffectAPI>(&self, effect: T) -> T::Response {
+    pub fn external_sync<T: ExternalEffectAPI + Clone>(&self, effect: T) -> T::Response
+    where
+        T::Response: Clone,
+    {
+        let effect_clone = effect.clone();
+        let effect_type = effect.typetag_name().to_string();
+        let effect = Box::new(effect);
         // We set the sync effect box in order to let the simulation runner pick it up later and
         // produce a trace in the trace buffer.
         let mut sync_effect = self.sync_effect.lock();
-        *sync_effect = Some(StageEffect::ExternalSync(effect.typetag_name().to_string()));
-
-        Box::new(effect)
+        let response = effect
             .run(self.resources.clone())
             .now_or_never()
             .expect("an external sync effect must complete immediately in sync context")
             .cast_deserialize::<T::Response>()
-            .expect("internal messaging type error")
+            .expect("internal messaging type error");
+        *sync_effect = Some(StageEffect::ExternalSync(
+            effect_type,
+            Box::new(effect_clone),
+            Box::new(response.clone()),
+        ));
+        response
     }
 
     /// Terminate this stage
@@ -433,7 +443,7 @@ pub(crate) enum StageEffect<T> {
     Wait(Duration),
     Respond(Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>, T),
     External(Box<dyn ExternalEffect>),
-    ExternalSync(String),
+    ExternalSync(String, Box<dyn ExternalEffect>, Box<dyn SendData>),
     Terminate,
 }
 
@@ -546,11 +556,13 @@ impl StageEffect<Box<dyn SendData>> {
                     effect,
                 },
             ),
-            StageEffect::ExternalSync(effect_type) => (
-                StageEffect::ExternalSync(effect_type.clone()),
+            StageEffect::ExternalSync(effect_type, effect, response) => (
+                StageEffect::ExternalSync(effect_type.clone(), Box::new(()), Box::new(())),
                 Effect::ExternalSync {
                     at_stage: at_name,
                     effect_type,
+                    effect,
+                    response,
                 },
             ),
             StageEffect::Terminate => (
@@ -596,6 +608,10 @@ pub enum Effect {
     ExternalSync {
         at_stage: Name,
         effect_type: String,
+        #[serde(with = "crate::serde::serialize_send_data")]
+        effect: Box<dyn SendData>,
+        #[serde(with = "crate::serde::serialize_send_data")]
+        response: Box<dyn SendData>,
     },
     Terminate {
         at_stage: Name,
@@ -669,11 +685,15 @@ impl Effect {
             Effect::ExternalSync {
                 at_stage,
                 effect_type,
+                effect,
+                response,
             } => {
                 serde_json::json!({
                     "type": "external",
                     "at_stage": at_stage,
                     "effect_type": effect_type,
+                    "effect": format!("{}", as_send_data_value(effect.as_ref()).expect("the effect must be serializable")),
+                    "response": format!("{}", as_send_data_value(response.as_ref()).expect("the response must be serializable")),
                 })
             }
             Effect::Terminate { at_stage } => serde_json::json!({
@@ -732,8 +752,15 @@ impl Display for Effect {
             Effect::ExternalSync {
                 at_stage,
                 effect_type,
+                effect,
+                response,
             } => {
-                write!(f, "external sync {at_stage}: {effect_type}",)
+                write!(
+                    f,
+                    "external sync {at_stage}: {effect_type} ({effect}) -> {response}",
+                    effect = as_send_data_value(effect.as_ref()).map_err(|_| Error)?,
+                    response = as_send_data_value(response.as_ref()).map_err(|_| Error)?
+                )
             }
             Effect::Terminate { at_stage } => write!(f, "terminate {at_stage}"),
         }
@@ -1053,11 +1080,20 @@ impl PartialEq for Effect {
             Effect::ExternalSync {
                 at_stage,
                 effect_type,
+                effect,
+                response,
             } => match other {
                 Effect::ExternalSync {
                     at_stage: other_at_stage,
                     effect_type: other_effect_type,
-                } => at_stage == other_at_stage && effect_type == other_effect_type,
+                    effect: other_effect,
+                    response: other_response,
+                } => {
+                    at_stage == other_at_stage
+                        && effect_type == other_effect_type
+                        && effect == other_effect
+                        && response == other_response
+                }
                 _ => false,
             },
             Effect::Terminate { at_stage } => match other {

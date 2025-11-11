@@ -322,3 +322,8 @@ pub fn to_cbor<T: serde::Serialize>(value: &T) -> Vec<u8> {
         ret
     })
 }
+
+/// Deserialize a value from a vector of bytes
+pub fn from_cbor<'a, T: serde::Deserialize<'a>>(value: &'a Vec<u8>) -> anyhow::Result<T> {
+    Ok(cbor4ii::serde::from_slice::<T>(value.as_slice())?)
+}

@@ -15,6 +15,7 @@ rust-version.workspace = true
 acto.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
+cbor4ii.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 gasket.workspace = true

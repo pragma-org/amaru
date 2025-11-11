@@ -328,6 +328,7 @@ dependencies = [
  "amaru-tracing-json",
  "anyhow",
  "async-trait",
+ "cbor4ii",
  "clap",
  "futures-util",
  "gasket",

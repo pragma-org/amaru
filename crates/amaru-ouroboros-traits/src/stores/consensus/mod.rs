@@ -168,7 +168,7 @@ where
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError>;
 }
 
-#[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Error, PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum StoreError {
     WriteError { error: String },
     ReadError { error: String },

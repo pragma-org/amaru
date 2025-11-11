@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::{effects::FetchBlockEffect, errors::ConsensusError};
-use amaru_sim::simulator::simulate::run_test;
+use amaru_consensus::consensus::effects::FetchBlockEffect;
+use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_sim::simulator::{
-    Args, GeneratedEntries, NodeConfig, NodeHandle, SimulateConfig, generate_entries,
-    run::spawn_node,
+    Args, GeneratedEntries, NodeConfig, SimulateConfig, generate_entries, run::spawn_node,
 };
 use amaru_tracing_json::assert_spans_trees;
 use parking_lot::Mutex;
@@ -29,6 +28,7 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
+use tracing::info_span;
 
 #[test]
 fn run_simulator_with_traces() {
@@ -39,23 +39,12 @@ fn run_simulator_with_traces() {
         number_of_downstream_peers: 1,
         generated_chain_depth: 1,
         disable_shrinking: true,
-        seed: Some(42),
+        seed: Some(43),
         persist_on_success: false,
     };
     let node_config = NodeConfig::from(args.clone());
 
     let rt = Runtime::new().unwrap();
-    let spawn = |node_id: String, _| {
-        let mut network = SimulationBuilder::default();
-        let (input, init_messages, output) =
-            spawn_node(node_id, node_config.clone(), &mut network, &rt);
-        let mut running = network.run(rt.handle().clone());
-        running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
-            OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
-        });
-        NodeHandle::from_pure_stage(input, init_messages, output, running).unwrap()
-    };
-
     let generate_one = |rng: Arc<Mutex<StdRng>>| {
         let generated_entries = generate_entries(
             &node_config,
@@ -78,17 +67,24 @@ fn run_simulator_with_traces() {
     let simulate_config = SimulateConfig::from(args.clone());
     let rng = Arc::new(Mutex::new(StdRng::seed_from_u64(simulate_config.seed)));
     let generated_entries = generate_one(rng.clone());
+    let msg = generated_entries
+        .entries()
+        .first()
+        .unwrap()
+        .clone()
+        .envelope;
 
     let execute = || {
-        run_test(
-            &simulate_config,
-            &spawn,
-            &|_, _| Ok(()),
-            rng,
-            1,
-            &generated_entries,
-        )
-        .unwrap_or_else(|e| panic!("{e}"))
+        let mut network = SimulationBuilder::default();
+        let (input, _, _) = spawn_node("n1".to_string(), node_config.clone(), &mut network, &rt);
+        let mut running = network.run(rt.handle().clone());
+        running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
+            OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
+        });
+        info_span!("handle_msg").in_scope(|| {
+            running.enqueue_msg(&input, [msg]);
+            _ = running.run_until_blocked();
+        });
     };
 
     assert_spans_trees(
