@@ -26,10 +26,10 @@ pub async fn stage(
     _msg: NextSync,
     eff: Effects<NextSync>,
 ) -> StageRef<Tracked<ChainSyncEvent>> {
-    let span = tracing::trace_span!("stage.pull_wait");
+    let span = tracing::trace_span!("diffusion.chain_sync.wait");
     let mut msg = eff.external(ChainSyncEffect).instrument(span).await;
 
-    let span = tracing::trace_span!("stage.pull");
+    let span = tracing::trace_span!("diffusion.chain_sync");
     span.set_parent(msg.span().context()).ok();
     let entered = span.enter();
 

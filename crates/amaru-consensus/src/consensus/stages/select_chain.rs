@@ -33,7 +33,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     mem,
 };
-use tracing::{debug, info, trace, Instrument, Span};
+use tracing::{Instrument, Span, debug, info, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -281,7 +281,7 @@ pub fn stage(
     msg: DecodedChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "stage.select_chain");
+    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.select_chain");
     async move {
         let store = eff.store();
         let peer = msg.peer();

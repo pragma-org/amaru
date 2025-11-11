@@ -33,7 +33,7 @@ pub fn stage(
     msg: DecodedChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "stage.validate_header");
+    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.validate_header");
     async move {
         let (downstream, errors) = state;
 
@@ -53,7 +53,7 @@ pub fn stage(
                         eff.base().send(&downstream, msg).await
                     }
                     Err(error) => {
-                        tracing::error!(%peer, %error, "validate_header.roll_forward_failed");
+                        tracing::error!(%peer, %error, "chain_sync.validate_header.failed");
                         eff.base()
                             .send(
                                 &errors,
@@ -127,7 +127,7 @@ impl ValidateHeader {
 
     #[instrument(
         level = Level::TRACE,
-        name = "consensus.evolve_nonce",
+        name = "validate_header.evolve_nonce",
         skip_all,
         fields(hash = %header.hash()),
     )]
@@ -139,7 +139,7 @@ impl ValidateHeader {
 
     #[instrument(
         level = Level::TRACE,
-        name = "consensus.check_header",
+        name = "validate_header.validate",
         skip_all,
         fields(issuer.key = %header.header_body().issuer_vkey)
     )]

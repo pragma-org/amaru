@@ -94,42 +94,37 @@ fn run_simulator_with_traces() {
     assert_spans_trees(
         execute,
         vec![json!(
-            {
-              "name": "handle_msg",
-              "children": [
-                {
-                  "name": "stage.receive_header",
-                  "children": [
-                    {
-                      "name": "consensus.decode_header"
-                    }
-                  ]
-                },
-                {
-                  "name": "stage.track_peers",
-                },
-                {
-                  "name": "stage.validate_header",
-                },
-                {
-                  "name": "stage.fetch_block"
-                },
-                {
-                  "name": "stage.validate_block"
-                },
-                {
-                  "name": "stage.select_chain",
-                  "children": [
-                    {
-                      "name": "trim_chain"
-                    }
-                  ]
-                },
-                {
-                  "name": "stage.forward_chain"
-                }
-              ]
-            }
-        )],
+        {
+         "name": "handle_msg",
+         "children": [
+           {
+             "name": "chain_sync.receive_header",
+             "children": [
+               {
+                 "name": "chain_sync.decode_header"
+               }
+             ]
+           },
+           {
+             "name": "chain_sync.track_peers"
+           },
+           {
+             "name": "chain_sync.validate_header"
+           },
+           {
+             "name": "diffusion.fetch_block"
+           },
+           {
+             "name": "chain_sync.validate_block"
+           },
+           {
+             "name": "chain_sync.select_chain"
+           },
+           {
+             "name": "diffusion.forward_chain"
+           }
+         ]
+        }
+         )],
     );
 }

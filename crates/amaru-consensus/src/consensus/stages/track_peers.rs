@@ -30,16 +30,16 @@ pub fn stage(
     msg: Tracked<DecodedChainSyncEvent>,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "stage.track_peers");
+    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.track_peers");
     async move {
         let (mut tracker, downstream) = state;
         match msg {
             Tracked::Wrapped(e @ DecodedChainSyncEvent::RollForward { .. }) => {
-            if tracker.is_caught_up() {
-                debug!(target: EVENT_TARGET, peer = %e.peer(), point = %e.point(), "track_peers.caught_up.new_tip");
-            } else {
-                trace!(target: EVENT_TARGET, peer= %e.peer(), point = %e.point(), "track_peers.syncing.new_tip");
-            };
+                if tracker.is_caught_up() {
+                    debug!(target: EVENT_TARGET, peer = %e.peer(), point = %e.point(), "track_peers.caught_up.new_tip");
+                } else {
+                    trace!(target: EVENT_TARGET, peer= %e.peer(), point = %e.point(), "track_peers.syncing.new_tip");
+                };
                 eff.base().send(&downstream, e).await;
             }
             Tracked::Wrapped(e @ DecodedChainSyncEvent::Rollback { .. }) => {

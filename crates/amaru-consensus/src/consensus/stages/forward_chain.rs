@@ -21,7 +21,7 @@ use amaru_kernel::consensus_events::BlockValidationResult;
 use amaru_kernel::{IsHeader, Point};
 use anyhow::anyhow;
 use pure_stage::StageRef;
-use tracing::{Instrument, error, info, trace};
+use tracing::{Instrument, error, trace};
 
 pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 
@@ -39,7 +39,7 @@ pub fn stage(
     msg: BlockValidationResult,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "stage.forward_chain");
+    let span = tracing::trace_span!(parent: msg.span(), "diffusion.forward_chain");
     async move {
         let (mut our_tip, validation_errors, processing_errors) = state;
         match msg {
@@ -53,8 +53,8 @@ pub fn stage(
                 our_tip = header.as_header_tip();
                 trace!(
                     target: EVENT_TARGET,
-                    tip = %header.point(),
-                    "tip_changed"
+                    point = %header.point(),
+                    "diffusion.forward_chain.new_tip"
                 );
 
                 if let Err(e) = eff
@@ -65,7 +65,7 @@ pub fn stage(
                     error!(
                         target: EVENT_TARGET,
                         %e,
-                        "failed to send forward event"
+                        "diffusion.forward_chain.propagation.failed"
                     );
                     eff.base()
                         .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
@@ -77,10 +77,10 @@ pub fn stage(
                 rollback_header,
                 ..
             } => {
-                info!(
+                trace!(
                     target: EVENT_TARGET,
                     point = %rollback_header.point(),
-                    "rolled_back_to"
+                    "diffusion.forward_chain.rolled_back_to"
                 );
 
                 our_tip = rollback_header.as_header_tip();
@@ -92,7 +92,7 @@ pub fn stage(
                     error!(
                         target: EVENT_TARGET,
                         %e,
-                        "forward_chain.rollback_failed"
+                        "diffusion.forward_chain.rollback_failed"
                     );
                     eff.base()
                         .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
@@ -102,9 +102,8 @@ pub fn stage(
             BlockValidationResult::BlockValidationFailed { point, .. } => {
                 error!(
                     target: EVENT_TARGET,
-                    slot = %point.slot_or_default(),
-                    hash = %point.hash(),
-                    "forward_chain.block_validation_failed"
+                    point = %point,
+                    "diffusion.forward_chain.block_validation.failed"
                 );
             }
         }
