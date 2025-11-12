@@ -35,6 +35,10 @@ pub(crate) const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
 
 pub(crate) const DEFAULT_CONFIG_DIR: &str = "data";
 
+pub(crate) const DEFAULT_MAX_ARENAS: usize = 10;
+
+pub(crate) const DEFAULT_ARENA_SIZE: usize = 1_024_000;
+
 pub fn default_ledger_dir(network: NetworkName) -> String {
     format!("./ledger.{}.db", network.to_string().to_lowercase())
 }

@@ -19,8 +19,9 @@ use crate::{
     store::GovernanceActivity,
 };
 use amaru_kernel::{
-    AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hasher, HeaderHash, MintedBlock, Network,
-    OriginalHash, TransactionId, TransactionPointer, protocol_parameters::ProtocolParameters,
+    ArenaPool, AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hasher, HeaderHash, MintedBlock,
+    Network, OriginalHash, TransactionId, TransactionPointer,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Slot;
 use std::{
@@ -164,6 +165,7 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
 #[instrument(level = Level::TRACE, skip_all, name="ledger.validate_block")]
 pub fn execute<C, S: From<C>>(
     context: &mut C,
+    arena_pool: &ArenaPool,
     network: &Network,
     protocol_params: &ProtocolParameters,
     era_history: &EraHistory,
@@ -237,6 +239,7 @@ where
 
         if let Err(err) = transaction::execute(
             context,
+            arena_pool,
             network,
             protocol_params,
             era_history,

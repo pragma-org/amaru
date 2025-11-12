@@ -26,7 +26,7 @@ pub type BumpPool = Mutex<VecDeque<Bump>>;
 ///
 /// Arenas will be allocated with `initial_capacity`, but can grow if needed
 ///
-/// The pool can be cheaply cloned and shared across threads.
+/// The pool can be cheaply cloned for use across threads
 #[derive(Clone)]
 pub struct ArenaPool {
     inner: Arc<Inner>,
