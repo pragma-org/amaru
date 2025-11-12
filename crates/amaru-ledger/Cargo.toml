@@ -27,6 +27,8 @@ thiserror.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
 
+uplc-turbo.workspace = true
+
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
 amaru-iter-borrow.workspace = true
