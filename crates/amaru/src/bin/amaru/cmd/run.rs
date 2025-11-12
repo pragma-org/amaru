@@ -92,6 +92,30 @@ pub struct Args {
     /// By default, the migration is not performed automatically, checkout `migrate-chain-db` command.
     #[arg(long, action = ArgAction::SetTrue, default_value_t = false, env = "AMARU_MIGRATE_CHAIN_DB")]
     migrate_chain_db: bool,
+
+    /// The maximum number of memory arenas Amaru can use for phase 2 transaction validation.
+    ///
+    /// A lower number may result in slower validation, while a higher number may result in
+    /// more memory usage.
+    #[arg(
+        long,
+        value_name = "MAX_ARENAS",
+        env = "AMARU_MAX_ARENAS",
+        default_value_t = super::DEFAULT_MAX_ARENAS,
+    )]
+    max_arenas: usize,
+
+    /// The initial capacity of each memory arena used by Amaru for phase 2 transaction validation.
+    ///
+    /// This is not a maximum capacity, as the arena capacity will increase if necesssary.
+    /// However, increasing capcity increases allocations, slowing down execution.
+    #[arg(
+        long,
+        value_name = "ARENA_SIZE",
+        env = "AMARU_ARENA_SIZE",
+        default_value_t = super::DEFAULT_ARENA_SIZE,
+    )]
+    arena_size: usize,
 }
 
 pub async fn run(
@@ -146,6 +170,8 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         max_downstream_peers: args.max_downstream_peers,
         max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
         migrate_chain_db: args.migrate_chain_db,
+        max_arenas: args.max_arenas,
+        arena_size: args.arena_size,
     })
 }
 

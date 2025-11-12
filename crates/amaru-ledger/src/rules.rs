@@ -136,8 +136,9 @@ pub(crate) mod tests {
         tests::{fake_input, fake_output},
     };
     use amaru_kernel::{
-        EraHistory, Network, network::NetworkName, protocol_parameters,
-        protocol_parameters::ProtocolParameters,
+        ArenaPool, EraHistory, Network,
+        network::NetworkName,
+        protocol_parameters::{self, ProtocolParameters},
     };
     use std::{collections::BTreeMap, sync::LazyLock};
 
@@ -171,6 +172,8 @@ pub(crate) mod tests {
             ]),
         });
 
+    static ARENA_POOL: LazyLock<ArenaPool> = LazyLock::new(|| ArenaPool::new(10, 1_024_000));
+
     #[test]
     fn validate_block_success() {
         let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();
@@ -181,6 +184,7 @@ pub(crate) mod tests {
 
         let results = rules::block::execute(
             &mut AssertValidationContext::from(ctx),
+            &ARENA_POOL,
             &Network::Testnet,
             &protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             <&EraHistory>::from(NetworkName::Preprod),
@@ -213,6 +217,7 @@ pub(crate) mod tests {
 
         let results = rules::block::execute(
             &mut AssertValidationContext::from(ctx),
+            &ARENA_POOL,
             &Network::Testnet,
             &pp,
             <&EraHistory>::from(NetworkName::Preprod),
