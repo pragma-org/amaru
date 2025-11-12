@@ -43,6 +43,7 @@ proptest = { workspace = true, optional = true }
 # FIXME RK: figure out exact WASM story to properly solve this
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
+bumpalo.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-slot-arithmetic.workspace = true
 amaru-minicbor-extra.workspace = true

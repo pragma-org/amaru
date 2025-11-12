@@ -178,6 +178,9 @@ pub mod macros;
 pub mod serde_utils;
 pub mod string_utils;
 
+pub mod arena_pool;
+pub use arena_pool::*;
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::{Epoch, Hash, Nullable, RationalNumber, ScriptHash};
