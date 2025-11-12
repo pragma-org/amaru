@@ -34,7 +34,7 @@ use amaru_consensus::{
     network_operations::ResourceNetworkOperations,
 };
 use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
+    ArenaPool, BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
     network::NetworkName,
     peer::Peer,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
@@ -96,6 +96,8 @@ pub struct Config {
     pub max_downstream_peers: usize,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
     pub migrate_chain_db: bool,
+    pub max_arenas: usize,
+    pub arena_size: usize,
 }
 
 impl Default for Config {
@@ -110,6 +112,8 @@ impl Default for Config {
             max_downstream_peers: 10,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
             migrate_chain_db: false,
+            max_arenas: 10,
+            arena_size: 1_024_000,
         }
     }
 }
@@ -168,11 +172,14 @@ pub async fn build_and_run_network(
 
     let global_parameters: &GlobalParameters = config.network.into();
 
+    let arena_pool = ArenaPool::new(config.max_arenas, config.arena_size);
+
     let ledger = make_ledger(
         &config,
         config.network,
         era_history.clone(),
         global_parameters.clone(),
+        arena_pool,
     )
     .context("Failed to create ledger. Have you bootstrapped your node?")?;
 
@@ -330,11 +337,13 @@ fn make_ledger(
     network: NetworkName,
     era_history: EraHistory,
     global_parameters: GlobalParameters,
+    arena_pool: ArenaPool,
 ) -> anyhow::Result<LedgerStage> {
     match &config.ledger_store {
         StoreType::InMem(store) => {
             let ledger = BlockValidator::new(
                 store.clone(),
+                arena_pool,
                 store.clone(),
                 network,
                 era_history,
@@ -345,6 +354,7 @@ fn make_ledger(
         StoreType::RocksDb(rocks_db_config) => {
             let ledger = BlockValidator::new(
                 RocksDB::new(rocks_db_config)?,
+                arena_pool,
                 RocksDBHistoricalStores::new(
                     rocks_db_config,
                     u64::from(config.max_extra_ledger_snapshots),
