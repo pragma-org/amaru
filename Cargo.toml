@@ -74,6 +74,10 @@ tracing-subscriber = { version = "0.3.20", features = [
 ] }
 typetag = "0.2.21"
 
+# FIXME: should this come from uplc-turbo directly, so the versions are consistent?
+bumpalo = { version = "3.16.0", features = ["collections"] }
+
+
 # Internal dependencies
 amaru = { path = "crates/amaru" }
 amaru-consensus = { path = "crates/amaru-consensus" }
@@ -93,6 +97,8 @@ amaru-slot-arithmetic = { path = "crates/amaru-slot-arithmetic" }
 amaru-stores = { path = "crates/amaru-stores" }
 amaru-tracing-json = { path = "crates/amaru-tracing-json" }
 pure-stage = { path = "crates/pure-stage" }
+
+uplc-turbo = { git = "https://github.com/pragma-org/uplc", rev = "d8fca273e21a2e27cf9973b46f1868684dbdd4f7" }
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
 vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c2471fc5c4d441f13086676" }

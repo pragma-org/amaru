@@ -108,6 +108,8 @@ where
         return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
     }
 
+    // TODO: evaluate scripts
+
     Ok(())
 }
 
