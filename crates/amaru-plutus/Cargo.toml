@@ -18,6 +18,8 @@ itertools.workspace = true
 hex.workspace = true
 minicbor.workspace = true
 
+uplc-turbo.workspace = true
+
 # Internal dependencies
 amaru-kernel.workspace = true
 amaru-slot-arithmetic.workspace = true
