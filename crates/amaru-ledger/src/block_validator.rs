@@ -15,6 +15,7 @@
 use crate::rules::block::BlockValidation;
 use crate::state;
 use crate::store::{HistoricalStores, Store};
+use amaru_kernel::ArenaPool;
 use amaru_kernel::{
     EraHistory, Point, RawBlock, network::NetworkName, protocol_parameters::GlobalParameters,
 };
@@ -32,11 +33,13 @@ where
     HS: HistoricalStores + Send,
 {
     pub state: Arc<Mutex<state::State<S, HS>>>,
+    pub arena_pool: ArenaPool,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
     pub fn new(
         store: S,
+        arena_pool: ArenaPool,
         snapshots: HS,
         network: NetworkName,
         era_history: EraHistory,
@@ -45,6 +48,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
         let state = state::State::new(store, snapshots, network, era_history, global_parameters)?;
         Ok(Self {
             state: Arc::new(Mutex::new(state)),
+            arena_pool,
         })
     }
 
@@ -68,7 +72,7 @@ where
         raw_block: &RawBlock,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         let mut state = self.state.lock().unwrap();
-        match state.roll_forward(point, raw_block) {
+        match state.roll_forward(point, raw_block, &self.arena_pool) {
             BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
             BlockValidation::Invalid(_, _, details) => Ok(Err(BlockValidationError::new(anyhow!(
                 "Invalid block: {details}"

@@ -15,17 +15,19 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use amaru_kernel::{
-        AnyCbor, AuxiliaryData, Bytes, Epoch, EraHistory, Hasher, KeepRaw, MintedTransactionBody,
-        MintedTx, MintedWitnessSet, Network, TransactionPointer, cbor, network::NetworkName,
-        protocol_parameters::ProtocolParameters,
+        AnyCbor, ArenaPool, AuxiliaryData, Bytes, Epoch, EraHistory, Hasher, KeepRaw,
+        MintedTransactionBody, MintedTx, MintedWitnessSet, Network, TransactionPointer, cbor,
+        network::NetworkName, protocol_parameters::ProtocolParameters,
     };
     use amaru_ledger::{
         self, context::DefaultValidationContext, rules::transaction, store::GovernanceActivity,
     };
-    use std::{collections::BTreeMap, env, fs, ops::Deref, path::Path};
+    use std::{collections::BTreeMap, env, fs, ops::Deref, path::Path, sync::LazyLock};
 
     // Tests cases are constructed in build.rs, which generates the test_cases.rs file
     include!(concat!(env!("OUT_DIR"), "/test_cases.rs"));
+
+    static ARENA_POOL: LazyLock<ArenaPool> = LazyLock::new(|| ArenaPool::new(10, 1_024_000));
 
     fn import_and_evaluate_vector(
         snapshot: &str,
@@ -35,7 +37,7 @@ pub mod tests {
         let era_history = network.into();
         let vector_file = fs::read(snapshot)?;
         let record: TestVector = cbor::decode(&vector_file)?;
-        evaluate_vector(record, era_history, Path::new(pparams_dir))?;
+        evaluate_vector(record, era_history, Path::new(pparams_dir), &ARENA_POOL)?;
         Ok(())
     }
 
@@ -184,6 +186,7 @@ pub mod tests {
         record: TestVector,
         era_history: &EraHistory,
         pparams_dir: &Path,
+        arena_pool: &ArenaPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut decoder = cbor::Decoder::new(&record.initial_state);
         let (mut validation_context, pparams_hash, governance_activity) =
@@ -214,6 +217,7 @@ pub mod tests {
             // Run the transaction against the imported ledger state
             let result = transaction::execute(
                 &mut validation_context,
+                arena_pool,
                 &Network::Testnet,
                 &protocol_parameters,
                 era_history,
