@@ -215,7 +215,7 @@ pub mod tests {
             };
 
             // Run the transaction against the imported ledger state
-            let result = transaction::execute(
+            let result = transaction::phase_one::execute(
                 &mut validation_context,
                 arena_pool,
                 &Network::Testnet,
