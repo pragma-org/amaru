@@ -20,7 +20,7 @@ use crate::{
 };
 use amaru_kernel::{
     ArenaPool, AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hasher, HeaderHash, MintedBlock,
-    Network, OriginalHash, TransactionId, TransactionPointer,
+    OriginalHash, TransactionId, TransactionPointer, network::NetworkName,
     protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Slot;
@@ -166,7 +166,7 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
 pub fn execute<C, S: From<C>>(
     context: &mut C,
     arena_pool: &ArenaPool,
-    network: &Network,
+    network: &NetworkName,
     protocol_params: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: &GovernanceActivity,
