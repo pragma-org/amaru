@@ -15,7 +15,7 @@
 use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
     ArenaPool, AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet,
-    Network, OriginalHash, TransactionInput, TransactionPointer,
+    OriginalHash, TransactionInput, TransactionPointer, network::NetworkName,
     protocol_parameters::ProtocolParameters,
 };
 use core::mem;
@@ -89,7 +89,7 @@ pub enum InvalidTransaction {
 pub fn execute<C>(
     context: &mut C,
     _arena_pool: &ArenaPool,
-    network: &Network,
+    network: &NetworkName,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: &GovernanceActivity,
@@ -153,7 +153,7 @@ where
     outputs::execute(
         context,
         protocol_parameters,
-        network,
+        &(*network).into(),
         mem::take(&mut transaction_body.collateral_return)
             .map(|x| vec![x])
             .unwrap_or_default(),
@@ -178,7 +178,7 @@ where
     outputs::execute(
         context,
         protocol_parameters,
-        network,
+        &(*network).into(),
         mem::take(&mut transaction_body.outputs),
         |index| {
             if !is_valid {

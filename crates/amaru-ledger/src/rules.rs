@@ -136,7 +136,7 @@ pub(crate) mod tests {
         tests::{fake_input, fake_output},
     };
     use amaru_kernel::{
-        ArenaPool, EraHistory, Network,
+        ArenaPool, EraHistory,
         network::NetworkName,
         protocol_parameters::{self, ProtocolParameters},
     };
@@ -185,7 +185,7 @@ pub(crate) mod tests {
         let results = rules::block::execute(
             &mut AssertValidationContext::from(ctx),
             &ARENA_POOL,
-            &Network::Testnet,
+            &NetworkName::Preprod,
             &protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             <&EraHistory>::from(NetworkName::Preprod),
             &GovernanceActivity {
@@ -218,7 +218,7 @@ pub(crate) mod tests {
         let results = rules::block::execute(
             &mut AssertValidationContext::from(ctx),
             &ARENA_POOL,
-            &Network::Testnet,
+            &NetworkName::Preprod,
             &pp,
             <&EraHistory>::from(NetworkName::Preprod),
             &GovernanceActivity {

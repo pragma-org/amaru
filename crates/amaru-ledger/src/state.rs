@@ -34,7 +34,7 @@ use crate::{
 };
 use amaru_kernel::{
     ArenaPool, ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher, IsHeader,
-    Lovelace, MemoizedTransactionOutput, MintedBlock, Network, Point, PoolId, RawBlock, Slot,
+    Lovelace, MemoizedTransactionOutput, MintedBlock, Point, PoolId, RawBlock, Slot,
     StakeCredential, StakeCredentialType, TransactionInput, expect_stake_credential,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
@@ -619,7 +619,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         match rules::validate_block(
             &mut context,
             arena_pool,
-            &Network::from(*self.network()),
+            self.network(),
             self.protocol_parameters(),
             self.era_history(),
             self.governance_activity(),
