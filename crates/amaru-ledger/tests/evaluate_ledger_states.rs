@@ -16,7 +16,7 @@
 pub mod tests {
     use amaru_kernel::{
         AnyCbor, ArenaPool, AuxiliaryData, Bytes, Epoch, EraHistory, Hasher, KeepRaw,
-        MintedTransactionBody, MintedTx, MintedWitnessSet, Network, TransactionPointer, cbor,
+        MintedTransactionBody, MintedTx, MintedWitnessSet, TransactionPointer, cbor,
         network::NetworkName, protocol_parameters::ProtocolParameters,
     };
     use amaru_ledger::{
@@ -218,7 +218,7 @@ pub mod tests {
             let result = transaction::phase_one::execute(
                 &mut validation_context,
                 arena_pool,
-                &Network::Testnet,
+                &NetworkName::Preprod,
                 &protocol_parameters,
                 era_history,
                 &governance_activity,
