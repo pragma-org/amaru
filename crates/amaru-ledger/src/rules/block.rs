@@ -14,7 +14,7 @@
 
 use crate::{
     context::ValidationContext,
-    rules::{transaction, transaction::InvalidTransaction},
+    rules::transaction::{self, phase_one::InvalidTransaction},
     state::FailedTransactions,
     store::GovernanceActivity,
 };
@@ -237,7 +237,7 @@ where
             transaction_index: i as usize, // From u32
         };
 
-        if let Err(err) = transaction::execute(
+        if let Err(err) = transaction::phase_one::execute(
             context,
             arena_pool,
             network,

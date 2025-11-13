@@ -137,10 +137,10 @@ mod tests {
 
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules::{WithPosition, transaction::outputs::InvalidOutput},
+        rules::WithPosition,
     };
 
-    use super::InvalidOutputs;
+    use super::{InvalidOutput, InvalidOutputs};
 
     macro_rules! fixture {
         ($hash:literal) => {
