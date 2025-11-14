@@ -89,4 +89,5 @@ jobs:
 
       - uses: actions/upload-pages-artifact@v3
         with:
+          name: amaru-${{ steps.meta.outputs.version }}-${{ matrix.environments.title }}
           path: ${{ steps.pack.outputs.path }}
