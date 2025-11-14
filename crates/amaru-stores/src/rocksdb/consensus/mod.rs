@@ -374,7 +374,10 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
 
 use std::fmt::Debug;
 impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
-    #[instrument(level = Level::TRACE, skip_all, fields(header = header.hash().to_string()))]
+    #[instrument(level = Level::TRACE,
+                 skip_all,
+                 name = "consensus.store.store_header",
+                 fields(hash = %header.hash()))]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();
         let tx = self.db.transaction();
@@ -401,6 +404,10 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             })
     }
 
+    #[instrument(level = Level::TRACE,
+                 skip_all,
+                 name = "consensus.store.store_block",
+                 fields(hash = %hash))]
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
         self.db
             .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
@@ -425,10 +432,20 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             })
     }
 
+    #[instrument(level = Level::TRACE,
+                 skip_all,
+                 name = "consensus.store.roll_forward_chain",
+                 fields(hash = %point.hash(),
+                        slot = %point.slot_or_default()))]
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         store_chain_point(&self.db, point)
     }
 
+    #[instrument(level = Level::TRACE,
+                 skip_all,
+                 name = "consensus.store.rollback_chain",
+                 fields(hash = %point.hash(),
+                        slot = %point.slot_or_default()))]
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
         if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(self, point).is_none() {
             return Err(StoreError::ReadError {

@@ -67,7 +67,7 @@ pub async fn actor(
             ..
         }) = PeerClient::connect(peer.name.as_str(), magic).await
         else {
-            tracing::error!(peer = %peer.name, "failed to connect to peer");
+            tracing::error!(peer = %peer.name, "connection_failed");
             sleep(Duration::from_secs(10)).await;
             continue;
         };
@@ -91,9 +91,9 @@ pub async fn actor(
         let mut sync: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
             let mut chainsync = ChainSyncClient::new(peer2.clone(), chainsync, intersection);
             let point = chainsync.find_intersection().await.inspect_err(|e| {
-                tracing::error!("no intersection found with {}: {}", peer2, e);
+                tracing::error!(peer=%peer2, error=%e, "intersection.not_found");
             })?;
-            tracing::debug!("Intersection found with {}: {:?}", peer2, point);
+            tracing::debug!(peer=%peer2, %point, "intersection.found");
             loop {
                 match chainsync.request_next().await? {
                     NextResponse::RollForward(hd, _tip) => roll_forward(&hd_tx, &peer2, hd).await?,
@@ -136,7 +136,7 @@ pub async fn actor(
             };
             let msg = select! {
                 res = &mut sync => {
-                    tracing::error!(?res, %peer, "disconnecting due to network error");
+                    tracing::error!(?res, %peer, "disconnecting.network_error");
                     plexer.abort().await;
                     sleep(Duration::from_secs(10)).await;
                     break;
@@ -167,7 +167,7 @@ pub async fn actor(
                     }
                 },
                 ActoInput::Message(ConnMsg::Disconnect) => {
-                    tracing::warn!(%peer, "disconnecting due to node policy");
+                    tracing::warn!(%peer, "disconnecting.node_policy");
                     plexer.abort().await;
                     sync.abort();
                     sleep(Duration::from_secs(10)).await;
@@ -221,7 +221,7 @@ fn do_fetch(
             .fetch_single(to_network_point(point.clone()))
             .await
             .inspect_err(|err| {
-                tracing::error!(%peer, %point, %err, "fetch block failed");
+                tracing::error!(%peer, %point, %err, "fetch_block.failed");
             });
         let tx = tx.lock().take();
         if let Some(tx) = tx {

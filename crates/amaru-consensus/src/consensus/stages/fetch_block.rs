@@ -33,7 +33,7 @@ pub fn stage(
     msg: ValidateHeaderEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "stage.fetch_block");
+    let span = tracing::trace_span!(parent: msg.span(), "diffusion.fetch_block");
     async move {
         match msg {
             ValidateHeaderEvent::Validated { peer, header, span } => {

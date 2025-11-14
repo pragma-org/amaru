@@ -30,7 +30,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
-use tracing::instrument;
 
 /// This data type stores the chains of headers known from different peers:
 ///
@@ -159,7 +158,9 @@ impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display f
     }
 }
 
+/// Debugging and formatting methods.
 impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
+    /// Human-readable formatting of the headers tree.
     fn format(
         &self,
         f: &mut Formatter<'_>,
@@ -193,25 +194,6 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
 }
 
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
-    /// Create a new HeadersTree with a given store and maximum chain length.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn new(store: Arc<dyn ChainStore<H>>, max_length: usize) -> HeadersTree<H> {
-        assert!(
-            max_length >= 2,
-            "Cannot create a headers tree with maximum chain length lower than 2"
-        );
-        let mut peers = BTreeMap::new();
-        peers.insert(Me, store.retrieve_best_chain());
-        let tree_state = HeadersTreeState { max_length, peers };
-        HeadersTree::create(store, tree_state)
-    }
-
-    /// Create a new HeadersTree with an in-memory store for testing purposes.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn new_in_memory(max_length: usize) -> HeadersTree<H> {
-        HeadersTree::new(Arc::new(InMemConsensusStore::new()), max_length)
-    }
-
     /// Create a new HeadersTree
     pub(crate) fn create(
         chain_store: Arc<dyn ChainStore<H>>,
@@ -593,7 +575,6 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
     /// When the best chain exceeds the maximum length, move its root up one level and
     /// remove the peers that do not contain the new anchor.
-    #[instrument(level = "trace", skip_all)]
     fn trim_chain(&mut self) -> Result<(), ConsensusError> {
         if self.best_length() <= self.tree_state.max_length {
             return Ok(());
@@ -652,6 +633,23 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 #[cfg(any(test, doc, feature = "test-utils"))]
 /// Those functions are only used by tests
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
+    /// Create a new HeadersTree with a given store and maximum chain length.
+    pub fn new(store: Arc<dyn ChainStore<H>>, max_length: usize) -> HeadersTree<H> {
+        assert!(
+            max_length >= 2,
+            "Cannot create a headers tree with maximum chain length lower than 2"
+        );
+        let mut peers = BTreeMap::new();
+        peers.insert(Me, store.retrieve_best_chain());
+        let tree_state = HeadersTreeState { max_length, peers };
+        HeadersTree::create(store, tree_state)
+    }
+
+    /// Create a new HeadersTree with an in-memory store for testing purposes.
+    pub fn new_in_memory(max_length: usize) -> HeadersTree<H> {
+        HeadersTree::new(Arc::new(InMemConsensusStore::new()), max_length)
+    }
+
     /// Return true if the peer is known
     pub fn has_peer(&self, peer: &Peer) -> bool {
         self.tree_state.peers.contains_key(&SomePeer(peer.clone()))
