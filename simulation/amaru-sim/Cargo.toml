@@ -33,7 +33,6 @@ tokio = { workspace = true, features = [
   "signal",
   "io-util",
 ] }
-tokio-stream.workspace = true
 tokio-util.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
