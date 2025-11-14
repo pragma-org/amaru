@@ -1,4 +1,3 @@
-test
 # Amaru
 
 Amaru is a [Cardano](https://cardano.org) node client written in Rust. It is an ambitious project which aims to bring more diversity to the infrastructure operating the Cardano network.
