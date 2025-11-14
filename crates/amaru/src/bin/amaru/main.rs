@@ -14,10 +14,8 @@
 
 use amaru::observability;
 use amaru::observability::{DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAULT_SERVICE_NAME};
-use std::collections::BTreeMap;
-use std::fmt::Display;
 
-use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use observability::OpenTelemetryConfig;
 use panic::panic_handler;
 use std::sync::LazyLock;
@@ -129,37 +127,6 @@ struct Cli {
     otlp_metric_url: String,
 }
 
-struct Arguments(BTreeMap<String, String>);
-
-impl Display for Arguments {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (i, (k, v)) in self.0.iter().enumerate() {
-            if i == 0 {
-                write!(f, "{}: {}", k, v)?;
-            }
-            write!(f, " {}: {}", k, v)?;
-        }
-        Ok(())
-    }
-}
-
-fn extract_raw_values(matches: &ArgMatches) -> Arguments {
-    Arguments(
-        matches
-            .ids()
-            .filter_map(|id| {
-                matches.get_raw(id.as_str()).map(|values| {
-                    let joined = values
-                        .map(|v| v.to_string_lossy().to_string())
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    (id.to_string(), joined)
-                })
-            })
-            .collect(),
-    )
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
@@ -175,9 +142,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.with_open_telemetry {
             observability::setup_open_telemetry(
                 &OpenTelemetryConfig {
-                    service_name: args.otlp_service_name,
-                    span_url: args.otlp_span_url,
-                    metric_url: args.otlp_metric_url,
+                    service_name: args.otlp_service_name.clone(),
+                    span_url: args.otlp_span_url.clone(),
+                    metric_url: args.otlp_metric_url.clone(),
                 },
                 &mut subscriber,
             )
@@ -197,20 +164,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(notify) = warning_otlp.or(warning_json) {
         notify();
     }
-    let matches = Cli::command().get_matches();
-    let map = extract_raw_values(&matches);
-    info!(%map, "Started with global arguments");
 
-    if let Some((name, args)) = matches.subcommand() {
-        let map = Arguments(
-            extract_raw_values(args)
-                .0
-                .into_iter()
-                .filter(|(k, _)| k != "Args")
-                .collect::<BTreeMap<_, _>>(),
-        );
-        info!(%map, "Running command: '{}' with arguments", name);
-    }
+    info!(
+        with_open_telemetry = args.with_open_telemetry,
+        with_json_traces = args.with_json_traces,
+        otlp_service_name = args.otlp_service_name,
+        otlp_span_url = args.otlp_span_url,
+        otlp_metric_url = args.otlp_metric_url,
+        "Started with global arguments"
+    );
 
     let result = match args.command {
         Command::Run(args) => cmd::run::run(args, metrics).await,
