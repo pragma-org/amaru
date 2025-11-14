@@ -20,8 +20,8 @@ use std::fmt::Display;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use observability::OpenTelemetryConfig;
 use panic::panic_handler;
-use tracing::info;
 use std::sync::LazyLock;
+use tracing::info;
 
 mod cmd;
 mod metrics;
@@ -211,8 +211,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         info!(%map, "Running command: '{}' with arguments", name);
     }
-
-    //info!("{}", args);
 
     let result = match args.command {
         Command::Run(args) => cmd::run::run(args, metrics).await,
