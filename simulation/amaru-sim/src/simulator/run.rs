@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::echo::Envelope;
+use crate::simulator::Envelope;
 use crate::simulator::NodeConfig;
 use crate::simulator::{
     Args, History, NodeHandle, SimulateConfig, bytes::Bytes, generate::generate_entries,

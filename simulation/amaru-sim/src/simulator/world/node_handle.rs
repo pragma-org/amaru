@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::echo::Envelope;
+use crate::simulator::Envelope;
 use anyhow::anyhow;
 use pure_stage::simulation::running::SimulationRunning;
 use pure_stage::{Receiver, StageRef};

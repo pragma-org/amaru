@@ -8,8 +8,13 @@ increasing order of fidelity:
 1. ✅ In-process deterministic testing, completely simulating the environment,
    allowing arbitrary fault injections and full control over concurrency and
    other side-effects
-2. 🚧 [Maelstrom](https://github.com/jepsen-io/maelstrom/)-like testing through
-   stdin/stdout interface ignoring network interactions
+2. 🔴 [Maelstrom](https://github.com/jepsen-io/maelstrom/)-like testing through
+   stdin/stdout interface ignoring network interactions.
+
+   > [!NOTICE]
+   > This is where we started initially but it seems there are now more
+   > interesting alternatives like [cardano-ignite](https://github.com/cardano-foundation/cardano-ignite) or [Moog](https://github.com/cardano-foundation/moog)
+
 3. 🚧 [Jepsen](https://github.com/jepsen-io/jepsen)-like testing through
    full-blown deployment of a cluster and actual networking stack
 4. ✅ [Antithesis](https://antithesis.com) support

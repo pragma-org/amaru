@@ -13,6 +13,5 @@
 // limitations under the License.
 #![feature(generic_atomic)]
 
-pub mod echo;
 pub mod simulator;
 pub mod sync;

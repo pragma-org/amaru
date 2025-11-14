@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::echo::Envelope;
+use crate::simulator::Envelope;
 use crate::simulator::bytes::Bytes;
 use crate::simulator::data_generation::base_generators::generate_arrival_times;
 use crate::simulator::{Entry, NodeConfig};

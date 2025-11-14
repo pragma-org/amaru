@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::echo::Envelope;
+use crate::simulator::Envelope;
 use crate::simulator::bytes::Bytes;
 use amaru_kernel::consensus_events::ChainSyncEvent;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{BlockHeader, HeaderHash, Point, cbor};
 use amaru_slot_arithmetic::Slot;
-use gasket::framework::WorkerError;
 use pallas_primitives::babbage::{Header, MintedHeader};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -190,7 +189,7 @@ impl Display for ChainSyncMessage {
 }
 
 impl Envelope<ChainSyncMessage> {
-    pub fn to_chain_sync_event(self, span: Span) -> Result<ChainSyncEvent, WorkerError> {
+    pub fn to_chain_sync_event(self, span: Span) -> ChainSyncEvent {
         use ChainSyncMessage::*;
         let peer = Peer { name: self.src };
 
@@ -200,22 +199,22 @@ impl Envelope<ChainSyncMessage> {
                 slot,
                 hash,
                 header,
-            } => Ok(ChainSyncEvent::RollForward {
+            } => ChainSyncEvent::RollForward {
                 peer,
                 point: Point::Specific((slot).into(), hash.into()),
                 raw_header: header.into(),
                 span,
-            }),
+            },
             Bck {
                 msg_id: _,
                 slot,
                 hash,
-            } => Ok(ChainSyncEvent::Rollback {
+            } => ChainSyncEvent::Rollback {
                 peer,
                 rollback_point: Point::Specific(slot.into(), hash.into()),
                 span,
-            }),
-            _ => Err(WorkerError::Recv),
+            },
+            _ => panic!("unsupported message type for ChainSyncEvent conversion"),
         }
     }
 }
@@ -253,9 +252,7 @@ mod test {
             body: fwd,
         };
 
-        let event = message
-            .to_chain_sync_event(tracing::trace_span!("test"))
-            .unwrap();
+        let event = message.to_chain_sync_event(tracing::trace_span!("test"));
 
         match event {
             ChainSyncEvent::RollForward {

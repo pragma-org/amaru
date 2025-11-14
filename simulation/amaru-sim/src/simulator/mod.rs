@@ -18,6 +18,9 @@ pub mod simulate;
 mod simulate_config;
 pub use simulate_config::*;
 
+pub mod envelope;
+pub use envelope::*;
+
 mod node_config;
 pub use node_config::*;
 
