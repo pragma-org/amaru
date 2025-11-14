@@ -62,6 +62,11 @@ pub enum Error {
 
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let target_dir = args.target_dir.unwrap_or(PathBuf::from("."));
+
+    info!(network = %args.network, target_dir=%target_dir.to_string_lossy(), snapshot=%args.snapshot.to_string_lossy(),
+          "Running command convert-ledger-state",
+    );
+
     convert_one_snapshot_file(&target_dir, &args.snapshot, &args.network).await?;
     Ok(())
 }

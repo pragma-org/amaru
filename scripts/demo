@@ -25,7 +25,7 @@ fi
 
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 
-AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-traces daemon | while read line; do
+AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-traces run | while read line; do
   echo "$line"
   EVENT=$(jq -r '.fields.message' <<< "$line" 2>/dev/null)
   SPAN=$(jq -r '.span.name' <<< "$line" 2>/dev/null)

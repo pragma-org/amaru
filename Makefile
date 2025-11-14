@@ -53,7 +53,7 @@ build-examples: ## &build Build all examples
 
 dev: start # 'backward-compatibility'; might remove after a while.
 start: ## &build Compile and run for $BUILD_PROFILE with default options
-	cargo run --profile $(BUILD_PROFILE) -- daemon
+	cargo run --profile $(BUILD_PROFILE) -- run
 
 demo: ## &build Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
 		./scripts/demo $(BUILD_PROFILE) $(DEMO_TARGET_EPOCH)

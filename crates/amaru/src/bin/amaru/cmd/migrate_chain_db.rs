@@ -45,6 +45,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| default_chain_dir(args.network).into());
     let config = RocksDbConfig::new(chain_dir.clone());
 
+    info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(),
+          "Running command migrate-chain-db",
+    );
+
     Ok(
         info_span!("opening chain db", path = %config.dir.display()).in_scope(|| {
             let (_, db) = open_db(&config)?;
