@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::CanValidateBlocks;
-use crate::can_validate_blocks::BlockValidationError;
-use amaru_kernel::{Point, RawBlock};
+use crate::{
+    CanValidateBlocks,
+    can_validate_blocks::{BlockValidationError, CanValidateHeaders, HeaderValidationError},
+};
+use amaru_kernel::{BlockHeader, Point, RawBlock};
 use amaru_metrics::ledger::LedgerMetrics;
 
 /// A fake block validator that always returns the same height.
@@ -32,6 +34,16 @@ impl CanValidateBlocks for MockCanValidateBlocks {
     }
 
     fn rollback_block(&self, _to: &Point) -> Result<(), BlockValidationError> {
+        Ok(())
+    }
+}
+
+/// A fake header validator that always returns ok
+#[derive(Clone, Debug, Default)]
+pub struct MockCanValidateHeaders;
+
+impl CanValidateHeaders for MockCanValidateHeaders {
+    fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
         Ok(())
     }
 }

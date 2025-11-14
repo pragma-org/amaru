@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::HeaderHash;
-use amaru_ouroboros_traits::IsHeader;
+use amaru_kernel::HeaderHash;
+use amaru_kernel::IsHeader;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -156,6 +156,20 @@ impl<H> Tree<H> {
         result
     }
 
+    pub fn fork_nodes(&self) -> Vec<H>
+    where
+        H: Clone,
+    {
+        let mut result = Vec::new();
+        if self.children.len() > 1 {
+            result.push(self.value.clone());
+        }
+        for child in &self.children {
+            result.extend(child.fork_nodes());
+        }
+        result
+    }
+
     /// Return the leaves of a `Tree`
     pub fn leaves(&self) -> Vec<H>
     where
@@ -165,6 +179,26 @@ impl<H> Tree<H> {
             vec![self.value.clone()]
         } else {
             self.children.iter().flat_map(|c| c.leaves()).collect()
+        }
+    }
+
+    /// Return the branches of a `Tree`
+    pub fn branches(&self) -> Vec<Vec<H>>
+    where
+        H: Clone,
+    {
+        if self.children.is_empty() {
+            vec![vec![self.value.clone()]]
+        } else {
+            let mut result = vec![];
+            for child in &self.children {
+                for mut branch in child.branches() {
+                    let mut new_branch = vec![self.value.clone()];
+                    new_branch.append(&mut branch);
+                    result.push(new_branch);
+                }
+            }
+            result
         }
     }
 
@@ -214,20 +248,28 @@ impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
             child.to_map_recursive(map);
         }
     }
+
+    pub fn as_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "slot": self.value.slot().to_string(),
+            "hash": self.value.hash().to_string().chars().take(6).collect::<String>(),
+            "children": self.children.iter().map(|child| { child.as_json() }).collect::<Vec<serde_json::Value>>()
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::consensus::headers_tree::data_generation::{
-        Ratio, any_tree_of_headers, config_begin, generate_headers_chain, generate_test_header_tree,
+        any_headers_tree, config_begin, generate_headers_chain, generate_headers_tree,
     };
     use proptest::{prop_assert_eq, proptest};
 
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(1).end())]
         #[test]
-        fn test_creation_from_map(tree in any_tree_of_headers(7, Ratio(1, 5))) {
+        fn test_creation_from_map(tree in any_headers_tree(7)) {
             let as_map = tree.to_map();
             if let Some(actual) = Tree::from(&as_map) {
                 prop_assert_eq!(actual.size(), tree.size());
@@ -253,12 +295,16 @@ mod tests {
 
     #[test]
     fn test_pretty_print() {
-        let tree = generate_test_header_tree(4, 42, Ratio(1, 10));
+        let tree = generate_headers_tree(45, 4);
         let expected = r#"
-TestHeader { hash: "a22427226377cc867d51ad3f130af08ad13451de7160efa2b23076fd782de967", slot: "1", parent: "None" }
-    └── TestHeader { hash: "a8810f9ea39c3a6afb780859e8d8c7bc37b78e2f9b8d68d95e831ca1477e9b21", slot: "2", parent: "a22427226377cc867d51ad3f130af08ad13451de7160efa2b23076fd782de967" }
-        └── TestHeader { hash: "1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164", slot: "3", parent: "a8810f9ea39c3a6afb780859e8d8c7bc37b78e2f9b8d68d95e831ca1477e9b21" }
-            └── TestHeader { hash: "da3fc7b517b61024fcad5acd80e4e585902180d1eb16fd37ca2f07a37c4b3903", slot: "4", parent: "1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164" }
+BlockHeader { hash: "f398e416d0d84882fdf482f6e7b79338108e7ddbb048a4429f1167ac74fe396a", slot: 1, parent: None }
+    └── BlockHeader { hash: "4d1714923b30a3492b791fd51145b272874e73f9414133b4d68853397ff8ae90", slot: 2, parent: Some("f398e416d0d84882fdf482f6e7b79338108e7ddbb048a4429f1167ac74fe396a") }
+        ├── BlockHeader { hash: "fa2654442e06abb4ff7eae3255b22b0f7f7e7daf1da505728601a590a8040429", slot: 3, parent: Some("4d1714923b30a3492b791fd51145b272874e73f9414133b4d68853397ff8ae90") }
+        │   ├── BlockHeader { hash: "a506bc773c8da1bfac083700f01430cb8d5aed6f1805abd41fddc985beef98ab", slot: 4, parent: Some("fa2654442e06abb4ff7eae3255b22b0f7f7e7daf1da505728601a590a8040429") }
+        │   └── BlockHeader { hash: "5462e01dbd3b09e3ff542569bdf7751c314a321b6fe7f4ac3780ef2ece4c9bf6", slot: 4, parent: Some("fa2654442e06abb4ff7eae3255b22b0f7f7e7daf1da505728601a590a8040429") }
+        └── BlockHeader { hash: "c15123e26610daf16e9dd13e4548df05de3ef853c49f33b1b228c7382074fa53", slot: 3, parent: Some("4d1714923b30a3492b791fd51145b272874e73f9414133b4d68853397ff8ae90") }
+            ├── BlockHeader { hash: "bb113ccd9c794e5552d1a9bd3551080bab1713df181d03f4b1c13d21e1dc85c7", slot: 4, parent: Some("c15123e26610daf16e9dd13e4548df05de3ef853c49f33b1b228c7382074fa53") }
+            └── BlockHeader { hash: "f74d006facd143da781c7763253efe20ae727985dbb6f93af139a137330d3b05", slot: 4, parent: Some("c15123e26610daf16e9dd13e4548df05de3ef853c49f33b1b228c7382074fa53") }
 "#;
         assert_eq!(
             format!("\n{tree:?}"),
@@ -266,6 +312,34 @@ TestHeader { hash: "a22427226377cc867d51ad3f130af08ad13451de7160efa2b23076fd782d
             "\n{}{}",
             &tree.pretty_print_debug(),
             expected
+        );
+    }
+
+    #[test]
+    fn test_fork_nodes() {
+        // 0
+        // ├── 1
+        // │   └── 3
+        // │       ├── 4
+        // │       └── 5
+        // └── 2
+
+        let mut root = Tree::make_leaf(&"0".to_string());
+        let mut leaf1 = Tree::make_leaf(&"1".to_string());
+        let leaf2 = Tree::make_leaf(&"2".to_string());
+        let mut leaf3 = Tree::make_leaf(&"3".to_string());
+        let leaf4 = Tree::make_leaf(&"4".to_string());
+        let leaf5 = Tree::make_leaf(&"5".to_string());
+        leaf3.children = vec![leaf4, leaf5];
+        leaf1.children = vec![leaf3];
+        root.children = vec![leaf1, leaf2];
+
+        // 1 is not a fork because it has only one child
+        assert_eq!(
+            root.fork_nodes(),
+            vec!["0".to_string(), "3".to_string()],
+            "{}",
+            root.pretty_print()
         );
     }
 }

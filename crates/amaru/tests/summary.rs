@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use amaru::snapshots_dir;
-use amaru_kernel::{
-    EraHistory, default_ledger_dir, network::NetworkName, protocol_parameters::GlobalParameters,
-};
+use amaru_kernel::{EraHistory, network::NetworkName, protocol_parameters::GlobalParameters};
 use amaru_ledger::{
     store::{ReadStore, Snapshot},
     summary::{
@@ -34,6 +32,10 @@ use test_case::test_case;
 
 pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+fn default_ledger_dir(network: NetworkName) -> String {
+    format!("./ledger.{}.db", network.to_string().to_lowercase())
+}
 
 #[expect(clippy::panic)]
 #[expect(clippy::unwrap_used)]

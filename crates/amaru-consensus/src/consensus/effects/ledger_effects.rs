@@ -13,30 +13,38 @@
 // limitations under the License.
 
 use crate::consensus::errors::ProcessingFailed;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::{Header, Point, PoolId, RawBlock};
+use amaru_kernel::{BlockHeader, IgnoreEq, Point, RawBlock, peer::Peer};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, HasStakeDistribution, IsHeader, PoolSummary,
+    BlockValidationError, CanValidateBlocks,
+    can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
 };
-use amaru_slot_arithmetic::Slot;
+use opentelemetry::trace::FutureExt;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::sync::Arc;
 
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
-pub trait LedgerOps: HasStakeDistribution {
-    fn validate(
+pub trait LedgerOps: Send + Sync {
+    fn validate_header(
+        &self,
+        header: &BlockHeader,
+        ctx: opentelemetry::Context,
+    ) -> BoxFuture<'_, Result<(), HeaderValidationError>>;
+
+    fn validate_block(
         &self,
         peer: &Peer,
         point: &Point,
         block: RawBlock,
+        ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
     fn rollback(
         &self,
         peer: &Peer,
-        rollback_header: &Header,
+        point: &Point,
+        ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, anyhow::Result<(), ProcessingFailed>>;
 }
 
@@ -50,30 +58,33 @@ impl<T> Ledger<T> {
 }
 
 impl<T: SendData + Sync> LedgerOps for Ledger<T> {
-    fn validate(
+    fn validate_header(
+        &self,
+        header: &BlockHeader,
+        ctx: opentelemetry::Context,
+    ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
+        self.0.external(ValidateHeaderEffect::new(header, ctx))
+    }
+
+    fn validate_block(
         &self,
         peer: &Peer,
         point: &Point,
         block: RawBlock,
+        ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>
     {
         self.0
-            .external(ValidateBlockEffect::new(peer, point, block))
+            .external(ValidateBlockEffect::new(peer, point, block, ctx))
     }
 
     fn rollback(
         &self,
         peer: &Peer,
-        rollback_header: &Header,
+        point: &Point,
+        ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, anyhow::Result<(), ProcessingFailed>> {
-        self.0
-            .external(RollbackBlockEffect::new(peer, &rollback_header.point()))
-    }
-}
-
-impl<T: SendData + Sync> HasStakeDistribution for Ledger<T> {
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
-        self.0.external_sync(GetPoolEffect::new(slot, pool))
+        self.0.external(RollbackBlockEffect::new(peer, point, ctx))
     }
 }
 
@@ -81,21 +92,24 @@ impl<T: SendData + Sync> HasStakeDistribution for Ledger<T> {
 
 /// Resource types for ledger operations.
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
-pub type ResourceHeaderValidation = Arc<dyn HasStakeDistribution>;
+pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlockEffect {
     peer: Peer,
     point: Point,
     block: RawBlock,
+    #[serde(skip)]
+    ctx: IgnoreEq<opentelemetry::Context>,
 }
 
 impl ValidateBlockEffect {
-    pub fn new(peer: &Peer, point: &Point, block: RawBlock) -> Self {
+    pub fn new(peer: &Peer, point: &Point, block: RawBlock, ctx: opentelemetry::Context) -> Self {
         Self {
             peer: peer.clone(),
             point: point.clone(),
             block,
+            ctx: ctx.into(),
         }
     }
 }
@@ -103,13 +117,22 @@ impl ValidateBlockEffect {
 impl ExternalEffect for ValidateBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let validator = resources
-                .get::<ResourceBlockValidation>()
-                .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
-                .clone();
-            validator.roll_forward_block(&self.point, &self.block).await
-        })
+        let Self {
+            peer: _peer,
+            point,
+            block,
+            ctx,
+        } = *self;
+        Self::wrap(
+            async move {
+                let validator = resources
+                    .get::<ResourceBlockValidation>()
+                    .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
+                    .clone();
+                validator.roll_forward_block(&point, &block).await
+            }
+            .with_context(ctx.0),
+        )
     }
 }
 
@@ -118,16 +141,53 @@ impl ExternalEffectAPI for ValidateBlockEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ValidateHeaderEffect {
+    header: BlockHeader,
+    #[serde(skip)]
+    ctx: IgnoreEq<opentelemetry::Context>,
+}
+
+impl ValidateHeaderEffect {
+    pub fn new(header: &BlockHeader, ctx: opentelemetry::Context) -> Self {
+        Self {
+            header: header.clone(),
+            ctx: ctx.into(),
+        }
+    }
+}
+
+impl ExternalEffect for ValidateHeaderEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let _guard = self.ctx.0.attach();
+            let validator = resources
+                .get::<ResourceHeaderValidation>()
+                .expect("ValidateHeaderEffect requires a ResourceHeaderValidation resource")
+                .clone();
+            validator.validate_header(&self.header)
+        })
+    }
+}
+
+impl ExternalEffectAPI for ValidateHeaderEffect {
+    type Response = Result<(), HeaderValidationError>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RollbackBlockEffect {
     peer: Peer,
     point: Point,
+    #[serde(skip)]
+    ctx: IgnoreEq<opentelemetry::Context>,
 }
 
 impl RollbackBlockEffect {
-    pub fn new(peer: &Peer, point: &Point) -> Self {
+    pub fn new(peer: &Peer, point: &Point, ctx: opentelemetry::Context) -> Self {
         Self {
             peer: peer.clone(),
             point: point.clone(),
+            ctx: ctx.into(),
         }
     }
 }
@@ -136,6 +196,7 @@ impl ExternalEffect for RollbackBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
+            let _guard = self.ctx.0.attach();
             let validator = resources
                 .get::<ResourceBlockValidation>()
                 .expect("RollbackBlockEffect requires a ResourceBlockValidation resource")
@@ -149,33 +210,4 @@ impl ExternalEffect for RollbackBlockEffect {
 
 impl ExternalEffectAPI for RollbackBlockEffect {
     type Response = anyhow::Result<(), ProcessingFailed>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GetPoolEffect {
-    slot: Slot,
-    pool: PoolId,
-}
-
-impl GetPoolEffect {
-    pub fn new(slot: Slot, pool: &PoolId) -> Self {
-        Self { slot, pool: *pool }
-    }
-}
-
-impl ExternalEffect for GetPoolEffect {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let validator = resources
-                .get::<ResourceHeaderValidation>()
-                .expect("GetPoolEffect requires a ResourceHeaderValidation resource")
-                .clone();
-            validator.get_pool(self.slot, &self.pool)
-        })
-    }
-}
-
-impl ExternalEffectAPI for GetPoolEffect {
-    type Response = Option<PoolSummary>;
 }

@@ -13,14 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::PallasPoint;
+use crate::point::to_network_point;
 use crate::stages::consensus::forward_chain::client_protocol::PrettyPoint;
 use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
+use amaru_consensus::ReadOnlyChainStore;
 use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_consensus::consensus::tip::AsHeaderTip;
-use amaru_kernel::{Hash, Header, from_cbor};
+use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor};
+use amaru_ouroboros_traits::ChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::{
@@ -35,10 +36,11 @@ use tracing_subscriber::EnvFilter;
 pub const CHAIN_47: &str = "tests/data/chain41.json";
 pub const TIP_47: &str = "fcb4a51804f14f3f5b5ad841199b557aed0187280f7855736bdb153b0d202bb6";
 pub const LOST_47: &str = "bd41b102018a21e068d504e64b282512a3b7d5c3883b743aa070ad9244691125";
-pub const BRANCH_47: &str = "64565f22fb23476baaa6f82e0e2d68636ceadabded697099fb376c23226bdf03";
+pub const FORK_47: &str = "64565f22fb23476baaa6f82e0e2d68636ceadabded697099fb376c23226bdf03";
 pub const WINNER_47: &str = "66c90f54f9073cfc03a334f5b15b1617f6bf6fe6c892fad8368e16abe20b0f4f";
+pub const FIRST_HEADER: &str = "2487bd4f49c89e59bb3d2166510d3d49017674d3c3b430b95db2e260fedce45e";
 
-pub fn mk_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<Header>> {
+pub fn mk_in_memory_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHeader>> {
     let f = File::open(path).unwrap();
     let json: serde_json::Value = serde_json::from_reader(f).unwrap();
     let headers = json
@@ -50,20 +52,31 @@ pub fn mk_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<Header>> {
     let store = InMemConsensusStore::new();
     let mut anchor_set = false;
 
+    // store headers
     for header in headers {
         let header = header.pointer("/header").unwrap().as_str().unwrap();
         let header = hex::decode(header).unwrap();
-        let header: Header = minicbor::decode(&header).unwrap();
+        let header: BlockHeader = minicbor::decode(&header).unwrap();
         if !anchor_set {
             store.set_anchor_hash(&header.hash()).unwrap();
             anchor_set = true
         }
         store.store_header(&header).unwrap();
     }
+
+    store.set_best_chain_hash(&hash(TIP_47)).unwrap();
+
+    // store best chain
+    for h in store.retrieve_best_chain() {
+        if let Some(header) = store.load_header(&h) {
+            store.roll_forward_chain(&header.point()).unwrap();
+            continue;
+        }
+    }
     Arc::new(store)
 }
 
-pub fn hash(s: &str) -> Hash<32> {
+pub fn hash(s: &str) -> HeaderHash {
     Hash::<32>::from_str(s).unwrap()
 }
 
@@ -79,20 +92,20 @@ pub fn amaru_point(slot: u64, hash: &str) -> amaru_kernel::Point {
     amaru_kernel::Point::Specific(slot, hex(hash))
 }
 
-pub struct Setup {
-    pub store: Arc<dyn ChainStore<Header>>,
-    listener: TcpForwardChainServer,
+pub struct TestChainForwarder {
+    pub store: Arc<dyn ChainStore<BlockHeader>>,
+    listener: TcpForwardChainServer<BlockHeader>,
     port: u16,
 }
 
-impl Setup {
-    pub async fn new(our_tip: &str) -> anyhow::Result<Setup> {
+impl TestChainForwarder {
+    pub async fn new(our_tip: &str) -> anyhow::Result<TestChainForwarder> {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .with_test_writer()
             .try_init();
 
-        let store = mk_store(CHAIN_47);
+        let store = mk_in_memory_store(CHAIN_47);
         let header = store.load_header(&hash(our_tip)).unwrap();
 
         let tcp_listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -106,7 +119,7 @@ impl Setup {
             header.as_header_tip(),
         )?;
 
-        Ok(Setup {
+        Ok(TestChainForwarder {
             store,
             listener,
             port,
@@ -140,7 +153,7 @@ impl Setup {
 
     pub fn check_header(&self, s: &str, h: &Header) {
         let header = self.store.load_header(&hash(s)).unwrap();
-        assert_eq!(header.header_body, h.header_body);
+        assert_eq!(header.header_body().clone(), h.header_body);
     }
 }
 
@@ -205,7 +218,7 @@ impl Client {
 
 #[derive(Clone)]
 pub enum ClientMsg {
-    Forward(Header, Tip),
+    Forward(BlockHeader, Tip),
     Backward(Point, Tip),
 }
 
@@ -216,7 +229,10 @@ impl std::fmt::Debug for ClientMsg {
                 .debug_struct("Forward")
                 .field(
                     "header",
-                    &(header.block_height(), PrettyPoint(&header.pallas_point())),
+                    &(
+                        header.block_height(),
+                        PrettyPoint(&to_network_point(header.point())),
+                    ),
                 )
                 .field("tip", &(tip.1, PrettyPoint(&tip.0)))
                 .finish(),

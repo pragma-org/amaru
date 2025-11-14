@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, default_chain_dir, from_cbor, network::NetworkName};
-use amaru_ouroboros_traits::{ChainStore, IsHeader};
+use crate::cmd::{WorkerError, default_chain_dir};
+use amaru_kernel::{BlockHeader, IsHeader, from_cbor, network::NetworkName};
+use amaru_ouroboros_traits::ChainStore;
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
-use gasket::framework::*;
 use std::{
     error::Error,
     path::{Path, PathBuf},
@@ -34,7 +34,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -59,8 +59,8 @@ pub struct Args {
     /// `data/preview/headers/header.*.*.cbor`
     #[arg(
         long,
-        value_name = "DIRECTORY",
-        default_value = "data",
+        value_name = "DIR",
+        default_value = super::DEFAULT_CONFIG_DIR,
         env = "AMARU_CONFIG_DIR",
         verbatim_doc_comment
     )]
@@ -82,7 +82,7 @@ pub(crate) async fn import_headers_for_network(
     config_dir: &Path,
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
-    let db = RocksDBStore::new(RocksDbConfig::new(chain_dir.into()))?;
+    let db = RocksDBStore::open_and_migrate(RocksDbConfig::new(chain_dir.into()))?;
 
     for entry in std::fs::read_dir(config_dir.join("headers"))? {
         let entry = entry?;
@@ -101,7 +101,7 @@ pub(crate) async fn import_headers_for_network(
                 .inspect_err(|reason| error!(file = %path.display(), reason = %reason, "Failed to read header file"))
                 .map_err(|_| WorkerError::Panic)?;
 
-            let header_from_file: Header = from_cbor(&cbor_data).unwrap();
+            let header_from_file: BlockHeader = from_cbor(&cbor_data).unwrap();
             let hash = header_from_file.hash();
 
             info!(

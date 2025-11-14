@@ -48,10 +48,10 @@ a local or remote node (i.e. any existing node relay), and you can even add
 multiple peers by replicating the option.
 
 > [!TIP]
-> To ensure logs are forwarded to telemetry backend, set `AMARU_WITH_OPEN_TELEMETRY=yes`:
+> To ensure logs are forwarded to telemetry backend, set `AMARU_WITH_OPEN_TELEMETRY=true`:
 >
 > ```console
-> make AMARU_NETWORK=preprod AMARU_WITH_OPEN_TELEMETRY=yes start
+> make AMARU_NETWORK=preprod AMARU_WITH_OPEN_TELEMETRY=true start
 > ```
 
 ### Monitoring

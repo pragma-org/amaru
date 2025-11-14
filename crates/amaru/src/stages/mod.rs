@@ -15,48 +15,48 @@
 use crate::stages::{
     build_stage_graph::build_stage_graph,
     consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
-    pure_stage_util::{PureStageSim, SendAdapter},
 };
-use amaru_consensus::consensus::effects::{
-    ResourceBlockFetcher, ResourceBlockValidation, ResourceForwardEventListener,
-    ResourceHeaderStore, ResourceHeaderValidation, ResourceMeter, ResourceParameters,
+use acto::AcTokio;
+use amaru_consensus::{
+    consensus::{
+        effects::{
+            ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
+            ResourceHeaderValidation, ResourceMeter, ResourceParameters,
+        },
+        errors::ConsensusError,
+        headers_tree::HeadersTreeState,
+        stages::{
+            pull, select_chain::SelectChain, track_peers::SyncTracker,
+            validate_header::ValidateHeader,
+        },
+        tip::{AsHeaderTip, HeaderTip},
+    },
+    network_operations::ResourceNetworkOperations,
 };
-use amaru_consensus::consensus::errors::ConsensusError;
-use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_consensus::consensus::headers_tree::HeadersTreeState;
-use amaru_consensus::consensus::stages::fetch_block::ClientsBlockFetcher;
-use amaru_consensus::consensus::stages::select_chain::SelectChain;
-use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::{
-    EraHistory, HEADER_HASH_SIZE, Hash, Header, ORIGIN_HASH, Point, network::NetworkName,
-    peer::Peer, protocol_parameters::GlobalParameters,
+    BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
+    network::NetworkName,
+    peer::Peer,
+    protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
-
 use amaru_metrics::METRICS_METER_NAME;
-use amaru_network::block_fetch_client::PallasBlockFetchClient;
+use amaru_network::NetworkResource;
+use amaru_network::point::to_network_point;
 use amaru_ouroboros_traits::{
-    CanFetchBlock, CanValidateBlocks, ChainStore, HasStakeDistribution, IsHeader,
+    CanValidateBlocks, ChainStore, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
 };
-use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_stores::{
     in_memory::MemoryStore,
-    rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore},
+    rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore},
 };
-use gasket::{
-    messaging::OutputPort,
-    runtime::{self, Tether, spawn_stage},
-};
+use anyhow::Context;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pallas_network::{
-    facades::PeerClient,
-    miniprotocols::chainsync::{Client, HeaderContent, Tip},
-};
+use pallas_network::miniprotocols::chainsync::Tip;
 use pure_stage::{StageGraph, tokio::TokioBuilder};
 use std::{
-    error::Error,
     fmt::{Debug, Display},
     path::PathBuf,
     sync::Arc,
@@ -68,10 +68,6 @@ use tracing::info;
 pub mod build_stage_graph;
 pub mod common;
 pub mod consensus;
-pub mod pull;
-mod pure_stage_util;
-
-pub type BlockHash = Hash<32>;
 
 /// Whether or not data is stored on disk or in memory.
 #[derive(Clone)]
@@ -98,6 +94,7 @@ pub struct Config {
     pub listen_address: String,
     pub max_downstream_peers: usize,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
+    pub migrate_chain_db: bool,
 }
 
 impl Default for Config {
@@ -111,6 +108,7 @@ impl Default for Config {
             listen_address: "0.0.0.0:3000".to_string(),
             max_downstream_peers: 10,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
+            migrate_chain_db: false,
         }
     }
 }
@@ -163,15 +161,13 @@ impl From<MaxExtraLedgerSnapshots> for u64 {
 
 pub async fn bootstrap(
     config: Config,
-    clients: Vec<(String, PeerClient)>,
+    peers: Vec<Peer>,
     exit: CancellationToken,
     meter_provider: Option<SdkMeterProvider>,
-) -> Result<Vec<Tether>, Box<dyn Error>> {
+) -> anyhow::Result<()> {
     let era_history: &EraHistory = config.network.into();
 
     let global_parameters: &GlobalParameters = config.network.into();
-
-    let peers: Vec<Peer> = clients.iter().map(|c| Peer::new(&c.0)).collect();
 
     let ledger = make_ledger(
         &config,
@@ -179,34 +175,7 @@ pub async fn bootstrap(
         era_history.clone(),
         global_parameters.clone(),
     )
-    .map_err(|e| -> Box<dyn Error> {
-        format!(
-            "Failed to create ledger. Have you bootstrapped your node? Error: {}",
-            e
-        )
-        .into()
-    })?;
-
-    let (chain_syncs, block_fetchs): (
-        Vec<(Peer, Client<HeaderContent>)>,
-        Vec<(Peer, Arc<dyn CanFetchBlock>)>,
-    ) = clients
-        .into_iter()
-        .map(|(peer_name, client)| {
-            let PeerClient {
-                chainsync,
-                blockfetch,
-                ..
-            } = client;
-            let peer = Peer::new(&peer_name);
-            let block_fetch_client: Arc<dyn CanFetchBlock> =
-                Arc::new(PallasBlockFetchClient::new(&peer, blockfetch));
-            (
-                (peer.clone(), chainsync),
-                (peer.clone(), block_fetch_client),
-            )
-        })
-        .collect();
+    .context("Failed to create ledger. Have you bootstrapped your node?")?;
 
     let tip = ledger.get_tip();
 
@@ -215,11 +184,6 @@ pub async fn bootstrap(
         tip.slot = u64::from(tip.slot_or_default()),
         "starting"
     );
-
-    let mut stages = chain_syncs
-        .into_iter()
-        .map(|session| pull::Stage::new(session.0, session.1, vec![tip.clone()]))
-        .collect::<Vec<_>>();
 
     let chain_store = make_chain_store(&config, &tip.hash())?;
     let our_tip = chain_store
@@ -232,6 +196,19 @@ pub async fn bootstrap(
         &peers,
         global_parameters.consensus_security_param,
     )?;
+
+    let consensus_parameters = Arc::new(ConsensusParameters::new(
+        global_parameters.clone(),
+        era_history,
+        Default::default(),
+    ));
+    let validate_header = ValidateHeader::new(
+        consensus_parameters,
+        chain_store.clone(),
+        ledger.get_stake_distribution(),
+    );
+
+    let sync_tracker = SyncTracker::new(&peers);
 
     let forward_event_listener = Arc::new(
         TcpForwardChainServer::new(
@@ -246,74 +223,63 @@ pub async fn bootstrap(
 
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
+    let acto_runtime = AcTokio::from_handle("network", Handle::current().clone());
 
-    let graph_input = build_stage_graph(
-        global_parameters,
-        era_history,
-        chain_selector,
-        our_tip,
-        &mut network,
-    );
-    let graph_input = network.input(&graph_input);
+    let receive_header_stage =
+        build_stage_graph(chain_selector, sync_tracker, our_tip, &mut network);
 
-    network.resources().put::<ResourceHeaderStore>(chain_store);
+    let pull_stage = network.stage("pull", pull::stage);
+    let pull_stage = network.wire_up(pull_stage, receive_header_stage);
+    assert!(network.preload(pull_stage, vec![pull::NextSync]));
+
     network
         .resources()
-        .put::<ResourceHeaderValidation>(ledger.get_stake_distribution());
+        .put::<ResourceHeaderStore>(chain_store.clone());
     network
         .resources()
         .put::<ResourceParameters>(global_parameters.clone());
     network
         .resources()
-        .put::<ResourceBlockFetcher>(Arc::new(ClientsBlockFetcher::new(block_fetchs)));
-    network
-        .resources()
         .put::<ResourceBlockValidation>(ledger.get_block_validation());
     network
         .resources()
+        .put::<ResourceHeaderValidation>(Arc::new(validate_header));
+    network
+        .resources()
         .put::<ResourceForwardEventListener>(forward_event_listener);
+    network
+        .resources()
+        .put::<ResourceNetworkOperations>(Arc::new(NetworkResource::new(
+            peers,
+            &acto_runtime,
+            config.network_magic.into(),
+            chain_store,
+        )));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);
         network.resources().put::<ResourceMeter>(Arc::new(meter));
     };
 
-    let network = network.run(Handle::current().clone());
-    let pure_stages = PureStageSim::new(network, exit);
+    let _running = network.run(Handle::current().clone());
 
-    let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = stages
-        .iter_mut()
-        .map(|p| &mut p.downstream)
-        .collect::<Vec<_>>();
+    exit.cancelled().await;
 
-    for output in outputs {
-        output.connect(SendAdapter(graph_input.clone()));
-    }
-
-    // No retry, crash on panics.
-    let policy = runtime::Policy::default();
-
-    let mut stages = stages
-        .into_iter()
-        .map(|p| spawn_stage(p, policy.clone()))
-        .collect::<Vec<_>>();
-
-    let pure_stages = spawn_stage(pure_stages, policy.clone());
-
-    stages.push(pure_stages);
-
-    Ok(stages)
+    Ok(())
 }
 
 #[expect(clippy::panic)]
 fn make_chain_store(
     config: &Config,
-    tip: &Hash<HEADER_HASH_SIZE>,
-) -> Result<Arc<dyn ChainStore<Header>>, Box<dyn Error>> {
-    let chain_store: Arc<dyn ChainStore<Header>> = match config.chain_store {
+    tip: &HeaderHash,
+) -> anyhow::Result<Arc<dyn ChainStore<BlockHeader>>> {
+    let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
+        StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
+            Arc::new(RocksDBStore::open_and_migrate(rocks_db_config.clone())?)
+        }
         StoreType::RocksDb(ref rocks_db_config) => {
-            Arc::new(RocksDBStore::new(rocks_db_config.clone())?)
+            Arc::new(RocksDBStore::open(rocks_db_config.clone())?)
         }
     };
 
@@ -398,7 +364,7 @@ fn make_ledger(
 }
 
 fn make_chain_selector(
-    chain_store: Arc<dyn ChainStore<Header>>,
+    chain_store: Arc<dyn ChainStore<BlockHeader>>,
     peers: &Vec<Peer>,
     consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
@@ -409,77 +375,25 @@ fn make_chain_selector(
         tree_state.initialize_peer(chain_store.clone(), peer, &anchor)?;
     }
 
-    Ok(SelectChain::new(tree_state, peers))
-}
-
-pub trait PallasPoint {
-    fn pallas_point(&self) -> pallas_network::miniprotocols::Point;
-}
-
-impl PallasPoint for Header {
-    fn pallas_point(&self) -> pallas_network::miniprotocols::Point {
-        to_pallas_point(&self.point())
-    }
-}
-
-impl PallasPoint for Point {
-    fn pallas_point(&self) -> pallas_network::miniprotocols::Point {
-        to_pallas_point(self)
-    }
-}
-
-pub fn to_pallas_point(point: &Point) -> pallas_network::miniprotocols::Point {
-    match point {
-        Point::Origin => pallas_network::miniprotocols::Point::Origin,
-        Point::Specific(slot, hash) => {
-            pallas_network::miniprotocols::Point::Specific(*slot, hash.clone())
-        }
-    }
+    Ok(SelectChain::new(tree_state))
 }
 
 pub trait AsTip {
     fn as_tip(&self) -> Tip;
 }
 
-impl AsTip for Header {
+impl<H: IsHeader> AsTip for H {
     fn as_tip(&self) -> Tip {
-        Tip(self.pallas_point(), self.block_height())
+        Tip(to_network_point(self.point()), self.block_height())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{
-        EraHistory, network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
-    };
-    use amaru_stores::{in_memory::MemoryStore, rocksdb::RocksDbConfig};
+    use amaru_stores::rocksdb::RocksDbConfig;
     use std::path::PathBuf;
-    use tokio_util::sync::CancellationToken;
 
-    use super::{Config, StoreType, StoreType::*, bootstrap};
-
-    #[tokio::test]
-    async fn bootstrap_all_stages() {
-        let network = NetworkName::Preprod;
-        let era_history: &EraHistory = network.into();
-        let ledger_store = MemoryStore::new(
-            era_history.clone(),
-            PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
-        );
-
-        let config = Config {
-            ledger_store: InMem(ledger_store),
-            chain_store: InMem(()),
-            network,
-            ..Config::default()
-        };
-
-        let stages = bootstrap(config, vec![], CancellationToken::new(), None)
-            .await
-            .unwrap();
-
-        assert_eq!(1, stages.len());
-    }
+    use super::StoreType;
 
     #[test]
     fn test_store_path_display() {

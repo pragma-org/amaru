@@ -15,9 +15,12 @@
 
 //! This module contains the [`TraceBuffer`] type, which is used to record the trace of a simulation.
 
+use crate::types::as_send_data_value;
 use crate::{Effect, Instant, Name, SendData, effect::StageResponse, serde::to_cbor};
 use cbor4ii::serde::from_slice;
+use itertools::Itertools;
 use parking_lot::Mutex;
+use std::fmt::{Debug, Display, Error, Formatter};
 use std::{collections::VecDeque, sync::Arc};
 
 /// A buffer for recording the trace of a simulation.
@@ -39,12 +42,13 @@ pub struct TraceBuffer {
 /// However, we need the entries in the continuation of the running program and we cannot clone,
 /// so there is a variant of this enum with the very same structure the captures only references
 /// to work around this problem: [`TraceEntryRef`].
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TraceEntry {
     Suspend(Effect),
     Resume {
         stage: Name,
         response: StageResponse,
+        runnable: Vec<(Name, StageResponse)>,
     },
     Clock(Instant),
     Input {
@@ -59,6 +63,174 @@ pub enum TraceEntry {
     },
 }
 
+impl TraceEntry {
+    pub fn to_json(&self) -> serde_json::Value {
+        match &self {
+            TraceEntry::Suspend(effect) => serde_json::json!({
+                "type": "suspend",
+                "effect": effect.to_json(),
+            }),
+            TraceEntry::Resume {
+                stage,
+                response,
+                runnable,
+            } => serde_json::json!({
+                "type": "resume",
+                "stage": stage,
+                "response": response,
+                "runnable": runnable.iter().map(|(n, r)| {
+                    serde_json::json!({
+                        "name": n,
+                        "response": r.to_json(),
+                    })
+                }).collect::<Vec<_>>(),
+            }),
+            TraceEntry::Clock(instant) => serde_json::json!({
+            "type": "clock",
+            "instant": instant,
+            }),
+            TraceEntry::Input { stage, input } => serde_json::json!({
+            "type": "input",
+            "stage": stage,
+            "input": input.to_string(),
+            }),
+            TraceEntry::State { stage, state } => serde_json::json!({
+            "type": "state",
+            "stage": stage,
+            "state": state.to_string(),
+            }),
+        }
+    }
+}
+
+impl Debug for TraceEntry {
+    /// This debug instance does not output the runnable field in the Resume case.
+    /// That field is only useful for display purposes.
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TraceEntry::Suspend(effect) => f.debug_tuple("Suspend").field(&effect).finish(),
+            TraceEntry::Resume {
+                stage, response, ..
+            } => f
+                .debug_struct("Resume")
+                .field("stage", stage)
+                .field("response", response)
+                .finish(),
+            TraceEntry::Clock(instant) => f.debug_tuple("Clock").field(instant).finish(),
+            TraceEntry::Input { stage, input } => f
+                .debug_struct("Input")
+                .field("stage", stage)
+                .field("input", input)
+                .finish(),
+            TraceEntry::State { stage, state } => f
+                .debug_struct("State")
+                .field("stage", stage)
+                .field("state", state)
+                .finish(),
+        }
+    }
+}
+
+impl Display for TraceEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TraceEntry::Suspend(effect) => write!(f, "suspend {stage}", stage = effect.at_stage()),
+            TraceEntry::Resume {
+                stage,
+                response,
+                runnable,
+            } => {
+                write!(
+                    f,
+                    "resume {stage}{response}{runnable}",
+                    stage = stage.as_str(),
+                    response = match response {
+                        StageResponse::Unit => "".to_string(),
+                        other @ StageResponse::ClockResponse(_)
+                        | other @ StageResponse::WaitResponse(_)
+                        | other @ StageResponse::CallResponse(_)
+                        | other @ StageResponse::CallTimeout
+                        | other @ StageResponse::ExternalResponse(_) => format!(" -> {other}"),
+                    },
+                    runnable = if runnable.is_empty() {
+                        "".to_string()
+                    } else {
+                        format!(
+                            " [{}]",
+                            runnable
+                                .iter()
+                                .map(|(n, r)| match r {
+                                    StageResponse::Unit => format!("{n}"),
+                                    other @ StageResponse::ClockResponse(_)
+                                    | other @ StageResponse::WaitResponse(_)
+                                    | other @ StageResponse::CallResponse(_)
+                                    | other @ StageResponse::CallTimeout
+                                    | other @ StageResponse::ExternalResponse(_) =>
+                                        format!("{n}/{other}"),
+                                })
+                                .join(", ")
+                        )
+                    },
+                )
+            }
+            TraceEntry::Clock(instant) => write!(f, "clock {instant}"),
+            TraceEntry::Input { stage, input } => {
+                write!(
+                    f,
+                    "input {stage} -> {input}",
+                    stage = stage.as_str(),
+                    input = as_send_data_value(input.as_ref()).map_err(|_| Error)?
+                )
+            }
+            TraceEntry::State { stage, state } => {
+                write!(
+                    f,
+                    "state {stage} -> {state}",
+                    stage = stage.as_str(),
+                    state = as_send_data_value(state.as_ref()).map_err(|_| Error)?
+                )
+            }
+        }
+    }
+}
+
+impl TraceEntry {
+    /// Construct a suspend entry.
+    pub fn suspend(effect: Effect) -> Self {
+        Self::Suspend(effect)
+    }
+
+    /// Construct a resume entry.
+    pub fn resume(stage: impl AsRef<str>, response: StageResponse) -> Self {
+        Self::Resume {
+            stage: Name::from(stage.as_ref()),
+            response,
+            runnable: vec![],
+        }
+    }
+
+    /// Construct a clock entry.
+    pub fn clock(instant: Instant) -> Self {
+        Self::Clock(instant)
+    }
+
+    /// Construct an input entry.
+    pub fn input(stage: impl AsRef<str>, input: Box<dyn SendData>) -> Self {
+        Self::Input {
+            stage: Name::from(stage.as_ref()),
+            input,
+        }
+    }
+
+    /// Construct a state entry.
+    pub fn state(stage: impl AsRef<str>, state: Box<dyn SendData>) -> Self {
+        Self::State {
+            stage: Name::from(stage.as_ref()),
+            state,
+        }
+    }
+}
+
 /// A non-owning variant of [`TraceEntry`] that allows serializing an entry without consuming it.
 ///
 /// This structure cannot be deserialized, use the owned version for that.
@@ -68,6 +240,7 @@ pub enum TraceEntryRef<'a> {
     Resume {
         stage: &'a Name,
         response: &'a StageResponse,
+        runnable: &'a [&'a (Name, StageResponse)],
     },
     Clock(Instant),
     Input {
@@ -108,8 +281,17 @@ impl TraceBuffer {
     }
 
     /// Push a resume event to the trace buffer.
-    pub fn push_resume(&mut self, stage: &Name, response: &StageResponse) {
-        self.push(to_cbor(&TraceEntryRef::Resume { stage, response }));
+    pub fn push_resume(
+        &mut self,
+        stage: &Name,
+        response: &StageResponse,
+        runnable: &[&(Name, StageResponse)],
+    ) {
+        self.push(to_cbor(&TraceEntryRef::Resume {
+            stage,
+            response,
+            runnable,
+        }));
     }
 
     /// Push a clock update to the trace buffer.

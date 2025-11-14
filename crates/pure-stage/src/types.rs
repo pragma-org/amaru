@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::serde::{SendDataValue, to_cbor};
+use crate::{
+    Effects, UnknownExternalEffect,
+    serde::{SendDataValue, to_cbor},
+};
 use anyhow::Context;
 use cbor4ii::serde::from_slice;
+use std::fmt::{Display, Error, Formatter};
 use std::{
     any::{Any, type_name},
     borrow::Borrow,
@@ -70,6 +74,12 @@ where
     }
 }
 
+impl Display for dyn SendData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(&as_send_data_value(self).map_err(|_| Error)?.to_string())
+    }
+}
+
 impl dyn SendData {
     /// Cast a message to a given concrete type.
     pub fn cast_ref<T: SendData>(&self) -> Option<&T> {
@@ -113,7 +123,22 @@ impl dyn SendData {
     }
 }
 
-fn deserialize_value<T>(this: &dyn SendData) -> anyhow::Result<T>
+/// Cast the SendData to a SendDataValue to be able to access its inner value.
+pub fn as_send_data_value(this: &dyn SendData) -> anyhow::Result<&SendDataValue> {
+    let Some(this) = this.cast_ref::<SendDataValue>() else {
+        let Some(this) = this.cast_ref::<UnknownExternalEffect>() else {
+            anyhow::bail!(
+                "message type error: expected SendDataValue, got {:?} ({})",
+                this,
+                this.typetag_name()
+            )
+        };
+        return Ok(this.send_data_value());
+    };
+    Ok(this)
+}
+
+pub fn deserialize_value<T>(this: &dyn SendData) -> anyhow::Result<T>
 where
     T: SendData + serde::de::DeserializeOwned,
 {
@@ -261,10 +286,87 @@ impl<T> DerefMut for MpscReceiver<T> {
     }
 }
 
+/// An extension trait that allows termination or early return within a stage.
+pub trait TryInStage {
+    /// The successful result of this container type.
+    type Result;
+    /// The error type of this container type.
+    type Error;
+
+    /// Terminate the stage if the container is empty, otherwise return the contained value.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use pure_stage::{tokio::TokioBuilder, StageGraph, TryInStage};
+    ///
+    /// let mut network = TokioBuilder::default();
+    /// network.stage("demo", async |_state: (), msg: Result<u32, String>, eff| {
+    ///     let msg: u32 = msg.or_terminate(&eff, async |error: String| {
+    ///         tracing::error!("error: {}", error);
+    ///         // could also run effects here
+    ///     })
+    ///     .await;
+    ///     tracing::info!("received message: {}", msg);
+    /// });
+    /// ```
+    #[allow(async_fn_in_trait)]
+    async fn or_terminate<M>(
+        self,
+        eff: &Effects<M>,
+        alt: impl AsyncFnOnce(Self::Error),
+    ) -> Self::Result;
+}
+
+impl<T> TryInStage for Option<T> {
+    type Result = T;
+    type Error = ();
+
+    async fn or_terminate<M>(
+        self,
+        eff: &Effects<M>,
+        alt: impl AsyncFnOnce(Self::Error),
+    ) -> Self::Result {
+        match self {
+            Some(value) => value,
+            None => {
+                alt(()).await;
+                eff.terminate().await
+            }
+        }
+    }
+}
+
+impl<T, E> TryInStage for Result<T, E> {
+    type Result = T;
+
+    type Error = E;
+
+    async fn or_terminate<M>(
+        self,
+        eff: &Effects<M>,
+        alt: impl AsyncFnOnce(Self::Error),
+    ) -> Self::Result {
+        match self {
+            Ok(value) => value,
+            Err(error) => {
+                alt(error).await;
+                eff.terminate().await
+            }
+        }
+    }
+}
+
+#[cfg(feature = "simulation")]
 #[cfg(test)]
 mod test {
-    use crate::SendData;
-    use std::ffi::OsString;
+    use crate::simulation::SimulationBuilder;
+    use crate::{
+        Effect, Instant, SendData, StageGraph, StageGraphRunning, StageResponse, TryInStage,
+        serde::SendDataValue,
+        trace_buffer::{TraceBuffer, TraceEntry},
+    };
+    use std::{ffi::OsString, time::Duration};
 
     #[test]
     fn message() {
@@ -300,5 +402,82 @@ mod test {
         assert_eq!(r1.cast_ref::<u32>().unwrap(), &1);
         assert_eq!(r2.cast_ref::<u32>().unwrap(), &1);
         assert_eq!(r3.cast_ref::<u32>().unwrap(), &1);
+    }
+
+    #[test]
+    fn try_in_stage_option() {
+        let trace = TraceBuffer::new_shared(100, 1_000_000);
+        let mut network = SimulationBuilder::default().with_trace_buffer(trace.clone());
+        let stage = network.stage("stage", async |_: u32, msg: Option<u32>, eff| {
+            msg.or_terminate(&eff, async |_| ()).await
+        });
+        let stage = network.wire_up(stage, 0);
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut sim = network.run(rt.handle().clone());
+
+        sim.enqueue_msg(&stage, [Some(1)]);
+        sim.run_until_blocked();
+        assert_eq!(*sim.get_state(&stage).unwrap(), 1);
+
+        sim.enqueue_msg(&stage, [None]);
+        sim.run_until_blocked();
+        assert!(sim.is_terminated());
+
+        pretty_assertions::assert_eq!(
+            trace.lock().hydrate(),
+            vec![
+                TraceEntry::state("stage-0", SendDataValue::boxed(0u32)),
+                TraceEntry::input("stage-0", SendDataValue::boxed(Some(1u32))),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::state("stage-0", SendDataValue::boxed(1u32)),
+                TraceEntry::suspend(Effect::receive("stage-0")),
+                TraceEntry::input("stage-0", SendDataValue::boxed(None::<u32>)),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::suspend(Effect::terminate("stage-0"))
+            ]
+        );
+    }
+
+    #[test]
+    fn try_in_stage_result() {
+        let trace = TraceBuffer::new_shared(100, 1_000_000);
+        let mut network = SimulationBuilder::default().with_trace_buffer(trace.clone());
+        let stage = network.stage("stage", async |_: u32, msg: Result<u32, u32>, eff| {
+            msg.or_terminate(&eff, async |error| {
+                eff.wait(Duration::from_secs(error.into())).await;
+            })
+            .await
+        });
+        let stage = network.wire_up(stage, 0);
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut sim = network.run(rt.handle().clone());
+
+        sim.enqueue_msg(&stage, [Ok(1)]);
+        sim.run_until_blocked();
+        assert_eq!(*sim.get_state(&stage).unwrap(), 1);
+
+        sim.enqueue_msg(&stage, [Err(2)]);
+        sim.run_until_blocked();
+        assert!(sim.is_terminated());
+
+        let two_sec = Instant::at_offset(Duration::from_secs(2));
+        pretty_assertions::assert_eq!(
+            trace.lock().hydrate(),
+            vec![
+                TraceEntry::state("stage-0", SendDataValue::boxed(0u32)),
+                TraceEntry::input("stage-0", SendDataValue::boxed(Ok::<_, u32>(1u32))),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::state("stage-0", SendDataValue::boxed(1u32)),
+                TraceEntry::suspend(Effect::receive("stage-0")),
+                TraceEntry::input("stage-0", SendDataValue::boxed(Err::<u32, _>(2u32))),
+                TraceEntry::resume("stage-0", StageResponse::Unit),
+                TraceEntry::suspend(Effect::wait("stage-0", Duration::from_secs(2))),
+                TraceEntry::clock(two_sec),
+                TraceEntry::resume("stage-0", StageResponse::WaitResponse(two_sec)),
+                TraceEntry::suspend(Effect::terminate("stage-0"))
+            ]
+        );
     }
 }

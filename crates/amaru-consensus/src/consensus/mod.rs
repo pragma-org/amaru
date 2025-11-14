@@ -14,13 +14,10 @@
 
 pub mod effects;
 pub mod errors;
-pub mod events;
 pub mod headers_tree;
 pub mod span;
 pub mod stages;
 pub mod store;
-#[cfg(any(test, feature = "test-utils"))]
-pub mod tests;
 pub mod tip;
 
 pub const EVENT_TARGET: &str = "amaru::consensus";

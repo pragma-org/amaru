@@ -12,65 +12,58 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::effects::ConsensusEffects;
-use amaru_consensus::consensus::errors::{ProcessingFailed, ValidationFailed};
-use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_consensus::consensus::stages::select_chain::SelectChain;
-use amaru_consensus::consensus::stages::{
-    fetch_block, forward_chain, receive_header, select_chain, store_block, store_header,
-    validate_block, validate_header,
+use amaru_consensus::consensus::{
+    effects::{ConsensusEffects, DisconnectEffect},
+    errors::{ProcessingFailed, ValidationFailed},
+    stages::{
+        fetch_block, forward_chain, receive_header,
+        select_chain::{self, SelectChain},
+        track_peers::{self, SyncTracker},
+        validate_block, validate_header,
+    },
+    tip::HeaderTip,
 };
-use amaru_consensus::consensus::tip::HeaderTip;
-use amaru_kernel::protocol_parameters::{ConsensusParameters, GlobalParameters};
-use amaru_slot_arithmetic::EraHistory;
+use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
-use std::sync::Arc;
 
 /// Create the graph of stages supporting the consensus protocol.
 /// The output of the graph is passed as a parameter, allowing the caller to
 /// decide what to do with the results the graph processing.
 pub fn build_stage_graph(
-    global_parameters: &GlobalParameters,
-    era_history: &'static EraHistory,
     chain_selector: SelectChain,
+    sync_tracker: SyncTracker,
     our_tip: HeaderTip,
     network: &mut impl StageGraph,
-) -> StageRef<ChainSyncEvent> {
+) -> StageRef<Tracked<ChainSyncEvent>> {
     let receive_header_stage = network.stage(
         "receive_header",
         with_consensus_effects(receive_header::stage),
     );
-    let store_header_stage =
-        network.stage("store_header", with_consensus_effects(store_header::stage));
+    let track_peers_stage =
+        network.stage("track_peers", with_consensus_effects(track_peers::stage));
     let validate_header_stage = network.stage(
         "validate_header",
         with_consensus_effects(validate_header::stage),
     );
-    let select_chain_stage =
-        network.stage("select_chain", with_consensus_effects(select_chain::stage));
     let fetch_block_stage =
         network.stage("fetch_block", with_consensus_effects(fetch_block::stage));
-    let store_block_stage =
-        network.stage("store_block", with_consensus_effects(store_block::stage));
     let validate_block_stage = network.stage(
         "validate_block",
         with_consensus_effects(validate_block::stage),
     );
+    let select_chain_stage =
+        network.stage("select_chain", with_consensus_effects(select_chain::stage));
     let forward_chain_stage = network.stage(
         "forward_chain",
         with_consensus_effects(forward_chain::stage),
     );
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
-    let validation_errors_stage = network.stage(
-        "validation_errors",
-        async |_, error: ValidationFailed, eff| {
-            tracing::error!(%error, "stage error");
-            // TODO: implement specific actions once we have an upstream network
-            // termination here will tear down the entire stage graph
-            eff.terminate().await
-        },
-    );
+    let validation_errors_stage = network.stage("validation_errors", async |_, error, eff| {
+        let ValidationFailed { peer, error } = error;
+        tracing::error!(%peer, %error, "peer error");
+        eff.external(DisconnectEffect::new(peer)).await;
+    });
 
     let processing_errors_stage = network.stage(
         "processing_errors",
@@ -92,55 +85,48 @@ pub fn build_stage_graph(
             processing_errors_stage.clone().without_state(),
         ),
     );
+
+    let select_chain_stage = network.wire_up(
+        select_chain_stage,
+        (
+            chain_selector,
+            forward_chain_stage.without_state(),
+            validation_errors_stage.clone().without_state(),
+        ),
+    );
     let validate_block_stage = network.wire_up(
         validate_block_stage,
         (
-            forward_chain_stage.without_state(),
+            select_chain_stage.without_state(),
             validation_errors_stage.clone().without_state(),
-            processing_errors_stage.clone().without_state(),
-        ),
-    );
-    let store_block_stage = network.wire_up(
-        store_block_stage,
-        (
-            validate_block_stage.without_state(),
             processing_errors_stage.clone().without_state(),
         ),
     );
     let fetch_block_stage = network.wire_up(
         fetch_block_stage,
         (
-            store_block_stage.without_state(),
+            validate_block_stage.clone().without_state(),
             validation_errors_stage.clone().without_state(),
-        ),
-    );
-    let select_chain_stage = network.wire_up(
-        select_chain_stage,
-        (
-            chain_selector,
-            fetch_block_stage.without_state(),
-            validation_errors_stage.clone().without_state(),
+            processing_errors_stage.clone().without_state(),
         ),
     );
     let validate_header_stage = network.wire_up(
         validate_header_stage,
         (
-            Arc::new(ConsensusParameters::new(
-                global_parameters.clone(),
-                era_history,
-                Default::default(),
-            )),
-            select_chain_stage.without_state(),
+            fetch_block_stage.without_state(),
             validation_errors_stage.clone().without_state(),
         ),
     );
-    let store_header_stage =
-        network.wire_up(store_header_stage, validate_header_stage.without_state());
+    let track_peers_stage = network.wire_up(
+        track_peers_stage,
+        (sync_tracker, validate_header_stage.without_state()),
+    );
     let receive_header_stage = network.wire_up(
         receive_header_stage,
         (
-            store_header_stage.without_state(),
+            track_peers_stage.without_state(),
             validation_errors_stage.without_state(),
+            processing_errors_stage.without_state(),
         ),
     );
 

@@ -17,15 +17,31 @@ use amaru::observability::{DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAU
 use std::collections::BTreeMap;
 use std::fmt::Display;
 
-use clap::{ArgMatches, CommandFactory, Parser, Subcommand};
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use observability::OpenTelemetryConfig;
 use panic::panic_handler;
 use tracing::info;
+use std::sync::LazyLock;
 
 mod cmd;
 mod metrics;
 mod panic;
 mod pid;
+
+mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
+/// Lazily initialized version string including git commit SHA.
+/// This provides a &'static str without manually leaking memory.
+static VERSION: LazyLock<String> = LazyLock::new(|| {
+    let version = built_info::PKG_VERSION;
+    match (built_info::GIT_COMMIT_HASH_SHORT, built_info::GIT_DIRTY) {
+        (Some(sha), Some(true)) => format!("{version} ({sha}+dirty)"),
+        (Some(sha), _) => format!("{version} ({sha})"),
+        _ => version.to_string(),
+    }
+});
 
 #[derive(Debug, Subcommand)]
 enum Command {
@@ -79,12 +95,17 @@ enum Command {
     ///  - Best chain anchor, tip and length
     ///
     DumpChainDB(cmd::dump_chain_db::Args),
+
+    /// Migrate the Chain Database to the current version.
+    /// This command is only relevant when one upgrades Amaru to a newer version that
+    /// requires changes in the database format.
+    MigrateChainDB(cmd::migrate_chain_db::Args),
 }
 
 #[derive(Debug, Parser)]
 #[clap(name = "Amaru")]
 #[clap(bin_name = "amaru")]
-#[clap(author, version, about, long_about = None)]
+#[clap(author, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -143,7 +164,10 @@ fn extract_raw_values(matches: &ArgMatches) -> Arguments {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
 
-    let args = Cli::parse();
+    let matches = <Cli as CommandFactory>::command()
+        .version(VERSION.as_str())
+        .get_matches();
+    let args = <Cli as FromArgMatches>::from_arg_matches(&matches)?;
 
     let mut subscriber = observability::TracingSubscriber::new();
 
@@ -199,6 +223,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
         Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
         Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
+        Command::MigrateChainDB(args) => cmd::migrate_chain_db::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook

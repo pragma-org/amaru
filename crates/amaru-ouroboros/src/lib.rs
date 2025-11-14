@@ -37,7 +37,7 @@ pub fn issuer_to_pool_id(issuer: &ed25519::PublicKey) -> PoolId {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::issuer_to_pool_id;
     use crate::ed25519;
     use pallas_codec::utils::Bytes;

@@ -15,20 +15,14 @@
 pub mod has_stake_distribution;
 pub use has_stake_distribution::{HasStakeDistribution, PoolSummary};
 
-pub mod can_fetch_block;
-pub use can_fetch_block::{BlockFetchClientError, CanFetchBlock};
-
 pub mod can_validate_blocks;
 pub use can_validate_blocks::{BlockValidationError, CanValidateBlocks};
 
 pub mod stores;
 pub use stores::*;
 
-pub mod is_header;
-pub use is_header::*;
-
 pub mod praos;
 pub use praos::*;
 
-#[cfg(test)]
-pub use is_header::fake::tests::*;
+pub mod network_operations;
+pub use network_operations::NetworkOperations;

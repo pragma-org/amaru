@@ -155,7 +155,11 @@ impl TracingSubscriber<Registry> {
 // -----------------------------------------------------------------------------
 
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> DelayedWarning {
-    let format = || tracing_subscriber::fmt::format().json();
+    let format = || {
+        tracing_subscriber::fmt::format()
+            .json()
+            .with_span_list(false)
+    };
     let events = || FmtSpan::ENTER | FmtSpan::EXIT;
     let filter = || new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
 
@@ -274,6 +278,7 @@ pub fn setup_open_telemetry(
         .with_resource(resource)
         .build();
 
+    // FIXME RK: this doesn’t seem to be used anywhere?
     opentelemetry::global::set_meter_provider(metrics_provider.clone());
 
     // Subscriber

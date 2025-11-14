@@ -434,6 +434,9 @@ pub struct GlobalParameters {
     /// Number of slots at the end of each epoch which do NOT contribute randomness to the candidate
     /// nonce of the following epoch.
     pub randomness_stabilization_window: u64,
+
+    /// POSIX time (milliseconds) of the System Start.
+    pub system_start: u64,
 }
 
 /// This data type encapsulates the parameters needed by the consensus layer to operate.

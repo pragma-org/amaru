@@ -12,8 +12,10 @@ rust-version.workspace = true
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+acto.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
+cbor4ii.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 gasket.workspace = true
@@ -21,12 +23,17 @@ hex.workspace = true
 pallas-crypto.workspace = true
 pallas-primitives.workspace = true
 parking_lot.workspace = true
-pure-stage.workspace = true
+pure-stage = { workspace = true, features = ["simulation"] }
 rand.workspace = true
 rand_distr.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal", "io-util"] }
+tokio = { workspace = true, features = [
+  "rt",
+  "rt-multi-thread",
+  "signal",
+  "io-util",
+] }
 tokio-stream.workspace = true
 tokio-util.workspace = true
 tracing-subscriber.workspace = true
@@ -35,7 +42,8 @@ tracing.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }
-amaru-consensus.workspace = true
+amaru-consensus = { workspace = true, features = ["test-utils"] }
+amaru-network.workspace = true
 amaru-ouroboros.workspace = true
 amaru-slot-arithmetic.workspace = true
 
@@ -43,7 +51,6 @@ amaru-slot-arithmetic.workspace = true
 # External dependencies ───────────────────────────────────────────────────────┐
 proptest.workspace = true
 rand.workspace = true
-tempfile.workspace = true
 amaru-tracing-json.workspace = true
 
 [[bin]]

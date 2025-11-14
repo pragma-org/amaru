@@ -15,24 +15,24 @@ rust-version.workspace = true
 [features]
 default = []
 profiling = ["dep:pprof"]
-test-utils = ["proptest", "rand", "rand_distr", "serde_json"]
+test-utils = ["proptest", "dep:rand", "serde_json"]
 
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
 hex.workspace = true
 itertools.workspace = true
+opentelemetry.workspace = true
 pallas-crypto.workspace = true
-
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
-rand_distr = { workspace = true, optional = true }
 rayon.workspace = true
 serde_json = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-opentelemetry.workspace = true
 
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
@@ -45,14 +45,13 @@ pure-stage.workspace = true
 hex.workspace = true
 proptest.workspace = true
 rand.workspace = true
-rand_distr.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
-amaru-stores = { workspace = true, features = ["test-utils"] }
+amaru-stores.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 pprof = { version = "0.15", features = ["flamegraph"], optional = true }

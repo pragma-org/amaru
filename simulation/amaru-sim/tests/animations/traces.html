@@ -1,0 +1,1356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Amaru traces animation</title>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --panel: #f3f6fb;
+            --ink: #1b1f23;
+            --muted: #6b7280;
+            --accent: #2563eb;
+            --link: #94a3b8;
+            --node: #f8fafc;
+            --node-stroke: #2563eb;
+            --stack-bg: #f8fafc;
+            --stack-border: #d1d5db;
+            --chip-bg: #ffffff;
+            --chip-border: #cbd5e1;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        }
+
+        body {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        header {
+            padding: 12px 16px;
+            background: var(--panel);
+            border-bottom: 1px solid #d1d5db;
+            display: grid;
+            grid-template-columns: auto auto 1fr;
+            gap: 12px;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 16px;
+            margin: 0;
+            font-weight: 600;
+            color: var(--ink);
+        }
+
+        .controls {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+            background: #f8fafc;
+            padding: 8px 10px;
+            border-radius: 10px;
+            border: 1px solid #d1d5db;
+            height: 48px;
+            box-sizing: border-box;
+        }
+
+        .controls button {
+            padding: 6px 10px;
+            background: white;
+            color: var(--ink);
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .controls button:hover {
+            background: #e0e7ff;
+        }
+
+        .controls label {
+            font-size: 12px;
+            color: var(--muted);
+            margin-right: 6px;
+        }
+
+        .controls input[type="range"] {
+            width: 160px;
+        }
+
+        #speedVal {
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+        }
+
+        main {
+            display: grid;
+            grid-template-columns: var(--sidebar, 280px) 1fr;
+            min-height: 0;
+        }
+
+        /* Left panel (runnable stack) */
+        aside {
+            border-right: 1px solid #e5e7eb;
+            background: #ffffff;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            position: relative;
+        }
+
+        .stackHeader {
+            padding: 12px 14px;
+            border-bottom: 1px solid #e5e7eb;
+            font-weight: 600;
+        }
+
+        .stack {
+            flex: 1 1 auto;
+            min-height: 0;
+            padding: 12px 14px 24px 14px;
+            overflow: auto;
+            background: var(--stack-bg);
+        }
+
+        .stackItem {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            gap: 8px;
+            background: var(--chip-bg);
+            border: 1px solid var(--chip-border);
+            border-radius: 8px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            box-shadow: 0 0 0 1px #ffffff inset;
+            font-size: 13px;
+        }
+
+        .stackItem .name {
+            font-weight: 600;
+        }
+
+        .stackItem .meta {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .currentTrace {
+            padding: 10px 14px;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f9fafb;
+            font-size: 12px;
+            color: var(--ink);
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 8px 12px;
+            align-items: start;
+        }
+
+        .currentTrace .label {
+            color: var(--muted);
+        }
+
+        .currentTrace code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+            font-size: 12px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 2px 6px;
+        }
+
+        .debugPanel {
+            padding: 10px 14px;
+            border-bottom: 1px solid #e5e7eb;
+            background: #ffffff;
+            font-size: 12px;
+            color: var(--ink);
+            height: 200px; /* default starting height */
+            min-height: 60px; /* don't let it collapse too much */
+            overflow: auto; /* required for CSS resize */
+            resize: vertical; /* <-- allow user to drag vertically */
+        }
+
+        .debugPanel pre {
+            margin: 0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.35;
+            /* Wrap long lines and unbroken tokens */
+            white-space: pre-wrap; /* preserve newlines, allow wrapping */
+            overflow-wrap: anywhere; /* break inside long strings */
+            word-break: break-word; /* older browsers */
+        }
+
+        /* JSON syntax colors */
+        .tok-key {
+            color: #0ea5e9;
+        }
+
+        /* sky-500 */
+        .tok-string {
+            color: #16a34a;
+        }
+
+        /* green-600 */
+        .tok-number {
+            color: #9333ea;
+        }
+
+        /* purple-600 */
+        .tok-boolean {
+            color: #db2777;
+        }
+
+        /* pink-600 */
+        .tok-null {
+            color: #6b7280;
+        }
+
+        /* gray-500 */
+        .tok-punct {
+            color: #94a3b8;
+        }
+
+        /* slate-400 */
+
+        .debugCtl {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Sidebar resizer */
+        .resizer {
+            position: absolute;
+            top: 0;
+            right: -3px; /* overlap the grid gap */
+            width: 6px;
+            height: 100%;
+            cursor: col-resize;
+            background: transparent;
+        }
+
+        .resizer:hover {
+            background: rgba(37, 99, 235, 0.12);
+        }
+
+        body.resizing {
+            cursor: col-resize;
+            user-select: none;
+        }
+
+        /* Canvas area */
+        #canvasWrap {
+            position: relative;
+            overflow: auto;
+            background: white;
+        }
+
+        svg {
+            display: block;
+            background: white;
+            max-width: none;
+            max-height: none;
+        }
+
+        .tick {
+            stroke: #e5e7eb;
+            stroke-width: 1;
+        }
+
+        .resumeNode {
+            fill: var(--node);
+            stroke: var(--node-stroke);
+            stroke-width: 2;
+            r: 18;
+            transition: stroke-width .2s ease, fill .2s ease;
+        }
+
+        .resumeNode.active {
+            stroke-width: 4;
+            fill: #eef2ff;
+        }
+
+        .stageLabel.active {
+            fill: var(--accent);
+        }
+
+        .resumeNode.suspend {
+            stroke-dasharray: 4 3;
+            stroke: #f59e0b;
+            fill: #fff7ed;
+        }
+
+        .stageLabel.suspend {
+            fill: #f59e0b;
+        }
+
+        .stageLabel {
+            font-size: 12px;
+            font-weight: 600;
+            fill: var(--ink);
+            text-anchor: middle;
+        }
+
+        .idxLabel {
+            font-size: 11px;
+            fill: var(--muted);
+            text-anchor: middle;
+        }
+
+        .hashLabel {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+            fill: var(--muted);
+            text-anchor: middle;
+        }
+
+        .effectLabel {
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+            font-size: 12px;
+            font-weight: 600;
+            text-anchor: middle;
+        }
+
+        .effectBadge text {
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+            font-size: 12px;
+            font-weight: 700;
+            dominant-baseline: middle;
+            text-anchor: middle;
+        }
+
+        .effectBadge rect {
+            rx: 8;
+            ry: 8;
+            stroke-width: 1.2;
+        }
+
+        .statusBar {
+            padding: 8px 14px;
+            border-top: 1px solid #e5e7eb;
+            font-size: 13px;
+            color: var(--muted);
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <div class="controls">
+        <button id="loadBtn">Load traces</button>
+        <input type="file" id="fileInput" accept=".json" hidden>
+        <button id="playPause">Play</button>
+        <button id="restart">Restart</button>
+        <button id="stepBack" title="Step backward">◀ Step</button>
+        <button id="stepFwd" title="Step forward">Step ▶</button>
+        <label class="debugCtl"><input id="debugToggle" type="checkbox"> debug</label>
+    </div>
+
+    <div class="controls">
+        <label for="speed">Speed</label>
+        <input id="speed" type="range" min="0.10" max="100.0" step="0.1" value="1.0"/>
+        <span id="speedVal">x1.00</span>
+    </div>
+
+    <h1>Traces animation</h1>
+</header>
+
+<main>
+    <aside>
+        <div id="currentTrace" class="currentTrace" aria-live="polite"></div>
+        <div id="debugPanel" class="debugPanel" hidden></div>
+        <div class="stackHeader">Runnable stack</div>
+        <div id="stack" class="stack" aria-live="polite"></div>
+        <div class="statusBar">
+            <span id="status">No data loaded</span>
+            <span id="progress">0 / 0</span>
+        </div>
+        <div id="sidebarResizer" class="resizer" role="separator" aria-orientation="vertical"
+             aria-label="Resize sidebar" tabindex="0"></div>
+    </aside>
+
+    <div id="canvasWrap">
+        <svg id="svg" width="1200" height="480" viewBox="0 0 1200 480" role="img"
+             aria-label="Resume events timeline"></svg>
+    </div>
+</main>
+
+<script>
+    // --- State ---
+    let traces = [];
+    let resumes = []; // only {i, stage, runnable}
+    let events = [];       // ordered list of { kind: 'resume'|'input', stage, runnable?, input? }
+    let uniqueStages = []; // first-seen order across resume+input
+    // no stages or stageIndex anymore
+    let stageElems = {}; // name -> { circle, label, x }
+    let prevActive = null;
+    let iEvent = 0;
+    let running = false;
+    let rafId = null;
+    let speed = 1.0;
+    let baseDelayMs = 700; // base spacing between resume events (scaled by speed)
+    let hashCounts = new Map(); // increments for each input event displayed
+    let suspendedStages = new Set();
+    let labelSeq = 0; // monotonically increasing order for hash labels
+    let centerY = 0; // vertical center used for nodes; labels stack from this baseline
+    let currentRunnable = [];
+
+    const fileInput = document.getElementById('fileInput');
+    const loadBtn = document.getElementById('loadBtn');
+    const playPauseBtn = document.getElementById('playPause');
+    const restartBtn = document.getElementById('restart');
+    const speedSlider = document.getElementById('speed');
+    const speedVal = document.getElementById('speedVal');
+    const currentTraceEl = document.getElementById('currentTrace');
+    const stackEl = document.getElementById('stack');
+    const statusEl = document.getElementById('status');
+    const progressEl = document.getElementById('progress');
+    const svg = document.getElementById('svg');
+    const canvas = document.getElementById('canvasWrap');
+    const stepBackBtn = document.getElementById('stepBack');
+    const stepFwdBtn = document.getElementById('stepFwd');
+    const debugToggle = document.getElementById('debugToggle');
+    const debugPanel = document.getElementById('debugPanel');
+    const sidebarResizer = document.getElementById('sidebarResizer');
+    const mainEl = document.querySelector('main');
+
+    // Persist debug panel height across sessions
+    (function initDebugResizePersistence() {
+        if (!debugPanel) return;
+        const KEY = 'traces.debugHeight';
+        const saved = localStorage.getItem(KEY);
+        if (saved) {
+            debugPanel.style.height = saved;
+        }
+        if (typeof ResizeObserver !== 'undefined') {
+            const ro = new ResizeObserver(entries => {
+                for (const entry of entries) {
+                    // When user resizes via CSS `resize`, browsers set an inline height.
+                    const h = entry.target.style.height || (entry.contentRect && (entry.contentRect.height + 'px'));
+                    if (h) localStorage.setItem(KEY, h);
+                }
+            });
+            ro.observe(debugPanel);
+        }
+    })();
+
+    // UI handlers
+    loadBtn.onclick = () => fileInput.click();
+    fileInput.onchange = (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                traces = JSON.parse(reader.result);
+                prepareResumes(traces);
+                drawAxis();
+                reset();
+                statusEl.textContent = 'Ready';
+                // Auto-start simulation on load if there are events
+                if (events.length > 0) {
+                    running = true;
+                    playPauseBtn.textContent = 'Pause';
+                    tick();
+                }
+            } catch (err) {
+                alert('Failed to parse JSON: ' + (err?.message || err));
+            } finally {
+                fileInput.value = '';
+            }
+        };
+        reader.readAsText(f);
+    };
+
+    playPauseBtn.onclick = () => {
+        if (!events.length) return;
+        if (running) {
+            running = false;
+            playPauseBtn.textContent = 'Play';
+            if (rafId) cancelAnimationFrame(rafId);
+            rafId = null;
+        } else {
+            running = true;
+            playPauseBtn.textContent = 'Pause';
+            tick();
+        }
+    };
+
+    restartBtn.onclick = () => reset();
+
+    speedSlider.addEventListener('input', () => {
+        speed = parseFloat(speedSlider.value || '1.0');
+        speedVal.textContent = 'x' + speed.toFixed(2);
+    });
+
+    // Keyboard shortcuts: 'l' to load, 'p' to play/pause, ArrowLeft/ArrowRight to step
+    document.addEventListener('keydown', (e) => {
+        // ignore if typing inside an input or textarea
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+        if (e.key === 'l' || e.key === 'L') {
+            fileInput.click();
+            e.preventDefault();
+        } else if (e.key === 'p' || e.key === 'P') {
+            playPauseBtn.click();
+            e.preventDefault();
+        } else if (e.key === 'ArrowLeft') {
+            // step backward one event
+            if (stepBackBtn) stepBackBtn.click();
+            e.preventDefault();
+        } else if (e.key === 'ArrowRight') {
+            // step forward one event
+            if (stepFwdBtn) stepFwdBtn.click();
+            e.preventDefault();
+        }
+    });
+
+    // Build resumes, events, and uniqueStages from all traces
+    function prepareResumes(all) {
+        resumes = [];
+        events = [];
+        uniqueStages = [];
+        stageElems = {};
+        prevActive = null;
+        if (!Array.isArray(all)) return;
+        const seen = new Set();
+        for (let i = 0; i < all.length; i++) {
+            const t = all[i] || {};
+            const stageName = make_stage_name(t);
+            if (t.type === 'resume') {
+                const runnable = (Array.isArray(t.runnable)
+                    ? t.runnable
+                    : (t && Object.prototype.hasOwnProperty.call(t, 'runnable') ? [] : null));
+                resumes.push({i, stage: stageName, runnable});
+                events.push({kind: 'resume', stage: stageName, runnable, raw: t});
+            } else if (t.type === 'input') {
+                const input = t.input != null ? String(t.input) : '';
+                events.push({kind: 'input', stage: stageName, input, raw: t});
+            } else if (t.type === 'suspend') {
+                const effectLabel = extractEffectLabel(t && t.effect && t.effect.effect_type);
+                const runnable = (Array.isArray(t.runnable)
+                    ? t.runnable
+                    : (t && Object.prototype.hasOwnProperty.call(t, 'runnable') ? [] : null));
+                events.push({kind: 'suspend', stage: stageName, runnable, raw: t, effect_label: effectLabel});
+            }
+
+            if (t.type === 'resume' || t.type === 'input' || t.type === 'suspend') {
+                if (!seen.has(stageName)) {
+                    seen.add(stageName);
+                    uniqueStages.push(stageName);
+                }
+            }
+        }
+    }
+
+    function make_stage_name(t) {
+        if (t.type === 'resume') {
+            return displayStageName(t.stage ?? '(unknown)');
+        } else if (t.type === 'input') {
+            return displayStageName(t.stage ?? '(unknown)');
+        } else if (t.type === 'suspend') {
+            let stageName =
+                (t && t.effect && (t.effect.at_stage || t.effect.from)) ??
+                t.stage ??
+                '(unknown)';
+            return displayStageName(stageName);
+        }
+        return displayStageName(t.stage ?? '(unknown)')
+    }
+
+    // Draw a light baseline with index ticks
+    function drawAxis() {
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        const ns = 'http://www.w3.org/2000/svg';
+        const margin = {left: 80, right: 40, top: 60, bottom: 80};
+
+        const w = Math.max(800, margin.left + margin.right + uniqueStages.length * 160);
+        const h = 480;
+        svg.setAttribute('width', w);
+        svg.setAttribute('height', h);
+        svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+        const y = h / 2;
+        centerY = y;
+        // Draw connecting segments between consecutive stages
+        if (uniqueStages.length > 1) {
+            const r = 18; // circle radius (match .resumeNode)
+            for (let k = 0; k < uniqueStages.length - 1; k++) {
+                const x1 = margin.left + k * 160 + r;
+                const x2 = margin.left + (k + 1) * 160 - r;
+                const seg = document.createElementNS(ns, 'line');
+                seg.setAttribute('x1', x1);
+                seg.setAttribute('y1', y);
+                seg.setAttribute('x2', x2);
+                seg.setAttribute('y2', y);
+                seg.setAttribute('class', 'tick');
+                svg.appendChild(seg);
+            }
+        }
+
+        // Draw one circle per first-seen stage name
+        drawStageNodes(ns, margin, y, uniqueStages);
+        ensureCanvasHeightForLabels();
+    }
+
+    // Display helper: strip a trailing "-number" suffix from stage names
+    function displayStageName(name) {
+        return String(name || '')
+            .replace(/-\d+$/, '');
+    }
+
+    function drawStageNodes(ns, margin, y, uniqueStages) {
+        stageElems = {};
+        const seen = new Set();
+        for (let k = 0; k < uniqueStages.length; k++) {
+            const name = uniqueStages[k];
+            if (seen.has(name)) continue; // safety guard
+            seen.add(name);
+            const x = margin.left + k * 160;
+
+            const c = document.createElementNS(ns, 'circle');
+            c.setAttribute('cx', x);
+            c.setAttribute('cy', y);
+            c.setAttribute('class', 'resumeNode');
+            svg.appendChild(c);
+
+            const t = document.createElementNS(ns, 'text');
+            t.setAttribute('x', x);
+            t.setAttribute('y', y - 28);
+            t.setAttribute('class', 'stageLabel');
+            t.textContent = displayStageName(name);
+            svg.appendChild(t);
+
+            stageElems[name] = {circle: c, label: t, x};
+        }
+    }
+
+    function reset() {
+        // Clear active highlighting but keep the stage nodes
+        clearHashes();
+        clearEffectBadges();
+        Object.values(stageElems).forEach(({circle, label}) => {
+            circle.classList.remove('active', 'suspend');
+            label.classList.remove('active', 'suspend');
+        });
+        iEvent = 0;
+        hashCounts = new Map();
+        suspendedStages = new Set();
+        currentRunnable = [];
+        updateStack(currentRunnable);
+        setCurrentTrace(null);
+        setDebugTrace(null);
+        updateProgress();
+        running = false;
+        prevActive = null;
+        playPauseBtn.textContent = 'Play';
+        statusEl.textContent = resumes.length ? 'Ready' : 'No data loaded';
+    }
+
+    function updateProgress() {
+        progressEl.textContent = `${Math.min(iEvent, events.length)} / ${events.length}`;
+    }
+
+    function clearHashes() {
+        svg.querySelectorAll('.hashLabel').forEach(n => n.remove());
+    }
+
+    function layoutStageLabels(stageName) {
+        const ns = 'http://www.w3.org/2000/svg';
+        const el = stageElems[stageName];
+        if (!el) return;
+        const baseY = centerY + 36;
+        const lineGap = 14; // vertical spacing between labels
+        // Collect labels for this stage and sort by insertion order
+        const nodes = Array.from(
+            svg.querySelectorAll(`.hashLabel[data-stage="${stageName}"]`)
+        );
+        nodes.sort((a, b) => (Number(a.getAttribute('data-order')) || 0) - (Number(b.getAttribute('data-order')) || 0));
+        nodes.forEach((n, idx) => {
+            const y = baseY + idx * lineGap;
+            n.setAttribute('y', y);
+        });
+    }
+
+    function ensureCanvasHeightForLabels() {
+        const lineGap = 14;
+        const baseY = centerY + 36;
+        let maxCount = 0;
+        for (const name of Object.keys(stageElems)) {
+            const count = svg.querySelectorAll(`.hashLabel[data-stage="${name}"]`).length;
+            if (count > maxCount) maxCount = count;
+        }
+        // Leave a small bottom margin (24px). Minimum canvas height 480.
+        const needed = Math.max(480, baseY + (maxCount > 0 ? (maxCount - 1) * lineGap : 0) + 24);
+
+        const vb = svg.viewBox.baseVal;
+        const curH = vb && vb.height ? vb.height : svg.height.baseVal.value;
+        const curW = vb && vb.width ? vb.width : svg.width.baseVal.value;
+
+        if (needed > curH) {
+            svg.setAttribute('height', needed);
+            svg.setAttribute('viewBox', `0 0 ${curW} ${needed}`);
+        }
+    }
+
+    function removeLabelElsewhere(stageName, key) {
+        const nodes = svg.querySelectorAll('.hashLabel[data-key]');
+        const affected = new Set();
+        nodes.forEach(n => {
+            const currentStage = n.getAttribute('data-stage')
+
+            // Make sure that we don't remove labels from forward_chain which is the last stage.
+            // This should reflect the headers sent to the downstream peers.
+            if (n.getAttribute('data-key') === key && currentStage !== stageName && !currentStage.startsWith('forward_chain')) {
+                affected.add(n.getAttribute('data-stage'));
+                n.remove();
+            }
+        });
+        // Re-layout all affected stages since their label count changed
+        affected.forEach(st => layoutStageLabels(st));
+        ensureCanvasHeightForLabels();
+    }
+
+    function markSuspend(stageName) {
+        suspendedStages.add(stageName);
+        const el = stageElems[stageName];
+        if (el) {
+            el.circle.classList.add('suspend');
+            el.label.classList.add('suspend');
+        }
+    }
+
+    function clearSuspendFor(stageName) {
+        suspendedStages.delete(stageName);
+        const el = stageElems[stageName];
+        if (el) {
+            el.label.classList.remove('suspend');
+        }
+
+        if (el && el.circle) {
+            el.circle.classList.remove('suspend');
+        }
+    }
+
+    function extractHash(inputStr) {
+        if (!inputStr) return null;
+        // 1) hash: <value>
+        let m = inputStr.match(/\bhash:\s*([^\s,}]+)\b/);
+        if (m) return m[1];
+        // 2) Specific: [integer, <value>]
+        m = inputStr.match(/\bSpecific:\s*\[\s*\d+\s*,\s*([^\s\]]+)\s*\]/);
+        if (m) return m[1];
+        // 3) block_body_hash: <value>
+        m = inputStr.match(/\bblock_body_hash:\s*([^\s,}]+)\b/);
+        if (m) return m[1];
+        console.warn('[traces] extractHash: no hash found for inputStr =', inputStr);
+        return null;
+    }
+
+    function extractPeer(inputStr) {
+        if (!inputStr) return null;
+        // 1) peer: { name: <peer name> }
+        let m = inputStr.match(/\bpeer\s*:\s*\{[^}]*\bname\s*:\s*["']?([^"'\\s,}]+)["']?/);
+        if (m) return m[1];
+        // 2) src: <peer name>
+        m = inputStr.match(/\bsrc\s*:\s*["']?([^"'\\s,}]+)["']?/);
+        if (m) return m[1];
+        return null;
+    }
+
+    function extractTraceType(inputStr) {
+        if (!inputStr) return 'fwd';
+        // `type: bck` anywhere in the structured text (case-insensitive)
+        if (/\btype\s*:\s*bck\b/i.test(inputStr)) return 'bck';
+        // If payload mentions a Rollback (in input/msg strings), treat as back
+        if (/\bRollback\b/.test(inputStr)) return 'bck';
+        // If payload mentions a RolledBackTo (in input/msg strings), treat as back
+        if (/\bRolledBackTo\b/.test(inputStr)) return 'bck';
+        return 'fwd';
+    }
+
+    function extractEffectLabel(effectTypeStr) {
+        if (!effectTypeStr) return null;
+        // Take last path segment after '::'
+        const lastSeg = String(effectTypeStr).split('::').pop() || '';
+        // Match SomethingEffect at the end
+        const m = lastSeg.match(/([A-Za-z0-9]+)Effect$/);
+        const core = m ? m[1] : lastSeg.replace(/Effect$/, '');
+        if (!core) return null;
+        // Convert PascalCase/CamelCase to snake_case
+        return core
+            .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+            .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+            .toLowerCase();
+    }
+
+    function colorFor(str) {
+        // Simple string hash → hue
+        let h = 0;
+        const s = String(str);
+        for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+        const hue = h % 360;
+        return `hsl(${hue}, 65%, 40%)`;
+    }
+
+    function showHashForStage(stageName, hash, peer, traceType) {
+        const el = stageElems[stageName];
+        if (!el) return;
+        const ns = 'http://www.w3.org/2000/svg';
+        const ttype = (traceType ?? 'fwd');
+        const key = `${String(hash)}-${peer ?? 'unknown'}-${ttype}`;
+        removeLabelElsewhere(stageName, key);
+        const t = document.createElementNS(ns, 'text');
+        t.setAttribute('x', el.x);
+        t.setAttribute('class', 'hashLabel');
+        t.setAttribute('data-stage', stageName);
+        t.setAttribute('data-key', key);
+        if (hash) t.setAttribute('data-hash', String(hash));
+        if (peer != null) t.setAttribute('data-peer', String(peer));
+        t.setAttribute('data-order', String(++labelSeq));
+        t.setAttribute('data-trace-type', ttype);
+
+        const short = String(hash).slice(0, 6);
+        const who = (peer != null && String(peer).length) ? String(peer) : '?';
+        t.textContent = `${ttype}: ${short} (${who})`;
+        t.setAttribute('title', `${ttype}: ${String(hash)} (${who})`);
+        svg.appendChild(t);
+
+        // Ensure labels under this stage are stacked without gaps/overlaps
+        layoutStageLabels(stageName);
+        ensureCanvasHeightForLabels();
+    }
+
+    function showEffectLabel(stageName, effectLabel) {
+        if (!effectLabel) return;
+        const el = stageElems[stageName];
+        if (!el) return;
+        const ns = 'http://www.w3.org/2000/svg';
+
+        // If a badge for this exact effect already exists for this stage, do nothing
+        let g = svg.querySelector(`.effectBadge[data-stage="${stageName}"][data-effect="${effectLabel}"]`);
+        const hueColor = (function () {
+            // derive stroke/fill from string
+            let h = 0;
+            const s = String(effectLabel);
+            for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+            const hue = h % 360;
+            return {
+                stroke: `hsl(${hue}, 65%, 40%)`,
+                fill: `hsl(${hue}, 90%, 96%)`
+            };
+        })();
+
+        if (!g) {
+            g = document.createElementNS(ns, 'g');
+            g.setAttribute('class', 'effectBadge');
+            g.setAttribute('data-stage', stageName);
+            g.setAttribute('data-effect', effectLabel);
+            svg.appendChild(g);
+            const rect = document.createElementNS(ns, 'rect');
+            const text = document.createElementNS(ns, 'text');
+            rect.setAttribute('stroke', hueColor.stroke);
+            rect.setAttribute('fill', hueColor.fill);
+            text.setAttribute('fill', hueColor.stroke);
+            text.textContent = effectLabel;
+            g.appendChild(rect);
+            g.appendChild(text);
+        } else {
+            // Update colors/text if needed
+            const rect = g.querySelector('rect');
+            const text = g.querySelector('text');
+            if (rect) {
+                rect.setAttribute('stroke', hueColor.stroke);
+                rect.setAttribute('fill', hueColor.fill);
+            }
+            if (text) {
+                text.setAttribute('fill', hueColor.stroke);
+                text.textContent = effectLabel;
+            }
+        }
+
+        // Tint the stage circle via inline style so it overrides class-based CSS
+        // and takes the same color as the effect label badge
+        if (el.circle) {
+            el.circle.style.stroke = hueColor.stroke;
+            el.circle.style.fill = hueColor.fill;
+            el.circle.style.strokeDasharray = 'none';
+        }
+
+        // Position badge above the stage label
+        const circleY = centerY;                  // center of node row
+        const labelGap = 14;                      // larger gap to avoid overlap
+        const stageLabelY = circleY - 28;         // existing stage label baseline
+        const padX = 8, padY = 4;                 // padding inside the badge
+
+        const textEl = g.querySelector('text');
+        const rectEl = g.querySelector('rect');
+        // set a provisional position to measure text bbox
+        textEl.setAttribute('x', el.x);
+        textEl.setAttribute('y', 0);
+        // Ensure it's in the DOM before measuring
+        const bbox = textEl.getBBox();
+        const bw = Math.ceil(bbox.width);
+        const bh = Math.ceil(bbox.height);
+        const boxW = bw + padX * 2;
+        const boxH = bh + padY * 2;
+        const rectX = el.x - boxW / 2;
+        const rectY = stageLabelY - labelGap - boxH; // above the stage name
+        rectEl.setAttribute('x', rectX);
+        rectEl.setAttribute('y', rectY);
+        rectEl.setAttribute('width', boxW);
+        rectEl.setAttribute('height', boxH);
+        // Center text within the rect
+        textEl.setAttribute('x', el.x);
+        textEl.setAttribute('y', rectY + boxH / 2);
+    }
+
+    function clearEffectBadges() {
+        // Remove all effect badges
+        svg.querySelectorAll('.effectBadge').forEach(n => n.remove());
+
+        // Reset any inline coloring/dash overrides so CSS classes take effect again
+        Object.values(stageElems).forEach(({circle}) => {
+            if (!circle) return;
+            // Clear both CSS names and JS camelCase, to be thorough
+            circle.style.removeProperty('stroke');
+            circle.style.removeProperty('fill');
+            circle.style.removeProperty('stroke-dasharray');
+        });
+    }
+
+    function highlightStage(name, mode = 'resume') {
+        const el = stageElems[name];
+        if (!el) return;
+        // clear previous visual state
+        if (prevActive && stageElems[prevActive]) {
+            const prev = stageElems[prevActive];
+            // Only remove active highlight; keep suspend if it was set
+            prev.circle.classList.remove('active');
+            prev.label.classList.remove('active');
+        }
+        // apply mode-specific class
+        if (mode === 'suspend') {
+            el.circle.classList.add('suspend');
+            el.label.classList.add('suspend');
+        } else {
+            el.circle.classList.add('active');
+            el.label.classList.add('active');
+        }
+        prevActive = name;
+
+        // Auto-scroll to keep active stage in view
+        const pad = 160;
+        const xTarget = el.x;
+        const needed = Math.max(0, xTarget - (canvas.scrollLeft + canvas.clientWidth - pad));
+        if (needed > 0) canvas.scrollLeft += needed;
+    }
+
+    function updateStack(runnable) {
+        // Only change the stored runnable if the trace provided one.
+        // runnable === null or undefined means: no update; keep current values.
+        if (Array.isArray(runnable)) {
+            currentRunnable = runnable;
+        } else if (runnable === null || typeof runnable === 'undefined') {
+            // keep currentRunnable as-is
+        } else {
+            // Defensive: unexpected type, do not change
+        }
+
+        // Re-render from currentRunnable
+        stackEl.innerHTML = '';
+        const arr = currentRunnable || [];
+
+        // We show the "current value of the runnable field" as a single stack of items
+        // Top of array at the TOP of the stack (index 0 first)
+        for (let i = 0; i < arr.length; i++) {
+            const it = arr[i] || {};
+            const div = document.createElement('div');
+            div.className = 'stackItem';
+
+            const name = document.createElement('div');
+            name.className = 'name';
+            name.textContent = it.name
+                ? it.name.replace(/-\d+$/, '')
+                : '(unknown)';
+
+            const meta = document.createElement('div');
+            meta.className = 'meta';
+            if (it.response && it.response.type === 'external' && it.response.msg) {
+                meta.textContent = `external: ${it.response.msg ?? '—'}`;
+            }
+            div.appendChild(name);
+            div.appendChild(meta);
+            stackEl.appendChild(div);
+        }
+    }
+
+    function setCurrentTrace(ev, hashVal = null, peer = null, traceType = null) {
+        if (!currentTraceEl) return;
+        if (!ev) {
+            currentTraceEl.innerHTML = '';
+            return;
+        }
+        const type = ev.kind || ev.type || 'unknown';
+        const stage = ev.stage ?? '(unknown)';
+        const stageLabel = displayStageName(stage);
+        let right = '';
+        if (type === 'input') {
+            const ttype = (traceType ?? extractTraceType(ev.input) ?? 'fwd');
+            const short = String(hashVal).slice(0, 6);
+            const who = (peer != null && String(peer).length) ? ` (${peer})` : '';
+            right = hashVal
+                ? `<code title="${ttype}: ${String(hashVal)}${who}">${ttype}: ${short}${who}</code>`
+                : `<span class="label">—</span>`;
+        } else {
+            right = `<span class="label">—</span>`;
+        }
+        currentTraceEl.innerHTML = `
+    <span class="label">type</span><span>${type}</span>
+    <span class="label">stage</span><span>${stageLabel}</span>
+    <span class="label">data</span><span>${right}</span>
+  `;
+    }
+
+    function setDebugTrace(ev) {
+        if (!debugPanel) return;
+        const on = !!(debugToggle && debugToggle.checked);
+        if (!on || !ev) {
+            debugPanel.hidden = true;
+            debugPanel.innerHTML = '';
+            return;
+        }
+        debugPanel.hidden = false;
+        debugPanel.innerHTML = '';
+        const pre = document.createElement('pre');
+        pre.innerHTML = prettyPrintTrace(ev);
+        debugPanel.appendChild(pre);
+    }
+
+    // Helper to pretty-print and highlight JSON, handling JSON-stringified traces as well
+    function prettyPrintTrace(ev) {
+        const src = ev && (ev.raw ?? ev);
+        let val = src;
+        if (typeof val === 'string') {
+            try {
+                val = JSON.parse(val);
+            } catch (_) { /* leave as string */
+            }
+        }
+
+        function esc(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function renderString(s) {
+            return '<span class="tok-string">"' + esc(s) + '"</span>';
+        }
+
+        function renderKey(k) {
+            return '<span class="tok-key">"' + esc(k) + '"</span>';
+        }
+
+        function renderPunct(p) {
+            return '<span class="tok-punct">' + esc(p) + '</span>';
+        }
+
+        function render(val, depth) {
+            const pad = '  '.repeat(depth);
+            const padNext = '  '.repeat(depth + 1);
+            if (val === null) return '<span class="tok-null">null</span>';
+            const t = typeof val;
+            if (t === 'string') return renderString(val);
+            if (t === 'number') return '<span class="tok-number">' + String(val) + '</span>';
+            if (t === 'boolean') return '<span class="tok-boolean">' + String(val) + '</span>';
+
+            if (Array.isArray(val)) {
+                if (val.length === 0) return renderPunct('[]');
+                let out = renderPunct('[') + '\n';
+                for (let i = 0; i < val.length; i++) {
+                    out += padNext + render(val[i], depth + 1);
+                    out += (i < val.length - 1 ? renderPunct(',') : '') + '\n';
+                }
+                out += pad + renderPunct(']');
+                return out;
+            }
+
+            if (t === 'object') {
+                const keys = Object.keys(val);
+                if (keys.length === 0) return renderPunct('{}');
+                let out = renderPunct('{') + '\n';
+                for (let i = 0; i < keys.length; i++) {
+                    const k = keys[i];
+                    out += padNext + renderKey(k) + renderPunct(': ') + render(val[k], depth + 1);
+                    out += (i < keys.length - 1 ? renderPunct(',') : '') + '\n';
+                }
+                out += pad + renderPunct('}');
+                return out;
+            }
+
+            // Fallback
+            return esc(String(val));
+        }
+
+        return render(val, 0);
+    }
+
+    // Simple timed “animation”: renders one event per step, spaced by baseDelayMs / speed
+    let lastStepAt = 0;
+
+    function tick(_now) {
+        if (!running) return;
+
+        const now = performance.now();
+        if (!lastStepAt) lastStepAt = now;
+
+        const needed = baseDelayMs / speed;
+        if ((now - lastStepAt) >= needed) {
+            if (iEvent < events.length) {
+                const ev = events[iEvent];
+                if (ev.kind === 'resume') {
+                    clearEffectBadges();
+                    clearSuspendFor(ev.stage);
+                    highlightStage(ev.stage);
+                    updateStack(ev.runnable ?? null);
+                    setCurrentTrace(ev);
+                    setDebugTrace(ev);
+                } else if (ev.kind === 'input') {
+                    const h = extractHash(ev.input);
+                    const peer = extractPeer(ev.input);
+                    const ttype = extractTraceType(ev.input);
+                    setCurrentTrace(ev, h, peer, ttype);
+                    setDebugTrace(ev);
+                    showHashForStage(ev.stage, h, peer, ttype);
+                } else if (ev.kind === 'suspend') {
+                    clearEffectBadges();
+                    markSuspend(ev.stage);
+                    highlightStage(ev.stage, 'suspend');
+                    updateStack(ev.runnable ?? null);
+                    setCurrentTrace(ev);
+                    showEffectLabel(
+                        ev.stage,
+                        ev.effect_label || (ev.raw && ev.raw.effect && extractEffectLabel(ev.raw.effect.effect_type))
+                    );
+                    setDebugTrace(ev);
+                }
+
+                iEvent++;
+                updateProgress();
+                lastStepAt = now;
+            } else {
+                running = false;
+                playPauseBtn.textContent = 'Play';
+                statusEl.textContent = 'Finished';
+                return;
+            }
+        }
+        rafId = requestAnimationFrame(tick);
+    }
+
+    // Render timeline up to a specific event index
+    function renderUpTo(targetIndex) {
+        // clamp
+        const target = Math.max(0, Math.min(targetIndex, events.length));
+        // reset visual state (but keep events)
+        clearHashes();
+        Object.values(stageElems).forEach(({circle, label}) => {
+            circle.classList.remove('active');
+            label.classList.remove('active');
+        });
+        currentRunnable = [];
+        updateStack(currentRunnable);
+        prevActive = null;
+        hashCounts = new Map();
+        suspendedStages = new Set();
+
+        // replay events up to target
+        for (let i = 0; i < target; i++) {
+            const ev = events[i];
+            clearEffectBadges();
+
+            if (ev.kind === 'resume') {
+                clearSuspendFor(ev.stage);
+                highlightStage(ev.stage);
+                updateStack(ev.runnable ?? null);
+            } else if (ev.kind === 'input') {
+                const h = extractHash(ev.input);
+                const peer = extractPeer(ev.input);
+                const ttype = extractTraceType(ev.input);
+                showHashForStage(ev.stage, h, peer, ttype);
+            } else if (ev.kind === 'suspend') {
+                markSuspend(ev.stage);
+                highlightStage(ev.stage, 'suspend');
+                updateStack(ev.runnable ?? null);
+                showEffectLabel(
+                    ev.stage,
+                    ev.effect_label || (ev.raw && ev.raw.effect && extractEffectLabel(ev.raw.effect.effect_type))
+                );
+                setCurrentTrace(ev);
+            }
+        }
+        if (target > 0) {
+            const last = events[target - 1];
+            if (last.kind === 'input') {
+                const h = extractHash(last.input);
+                const peer = extractPeer(last.input);
+                const ttype = extractTraceType(last.input);
+                setCurrentTrace(last, h, peer, ttype);
+            } else {
+                setCurrentTrace(last);
+            }
+            setDebugTrace(last);
+        } else {
+            setCurrentTrace(null);
+            setDebugTrace(null);
+        }
+        iEvent = target;
+        updateProgress();
+    }
+
+    stepBackBtn.onclick = () => {
+        if (!events.length) return;
+        // pause playback
+        running = false;
+        playPauseBtn.textContent = 'Play';
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        renderUpTo(iEvent - 1);
+    };
+
+    stepFwdBtn.onclick = () => {
+        if (!events.length) return;
+        // pause playback
+        running = false;
+        playPauseBtn.textContent = 'Play';
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        renderUpTo(iEvent + 1);
+    };
+
+    if (debugToggle) {
+        debugToggle.addEventListener('change', () => {
+            if (iEvent > 0 && iEvent <= events.length) {
+                setDebugTrace(events[iEvent - 1]);
+            } else {
+                setDebugTrace(null);
+            }
+        });
+    }
+
+    window.addEventListener('resize', () => {
+        Object.keys(stageElems).forEach(name => layoutStageLabels(name));
+        ensureCanvasHeightForLabels();
+    });
+
+    // Sidebar resize logic
+    (function initSidebarResize() {
+        const root = document.documentElement;
+        const MIN_W = 220; // px
+        const MAX_W_BUFFER = 200; // must leave at least this much for the right pane
+        let dragging = false;
+
+        // Load persisted width
+        const saved = localStorage.getItem('traces.sidebarWidth');
+        if (saved) {
+            root.style.setProperty('--sidebar', saved);
+        }
+
+        function clamp(n, min, max) {
+            return Math.max(min, Math.min(max, n));
+        }
+
+        function onMouseMove(e) {
+            if (!dragging) return;
+            const rect = mainEl.getBoundingClientRect();
+            const maxW = Math.max(MIN_W, rect.width - MAX_W_BUFFER);
+            let w = e.clientX - rect.left;
+            w = clamp(w, MIN_W, maxW);
+            root.style.setProperty('--sidebar', w + 'px');
+        }
+
+        function onMouseUp() {
+            if (!dragging) return;
+            dragging = false;
+            document.body.classList.remove('resizing');
+            // persist
+            const val = getComputedStyle(root).getPropertyValue('--sidebar').trim();
+            if (val) localStorage.setItem('traces.sidebarWidth', val);
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        }
+
+        function startDrag() {
+            dragging = true;
+            document.body.classList.add('resizing');
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        }
+
+        if (sidebarResizer) {
+            sidebarResizer.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                startDrag();
+            });
+            // Double-click to reset width
+            sidebarResizer.addEventListener('dblclick', () => {
+                root.style.setProperty('--sidebar', '280px');
+                localStorage.setItem('traces.sidebarWidth', '280px');
+            });
+            // Keyboard support: left/right arrows when focused
+            sidebarResizer.addEventListener('keydown', (e) => {
+                const step = (e.shiftKey ? 40 : 10);
+                const cur = parseFloat(getComputedStyle(root).getPropertyValue('--sidebar')) || 280;
+                if (e.key === 'ArrowLeft') {
+                    const rect = mainEl.getBoundingClientRect();
+                    const maxW = Math.max(MIN_W, rect.width - MAX_W_BUFFER);
+                    const w = clamp(cur - step, MIN_W, maxW);
+                    root.style.setProperty('--sidebar', w + 'px');
+                    localStorage.setItem('traces.sidebarWidth', w + 'px');
+                    e.preventDefault();
+                } else if (e.key === 'ArrowRight') {
+                    const rect = mainEl.getBoundingClientRect();
+                    const maxW = Math.max(MIN_W, rect.width - MAX_W_BUFFER);
+                    const w = clamp(cur + step, MIN_W, maxW);
+                    root.style.setProperty('--sidebar', w + 'px');
+                    localStorage.setItem('traces.sidebarWidth', w + 'px');
+                    e.preventDefault();
+                } else if (e.key === 'Home') {
+                    root.style.setProperty('--sidebar', MIN_W + 'px');
+                    localStorage.setItem('traces.sidebarWidth', MIN_W + 'px');
+                    e.preventDefault();
+                } else if (e.key === 'End') {
+                    const rect = mainEl.getBoundingClientRect();
+                    const maxW = Math.max(MIN_W, rect.width - MAX_W_BUFFER);
+                    root.style.setProperty('--sidebar', maxW + 'px');
+                    localStorage.setItem('traces.sidebarWidth', maxW + 'px');
+                    e.preventDefault();
+                }
+            });
+        }
+    })();
+</script>
+</body>
+</html>

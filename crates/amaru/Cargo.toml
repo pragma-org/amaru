@@ -21,7 +21,6 @@ async-compression.workspace = true
 async-trait.workspace = true
 clap.workspace = true
 futures-util.workspace = true
-gasket.workspace = true
 hex.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
@@ -47,8 +46,8 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru-consensus.workspace = true
-amaru-kernel.workspace = true
+amaru-consensus = { workspace = true, features = [] }
+amaru-kernel = { workspace = true, features = ["tracing"] }
 amaru-ledger.workspace = true
 amaru-network.workspace = true
 amaru-stores.workspace = true
@@ -69,10 +68,10 @@ rand.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
 rocksdb.workspace = true
-once_cell.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-iter-borrow.workspace = true
+amaru-kernel = { workspace = true, features = ["test-utils"] }
 
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }

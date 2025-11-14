@@ -12,18 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::cmd::default_chain_dir;
 use crate::pid::with_optional_pid_file;
-use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
+use crate::{cmd::default_ledger_dir, metrics::track_system_metrics};
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap};
-use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
+use amaru_kernel::network::NetworkName;
+use amaru_kernel::peer::Peer;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pallas_network::facades::PeerClient;
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 use thiserror::Error;
-use tokio_util::sync::CancellationToken;
-use tracing::{error, trace, warn};
+use tracing::{error, warn};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -31,7 +31,7 @@ pub struct Args {
     ///
     /// This option can be specified multiple times to connect to multiple peers.
     /// At least one peer address must be specified.
-    #[arg(long, value_name = "NETWORK_ADDRESS", env = "AMARU_PEER_ADDRESS",
+    #[arg(long, value_name = "NETWORK_ADDRESS", default_value = super::DEFAULT_PEER_ADDRESS, env = "AMARU_PEER_ADDRESS",
         action = ArgAction::Append, required = true, value_delimiter = ',')]
     peer_address: Vec<String>,
 
@@ -43,25 +43,30 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", env("AMARU_LEDGER_DIR"))]
+    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
     ledger_dir: Option<PathBuf>,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR", env("AMARU_CHAIN_DIR"))]
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
 
     /// The address to listen on for incoming connections.
-    #[arg(long, value_name = "LISTEN_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS
+    #[arg(long, value_name = "NETWORK_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS
     )]
     listen_address: String,
 
     /// The maximum number of downstream peers to connect to.
-    #[arg(long, value_name = "MAX_DOWNSTREAM_PEERS", default_value_t = 10)]
+    #[arg(
+        long,
+        value_name = "MAX_DOWNSTREAM_PEERS",
+        env = "AMARU_MAX_DOWNSTREAM_PEERS",
+        default_value_t = 10
+    )]
     max_downstream_peers: usize,
 
     /// The maximum number of additional ledger snapshots to keep around. By default, Amaru only
@@ -80,6 +85,11 @@ pub struct Args {
     /// Path to the PID file, managed by Amaru.
     #[arg(long, value_name = "FILE", env = "AMARU_PID_FILE")]
     pid_file: Option<PathBuf>,
+
+    /// Flag to automatically migrate the chain database if needed.
+    /// By default, the migration is not performed automatically, checkout `migrate-chain-db` command.
+    #[arg(long, action = ArgAction::SetTrue, default_value_t = false, env = "AMARU_MIGRATE_CHAIN_DB")]
+    migrate_chain_db: bool,
 }
 
 pub async fn run(
@@ -95,17 +105,11 @@ pub async fn run(
             .map(track_system_metrics)
             .transpose()?;
 
-        let mut clients: Vec<(String, PeerClient)> = vec![];
-        for peer in &config.upstream_peers {
-            let client = connect_to_peer(peer, &config.network).await?;
-            clients.push((peer.clone(), client));
-        }
+        let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
 
         let exit = amaru::exit::hook_exit_token();
 
-        let sync = bootstrap(config, clients, exit.clone(), meter_provider).await?;
-
-        run_pipeline(gasket::daemon::Daemon::new(sync), exit).await;
+        bootstrap(config, peers, exit, meter_provider).await?;
 
         if let Some(handle) = metrics {
             handle.abort();
@@ -114,26 +118,6 @@ pub async fn run(
         Ok(())
     })
     .await
-}
-
-pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationToken) {
-    loop {
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(5000)) => {
-                if pipeline.should_stop() {
-                    break;
-                }
-            }
-            _ = exit.cancelled() => {
-                trace!("exit requested");
-                break;
-            }
-        }
-    }
-
-    trace!("shutting down pipeline");
-
-    pipeline.teardown();
 }
 
 fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
@@ -153,6 +137,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         listen_address: args.listen_address,
         max_downstream_peers: args.max_downstream_peers,
         max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
+        migrate_chain_db: args.migrate_chain_db,
     })
 }
 

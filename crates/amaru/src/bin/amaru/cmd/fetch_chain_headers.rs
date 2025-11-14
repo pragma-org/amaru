@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::{DEFAULT_NETWORK, connect_to_peer};
-use amaru_kernel::{Header, Point, from_cbor, network::NetworkName, peer::Peer};
+use crate::cmd::{WorkerError, connect_to_peer};
+use amaru_kernel::{BlockHeader, IsHeader, Point, from_cbor, network::NetworkName, peer::Peer};
 use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
 use clap::{Parser, arg};
-use gasket::framework::{AsWorkError, WorkerError};
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse};
 use std::{
     error::Error,
@@ -28,7 +27,6 @@ use std::{
 };
 use tokio::time::timeout;
 
-use amaru_ouroboros_traits::IsHeader;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -41,7 +39,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = DEFAULT_NETWORK,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -58,9 +56,10 @@ pub struct Args {
     /// * `data/preview/headers`: a directory where the fetched chain headers will be stored.
     #[arg(
         long,
-        value_name = "DIRECTORY",
-        default_value = "data",
-        verbatim_doc_comment
+        value_name = "DIR",
+        default_value = super::DEFAULT_CONFIG_DIR,
+        verbatim_doc_comment,
+        env = "AMARU_CONFIG_DIR"
     )]
     config_dir: PathBuf,
 
@@ -73,8 +72,9 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK_ADDRESS",
-        default_value = "127.0.0.1:3001",
-        verbatim_doc_comment
+        default_value = super::DEFAULT_PEER_ADDRESS,
+        verbatim_doc_comment,
+        env = "AMARU_PEER_ADDRESS"
     )]
     peer_address: String,
 }
@@ -173,7 +173,10 @@ async fn request_next_block(
     progress: &mut Option<Box<dyn ProgressBar>>,
     max: usize,
 ) -> Result<What, WorkerError> {
-    let next = client.request_next().await.or_restart()?;
+    let next = client.request_next().await.map_err(|err| {
+        tracing::warn!(%err, "request next failed");
+        WorkerError::Restart
+    })?;
     handle_response(next, config_dir, count, progress, max)
 }
 
@@ -202,7 +205,7 @@ fn handle_response(
 ) -> Result<What, WorkerError> {
     match next {
         NextResponse::RollForward(content, tip) => {
-            let header: Header = from_cbor(&content.cbor).unwrap();
+            let header: BlockHeader = from_cbor(&content.cbor).unwrap();
             let hash = header.hash();
             let slot = header.slot();
 

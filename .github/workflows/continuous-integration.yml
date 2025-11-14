@@ -98,7 +98,7 @@ jobs:
           if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
             cargo install --force cross --git https://github.com/cross-rs/cross
             # cross doesn't load .cargo/config.toml, see https://github.com/cross-rs/cross/issues/562
-            $HOME/.cargo/bin/cross $COMMAND --locked --all-features $SCOPE --target ${{ matrix.environments.target }}
+            $HOME/.cargo/bin/cross $COMMAND --locked $SCOPE --target ${{ matrix.environments.target }}
           else
             if [[ "${{ matrix.environments.target }}" == "x86_64-unknown-linux-gnu" ]] ; then
               cargo $EXTRA_ARGS $COMMAND $SCOPE --locked
@@ -149,6 +149,13 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+
+      - name: Reclaim Disk Space
+        run: |
+          # based on https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
 
       - id: timestamp
         shell: bash
@@ -210,9 +217,9 @@ jobs:
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
           # (i.e. Full bootstrap below)
-          key: ${{ runner.OS }}-ledger-cache-v11-${{ steps.timestamp.outputs.value }}
+          key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
           restore-keys: |
-            ${{ runner.OS }}-ledger-cache-v11
+            ${{ runner.OS }}-ledger-cache-v12
 
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''
@@ -229,7 +236,7 @@ jobs:
         if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
         with:
           path: ./ledger.${{ matrix.network.name }}.db
-          key: ${{ runner.OS }}-ledger-cache-v11-${{ steps.timestamp.outputs.value }}
+          key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
 
       - name: Run node
         if: github.event_name == 'pull_request'

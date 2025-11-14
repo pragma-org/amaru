@@ -218,6 +218,14 @@ impl Add<u64> for TimeMs {
     }
 }
 
+impl Add<TimeMs> for TimeMs {
+    type Output = Self;
+
+    fn add(self, rhs: TimeMs) -> Self::Output {
+        TimeMs(self.0 + rhs.0)
+    }
+}
+
 /// Scaling factor between picoseconds and milliseconds
 const PICOS_IN_MILLIS: u64 = 1_000_000_000u64;
 
@@ -571,6 +579,17 @@ impl EraHistory {
             stability_window,
             eras: eras.to_vec(),
         }
+    }
+
+    pub fn slot_to_posix_time(
+        &self,
+        slot: Slot,
+        tip: Slot,
+        system_start: TimeMs,
+    ) -> Result<TimeMs, EraHistoryError> {
+        let relative_time = self.slot_to_relative_time(slot, tip)?;
+
+        Ok(relative_time + system_start)
     }
 
     pub fn slot_to_relative_time(&self, slot: Slot, tip: Slot) -> Result<TimeMs, EraHistoryError> {
@@ -942,6 +961,26 @@ mod tests {
         let bounds = two_eras().epoch_bounds(Epoch(1)).unwrap();
         assert_eq!(bounds.start, Slot(86400));
         assert_eq!(bounds.end, None);
+    }
+
+    const MAINNET_SYSTEM_START: u64 = 1506203091000;
+
+    #[test_case(0, 42, MAINNET_SYSTEM_START
+        => Ok(MAINNET_SYSTEM_START);
+        "first slot in the system, tip is irrelevant"
+    )]
+    #[test_case(1000, 42, MAINNET_SYSTEM_START
+        => Ok(MAINNET_SYSTEM_START + 1000 * 1000);
+        "one thousand slots after genesis, tip is irrelevant"
+    )]
+    #[test_case(172801, 0, MAINNET_SYSTEM_START
+        => Err(EraHistoryError::PastTimeHorizon);
+        "slot is at the next epcoh, but tip is at genesis"
+    )]
+    fn slot_to_posix(slot: u64, tip: u64, system_start: u64) -> Result<u64, EraHistoryError> {
+        two_eras()
+            .slot_to_posix_time(slot.into(), tip.into(), system_start.into())
+            .map(|TimeMs(t)| t)
     }
 
     #[test_case(0,          42 => Ok(0);

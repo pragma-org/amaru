@@ -13,20 +13,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    Effect, Instant, Name, SendData,
-    serde::to_cbor,
-    simulation::{
-        EffectBox,
-        running::poll_stage,
-        state::{StageData, StageState},
-    },
-    time::EPOCH,
-    trace_buffer::{TraceBuffer, TraceEntry},
-};
 use anyhow::{Context as _, ensure};
 use cbor4ii::serde::from_slice;
 use std::{collections::HashMap, mem::replace};
+
+use crate::{
+    Effect, Instant, Name, SendData,
+    effect_box::EffectBox,
+    serde::to_cbor,
+    simulation::running::poll_stage,
+    simulation::state::{StageData, StageState},
+    time::EPOCH,
+    trace_buffer::{TraceBuffer, TraceEntry},
+};
 
 /// A replay of a simulation.
 ///
@@ -55,6 +54,9 @@ impl Replay {
 
         for (idx, entry) in trace.into_iter().enumerate() {
             match entry {
+                // FIXME: we should find a way to check that the effect inputs and response
+                // are the same when replaying the trace
+                TraceEntry::Suspend(Effect::ExternalSync { .. }) => {}
                 TraceEntry::Suspend(effect) => {
                     let name = effect.at_stage();
                     let expected = self.pending_suspend.remove(name);
@@ -67,7 +69,9 @@ impl Replay {
                         expected
                     );
                 }
-                TraceEntry::Resume { stage, response } => {
+                TraceEntry::Resume {
+                    stage, response, ..
+                } => {
                     let data = self
                         .stages
                         .get_mut(&stage)

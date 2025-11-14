@@ -15,7 +15,6 @@
 use amaru_sim::simulator::Args;
 use amaru_sim::simulator::run::run;
 use clap::Parser;
-use tokio::runtime::Runtime;
 
 fn main() {
     let args = Args::parse();
@@ -25,5 +24,7 @@ fn main() {
         .json()
         .init();
 
-    run(Runtime::new().unwrap(), args);
+    // It might be necessary to run the simulation with a larger stack with RUST_MIN_STACK=16777216 (16MB)
+    // because of the deep recursion used when generating data for large chains.
+    run(args);
 }

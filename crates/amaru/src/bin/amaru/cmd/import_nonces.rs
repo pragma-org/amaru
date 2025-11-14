@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    EraHistory, Hash, Header, Nonce, Point, default_chain_dir, network::NetworkName, parse_nonce,
-};
+use amaru_kernel::{BlockHeader, EraHistory, Hash, HeaderHash, Nonce, Point, network::NetworkName};
 use amaru_ouroboros_traits::{ChainStore, Nonces};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
@@ -22,38 +20,16 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{error::Error, path::PathBuf};
 use tracing::info;
 
+use crate::cmd::{default_chain_dir, default_data_dir};
+
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path of the consensus on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
 
-    /// Point for which nonces data is imported.
-    #[arg(long, value_name = "POINT", value_parser = |s: &str| Point::try_from(s))]
-    at: Option<Point>,
-
-    /// Epoch active nonce at the specified point.
-    #[arg(long, value_name = "NONCE", value_parser = parse_nonce)]
-    active: Option<Nonce>,
-
-    /// Next epoch's candidate nonce
-    #[arg(long, value_name = "NONCE", value_parser = parse_nonce)]
-    candidate: Option<Nonce>,
-
-    /// Protocol evolving nonce vaue at the specified point.
-    #[arg(long, value_name = "NONCE", value_parser = parse_nonce)]
-    evolving: Option<Nonce>,
-
-    /// The previous epoch last block header hash
-    #[arg(long, value_name = "HEADER-HASH", value_parser = parse_nonce)]
-    tail: Option<Hash<32>>,
-
     /// JSON-formatted file with nonces details.
-    ///
-    /// If given, this argument supersedes `at`, `active`,
-    /// `candidate`, `evolving` and `tail` arguments which can then be
-    /// omitted.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", env = "AMARU_NONCES_FILE")]
     nonces_file: Option<PathBuf>,
 
     /// Network the nonces are imported for
@@ -64,7 +40,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }
@@ -79,7 +55,7 @@ pub(crate) struct InitialNonces {
     pub active: Nonce,
     pub evolving: Nonce,
     pub candidate: Nonce,
-    pub tail: Hash<32>,
+    pub tail: HeaderHash,
 }
 
 fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
@@ -95,8 +71,12 @@ fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error
     s.serialize_str(&point.to_string())
 }
 
-#[expect(clippy::expect_used)]
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let nonces_file = args
+        .nonces_file
+        .unwrap_or_else(|| default_data_dir(args.network).into())
+        .join("nonces.json");
+
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
@@ -105,19 +85,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     // construct from NetworkName. In the case of testnets this can be
     // problematic hence why we have started writing and reading such
     // files in import_ledger_state.
-    if let Some(nonces_file) = args.nonces_file {
-        import_nonces_from_file(args.network, &nonces_file, &chain_dir).await
-    } else {
-        let initial_nonce = InitialNonces {
-            at: args.at.expect("missing '--at' argument"),
-            active: args.active.expect("missing '--active' argument"),
-            evolving: args.evolving.expect("missing '--evolving' argument"),
-            candidate: args.candidate.expect("missing '--candidate' argument"),
-            tail: args.tail.expect("missing '--tail' argument"),
-        };
-
-        import_nonces(args.network.into(), &chain_dir, initial_nonce).await
-    }
+    import_nonces_from_file(args.network.into(), &nonces_file, &chain_dir).await
 }
 
 pub(crate) async fn import_nonces(
@@ -125,8 +93,9 @@ pub(crate) async fn import_nonces(
     chain_db_path: &PathBuf,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
-    let db = Box::new(RocksDBStore::new(RocksDbConfig::new(chain_db_path.into()))?)
-        as Box<dyn ChainStore<Header>>;
+    let db = Box::new(RocksDBStore::open_and_migrate(RocksDbConfig::new(
+        chain_db_path.into(),
+    ))?) as Box<dyn ChainStore<BlockHeader>>;
 
     let header_hash = Hash::from(&initial_nonce.at);
 
@@ -152,12 +121,12 @@ pub(crate) async fn import_nonces(
 }
 
 pub async fn import_nonces_from_file(
-    network: NetworkName,
+    era_history: &EraHistory,
     nonces_file: &PathBuf,
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     let content = tokio::fs::read_to_string(nonces_file).await?;
     let initial_nonces: InitialNonces = serde_json::from_str(&content)?;
-    import_nonces(network.into(), chain_dir, initial_nonces).await?;
+    import_nonces(era_history, chain_dir, initial_nonces).await?;
     Ok(())
 }

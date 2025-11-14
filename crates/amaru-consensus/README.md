@@ -1,58 +1,117 @@
-# Consensus pipeline
+# Ouroboros Consensus
 
-The following graph represents a simplified sequence of _stages_ headers (either forwarded or rolled-back) undergo in
-the consensus module. Each square node is a processing step, and arrows are labelled with the type of messages flowing
-between the various steps.
+## Chain Diffusion Pipeline
+
+The following graph represents a simplified sequence of _stages_ a block undergoes in
+the consensus module to implement chain synchronisation and diffusion. Each square node is a processing step, and arrows are labelled with the type of messages flowing between the various steps.
 
 ```mermaid
 graph TD
-    disc[disconnect peer]
-    net@{ shape: delay, label: "Upstream peers" }
+    receive_header[receive header]
+    track_peers[track peers]
+    validate_header[validate header]
+    fetch_block[fetch block]
+    validate_block[validate block]
+    select_chain[select chain]
+    forward_chain[forward chain]
+
+    downstream([downstream])
+    store@{ shape: cyl, label: "Chain store" }
+    net@{ shape: delay, label: "Peers" }
+
     upstream([upstream]) -.-> net
     upstream -- chain sync --> pull
-    pull -- ChainSyncEvent --> rcv[receive header]
-    rcv -- malformed header --> disc
-    val_hdr[validate header]
-    rcv -- DecodedChainSyncEvent --> sto_hdr
-    sto_hdr -.-> store@{ shape: cyl, label: "Chain store" }
-    sto_hdr -- storage failure --> crash?
-    sto_hdr -- DecodedChainSyncEvent --> val_hdr[validate header]
-    val_hdr -- invalid header --> disc
-    val_hdr -- DecodedChainSyncEvent --> select[select chain]
-    select -- invalid chain --> disc
-    select -- ValidateHeaderEvent --> fetch[fetch block]
-    fetch -.-> net
-    fetch -- fetch error --> disc
-    fetch -- ValidateBlockEvent --> sto_block[store block]
-    sto_block -.-> store
-    sto_block -- storage failure --> crash?
-    sto_block -- ValidateBlockEvent --> val_block[validate block]
-    val_block -.-> store
-    val_block -- invalid block --> disc
-    val_block -- BlockValidationResult --> fwd[forward chain]
-    fwd --> down([downstream])
-    down -.-> net
+    pull -- ChainSyncEvent --> receive_header
+
+    receive_header -- Tracked<DecodedChainSyncEvent> --> track_peers
+    receive_header -.-> store
+
+    track_peers -- DecodeChainSyncEvent --> validate_header
+
+    validate_header -- ValidateHeaderEvent --> fetch_block
+
+    fetch_block -- ValidateBlockEvent --> validate_block
+    fetch_block -.-> net
+    fetch_block -.-> store
+
+    validate_block -.-> store
+    validate_block -- DecodedChainSyncEvent --> select_chain
+
+    select_chain -.-> store
+    select_chain -- BlockValidationResult --> forward_chain
+
+    forward_chain --> downstream
+    downstream -.-> net
 ```
 
-Stages:
+### Stages
 
-* [pull](../amaru/src/stages/pull.rs): connects to upstream peers, running chain sync and block fetch protocols.
-* [receive header](src/consensus/receive_header.rs): this stage is responsible for basic sanity check of _chain sync_
+* [pull](src/consensus/stages/pull.rs): connects to upstream peers, running chain sync and block fetch protocols.
+* [receive header](src/consensus/stages/receive_header.rs): this stage is responsible for basic sanity check of _chain sync_
   messages, deserialising raw headers, and potentially checking whether or not they should be further processed (eg. if
   a header is already known to be invalid, or known to be valid because it's part of our best chain, let's not waste
-  time processing it!)
-* [validate header](src/consensus/validate_header.rs): protocol validation of the header, checks the correctness of the
+  time processing it!). The received header is stored at this stage, indexed by its hash.
+* [track_peers](src/consensus/stages/track_peers.rs): this stage keeps track of upstream peers' state and logs a message to notify operators when we are caught up with an upstream peer.
+* [validate header](src/consensus/stages/validate_header.rs): protocol validation of the header, checks the correctness of the
   VRF leader election w.r.t relevant stake distribution, and epoch nonce
-* [store header](src/consensus/store_header.rs): store valid (and invalid?) headers indexed by hash
-* [select chain](src/consensus/select_chain.rs): proceed to chain (candidate) selection, possibly changing the current
+* [fetch block](src/consensus/stages/fetch_block.rs): fetch block body corresponding to the new header, if any.
+  The block body is stored, indexed by header hash.
+  It is stored _before_ validation in order to later
+  support [pipelining](https://iohk.io/en/blog/posts/2022/02/01/introducing-pipelining-cardanos-consensus-layer-scaling-solution/).
+* [validate block](src/consensus/effects/ledger_effects.rs): validate the block body against its parent ledger state and apply it
+* [select chain](src/consensus/stages/select_chain.rs): proceed to chain (candidate) selection, possibly changing the current
   best chain,
-* [fetch block](../amaru/src/stages/consensus/fetch_block.rs): fetch block body corresponding to the new header, if any.
-* [store block](src/consensus/store_block.rs): store valid (and invalid) block bodies, indexed by header hash. The
-  blocks are stored _before_ validation in order to support [
-  _pipelining_](https://iohk.io/en/blog/posts/2022/02/01/introducing-pipelining-cardanos-consensus-layer-scaling-solution/)
-* [validate block](../amaru/src/stages/ledger.rs): validate the block body against its parent ledger state
-* [forward chain](../amaru/src/stages/consensus/forward_chain/): forward newly selected chain to downstream peers (chain
+* [forward chain](src/consensus/stages/forward_chain.rs): forward newly selected chain to downstream peers (chain
   followers)
+
+### Errors
+
+```mermaid
+graph LR
+    receive_header[receive header]
+    validate_header[validate header]
+    fetch_block[fetch block]
+    validate_block[validate block]
+    select_chain[select chain]
+
+    disconnect_peer[disconnect peer]
+    panic[panic]
+
+    receive_header -- malformed header --> disconnect_peer
+    validate_header -- invalid header --> disconnect_peer
+    fetch_block -- fetch error --> disconnect_peer
+    validate_block -- invalid block --> disconnect_peer
+    select_chain -- invalid chain --> disconnect_peer
+
+    receive_header -- storage failure --> panic
+    fetch_block -- storage failure --> panic
+```
+
+When the data received from a peer is malformed or invalid, the peer is disconnected. Other errors (eg. storage failure)
+are considered fatal and cause the node to panic.
+
+### Spans
+
+The consensus chain synchronisation pipeline emits the following spans (at `TRACE` level) when traces are enabled:
+
+* `diffusion.chain_sync`: toplevel trace and entry-point to the `ChainSync` protocol pipeline. Basically handles 2 types of messages: `RollForward <header>` and `Rollback <point>` from each peer the node is connected to
+* `chain_sync.receive_header`: sanity checks for headers
+  * `chain_sync.decode_header`: decoding of CBOR content of header
+  * `consensus.store.store_header`: store header on disk in ChainDB
+* `chain_sync.track_peers`: keep track of whether or not the node is _caught-up_ w.r.t. each of its peer
+* `chain_sync.validate_header`: full validation of received headers
+  * `validate_header.evolve_nonce`: apply nonces evolution logic
+  * `validate_header.validate`: check all headers validity rules (eg. VRF proofs, signatures, consistency...)
+* `diffusion.fetch_block`: retrieve block body from peer(s)
+  * `consensus.store.store_block`: store block on disk in ChainDB
+* `chain_sync.validate_block`: full validation of the block body against current tip's ledger state
+* `chain_sync.select_chain`: apply chain selection logic based on the given protocol message
+  * `consensus.store.roll_forward_chain`: store current chain state on disk
+* `diffusion.forward_chain`: propagage possible changes in node's best chain to downstream peers
+
+Tracing data can be collected through the OpenTelemetry exported, here is a rendering of such a trace using Jaeger UI:
+
+![Jaeger Trace Waterfall](./jaeger-trace.png)
 
 ## Chain Selection
 
@@ -277,3 +336,5 @@ When a fork should happen:
 >
 
 ### Handling errors
+
+TBD

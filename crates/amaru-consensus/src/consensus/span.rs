@@ -12,65 +12,68 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use impls::*;
+use amaru_kernel::consensus_events::{
+    BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, Tracked, ValidateBlockEvent,
+    ValidateHeaderEvent,
+};
+use tracing::Span;
 
-mod impls {
-    use crate::consensus::events::{
-        BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, ValidateBlockEvent,
-        ValidateHeaderEvent,
-    };
-    use tracing::Span;
+/// Helper trait to remove span reparenting boilerplate.
+pub trait HasSpan {
+    fn span(&self) -> &Span;
+}
 
-    /// Helper trait to remove span reparenting boilerplate.
-    pub trait HasSpan {
-        fn span(&self) -> &Span;
-    }
-
-    impl HasSpan for ChainSyncEvent {
-        fn span(&self) -> &Span {
-            match self {
-                ChainSyncEvent::RollForward { span, .. } => span,
-                ChainSyncEvent::Rollback { span, .. } => span,
-                ChainSyncEvent::CaughtUp { span, .. } => span,
-            }
+impl HasSpan for ChainSyncEvent {
+    fn span(&self) -> &Span {
+        match self {
+            ChainSyncEvent::RollForward { span, .. } => span,
+            ChainSyncEvent::Rollback { span, .. } => span,
         }
     }
+}
 
-    impl HasSpan for DecodedChainSyncEvent {
-        fn span(&self) -> &Span {
-            match self {
-                DecodedChainSyncEvent::RollForward { span, .. } => span,
-                DecodedChainSyncEvent::Rollback { span, .. } => span,
-                DecodedChainSyncEvent::CaughtUp { span, .. } => span,
-            }
+impl HasSpan for DecodedChainSyncEvent {
+    fn span(&self) -> &Span {
+        match self {
+            DecodedChainSyncEvent::RollForward { span, .. } => span,
+            DecodedChainSyncEvent::Rollback { span, .. } => span,
         }
     }
+}
 
-    impl HasSpan for ValidateHeaderEvent {
-        fn span(&self) -> &Span {
-            match self {
-                ValidateHeaderEvent::Validated { span, .. } => span,
-                ValidateHeaderEvent::Rollback { span, .. } => span,
-            }
+impl HasSpan for ValidateHeaderEvent {
+    fn span(&self) -> &Span {
+        match self {
+            ValidateHeaderEvent::Validated { span, .. } => span,
+            ValidateHeaderEvent::Rollback { span, .. } => span,
         }
     }
+}
 
-    impl HasSpan for ValidateBlockEvent {
-        fn span(&self) -> &Span {
-            match self {
-                ValidateBlockEvent::Validated { span, .. } => span,
-                ValidateBlockEvent::Rollback { span, .. } => span,
-            }
+impl HasSpan for ValidateBlockEvent {
+    fn span(&self) -> &Span {
+        match self {
+            ValidateBlockEvent::Validated { span, .. } => span,
+            ValidateBlockEvent::Rollback { span, .. } => span,
         }
     }
+}
 
-    impl HasSpan for BlockValidationResult {
-        fn span(&self) -> &Span {
-            match self {
-                BlockValidationResult::BlockValidated { span, .. } => span,
-                BlockValidationResult::BlockValidationFailed { span, .. } => span,
-                BlockValidationResult::RolledBackTo { span, .. } => span,
-            }
+impl HasSpan for BlockValidationResult {
+    fn span(&self) -> &Span {
+        match self {
+            BlockValidationResult::BlockValidated { span, .. } => span,
+            BlockValidationResult::BlockValidationFailed { span, .. } => span,
+            BlockValidationResult::RolledBackTo { span, .. } => span,
+        }
+    }
+}
+
+impl<T: HasSpan> HasSpan for Tracked<T> {
+    fn span(&self) -> &Span {
+        match self {
+            Tracked::Wrapped(e) => e.span(),
+            Tracked::CaughtUp { span, .. } => span,
         }
     }
 }

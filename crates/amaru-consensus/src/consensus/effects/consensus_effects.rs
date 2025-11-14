@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::Store;
-use crate::consensus::effects::metrics_effects::{Metrics, MetricsOps};
-use crate::consensus::effects::{Base, BaseOps};
-use crate::consensus::effects::{Ledger, LedgerOps};
-use crate::consensus::effects::{Network, NetworkOps};
-use amaru_kernel::Header;
+use crate::consensus::effects::{
+    Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps, Store,
+    metrics_effects::{Metrics, MetricsOps},
+};
+use amaru_kernel::BlockHeader;
 use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{Effects, SendData};
 use std::sync::Arc;
@@ -25,7 +24,7 @@ use std::sync::Arc;
 /// This trait provides access to all effectful operations needed by consensus stages.
 pub trait ConsensusOps: Send + Sync + Clone {
     /// Return a ChainStore implementation to store headers, get the best chain tip etc...
-    fn store(&self) -> Arc<dyn ChainStore<Header>>;
+    fn store(&self) -> Arc<dyn ChainStore<BlockHeader>>;
     /// Return a NetworkOps implementation to access network operations, like fetch_block
     fn network(&self) -> impl NetworkOps;
     /// Return a LedgerOps implementation to access ledger operations, considering that it is a sub-system
@@ -48,7 +47,7 @@ impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
         ConsensusEffects { effects }
     }
 
-    pub fn store(&self) -> Arc<dyn ChainStore<Header>> {
+    pub fn store(&self) -> Arc<dyn ChainStore<BlockHeader>> {
         Arc::new(Store::new(self.effects.clone()))
     }
 
@@ -70,7 +69,7 @@ impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
 }
 
 impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
-    fn store(&self) -> Arc<dyn ChainStore<Header>> {
+    fn store(&self) -> Arc<dyn ChainStore<BlockHeader>> {
         self.store()
     }
 
@@ -98,20 +97,22 @@ pub mod tests {
     use crate::consensus::errors::{ConsensusError, ProcessingFailed};
     use crate::consensus::tip::HeaderTip;
     use amaru_kernel::peer::Peer;
-    use amaru_kernel::{Header, Point, PoolId, RawBlock};
+    use amaru_kernel::{Point, PoolId, RawBlock};
     use amaru_metrics::MetricsEvent;
     use amaru_metrics::ledger::LedgerMetrics;
+    use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use amaru_ouroboros_traits::{BlockValidationError, HasStakeDistribution, PoolSummary};
     use amaru_slot_arithmetic::Slot;
     use pure_stage::{BoxFuture, Instant, StageRef};
     use std::collections::BTreeMap;
+    use std::future::ready;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     #[derive(Clone)]
     pub struct MockConsensusOps {
-        pub mock_store: InMemConsensusStore<Header>,
+        pub mock_store: InMemConsensusStore<BlockHeader>,
         pub mock_network: MockNetworkOps,
         pub mock_ledger: MockLedgerOps,
         pub mock_base: MockBaseOps,
@@ -120,7 +121,7 @@ pub mod tests {
 
     #[allow(refining_impl_trait)]
     impl ConsensusOps for MockConsensusOps {
-        fn store(&self) -> Arc<dyn ChainStore<Header>> {
+        fn store(&self) -> Arc<dyn ChainStore<BlockHeader>> {
             Arc::new(self.mock_store.clone())
         }
 
@@ -165,8 +166,8 @@ pub mod tests {
     impl NetworkOps for MockNetworkOps {
         fn fetch_block(
             &self,
-            _peer: &Peer,
-            point: &Point,
+            _peer: Peer,
+            point: Point,
         ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>> {
             let point_clone = point.clone();
             Box::pin(async move {
@@ -180,18 +181,22 @@ pub mod tests {
 
         fn send_forward_event(
             &self,
-            _peer: &Peer,
-            _header: Header,
+            _peer: Peer,
+            _header: BlockHeader,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-            Box::pin(async { Ok(()) })
+            Box::pin(ready(Ok(())))
         }
 
         fn send_backward_event(
             &self,
-            _peer: &Peer,
+            _peer: Peer,
             _header_tip: HeaderTip,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-            Box::pin(async { Ok(()) })
+            Box::pin(ready(Ok(())))
+        }
+
+        fn disconnect(&self, _peer: Peer) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+            Box::pin(ready(Ok(())))
         }
     }
 
@@ -199,11 +204,20 @@ pub mod tests {
     pub struct MockLedgerOps;
 
     impl LedgerOps for MockLedgerOps {
-        fn validate(
+        fn validate_header(
+            &self,
+            _header: &BlockHeader,
+            _ctx: opentelemetry::Context,
+        ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn validate_block(
             &self,
             _peer: &Peer,
             _point: &Point,
             _block: RawBlock,
+            _ctx: opentelemetry::Context,
         ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>
         {
             Box::pin(async { Ok(Ok(LedgerMetrics::default())) })
@@ -212,7 +226,8 @@ pub mod tests {
         fn rollback(
             &self,
             _peer: &Peer,
-            _rollback_header: &Header,
+            _point: &Point,
+            _ctx: opentelemetry::Context,
         ) -> BoxFuture<'static, anyhow::Result<(), ProcessingFailed>> {
             Box::pin(async { Ok(()) })
         }

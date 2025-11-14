@@ -14,13 +14,15 @@
 
 use crate::echo::Envelope;
 use crate::simulator::bytes::Bytes;
-use amaru_consensus::consensus::events::ChainSyncEvent;
-use amaru_kernel::Point;
+use amaru_kernel::consensus_events::ChainSyncEvent;
 use amaru_kernel::peer::Peer;
+use amaru_kernel::{BlockHeader, HeaderHash, Point, cbor};
 use amaru_slot_arithmetic::Slot;
 use gasket::framework::WorkerError;
+use pallas_primitives::babbage::{Header, MintedHeader};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::fmt::{Display, Formatter};
 use tracing::Span;
 
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
@@ -43,8 +45,51 @@ pub enum ChainSyncMessage {
     Bck {
         msg_id: u64,
         slot: Slot,
-        hash: crate::simulator::bytes::Bytes,
+        hash: Bytes,
     },
+}
+
+impl ChainSyncMessage {
+    /// Attempt to decode the block header from a `Fwd` message.
+    pub fn decode_block_header(&self) -> Option<BlockHeader> {
+        match self {
+            ChainSyncMessage::Fwd { header, .. } => {
+                if let Ok(minted_header) = cbor::decode::<MintedHeader<'_>>(&header.bytes) {
+                    Some(BlockHeader::from(Header::from(minted_header)))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Return the message slot if available
+    pub fn slot(&self) -> Option<Slot> {
+        match self {
+            ChainSyncMessage::Fwd { slot, .. } => Some(*slot),
+            ChainSyncMessage::Bck { slot, .. } => Some(*slot),
+            _ => None,
+        }
+    }
+
+    /// Attempt to decode a header hash from a `Fwd` or `Bck` message.
+    pub fn header_hash(&self) -> Option<HeaderHash> {
+        match self {
+            ChainSyncMessage::Fwd { hash, .. } => Some(HeaderHash::from(hash.bytes.as_slice())),
+            ChainSyncMessage::Bck { hash, .. } => Some(HeaderHash::from(hash.bytes.as_slice())),
+            _ => None,
+        }
+    }
+
+    /// Return the header parent hash if available
+    pub fn header_parent_hash(&self) -> Option<HeaderHash> {
+        if let Some(header) = self.decode_block_header() {
+            header.header_body().prev_hash
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Debug for ChainSyncMessage {
@@ -64,21 +109,33 @@ impl fmt::Debug for ChainSyncMessage {
                 .debug_struct("InitOk")
                 .field("in_reply_to", in_reply_to)
                 .finish(),
-            ChainSyncMessage::Fwd {
+            msg @ ChainSyncMessage::Fwd {
                 msg_id,
                 slot,
                 hash,
                 header,
-            } => f
-                .debug_struct("Fwd")
-                .field("msg_id", msg_id)
-                .field("slot", slot)
-                .field("hash", &hex::encode(&hash.bytes[..hash.bytes.len().min(3)]))
-                .field(
-                    "header",
-                    &hex::encode(&header.bytes.as_slice()[..header.bytes.len().min(4)]),
-                )
-                .finish(),
+            } => {
+                let parent_hash = msg
+                    .decode_block_header()
+                    .and_then(|h| {
+                        h.parent_hash().map(|h| {
+                            let mut s = h.to_string();
+                            s.truncate(6);
+                            s
+                        })
+                    })
+                    .unwrap_or("n/a".to_string());
+                f.debug_struct("Fwd")
+                    .field("msg_id", msg_id)
+                    .field("slot", slot)
+                    .field("hash", &hex::encode(&hash.bytes[..hash.bytes.len().min(3)]))
+                    .field("parent_hash", &parent_hash)
+                    .field(
+                        "header",
+                        &hex::encode(&header.bytes.as_slice()[..header.bytes.len().min(4)]),
+                    )
+                    .finish()
+            }
             ChainSyncMessage::Bck { msg_id, slot, hash } => f
                 .debug_struct("Bck")
                 .field("msg_id", msg_id)
@@ -88,6 +145,46 @@ impl fmt::Debug for ChainSyncMessage {
                     &hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)]),
                 )
                 .finish(),
+        }
+    }
+}
+
+impl Display for ChainSyncMessage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ChainSyncMessage::Init {
+                msg_id,
+                node_id,
+                node_ids,
+            } => write!(
+                f,
+                "Init ({}) node_id={}, node_ids=[{}]",
+                msg_id,
+                node_id,
+                node_ids.join(", ")
+            ),
+            ChainSyncMessage::InitOk { in_reply_to } => {
+                write!(f, "InitOk ({})", in_reply_to)
+            }
+            ChainSyncMessage::Fwd {
+                msg_id,
+                slot,
+                hash,
+                header: _,
+            } => write!(
+                f,
+                "Forward ({}) {}/{}",
+                msg_id,
+                slot,
+                hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
+            ),
+            ChainSyncMessage::Bck { msg_id, slot, hash } => write!(
+                f,
+                "Backward ({}) {}/{}",
+                msg_id,
+                slot,
+                hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
+            ),
         }
     }
 }
@@ -127,7 +224,7 @@ impl Envelope<ChainSyncMessage> {
 mod test {
     use super::*;
     use crate::sync::ChainSyncMessage::{Bck, Fwd};
-    use amaru_kernel::cbor;
+    use amaru_kernel::{HeaderHash, cbor};
     use pallas_crypto::hash::{Hash, Hasher};
     use pallas_primitives::babbage;
     use proptest::prelude::BoxedStrategy;
@@ -146,9 +243,10 @@ mod test {
     #[test]
     fn can_retrieve_forward_from_message() {
         let fwd = some_forward();
-        let expected_hash: Hash<32> =
-            Hash::from_str("746353a52e80b3ac2d6d51658df7988d4b7baa219f55584a4827bd00bc97617e")
-                .unwrap();
+        let expected_hash: HeaderHash = HeaderHash::from_str(
+            "746353a52e80b3ac2d6d51658df7988d4b7baa219f55584a4827bd00bc97617e",
+        )
+        .unwrap();
         let message = Envelope {
             src: "peer1".to_string(),
             dest: "me".to_string(),

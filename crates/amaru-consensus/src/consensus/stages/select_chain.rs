@@ -12,81 +12,53 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::EVENT_TARGET;
-use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ConsensusError, ValidationFailed};
-use crate::consensus::events::{DecodedChainSyncEvent, ValidateHeaderEvent};
-use crate::consensus::headers_tree::{HeadersTree, HeadersTreeState};
-use crate::consensus::span::HasSpan;
-use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer, string_utils::ListToString};
-use amaru_ouroboros::IsHeader;
+use crate::consensus::{
+    EVENT_TARGET,
+    effects::{BaseOps, ConsensusOps},
+    errors::{ConsensusError, ValidationFailed},
+    headers_tree::{HeadersTree, HeadersTreeState},
+    span::HasSpan,
+};
+use amaru_kernel::{
+    BlockHeader, HeaderHash, IsHeader, Point,
+    consensus_events::{BlockValidationResult, DecodedChainSyncEvent, ValidateHeaderEvent},
+    peer::Peer,
+    string_utils::ListToString,
+};
 use amaru_ouroboros_traits::ChainStore;
-use pallas_crypto::hash::Hash;
 use pure_stage::{BoxFuture, StageRef};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::{
-    collections::BTreeSet,
     fmt::{Debug, Display, Formatter},
     mem,
 };
-use tracing::{Level, Span, debug, info, span, trace};
+use tracing::{Instrument, Span, debug, info, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SelectChain {
     tree_state: HeadersTreeState,
-    sync_tracker: SyncTracker,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct SyncTracker {
-    syncing_peers: BTreeSet<Peer>,
-}
-
-impl SyncTracker {
-    pub fn new(peers: &[Peer]) -> Self {
-        let syncing_peers = peers.iter().cloned().collect();
-        Self { syncing_peers }
-    }
-
-    pub fn caught_up(&mut self, peer: &Peer) {
-        self.syncing_peers.remove(peer);
-    }
-
-    pub fn is_caught_up(&self) -> bool {
-        self.syncing_peers.is_empty()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub enum SyncState {
-    Syncing,
-    CaughtUp,
 }
 
 impl SelectChain {
-    pub fn new(tree_state: HeadersTreeState, peers: &[Peer]) -> Self {
-        let sync_tracker = SyncTracker::new(peers);
-        SelectChain {
-            tree_state,
-            sync_tracker,
-        }
+    pub fn new(tree_state: HeadersTreeState) -> Self {
+        SelectChain { tree_state }
     }
 
-    fn forward_block(peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
+    fn forward_block(peer: Peer, header: BlockHeader, span: Span) -> ValidateHeaderEvent {
         ValidateHeaderEvent::Validated { peer, header, span }
     }
 
     fn switch_to_fork(
         peer: Peer,
-        rollback_header: Header,
-        fork: Vec<Header>,
+        rollback_point: Point,
+        fork: Vec<BlockHeader>,
         span: Span,
     ) -> Vec<ValidateHeaderEvent> {
         let mut result = vec![ValidateHeaderEvent::Rollback {
-            rollback_header,
+            rollback_point,
             peer: peer.clone(),
             span: span.clone(),
         }];
@@ -102,26 +74,21 @@ impl SelectChain {
         result
     }
 
-    pub async fn select_chain(
+    pub async fn select_roll_forward(
         &mut self,
-        store: Arc<dyn ChainStore<Header>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
         peer: Peer,
-        header: Header,
+        header: BlockHeader,
         span: Span,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         // Temporarily take the tree state out of self, to avoid borrowing self
         let tree_state = mem::take(&mut self.tree_state);
         let mut headers_tree = HeadersTree::create(store, tree_state);
-        let result = headers_tree.select_roll_forward(&peer, header)?;
+        let result = headers_tree.select_roll_forward(&peer, &header)?;
         self.tree_state = headers_tree.into_tree_state();
 
         let events = match result {
             ForwardChainSelection::NewTip { peer, tip } => {
-                if self.sync_tracker.is_caught_up() {
-                    debug!(target: EVENT_TARGET, %peer, hash = %tip.hash(), slot = %tip.slot(), "new tip");
-                } else {
-                    trace!(target: EVENT_TARGET, %peer, hash = %tip.hash(), slot = %tip.slot(), "new tip");
-                }
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
@@ -129,11 +96,11 @@ impl SelectChain {
                 rollback_header,
                 fork,
             }) => {
-                info!(target: EVENT_TARGET, rollback = %rollback_header.point(), length = fork.len(), "switching to fork");
-                SelectChain::switch_to_fork(peer, rollback_header, fork, span)
+                debug!(target: EVENT_TARGET, rollback_point = %rollback_header.point(), length = fork.len(), "roll_forward.switch_to_fork");
+                SelectChain::switch_to_fork(peer, rollback_header.point(), fork, span)
             }
             ForwardChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, "no change");
+                trace!(target: EVENT_TARGET, "roll_forward.no_change");
                 vec![]
             }
         };
@@ -143,7 +110,7 @@ impl SelectChain {
 
     pub async fn select_rollback(
         &mut self,
-        store: Arc<dyn ChainStore<Header>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
         peer: Peer,
         rollback_point: Point,
         span: Span,
@@ -160,15 +127,18 @@ impl SelectChain {
                 rollback_header,
                 fork,
             }) => {
-                info!(target: EVENT_TARGET, rollback = %rollback_header.point(), length = fork.len(), "switching to fork");
+                info!(target: EVENT_TARGET, rollback_point = %rollback_header.point(), length = fork.len(), "rollback.switch_to_fork");
                 Ok(SelectChain::switch_to_fork(
                     peer,
-                    rollback_header,
+                    rollback_header.point(),
                     fork,
                     span,
                 ))
             }
-            RollbackChainSelection::NoChange => Ok(vec![]),
+            RollbackChainSelection::NoChange => {
+                trace!(target: EVENT_TARGET, "rollback.no_change");
+                Ok(vec![])
+            }
             RollbackChainSelection::RollbackBeyondLimit {
                 peer,
                 rollback_point,
@@ -183,30 +153,27 @@ impl SelectChain {
 
     pub fn handle_chain_sync(
         &mut self,
-        store: Arc<dyn ChainStore<Header>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
         chain_sync: DecodedChainSyncEvent,
     ) -> BoxFuture<'_, Result<Vec<ValidateHeaderEvent>, ConsensusError>> {
         Box::pin(async move {
             match chain_sync {
                 DecodedChainSyncEvent::RollForward {
                     peer, header, span, ..
-                } => self.select_chain(store, peer, header, span).await,
+                } => {
+                    self.select_roll_forward(store.clone(), peer, header, span)
+                        .await
+                }
                 DecodedChainSyncEvent::Rollback {
                     peer,
                     rollback_point,
                     span,
                 } => {
-                    self.select_rollback(store, peer, rollback_point, span)
+                    self.select_rollback(store.clone(), peer, rollback_point, span)
                         .await
                 }
-                DecodedChainSyncEvent::CaughtUp { peer, .. } => self.caught_up(&peer),
             }
         })
-    }
-
-    fn caught_up(&mut self, peer: &Peer) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        self.sync_tracker.caught_up(peer);
-        Ok(vec![])
     }
 }
 
@@ -267,8 +234,8 @@ pub enum RollbackChainSelection<H: IsHeader> {
     /// The peer tried to rollback beyond the limit
     RollbackBeyondLimit {
         peer: Peer,
-        rollback_point: Hash<HEADER_HASH_SIZE>,
-        max_point: Hash<HEADER_HASH_SIZE>,
+        rollback_point: HeaderHash,
+        max_point: HeaderHash,
     },
 
     /// The current best chain has not changed
@@ -305,95 +272,128 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
 
 type State = (
     SelectChain,
-    StageRef<ValidateHeaderEvent>,
+    StageRef<BlockValidationResult>,
     StageRef<ValidationFailed>,
 );
 
-pub async fn stage(
+pub fn stage(
     (mut select_chain, downstream, errors): State,
     msg: DecodedChainSyncEvent,
     eff: impl ConsensusOps,
-) -> State {
-    let store = eff.store();
-    let peer = msg.peer();
-    let span = span!(parent: msg.span(), Level::TRACE, "stage.select_chain");
-    let _entered = span.enter();
+) -> impl Future<Output = State> {
+    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.select_chain");
+    async move {
+        let store = eff.store();
+        let peer = msg.peer();
+        let events = match select_chain.handle_chain_sync(store.clone(), msg).await {
+            Ok(events) => events,
+            Err(e) => {
+                eff.base()
+                    .send(&errors, ValidationFailed::new(&peer, e))
+                    .await;
+                return (select_chain, downstream, errors);
+            }
+        };
 
-    let events = match select_chain.handle_chain_sync(store, msg).await {
-        Ok(events) => events,
-        Err(e) => {
-            eff.base()
-                .send(&errors, ValidationFailed::new(&peer, e))
-                .await;
-            return (select_chain, downstream, errors);
+        for event in events {
+            match event {
+                ValidateHeaderEvent::Validated { peer, header, span } => {
+                    match store.roll_forward_chain(&header.point()) {
+                        Ok(()) => {
+                            let event =
+                                BlockValidationResult::BlockValidated { peer, header, span };
+                            eff.base().send(&downstream, event).await;
+                        }
+                        Err(e) => {
+                            eff.base()
+                                .send(
+                                    &errors,
+                                    ValidationFailed {
+                                        peer,
+                                        error: ConsensusError::RollForwardChainFailed(
+                                            header.hash(),
+                                            e,
+                                        ),
+                                    },
+                                )
+                                .await
+                        }
+                    }
+                }
+                ValidateHeaderEvent::Rollback {
+                    peer,
+                    rollback_point,
+                    span,
+                } => match eff.store().load_header(&rollback_point.hash()) {
+                    Some(rollback_header) => match store.rollback_chain(&rollback_header.point()) {
+                        Ok(_size) => {
+                            let event = BlockValidationResult::RolledBackTo {
+                                peer,
+                                rollback_header,
+                                span,
+                            };
+                            eff.base().send(&downstream, event).await;
+                        }
+                        Err(e) => {
+                            eff.base()
+                                .send(
+                                    &errors,
+                                    ValidationFailed {
+                                        peer,
+                                        error: ConsensusError::RollbackChainFailed(
+                                            rollback_header.point(),
+                                            e,
+                                        ),
+                                    },
+                                )
+                                .await
+                        }
+                    },
+                    None => {
+                        let err = ConsensusError::UnknownPoint(rollback_point.hash());
+                        let msg = ValidationFailed::new(&peer, err);
+                        eff.base().send(&errors, msg).await
+                    }
+                },
+            }
         }
-    };
 
-    for event in events {
-        eff.base().send(&downstream, event).await;
+        (select_chain, downstream, errors)
     }
-
-    (select_chain, downstream, errors)
+    .instrument(span)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::effects::mock_consensus_ops;
-    use crate::consensus::errors::ValidationFailed;
-    use crate::consensus::events::DecodedChainSyncEvent;
-    use crate::consensus::headers_tree::Tracker;
     use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
-    use crate::consensus::stages::select_chain::SyncTracker;
-    use crate::consensus::tests::{any_header, any_headers_chain};
+    use crate::consensus::{
+        effects::mock_consensus_ops, errors::ValidationFailed, headers_tree::Tracker,
+    };
+    use amaru_kernel::is_header::tests::{any_headers_chain, run};
     use amaru_kernel::peer::Peer;
-    use amaru_ouroboros_traits::fake::tests::run;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
-    use std::slice;
     use tracing::Span;
-
-    #[tokio::test]
-    async fn is_caught_up_when_all_peers_are_caught_up() {
-        let alice = Peer::new("alice");
-        let bob = Peer::new("bob");
-        let peers = vec![alice.clone(), bob.clone()];
-        let mut tracker = SyncTracker::new(&peers);
-
-        tracker.caught_up(&alice);
-        tracker.caught_up(&bob);
-
-        assert!(tracker.is_caught_up());
-    }
-
-    #[tokio::test]
-    async fn is_not_caught_up_given_some_peer_is_not() {
-        let alice = Peer::new("alice");
-        let bob = Peer::new("bob");
-        let peers = vec![alice.clone(), bob.clone()];
-        let mut tracker = SyncTracker::new(&peers);
-
-        tracker.caught_up(&alice);
-
-        assert!(!tracker.is_caught_up());
-    }
 
     #[tokio::test]
     async fn a_roll_forward_updates_the_tree_state() -> anyhow::Result<()> {
         let peer = Peer::new("name");
-        let header = run(any_header());
-        let message = make_roll_forward_message(&peer, &header);
-        let consensus_ops = mock_consensus_ops();
+        let headers = run(any_headers_chain(2));
+        let header0 = headers[0].clone();
+        let header1 = headers[1].clone();
 
+        let consensus_ops = mock_consensus_ops();
         let store = consensus_ops.store();
-        let anchor = store.get_anchor_hash();
-        let (select_chain, _, _) = stage(
-            make_state(store.clone(), &peer, &anchor),
-            message.clone(),
-            consensus_ops.clone(),
-        )
-        .await;
-        let output = make_validated_event(&peer, &header);
+        store.store_header(&header0)?;
+        store.store_header(&header1)?;
+        store.set_anchor_hash(&header0.hash())?;
+        store.set_best_chain_hash(&header0.hash())?;
+
+        let state = make_state(store.clone(), &peer, &header0.hash());
+        let message = make_roll_forward_message(&peer, &header1);
+        let (select_chain, _, _) = stage(state, message.clone(), consensus_ops.clone()).await;
+        let output = make_block_validated_event(&peer, &header1);
 
         assert_eq!(
             consensus_ops.mock_base.received(),
@@ -406,8 +406,8 @@ mod tests {
         check_peers(
             select_chain,
             vec![
-                (Me, vec![anchor, header.hash()]),
-                (SomePeer(peer), vec![anchor, header.hash()]),
+                (Me, vec![header0.hash(), header1.hash()]),
+                (SomePeer(peer), vec![header0.hash(), header1.hash()]),
             ],
         );
         Ok(())
@@ -416,27 +416,30 @@ mod tests {
     #[tokio::test]
     async fn a_rollback_updates_the_tree_state() -> anyhow::Result<()> {
         let peer = Peer::new("name");
-        let headers = run(any_headers_chain(2));
-        let header1 = headers[0].clone();
-        let header2 = headers[1].clone();
+        let headers = run(any_headers_chain(3));
+        let header0 = headers[0].clone();
+        let header1 = headers[1].clone();
+        let header2 = headers[2].clone();
 
+        let consensus_ops = mock_consensus_ops();
+        let store = consensus_ops.store();
+        store.store_header(&header0)?;
+        store.store_header(&header1)?;
+        store.store_header(&header2)?;
+        store.set_anchor_hash(&header0.hash())?;
+        store.set_best_chain_hash(&header0.hash())?;
+
+        let state = make_state(store, &peer, &header0.hash());
         let message1 = make_roll_forward_message(&peer, &header1);
         let message2 = make_roll_forward_message(&peer, &header2);
         let message3 = make_rollback_message(&peer, &header1);
 
-        let consensus_ops = mock_consensus_ops();
-        let anchor = consensus_ops.store().get_anchor_hash();
-        let state = stage(
-            make_state(consensus_ops.store(), &peer, &anchor),
-            message1,
-            consensus_ops.clone(),
-        )
-        .await;
+        let state = stage(state, message1, consensus_ops.clone()).await;
         let state = stage(state, message2, consensus_ops.clone()).await;
         let (select_chain, _, _) = stage(state, message3.clone(), consensus_ops.clone()).await;
 
-        let output1 = make_validated_event(&peer, &header1);
-        let output2 = make_validated_event(&peer, &header2);
+        let output1 = make_block_validated_event(&peer, &header1);
+        let output2 = make_block_validated_event(&peer, &header2);
 
         assert_eq!(
             consensus_ops.mock_base.received(),
@@ -449,8 +452,8 @@ mod tests {
         check_peers(
             select_chain,
             vec![
-                (Me, vec![anchor, header1.hash(), header2.hash()]),
-                (SomePeer(peer), vec![anchor, header1.hash()]),
+                (Me, vec![header0.hash(), header1.hash(), header2.hash()]),
+                (SomePeer(peer), vec![header0.hash(), header1.hash()]),
             ],
         );
         Ok(())
@@ -459,33 +462,28 @@ mod tests {
     // HELPERS
 
     fn make_state(
-        store: Arc<dyn ChainStore<Header>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
         peer: &Peer,
-        anchor: &Hash<HEADER_HASH_SIZE>,
+        anchor: &HeaderHash,
     ) -> State {
-        let downstream: StageRef<ValidateHeaderEvent> = StageRef::named("downstream");
+        let downstream: StageRef<BlockValidationResult> = StageRef::named("downstream");
         let errors: StageRef<ValidationFailed> = StageRef::named("errors");
         let mut tree_state = HeadersTreeState::new(10);
         tree_state
             .initialize_peer(store.clone(), peer, anchor)
             .unwrap();
-        (
-            SelectChain::new(tree_state, slice::from_ref(peer)),
-            downstream,
-            errors,
-        )
+        (SelectChain::new(tree_state), downstream, errors)
     }
 
-    fn make_roll_forward_message(peer: &Peer, header: &Header) -> DecodedChainSyncEvent {
+    fn make_roll_forward_message(peer: &Peer, header: &BlockHeader) -> DecodedChainSyncEvent {
         DecodedChainSyncEvent::RollForward {
             peer: peer.clone(),
-            point: header.point(),
             header: header.clone(),
             span: Span::current(),
         }
     }
 
-    fn make_rollback_message(peer: &Peer, header: &Header) -> DecodedChainSyncEvent {
+    fn make_rollback_message(peer: &Peer, header: &BlockHeader) -> DecodedChainSyncEvent {
         DecodedChainSyncEvent::Rollback {
             peer: peer.clone(),
             rollback_point: header.point(),
@@ -493,15 +491,15 @@ mod tests {
         }
     }
 
-    fn make_validated_event(peer: &Peer, header: &Header) -> ValidateHeaderEvent {
-        ValidateHeaderEvent::Validated {
+    fn make_block_validated_event(peer: &Peer, header: &BlockHeader) -> BlockValidationResult {
+        BlockValidationResult::BlockValidated {
             peer: peer.clone(),
             header: header.clone(),
             span: Span::current(),
         }
     }
 
-    fn check_peers(select_chain: SelectChain, expected: Vec<(Tracker, Vec<Hash<32>>)>) {
+    fn check_peers(select_chain: SelectChain, expected: Vec<(Tracker, Vec<HeaderHash>)>) {
         let actual = select_chain
             .tree_state
             .peers()

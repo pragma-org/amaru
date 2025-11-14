@@ -15,10 +15,12 @@
 use crate::cbor;
 use std::fmt::Display;
 
+pub mod lazy;
+
 // Misc
 // ----------------------------------------------------------------------------
 
-fn decode_break<'d>(
+pub fn decode_break<'d>(
     d: &mut cbor::Decoder<'d>,
     len: Option<u64>,
 ) -> Result<bool, cbor::decode::Error> {

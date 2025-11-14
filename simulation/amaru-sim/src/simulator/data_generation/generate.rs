@@ -12,699 +12,330 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pure_stage::Instant;
-use rand::Rng;
-use serde_json::Result;
-use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
-
 use crate::echo::Envelope;
-
 use crate::simulator::bytes::Bytes;
 use crate::simulator::data_generation::base_generators::generate_arrival_times;
-use crate::simulator::data_generation::chain::{Block, Chain};
-use crate::simulator::{Entry, SimulateConfig};
+use crate::simulator::{Entry, NodeConfig};
 use crate::sync::ChainSyncMessage;
+use amaru_consensus::consensus::headers_tree::data_generation::{
+    Action, GeneratedActions, any_select_chains_from_tree, any_tree_of_headers, transpose,
+};
+use amaru_kernel::{IsHeader, Point, is_header::tests::run_with_rng, peer::Peer, to_cbor};
 use amaru_slot_arithmetic::Slot;
+use parking_lot::Mutex;
+use pure_stage::Instant;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use serde_json::to_value;
+use std::collections::BTreeMap;
+use std::fmt::{Debug, Display};
+use std::sync::Arc;
+use std::time::Duration;
 
-fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainSyncMessage> {
-    let mut messages = Vec::new();
-    let mut msg_id = 0;
+/// Holds a list of generated entries along with the context used to generate them.
+#[derive(Clone, PartialEq, Eq)]
+pub struct GeneratedEntries<Msg, GenerationContext> {
+    entries: Vec<Entry<Msg>>,
+    generation_context: GenerationContext,
+}
 
-    messages.push(ChainSyncMessage::Fwd {
-        msg_id,
-        slot: Slot::from(chain0.block.slot),
-        hash: chain0.block.hash.clone(),
-        header: chain0.block.header.clone(),
-    });
-    msg_id += 1;
+impl<GenerationContext: Debug> Debug for GeneratedEntries<ChainSyncMessage, GenerationContext> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let lines = self.display_as_lines();
+        for line in lines {
+            writeln!(f, "{}", line)?;
+        }
+        self.generation_context.fmt(f)?;
+        Ok(())
+    }
+}
 
-    fn walk_chain<R: Rng>(
-        chain0: &Chain,
-        chain: &Chain,
-        messages: &mut Vec<ChainSyncMessage>,
-        msg_id: &mut u64,
-        rng: &mut R,
-        visited: &mut BTreeMap<Bytes, BTreeSet<usize>>,
-    ) {
-        let already_visited: BTreeSet<usize> = visited
-            .get(&chain.block.hash)
-            .unwrap_or(&BTreeSet::new())
-            .clone();
+impl<Msg, GenerationContext> GeneratedEntries<Msg, GenerationContext> {
+    pub fn new(entries: Vec<Entry<Msg>>, generation_context: GenerationContext) -> Self {
+        Self {
+            entries,
+            generation_context,
+        }
+    }
 
-        let not_visited: Vec<usize> = (0..chain.children.len())
-            .collect::<BTreeSet<usize>>()
-            .difference(&already_visited)
+    pub fn entries(&self) -> &Vec<Entry<Msg>> {
+        &self.entries
+    }
+
+    pub fn generation_context(&self) -> &GenerationContext {
+        &self.generation_context
+    }
+}
+
+impl<GenerationContext> GeneratedEntries<ChainSyncMessage, GenerationContext> {
+    /// Return the entries as a list of lines, ready to be printed out.
+    /// This is used in the Debug implementation but can also be fed to logs
+    pub fn display_as_lines(&self) -> Vec<String> {
+        let entries = self.entries();
+        let mut result = vec![];
+        result.push("ALL ENTRIES".to_string());
+        for entry in entries.iter() {
+            result.push(Self::display_entry(entry))
+        }
+
+        result.push("BY PEER".to_string());
+        let mut by_peer: BTreeMap<String, Vec<Entry<ChainSyncMessage>>> = BTreeMap::new();
+        for entry in entries.iter() {
+            by_peer
+                .entry(entry.envelope.src.clone())
+                .or_default()
+                .push(entry.clone());
+        }
+
+        for (peer, entries) in by_peer {
+            result.push(format!("\nEntries from peer {}", peer));
+            for entry in entries.iter() {
+                result.push(Self::display_entry(entry))
+            }
+        }
+
+        result
+    }
+
+    /// Display a single entry as a formatted string
+    fn display_entry(entry: &Entry<ChainSyncMessage>) -> String {
+        GeneratedEntry::from(entry.clone()).to_string()
+    }
+}
+
+impl GeneratedEntries<ChainSyncMessage, GeneratedActions> {
+    pub fn as_json(&self) -> serde_json::Value {
+        let entries_json: Vec<serde_json::Value> = self
+            .entries()
+            .iter()
+            .map(|entry| to_value(GeneratedEntry::from(entry.clone())).unwrap())
+            .collect();
+
+        serde_json::json!({
+            "tree": self.generation_context().generated_tree().as_json(),
+            "messages": entries_json,
+        })
+    }
+
+    /// Export the generated entries to a JSON file at the given path.
+    pub fn export_to_file(&self, path: &str) {
+        use std::fs::File;
+        use std::io::Write;
+
+        let mut file = File::create(path).unwrap();
+        let content = self.as_json().to_string();
+        file.write_all(content.as_bytes()).unwrap();
+    }
+}
+
+/// A single generated entry formatted for display and serialization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GeneratedEntry {
+    message_type: String,
+    src: String,
+    hash: String,
+    parent: String,
+    slot: u64,
+    arrival_time: String,
+}
+
+impl Display for GeneratedEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "{message_type:<3} {src} {time:>9} {slot:>5} {hash:>6} (parent {parent_hash:>6})",
+            message_type = self.message_type,
+            src = self.src,
+            time = self.arrival_time,
+            slot = self.slot,
+            hash = self.hash,
+            parent_hash = self.parent,
+        ))
+    }
+}
+
+impl From<Entry<ChainSyncMessage>> for GeneratedEntry {
+    fn from(entry: Entry<ChainSyncMessage>) -> Self {
+        let message_type = match entry.envelope.body {
+            ChainSyncMessage::Fwd { .. } => "FWD",
+            ChainSyncMessage::Bck { .. } => "BCK",
+            _ => "UNK",
+        };
+        let header_hash = entry
+            .envelope
+            .body
+            .header_hash()
+            .unwrap_or(Point::Origin.hash());
+
+        let header_parent_hash = entry
+            .envelope
+            .body
+            .header_parent_hash()
+            .unwrap_or(Point::Origin.hash());
+
+        let slot = entry.envelope.body.slot().unwrap_or_default().into();
+        let arrival_time = entry.arrival_time.to_string();
+
+        GeneratedEntry {
+            message_type: message_type.to_string(),
+            src: entry.envelope.src,
+            hash: header_hash.to_string().chars().take(6).collect(),
+            parent: header_parent_hash.to_string().chars().take(6).collect(),
+            slot,
+            arrival_time,
+        }
+    }
+}
+
+/// Generates a sequence of chain sync entries based on random actions from peers on a tree of
+/// headers generated with a specified depth.
+///
+/// FIXME: since we are generating data with a `proptest` strategy the simulation framework can not
+/// for now shrink the list of actions generated here. This means that if a test fails the generated data
+/// will not be minimized to find a smaller failing case. The generation is deterministic though based on the
+/// RNG passed as a parameter.
+pub fn generate_entries<R: Rng>(
+    node_config: &NodeConfig,
+    start_time: Instant,
+    mean_millis: f64,
+) -> impl Fn(Arc<Mutex<R>>) -> GeneratedEntries<ChainSyncMessage, GeneratedActions> {
+    move |rng: Arc<Mutex<R>>| {
+        let mut rng = rng.lock();
+        // Generate a tree of headers.
+        let generated_tree = run_with_rng(
+            &mut rng,
+            any_tree_of_headers(node_config.generated_chain_depth as usize),
+        );
+
+        // Generate actions corresponding to peers doing roll forwards and roll backs on the tree.
+        let generated_actions = run_with_rng(
+            &mut rng,
+            any_select_chains_from_tree(
+                &generated_tree,
+                node_config.number_of_upstream_peers as usize,
+            ),
+        );
+
+        // Generate arrivale times and make entries for each peer.
+        let mut entries_by_peer: BTreeMap<Peer, Vec<Entry<ChainSyncMessage>>> = BTreeMap::new();
+        for (peer, actions) in generated_actions.actions_per_peer().iter() {
+            // introduce a random start delay for each peer simulate different connection times
+            let start_delay = rng.random_range(0..(mean_millis as u64 * 10));
+            let arrival_times = generate_arrival_times(
+                start_time + Duration::from_millis(start_delay),
+                mean_millis,
+            )(actions.len(), &mut rng);
+            make_entries_for_peer(&mut entries_by_peer, peer, actions.clone(), arrival_times);
+        }
+
+        // Interleave the peers entries to simulate concurrent arrivals.
+        let entries = transpose(entries_by_peer.values())
+            .into_iter()
+            .flatten()
             .cloned()
             .collect();
 
-        if chain.children.is_empty() || not_visited.is_empty() {
-            backtrack(
-                chain0,
-                chain,
-                messages,
-                msg_id,
-                rng,
-                visited,
-                chain.block.height,
-            );
-            // println!("visited: {:?}", visited);
-        } else {
-            let random_not_visited_index = rng.random_range(0..not_visited.len());
-            let index = not_visited[random_not_visited_index];
-            // println!(
-            //     "Fwd {} {}",
-            //     &chain.children[index].block.hash.as_str()[..6],
-            //     &chain.children[index].block.height
-            // );
-            messages.push(ChainSyncMessage::Fwd {
-                msg_id: *msg_id,
-                slot: Slot::from(chain.children[index].block.slot),
-                hash: chain.children[index].block.hash.clone(),
-                header: chain.children[index].block.header.clone(),
-            });
-            *msg_id += 1;
-            // println!("visited, {} -> {}", &chain.block.hash.as_str()[..6], index);
-            let mut already_visited: BTreeSet<usize> = visited
-                .get(&chain.block.hash)
-                .unwrap_or(&BTreeSet::new())
-                .clone();
-            let _ = already_visited.insert(index);
-            let _ = visited.insert(chain.block.hash.clone(), already_visited.clone());
-            // println!("visited: {:?}", visited);
-            walk_chain(
-                chain0,
-                &chain.children[index],
-                messages,
-                msg_id,
-                rng,
-                visited,
-            );
+        GeneratedEntries {
+            entries,
+            generation_context: generated_actions,
         }
     }
+}
 
-    fn backtrack<R: Rng>(
-        chain0: &Chain,
-        chain: &Chain,
-        messages: &mut Vec<ChainSyncMessage>,
-        msg_id: &mut u64,
-        rng: &mut R,
-        visited: &mut BTreeMap<Bytes, BTreeSet<usize>>,
-        height: u32,
-    ) {
-        let mut ancestors: Vec<Block> = chain0.find_ancestors(&chain.block.hash);
-        ancestors.reverse();
-        for ancestor in &ancestors {
-            let ancestor_chain = chain0
-                .find(&ancestor.hash)
-                .expect("ancestor has to be in the original chain");
-            // Only go back to ancestors that have unvisited children that have the same or higher
-            // height.
-            // println!("backtrack, visited set: {:?}", visited.get(&ancestor.hash));
-            // println!(
-            //     "backtrack, {}: {}, visisted: {}",
-            //     &ancestor.hash.as_str()[..6],
-            //     ancestor_chain.children.len(),
-            //     visited.get(&ancestor.hash).unwrap_or(&BTreeSet::new()).len()
-            // );
-            if ancestor_chain.children.len()
-                != visited
-                    .get(&ancestor.hash)
-                    .unwrap_or(&BTreeSet::new())
-                    .len()
-                && ancestor_chain
-                    .children
-                    .clone()
-                    .into_iter()
-                    .any(|child| child.block.height >= height)
-            {
-                // println!("Bck {} {}", &ancestor.hash.as_str()[..6], &ancestor.height);
-                messages.push(ChainSyncMessage::Bck {
-                    msg_id: *msg_id,
-                    slot: Slot::from(ancestor.slot),
-                    hash: ancestor.hash.clone(),
-                });
-                *msg_id += 1;
-                walk_chain(chain0, &ancestor_chain, messages, msg_id, rng, visited)
-            }
-        }
+/// Create entries for a given peer based on the actions and arrival times.
+fn make_entries_for_peer(
+    entries: &mut BTreeMap<Peer, Vec<Entry<ChainSyncMessage>>>,
+    peer: &Peer,
+    actions: Vec<Action>,
+    arrival_times: Vec<Instant>,
+) {
+    let mut peer_entries = vec![];
+    for (msg_id, (action, arrival_time)) in actions
+        .into_iter()
+        .zip(arrival_times.into_iter())
+        .enumerate()
+    {
+        let message = match &action {
+            Action::RollForward { header, .. } => ChainSyncMessage::Fwd {
+                msg_id: msg_id as u64,
+                slot: Slot::from(header.slot()),
+                hash: Bytes {
+                    bytes: header.hash().to_vec(),
+                },
+                header: Bytes {
+                    bytes: to_cbor(&header),
+                },
+            },
+            Action::RollBack { rollback_point, .. } => ChainSyncMessage::Bck {
+                msg_id: msg_id as u64,
+                slot: rollback_point.slot_or_default(),
+                hash: Bytes::from(rollback_point.hash().to_vec()),
+            },
+        };
+        peer_entries.push(make_entry(action.peer(), &arrival_time, message));
     }
-
-    walk_chain(
-        chain0,
-        chain0,
-        &mut messages,
-        &mut msg_id,
-        rng,
-        &mut BTreeMap::new(),
-    );
-    messages
+    entries.insert(peer.clone(), peer_entries);
 }
 
-pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &PathBuf) -> Result<Vec<ChainSyncMessage>> {
-    let chain = Chain::from_file(file_path)?;
-    Ok(generate_inputs_from_chain(&chain, rng))
-}
-
-pub fn generate_entries<'a, R: Rng>(
-    config: &'a SimulateConfig,
-    file_path: &'a PathBuf,
-    start_time: Instant,
-    mean_millis: f64,
-) -> impl Fn(&mut R) -> Vec<Reverse<Entry<ChainSyncMessage>>> + use<'a, R> {
-    move |rng| {
-        let mut entries: Vec<Reverse<Entry<ChainSyncMessage>>> = vec![];
-        for client in 1..=config.number_of_upstream_peers {
-            let messages =
-                generate_inputs(rng, file_path).expect("Failed to generate inputs from chain file");
-            let arrival_times =
-                generate_arrival_times(start_time, mean_millis)(messages.len(), rng);
-            entries.extend(
-                messages
-                    .into_iter()
-                    .enumerate()
-                    .map(|(idx, msg)| {
-                        Reverse(Entry {
-                            arrival_time: arrival_times[idx],
-                            envelope: Envelope {
-                                src: "c".to_owned() + &client.to_string(),
-                                dest: "n1".to_string(),
-                                body: msg,
-                            },
-                        })
-                    })
-                    .collect::<Vec<_>>(),
-            );
-        }
-        entries
+/// Create an entry for a given peer, arrival time and message body.
+/// The source name for the envelope is prefixed with "c" to indicate it's a client peer.
+fn make_entry<T>(peer: &Peer, arrival_time: &Instant, body: T) -> Entry<T> {
+    Entry {
+        arrival_time: *arrival_time,
+        envelope: Envelope {
+            src: format!("c{}", peer.name.clone()),
+            dest: "n1".to_string(),
+            body,
+        },
     }
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
+    use pure_stage::EPOCH;
     use rand::SeedableRng;
-    use rand::rngs::StdRng;
-    use std::path::Path;
+    use rand::prelude::StdRng;
 
+    /// This test checks that the generated entries have reasonable slot values
+    /// compared to their arrival times.
+    ///
+    /// Additionally this test can be used to generate data for the animation in tests/animations/entries.html.
     #[test]
-    fn test_generate_inputs() {
-        let chain = Chain::from_file(&Path::new("tests/data/chain.json").into()).unwrap();
-        let mut rng = StdRng::seed_from_u64(1234);
-        let inputs = generate_inputs_from_chain(&chain, &mut rng);
+    fn test_generate_entries() {
+        let node_config = NodeConfig {
+            number_of_upstream_peers: 10,
+            number_of_downstream_peers: 1,
+            generated_chain_depth: 15,
+        };
+        let start_time = Instant::at_offset(Duration::from_secs(1));
+        let deviation_millis = 200.0;
 
-        let expected = vec![
-            ChainSyncMessage::Fwd {
-                msg_id: 0,
-                slot: Slot::from(31),
-                hash: Bytes {
-                    bytes: hex::decode("2487bd".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0118".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 1,
-                slot: Slot::from(38),
-                hash: Bytes {
-                    bytes: hex::decode("4fcd1d".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0218".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 2,
-                slot: Slot::from(41),
-                hash: Bytes {
-                    bytes: hex::decode("739307".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0318".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 3,
-                slot: Slot::from(55),
-                hash: Bytes {
-                    bytes: hex::decode("726ef3".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0418".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 4,
-                slot: Slot::from(93),
-                hash: Bytes {
-                    bytes: hex::decode("597ea6".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0518".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 5,
-                slot: Slot::from(121),
-                hash: Bytes {
-                    bytes: hex::decode("bfa96c".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0618".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 6,
-                slot: Slot::from(142),
-                hash: Bytes {
-                    bytes: hex::decode("64565f".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0718".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 7,
-                slot: Slot::from(188),
-                hash: Bytes {
-                    bytes: hex::decode("bd41b1".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0818".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Bck {
-                msg_id: 8,
-                slot: Slot::from(142),
-                hash: Bytes {
-                    bytes: hex::decode("64565f".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 9,
-                slot: Slot::from(187),
-                hash: Bytes {
-                    bytes: hex::decode("66c90f".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0818".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 10,
-                slot: Slot::from(204),
-                hash: Bytes {
-                    bytes: hex::decode("3dcc0a".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0918".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 11,
-                slot: Slot::from(225),
-                hash: Bytes {
-                    bytes: hex::decode("1900c6".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0a18".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 12,
-                slot: Slot::from(272),
-                hash: Bytes {
-                    bytes: hex::decode("38fbcc".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0b19".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 13,
-                slot: Slot::from(309),
-                hash: Bytes {
-                    bytes: hex::decode("a7bafd".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0c19".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 14,
-                slot: Slot::from(314),
-                hash: Bytes {
-                    bytes: hex::decode("a45d60".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0d19".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 15,
-                slot: Slot::from(343),
-                hash: Bytes {
-                    bytes: hex::decode("75114e".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0e19".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 16,
-                slot: Slot::from(345),
-                hash: Bytes {
-                    bytes: hex::decode("5401ea".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a0f19".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 17,
-                slot: Slot::from(374),
-                hash: Bytes {
-                    bytes: hex::decode("dec730".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1019".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 18,
-                slot: Slot::from(454),
-                hash: Bytes {
-                    bytes: hex::decode("05c824".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1119".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 19,
-                slot: Slot::from(473),
-                hash: Bytes {
-                    bytes: hex::decode("b967de".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1219".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 20,
-                slot: Slot::from(492),
-                hash: Bytes {
-                    bytes: hex::decode("42c0a5".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1319".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 21,
-                slot: Slot::from(521),
-                hash: Bytes {
-                    bytes: hex::decode("fdd5fb".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1419".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 22,
-                slot: Slot::from(535),
-                hash: Bytes {
-                    bytes: hex::decode("03409d".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1519".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 23,
-                slot: Slot::from(543),
-                hash: Bytes {
-                    bytes: hex::decode("5d3cbe".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1619".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 24,
-                slot: Slot::from(592),
-                hash: Bytes {
-                    bytes: hex::decode("6f582e".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1719".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 25,
-                slot: Slot::from(608),
-                hash: Bytes {
-                    bytes: hex::decode("387d52".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1818".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 26,
-                slot: Slot::from(611),
-                hash: Bytes {
-                    bytes: hex::decode("fe7f70".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1819".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 27,
-                slot: Slot::from(648),
-                hash: Bytes {
-                    bytes: hex::decode("b30bf2".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a181a".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 28,
-                slot: Slot::from(665),
-                hash: Bytes {
-                    bytes: hex::decode("03d2a8".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a181b".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 29,
-                slot: Slot::from(670),
-                hash: Bytes {
-                    bytes: hex::decode("525647".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a181c".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 30,
-                slot: Slot::from(694),
-                hash: Bytes {
-                    bytes: hex::decode("65e5aa".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a181d".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 31,
-                slot: Slot::from(703),
-                hash: Bytes {
-                    bytes: hex::decode("8bd65a".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a181e".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 32,
-                slot: Slot::from(729),
-                hash: Bytes {
-                    bytes: hex::decode("a8e8db".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a181f".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 33,
-                slot: Slot::from(748),
-                hash: Bytes {
-                    bytes: hex::decode("3d9b4c".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1820".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 34,
-                slot: Slot::from(766),
-                hash: Bytes {
-                    bytes: hex::decode("ed6142".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1821".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 35,
-                slot: Slot::from(777),
-                hash: Bytes {
-                    bytes: hex::decode("b4d194".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1822".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 36,
-                slot: Slot::from(782),
-                hash: Bytes {
-                    bytes: hex::decode("58be40".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1823".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 37,
-                slot: Slot::from(798),
-                hash: Bytes {
-                    bytes: hex::decode("b0f841".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1824".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 38,
-                slot: Slot::from(825),
-                hash: Bytes {
-                    bytes: hex::decode("2d628d".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1825".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 39,
-                slot: Slot::from(827),
-                hash: Bytes {
-                    bytes: hex::decode("8c54fe".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1826".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 40,
-                slot: Slot::from(833),
-                hash: Bytes {
-                    bytes: hex::decode("1c0936".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1827".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 41,
-                slot: Slot::from(854),
-                hash: Bytes {
-                    bytes: hex::decode("c5a715".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1828".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 42,
-                slot: Slot::from(861),
-                hash: Bytes {
-                    bytes: hex::decode("e2fdff".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a1829".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 43,
-                slot: Slot::from(863),
-                hash: Bytes {
-                    bytes: hex::decode("00f025".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a182a".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 44,
-                slot: Slot::from(874),
-                hash: Bytes {
-                    bytes: hex::decode("5bb6b1".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a182b".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 45,
-                slot: Slot::from(915),
-                hash: Bytes {
-                    bytes: hex::decode("2a348c".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a182c".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 46,
-                slot: Slot::from(949),
-                hash: Bytes {
-                    bytes: hex::decode("218266".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a182d".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 47,
-                slot: Slot::from(951),
-                hash: Bytes {
-                    bytes: hex::decode("dc6018".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a182e".as_bytes()).unwrap(),
-                },
-            },
-            ChainSyncMessage::Fwd {
-                msg_id: 48,
-                slot: Slot::from(990),
-                hash: Bytes {
-                    bytes: hex::decode("fcb4a5".as_bytes()).unwrap(),
-                },
-                header: Bytes {
-                    bytes: hex::decode("828a182f".as_bytes()).unwrap(),
-                },
-            },
-        ];
-        for (got, expect) in inputs.into_iter().zip(expected) {
-            assert_eq!(format!("{:?}", got), format!("{:?}", expect))
+        let rng = StdRng::seed_from_u64(42);
+        let generate = generate_entries(&node_config, start_time, deviation_millis);
+        let generated_entries = generate(Arc::new(Mutex::new(rng)));
+
+        // Uncomment these lines to print the generated entries for debugging
+        // for entry in generated_entries.lines() {
+        //     println!("{}", entry);
+        // }
+
+        // Uncomment this line to generate a new data file for the animation in
+        // tests/animations/entries.html.
+        // generated_entries.export_to_file("../target/simulation/data.json");
+
+        // The first 20 entries are roll forward messages
+        // We expect the slot value to be around 2000ms of the arrival time,
+        // given a possible start delay and some jitter around each message arrival.
+        for (i, entry) in generated_entries.entries().iter().take(20).enumerate() {
+            if let Some(slot) = entry.envelope.body.slot() {
+                let arrival_time_ms =
+                    entry.arrival_time.saturating_since(*EPOCH).as_millis() as u64;
+                let slot_ms = u64::from(slot) * 1000;
+                assert!(
+                    (arrival_time_ms as f64 - slot_ms as f64).abs() <= 2000.0,
+                    "Entry {i} arrival time {arrival_time_ms} ms and slot {slot_ms} ms differ more than 2000 ms",
+                )
+            }
         }
     }
 }

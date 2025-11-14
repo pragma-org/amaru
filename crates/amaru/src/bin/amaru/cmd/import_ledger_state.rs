@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraHistory, Point, default_ledger_dir, network::NetworkName};
+use amaru_kernel::{EraHistory, Point, network::NetworkName};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -25,6 +25,8 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::info;
+
+use crate::cmd::default_ledger_dir;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -40,14 +42,14 @@ pub struct Args {
     ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
     ///
     /// Can be repeated multiple times for multiple snapshots.
-    #[arg(long, value_name = "SNAPSHOT", verbatim_doc_comment, num_args(0..))]
+    #[arg(long, value_name = "FILE", env = "AMARU_SNAPSHOT", verbatim_doc_comment, num_args(0..))]
     snapshot: Vec<PathBuf>,
     /// Path to a directory containing multiple CBOR snapshots to import.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_SNAPSHOT_DIR")]
     snapshot_dir: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
     ledger_dir: Option<PathBuf>,
 
     /// Network the snapshots are imported from.
@@ -58,7 +60,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = super::DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }
@@ -143,22 +145,39 @@ pub async fn import_one(
     .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
+
+    if fs::exists(ledger_dir.join("live"))? {
+        fs::remove_dir_all(ledger_dir.join("live"))?;
+    }
+
     let db = RocksDB::empty(RocksDbConfig::new(ledger_dir.into()))?;
-    let bytes = fs::read(snapshot)?;
+    let mut file = fs::File::open(snapshot)?;
     let dir = snapshot
         .parent()
         .ok_or(Error::InvalidSnapshotFile(snapshot.into()))?;
 
     let era_history = make_era_history(dir, &point, network)?;
-    let epoch = import_initial_snapshot(
-        &db,
-        &bytes,
-        &point,
-        &era_history,
-        new_terminal_progress_bar,
-        None,
-        true,
-    )?;
+
+    // Increase the stack size slightly as for some reasons, the lazy decoder is greedy on the
+    // stack in some situations.
+    let builder = std::thread::Builder::new().stack_size(10_000_000);
+    let (db, epoch) = builder
+        .spawn(move || {
+            import_initial_snapshot(
+                &db,
+                &mut file,
+                &point,
+                &era_history,
+                network,
+                new_terminal_progress_bar,
+                true,
+            )
+            .map_err(|e| e.to_string())
+            .map(|epoch| (db, epoch))
+        })
+        .unwrap()
+        .join()
+        .unwrap()?;
 
     db.next_snapshot(epoch)?;
 
@@ -198,13 +217,13 @@ mod tests {
     use std::{path::PathBuf, str::FromStr};
 
     use crate::cmd::import_ledger_state::{make_era_history, sort_snapshots_by_slot};
-    use amaru_kernel::{HEADER_HASH_SIZE, Hash, Point, Slot, network::NetworkName};
+    use amaru_kernel::{Hash, HeaderHash, Point, Slot, network::NetworkName};
     use amaru_slot_arithmetic::TimeMs;
 
     #[test]
     fn make_era_history_for_tesnet_given_file_exists() {
         let dir = PathBuf::from("tests/data/");
-        let hash: Hash<HEADER_HASH_SIZE> =
+        let hash: HeaderHash =
             Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")
                 .unwrap();
         let point = Point::Specific(56073562, hash.to_vec());
