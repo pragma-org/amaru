@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::echo::Envelope;
+use crate::simulator::Envelope;
 use crate::simulator::world::world::Next::{Continue, Done, Panic};
 use crate::simulator::{NodeHandle, StepResult};
 use amaru_kernel::string_utils::ListToString;

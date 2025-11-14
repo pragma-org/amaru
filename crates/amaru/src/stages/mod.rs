@@ -66,7 +66,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 pub mod build_stage_graph;
-pub mod common;
 pub mod consensus;
 
 /// Whether or not data is stored on disk or in memory.
@@ -221,7 +220,6 @@ pub async fn bootstrap(
         .await?,
     );
 
-    // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
     let acto_runtime = AcTokio::from_handle("network", Handle::current().clone());
 
