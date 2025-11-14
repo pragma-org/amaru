@@ -46,7 +46,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let config = RocksDbConfig::new(chain_dir.clone());
 
     info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(),
-          "Running command dump-chain-db",
+          "Running command migrate-chain-db",
     );
 
     Ok(
