@@ -27,7 +27,10 @@ use amaru_kernel::{
     StakeCredential, TransactionInput, protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Epoch;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    sync::Arc,
+};
 use tracing::error;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::state::volatile_db";
@@ -45,50 +48,37 @@ pub const EVENT_TARGET: &str = "amaru::ledger::state::volatile_db";
 // Another option is to have the cache not own data, but indices onto the sequence. This may
 // require to switch the sequence back to a Vec to allow fast random lookups.
 #[derive(Default)]
-pub struct VolatileDB {
-    cache: VolatileCache,
-    sequence: VecDeque<AnchoredVolatileState>,
-}
+pub struct VolatileDB(VecDeque<AnchoredVolatileState>);
 
 impl VolatileDB {
     pub fn is_empty(&self) -> bool {
-        self.sequence.is_empty()
+        self.0.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.sequence.len()
+        self.0.len()
     }
 
     pub fn view_back(&self) -> Option<&AnchoredVolatileState> {
-        self.sequence.back()
+        self.0.back()
     }
 
     pub fn view_front(&self) -> Option<&AnchoredVolatileState> {
-        self.sequence.front()
+        self.0.front()
     }
 
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.cache.utxo.produced.get(input)
+        self.0
+            .iter()
+            .find_map(|elem| elem.state.utxo.produced.get(input).map(|o| o.as_ref()))
     }
 
     pub fn pop_front(&mut self) -> Option<AnchoredVolatileState> {
-        self.sequence.pop_front().inspect(|state| {
-            // NOTE: It is imperative to remove consumed and produced UTxOs from the cache as we
-            // remove them from the sequence to prevent the cache from growing out of proportion.
-            for k in state.state.utxo.consumed.iter() {
-                self.cache.utxo.consumed.remove(k);
-            }
-
-            for (k, _) in state.state.utxo.produced.iter() {
-                self.cache.utxo.produced.remove(k);
-            }
-        })
+        self.0.pop_front()
     }
 
     pub fn push_back(&mut self, state: AnchoredVolatileState) {
-        // TODO: See NOTE on VolatileDB regarding the .clone()
-        self.cache.merge(state.state.utxo.clone());
-        self.sequence.push_back(state);
+        self.0.push_back(state);
     }
 
     pub fn rollback_to<E>(
@@ -96,42 +86,21 @@ impl VolatileDB {
         point: &Point,
         on_unknown_point: impl Fn(&Point) -> E,
     ) -> Result<(), E> {
-        self.cache = VolatileCache::default();
-
         let mut ix = 0;
-        for diff in self.sequence.iter() {
+        for diff in self.0.iter() {
             if diff.anchor.0.slot_or_default() <= point.slot_or_default() {
-                // TODO: See NOTE on VolatileDB regarding the .clone()
-                self.cache.merge(diff.state.utxo.clone());
                 ix += 1;
             }
         }
 
-        if ix >= self.sequence.len() {
+        if ix >= self.0.len() {
             Err(on_unknown_point(point))
         } else {
-            self.sequence.resize_with(ix, || {
+            self.0.resize_with(ix, || {
                 unreachable!("ix is necessarly strictly smaller than the length")
             });
             Ok(())
         }
-    }
-}
-
-// VolatileCache
-// ----------------------------------------------------------------------------
-
-// TODO: At this point, we only need to lookup UTxOs, so the aggregated cache is limited to those.
-// It would be relatively easy to extend to accounts, but it is trickier for pools since
-// DiffEpochReg aren't meant to be mergeable across epochs.
-#[derive(Default)]
-struct VolatileCache {
-    pub utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>,
-}
-
-impl VolatileCache {
-    pub fn merge(&mut self, utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>) {
-        self.utxo.merge(utxo);
     }
 }
 
@@ -140,7 +109,7 @@ impl VolatileCache {
 
 #[derive(Debug, Default)]
 pub struct VolatileState {
-    pub utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>,
+    pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, (PoolParams, CertificatePointer)>,
     pub accounts: DiffBind<
         StakeCredential,
@@ -171,7 +140,7 @@ impl VolatileState {
     }
 
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.utxo.produced.get(input)
+        self.utxo.produced.get(input).map(|o| o.as_ref())
     }
 }
 
@@ -196,7 +165,7 @@ impl AnchoredVolatileState {
     ) -> StoreUpdate<
         impl Iterator<Item = accounts::Key>,
         store::Columns<
-            impl Iterator<Item = (utxo::Key, utxo::Value)>,
+            impl Iterator<Item = (utxo::Key, Arc<utxo::Value>)>,
             impl Iterator<Item = pools::Value>,
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
             impl Iterator<Item = (dreps::Key, dreps::Value)>,
