@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, path::PathBuf};
-
 use amaru_kernel::{EraHistory, network::NetworkName, protocol_parameters::GlobalParameters};
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
+use std::{error::Error, path::PathBuf};
 
 pub(crate) mod mithril;
 pub(crate) mod sync;

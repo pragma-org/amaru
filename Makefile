@@ -26,8 +26,8 @@ bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-
 	cargo run --profile $(BUILD_PROFILE) -- bootstrap
 
 sync-from-mithril:
-	@cargo run --bin amaru-ledger mithril
-	@cargo run --bin amaru-ledger sync
+	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger mithril
+	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger sync
 
 import-headers: ## &start Import initial headers
 	cargo run --profile $(BUILD_PROFILE) -- import-headers

@@ -56,5 +56,5 @@ pub fn default_data_dir(network: NetworkName) -> String {
 }
 
 pub fn default_snapshots_dir(network: NetworkName) -> String {
-    format!("{}/{}", SNAPSHOTS_DIR, network)
+    format!("{}/{}", SNAPSHOTS_DIR, network.to_string().to_lowercase())
 }

@@ -12,6 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::cmd::new_block_validator;
+use amaru::{default_ledger_dir, point::to_network_point};
+use amaru_kernel::network::NetworkName;
+use async_trait::async_trait;
+use clap::Parser;
+use flate2::{Compression, write::GzEncoder};
+use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
+use mithril_client::{
+    ClientBuilder, MessageBuilder,
+    cardano_database_client::{DownloadUnpackOptions, ImmutableFileRange},
+    feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
+};
+use pallas_hardano::storage::immutable::read_blocks_from_point;
+use pallas_traverse::MultiEraBlock;
 use std::{
     collections::BTreeMap,
     fmt,
@@ -21,24 +35,9 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-
-use amaru::{default_ledger_dir, point::to_network_point};
-use amaru_kernel::network::NetworkName;
-use async_trait::async_trait;
-use clap::Parser;
-use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
-use mithril_client::{
-    ClientBuilder, MessageBuilder,
-    cardano_database_client::{DownloadUnpackOptions, ImmutableFileRange},
-    feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
-};
-use pallas_hardano::storage::immutable::read_blocks_from_point;
-use pallas_traverse::MultiEraBlock;
-use tar::Builder;
+use tar::{Builder, Header};
 use tokio::sync::RwLock;
 use tracing::info;
-
-use crate::cmd::new_block_validator;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -64,8 +63,14 @@ pub struct Args {
     )]
     ledger_dir: Option<PathBuf>,
 
-    /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", default_value = Some("mithril-snapshots".into()), env = "AMARU_MITHRIL_SNAPSHOTS_DIR", verbatim_doc_comment)]
+    /// Path of the mithril snapshots on-disk storage.
+    #[arg(
+        long,
+        value_name = "DIR",
+        default_value = "mithril-snapshots",
+        env = "AMARU_MITHRIL_SNAPSHOTS_DIR",
+        verbatim_doc_comment
+    )]
     snapshots_dir: PathBuf,
 }
 
@@ -163,17 +168,8 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
 }
 
 #[allow(clippy::unwrap_used)]
-async fn package_blocks(
-    network: &NetworkName,
-    blocks: &BTreeMap<String, &Vec<u8>>,
-) -> std::io::Result<Vec<u8>> {
-    use flate2::{Compression, write::GzEncoder};
-    use tar::Header;
-
-    // Create a GzEncoder that will write compressed bytes to an in-memory Vec<u8>
+fn package_blocks(network: &NetworkName, blocks: &BTreeMap<String, &Vec<u8>>) -> io::Result<()> {
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
-
-    // Give ownership of the encoder to the tar builder so it can write into it
     let mut tar = Builder::new(encoder);
 
     for (name, data) in blocks {
@@ -194,10 +190,7 @@ async fn package_blocks(
         tar.append_data(&mut header, name, Cursor::new(data))?;
     }
 
-    // Extract the inner encoder (GzEncoder<Vec<u8>>)
     let encoder = tar.into_inner()?;
-
-    // Finish compression and obtain the inner Vec<u8>
     let compressed = encoder.finish()?;
 
     let dir = format!("data/{}/blocks", network);
@@ -212,7 +205,7 @@ async fn package_blocks(
 
     f.write_all(&compressed)?;
 
-    Ok(compressed)
+    Ok(())
 }
 
 /// Returns the latest chunk number present in the given immutable directory.
@@ -362,7 +355,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         latest_chunk.unwrap_or(infer_chunk_from_slot(tip.slot_or_default().into()) - 1);
 
     info!(
-        "Downloading mithril immutabe starting chunk {} (tip {})",
+        "Downloading mithril immutable starting chunk {} (tip {})",
         from_chunk, tip
     );
 
@@ -372,11 +365,14 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     // Read blocks from the immutable storage and package them into .tar.gz files
     const BLOCKS_PER_ARCHIVE: usize = 20000;
-    for chunk in read_blocks_from_point(&immutable_dir, to_network_point(tip))?
+    let mut iter = read_blocks_from_point(&immutable_dir, to_network_point(tip))?
         .map_while(Result::ok)
-        .skip(1) // Exclude the tip itself
-        .array_chunks::<BLOCKS_PER_ARCHIVE>()
-    {
+        .skip(1); // Exclude the tip itself
+    loop {
+        let chunk: Vec<_> = iter.by_ref().take(BLOCKS_PER_ARCHIVE).collect();
+        if chunk.is_empty() {
+            break;
+        }
         let map = chunk
             .iter()
             .filter_map(|cbor| {
@@ -387,7 +383,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 Some((name, cbor))
             })
             .collect();
-        package_blocks(&network, &map).await?;
+        package_blocks(&network, &map)?;
     }
 
     Ok(())

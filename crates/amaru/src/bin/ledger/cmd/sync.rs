@@ -12,22 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::{default_chain_dir, default_ledger_dir};
+use crate::cmd::new_block_validator;
+use amaru::{DEFAULT_NETWORK, default_chain_dir, default_ledger_dir};
 use amaru_consensus::consensus::store::PraosChainStore;
-use amaru_stores::rocksdb::{
-    RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore,
-};
-use anyhow::anyhow;
-use clap::Parser;
-use std::{
-    fs::{self, File},
-    io::Read,
-    path::PathBuf,
-    sync::Arc,
-    time::Instant,
-};
-use tracing::info;
-
 use amaru_kernel::{
     BlockHeader, EraHistory, Header, Point, RawBlock,
     network::NetworkName,
@@ -35,11 +22,21 @@ use amaru_kernel::{
 };
 use amaru_ledger::{block_validator::BlockValidator, rules::parse_block};
 use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
-
+use amaru_stores::rocksdb::{
+    RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore,
+};
+use anyhow::anyhow;
+use clap::Parser;
 use flate2::read::GzDecoder;
+use std::{
+    fs::{self, File},
+    io::Read,
+    path::PathBuf,
+    sync::Arc,
+    time::Instant,
+};
 use tar::Archive;
-
-use crate::cmd::new_block_validator;
+use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -49,39 +46,40 @@ pub struct Args {
     /// `magic` is a 32-bits unsigned value denoting a particular testnet.
     #[arg(
         long,
-        value_name = "NETWORK_NAME",
+        value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = DEFAULT_NETWORK,
         verbatim_doc_comment
     )]
     network: NetworkName,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
     ledger_dir: Option<PathBuf>,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
 
     /// Ingest blocks until (and including) the given slot.
     /// If not provided, will ingest all available blocks.
-    #[arg(long, value_name = "INGEST_UNTIL_SLOT")]
+    #[arg(long, value_name = "SLOT", env = "AMARU_INGEST_UNTIL_SLOT")]
     ingest_until_slot: Option<u64>,
 
     /// Ingest at most the given number of blocks.
     /// If not provided, will ingest all available blocks.
-    #[arg(long, value_name = "INGEST_MAXIMUM_BLOCKS")]
+    #[arg(long, value_name = "INT", env = "AMARU_INGEST_MAXIMUM_BLOCKS")]
     ingest_maximum_blocks: Option<usize>,
 }
 
 /// Load archives containing blocks and sort them based on file name (filesystem access doesn't guarantee any ordering)
+#[expect(clippy::panic)]
 fn list_archive_names(network: NetworkName) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut archives: Vec<_> = fs::read_dir(format!("data/{}/blocks", network))?
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let path = entry.path();
-            if path.extension()? == "gz" {
+            if path.extension().and_then(|ext| ext.to_str()) == Some("gz") {
                 Some(
                     path.file_name()?
                         .to_os_string()
@@ -94,18 +92,22 @@ fn list_archive_names(network: NetworkName) -> Result<Vec<String>, Box<dyn std::
         })
         .collect();
     archives.sort_by(|a, b| {
-        let a = a.split_once(".").unwrap_or_default().0;
-        let b = b.split_once(".").unwrap_or_default().0;
-        a.parse::<u32>()
-            .unwrap_or_default()
-            .cmp(&b.parse::<u32>().unwrap_or_default())
+        let a_num = a
+            .split_once(".")
+            .and_then(|(prefix, _)| prefix.parse::<u32>().ok())
+            .unwrap_or_else(|| panic!("Invalid archive name format: {}", a));
+        let b_num = b
+            .split_once(".")
+            .and_then(|(prefix, _)| prefix.parse::<u32>().ok())
+            .unwrap_or_else(|| panic!("Invalid archive name format: {}", b));
+        a_num.cmp(&b_num)
     });
     Ok(archives)
 }
 
 fn load_archive(
     network: NetworkName,
-    archive_path: &String,
+    archive_path: &str,
 ) -> Result<Archive<GzDecoder<File>>, Box<dyn std::error::Error>> {
     let file = fs::File::open(format!("data/{}/blocks/{}", network, archive_path))?;
     let gz = GzDecoder::new(file);
@@ -136,16 +138,22 @@ async fn load_blocks(
         let path = entry.path()?;
 
         if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
-            //let file_name = path.file_name().unwrap_or_default().to_string_lossy();
             let (slot_str, hash_str) = file_name
                 .strip_suffix(".cbor")
-                .unwrap_or(file_name)
+                .ok_or_else(|| anyhow!("Missing .cbor suffix in file: {}", file_name))?
                 .split_once('.')
-                .unwrap_or(("0", ""));
-            let point = Point::Specific(
-                slot_str.parse().unwrap_or_default(),
-                hex::decode(hash_str).unwrap_or_default(),
-            );
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Invalid filename format (expected slot.hash.cbor): {}",
+                        file_name
+                    )
+                })?;
+            let slot = slot_str
+                .parse::<u64>()
+                .map_err(|e| anyhow!("Failed to parse slot from '{}': {}", slot_str, e))?;
+            let hash = hex::decode(hash_str)
+                .map_err(|e| anyhow!("Failed to decode hash from '{}': {}", hash_str, e))?;
+            let point = Point::Specific(slot, hash);
             let mut block_data = Vec::new();
             entry.read_to_end(&mut block_data)?;
             entries_with_keys.push((point, RawBlock::from(&*block_data)));
@@ -180,8 +188,6 @@ async fn process_block(
     Ok(())
 }
 
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::panic)]
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let ledger_dir = args
@@ -207,7 +213,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     // Process relevant points
     let before = Instant::now();
 
-    for archive_name in &archive_names {
+    'archives: for archive_name in &archive_names {
         let mut archive = load_archive(network, archive_name)?;
         let blocks = load_blocks(&mut archive).await?;
 
@@ -216,6 +222,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             // Do not process points already in the ledger
             .filter(|(point, _)| point.slot_or_default() > tip.slot_or_default())
         {
+            if let Some(until) = args.ingest_until_slot
+                && point.slot_or_default() > until.into()
+            {
+                break 'archives;
+            }
+
             process_block(
                 &chain_store,
                 &praos_chain_store,
@@ -226,6 +238,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             .await?;
 
             processed += 1;
+
+            if let Some(max) = args.ingest_maximum_blocks
+                && processed >= max
+            {
+                break 'archives;
+            }
         }
     }
 
@@ -234,7 +252,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         "Processed {} blocks in {} seconds ({} blocks/s)",
         processed,
         duration.as_secs(),
-        processed / duration.as_secs()
+        processed as u64 / duration.as_secs().max(1)
     );
 
     Ok(())
