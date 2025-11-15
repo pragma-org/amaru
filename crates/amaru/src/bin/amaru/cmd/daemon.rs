@@ -14,7 +14,10 @@
 
 use crate::pid::with_optional_pid_file;
 use amaru::{
-    DEFAULT_LISTEN_ADDRESS, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, default_chain_dir, default_ledger_dir, metrics::track_system_metrics, stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap}
+    DEFAULT_LISTEN_ADDRESS, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, default_chain_dir,
+    default_ledger_dir,
+    metrics::track_system_metrics,
+    stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap},
 };
 use amaru_kernel::{network::NetworkName, peer::Peer};
 use amaru_stores::rocksdb::RocksDbConfig;

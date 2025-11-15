@@ -16,7 +16,10 @@ use super::{
     import_headers::import_headers_for_network, import_ledger_state::import_all_from_directory,
 };
 use crate::cmd::import_nonces::import_nonces_from_file;
-use amaru::{DEFAULT_CONFIG_DIR, DEFAULT_NETWORK, default_chain_dir, default_ledger_dir, default_snapshots_dir};
+use amaru::{
+    DEFAULT_CONFIG_DIR, DEFAULT_NETWORK, default_chain_dir, default_ledger_dir,
+    default_snapshots_dir,
+};
 use amaru_kernel::network::NetworkName;
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{Parser, arg};
