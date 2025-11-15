@@ -46,9 +46,10 @@ impl<K: Ord, V> DiffSet<K, V> {
         self.produced.insert(k, v);
     }
 
-    pub fn consume(&mut self, k: K) {
-        self.produced.remove(&k);
-        self.consumed.insert(k);
+    pub fn consume(&mut self, k: K) -> (&K, Option<V>) {
+        let removed = self.produced.remove(&k);
+        let entry = self.consumed.get_or_insert(k);
+        (entry, removed)
     }
 
     pub fn as_ref(&self) -> DiffSet<&K, &V> {

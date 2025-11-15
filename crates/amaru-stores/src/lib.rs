@@ -420,7 +420,7 @@ pub mod tests {
             consecutive_dormant_epochs: 0,
         };
         let context = store.create_transaction();
-        context.save(
+        context.save::<MemoizedTransactionOutput>(
             &era_history,
             &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             &mut governance_activity,
@@ -459,7 +459,7 @@ pub mod tests {
             consecutive_dormant_epochs: 0,
         };
         let context = store.create_transaction();
-        context.save(
+        context.save::<MemoizedTransactionOutput>(
             &era_history,
             &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             &mut governance_activity,
@@ -493,7 +493,7 @@ pub mod tests {
             consecutive_dormant_epochs: 0,
         };
         let context = store.create_transaction();
-        context.save(
+        context.save::<MemoizedTransactionOutput>(
             &era_history,
             &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             &mut governance_activity,
@@ -547,7 +547,7 @@ pub mod tests {
             consecutive_dormant_epochs: 0,
         };
         let context = store.create_transaction();
-        context.save(
+        context.save::<MemoizedTransactionOutput>(
             &era_history,
             &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             &mut governance_activity,

@@ -1158,8 +1158,10 @@ pub mod test_vectors {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{ShelleyAddress, ShelleyDelegationPart};
-    use proptest::prelude::{Just, Strategy, any, prop};
-    use proptest::{prop_assert, prop_oneof, proptest};
+    use proptest::{
+        prelude::{Just, Strategy, any, prop},
+        prop_assert, prop_oneof, proptest,
+    };
 
     use crate::ToPlutusData;
 

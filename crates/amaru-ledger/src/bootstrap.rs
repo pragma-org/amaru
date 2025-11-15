@@ -16,7 +16,8 @@ use crate::{
     governance::ratification::ProposalsRootsRc,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{
-        self, GovernanceActivity, Store, StoreError, TransactionalContext, columns::proposals,
+        self, GovernanceActivity, Store, StoreError, TransactionalContext,
+        columns::{proposals, utxo},
     },
 };
 use amaru_kernel::{
@@ -370,7 +371,7 @@ fn save_point(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
 
-    transaction.save(
+    transaction.save::<utxo::Value>(
         era_history,
         protocol_parameters,
         &mut governance_activity,
@@ -423,7 +424,7 @@ fn import_block_issuers(
                 &Point::Specific(fake_slot, vec![]),
                 Some(&pool),
                 store::Columns {
-                    utxo: iter::empty(),
+                    utxo: iter::empty::<(_, utxo::Value)>(),
                     pools: iter::empty(),
                     accounts: iter::empty(),
                     dreps: iter::empty(),
@@ -595,7 +596,7 @@ fn import_dreps<S: Store>(
         point,
         None,
         store::Columns {
-            utxo: iter::empty(),
+            utxo: iter::empty::<(_, utxo::Value)>(),
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: dreps.into_iter().map(|(credential, state)| {
@@ -672,7 +673,7 @@ fn import_proposals(
         point,
         None,
         store::Columns {
-            utxo: iter::empty(),
+            utxo: iter::empty::<(_, utxo::Value)>(),
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: iter::empty(),
@@ -753,7 +754,7 @@ fn import_stake_pools<S: Store>(
         point,
         None,
         store::Columns {
-            utxo: iter::empty(),
+            utxo: iter::empty::<(_, utxo::Value)>(),
             pools: state
                 .registered
                 .into_iter()
@@ -884,7 +885,7 @@ fn import_accounts(
             point,
             None,
             store::Columns {
-                utxo: iter::empty(),
+                utxo: iter::empty::<(_, utxo::Value)>(),
                 pools: iter::empty(),
                 accounts: chunk,
                 dreps: iter::empty(),
@@ -1002,7 +1003,7 @@ fn import_constitutional_committee(
         point,
         None,
         store::Columns {
-            utxo: iter::empty(),
+            utxo: iter::empty::<(_, utxo::Value)>(),
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: iter::empty(),
@@ -1092,7 +1093,7 @@ fn import_votes(
         point,
         None,
         store::Columns {
-            utxo: iter::empty(),
+            utxo: iter::empty::<(_, utxo::Value)>(),
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: iter::empty(),

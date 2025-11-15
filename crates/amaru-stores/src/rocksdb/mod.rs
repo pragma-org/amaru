@@ -33,6 +33,7 @@ use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, Direction, Env, IteratorMode, ReadOptions, Transaction,
 };
 use std::{
+    borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
     ops::Deref,
@@ -729,7 +730,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         dreps_delegations::add(&self.db, delegations.into_iter())
     }
 
-    fn save(
+    fn save<U: Borrow<scolumns::utxo::Value>>(
         &self,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
@@ -737,7 +738,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         point: &Point,
         issuer: Option<&scolumns::pools::Key>,
         add: Columns<
-            impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
+            impl Iterator<Item = (scolumns::utxo::Key, U)>,
             impl Iterator<Item = scolumns::pools::Value>,
             impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
             impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
