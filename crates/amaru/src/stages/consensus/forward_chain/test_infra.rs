@@ -16,6 +16,7 @@
 use crate::point::to_network_point;
 use crate::stages::consensus::forward_chain::client_protocol::PrettyPoint;
 use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
+use amaru_consensus::ReadOnlyChainStore;
 use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_consensus::consensus::tip::AsHeaderTip;
 use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor};
@@ -37,6 +38,7 @@ pub const TIP_47: &str = "fcb4a51804f14f3f5b5ad841199b557aed0187280f7855736bdb15
 pub const LOST_47: &str = "bd41b102018a21e068d504e64b282512a3b7d5c3883b743aa070ad9244691125";
 pub const FORK_47: &str = "64565f22fb23476baaa6f82e0e2d68636ceadabded697099fb376c23226bdf03";
 pub const WINNER_47: &str = "66c90f54f9073cfc03a334f5b15b1617f6bf6fe6c892fad8368e16abe20b0f4f";
+pub const FIRST_HEADER: &str = "2487bd4f49c89e59bb3d2166510d3d49017674d3c3b430b95db2e260fedce45e";
 
 pub fn mk_in_memory_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHeader>> {
     let f = File::open(path).unwrap();
@@ -50,6 +52,7 @@ pub fn mk_in_memory_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHea
     let store = InMemConsensusStore::new();
     let mut anchor_set = false;
 
+    // store headers
     for header in headers {
         let header = header.pointer("/header").unwrap().as_str().unwrap();
         let header = hex::decode(header).unwrap();
@@ -59,6 +62,16 @@ pub fn mk_in_memory_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHea
             anchor_set = true
         }
         store.store_header(&header).unwrap();
+    }
+
+    store.set_best_chain_hash(&hash(TIP_47)).unwrap();
+
+    // store best chain
+    for h in store.retrieve_best_chain() {
+        if let Some(header) = store.load_header(&h) {
+            store.roll_forward_chain(&header.point()).unwrap();
+            continue;
+        }
     }
     Arc::new(store)
 }

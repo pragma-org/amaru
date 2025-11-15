@@ -278,6 +278,7 @@ pub fn setup_open_telemetry(
         .with_resource(resource)
         .build();
 
+    // FIXME RK: this doesn’t seem to be used anywhere?
     opentelemetry::global::set_meter_provider(metrics_provider.clone());
 
     // Subscriber

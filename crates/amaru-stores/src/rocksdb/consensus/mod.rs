@@ -250,6 +250,25 @@ macro_rules! impl_ReadOnlyChainStore {
                     })
             }
 
+            fn next_best_chain(&self, point: &Point) -> Option<Point> {
+                let readopts = ReadOptions::default();
+                let prefix = [&CHAIN_PREFIX[..], &(u64::from(point.slot_or_default()) + 1).to_be_bytes()].concat();
+                let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
+
+                if let Some(Ok((k, v))) = iter.next() {
+                    let slot_bytes = &k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8];
+                    let slot = u64::from_be_bytes(slot_bytes.try_into().unwrap());
+                    if v.len() == HEADER_HASH_SIZE {
+                        let hash = HeaderHash::from(v.as_ref());
+                        Some(Point::Specific(slot, hash.to_vec()))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+
         })*
     }
 }
@@ -355,7 +374,10 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
 
 use std::fmt::Debug;
 impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
-    #[instrument(level = Level::TRACE, skip_all, fields(header = header.hash().to_string()))]
+    #[instrument(level = Level::TRACE,
+                 skip_all,
+                 name = "consensus.store.store_header",
+                 fields(hash = %header.hash()))]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();
         let tx = self.db.transaction();
@@ -382,6 +404,10 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             })
     }
 
+    #[instrument(level = Level::TRACE,
+                 skip_all,
+                 name = "consensus.store.store_block",
+                 fields(hash = %hash))]
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
         self.db
             .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
@@ -406,10 +432,20 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             })
     }
 
+    #[instrument(level = Level::TRACE,
+                 skip_all,
+                 name = "consensus.store.roll_forward_chain",
+                 fields(hash = %point.hash(),
+                        slot = %point.slot_or_default()))]
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         store_chain_point(&self.db, point)
     }
 
+    #[instrument(level = Level::TRACE,
+                 skip_all,
+                 name = "consensus.store.rollback_chain",
+                 fields(hash = %point.hash(),
+                        slot = %point.slot_or_default()))]
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
         if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(self, point).is_none() {
             return Err(StoreError::ReadError {
@@ -726,6 +762,53 @@ pub mod test {
                 store.load_from_best_chain(&chain[5].point()),
                 Some(chain[5].hash())
             );
+        });
+    }
+
+    #[test]
+    fn next_best_chain_returns_successor_give_valid_point() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+
+            let result = store
+                .next_best_chain(&chain[5].point())
+                .expect("should find successor");
+
+            assert_eq!(result, chain[6].point());
+        });
+    }
+
+    #[test]
+    fn next_best_chain_returns_first_point_on_chain_given_origin() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+
+            let result = store
+                .next_best_chain(&Point::Origin)
+                .expect("should find successor");
+
+            assert_eq!(result, chain[0].point());
+        });
+    }
+
+    #[test]
+    fn next_best_chain_returns_none_given_point_is_not_on_chain() {
+        with_db(|store| {
+            let _chain = populate_db(store.clone());
+            let invalid_point = Point::Specific(100, random_hash().to_vec());
+
+            assert!(store.next_best_chain(&invalid_point).is_none());
+        });
+    }
+
+    #[test]
+    fn next_best_chain_returns_none_given_point_is_tip() {
+        with_db(|store| {
+            let _chain = populate_db(store.clone());
+            let tip = store.get_best_chain_hash();
+            let tip_header = store.load_header(&tip).unwrap();
+
+            assert!(store.next_best_chain(&tip_header.point()).is_none());
         });
     }
 

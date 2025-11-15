@@ -13,15 +13,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::types::as_send_data_value;
 use crate::{
     BoxFuture, CallId, CallRef, Instant, Name, Resources, SendData, Sender, StageRef,
     serde::{SendDataValue, never, to_cbor},
-    simulation::{EffectBox, airlock_effect},
     time::Clock,
 };
+
+use crate::effect_box::{EffectBox, SyncEffectBox, airlock_effect};
+
 use cbor4ii::{core::Value, serde::from_slice};
 use futures_util::FutureExt;
 use serde::de::DeserializeOwned;
+use std::fmt::{Display, Error, Formatter};
 use std::{
     any::{Any, type_name},
     fmt::Debug,
@@ -37,6 +41,7 @@ impl<M> Clone for Effects<M> {
         Self {
             me: self.me.clone(),
             effect: self.effect.clone(),
+            sync_effect: self.sync_effect.clone(),
             clock: self.clock.clone(),
             self_sender: self.self_sender.clone(),
             resources: self.resources.clone(),
@@ -53,6 +58,7 @@ impl<M> Clone for Effects<M> {
 pub struct Effects<M> {
     me: StageRef<M>,
     effect: EffectBox,
+    sync_effect: SyncEffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     self_sender: Sender<M>,
     resources: Resources,
@@ -71,6 +77,7 @@ impl<M: SendData> Effects<M> {
     pub(crate) fn new(
         me: StageRef<M>,
         effect: EffectBox,
+        sync_effect: SyncEffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
         self_sender: Sender<M>,
         resources: Resources,
@@ -78,6 +85,7 @@ impl<M: SendData> Effects<M> {
         Self {
             me,
             effect,
+            sync_effect,
             clock,
             self_sender,
             resources,
@@ -213,15 +221,28 @@ impl<M> Effects<M> {
 
     /// Run an effect that is not part of the StageGraph as a synchronous effect.
     /// In that case we return the response directly.
-    ///
-    /// TODO: the call to this effect is not traced so we won't see it executed in the TraceBuffer.
-    pub fn external_sync<T: ExternalEffectAPI>(&self, effect: T) -> T::Response {
-        Box::new(effect)
+    pub fn external_sync<T: ExternalEffectAPI + Clone>(&self, effect: T) -> T::Response
+    where
+        T::Response: Clone,
+    {
+        let effect_clone = effect.clone();
+        let effect_type = effect.typetag_name().to_string();
+        let effect = Box::new(effect);
+        // We set the sync effect box in order to let the simulation runner pick it up later and
+        // produce a trace in the trace buffer.
+        let mut sync_effect = self.sync_effect.lock();
+        let response = effect
             .run(self.resources.clone())
             .now_or_never()
             .expect("an external sync effect must complete immediately in sync context")
             .cast_deserialize::<T::Response>()
-            .expect("internal messaging type error")
+            .expect("internal messaging type error");
+        *sync_effect = Some(StageEffect::ExternalSync(
+            effect_type,
+            Box::new(effect_clone),
+            Box::new(response.clone()),
+        ));
+        response
     }
 
     /// Terminate this stage
@@ -255,7 +276,7 @@ pub trait ExternalEffect: SendData {
     /// Implementations typically retrieve shared services via typed lookups
     /// (e.g., `resources.get::<Arc<MyStore>>()?`).
     ///
-    /// This can be overridden in simulation using [`SimulationRunning::handle_effect`](crate::simulation::SimulationRunning::handle_effect).
+    /// This can be overridden in simulation using [`SimulationRunning::handle_effect`](crate::effect_box::SimulationRunning::handle_effect).
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>>;
 
     /// Helper method for implementers of ExternalEffect.
@@ -279,6 +300,12 @@ pub trait ExternalEffect: SendData {
         Self: Sized + ExternalEffectAPI,
     {
         Box::pin(future::ready(Box::new(response) as Box<dyn SendData>))
+    }
+}
+
+impl Display for dyn ExternalEffect {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&as_send_data_value(self).map_err(|_| Error)?.to_string())
     }
 }
 
@@ -353,6 +380,10 @@ impl UnknownExternalEffect {
         &self.value.value
     }
 
+    pub fn send_data_value(&self) -> &SendDataValue {
+        &self.value
+    }
+
     pub fn cast<T: ExternalEffect + DeserializeOwned>(self) -> anyhow::Result<T> {
         anyhow::ensure!(
             self.value.typetag == type_name::<T>(),
@@ -392,7 +423,16 @@ fn unknown_external_effect() {
 /// upon whose resumption the stage waits (in which case T is `()`).
 #[derive(Debug)]
 pub(crate) enum StageEffect<T> {
+    #[cfg(feature = "simulation")]
     Receive,
+    #[cfg(feature = "simulation")]
+    Call(
+        Name,
+        Instant,
+        T,
+        oneshot::Receiver<Box<dyn SendData>>,
+        CallId,
+    ),
     Send(
         Name,
         T,
@@ -401,15 +441,9 @@ pub(crate) enum StageEffect<T> {
     ),
     Clock,
     Wait(Duration),
-    Call(
-        Name,
-        Instant,
-        T,
-        oneshot::Receiver<Box<dyn SendData>>,
-        CallId,
-    ),
     Respond(Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>, T),
     External(Box<dyn ExternalEffect>),
+    ExternalSync(String, Box<dyn ExternalEffect>, Box<dyn SendData>),
     Terminate,
 }
 
@@ -424,11 +458,60 @@ pub enum StageResponse {
     ExternalResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
 }
 
+impl StageResponse {
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            StageResponse::Unit => serde_json::json!({"type": "unit"}),
+            StageResponse::ClockResponse(instant) => serde_json::json!({
+                "type": "clock",
+                "instant": instant,
+            }),
+            StageResponse::WaitResponse(instant) => serde_json::json!({
+                "type": "wait",
+                "instant": instant,
+            }),
+            StageResponse::CallResponse(msg) => serde_json::json!({
+                "type": "call",
+                "msg": format!("{msg}"),
+            }),
+            StageResponse::CallTimeout => serde_json::json!({"type": "timeout"}),
+            StageResponse::ExternalResponse(msg) => serde_json::json!({
+                "type": "external",
+                "msg": format!("{msg}"),
+            }),
+        }
+    }
+}
+
+impl Display for StageResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StageResponse::Unit => write!(f, "()"),
+            StageResponse::ClockResponse(instant) => write!(f, "clock-{instant}"),
+            StageResponse::WaitResponse(instant) => write!(f, "wait-{instant}"),
+            StageResponse::CallResponse(msg) => {
+                write!(
+                    f,
+                    "{msg}",
+                    msg = as_send_data_value(msg.as_ref()).map_err(|_| Error)?
+                )
+            }
+            StageResponse::CallTimeout => write!(f, "timeout"),
+            StageResponse::ExternalResponse(msg) => write!(
+                f,
+                "{msg}",
+                msg = as_send_data_value(msg.as_ref()).map_err(|_| Error)?
+            ),
+        }
+    }
+}
+
 impl StageEffect<Box<dyn SendData>> {
     /// Split this effect from the stage into two parts:
     /// - the marker we remember in the running simulation
     /// - the effect we emit to the outside world
-    pub fn split(self, at_name: Name) -> (StageEffect<()>, Effect) {
+    #[cfg(feature = "simulation")]
+    pub(crate) fn split(self, at_name: Name) -> (StageEffect<()>, Effect) {
         #[expect(clippy::panic)]
         match self {
             StageEffect::Receive => (StageEffect::Receive, Effect::Receive { at_stage: at_name }),
@@ -473,6 +556,15 @@ impl StageEffect<Box<dyn SendData>> {
                     effect,
                 },
             ),
+            StageEffect::ExternalSync(effect_type, effect, response) => (
+                StageEffect::ExternalSync(effect_type.clone(), Box::new(()), Box::new(())),
+                Effect::ExternalSync {
+                    at_stage: at_name,
+                    effect_type,
+                    effect,
+                    response,
+                },
+            ),
             StageEffect::Terminate => (
                 StageEffect::Terminate,
                 Effect::Terminate { at_stage: at_name },
@@ -513,9 +605,166 @@ pub enum Effect {
         #[serde(with = "crate::serde::serialize_external_effect")]
         effect: Box<dyn ExternalEffect>,
     },
+    ExternalSync {
+        at_stage: Name,
+        effect_type: String,
+        #[serde(with = "crate::serde::serialize_send_data")]
+        effect: Box<dyn SendData>,
+        #[serde(with = "crate::serde::serialize_send_data")]
+        response: Box<dyn SendData>,
+    },
     Terminate {
         at_stage: Name,
     },
+}
+
+impl Effect {
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            Effect::Receive { at_stage } => serde_json::json!({
+                "type": "receive",
+                "at_stage": at_stage,
+            }),
+            Effect::Send {
+                from,
+                to,
+                msg,
+                call,
+            } => {
+                if let Some((duration, id)) = call {
+                    serde_json::json!({
+                        "type": "send",
+                        "from": from,
+                        "to": to,
+                        "msg": format!("{msg}"),
+                        "call": {
+                            "duration": duration.as_millis(),
+                            "id": id,
+                        }
+                    })
+                } else {
+                    serde_json::json!({
+                        "type": "send",
+                        "from": from,
+                        "to": to,
+                        "msg": format!("{msg}"),
+                    })
+                }
+            }
+            Effect::Clock { at_stage } => serde_json::json!({
+                "type": "clock",
+                "at_stage": at_stage,
+            }),
+            Effect::Wait { at_stage, duration } => serde_json::json!({
+                "type": "wait",
+                "at_stage": at_stage,
+                "duration": duration.as_millis(),
+            }),
+            Effect::Respond {
+                at_stage,
+                target,
+                id,
+                msg,
+            } => {
+                serde_json::json!({
+                    "type": "respond",
+                    "at_stage": at_stage,
+                    "target": target,
+                    "id": id,
+                    "msg": format!("{msg}"),
+                })
+            }
+            Effect::External { at_stage, effect } => {
+                serde_json::json!({
+                    "type": "external",
+                    "at_stage": at_stage,
+                    "effect": effect.to_string(),
+                    "effect_type": format!("{}", as_send_data_value(effect.as_ref()).map(|v| v.typetag.clone()).unwrap_or("unknown".to_string())),
+                })
+            }
+            Effect::ExternalSync {
+                at_stage,
+                effect_type,
+                effect,
+                response,
+            } => {
+                serde_json::json!({
+                    "type": "external",
+                    "at_stage": at_stage,
+                    "effect_type": effect_type,
+                    "effect": format!("{}", as_send_data_value(effect.as_ref()).expect("the effect must be serializable")),
+                    "response": format!("{}", as_send_data_value(response.as_ref()).expect("the response must be serializable")),
+                })
+            }
+            Effect::Terminate { at_stage } => serde_json::json!({
+                "type": "terminate",
+                "at_stage": at_stage,
+            }),
+        }
+    }
+}
+
+impl Display for Effect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Effect::Receive { at_stage } => write!(f, "receive {at_stage}"),
+            Effect::Send {
+                from,
+                to,
+                msg,
+                call,
+            } => {
+                if let Some((duration, _id)) = call {
+                    write!(
+                        f,
+                        "send {from} -> {to}: {msg} ({duration:?})",
+                        msg = as_send_data_value(msg.as_ref()).map_err(|_| Error)?
+                    )
+                } else {
+                    write!(
+                        f,
+                        "send {from} -> {to}: {msg}",
+                        msg = as_send_data_value(msg.as_ref()).map_err(|_| Error)?
+                    )
+                }
+            }
+            Effect::Clock { at_stage } => write!(f, "clock {at_stage}"),
+            Effect::Wait { at_stage, duration } => {
+                write!(f, "wait {at_stage}: {duration:?}")
+            }
+            Effect::Respond {
+                at_stage,
+                target,
+                id,
+                msg,
+            } => write!(
+                f,
+                "respond {at_stage} -> {target} {id:?}: {msg}",
+                msg = as_send_data_value(msg.as_ref()).map_err(|_| Error)?
+            ),
+            Effect::External { at_stage, effect } => {
+                write!(
+                    f,
+                    "external {at_stage}: {effect}",
+                    effect = as_send_data_value(effect.as_ref()).map_err(|_| Error)?
+                )
+            }
+            Effect::ExternalSync {
+                at_stage,
+                effect_type,
+                effect,
+                response,
+            } => {
+                write!(
+                    f,
+                    "external sync {at_stage}: {effect_type} ({effect}) -> {response}",
+                    effect = as_send_data_value(effect.as_ref()).map_err(|_| Error)?,
+                    response = as_send_data_value(response.as_ref()).map_err(|_| Error)?
+                )
+            }
+            Effect::Terminate { at_stage } => write!(f, "terminate {at_stage}"),
+        }
+    }
 }
 
 #[expect(clippy::wildcard_enum_match_arm, clippy::panic)]
@@ -596,6 +845,7 @@ impl Effect {
             Effect::Wait { at_stage, .. } => at_stage,
             Effect::Respond { at_stage, .. } => at_stage,
             Effect::External { at_stage, .. } => at_stage,
+            Effect::ExternalSync { at_stage, .. } => at_stage,
             Effect::Terminate { at_stage, .. } => at_stage,
         }
     }
@@ -824,6 +1074,25 @@ impl PartialEq for Effect {
                 } => {
                     at_stage == other_at_stage
                         && &**effect as &dyn SendData == &**other_effect as &dyn SendData
+                }
+                _ => false,
+            },
+            Effect::ExternalSync {
+                at_stage,
+                effect_type,
+                effect,
+                response,
+            } => match other {
+                Effect::ExternalSync {
+                    at_stage: other_at_stage,
+                    effect_type: other_effect_type,
+                    effect: other_effect,
+                    response: other_response,
+                } => {
+                    at_stage == other_at_stage
+                        && effect_type == other_effect_type
+                        && effect == other_effect
+                        && response == other_response
                 }
                 _ => false,
             },

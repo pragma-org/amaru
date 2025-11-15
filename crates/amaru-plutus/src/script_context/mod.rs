@@ -372,7 +372,7 @@ impl<'a> From<&'a amaru_kernel::RequiredSigners> for RequiredSigners {
 #[derive(Default)]
 pub struct Withdrawals(pub BTreeMap<StakeAddress, Lovelace>);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StakeAddress(amaru_kernel::StakeAddress);
 
 impl From<StakeAddress> for amaru_kernel::StakeAddress {
@@ -696,5 +696,186 @@ pub mod test_vectors {
             .iter()
             .find(|vector| vector.meta.title == title)
             .unwrap_or_else(|| panic!("Test case not found: {title}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{ShelleyAddress, ShelleyDelegationPart};
+    use proptest::prelude::{Just, Strategy, any, prop};
+    use proptest::{prop_assert, prop_oneof, proptest};
+
+    use crate::ToPlutusData;
+
+    use super::*;
+
+    fn network_strategy() -> impl Strategy<Value = Network> {
+        prop_oneof![
+            Just(Network::Testnet),
+            Just(Network::Mainnet),
+            any::<u8>().prop_map(Network::from),
+        ]
+    }
+
+    fn stake_address_strategy() -> impl Strategy<Value = StakeAddress> {
+        (prop::bool::ANY, any::<[u8; 28]>(), network_strategy()).prop_map(
+            |(is_script, hash_bytes, network)| {
+                let delegation: ShelleyDelegationPart = if is_script {
+                    ShelleyDelegationPart::Script(hash_bytes.into())
+                } else {
+                    ShelleyDelegationPart::Key(hash_bytes.into())
+                };
+
+                // It is not possible to construct a StakeAddress from the parts of it in Pallas.
+                // Instead, we're constructing a ShelelyAddress and then converting it to a StakeAddress.
+                // The conversion uses the ShelleyDelegationPart, so the ShelleyPaymentPart is totally arbitrary here
+                let shelley_addr = ShelleyAddress::new(
+                    network,
+                    amaru_kernel::ShelleyPaymentPart::Key(hash_bytes.into()),
+                    delegation,
+                );
+
+                StakeAddress(shelley_addr.try_into().unwrap())
+            },
+        )
+    }
+
+    #[test]
+    fn proptest_stake_address_ordering() {
+        proptest!(|(addresses in prop::collection::vec(stake_address_strategy(), 20..100))| {
+            let mut sorted = addresses.clone();
+            sorted.sort();
+
+
+            for window in sorted.windows(2) {
+                let a = &window[0];
+                let b = &window[1];
+
+                fn network_tag(network: Network) -> u8 {
+                    match network {
+                        Network::Testnet => 0,
+                        Network::Mainnet => 1,
+                        Network::Other(tag) => tag,
+                    }
+                }
+
+                let net_a = a.0.network();
+                let net_b = b.0.network();
+
+
+                // We sort by network first (testnet, mainnet, other by tag)
+                if net_a != net_b {
+                    prop_assert!(
+                        network_tag(net_a) < network_tag(net_b),
+                        "Network ordering violated: {:?} should be < {:?}",
+                        network_tag(net_a),
+                        network_tag(net_b)
+                    );
+                } else {
+                    match (a.0.payload(), b.0.payload()) {
+                        // Script < Stake
+                        (StakePayload::Script(_), StakePayload::Stake(_)) => {
+                            // This is correct
+                        }
+                        (StakePayload::Stake(_), StakePayload::Script(_)) => {
+                            prop_assert!(false, "Payload type ordering violated: Stake should not come before Script");
+                        }
+                        // Same payload compare bytes
+                        (StakePayload::Script(h1), StakePayload::Script(h2)) => {
+                            prop_assert!(
+                                h1 <= h2,
+                                "Script hash ordering violated: {:?} should be <= {:?}",
+                                h1, h2
+                            );
+                        }
+                        (StakePayload::Stake(h1), StakePayload::Stake(h2)) => {
+                            prop_assert!(
+                                h1 <= h2,
+                                "Stake hash ordering violated: {:?} should be <= {:?}",
+                                h1, h2
+                            );
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn proptest_value_zero_ada_excluded_in_v3() {
+        proptest!(|(policies in prop::collection::vec(any::<[u8; 28]>(), 1..5))| {
+            let mut value_map = BTreeMap::new();
+
+            // We should be excluding ADA values with a quantity of zero in Plutus V3
+            let mut ada_map = BTreeMap::new();
+            ada_map.insert(Cow::Owned(Bytes::from(vec![])), 0u64);
+            value_map.insert(CurrencySymbol::Ada, ada_map);
+
+            for policy_bytes in policies {
+                let mut asset_map = BTreeMap::new();
+                asset_map.insert(Cow::Owned(Bytes::from(vec![1])), 100);
+                value_map.insert(CurrencySymbol::Native(policy_bytes.into()), asset_map);
+            }
+
+            let value = Value(value_map);
+            let plutus_data = <Value<'_> as ToPlutusData<3>>::to_plutus_data(&value);
+
+            #[allow(clippy::wildcard_enum_match_arm)]
+            match plutus_data {
+                PlutusData::Map(KeyValuePairs::Def(pairs)) => {
+                    let has_ada = pairs.iter().any(|(key, _)| {
+                        matches!(key, PlutusData::BoundedBytes(b) if b.is_empty())
+                    });
+
+                    prop_assert!(!has_ada,
+                        "V3 Value should exclude ADA entry when amount is zero. Found {} pairs",
+                        pairs.len());
+
+                    prop_assert!(!pairs.is_empty(),
+                        "Should still have non-ADA assets in the map");
+                }
+                other => {
+                    prop_assert!(false, "Value should encode as Map, got: {:?}", other);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn proptest_value_nonzero_ada_included_in_v3() {
+        proptest!(|(
+            ada_amount in 1u64..,
+            policies in prop::collection::vec(any::<[u8; 28]>(), 1..5)
+        )| {
+            let mut value_map = BTreeMap::new();
+
+            let mut ada_map = BTreeMap::new();
+            ada_map.insert(Cow::Owned(Bytes::from(vec![])), ada_amount);
+            value_map.insert(CurrencySymbol::Ada, ada_map);
+
+            for policy_bytes in policies {
+                let mut asset_map = BTreeMap::new();
+                asset_map.insert(Cow::Owned(Bytes::from(vec![1])), 100);
+                value_map.insert(CurrencySymbol::Native(policy_bytes.into()), asset_map);
+            }
+
+            let value = Value(value_map);
+            let plutus_data = <Value<'_> as ToPlutusData<3>>::to_plutus_data(&value);
+
+            #[allow(clippy::wildcard_enum_match_arm)]
+            match plutus_data {
+                PlutusData::Map(KeyValuePairs::Def(pairs)) => {
+                    let ada_entry = pairs.iter().find(|(key, _)| {
+                        matches!(key, PlutusData::BoundedBytes(b) if b.is_empty())
+                    });
+
+                    prop_assert!(ada_entry.is_some(),
+                        "V3 Value should include ADA entry when amount is non-zero");
+                }
+                other => {
+                    prop_assert!(false, "Value should encode as Map, got: {:?}", other);
+                }
+            }
+        });
     }
 }

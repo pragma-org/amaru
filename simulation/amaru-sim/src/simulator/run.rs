@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::echo::Envelope;
+use crate::simulator::Envelope;
 use crate::simulator::NodeConfig;
 use crate::simulator::{
     Args, History, NodeHandle, SimulateConfig, bytes::Bytes, generate::generate_entries,
@@ -48,11 +48,11 @@ use amaru_ouroboros::{
     in_memory_consensus_store::InMemConsensusStore,
 };
 use async_trait::async_trait;
-use pure_stage::simulation::OverrideResult;
-use pure_stage::{
-    Instant, Receiver, StageGraph, StageRef, simulation::SimulationBuilder,
-    trace_buffer::TraceBuffer,
-};
+use pure_stage::simulation::SimulationBuilder;
+use pure_stage::simulation::running::OverrideResult;
+use pure_stage::trace_buffer::TraceEntry;
+use pure_stage::{Instant, Receiver, StageGraph, StageRef, trace_buffer::TraceBuffer};
+use rand::rngs::StdRng;
 use std::{
     sync::{
         Arc,
@@ -67,12 +67,15 @@ use tracing::{Span, info};
 ///
 /// * Create a simulation environment.
 /// * Run the simulation.
-pub fn run(rt: Runtime, args: Args) {
+pub fn run(args: Args) {
+    let rt = Runtime::new().unwrap();
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
     let node_config = NodeConfig::from(args.clone());
 
-    let spawn = |node_id: String| {
-        let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
+    let spawn = |node_id: String, rng: Arc<parking_lot::Mutex<StdRng>>| {
+        let mut network = SimulationBuilder::default()
+            .with_trace_buffer(trace_buffer.clone())
+            .with_rng(rng);
         let (input, init_messages, output) =
             spawn_node(node_id, node_config.clone(), &mut network, &rt);
         let mut running = network.run(rt.handle().clone());
@@ -180,7 +183,7 @@ pub fn spawn_node(
 
     // The number of received messages sent by the forward event listener is proportional
     // to the number of downstream peers, as each event is duplicated to each downstream peer.
-    let (sender, rx2) = mpsc::channel(10 * node_config.number_of_downstream_peers as usize);
+    let (sender, rx2) = mpsc::channel(1_000_000);
     let listener =
         MockForwardEventListener::new(node_id, node_config.number_of_downstream_peers, sender);
 
@@ -290,19 +293,22 @@ fn chain_property() -> impl Fn(&History<ChainSyncMessage>, &GeneratedActions) ->
             Err(format!(
                 r#"
 The actual chain
+
 {}
+
 is not in the best chains
+
 {}
-The history is:
-{:?}
+
 The headers tree is
 {}
+
 The actions are
+
 {}
 "#,
-                actual.list_to_string(",\n"),
-                best_chains.lists_to_string(",\n", ",\n"),
-                history,
+                actual.list_to_string(",\n  "),
+                best_chains.lists_to_string(",\n  ", ",\n  "),
                 generated_actions.generated_tree().tree(),
                 actions_as_string
             ))
@@ -356,6 +362,16 @@ fn make_best_chain_from_downstream_messages(
         }
     }
     Ok(best_chain)
+}
+
+/// Replay a previous simulation run:
+pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
+    let rt = Runtime::new()?;
+    let mut network = SimulationBuilder::default();
+    let node_config = NodeConfig::from(args);
+    let _ = spawn_node("n1".to_string(), node_config, &mut network, &rt);
+    let mut replay = network.replay();
+    replay.run_trace(traces)
 }
 
 /// This implementation of ForwardEventListener sends the received events a Sender that can collect them

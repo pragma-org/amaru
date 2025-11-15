@@ -25,54 +25,64 @@ use amaru_ouroboros_traits::{ChainStore, HasStakeDistribution, Praos};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
-use tracing::{Level, instrument, span};
+use tracing::{Instrument, Level, Span, instrument};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-pub async fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl ConsensusOps) -> State {
-    let span = span!(parent: msg.span(), Level::TRACE, "stage.validate_header");
-    let _entered = span.enter();
+pub fn stage(
+    state: State,
+    msg: DecodedChainSyncEvent,
+    eff: impl ConsensusOps,
+) -> impl Future<Output = State> {
+    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.validate_header");
+    async move {
+        let (downstream, errors) = state;
 
-    let (downstream, errors) = state;
-
-    match &msg {
-        DecodedChainSyncEvent::RollForward { peer, header, span } => {
-            match eff.ledger().validate_header(header).await {
-                Ok(_) => {
-                    let msg = ValidateHeaderEvent::Validated {
-                        peer: peer.clone(),
-                        header: header.clone(),
-                        span: span.clone(),
-                    };
-                    eff.base().send(&downstream, msg).await
-                }
-                Err(error) => {
-                    tracing::error!(%peer, %error, "failed to handle roll forward");
-                    eff.base()
-                        .send(
-                            &errors,
-                            ValidationFailed::new(
-                                peer,
-                                ConsensusError::InvalidHeader(header.point(), error),
-                            ),
-                        )
-                        .await
+        match &msg {
+            DecodedChainSyncEvent::RollForward { peer, header, span } => {
+                match eff
+                    .ledger()
+                    .validate_header(header, Span::current().context())
+                    .await
+                {
+                    Ok(_) => {
+                        let msg = ValidateHeaderEvent::Validated {
+                            peer: peer.clone(),
+                            header: header.clone(),
+                            span: span.clone(),
+                        };
+                        eff.base().send(&downstream, msg).await
+                    }
+                    Err(error) => {
+                        tracing::error!(%peer, %error, "chain_sync.validate_header.failed");
+                        eff.base()
+                            .send(
+                                &errors,
+                                ValidationFailed::new(
+                                    peer,
+                                    ConsensusError::InvalidHeader(header.point(), error),
+                                ),
+                            )
+                            .await
+                    }
                 }
             }
-        }
-        DecodedChainSyncEvent::Rollback {
-            peer,
-            rollback_point,
-            span,
-        } => {
-            let msg = ValidateHeaderEvent::Rollback {
-                peer: peer.clone(),
-                rollback_point: rollback_point.clone(),
-                span: span.clone(),
-            };
-            eff.base().send(&downstream, msg).await;
-        }
-    };
+            DecodedChainSyncEvent::Rollback {
+                peer,
+                rollback_point,
+                span,
+            } => {
+                let msg = ValidateHeaderEvent::Rollback {
+                    peer: peer.clone(),
+                    rollback_point: rollback_point.clone(),
+                    span: span.clone(),
+                };
+                eff.base().send(&downstream, msg).await;
+            }
+        };
 
-    (downstream, errors)
+        (downstream, errors)
+    }
+    .instrument(span)
 }
 
 type State = (StageRef<ValidateHeaderEvent>, StageRef<ValidationFailed>);
@@ -117,7 +127,7 @@ impl ValidateHeader {
 
     #[instrument(
         level = Level::TRACE,
-        name = "consensus.evolve_nonce",
+        name = "validate_header.evolve_nonce",
         skip_all,
         fields(hash = %header.hash()),
     )]
@@ -129,7 +139,7 @@ impl ValidateHeader {
 
     #[instrument(
         level = Level::TRACE,
-        name = "consensus.check_header",
+        name = "validate_header.validate",
         skip_all,
         fields(issuer.key = %header.header_body().issuer_vkey)
     )]
@@ -282,6 +292,10 @@ mod tests {
 
         fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
             self.store.load_from_best_chain(point)
+        }
+
+        fn next_best_chain(&self, point: &Point) -> Option<Point> {
+            self.store.next_best_chain(point)
         }
     }
 

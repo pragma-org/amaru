@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::snapshots_dir;
-use amaru_kernel::{
-    EraHistory, default_ledger_dir, network::NetworkName, protocol_parameters::GlobalParameters,
-};
+use amaru::default_snapshots_dir;
+use amaru_kernel::{EraHistory, network::NetworkName, protocol_parameters::GlobalParameters};
 use amaru_ledger::{
     store::{ReadStore, Snapshot},
     summary::{
@@ -34,6 +32,10 @@ use test_case::test_case;
 
 pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+fn default_ledger_dir(network: NetworkName) -> String {
+    format!("./ledger.{}.db", network.to_string().to_lowercase())
+}
 
 #[expect(clippy::panic)]
 #[expect(clippy::unwrap_used)]
@@ -121,7 +123,7 @@ fn compare_snapshot(epoch: Epoch) {
     .unwrap();
 
     insta::with_settings!({
-        snapshot_path => snapshots_dir(network)
+        snapshot_path => default_snapshots_dir(network)
     }, {
         insta::assert_json_snapshot!(
         format!("rewards_summary_{}", epoch),

@@ -86,6 +86,7 @@ rocksdb.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-iter-borrow.workspace = true
+amaru-kernel = { workspace = true, features = ["test-utils"] }
 
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }

@@ -21,7 +21,6 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
-use crate::network::NetworkName;
 use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
     *,
@@ -110,6 +109,9 @@ pub mod drep_registration;
 
 pub use drep_state::*;
 pub mod drep_state;
+
+pub mod ignore_eq;
+pub use ignore_eq::IgnoreEq;
 
 pub mod is_header;
 pub use is_header::{BlockHeader, IsHeader};
@@ -911,14 +913,6 @@ pub fn sum_ex_units(left: ExUnits, right: &ExUnits) -> ExUnits {
         mem: left.mem + right.mem,
         steps: left.steps + right.steps,
     }
-}
-
-pub fn default_ledger_dir(network: NetworkName) -> String {
-    format!("./ledger.{}.db", network.to_string().to_lowercase())
-}
-
-pub fn default_chain_dir(network: NetworkName) -> String {
-    format!("./chain.{}.db", network.to_string().to_lowercase())
 }
 
 /// Utility function to parse a nonce (i.e. a blake2b-256 hash digest) from an hex-encoded string.

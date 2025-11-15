@@ -33,7 +33,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     mem,
 };
-use tracing::{Level, Span, info, span, trace};
+use tracing::{Instrument, Span, debug, info, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -74,7 +74,7 @@ impl SelectChain {
         result
     }
 
-    pub async fn select_chain(
+    pub async fn select_roll_forward(
         &mut self,
         store: Arc<dyn ChainStore<BlockHeader>>,
         peer: Peer,
@@ -96,11 +96,11 @@ impl SelectChain {
                 rollback_header,
                 fork,
             }) => {
-                info!(target: EVENT_TARGET, rollback = %rollback_header.point(), length = fork.len(), "switching to fork");
+                debug!(target: EVENT_TARGET, rollback_point = %rollback_header.point(), length = fork.len(), "roll_forward.switch_to_fork");
                 SelectChain::switch_to_fork(peer, rollback_header.point(), fork, span)
             }
             ForwardChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, "no change");
+                trace!(target: EVENT_TARGET, "roll_forward.no_change");
                 vec![]
             }
         };
@@ -127,7 +127,7 @@ impl SelectChain {
                 rollback_header,
                 fork,
             }) => {
-                info!(target: EVENT_TARGET, rollback = %rollback_header.point(), length = fork.len(), "switching to fork");
+                info!(target: EVENT_TARGET, rollback_point = %rollback_header.point(), length = fork.len(), "rollback.switch_to_fork");
                 Ok(SelectChain::switch_to_fork(
                     peer,
                     rollback_header.point(),
@@ -135,7 +135,10 @@ impl SelectChain {
                     span,
                 ))
             }
-            RollbackChainSelection::NoChange => Ok(vec![]),
+            RollbackChainSelection::NoChange => {
+                trace!(target: EVENT_TARGET, "rollback.no_change");
+                Ok(vec![])
+            }
             RollbackChainSelection::RollbackBeyondLimit {
                 peer,
                 rollback_point,
@@ -157,7 +160,10 @@ impl SelectChain {
             match chain_sync {
                 DecodedChainSyncEvent::RollForward {
                     peer, header, span, ..
-                } => self.select_chain(store.clone(), peer, header, span).await,
+                } => {
+                    self.select_roll_forward(store.clone(), peer, header, span)
+                        .await
+                }
                 DecodedChainSyncEvent::Rollback {
                     peer,
                     rollback_point,
@@ -270,86 +276,91 @@ type State = (
     StageRef<ValidationFailed>,
 );
 
-pub async fn stage(
+pub fn stage(
     (mut select_chain, downstream, errors): State,
     msg: DecodedChainSyncEvent,
     eff: impl ConsensusOps,
-) -> State {
-    let store = eff.store();
-    let peer = msg.peer();
-    let span = span!(parent: msg.span(), Level::TRACE, "stage.select_chain");
-    let _entered = span.enter();
+) -> impl Future<Output = State> {
+    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.select_chain");
+    async move {
+        let store = eff.store();
+        let peer = msg.peer();
+        let events = match select_chain.handle_chain_sync(store.clone(), msg).await {
+            Ok(events) => events,
+            Err(e) => {
+                eff.base()
+                    .send(&errors, ValidationFailed::new(&peer, e))
+                    .await;
+                return (select_chain, downstream, errors);
+            }
+        };
 
-    let events = match select_chain.handle_chain_sync(store.clone(), msg).await {
-        Ok(events) => events,
-        Err(e) => {
-            eff.base()
-                .send(&errors, ValidationFailed::new(&peer, e))
-                .await;
-            return (select_chain, downstream, errors);
-        }
-    };
-
-    for event in events {
-        match event {
-            ValidateHeaderEvent::Validated { peer, header, span } => {
-                match store.roll_forward_chain(&header.point()) {
-                    Ok(()) => {
-                        let event = BlockValidationResult::BlockValidated { peer, header, span };
-                        eff.base().send(&downstream, event).await;
-                    }
-                    Err(e) => {
-                        eff.base()
-                            .send(
-                                &errors,
-                                ValidationFailed {
-                                    peer,
-                                    error: ConsensusError::RollForwardChainFailed(header.hash(), e),
-                                },
-                            )
-                            .await
+        for event in events {
+            match event {
+                ValidateHeaderEvent::Validated { peer, header, span } => {
+                    match store.roll_forward_chain(&header.point()) {
+                        Ok(()) => {
+                            let event =
+                                BlockValidationResult::BlockValidated { peer, header, span };
+                            eff.base().send(&downstream, event).await;
+                        }
+                        Err(e) => {
+                            eff.base()
+                                .send(
+                                    &errors,
+                                    ValidationFailed {
+                                        peer,
+                                        error: ConsensusError::RollForwardChainFailed(
+                                            header.hash(),
+                                            e,
+                                        ),
+                                    },
+                                )
+                                .await
+                        }
                     }
                 }
-            }
-            ValidateHeaderEvent::Rollback {
-                peer,
-                rollback_point,
-                span,
-            } => match eff.store().load_header(&rollback_point.hash()) {
-                Some(rollback_header) => match store.rollback_chain(&rollback_header.point()) {
-                    Ok(_size) => {
-                        let event = BlockValidationResult::RolledBackTo {
-                            peer,
-                            rollback_header,
-                            span,
-                        };
-                        eff.base().send(&downstream, event).await;
-                    }
-                    Err(e) => {
-                        eff.base()
-                            .send(
-                                &errors,
-                                ValidationFailed {
-                                    peer,
-                                    error: ConsensusError::RollbackChainFailed(
-                                        rollback_header.point(),
-                                        e,
-                                    ),
-                                },
-                            )
-                            .await
+                ValidateHeaderEvent::Rollback {
+                    peer,
+                    rollback_point,
+                    span,
+                } => match eff.store().load_header(&rollback_point.hash()) {
+                    Some(rollback_header) => match store.rollback_chain(&rollback_header.point()) {
+                        Ok(_size) => {
+                            let event = BlockValidationResult::RolledBackTo {
+                                peer,
+                                rollback_header,
+                                span,
+                            };
+                            eff.base().send(&downstream, event).await;
+                        }
+                        Err(e) => {
+                            eff.base()
+                                .send(
+                                    &errors,
+                                    ValidationFailed {
+                                        peer,
+                                        error: ConsensusError::RollbackChainFailed(
+                                            rollback_header.point(),
+                                            e,
+                                        ),
+                                    },
+                                )
+                                .await
+                        }
+                    },
+                    None => {
+                        let err = ConsensusError::UnknownPoint(rollback_point.hash());
+                        let msg = ValidationFailed::new(&peer, err);
+                        eff.base().send(&errors, msg).await
                     }
                 },
-                None => {
-                    let err = ConsensusError::UnknownPoint(rollback_point.hash());
-                    let msg = ValidationFailed::new(&peer, err);
-                    eff.base().send(&errors, msg).await
-                }
-            },
+            }
         }
-    }
 
-    (select_chain, downstream, errors)
+        (select_chain, downstream, errors)
+    }
+    .instrument(span)
 }
 
 #[cfg(test)]

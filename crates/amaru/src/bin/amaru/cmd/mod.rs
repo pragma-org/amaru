@@ -26,11 +26,6 @@ pub(crate) mod import_ledger_state;
 pub(crate) mod import_nonces;
 pub(crate) mod migrate_chain_db;
 
-pub(crate) const DEFAULT_NETWORK: NetworkName = NetworkName::Preprod;
-
-/// Default address to listen on for incoming connections.
-pub(crate) const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
-
 /// Establish a connection to another peer. The connection are discriminated by network types.
 pub(crate) async fn connect_to_peer(
     peer_address: &str,

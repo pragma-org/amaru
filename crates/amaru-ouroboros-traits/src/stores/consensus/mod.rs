@@ -35,6 +35,10 @@ where
     /// Returns `None` if the point is not in the best chain.
     fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash>;
 
+    /// Return the next `Point` on the best chain following given
+    /// `Point`, if it exists.
+    fn next_best_chain(&self, point: &Point) -> Option<Point>;
+
     fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
     fn has_header(&self, hash: &HeaderHash) -> bool;
@@ -137,6 +141,10 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
     fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
         self.as_ref().load_from_best_chain(point)
     }
+
+    fn next_best_chain(&self, point: &Point) -> Option<Point> {
+        self.as_ref().next_best_chain(point)
+    }
 }
 
 /// A simple chain store interface that can store and retrieve headers indexed by their hash.
@@ -160,7 +168,7 @@ where
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError>;
 }
 
-#[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Error, PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum StoreError {
     WriteError { error: String },
     ReadError { error: String },

@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_consensus::StoreError;
+use amaru_kernel::network::NetworkName;
 use amaru_stores::rocksdb::{
     RocksDbConfig,
     consensus::{check_db_version, migrate_db, util::open_db},
@@ -24,12 +26,22 @@ use tracing::{error, info, info_span};
 #[derive(Debug, Parser)]
 pub struct Args {
     /// The path to the chain database to migrate
-    #[arg(long, value_name = "DIR", default_value = "chain.db")]
-    chain_dir: PathBuf,
+    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
+    chain_dir: Option<PathBuf>,
+
+    #[arg(
+        long,
+        value_name = "NETWORK",
+        env = "AMARU_NETWORK",
+        default_value_t = DEFAULT_NETWORK,
+    )]
+    network: NetworkName,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let chain_dir = args.chain_dir;
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(args.network).into());
     let config = RocksDbConfig::new(chain_dir.clone());
 
     Ok(

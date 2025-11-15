@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::simulator::{NodeConfig, SimulateConfig};
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Parser, Clone)]
+#[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 #[clap(name = "Amaru Simulator")]
 #[clap(bin_name = "amaru-sim")]
 #[clap(author, version, about, long_about = None)]
@@ -46,7 +48,22 @@ pub struct Args {
     #[arg(long)]
     pub seed: Option<u64>,
 
-    /// Persist pure-stage's effect trace aka schedule even if the test passes.
+    /// Persist generated data and pure-stage traces even if the test passes.
     #[arg(long)]
     pub persist_on_success: bool,
+}
+
+impl Args {
+    pub fn from_configs(simulate_config: &SimulateConfig, node_config: &NodeConfig) -> Self {
+        Self {
+            number_of_tests: simulate_config.number_of_tests,
+            number_of_nodes: simulate_config.number_of_nodes,
+            number_of_upstream_peers: node_config.number_of_upstream_peers,
+            number_of_downstream_peers: node_config.number_of_downstream_peers,
+            generated_chain_depth: node_config.generated_chain_depth,
+            disable_shrinking: simulate_config.disable_shrinking,
+            seed: Some(simulate_config.seed),
+            persist_on_success: false,
+        }
+    }
 }

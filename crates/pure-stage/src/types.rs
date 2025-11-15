@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use crate::{
-    Effects,
+    Effects, UnknownExternalEffect,
     serde::{SendDataValue, to_cbor},
 };
 use anyhow::Context;
 use cbor4ii::serde::from_slice;
+use std::fmt::{Display, Error, Formatter};
 use std::{
     any::{Any, type_name},
     borrow::Borrow,
@@ -73,6 +74,12 @@ where
     }
 }
 
+impl Display for dyn SendData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(&as_send_data_value(self).map_err(|_| Error)?.to_string())
+    }
+}
+
 impl dyn SendData {
     /// Cast a message to a given concrete type.
     pub fn cast_ref<T: SendData>(&self) -> Option<&T> {
@@ -116,7 +123,22 @@ impl dyn SendData {
     }
 }
 
-fn deserialize_value<T>(this: &dyn SendData) -> anyhow::Result<T>
+/// Cast the SendData to a SendDataValue to be able to access its inner value.
+pub fn as_send_data_value(this: &dyn SendData) -> anyhow::Result<&SendDataValue> {
+    let Some(this) = this.cast_ref::<SendDataValue>() else {
+        let Some(this) = this.cast_ref::<UnknownExternalEffect>() else {
+            anyhow::bail!(
+                "message type error: expected SendDataValue, got {:?} ({})",
+                this,
+                this.typetag_name()
+            )
+        };
+        return Ok(this.send_data_value());
+    };
+    Ok(this)
+}
+
+pub fn deserialize_value<T>(this: &dyn SendData) -> anyhow::Result<T>
 where
     T: SendData + serde::de::DeserializeOwned,
 {
@@ -275,10 +297,10 @@ pub trait TryInStage {
     ///
     /// # Example
     ///
-    /// ```rust
-    /// use pure_stage::{simulation::SimulationBuilder, StageGraph, TryInStage};
+    /// ```ignore
+    /// use pure_stage::{tokio::TokioBuilder, StageGraph, TryInStage};
     ///
-    /// let mut network = SimulationBuilder::default();
+    /// let mut network = TokioBuilder::default();
     /// network.stage("demo", async |_state: (), msg: Result<u32, String>, eff| {
     ///     let msg: u32 = msg.or_terminate(&eff, async |error: String| {
     ///         tracing::error!("error: {}", error);
@@ -335,12 +357,13 @@ impl<T, E> TryInStage for Result<T, E> {
     }
 }
 
+#[cfg(feature = "simulation")]
 #[cfg(test)]
 mod test {
+    use crate::simulation::SimulationBuilder;
     use crate::{
         Effect, Instant, SendData, StageGraph, StageGraphRunning, StageResponse, TryInStage,
         serde::SendDataValue,
-        simulation::SimulationBuilder,
         trace_buffer::{TraceBuffer, TraceEntry},
     };
     use std::{ffi::OsString, time::Duration};

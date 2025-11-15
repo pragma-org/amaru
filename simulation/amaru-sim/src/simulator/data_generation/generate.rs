@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::echo::Envelope;
+use crate::simulator::Envelope;
 use crate::simulator::bytes::Bytes;
 use crate::simulator::data_generation::base_generators::generate_arrival_times;
 use crate::simulator::{Entry, NodeConfig};
@@ -22,12 +22,14 @@ use amaru_consensus::consensus::headers_tree::data_generation::{
 };
 use amaru_kernel::{IsHeader, Point, is_header::tests::run_with_rng, peer::Peer, to_cbor};
 use amaru_slot_arithmetic::Slot;
+use parking_lot::Mutex;
 use pure_stage::Instant;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Holds a list of generated entries along with the context used to generate them.
@@ -114,6 +116,16 @@ impl GeneratedEntries<ChainSyncMessage, GeneratedActions> {
             "messages": entries_json,
         })
     }
+
+    /// Export the generated entries to a JSON file at the given path.
+    pub fn export_to_file(&self, path: &str) {
+        use std::fs::File;
+        use std::io::Write;
+
+        let mut file = File::create(path).unwrap();
+        let content = self.as_json().to_string();
+        file.write_all(content.as_bytes()).unwrap();
+    }
 }
 
 /// A single generated entry formatted for display and serialization.
@@ -185,17 +197,18 @@ pub fn generate_entries<R: Rng>(
     node_config: &NodeConfig,
     start_time: Instant,
     mean_millis: f64,
-) -> impl Fn(&mut R) -> GeneratedEntries<ChainSyncMessage, GeneratedActions> {
-    move |rng: &mut R| {
+) -> impl Fn(Arc<Mutex<R>>) -> GeneratedEntries<ChainSyncMessage, GeneratedActions> {
+    move |rng: Arc<Mutex<R>>| {
+        let mut rng = rng.lock();
         // Generate a tree of headers.
         let generated_tree = run_with_rng(
-            rng,
+            &mut rng,
             any_tree_of_headers(node_config.generated_chain_depth as usize),
         );
 
         // Generate actions corresponding to peers doing roll forwards and roll backs on the tree.
         let generated_actions = run_with_rng(
-            rng,
+            &mut rng,
             any_select_chains_from_tree(
                 &generated_tree,
                 node_config.number_of_upstream_peers as usize,
@@ -210,7 +223,7 @@ pub fn generate_entries<R: Rng>(
             let arrival_times = generate_arrival_times(
                 start_time + Duration::from_millis(start_delay),
                 mean_millis,
-            )(actions.len(), rng);
+            )(actions.len(), &mut rng);
             make_entries_for_peer(&mut entries_by_peer, peer, actions.clone(), arrival_times);
         }
 
@@ -286,7 +299,7 @@ mod tests {
     /// This test checks that the generated entries have reasonable slot values
     /// compared to their arrival times.
     ///
-    /// Additionally this test can be used to generate data for the animation in tests/animation/animation.html.
+    /// Additionally this test can be used to generate data for the animation in tests/animations/entries.html.
     #[test]
     fn test_generate_entries() {
         let node_config = NodeConfig {
@@ -297,21 +310,18 @@ mod tests {
         let start_time = Instant::at_offset(Duration::from_secs(1));
         let deviation_millis = 200.0;
 
-        let mut rng = StdRng::seed_from_u64(42);
+        let rng = StdRng::seed_from_u64(42);
         let generate = generate_entries(&node_config, start_time, deviation_millis);
-        let generated_entries = generate(&mut rng);
+        let generated_entries = generate(Arc::new(Mutex::new(rng)));
 
         // Uncomment these lines to print the generated entries for debugging
         // for entry in generated_entries.lines() {
         //     println!("{}", entry);
         // }
 
-        // Uncomment these lines to generate a new data file for the animation in
-        // tests/animation/animation.html
-        // write_to_file(
-        //     "tests/animation/data.json",
-        //     &generated_entries.as_json().to_string(),
-        // );
+        // Uncomment this line to generate a new data file for the animation in
+        // tests/animations/entries.html.
+        // generated_entries.export_to_file("../target/simulation/data.json");
 
         // The first 20 entries are roll forward messages
         // We expect the slot value to be around 2000ms of the arrival time,
@@ -327,14 +337,5 @@ mod tests {
                 )
             }
         }
-    }
-
-    #[allow(dead_code)]
-    fn write_to_file(path: &str, content: &String) {
-        use std::fs::File;
-        use std::io::Write;
-
-        let mut file = File::create(path).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
     }
 }

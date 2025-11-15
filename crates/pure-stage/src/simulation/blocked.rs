@@ -14,7 +14,7 @@
 
 use crate::{Effect, Instant, Name};
 
-/// Classification of why [`SimulationRunning::run_until_blocked`](crate::simulation::SimulationRunning::run_until_blocked) has stopped.
+/// Classification of why [`SimulationRunning::run_until_blocked`](crate::effect_box::SimulationRunning::run_until_blocked) has stopped.
 #[derive(Debug, PartialEq)]
 pub enum Blocked {
     /// All stages are suspended on [`Effect::Receive`].

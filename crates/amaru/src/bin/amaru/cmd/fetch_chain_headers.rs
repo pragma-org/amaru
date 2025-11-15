@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::{DEFAULT_NETWORK, WorkerError, connect_to_peer};
+use crate::cmd::{WorkerError, connect_to_peer};
+use amaru::{DEFAULT_CONFIG_DIR, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS};
 use amaru_kernel::{BlockHeader, IsHeader, Point, from_cbor, network::NetworkName, peer::Peer};
 use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
@@ -56,9 +57,10 @@ pub struct Args {
     /// * `data/preview/headers`: a directory where the fetched chain headers will be stored.
     #[arg(
         long,
-        value_name = "DIRECTORY",
-        default_value = "data",
-        verbatim_doc_comment
+        value_name = "DIR",
+        default_value = DEFAULT_CONFIG_DIR,
+        verbatim_doc_comment,
+        env = "AMARU_CONFIG_DIR"
     )]
     config_dir: PathBuf,
 
@@ -71,8 +73,9 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK_ADDRESS",
-        default_value = "127.0.0.1:3001",
-        verbatim_doc_comment
+        default_value = DEFAULT_PEER_ADDRESS,
+        verbatim_doc_comment,
+        env = "AMARU_PEER_ADDRESS"
     )]
     peer_address: String,
 }
@@ -131,13 +134,6 @@ pub(crate) async fn fetch_headers(
     let mut count = 0;
     let mut progress: Option<Box<dyn ProgressBar>> = None;
 
-    // TODO: implement a proper pipelined client because this one is super slow
-    // Pipelining in Haskell is single threaded which implies the code handles
-    // scheduling between sending burst of MsgRequest and collecting responses.
-    // Here we can do better thanks to gasket's workers: just spawn 2 workers,
-    // one for sending requests and the other for handling responses, along
-    // with a shared counter.
-    // Pipelining stops when we reach the tip of the peer's chain.
     loop {
         let what = if client.has_agency() {
             request_next_block(&mut client, config_dir, &mut count, &mut progress, max).await?

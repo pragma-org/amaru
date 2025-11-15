@@ -12,14 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::echo::run;
+#![expect(
+    clippy::wildcard_enum_match_arm,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::expect_used
+)]
 
-#[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .json()
-        .init();
+mod blocked;
+mod inputs;
+mod replay;
+mod resume;
+pub mod running;
+pub mod simulation_builder;
+mod state;
 
-    run().await;
-}
+pub use simulation_builder::SimulationBuilder;

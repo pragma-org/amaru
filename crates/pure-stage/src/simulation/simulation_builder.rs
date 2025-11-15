@@ -1,9 +1,18 @@
-#![expect(
-    clippy::wildcard_enum_match_arm,
-    clippy::unwrap_used,
-    clippy::panic,
-    clippy::expect_used
-)]
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#![expect(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
 // Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,72 +36,30 @@
 //!
 
 use crate::{
-    BoxFuture, Effects, Instant, Name, Resources, SendData, Sender, StageBuildRef, StageRef,
-    effect::{StageEffect, StageResponse},
-    time::Clock,
+    Clock, Name, Resources, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    effect::{Effects, StageEffect},
+    effect_box::EffectBox,
+    simulation::{
+        inputs::Inputs,
+        replay::Replay,
+        running::SimulationRunning,
+        state::{InitStageData, InitStageState, StageData, StageState, Transition},
+    },
+    stage_ref::StageStateRef,
     trace_buffer::TraceBuffer,
 };
-pub use blocked::{Blocked, SendBlock};
-use either::Either;
+
+use crate::effect_box::SyncEffectBox;
 use parking_lot::Mutex;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::{
     collections::{BTreeMap, VecDeque},
-    future::{Future, poll_fn},
+    future::Future,
     marker::PhantomData,
     sync::{Arc, atomic::AtomicU64},
-    task::Poll,
 };
 use tokio::runtime::Handle;
-
-pub use replay::Replay;
-pub use running::{OverrideResult, SimulationRunning};
-
-use crate::stage_ref::StageStateRef;
-use inputs::Inputs;
-use state::{InitStageData, InitStageState, StageData, StageState, Transition};
-
-mod blocked;
-mod inputs;
-mod replay;
-mod resume;
-mod running;
-mod state;
-
-pub(crate) type EffectBox =
-    Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
-
-pub(crate) fn airlock_effect<Out>(
-    eb: &EffectBox,
-    effect: StageEffect<Box<dyn SendData>>,
-    mut response: impl FnMut(Option<StageResponse>) -> Option<Out> + Send + 'static,
-) -> BoxFuture<'static, Out> {
-    let eb = eb.clone();
-    let mut effect = Some(effect);
-    Box::pin(poll_fn(move |_| {
-        let mut eb = eb.lock();
-        if let Some(effect) = effect.take() {
-            match eb.take() {
-                Some(Either::Left(x)) => panic!("effect already set: {:?}", x),
-                // it is either Some(Right(Unit)) after Receive or None otherwise
-                Some(Either::Right(StageResponse::Unit)) | None => {}
-                Some(Either::Right(resp)) => {
-                    panic!("effect airlock contains leftover response: {:?}", resp)
-                }
-            }
-            *eb = Some(Either::Left(effect));
-            Poll::Pending
-        } else {
-            let Some(out) = eb.take() else {
-                return Poll::Pending;
-            };
-            let out = match out {
-                Either::Left(x) => panic!("expected response, got effect: {:?}", x),
-                Either::Right(x) => response(Some(x)),
-            };
-            out.map(Poll::Ready).unwrap_or(Poll::Pending)
-        }
-    }))
-}
 
 /// A fully controllable and deterministic [`StageGraph`](crate::StageGraph) for testing purposes.
 ///
@@ -142,11 +109,13 @@ pub(crate) fn airlock_effect<Out>(
 pub struct SimulationBuilder {
     stages: BTreeMap<Name, InitStageData>,
     effect: EffectBox,
+    sync_effect: SyncEffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
     mailbox_size: usize,
     inputs: Inputs,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
+    rng: Arc<Mutex<StdRng>>,
 }
 
 impl SimulationBuilder {
@@ -157,6 +126,11 @@ impl SimulationBuilder {
 
     pub fn with_trace_buffer(mut self, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Self {
         self.trace_buffer = trace_buffer;
+        self
+    }
+
+    pub fn with_rng(mut self, rng: Arc<Mutex<StdRng>>) -> Self {
+        self.rng = rng;
         self
     }
 
@@ -193,17 +167,19 @@ impl Default for SimulationBuilder {
         Self {
             stages: Default::default(),
             effect: Default::default(),
+            sync_effect: Default::default(),
             clock,
             resources: Resources::default(),
             mailbox_size: 10,
             inputs: Inputs::new(10),
             // default is a TraceBuffer that drops all messages
             trace_buffer: Arc::new(Mutex::new(TraceBuffer::new(0, 0))),
+            rng: Arc::new(Mutex::new(StdRng::seed_from_u64(0))),
         }
     }
 }
 
-impl super::StageGraph for SimulationBuilder {
+impl StageGraph for SimulationBuilder {
     type Running = SimulationRunning;
     type RefAux<Msg, State> = ();
 
@@ -225,6 +201,7 @@ impl super::StageGraph for SimulationBuilder {
         let effects = Effects::new(
             me,
             self.effect.clone(),
+            self.sync_effect.clone(),
             self.clock.clone(),
             self_sender,
             self.resources.clone(),
@@ -301,11 +278,13 @@ impl super::StageGraph for SimulationBuilder {
         let Self {
             stages: s,
             effect,
+            sync_effect,
             clock,
             resources,
             mailbox_size,
             inputs,
             trace_buffer,
+            rng,
         } = self;
         let mut stages = BTreeMap::new();
         for (
@@ -338,11 +317,13 @@ impl super::StageGraph for SimulationBuilder {
             stages,
             inputs,
             effect,
+            sync_effect,
             clock,
             resources,
             mailbox_size,
             rt,
             trace_buffer,
+            rng,
         )
     }
 

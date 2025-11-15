@@ -99,7 +99,7 @@ jobs:
           if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
             cargo install --force cross --git https://github.com/cross-rs/cross
             # cross doesn't load .cargo/config.toml, see https://github.com/cross-rs/cross/issues/562
-            $HOME/.cargo/bin/cross $COMMAND --locked --all-features $SCOPE --target ${{ matrix.environments.target }}
+            $HOME/.cargo/bin/cross $COMMAND --locked $SCOPE --target ${{ matrix.environments.target }}
           else
             if [[ "${{ matrix.environments.target }}" == "x86_64-unknown-linux-gnu" ]] ; then
               cargo $EXTRA_ARGS $COMMAND $SCOPE --locked
@@ -150,6 +150,13 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+
+      - name: Reclaim Disk Space
+        run: |
+          # based on https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
 
       - id: timestamp
         shell: bash

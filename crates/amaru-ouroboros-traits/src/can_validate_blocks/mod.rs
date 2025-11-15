@@ -95,6 +95,7 @@ impl PartialEq for BlockValidationError {
 pub trait CanValidateHeaders: Send + Sync {
     fn validate_header(&self, header: &BlockHeader) -> Result<(), HeaderValidationError>;
 }
+
 #[derive(Debug)]
 pub struct HeaderValidationError(anyhow::Error);
 

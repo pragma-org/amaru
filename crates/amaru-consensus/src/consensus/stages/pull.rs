@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::ChainSyncEffect;
-use crate::consensus::span::HasSpan;
+use crate::consensus::{effects::ChainSyncEffect, span::HasSpan};
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
 use pure_stage::{Effects, StageRef};
-use tracing::{Level, span};
+use tracing::Instrument;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NextSync;
@@ -26,11 +26,24 @@ pub async fn stage(
     _msg: NextSync,
     eff: Effects<NextSync>,
 ) -> StageRef<Tracked<ChainSyncEvent>> {
-    let msg = eff.external(ChainSyncEffect).await;
-    let span = span!(parent: msg.span(), Level::TRACE, "stage.pull");
-    let _entered = span.enter();
+    let span = tracing::trace_span!("diffusion.chain_sync.wait");
+    let mut msg = eff.external(ChainSyncEffect).instrument(span).await;
 
-    eff.send(&downstream, msg).await;
-    eff.send(eff.me_ref(), NextSync).await;
+    let span = tracing::trace_span!("diffusion.chain_sync");
+    span.set_parent(msg.span().context()).ok();
+    let entered = span.enter();
+
+    match &mut msg {
+        Tracked::Wrapped(event) => event.set_span(span.clone()),
+        Tracked::CaughtUp { span: s, .. } => *s = span.clone(),
+    };
+
+    drop(entered);
+    async {
+        eff.send(&downstream, msg).await;
+        eff.send(eff.me_ref(), NextSync).await;
+    }
+    .instrument(span)
+    .await;
     downstream
 }

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::{default_chain_dir, default_ledger_dir};
 use amaru_consensus::consensus::store::PraosChainStore;
 use amaru_stores::rocksdb::{
     RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore,
@@ -28,7 +29,7 @@ use std::{
 use tracing::info;
 
 use amaru_kernel::{
-    BlockHeader, EraHistory, Header, Point, RawBlock, default_chain_dir, default_ledger_dir,
+    BlockHeader, EraHistory, Header, Point, RawBlock,
     network::NetworkName,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };

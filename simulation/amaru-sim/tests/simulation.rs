@@ -12,20 +12,76 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::run::run;
+use crate::At::Latest;
+use amaru_sim::simulator::run::{replay, run};
 use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
-use std::env;
+use anyhow::anyhow;
+use pure_stage::serde::from_cbor;
+use pure_stage::trace_buffer::TraceEntry;
+use std::fmt::{Display, Formatter};
+use std::path::Path;
 use std::str::FromStr;
-use tokio::runtime::Runtime;
+use std::{env, fs};
 use tracing_subscriber::EnvFilter;
 
 mod traces;
 
+/// Run the simulator with arguments from environment variables.
+pub fn run_simulator() {
+    initialize_logs();
+    run(make_args());
+}
+
+/// Replay the latest simulation from the test output directory:
+///
+///  - Use At::Timestamp("1762271865".to_string()) to indicate a specific timestamp
+///
+pub fn run_replay() {
+    initialize_logs();
+    let args = get_args_at(Latest).expect("latest arguments");
+    let traces = get_traces_at(Latest).expect("latest traces");
+    replay(args, traces).unwrap();
+}
+
+/// Test the simulation with default parameters and replay the resulting trace
 #[test]
-fn run_simulator() {
+fn test_run_replay() {
+    let mut args = make_args();
+    args.persist_on_success = true;
+    args.number_of_tests = 1;
+    run(args.clone());
+    let traces = get_traces_at(Latest).expect("latest traces");
+    replay(args, traces).unwrap();
+}
+
+/// Initialize logging based on environment variables:
+///
+///  - `AMARU_SIMULATION_LOG`: sets the log filter (default: none)
+///  - `AMARU_SIMULATION_LOG_AS_JSON`: if set to "1" or "true", logs are formatted as JSON
+///
+fn initialize_logs() {
+    let amaru_logs = get_env_var::<String>("AMARU_SIMULATION_LOG", "".to_string());
+    let amaru_logs_as_json = is_true("AMARU_SIMULATION_LOG_AS_JSON");
+    let formatter = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(
+            EnvFilter::builder()
+                .parse(format!("none,{}", amaru_logs))
+                .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
+        );
+    if amaru_logs_as_json {
+        formatter.json().init();
+    } else {
+        formatter.init();
+    }
+}
+
+/// Create Args from environment variables, with defaults from SimulateConfig and NodeConfig.
+fn make_args() -> Args {
     let simulate_config = SimulateConfig::default();
     let node_config = NodeConfig::default();
-    let args = Args {
+
+    Args {
         number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", simulate_config.number_of_tests),
         number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", simulate_config.number_of_nodes),
         number_of_upstream_peers: get_env_var(
@@ -43,24 +99,56 @@ fn run_simulator() {
         disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true("AMARU_PERSIST_ON_SUCCESS"),
-    };
-
-    let amaru_logs = get_env_var::<String>("AMARU_SIMULATION_LOG", "".to_string());
-    let amaru_logs_as_json = is_true("AMARU_SIMULATION_LOG_AS_JSON");
-    let formatter = tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(
-            EnvFilter::builder()
-                .parse(format!("none,{}", amaru_logs))
-                .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
-        );
-    if amaru_logs_as_json {
-        formatter.json().init();
-    } else {
-        formatter.init();
     }
+}
 
-    run(Runtime::new().unwrap(), args);
+/// Specify which simulation output to load.
+#[allow(dead_code)]
+enum At {
+    Latest,
+    Timestamp(String),
+}
+
+impl Display for At {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            At::Latest => write!(f, "latest"),
+            At::Timestamp(ts) => write!(f, "{}", ts),
+        }
+    }
+}
+
+/// Load the Args from the test output directory at the given timestamp.
+fn get_args_at(at: At) -> anyhow::Result<Args> {
+    let path = format!("../../target/tests/{at}/args.json");
+    let path = Path::new(&path);
+    let path =
+        fs::canonicalize(path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+    let data = fs::read(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+    let args: Args = serde_json::from_slice(data.as_slice())?;
+    Ok(args)
+}
+
+/// Load the TraceEntries from the test output directory at the given timestamp.
+fn get_traces_at(at: At) -> anyhow::Result<Vec<TraceEntry>> {
+    let path = format!("../../target/tests/{at}/traces.cbor");
+    let path = Path::new(&path);
+    let latest_trace =
+        fs::canonicalize(path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+    load_trace_entries(&latest_trace)
+}
+
+/// Load TraceEntries from the given file path.
+/// They are deserialized from CBOR format.
+fn load_trace_entries(path: &Path) -> anyhow::Result<Vec<TraceEntry>> {
+    let data = fs::read(path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+    let raw_entries: Vec<Vec<u8>> = from_cbor(&data)?;
+    let mut entries = Vec::with_capacity(raw_entries.len());
+    for raw in raw_entries {
+        let entry: TraceEntry = from_cbor(&raw)?;
+        entries.push(entry);
+    }
+    Ok(entries)
 }
 
 // Parse the environment variable `var_name` as type T, or return `default` if not set or invalid.

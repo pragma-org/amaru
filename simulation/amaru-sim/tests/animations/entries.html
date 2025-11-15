@@ -355,7 +355,8 @@
                 playPauseBtn.textContent = 'Pause';
                 // draw tree immediately and start simulation
                 drawTree(tree);
-                zoomFit();          // fill the canvas
+                zoomFit();  // fill the canvas
+                zoomOut();  // zoom out to make sure that we see the labels on the first node
                 startVisualization(tree, messages);
                 // Allow reloading the same file again (reset the file input)
                 dataFile.value = '';
@@ -383,6 +384,7 @@
         nodeByHash.clear();
 
         const svgns = "http://www.w3.org/2000/svg";
+
         const margin = {top: 40, right: 40, bottom: 40, left: 140};
         const xGap = 140, yGap = 80;
         const levelX = (slot) => margin.left + (Number(slot) - 1) * xGap;
@@ -410,7 +412,9 @@
         const maxX = Math.max(...nodes.map(n => n.x));
         const minY = Math.min(...nodes.map(n => n.y));
         const maxY = Math.max(...nodes.map(n => n.y));
+
         const pad = 80;
+
         sceneWidth = Math.max(600, (maxX - minX) + pad * 2);
         sceneHeight = Math.max(400, (maxY - minY) + pad * 2);
 
@@ -618,7 +622,10 @@
 
         const pos = nodeByHash.get(nodeHash);
         if (!pos) return;
-        const baseY = pos.y - 28; // start stacking above the node
+        // Place badges just above the node hash (hash text is at pos.y - 24)
+        const HASH_TEXT_OFFSET = 24; // matches the <text class="hash" y="-24">
+        const HASH_GAP = 20;          // small vertical gap above the hash text
+        const baseY = pos.y - HASH_TEXT_OFFSET - HASH_GAP;
         let currentOffset = 0;
 
         // Iterate from end to start so the earliest (index 0) is painted last and ends up on TOP

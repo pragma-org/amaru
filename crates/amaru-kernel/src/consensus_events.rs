@@ -88,6 +88,19 @@ impl fmt::Debug for ChainSyncEvent {
     }
 }
 
+impl ChainSyncEvent {
+    pub fn set_span(&mut self, span: Span) {
+        match self {
+            ChainSyncEvent::RollForward { span: s, .. } => {
+                *s = span;
+            }
+            ChainSyncEvent::Rollback { span: s, .. } => {
+                *s = span;
+            }
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum DecodedChainSyncEvent {
     RollForward {

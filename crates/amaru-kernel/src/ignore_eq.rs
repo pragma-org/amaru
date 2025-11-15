@@ -11,19 +11,33 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+use std::ops::{Deref, DerefMut};
 
-mod io;
-/// Implementation of maelstrom's [echo protocol](https://github.com/jepsen-io/maelstrom/blob/main/doc/workloads.md#workload-echo).
-///
-/// This is intended as a simple example of how to implement a node in Rust that
-/// can be tested with maelstrom, using gasket as the underlying async runtime
-/// over tokio.
-mod message;
-mod run;
-mod service;
-mod simulate;
+#[derive(Debug, Clone, Default, Eq, serde::Serialize, serde::Deserialize)]
+pub struct IgnoreEq<T>(pub T);
 
-pub use message::*;
-pub use run::*;
-pub use service::*;
-pub use simulate::*;
+impl<T> PartialEq for IgnoreEq<T> {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl<T> From<T> for IgnoreEq<T> {
+    fn from(value: T) -> Self {
+        IgnoreEq(value)
+    }
+}
+
+impl<T> Deref for IgnoreEq<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for IgnoreEq<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}

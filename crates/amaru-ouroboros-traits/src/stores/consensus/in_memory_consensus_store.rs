@@ -125,6 +125,25 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
         let inner = self.inner.lock().unwrap();
         inner.chain.iter().find(|p| *p == point).map(|p| p.hash())
     }
+
+    #[expect(clippy::unwrap_used)]
+    fn next_best_chain(&self, point: &Point) -> Option<Point> {
+        let inner = self.inner.lock().unwrap();
+        let min_slot = point.slot_or_default();
+
+        let next: Vec<&Point> = inner
+            .chain
+            .iter()
+            .filter(move |p| p.slot_or_default() > min_slot)
+            .take(1)
+            .collect();
+
+        if next.is_empty() {
+            None
+        } else {
+            Some(next[0].clone())
+        }
+    }
 }
 
 impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsensusStore<H> {

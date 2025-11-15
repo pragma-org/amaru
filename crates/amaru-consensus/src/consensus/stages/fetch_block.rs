@@ -18,7 +18,7 @@ use crate::consensus::span::HasSpan;
 use amaru_kernel::consensus_events::{ValidateBlockEvent, ValidateHeaderEvent};
 use amaru_kernel::{IsHeader, RawBlock};
 use pure_stage::StageRef;
-use tracing::Level;
+use tracing::Instrument;
 
 type State = (
     StageRef<ValidateBlockEvent>,
@@ -28,64 +28,65 @@ type State = (
 
 /// This stages fetches the full block from a peer after its header has been validated.
 /// It then sends the full block to the downstream stage for validation and storage.
-pub async fn stage(
+pub fn stage(
     (downstream, failures, errors): State,
     msg: ValidateHeaderEvent,
     eff: impl ConsensusOps,
-) -> State {
-    let span = tracing::span!(parent: msg.span(), Level::TRACE, "stage.fetch_block");
-    let _entered = span.enter();
+) -> impl Future<Output = State> {
+    let span = tracing::trace_span!(parent: msg.span(), "diffusion.fetch_block");
+    async move {
+        match msg {
+            ValidateHeaderEvent::Validated { peer, header, span } => {
+                let point = header.point();
+                let block = match eff.network().fetch_block(peer.clone(), point).await {
+                    Ok(block) => block,
+                    Err(e) => {
+                        eff.base()
+                            .send(&failures, ValidationFailed::new(&peer, e))
+                            .await;
+                        return (downstream, failures, errors);
+                    }
+                };
 
-    match msg {
-        ValidateHeaderEvent::Validated { peer, header, span } => {
-            let point = header.point();
-            let block = match eff.network().fetch_block(peer.clone(), point).await {
-                Ok(block) => block,
-                Err(e) => {
+                let block = RawBlock::from(&*block);
+
+                let result = eff.store().store_block(&header.hash(), &block);
+                if let Err(e) = result {
                     eff.base()
-                        .send(&failures, ValidationFailed::new(&peer, e))
+                        .send(&errors, ProcessingFailed::new(&peer, e.into()))
                         .await;
                     return (downstream, failures, errors);
                 }
-            };
 
-            let block = RawBlock::from(&*block);
-
-            let result = eff.store().store_block(&header.hash(), &block);
-            if let Err(e) = result {
-                eff.base()
-                    .send(&errors, ProcessingFailed::new(&peer, e.into()))
-                    .await;
-                return (downstream, failures, errors);
+                let validated = ValidateBlockEvent::Validated {
+                    peer,
+                    header,
+                    block,
+                    span,
+                };
+                eff.base().send(&downstream, validated).await
             }
-
-            let validated = ValidateBlockEvent::Validated {
+            ValidateHeaderEvent::Rollback {
                 peer,
-                header,
-                block,
+                rollback_point,
                 span,
-            };
-            eff.base().send(&downstream, validated).await
+                ..
+            } => {
+                eff.base()
+                    .send(
+                        &downstream,
+                        ValidateBlockEvent::Rollback {
+                            peer,
+                            rollback_point,
+                            span,
+                        },
+                    )
+                    .await
+            }
         }
-        ValidateHeaderEvent::Rollback {
-            peer,
-            rollback_point,
-            span,
-            ..
-        } => {
-            eff.base()
-                .send(
-                    &downstream,
-                    ValidateBlockEvent::Rollback {
-                        peer,
-                        rollback_point,
-                        span,
-                    },
-                )
-                .await
-        }
+        (downstream, failures, errors)
     }
-    (downstream, failures, errors)
+    .instrument(span)
 }
 
 #[cfg(test)]

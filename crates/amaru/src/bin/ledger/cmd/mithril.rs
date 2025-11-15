@@ -22,8 +22,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use amaru::point::to_network_point;
-use amaru_kernel::{default_ledger_dir, network::NetworkName};
+use amaru::{default_ledger_dir, point::to_network_point};
+use amaru_kernel::network::NetworkName;
 use async_trait::async_trait;
 use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};

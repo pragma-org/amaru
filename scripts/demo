@@ -4,12 +4,12 @@ set -euo pipefail
 
 exitWithUsage () {
   echo -e "\033[1;31mError: missing argument(s)!\033[00m\n"
-  echo -e "\033[1;32mUsage:\033[00m\n    $0 BUILD_PROFILE AMARU_PEER_ADDRESS AMARU_LISTEN_ADDRESS TARGET_EPOCH [AMARU_NETWORK]\n"
-  echo -e "\033[1mExamples:\033[00m \n    $0 release 127.0.0.1:3000 0.0.0.0:0    173\n    $0 debug 127.0.0.1:3001 0.0.0.0:8000 200 preprod"
+  echo -e "\033[1;32mUsage:\033[00m\n    $0 BUILD_PROFILE TARGET_EPOCH\n"
+  echo -e "\033[1mExamples:\033[00m \n    $0 release 173"
   exit 1
 }
 
-if [ $# -lt 4 ] || [ $# -gt 5 ]; then
+if [ $# != 2 ]; then
     exitWithUsage
 fi
 
@@ -18,26 +18,10 @@ if [ -z "$BUILD_PROFILE" ]; then
   exitWithUsage
 fi
 
-export AMARU_PEER_ADDRESS=$2
-if [ -z "$AMARU_PEER_ADDRESS" ]; then
-  exitWithUsage
-fi
-
-export AMARU_LISTEN_ADDRESS=$3
-if [ -z "$AMARU_LISTEN_ADDRESS" ]; then
-  exitWithUsage
-fi
-
-TARGET_EPOCH=$4
+TARGET_EPOCH=$2
 if [ -z "$TARGET_EPOCH" ]; then
   exitWithUsage
 fi
-
-export AMARU_NETWORK=${5:-preprod}
-
-export AMARU_LEDGER_DIR=${AMARU_LEDGER_DIR:-./ledger.${AMARU_NETWORK}.db}
-
-export AMARU_CHAIN_DIR=${AMARU_CHAIN_DIR:-./chain.${AMARU_NETWORK}.db}
 
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 

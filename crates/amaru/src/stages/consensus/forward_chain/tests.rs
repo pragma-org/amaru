@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::client_state::tests::ChainStoreExt;
+use super::chain_follower::tests::ChainStoreExt;
 use super::test_infra::{ClientMsg, FORK_47, LOST_47, TIP_47, TestChainForwarder, WINNER_47, hash};
 use crate::stages::AsTip;
 use amaru_kernel::IsHeader;

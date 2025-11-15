@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::StageEffect;
+use crate::effect::StageEffect;
 use crate::{BoxFuture, Name, SendData};
 use std::{collections::VecDeque, fmt};
 
@@ -56,11 +56,11 @@ impl fmt::Debug for StageState {
     }
 }
 
-pub struct StageData {
+pub(crate) struct StageData {
     pub name: Name,
     pub mailbox: VecDeque<Box<dyn SendData>>,
     pub state: StageState,
-    pub transition: Transition,
     pub waiting: Option<StageEffect<()>>,
+    pub transition: Transition,
     pub senders: VecDeque<(Name, Box<dyn SendData>)>,
 }
