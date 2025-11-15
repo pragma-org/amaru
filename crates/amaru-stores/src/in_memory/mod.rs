@@ -613,7 +613,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         unimplemented!("add_drep_delegations");
     }
 
-    fn save(
+    fn save<U: Borrow<amaru_ledger::store::columns::utxo::Value>>(
         &self,
         _era_history: &EraHistory,
         _protocol_parameters: &ProtocolParameters,
@@ -621,12 +621,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         point: &Point,
         issuer: Option<&amaru_ledger::store::columns::pools::Key>,
         add: amaru_ledger::store::Columns<
-            impl Iterator<
-                Item = (
-                    amaru_ledger::store::columns::utxo::Key,
-                    amaru_ledger::store::columns::utxo::Value,
-                ),
-            >,
+            impl Iterator<Item = (amaru_ledger::store::columns::utxo::Key, U)>,
             impl Iterator<Item = amaru_ledger::store::columns::pools::Value>,
             impl Iterator<
                 Item = (

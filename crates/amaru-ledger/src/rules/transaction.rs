@@ -225,7 +225,11 @@ where
             .unwrap_or_default()
     }
     .into_iter()
-    .for_each(|input| context.consume(input));
+    .for_each(|input| {
+        context.consume(input).unwrap_or_else(|| {
+            unreachable!("attempted to consume non-existing UTxO *after* validation")
+        });
+    });
 
     Ok(())
 }

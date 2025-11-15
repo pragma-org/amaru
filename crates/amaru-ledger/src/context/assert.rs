@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{
-    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, Hash,
-    PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
-    PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
-    UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
-    blanket_known_scripts,
+use crate::{
+    ArcMapped,
+    context::{
+        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, Hash,
+        PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
+        PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
+        UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
+        blanket_known_scripts,
+    },
 };
 use amaru_kernel::{
     AddrKeyhash, Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Lovelace,
@@ -28,7 +31,10 @@ use amaru_kernel::{
 };
 use amaru_slot_arithmetic::Epoch;
 use core::mem;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 use tracing::{Level, instrument};
 
 // ------------------------------------------------------------------------------------- Preparation
@@ -45,7 +51,12 @@ pub struct AssertPreparationContext {
 impl From<AssertPreparationContext> for AssertValidationContext {
     fn from(ctx: AssertPreparationContext) -> AssertValidationContext {
         AssertValidationContext {
-            utxo: ctx.utxo,
+            utxo: ctx
+                .utxo
+                .into_iter()
+                .map(|(i, o)| (i, Arc::new(o)))
+                .collect(),
+            removed_utxo: BTreeSet::default(),
             required_signers: BTreeSet::default(),
             required_scripts: BTreeSet::default(),
             known_scripts: BTreeMap::default(),
@@ -89,8 +100,9 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct AssertValidationContext {
-    #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
-    utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    #[serde(deserialize_with = "deserialize_utxo")]
+    utxo: BTreeMap<TransactionInput, Arc<MemoizedTransactionOutput>>,
+    removed_utxo: BTreeSet<TransactionInput>,
     #[serde(default)]
     required_signers: BTreeSet<Hash<28>>,
     #[serde(default)]
@@ -103,6 +115,22 @@ pub struct AssertValidationContext {
     required_supplemental_datums: BTreeSet<Hash<32>>,
     #[serde(default)]
     required_bootstrap_roots: BTreeSet<Hash<28>>,
+}
+
+pub fn deserialize_utxo<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<TransactionInput, Arc<MemoizedTransactionOutput>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(
+        serde_utils::deserialize_map_proxy::<TransactionInput, MemoizedTransactionOutput, D>(
+            deserializer,
+        )?
+        .into_iter()
+        .map(|(i, o)| (i, Arc::new(o)))
+        .collect(),
+    )
 }
 
 impl ValidationContext for AssertValidationContext {
@@ -127,15 +155,30 @@ impl PotsSlice for AssertValidationContext {
 
 impl UtxoSlice for AssertValidationContext {
     fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.utxo.get(input)
+        self.utxo.get(input).map(|o| o.as_ref())
     }
 
-    fn consume(&mut self, input: TransactionInput) {
-        self.utxo.remove(&input);
+    fn get(&self, input: &TransactionInput) -> Option<Arc<MemoizedTransactionOutput>> {
+        self.utxo.get(input).cloned()
     }
 
-    fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput) {
-        self.utxo.insert(input, output);
+    fn consume(
+        &mut self,
+        input: TransactionInput,
+    ) -> Option<(&TransactionInput, Arc<MemoizedTransactionOutput>)> {
+        self.utxo
+            .remove_entry(&input)
+            .map(|(k, v)| (self.removed_utxo.get_or_insert(k), v))
+    }
+
+    fn produce(
+        &mut self,
+        input: TransactionInput,
+        output: MemoizedTransactionOutput,
+    ) -> Arc<MemoizedTransactionOutput> {
+        let arc = Arc::new(output);
+        self.utxo.insert(input, arc.clone());
+        arc
     }
 }
 
@@ -338,7 +381,9 @@ impl WitnessSlice for AssertValidationContext {
         blanket_known_scripts(self, known_scripts.into_iter())
     }
 
-    fn known_datums(&mut self) -> BTreeMap<DatumHash, &MemoizedPlutusData> {
+    fn known_datums(
+        &mut self,
+    ) -> BTreeMap<DatumHash, ArcMapped<MemoizedTransactionOutput, MemoizedPlutusData>> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
     }
