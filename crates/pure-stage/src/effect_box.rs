@@ -33,8 +33,6 @@ use std::{future::poll_fn, sync::Arc, task::Poll};
 pub(crate) type EffectBox =
     Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
 
-pub(crate) type SyncEffectBox = Arc<Mutex<Option<StageEffect<Box<dyn SendData>>>>>;
-
 pub(crate) fn airlock_effect<Out>(
     eb: &EffectBox,
     effect: StageEffect<Box<dyn SendData>>,

@@ -16,7 +16,9 @@ use amaru_kernel::{
     BlockHeader, HeaderHash, Point, RawBlock, protocol_parameters::GlobalParameters,
 };
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use pure_stage::{
+    BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
+};
 use std::sync::Arc;
 
 /// Implementation of ChainStore using pure_stage::Effects.
@@ -31,10 +33,9 @@ impl<T> Store<T> {
     }
 
     /// This function runs an external effect synchronously.
-    pub fn external_sync<E: ExternalEffectAPI + Clone + 'static>(&self, effect: E) -> E::Response
+    pub fn external_sync<E: ExternalEffectSync + 'static>(&self, effect: E) -> E::Response
     where
         T: SendData + Sync,
-        E::Response: Clone,
     {
         self.effects.external_sync(effect)
     }
@@ -113,7 +114,7 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
 pub type ResourceHeaderStore = Arc<dyn ChainStore<BlockHeader>>;
 pub type ResourceParameters = GlobalParameters;
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct StoreHeaderEffect {
     header: BlockHeader,
 }
@@ -141,7 +142,9 @@ impl ExternalEffectAPI for StoreHeaderEffect {
     type Response = Result<(), StoreError>;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for StoreHeaderEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct StoreBlockEffect {
     hash: HeaderHash,
     block: RawBlock,
@@ -170,7 +173,9 @@ impl ExternalEffectAPI for StoreBlockEffect {
     type Response = Result<(), StoreError>;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for StoreBlockEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct SetAnchorHashEffect {
     hash: HeaderHash,
 }
@@ -198,7 +203,9 @@ impl ExternalEffectAPI for SetAnchorHashEffect {
     type Response = Result<(), StoreError>;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for SetAnchorHashEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct SetBestChainHashEffect {
     hash: HeaderHash,
 }
@@ -226,7 +233,9 @@ impl ExternalEffectAPI for SetBestChainHashEffect {
     type Response = Result<(), StoreError>;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for SetBestChainHashEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct PutNoncesEffect {
     hash: HeaderHash,
     nonces: Nonces,
@@ -255,7 +264,9 @@ impl ExternalEffectAPI for PutNoncesEffect {
     type Response = Result<(), StoreError>;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for PutNoncesEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct HasHeaderEffect {
     hash: HeaderHash,
 }
@@ -283,7 +294,9 @@ impl ExternalEffectAPI for HasHeaderEffect {
     type Response = bool;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for HasHeaderEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct LoadHeaderEffect {
     hash: HeaderHash,
 }
@@ -311,7 +324,9 @@ impl ExternalEffectAPI for LoadHeaderEffect {
     type Response = Option<BlockHeader>;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for LoadHeaderEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct GetChildrenEffect {
     hash: HeaderHash,
 }
@@ -339,7 +354,9 @@ impl ExternalEffectAPI for GetChildrenEffect {
     type Response = Vec<HeaderHash>;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for GetChildrenEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct GetAnchorHashEffect;
 
 impl GetAnchorHashEffect {
@@ -365,7 +382,9 @@ impl ExternalEffectAPI for GetAnchorHashEffect {
     type Response = HeaderHash;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for GetAnchorHashEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct GetBestChainHashEffect;
 
 impl GetBestChainHashEffect {
@@ -391,7 +410,9 @@ impl ExternalEffectAPI for GetBestChainHashEffect {
     type Response = HeaderHash;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for GetBestChainHashEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct LoadBlockEffect {
     hash: HeaderHash,
 }
@@ -419,7 +440,9 @@ impl ExternalEffectAPI for LoadBlockEffect {
     type Response = Result<RawBlock, StoreError>;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for LoadBlockEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct GetNoncesEffect {
     hash: HeaderHash,
 }
@@ -447,7 +470,9 @@ impl ExternalEffectAPI for GetNoncesEffect {
     type Response = Option<Nonces>;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for GetNoncesEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct RollForwardChainEffect {
     point: Point,
 }
@@ -475,7 +500,9 @@ impl ExternalEffectAPI for RollForwardChainEffect {
     type Response = Result<(), StoreError>;
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+impl ExternalEffectSync for RollForwardChainEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct RollBackChainEffect {
     point: Point,
 }
@@ -502,3 +529,5 @@ impl ExternalEffect for RollBackChainEffect {
 impl ExternalEffectAPI for RollBackChainEffect {
     type Response = Result<usize, StoreError>;
 }
+
+impl ExternalEffectSync for RollBackChainEffect {}

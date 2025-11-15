@@ -54,9 +54,6 @@ impl Replay {
 
         for (idx, entry) in trace.into_iter().enumerate() {
             match entry {
-                // FIXME: we should find a way to check that the effect inputs and response
-                // are the same when replaying the trace
-                TraceEntry::Suspend(Effect::ExternalSync { .. }) => {}
                 TraceEntry::Suspend(effect) => {
                     let name = effect.at_stage();
                     let expected = self.pending_suspend.remove(name);
