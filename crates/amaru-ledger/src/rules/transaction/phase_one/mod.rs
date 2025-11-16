@@ -14,8 +14,9 @@
 
 use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
-    AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, Network,
-    OriginalHash, TransactionInput, TransactionPointer, protocol_parameters::ProtocolParameters,
+    ArenaPool, AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet,
+    OriginalHash, TransactionInput, TransactionPointer, network::NetworkName,
+    protocol_parameters::ProtocolParameters,
 };
 use core::mem;
 use std::{fmt, ops::Deref};
@@ -87,7 +88,8 @@ pub enum InvalidTransaction {
 #[expect(clippy::too_many_arguments)]
 pub fn execute<C>(
     context: &mut C,
-    network: &Network,
+    _arena_pool: &ArenaPool,
+    network: &NetworkName,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: &GovernanceActivity,
@@ -151,7 +153,7 @@ where
     outputs::execute(
         context,
         protocol_parameters,
-        network,
+        &(*network).into(),
         mem::take(&mut transaction_body.collateral_return)
             .map(|x| vec![x])
             .unwrap_or_default(),
@@ -176,7 +178,7 @@ where
     outputs::execute(
         context,
         protocol_parameters,
-        network,
+        &(*network).into(),
         mem::take(&mut transaction_body.outputs),
         |index| {
             if !is_valid {
