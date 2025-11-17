@@ -27,6 +27,7 @@ use tracing_subscriber::EnvFilter;
 mod traces;
 
 /// Run the simulator with arguments from environment variables.
+#[test]
 pub fn run_simulator() {
     initialize_logs();
     run(make_args());
