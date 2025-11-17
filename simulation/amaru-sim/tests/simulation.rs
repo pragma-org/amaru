@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_sim::simulator::TEST_DATA_DIR;
 use amaru_sim::simulator::run::{replay, run};
 use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
 use anyhow::anyhow;
@@ -52,7 +53,7 @@ fn test_run_replay() {
     let mut args = make_args();
     args.persist_on_success = true;
     args.number_of_tests = 1;
-    args.persist_directory = "../../target/tests/run_replay".to_string();
+    args.persist_directory = format!("{TEST_DATA_DIR}/run_replay");
     run(args.clone());
     let traces = get_traces(
         Path::new(&args.persist_directory),

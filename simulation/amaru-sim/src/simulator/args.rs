@@ -16,6 +16,8 @@ use crate::simulator::{NodeConfig, SimulateConfig};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
+pub const TEST_DATA_DIR: &str = "test-data";
+
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 #[clap(name = "Amaru Simulator")]
 #[clap(bin_name = "amaru-sim")]
@@ -53,7 +55,7 @@ pub struct Args {
     pub persist_on_success: bool,
 
     /// Directory where test data must be persisted
-    #[arg(long, default_value = "../../target/tests")]
+    #[arg(long, default_value = TEST_DATA_DIR)]
     pub persist_directory: String,
 }
 

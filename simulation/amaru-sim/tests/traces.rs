@@ -14,6 +14,7 @@
 
 use amaru_consensus::consensus::effects::FetchBlockEffect;
 use amaru_consensus::consensus::errors::ConsensusError;
+use amaru_sim::simulator::TEST_DATA_DIR;
 use amaru_sim::simulator::{
     Args, GeneratedEntries, NodeConfig, SimulateConfig, generate_entries, run::spawn_node,
 };
@@ -44,7 +45,7 @@ fn run_simulator_with_traces() {
         disable_shrinking: true,
         seed: Some(43),
         persist_on_success: false,
-        persist_directory: "../../target/tests/run_simulator_with_traces".to_string(),
+        persist_directory: format!("{TEST_DATA_DIR}/run_simulator_with_traces"),
     };
     let node_config = NodeConfig::from(args.clone());
 

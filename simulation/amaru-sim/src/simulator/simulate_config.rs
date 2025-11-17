@@ -35,7 +35,7 @@ impl Default for SimulateConfig {
             number_of_nodes: 1,
             disable_shrinking: true,
             persist_on_success: true,
-            persist_directory: Path::new("../../target/tests").to_path_buf(),
+            persist_directory: Path::new("test-data").to_path_buf(),
         }
     }
 }

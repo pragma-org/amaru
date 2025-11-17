@@ -115,7 +115,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: failed-simulation-data
-          path: target/tests
+          path: simulation/amaru-sim/test-data
 
   coverage:
     name: Test coverage
