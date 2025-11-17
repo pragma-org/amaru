@@ -396,9 +396,9 @@ impl GeneratedActions {
 }
 
 pub struct GeneratedActionsStatistics {
-    tree_depth: usize,
-    number_of_nodes: usize,
-    number_of_fork_nodes: usize,
+    pub tree_depth: usize,
+    pub number_of_nodes: usize,
+    pub number_of_fork_nodes: usize,
 }
 
 impl Display for GeneratedActionsStatistics {

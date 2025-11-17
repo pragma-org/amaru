@@ -15,13 +15,17 @@
 use amaru_sim::simulator::Args;
 use amaru_sim::simulator::run::run;
 use clap::Parser;
+use tracing_subscriber::EnvFilter;
 
 fn main() {
     let args = Args::parse();
 
+    // Initialize tracing subscriber with environment variable filter
     tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
         .json()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     // It might be necessary to run the simulation with a larger stack with RUST_MIN_STACK=16777216 (16MB)
