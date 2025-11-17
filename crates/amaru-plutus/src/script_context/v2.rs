@@ -12,42 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{borrow::Cow, collections::BTreeMap};
+
+use amaru_kernel::{Address, KeyValuePairs};
+
 use crate::{
-    ToPlutusData, constr_v2,
+    PlutusDataError, ToPlutusData, constr_v2,
     script_context::{
-        AddrKeyhash, Certificate, DatumHash, KeyValuePairs, Lovelace, OutputRef, PlutusData,
-        Redeemer, TimeRange, TransactionId, TransactionOutput, Value, v1::ScriptPurpose,
+        Datums, OutputRef, PlutusData, Redeemers, ScriptPurpose, TransactionOutput, TxInfo, Value,
+        Withdrawals,
     },
 };
 
-pub use crate::script_context::v1::ScriptContext;
-use amaru_kernel::StakeAddress;
-
-// Reference: https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/V2/Contexts.hs#L82
-pub struct TxInfo<'a> {
-    pub inputs: Vec<OutputRef<'a>>,
-    pub reference_inputs: Vec<OutputRef<'a>>,
-    pub outputs: Vec<TransactionOutput<'a>>,
-    pub fee: Value<'a>,
-    pub mint: Value<'a>,
-    pub certificates: Vec<Certificate>,
-    pub withdrawals: KeyValuePairs<StakeAddress, Lovelace>,
-    pub valid_range: TimeRange,
-    pub signatories: Vec<AddrKeyhash>,
-    pub redeemers: KeyValuePairs<ScriptPurpose<'a>, Redeemer>,
-    pub data: KeyValuePairs<DatumHash, PlutusData>,
-    pub id: TransactionId,
-}
-
 impl ToPlutusData<2> for TxInfo<'_> {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        let fee: Value<'_> = self.fee.into();
         constr_v2!(
             0,
             [
                 self.inputs,
                 self.reference_inputs,
                 self.outputs,
-                self.fee,
+                fee,
                 self.mint,
                 self.certificates,
                 self.withdrawals,
@@ -55,20 +41,57 @@ impl ToPlutusData<2> for TxInfo<'_> {
                 self.signatories,
                 self.redeemers,
                 self.data,
-                constr_v2!(0, [self.id])
+                constr_v2!(0, [self.id])?
             ]
         )
     }
 }
 
 impl ToPlutusData<2> for OutputRef<'_> {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        // In PlutusV2, Byron addresses are not allowed
+        if let Address::Byron(_) = *self.output.address {
+            return Err(PlutusDataError::unsupported_version(
+                "byron address included in OutputRef",
+                2,
+            ));
+        }
+
         constr_v2!(0, [self.input, self.output])
     }
 }
 
 impl ToPlutusData<2> for TransactionOutput<'_> {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr_v2!(0, [self.address, self.value, self.datum, self.script])
+    }
+}
+
+impl ToPlutusData<2> for Datums<'_> {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        <BTreeMap<_, _> as ToPlutusData<2>>::to_plutus_data(&self.0)
+    }
+}
+
+impl ToPlutusData<2> for Withdrawals {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        <BTreeMap<_, _> as ToPlutusData<2>>::to_plutus_data(&self.0)
+    }
+}
+
+impl ToPlutusData<2> for Redeemers<'_, ScriptPurpose<'_>> {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        let converted: Result<Vec<_>, _> = self
+            .0
+            .iter()
+            .map(|(purpose, data)| {
+                Ok((
+                    <ScriptPurpose<'_> as ToPlutusData<2>>::to_plutus_data(purpose)?,
+                    <Cow<'_, _> as ToPlutusData<2>>::to_plutus_data(data)?,
+                ))
+            })
+            .collect();
+
+        Ok(PlutusData::Map(KeyValuePairs::Def(converted?)))
     }
 }

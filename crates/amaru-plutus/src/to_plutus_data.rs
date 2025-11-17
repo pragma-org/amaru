@@ -14,18 +14,83 @@
 
 use crate::{
     constr,
-    script_context::{CurrencySymbol, DatumOption, Script, StakeAddress, TimeRange},
+    script_context::{
+        CurrencySymbol, DatumOption, RequiredSigners, Script, StakeAddress, TimeRange,
+    },
 };
 use amaru_kernel::{
     Address, BigInt, Bytes, ComputeHash, Hash, Int, KeyValuePairs, MaybeIndefArray, MemoizedDatum,
     NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ShelleyDelegationPart,
     ShelleyPaymentPart, StakeCredential, StakePayload,
 };
+use thiserror::Error;
+
 use std::{borrow::Cow, collections::BTreeMap};
+
+#[derive(Debug, Error)]
+pub enum PlutusDataError {
+    #[error("unsupported for Plutus V{version}: {message}{}", format_context(.context))]
+    UnsupportedVersion {
+        message: String,
+        version: u8,
+        context: Vec<String>,
+    },
+
+    #[error("invalid data: {message}{}", format_context(.context))]
+    InvalidData {
+        message: String,
+        context: Vec<String>,
+    },
+
+    #[error("{0}")]
+    Custom(String),
+}
+
+fn format_context(ctx: &[String]) -> String {
+    if ctx.is_empty() {
+        String::new()
+    } else {
+        format!(" (at {})", ctx.join(" -> "))
+    }
+}
+
+impl PlutusDataError {
+    pub fn with_context(mut self, ctx: impl Into<String>) -> Self {
+        match &mut self {
+            Self::UnsupportedVersion { context, .. } | Self::InvalidData { context, .. } => {
+                context.insert(0, ctx.into());
+            }
+            Self::Custom(_) => {
+                if let Self::Custom(msg) = self {
+                    return Self::InvalidData {
+                        message: msg,
+                        context: vec![ctx.into()],
+                    };
+                }
+            }
+        }
+        self
+    }
+
+    pub fn unsupported_version(message: impl Into<String>, version: u8) -> Self {
+        Self::UnsupportedVersion {
+            message: message.into(),
+            version,
+            context: vec![],
+        }
+    }
+
+    pub fn invalid_data(message: impl Into<String>) -> Self {
+        Self::InvalidData {
+            message: message.into(),
+            context: vec![],
+        }
+    }
+}
 
 /// Serializing a type to PlutusData, which can then be serialised to CBOR.
 pub trait ToPlutusData<const VERSION: u8> {
-    fn to_plutus_data(&self) -> PlutusData;
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError>;
 }
 
 pub struct PlutusVersion<const V: u8>;
@@ -41,7 +106,7 @@ impl<const V: u8> ToPlutusData<V> for CurrencySymbol
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             Self::Ada => <Vec<u8> as ToPlutusData<V>>::to_plutus_data(&vec![]),
             Self::Native(policy_id) => policy_id.to_plutus_data(),
@@ -53,7 +118,7 @@ impl<const V: u8> ToPlutusData<V> for MemoizedDatum
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             MemoizedDatum::None => constr!(0),
             MemoizedDatum::Hash(hash) => constr!(1, [hash]),
@@ -66,12 +131,21 @@ impl<const V: u8> ToPlutusData<V> for DatumOption<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             DatumOption::None => constr!(0),
             DatumOption::Hash(hash) => constr!(1, [hash]),
             DatumOption::Inline(data) => constr!(2, [data]),
         }
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for RequiredSigners
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        self.0.iter().collect::<Vec<_>>().to_plutus_data()
     }
 }
 
@@ -85,7 +159,7 @@ where
     ///
     /// In [PlutusV2](https://github.com/IntersectMBO/cardano-ledger/blob/232511b0fa01cd848cd7a569d1acc322124cf9b8/eras/conway/impl/src/Cardano/Ledger/Conway/TxInfo.hs#L306), Byron addresses are completely disallowed, throwing an error instead
     // FIXME: make byron addresses impossible at the type level, so that this is not an issue, an error is thrown
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             Address::Shelley(shelley_address) => {
                 let payment_part = shelley_address.payment();
@@ -98,24 +172,24 @@ where
                     ShelleyPaymentPart::Script(script_hash) => {
                         constr!(1, [script_hash])
                     }
-                };
+                }?;
 
                 let stake_part_plutus_data = match stake_part {
                     ShelleyDelegationPart::Key(stake_keyhash) => {
-                        Some(constr!(0, [StakeCredential::AddrKeyhash(*stake_keyhash)]))
+                        Some(constr!(0, [StakeCredential::AddrKeyhash(*stake_keyhash)])?)
                             .to_plutus_data()
                     }
                     ShelleyDelegationPart::Script(script_hash) => {
-                        Some(constr!(0, [StakeCredential::ScriptHash(*script_hash)]))
+                        Some(constr!(0, [StakeCredential::ScriptHash(*script_hash)])?)
                             .to_plutus_data()
                     }
                     ShelleyDelegationPart::Pointer(pointer) => Some(constr!(
                         1,
                         [pointer.slot(), pointer.tx_idx(), pointer.cert_idx()]
-                    ))
+                    )?)
                     .to_plutus_data(),
                     ShelleyDelegationPart::Null => None::<StakeCredential>.to_plutus_data(),
-                };
+                }?;
 
                 constr!(0, [payment_part_plutus_data, stake_part_plutus_data])
             }
@@ -129,17 +203,17 @@ impl<const V: u8> ToPlutusData<V> for TimeRange
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         let lower = match self.lower_bound {
-            Some(x) => constr!(0, [constr!(1, [u64::from(x)]), true]),
-            None => constr!(0, [constr!(0), true]),
+            Some(x) => constr!(0, [constr!(1, [u64::from(x)])?, true]),
+            None => constr!(0, [constr!(0)?, true]),
         };
         let upper = match self.upper_bound {
-            Some(x) => constr!(0, [constr!(1, [u64::from(x)]), false]),
-            None => constr!(0, [constr!(2), true]),
+            Some(x) => constr!(0, [constr!(1, [u64::from(x)])?, false]),
+            None => constr!(0, [constr!(2)?, true]),
         };
 
-        constr!(0, [lower, upper])
+        constr!(0, [lower?, upper?])
     }
 }
 
@@ -147,7 +221,7 @@ impl<const V: u8> ToPlutusData<V> for amaru_kernel::StakeAddress
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self.payload() {
             StakePayload::Stake(keyhash) => constr!(0, [keyhash]),
             StakePayload::Script(script_hash) => constr!(1, [script_hash]),
@@ -159,7 +233,7 @@ impl<const V: u8> ToPlutusData<V> for StakeAddress
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         amaru_kernel::StakeAddress::from(self.clone()).to_plutus_data()
     }
 }
@@ -168,7 +242,7 @@ impl<const V: u8> ToPlutusData<V> for StakeCredential
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             StakeCredential::AddrKeyhash(hash) => {
                 constr!(0, [hash])
@@ -185,7 +259,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
     A: ToPlutusData<V>,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             None => constr!(1),
             Some(data) => constr!(0, [data]),
@@ -197,8 +271,8 @@ impl<const BYTES: usize, const V: u8> ToPlutusData<V> for Hash<BYTES>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::BoundedBytes(self.to_vec().into())
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::BoundedBytes(self.to_vec().into()))
     }
 }
 
@@ -206,8 +280,8 @@ impl<const V: u8> ToPlutusData<V> for Bytes
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::BoundedBytes(self.to_vec().into())
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::BoundedBytes(self.to_vec().into()))
     }
 }
 
@@ -215,7 +289,7 @@ impl<const V: u8> ToPlutusData<V> for Script<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             Script::Native(native) => native.compute_hash().to_plutus_data(),
             Script::PlutusV1(plutus) => plutus.compute_hash().to_plutus_data(),
@@ -229,7 +303,7 @@ impl<const V: u8> ToPlutusData<V> for bool
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             false => constr!(0),
             true => constr!(1),
@@ -241,8 +315,8 @@ impl<const V: u8> ToPlutusData<V> for i32
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::BigInt(BigInt::Int(Int::from(*self as i64)))
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::BigInt(BigInt::Int(Int::from(*self as i64))))
     }
 }
 
@@ -250,8 +324,8 @@ impl<const V: u8> ToPlutusData<V> for i64
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::BigInt(BigInt::Int(Int::from(*self)))
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::BigInt(BigInt::Int(Int::from(*self))))
     }
 }
 
@@ -259,8 +333,8 @@ impl<const V: u8> ToPlutusData<V> for u32
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::BigInt(BigInt::Int(Int::from(*self as i64)))
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::BigInt(BigInt::Int(Int::from(*self as i64))))
     }
 }
 
@@ -269,9 +343,11 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     #[allow(clippy::unwrap_used)]
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         // Unwrap is safe here, u64 cannot possible be too big for the `Int` structure
-        PlutusData::BigInt(BigInt::Int(Int::try_from(*self as i128).unwrap()))
+        Ok(PlutusData::BigInt(BigInt::Int(
+            Int::try_from(*self as i128).unwrap(),
+        )))
     }
 }
 
@@ -280,9 +356,11 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     #[allow(clippy::unwrap_used)]
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         // Unwrap is safe here, usize cannot possible be too big for the `Int` structure
-        PlutusData::BigInt(BigInt::Int(Int::try_from(*self as i128).unwrap()))
+        Ok(PlutusData::BigInt(BigInt::Int(
+            Int::try_from(*self as i128).unwrap(),
+        )))
     }
 }
 
@@ -291,13 +369,15 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
     T: ToPlutusData<V>,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         if self.is_empty() {
-            PlutusData::Array(MaybeIndefArray::Def(vec![]))
+            Ok(PlutusData::Array(MaybeIndefArray::Def(vec![])))
         } else {
-            PlutusData::Array(MaybeIndefArray::Indef(
-                self.iter().map(|a| a.to_plutus_data()).collect(),
-            ))
+            Ok(PlutusData::Array(MaybeIndefArray::Indef(
+                self.iter()
+                    .map(|a| a.to_plutus_data())
+                    .collect::<Result<_, _>>()?,
+            )))
         }
     }
 }
@@ -306,8 +386,8 @@ impl<const V: u8> ToPlutusData<V> for Vec<u8>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::BoundedBytes(self.clone().into())
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::BoundedBytes(self.clone().into()))
     }
 }
 
@@ -317,12 +397,12 @@ where
     K: ToPlutusData<VER> + Ord,
     V: ToPlutusData<VER>,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::Map(
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::Map(
             self.iter()
-                .map(|(k, v)| (k.to_plutus_data(), v.to_plutus_data()))
-                .collect(),
-        )
+                .map(|(k, v)| Ok((k.to_plutus_data()?, v.to_plutus_data()?)))
+                .collect::<Result<_, _>>()?,
+        ))
     }
 }
 
@@ -332,12 +412,12 @@ where
     K: ToPlutusData<VER> + Clone,
     V: ToPlutusData<VER> + Clone,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::Map(KeyValuePairs::Def(
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::Map(KeyValuePairs::Def(
             self.iter()
-                .map(|(key, value)| (key.to_plutus_data(), value.to_plutus_data()))
-                .collect::<Vec<_>>(),
-        ))
+                .map(|(key, value)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
+                .collect::<Result<Vec<_>, _>>()?,
+        )))
     }
 }
 
@@ -347,12 +427,12 @@ where
     K: ToPlutusData<VER> + Clone,
     V: ToPlutusData<VER> + Clone,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        PlutusData::Map(KeyValuePairs::Def(
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::Map(KeyValuePairs::Def(
             self.iter()
-                .map(|(key, value)| (key.to_plutus_data(), value.to_plutus_data()))
-                .collect::<Vec<_>>(),
-        ))
+                .map(|(key, value)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
+                .collect::<Result<Vec<_>, _>>()?,
+        )))
     }
 }
 
@@ -360,7 +440,7 @@ impl<const V: u8> ToPlutusData<V> for NonZeroInt
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         i64::from(self).to_plutus_data()
     }
 }
@@ -371,7 +451,7 @@ where
     K: ToPlutusData<VER>,
     V: ToPlutusData<VER>,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr!(0, [self.0, self.1])
     }
 }
@@ -380,8 +460,8 @@ impl<const V: u8> ToPlutusData<V> for Redeemer
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        self.data.clone()
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(self.data.clone())
     }
 }
 
@@ -389,8 +469,8 @@ impl<const V: u8> ToPlutusData<V> for PlutusData
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    fn to_plutus_data(&self) -> PlutusData {
-        self.clone()
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(self.clone())
     }
 }
 
@@ -399,7 +479,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
     T: ToPlutusData<V>,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         T::to_plutus_data(*self)
     }
 }
@@ -409,7 +489,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
     T: ToPlutusData<V> + Clone,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             Nullable::Some(t) => constr!(0, [t]),
             Nullable::Null | Nullable::Undefined => constr!(1),
@@ -422,7 +502,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
     T: ToPlutusData<V> + ToOwned,
 {
-    fn to_plutus_data(&self) -> PlutusData {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         self.as_ref().to_plutus_data()
     }
 }

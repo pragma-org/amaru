@@ -13,21 +13,25 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AddrKeyhash, Address, AlonzoValue, AssetName, Bytes, CborWrap, Certificate, ComputeHash,
-    DatumHash, EraHistory, Hash, KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript,
-    MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef, MintedTransactionOutput,
-    NativeScript, Network, NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PlutusScript,
-    ProposalIdAdapter, PseudoScript, Redeemer, RewardAccount, Slot, StakePayload, TransactionId,
-    TransactionInput, Vote, Voter, VotingProcedures, network::NetworkName,
+    AddrKeyhash, Address, AddressError, AlonzoValue, AssetName, Bytes, CborWrap, Certificate,
+    ComputeHash, DatumHash, EraHistory, Hash, KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum,
+    MemoizedScript, MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef,
+    MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, NativeScript, Network,
+    NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PlutusScript, PolicyId, Proposal,
+    ProposalIdAdapter, PseudoScript, Redeemer, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
+    StakeCredential, StakePayload, TransactionId, TransactionInput, TransactionInputAdapter, Vote,
+    Voter, VotingProcedures, network::NetworkName, normalize_redeemers,
     protocol_parameters::GlobalParameters,
 };
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
+use itertools::Itertools;
 use std::{
     borrow::Cow,
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
 };
+use thiserror::Error;
 
 pub mod v1;
 pub mod v2;
@@ -37,11 +41,286 @@ pub trait IsPrePlutusVersion3 {}
 impl IsPrePlutusVersion3 for PlutusVersion<1> {}
 impl IsPrePlutusVersion3 for PlutusVersion<2> {}
 
-pub use v1::{ScriptContext as ScriptContextV1, TxInfo as TxInfoV1};
-pub use v2::{ScriptContext as ScriptContextV2, TxInfo as TxInfoV2};
-pub use v3::{ScriptContext as ScriptContextV3, TxInfo as TxInfoV3};
+use crate::{PlutusDataError, PlutusVersion};
 
-use crate::PlutusVersion;
+pub trait HasScriptArugments<const VERSION: u8> {
+    fn script_args(&self) -> Result<Vec<PlutusData>, PlutusDataError>;
+}
+
+#[derive(Debug, Error)]
+pub enum TxInfoTranslationError {
+    #[error("missing input: {0}")]
+    MissingInput(TransactionInputAdapter),
+    #[error("invalid output: {0}")]
+    InvalidOutput(#[from] TransactionOutputError),
+    #[error("invalid withdrawal: {0}")]
+    InvalidWithdrawal(#[from] WithdrawalError),
+    #[error("invalid validity interval: {0}")]
+    InvalidValidityInterval(#[from] EraHistoryError),
+    #[error("invalid redeemer at index {0}")]
+    InvalidRedeemer(usize),
+}
+
+pub struct TxInfo<'a> {
+    pub inputs: Vec<OutputRef<'a>>,
+    pub reference_inputs: Vec<OutputRef<'a>>,
+    pub outputs: Vec<TransactionOutput<'a>>,
+    pub fee: Lovelace,
+    pub mint: Mint<'a>,
+    pub certificates: Vec<&'a Certificate>,
+    pub withdrawals: Withdrawals,
+    pub valid_range: TimeRange,
+    pub signatories: RequiredSigners,
+    pub redeemers: Redeemers<'a, ScriptPurpose<'a>>,
+    pub data: Datums<'a>,
+    pub id: TransactionId,
+    pub votes: Votes<'a>,
+    pub proposal_procedures: Vec<&'a Proposal>,
+    pub current_treasury_amount: Option<Lovelace>,
+    pub treasury_donation: Option<Lovelace>,
+}
+
+impl<'a> TxInfo<'a> {
+    pub fn new(
+        tx: &'a MintedTransactionBody<'_>,
+        witness_set: &'a MintedWitnessSet<'_>,
+        tx_id: &Hash<32>,
+        utxos: &'a Utxos,
+        slot: &Slot,
+        network: NetworkName,
+        era_history: &EraHistory,
+    ) -> Result<Self, TxInfoTranslationError> {
+        let inputs = Self::translate_inputs(&tx.inputs, utxos)?;
+        let reference_inputs = tx
+            .reference_inputs
+            .as_ref()
+            .map(|ref_inputs| Self::translate_inputs(ref_inputs, utxos))
+            .transpose()?
+            .unwrap_or_default();
+
+        let outputs = tx
+            .outputs
+            .iter()
+            .map(TransactionOutput::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mint = tx.mint.as_ref().map(Mint::from).unwrap_or_default();
+
+        let certificates: Vec<&'a Certificate> = tx
+            .certificates
+            .as_ref()
+            .map(|set| set.iter().collect())
+            .unwrap_or_default();
+
+        let withdrawals = tx
+            .withdrawals
+            .as_ref()
+            .map(Withdrawals::try_from)
+            .transpose()?
+            .unwrap_or_default();
+
+        let valid_range = TimeRange::new(
+            tx.validity_interval_start.map(Slot::from),
+            tx.ttl.map(Slot::from),
+            slot,
+            era_history,
+            network,
+        )?;
+
+        let signatories = tx
+            .required_signers
+            .as_ref()
+            .map(RequiredSigners::from)
+            .unwrap_or_default();
+
+        let proposal_procedures: Vec<_> = tx
+            .proposal_procedures
+            .as_ref()
+            .map(|proposals| proposals.iter().collect())
+            .unwrap_or_default();
+
+        let votes = tx
+            .voting_procedures
+            .as_ref()
+            .map(Votes::from)
+            .unwrap_or_default();
+
+        let redeemers = Redeemers(
+            witness_set
+                .redeemer
+                .as_ref()
+                .map(|redeemers| {
+                    normalize_redeemers(redeemers.deref())
+                            .into_iter()
+                            .enumerate()
+                            .map(|(ix, redeemer)| {
+                                let purpose = ScriptPurpose::builder(
+                                    &redeemer,
+                                    &inputs[..],
+                                    &mint,
+                                    &withdrawals,
+                                    &certificates,
+                                    &proposal_procedures,
+                                    &votes,
+                                )
+                                .ok_or(TxInfoTranslationError::InvalidRedeemer(ix))?;
+
+                                Ok((purpose, redeemer))
+                            })
+                            .collect::<Result<
+                                Vec<(ScriptPurpose<'a>, Cow<'a, Redeemer>)>,
+                                TxInfoTranslationError,
+                            >>()
+                })
+                .transpose()?
+                .unwrap_or_default(),
+        );
+
+        let datums = witness_set
+            .plutus_data
+            .as_ref()
+            .map(Datums::from)
+            .unwrap_or_default();
+
+        Ok(Self {
+            inputs,
+            reference_inputs,
+            outputs,
+            fee: tx.fee,
+            mint,
+            certificates,
+            withdrawals,
+            valid_range,
+            signatories,
+            redeemers,
+            data: datums,
+            id: *tx_id,
+            votes,
+            proposal_procedures,
+            current_treasury_amount: tx.treasury_value,
+            treasury_donation: tx.donation.map(|donation| donation.into()),
+        })
+    }
+
+    fn translate_inputs(
+        inputs: &'a [TransactionInput],
+        utxos: &'a Utxos,
+    ) -> Result<Vec<OutputRef<'a>>, TxInfoTranslationError> {
+        inputs
+            .iter()
+            .sorted()
+            .map(|input| match utxos.get(input) {
+                Some(utxo) => Ok(OutputRef {
+                    input,
+                    output: utxo.into(),
+                }),
+                None => Err(TxInfoTranslationError::MissingInput(input.clone().into())),
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
+pub type ScriptPurpose<'a> = ScriptInfo<'a, ()>;
+
+#[derive(Clone)]
+pub enum ScriptInfo<'a, T: Clone> {
+    Minting(PolicyId),
+    Spending(&'a TransactionInput, T),
+    Rewarding(StakeCredential),
+    Certifying(usize, &'a Certificate),
+    Voting(&'a Voter),
+    Proposing(usize, &'a Proposal),
+}
+
+impl<'a> ScriptPurpose<'a> {
+    pub fn builder(
+        redeemer: &Redeemer,
+        inputs: &[OutputRef<'a>],
+        mint: &Mint<'a>,
+        withdrawals: &Withdrawals,
+        certs: &[&'a Certificate],
+        proposal_procedures: &[&'a Proposal],
+        votes: &Votes<'a>,
+    ) -> Option<Self> {
+        let index = redeemer.index as usize;
+        match redeemer.tag {
+            RedeemerTag::Spend => inputs
+                .get(index)
+                .map(|output_ref| ScriptPurpose::Spending(output_ref.input, ())),
+            RedeemerTag::Mint => mint
+                .0
+                .keys()
+                .nth(index)
+                .copied()
+                .map(ScriptPurpose::Minting),
+            RedeemerTag::Reward => withdrawals.0.keys().nth(index).map(|stake| {
+                ScriptPurpose::Rewarding(match stake.0.payload() {
+                    amaru_kernel::StakePayload::Stake(hash) => StakeCredential::AddrKeyhash(*hash),
+                    amaru_kernel::StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
+                })
+            }),
+            RedeemerTag::Cert => certs
+                .get(index)
+                .map(|cert| ScriptPurpose::Certifying(index, cert)),
+            RedeemerTag::Vote => votes
+                .0
+                .keys()
+                .nth(index)
+                .map(|voter| ScriptPurpose::Voting(voter)),
+            RedeemerTag::Propose => proposal_procedures
+                .get(index)
+                .map(|p| ScriptPurpose::Proposing(index, p)),
+        }
+    }
+
+    pub fn to_script_info(
+        &self,
+        data: Option<&'a PlutusData>,
+    ) -> ScriptInfo<'a, Option<&'a PlutusData>> {
+        match self {
+            ScriptInfo::Spending(input, _) => ScriptInfo::Spending(input, data),
+            ScriptInfo::Minting(p) => ScriptInfo::Minting(*p),
+            ScriptInfo::Rewarding(s) => ScriptInfo::Rewarding(s.clone()),
+            ScriptInfo::Certifying(i, c) => ScriptInfo::Certifying(*i, c),
+            ScriptInfo::Voting(v) => ScriptInfo::Voting(v),
+            ScriptInfo::Proposing(i, p) => ScriptInfo::Proposing(*i, p),
+        }
+    }
+}
+
+pub struct ScriptContext<'a> {
+    tx_info: &'a TxInfo<'a>,
+    redeemer: &'a Redeemer,
+    datum: Option<&'a PlutusData>,
+    script_purpose: &'a ScriptPurpose<'a>,
+}
+
+impl<'a> ScriptContext<'a> {
+    pub fn new(
+        tx_info: &'a TxInfo<'a>,
+        redeemer: &'a Redeemer,
+        datum: Option<&'a PlutusData>,
+    ) -> Option<Self> {
+        let purpose = tx_info
+            .redeemers
+            .0
+            .iter()
+            .find_map(|(purpose, tx_redeemer)| {
+                if redeemer.tag == tx_redeemer.tag && redeemer.index == tx_redeemer.index {
+                    Some(purpose)
+                } else {
+                    None
+                }
+            });
+
+        purpose.map(|script_purpose| ScriptContext {
+            tx_info,
+            redeemer,
+            datum,
+            script_purpose,
+        })
+    }
+}
 
 pub struct OutputRef<'a> {
     pub input: &'a TransactionInput,
@@ -166,9 +445,13 @@ impl From<Lovelace> for Value<'_> {
         )]))
     }
 }
-
+#[derive(Debug, Error)]
+pub enum AlonzoValueError {
+    #[error("invalid quantity: {0}")]
+    InvalidQuantity(u64),
+}
 impl<'a> TryFrom<&'a AlonzoValue> for Value<'a> {
-    type Error = String;
+    type Error = AlonzoValueError;
 
     fn try_from(value: &'a AlonzoValue) -> Result<Self, Self::Error> {
         let from_tokens = |tokens: &'a KeyValuePairs<AssetName, Lovelace>| {
@@ -178,10 +461,10 @@ impl<'a> TryFrom<&'a AlonzoValue> for Value<'a> {
                     if *quantity > 0 {
                         Ok((Cow::Borrowed(asset_name), *quantity))
                     } else {
-                        Err(format!("invalid quantity in legacy output: {quantity}"))
+                        Err(AlonzoValueError::InvalidQuantity(*quantity))
                     }
                 })
-                .collect::<Result<BTreeMap<_, _>, String>>()
+                .collect::<Result<BTreeMap<_, _>, Self::Error>>()
         };
 
         match value {
@@ -307,8 +590,16 @@ impl<'a> From<&'a MemoizedTransactionOutput> for TransactionOutput<'a> {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum TransactionOutputError {
+    #[error("invalid address: {0}")]
+    InvalidAddress(#[from] AddressError),
+    #[error("invalid value: {0}")]
+    InvalidValue(#[from] AlonzoValueError),
+}
+
 impl<'a> TryFrom<&'a MintedTransactionOutput<'a>> for TransactionOutput<'a> {
-    type Error = String;
+    type Error = TransactionOutputError;
 
     fn try_from(
         output: &'a MintedTransactionOutput<'a>,
@@ -316,20 +607,14 @@ impl<'a> TryFrom<&'a MintedTransactionOutput<'a>> for TransactionOutput<'a> {
         match output {
             MintedTransactionOutput::Legacy(output) => Ok(TransactionOutput {
                 is_legacy: true,
-                address: Cow::Owned(
-                    Address::from_bytes(&output.address)
-                        .map_err(|e| format!("invalid address: {e:?}"))?,
-                ),
+                address: Cow::Owned(Address::from_bytes(&output.address)?),
                 value: (&output.amount).try_into()?,
                 datum: output.datum_hash.as_ref().into(),
                 script: None,
             }),
             MintedTransactionOutput::PostAlonzo(output) => Ok(TransactionOutput {
                 is_legacy: false,
-                address: Cow::Owned(
-                    Address::from_bytes(&output.address)
-                        .map_err(|e| format!("invalid address: {e:?}"))?,
-                ),
+                address: Cow::Owned(Address::from_bytes(&output.address)?),
                 value: (&output.value).into(),
                 script: output.script_ref.as_ref().map(Script::from),
                 datum: output.datum_option.as_ref().into(),
@@ -420,8 +705,16 @@ impl PartialEq for StakeAddress {
 
 impl Eq for StakeAddress {}
 
+#[derive(Debug, Error)]
+pub enum WithdrawalError {
+    #[error("invalid reward account: {0}")]
+    InvalidRewardAccount(#[from] AddressError),
+    #[error("invalid address type: {0}")]
+    InvalidAddressType(Address),
+}
+
 impl TryFrom<&NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdrawals {
-    type Error = String;
+    type Error = WithdrawalError;
 
     fn try_from(
         value: &NonEmptyKeyValuePairs<RewardAccount, Lovelace>,
@@ -429,16 +722,15 @@ impl TryFrom<&NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdrawals {
         let withdrawals = value
             .iter()
             .map(|(reward_account, coin)| {
-                let address = Address::from_bytes(reward_account)
-                    .map_err(|e| format!("failed to decode reward account: {}", e))?;
+                let address = Address::from_bytes(reward_account)?;
 
                 if let Address::Stake(reward_account) = address {
                     Ok((StakeAddress(reward_account), *coin))
                 } else {
-                    Err("invalid address type in withdrawals".into())
+                    Err(WithdrawalError::InvalidAddressType(address))
                 }
             })
-            .collect::<Result<BTreeMap<_, _>, String>>()?;
+            .collect::<Result<BTreeMap<_, _>, WithdrawalError>>()?;
 
         Ok(Self(withdrawals))
     }
@@ -818,7 +1110,7 @@ mod tests {
             }
 
             let value = Value(value_map);
-            let plutus_data = <Value<'_> as ToPlutusData<3>>::to_plutus_data(&value);
+            let plutus_data = <Value<'_> as ToPlutusData<3>>::to_plutus_data(&value)?;
 
             #[allow(clippy::wildcard_enum_match_arm)]
             match plutus_data {
@@ -860,7 +1152,7 @@ mod tests {
             }
 
             let value = Value(value_map);
-            let plutus_data = <Value<'_> as ToPlutusData<3>>::to_plutus_data(&value);
+            let plutus_data = <Value<'_> as ToPlutusData<3>>::to_plutus_data(&value)?;
 
             #[allow(clippy::wildcard_enum_match_arm)]
             match plutus_data {
