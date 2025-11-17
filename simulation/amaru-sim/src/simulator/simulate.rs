@@ -69,7 +69,7 @@ where
     F: Fn(String, Arc<Mutex<StdRng>>) -> NodeHandle<ChainSyncMessage>,
 {
     let rng = Arc::new(Mutex::new(StdRng::seed_from_u64(simulate_config.seed)));
-    info!("Running with seed {}", simulate_config.seed);
+    info!(seed=%simulate_config.seed, "simulate.start");
     let tests_dir = Path::new("../../target/tests");
     if !tests_dir.exists() {
         create_dir_all(tests_dir)?;
@@ -89,14 +89,12 @@ where
             test_run_dir_n.parent().unwrap().join("latest").as_path(),
         );
 
-        info!("");
         info!(
-            "Generating test data for test {}/{}",
-            test_number, simulate_config.number_of_tests
+            test_number, total=%simulate_config.number_of_tests,
+            "simulate.generate_test_data"
         );
         let generated_entries = generator(rng.clone());
         let generation_context = generated_entries.generation_context();
-        info!("Test data generated, now sending messages");
         display_test_stats(generation_context);
         if persist_on_success {
             persist_generated_entries_as_json(test_run_dir_n.as_path(), &generated_entries)?;
@@ -120,20 +118,20 @@ where
                 }
                 persist_traces(test_run_dir.as_path(), trace_buffer.clone())?;
                 error!(
-                    "Test {}/{} failed! You can inspect the test data in {}",
                     test_number,
-                    simulate_config.number_of_tests,
-                    test_run_dir.to_str().unwrap()
+                    total=%simulate_config.number_of_tests,
+                    data_directory=%test_run_dir.to_str().unwrap(),
+                    "simulate.test.failure"
                 );
                 return Err(anyhow!(error));
             }
             Ok(()) => {
                 display_test_stats(generation_context);
                 info!(
-                    "Test {test_number}/{} succeeded!",
-                    simulate_config.number_of_tests
+                    test_number,
+                    total=%simulate_config.number_of_tests,
+                    "simulate.test.success"
                 );
-                info!("");
             }
         }
     }
@@ -143,8 +141,8 @@ where
         persist_traces(test_run_dir.as_path(), trace_buffer.clone())?;
     }
     info!(
-        "Success! ({} tests passed)",
-        simulate_config.number_of_tests
+        total=%simulate_config.number_of_tests,
+        "simulate.complete"
     );
     display_test_configuration(simulate_config, node_config);
     Ok(())
@@ -239,11 +237,9 @@ where
 }
 
 fn display_test_configuration(simulate_config: &SimulateConfig, node_config: &NodeConfig) {
-    info!("Number of tests: {}", simulate_config.number_of_tests);
-    info!(
-        "Number of upstream peers: {}",
-        node_config.number_of_upstream_peers
-    );
+    info!(number_of_tests=%simulate_config.number_of_tests,
+          number_of_upstream_peers=%node_config.number_of_upstream_peers,
+          "simulate.configuration");
 }
 
 /// Create a detailed failure message including the test number, seed, shrunk entries,

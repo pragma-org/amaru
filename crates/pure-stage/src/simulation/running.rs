@@ -297,13 +297,13 @@ impl SimulationRunning {
     pub fn try_effect(&mut self) -> Result<Effect, Blocked> {
         let (name, response) = if self.runnable.is_empty() {
             let reason = block_reason(self);
-            tracing::info!("blocking for reason: {:?}", reason);
+            tracing::debug!("blocking for reason: {:?}", reason);
             return Err(reason);
         } else {
             self.runnable.pop_front().unwrap()
         };
 
-        tracing::info!(name = %name, "resuming stage");
+        tracing::debug!(name = %name, "resuming stage");
         self.trace_buffer.lock().push_resume(
             &name,
             &response,
