@@ -14,13 +14,14 @@
 
 use crate::{
     context::ValidationContext,
-    rules::{transaction, transaction::InvalidTransaction},
+    rules::transaction::{self, phase_one::InvalidTransaction},
     state::FailedTransactions,
     store::GovernanceActivity,
 };
 use amaru_kernel::{
-    AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hasher, HeaderHash, MintedBlock, Network,
-    OriginalHash, TransactionId, TransactionPointer, protocol_parameters::ProtocolParameters,
+    ArenaPool, AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hasher, HeaderHash, MintedBlock,
+    OriginalHash, TransactionId, TransactionPointer, network::NetworkName,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Slot;
 use std::{
@@ -164,7 +165,8 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
 #[instrument(level = Level::TRACE, skip_all, name="ledger.validate_block")]
 pub fn execute<C, S: From<C>>(
     context: &mut C,
-    network: &Network,
+    arena_pool: &ArenaPool,
+    network: &NetworkName,
     protocol_params: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: &GovernanceActivity,
@@ -235,8 +237,9 @@ where
             transaction_index: i as usize, // From u32
         };
 
-        if let Err(err) = transaction::execute(
+        if let Err(err) = transaction::phase_one::execute(
             context,
+            arena_pool,
             network,
             protocol_params,
             era_history,
