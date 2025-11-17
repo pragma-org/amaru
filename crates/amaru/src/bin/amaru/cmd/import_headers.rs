@@ -74,7 +74,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
 
-    info!(%network, chain_dir=%chain_dir.to_string_lossy(), ledger_dir=%args.config_dir.to_string_lossy(),
+    info!(%network, chain_dir=%chain_dir.to_string_lossy(), config_dir=%args.config_dir.to_string_lossy(),
           "Running command import-headers",
     );
 
