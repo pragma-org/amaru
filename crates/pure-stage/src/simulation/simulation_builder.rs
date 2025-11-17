@@ -154,7 +154,7 @@ impl SimulationBuilder {
                 )
             })
             .collect();
-        Replay::new(stages, self.effect)
+        Replay::new(stages, self.effect, self.trace_buffer)
     }
 }
 

@@ -308,7 +308,7 @@ impl SimulationRunning {
             .expect("stage was runnable, so it must exist");
 
         let effect = poll_stage(
-            &mut self.trace_buffer.lock(),
+            &self.trace_buffer,
             data,
             name.clone(),
             response,
@@ -984,7 +984,7 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
 /// The `response` is the input with which the stage is resumed.
 #[cfg(feature = "simulation")]
 pub(crate) fn poll_stage(
-    trace_buffer: &mut TraceBuffer,
+    trace_buffer: &Arc<Mutex<TraceBuffer>>,
     data: &mut StageData,
     name: Name,
     response: StageResponse,
@@ -1001,7 +1001,7 @@ pub(crate) fn poll_stage(
     let result = pin.as_mut().poll(&mut Context::from_waker(Waker::noop()));
 
     if let Poll::Ready(state) = result {
-        trace_buffer.push_state(&name, &state);
+        trace_buffer.lock().push_state(&name, &state);
         data.state = StageState::Idle(state);
         data.waiting = Some(StageEffect::Receive);
         Effect::Receive { at_stage: name }

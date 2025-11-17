@@ -22,7 +22,7 @@ use crate::{
 
 use crate::effect_box::{EffectBox, airlock_effect};
 
-use crate::trace_buffer::TraceBuffer;
+use crate::trace_buffer::{TraceBuffer, find_next_external_resume, find_next_external_suspend};
 use cbor4ii::{core::Value, serde::from_slice};
 use futures_util::FutureExt;
 use parking_lot::Mutex;
@@ -223,16 +223,44 @@ impl<M> Effects<M> {
 
     /// Run an effect that is not part of the StageGraph as a synchronous effect.
     /// In that case we return the response directly.
-    pub fn external_sync<T: ExternalEffectSync>(&self, effect: T) -> T::Response {
+    #[allow(clippy::panic)]
+    pub fn external_sync<T: ExternalEffectSync + serde::Serialize>(
+        &self,
+        effect: T,
+    ) -> T::Response {
         self.trace_buffer
             .lock()
             .push_suspend_external(self.me.name(), &effect);
-        let response = Box::new(effect)
-            .run(self.resources.clone())
-            .now_or_never()
-            .expect("an external sync effect must complete immediately in sync context")
-            .cast_deserialize::<T::Response>()
-            .expect("internal messaging type error");
+
+        let response = if let Some(fetch_replay) = self.trace_buffer.lock().fetch_replay_mut() {
+            let Some(replayed) = find_next_external_suspend(fetch_replay, self.me.name()) else {
+                panic!("no entry found in fetch replay");
+            };
+            let Effect::External { effect, .. } = from_slice(&to_cbor(&Effect::External {
+                at_stage: self.me.name().clone(),
+                effect: Box::new(effect),
+            }))
+            .expect("internal replay error") else {
+                panic!("serde roundtrip broken");
+            };
+
+            assert!(
+                replayed.test_eq(&*effect),
+                "replayed effect {replayed:?}\ndoes not match performed effect {effect:?}"
+            );
+            find_next_external_resume(fetch_replay, self.me.name())
+                .expect("no response found in fetch replay")
+                .cast_deserialize::<T::Response>()
+                .expect("internal messaging type error")
+        } else {
+            Box::new(effect)
+                .run(self.resources.clone())
+                .now_or_never()
+                .expect("an external sync effect must complete immediately in sync context")
+                .cast_deserialize::<T::Response>()
+                .expect("internal messaging type error")
+        };
+
         self.trace_buffer
             .lock()
             .push_resume_external(self.me.name(), &response);

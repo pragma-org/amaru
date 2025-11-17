@@ -15,6 +15,7 @@
 
 //! This module contains the [`TraceBuffer`] type, which is used to record the trace of a simulation.
 
+use crate::ExternalEffect;
 use crate::types::as_send_data_value;
 use crate::{Effect, Instant, Name, SendData, effect::StageResponse, serde::to_cbor};
 use cbor4ii::serde::from_slice;
@@ -34,6 +35,7 @@ pub struct TraceBuffer {
     max_size: usize,
     used_size: usize,
     dropped_messages: usize,
+    fetch_replay: Option<std::vec::IntoIter<TraceEntry>>,
 }
 
 /// An owned entry can be serialized and deserialized.
@@ -193,6 +195,16 @@ impl TraceEntry {
             state,
         }
     }
+
+    pub fn at_stage(&self) -> Option<&Name> {
+        match self {
+            TraceEntry::Suspend(effect) => Some(effect.at_stage()),
+            TraceEntry::Resume { stage, .. } => Some(stage),
+            TraceEntry::Clock(..) => None,
+            TraceEntry::Input { stage, .. } => Some(stage),
+            TraceEntry::State { stage, .. } => Some(stage),
+        }
+    }
 }
 
 /// A non-owning variant of [`TraceEntry`] that allows serializing an entry without consuming it.
@@ -260,6 +272,7 @@ impl TraceBuffer {
             max_size,
             used_size: 0,
             dropped_messages: 0,
+            fetch_replay: None,
         }
     }
 
@@ -384,6 +397,68 @@ impl TraceBuffer {
     pub fn dropped_messages(&self) -> usize {
         self.dropped_messages
     }
+
+    pub fn set_fetch_replay(&mut self, replay: std::vec::IntoIter<TraceEntry>) {
+        self.fetch_replay = Some(replay);
+    }
+
+    pub fn take_fetch_replay(&mut self) -> Option<std::vec::IntoIter<TraceEntry>> {
+        self.fetch_replay.take()
+    }
+
+    pub fn fetch_replay_mut(&mut self) -> Option<&mut std::vec::IntoIter<TraceEntry>> {
+        self.fetch_replay.as_mut()
+    }
+}
+
+#[allow(clippy::wildcard_enum_match_arm, clippy::panic)]
+pub fn find_next_external_suspend(
+    fetch_replay: &mut std::vec::IntoIter<TraceEntry>,
+    at_stage: &Name,
+) -> Option<Box<dyn ExternalEffect>> {
+    find_next(
+        fetch_replay,
+        |entry| entry.at_stage() == Some(at_stage),
+        |entry| match entry {
+            TraceEntry::Suspend(Effect::External { effect, .. }) => effect,
+            entry => panic!(
+                "unexpected trace entry when finding next external suspend: {:?}",
+                entry
+            ),
+        },
+    )
+}
+
+#[allow(clippy::wildcard_enum_match_arm, clippy::panic)]
+pub fn find_next_external_resume(
+    fetch_replay: &mut std::vec::IntoIter<TraceEntry>,
+    at_stage: &Name,
+) -> Option<Box<dyn SendData>> {
+    find_next(
+        fetch_replay,
+        |entry| entry.at_stage() == Some(at_stage),
+        |entry| match entry {
+            TraceEntry::Resume {
+                response: StageResponse::ExternalResponse(response),
+                ..
+            } => response,
+            entry => panic!(
+                "unexpected trace entry when finding next external resume: {:?}",
+                entry
+            ),
+        },
+    )
+}
+
+fn find_next<T>(
+    fetch_replay: &mut std::vec::IntoIter<TraceEntry>,
+    predicate: impl Fn(&TraceEntry) -> bool,
+    extract: impl FnOnce(TraceEntry) -> T,
+) -> Option<T> {
+    let log = fetch_replay.as_mut_slice();
+    let idx = log.iter().position(predicate)?;
+    log[..=idx].rotate_right(1);
+    fetch_replay.next().map(extract)
 }
 
 #[cfg(test)]

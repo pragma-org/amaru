@@ -132,9 +132,8 @@ fn get_args_at(at: At) -> anyhow::Result<Args> {
 /// Load the TraceEntries from the test output directory at the given timestamp.
 fn get_traces_at(at: At) -> anyhow::Result<Vec<TraceEntry>> {
     let path = format!("../../target/tests/{at}/traces.cbor");
-    let path = Path::new(&path);
     let latest_trace =
-        fs::canonicalize(path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+        fs::canonicalize(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
     load_trace_entries(&latest_trace)
 }
 

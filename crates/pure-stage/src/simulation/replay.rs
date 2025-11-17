@@ -15,17 +15,20 @@
 
 use anyhow::{Context as _, ensure};
 use cbor4ii::serde::from_slice;
-use std::{collections::HashMap, mem::replace};
+use std::{collections::HashMap, mem::replace, sync::Arc};
 
 use crate::{
     Effect, Instant, Name, SendData,
     effect_box::EffectBox,
     serde::to_cbor,
-    simulation::running::poll_stage,
-    simulation::state::{StageData, StageState},
+    simulation::{
+        running::poll_stage,
+        state::{StageData, StageState},
+    },
     time::EPOCH,
     trace_buffer::{TraceBuffer, TraceEntry},
 };
+use parking_lot::Mutex;
 
 /// A replay of a simulation.
 ///
@@ -33,16 +36,22 @@ use crate::{
 pub struct Replay {
     stages: HashMap<Name, StageData>,
     effect: EffectBox,
+    trace_buffer: Arc<Mutex<TraceBuffer>>,
     pending_suspend: HashMap<Name, Effect>,
     latest_state: HashMap<Name, Box<dyn SendData>>,
     clock: Instant,
 }
 
 impl Replay {
-    pub(crate) fn new(stages: HashMap<Name, StageData>, effect: EffectBox) -> Self {
+    pub(crate) fn new(
+        stages: HashMap<Name, StageData>,
+        effect: EffectBox,
+        trace_buffer: Arc<Mutex<TraceBuffer>>,
+    ) -> Self {
         Self {
             stages,
             effect,
+            trace_buffer,
             pending_suspend: HashMap::new(),
             latest_state: HashMap::new(),
             clock: *EPOCH,
@@ -50,16 +59,20 @@ impl Replay {
     }
 
     pub fn run_trace(&mut self, trace: Vec<TraceEntry>) -> anyhow::Result<()> {
-        let mut trace_buffer = TraceBuffer::new(0, 0);
+        let mut trace = trace.into_iter();
+        let mut idx = 0;
+        loop {
+            let Some(entry) = trace.next() else {
+                break;
+            };
 
-        for (idx, entry) in trace.into_iter().enumerate() {
             match entry {
                 TraceEntry::Suspend(effect) => {
                     let name = effect.at_stage();
                     let expected = self.pending_suspend.remove(name);
                     ensure!(
                         expected.as_ref() == Some(&effect),
-                        "idx {}: stage {} suspended with effect {:?}, but expected {:?}",
+                        "idx {}: stage {} suspended with effect {:?},\nbut expected {:?}",
                         idx,
                         name,
                         effect,
@@ -73,9 +86,24 @@ impl Replay {
                         .stages
                         .get_mut(&stage)
                         .context(format!("idx {}: stage {} not found", idx, stage))?;
-                    let effect = poll_stage(&mut trace_buffer, data, stage, response, &self.effect);
-                    // the effect we'll see in the log is the deserialized version, i.e. generic encoding
-                    // so we need to store the generic encoding here
+
+                    let remaining = trace.as_slice().len();
+                    self.trace_buffer.lock().set_fetch_replay(trace);
+
+                    let effect =
+                        poll_stage(&self.trace_buffer, data, stage, response, &self.effect);
+
+                    trace = self
+                        .trace_buffer
+                        .lock()
+                        .take_fetch_replay()
+                        .ok_or_else(|| anyhow::anyhow!("idx {}: no fetch replay found", idx))?;
+                    idx += remaining - trace.as_slice().len();
+
+                    // the effect we'll see in the log (see TraceEntry::Suspend above)
+                    // is the deserialized version, i.e. generic encoding;
+                    // so we need to produce the generic encoding here; unfortunately, there
+                    // is no direct serialization to cbor4ii `Value`, so (de)serialize
                     let effect: Effect =
                         from_slice(&to_cbor(&effect)).expect("internal replay error");
                     self.pending_suspend
@@ -131,6 +159,7 @@ impl Replay {
                     }
                 }
             }
+            idx += 1;
         }
         Ok(())
     }
