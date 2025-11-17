@@ -35,10 +35,10 @@ use amaru_kernel::string_utils::ListToString;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
-use rand::{SeedableRng, rngs::StdRng};
+use rand::{rngs::StdRng, SeedableRng};
 use serde::Serialize;
 use std::fmt::Display;
-use std::fs::{File, create_dir_all};
+use std::fs::{create_dir_all, File};
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 #[cfg(windows)]
@@ -383,10 +383,10 @@ fn create_symlink_dir(target: &Path, link: &Path) {
     let abs_target = std::fs::canonicalize(target).unwrap();
     #[cfg(unix)]
     {
-        symlink(&abs_target, link).unwrap();
+        let _ = symlink(&abs_target, link);
     }
     #[cfg(windows)]
     {
-        symlink_dir(&abs_target, link).unwrap();
+        let _ = symlink_dir(&abs_target, link);
     }
 }

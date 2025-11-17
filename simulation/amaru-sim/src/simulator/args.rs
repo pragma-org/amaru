@@ -63,7 +63,7 @@ impl Args {
             generated_chain_depth: node_config.generated_chain_depth,
             disable_shrinking: simulate_config.disable_shrinking,
             seed: Some(simulate_config.seed),
-            persist_on_success: false,
+            persist_on_success: true,
         }
     }
 }

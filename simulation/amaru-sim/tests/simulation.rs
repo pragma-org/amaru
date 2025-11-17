@@ -97,9 +97,12 @@ fn make_args() -> Args {
             "AMARU_GENERATED_CHAIN_DEPTH",
             node_config.generated_chain_depth,
         ),
-        disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
+        disable_shrinking: is_true_or("AMARU_DISABLE_SHRINKING", simulate_config.disable_shrinking),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
-        persist_on_success: is_true("AMARU_PERSIST_ON_SUCCESS"),
+        persist_on_success: is_true_or(
+            "AMARU_PERSIST_ON_SUCCESS",
+            simulate_config.persist_on_success,
+        ),
     }
 }
 
@@ -168,4 +171,13 @@ fn get_optional_env_var<T: FromStr>(var_name: &str) -> Option<T> {
 /// Return true if the environment variable `var_name` is set to "1" or "true".
 fn is_true(var_name: &str) -> bool {
     env::var(var_name).is_ok_and(|v| v == "1" || v == "true")
+}
+
+/// Return true if the environment variable `var_name` is set to "1" or "true".
+/// Return the default value if the variable is not set.
+fn is_true_or(var_name: &str, default_value: bool) -> bool {
+    env::var(var_name)
+        .ok()
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(default_value)
 }

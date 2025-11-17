@@ -22,6 +22,7 @@ pub struct SimulateConfig {
     pub seed: u64,
     pub number_of_nodes: u8,
     pub disable_shrinking: bool,
+    pub persist_on_success: bool,
 }
 
 impl Default for SimulateConfig {
@@ -31,6 +32,7 @@ impl Default for SimulateConfig {
             seed: rand::rng().random::<u64>(),
             number_of_nodes: 1,
             disable_shrinking: true,
+            persist_on_success: true,
         }
     }
 }
@@ -43,6 +45,7 @@ impl SimulateConfig {
             seed: args.seed.unwrap_or(default.seed),
             number_of_nodes: args.number_of_nodes,
             disable_shrinking: args.disable_shrinking,
+            persist_on_success: args.persist_on_success,
         }
     }
     pub fn with_number_of_tests(mut self, n: u32) -> Self {
@@ -62,6 +65,11 @@ impl SimulateConfig {
 
     pub fn disable_shrinking(mut self) -> Self {
         self.disable_shrinking = true;
+        self
+    }
+
+    pub fn persist_on_success(mut self) -> Self {
+        self.persist_on_success = true;
         self
     }
 }
