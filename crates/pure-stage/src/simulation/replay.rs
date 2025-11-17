@@ -13,10 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::{Context as _, ensure};
-use cbor4ii::serde::from_slice;
-use std::{collections::HashMap, mem::replace};
-
 use crate::{
     Effect, Instant, Name, SendData,
     effect_box::EffectBox,
@@ -26,6 +22,11 @@ use crate::{
     time::EPOCH,
     trace_buffer::{TraceBuffer, TraceEntry},
 };
+use anyhow::{Context as _, ensure};
+use cbor4ii::serde::from_slice;
+use parking_lot::Mutex;
+use std::sync::Arc;
+use std::{collections::HashMap, mem::replace};
 
 /// A replay of a simulation.
 ///
@@ -50,7 +51,7 @@ impl Replay {
     }
 
     pub fn run_trace(&mut self, trace: Vec<TraceEntry>) -> anyhow::Result<()> {
-        let mut trace_buffer = TraceBuffer::new(0, 0);
+        let trace_buffer = Arc::new(Mutex::new(TraceBuffer::new(0, 0)));
 
         for (idx, entry) in trace.into_iter().enumerate() {
             match entry {
@@ -73,7 +74,8 @@ impl Replay {
                         .stages
                         .get_mut(&stage)
                         .context(format!("idx {}: stage {} not found", idx, stage))?;
-                    let effect = poll_stage(&mut trace_buffer, data, stage, response, &self.effect);
+                    let effect =
+                        poll_stage(trace_buffer.clone(), data, stage, response, &self.effect);
                     // the effect we'll see in the log is the deserialized version, i.e. generic encoding
                     // so we need to store the generic encoding here
                     let effect: Effect =
