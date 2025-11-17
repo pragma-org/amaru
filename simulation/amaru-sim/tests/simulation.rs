@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::On::Latest;
 use amaru_sim::simulator::run::{replay, run};
 use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
 use anyhow::anyhow;
@@ -41,8 +40,9 @@ pub fn run_replay() {
     initialize_logs();
     let simulate_config = SimulateConfig::default();
     let test_directory = simulate_config.persist_directory.as_path();
-    let args = get_args_at(test_directory, Latest).expect("latest arguments");
-    let traces = get_traces_at(test_directory, Latest).expect("latest traces");
+    let args = get_args(test_directory, SimulationRun::Latest).expect("latest arguments");
+    let traces =
+        get_traces(test_directory, SimulationRun::Latest, TestRun::Latest).expect("latest traces");
     replay(args, traces).unwrap();
 }
 
@@ -54,7 +54,12 @@ fn test_run_replay() {
     args.number_of_tests = 1;
     args.persist_directory = "../../target/tests/run_replay".to_string();
     run(args.clone());
-    let traces = get_traces_at(Path::new(&args.persist_directory), Latest).expect("latest traces");
+    let traces = get_traces(
+        Path::new(&args.persist_directory),
+        SimulationRun::Latest,
+        TestRun::Latest,
+    )
+    .expect("latest traces");
     replay(args, traces).unwrap();
 }
 
@@ -118,23 +123,39 @@ fn make_args() -> Args {
 
 /// Specify which simulation output to load.
 #[allow(dead_code)]
-enum On {
+enum SimulationRun {
     Latest,
     Timestamp(String),
 }
 
-impl Display for On {
+impl Display for SimulationRun {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Latest => write!(f, "latest"),
-            On::Timestamp(ts) => write!(f, "{}", ts),
+            SimulationRun::Latest => write!(f, "latest"),
+            SimulationRun::Timestamp(ts) => write!(f, "{}", ts),
         }
     }
 }
 
-/// Load the Args from the test output directory at the given timestamp.
-fn get_args_at(test_directory: &Path, on: On) -> anyhow::Result<Args> {
-    let path = format!("{}/{on}/args.json", test_directory.display());
+/// Specify which test run output to load.
+#[allow(dead_code)]
+enum TestRun {
+    Latest,
+    Number(u64),
+}
+
+impl Display for TestRun {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TestRun::Latest => write!(f, "latest"),
+            TestRun::Number(n) => write!(f, "test-{}", n),
+        }
+    }
+}
+
+/// Load the Args from the test output directory for a given simulation run.
+fn get_args(test_directory: &Path, simulation_run: SimulationRun) -> anyhow::Result<Args> {
+    let path = format!("{}/{simulation_run}/args.json", test_directory.display());
     let path = Path::new(&path);
     let path = fs::canonicalize(path)
         .map_err(|e| anyhow!("cannot canonicalize the file at {path:?}: {e}"))?;
@@ -143,9 +164,16 @@ fn get_args_at(test_directory: &Path, on: On) -> anyhow::Result<Args> {
     Ok(args)
 }
 
-/// Load the TraceEntries from the test output directory at the given timestamp.
-fn get_traces_at(test_directory: &Path, on: On) -> anyhow::Result<Vec<TraceEntry>> {
-    let path = format!("{}/{on}/{on}/traces.cbor", test_directory.display());
+/// Load the TraceEntries from the test output directory for a given simulation run and test run.
+fn get_traces(
+    test_directory: &Path,
+    simulation_run: SimulationRun,
+    test_run: TestRun,
+) -> anyhow::Result<Vec<TraceEntry>> {
+    let path = format!(
+        "{}/{simulation_run}/{test_run}/traces.cbor",
+        test_directory.display()
+    );
     let path = Path::new(&path);
     let latest_trace =
         fs::canonicalize(path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
