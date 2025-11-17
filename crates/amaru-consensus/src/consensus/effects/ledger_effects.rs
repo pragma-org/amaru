@@ -20,7 +20,9 @@ use amaru_ouroboros_traits::{
     can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
 };
 use opentelemetry::trace::FutureExt;
-use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use pure_stage::{
+    BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
+};
 use std::sync::Arc;
 
 /// Ledger operations available to a stage.
@@ -159,7 +161,7 @@ impl ValidateHeaderEffect {
 impl ExternalEffect for ValidateHeaderEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        Self::wrap_sync({
             let _guard = self.ctx.0.attach();
             let validator = resources
                 .get::<ResourceHeaderValidation>()
@@ -173,6 +175,8 @@ impl ExternalEffect for ValidateHeaderEffect {
 impl ExternalEffectAPI for ValidateHeaderEffect {
     type Response = Result<(), HeaderValidationError>;
 }
+
+impl ExternalEffectSync for ValidateHeaderEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RollbackBlockEffect {
@@ -195,7 +199,7 @@ impl RollbackBlockEffect {
 impl ExternalEffect for RollbackBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        Self::wrap_sync({
             let _guard = self.ctx.0.attach();
             let validator = resources
                 .get::<ResourceBlockValidation>()
@@ -211,3 +215,5 @@ impl ExternalEffect for RollbackBlockEffect {
 impl ExternalEffectAPI for RollbackBlockEffect {
     type Response = anyhow::Result<(), ProcessingFailed>;
 }
+
+impl ExternalEffectSync for RollbackBlockEffect {}
