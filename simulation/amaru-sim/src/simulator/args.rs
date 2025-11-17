@@ -52,8 +52,8 @@ pub struct Args {
     #[arg(long)]
     pub persist_on_success: bool,
 
-    /// Directory when test data must be persisted
-    #[arg(long)]
+    /// Directory where test data must be persisted
+    #[arg(long, default_value = "../../target/tests")]
     pub persist_directory: String,
 }
 
