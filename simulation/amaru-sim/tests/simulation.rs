@@ -208,7 +208,7 @@ fn get_optional_env_var<T: FromStr>(var_name: &str) -> Option<T> {
 
 /// Return true if the environment variable `var_name` is set to "1" or "true".
 fn is_true(var_name: &str) -> bool {
-    env::var(var_name).is_ok_and(|v| v == "1" || v == "true")
+    env::var(var_name).is_ok_and(is_true_value)
 }
 
 /// Return true if the environment variable `var_name` is set to "1" or "true".
@@ -216,6 +216,11 @@ fn is_true(var_name: &str) -> bool {
 fn is_true_or(var_name: &str, default_value: bool) -> bool {
     env::var(var_name)
         .ok()
-        .map(|v| v == "1" || v == "true")
+        .map(is_true_value)
         .unwrap_or(default_value)
+}
+
+/// Return true is the given string value represents a true value.
+fn is_true_value(value: String) -> bool {
+    ["1", "true", "y", "yes"].contains(&value.as_str())
 }
