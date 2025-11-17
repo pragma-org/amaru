@@ -29,61 +29,18 @@ use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Error)]
 pub enum PlutusDataError {
-    #[error("unsupported for Plutus V{version}: {message}{}", format_context(.context))]
-    UnsupportedVersion {
-        message: String,
-        version: u8,
-        context: Vec<String>,
-    },
-
-    #[error("invalid data: {message}{}", format_context(.context))]
-    InvalidData {
-        message: String,
-        context: Vec<String>,
-    },
+    #[error("unsupported for Plutus V{version}: {message}")]
+    UnsupportedVersion { message: String, version: u8 },
 
     #[error("{0}")]
     Custom(String),
 }
 
-fn format_context(ctx: &[String]) -> String {
-    if ctx.is_empty() {
-        String::new()
-    } else {
-        format!(" (at {})", ctx.join(" -> "))
-    }
-}
-
 impl PlutusDataError {
-    pub fn with_context(mut self, ctx: impl Into<String>) -> Self {
-        match &mut self {
-            Self::UnsupportedVersion { context, .. } | Self::InvalidData { context, .. } => {
-                context.insert(0, ctx.into());
-            }
-            Self::Custom(_) => {
-                if let Self::Custom(msg) = self {
-                    return Self::InvalidData {
-                        message: msg,
-                        context: vec![ctx.into()],
-                    };
-                }
-            }
-        }
-        self
-    }
-
     pub fn unsupported_version(message: impl Into<String>, version: u8) -> Self {
         Self::UnsupportedVersion {
             message: message.into(),
             version,
-            context: vec![],
-        }
-    }
-
-    pub fn invalid_data(message: impl Into<String>) -> Self {
-        Self::InvalidData {
-            message: message.into(),
-            context: vec![],
         }
     }
 }
