@@ -35,10 +35,10 @@ use amaru_kernel::string_utils::ListToString;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
-use rand::{rngs::StdRng, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng};
 use serde::Serialize;
 use std::fmt::Display;
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 #[cfg(windows)]
@@ -70,7 +70,7 @@ where
 {
     let rng = Arc::new(Mutex::new(StdRng::seed_from_u64(simulate_config.seed)));
     info!(seed=%simulate_config.seed, "simulate.start");
-    let tests_dir = Path::new("../../target/tests");
+    let tests_dir = simulate_config.persist_directory.as_path();
     if !tests_dir.exists() {
         create_dir_all(tests_dir)?;
     }
@@ -383,10 +383,10 @@ fn create_symlink_dir(target: &Path, link: &Path) {
     let abs_target = std::fs::canonicalize(target).unwrap();
     #[cfg(unix)]
     {
-        let _ = symlink(&abs_target, link);
+        symlink(&abs_target, link).unwrap();
     }
     #[cfg(windows)]
     {
-        let _ = symlink_dir(&abs_target, link);
+        symlink_dir(&abs_target, link).unwrap();
     }
 }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::At::Latest;
+use crate::On::Latest;
 use amaru_sim::simulator::run::{replay, run};
 use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
 use anyhow::anyhow;
@@ -39,8 +39,10 @@ pub fn run_simulator() {
 ///
 pub fn run_replay() {
     initialize_logs();
-    let args = get_args_at(Latest).expect("latest arguments");
-    let traces = get_traces_at(Latest).expect("latest traces");
+    let simulate_config = SimulateConfig::default();
+    let test_directory = simulate_config.persist_directory.as_path();
+    let args = get_args_at(test_directory, Latest).expect("latest arguments");
+    let traces = get_traces_at(test_directory, Latest).expect("latest traces");
     replay(args, traces).unwrap();
 }
 
@@ -50,8 +52,9 @@ fn test_run_replay() {
     let mut args = make_args();
     args.persist_on_success = true;
     args.number_of_tests = 1;
+    args.persist_directory = "../../target/tests/run_replay".to_string();
     run(args.clone());
-    let traces = get_traces_at(Latest).expect("latest traces");
+    let traces = get_traces_at(Path::new(&args.persist_directory), Latest).expect("latest traces");
     replay(args, traces).unwrap();
 }
 
@@ -103,39 +106,46 @@ fn make_args() -> Args {
             "AMARU_PERSIST_ON_SUCCESS",
             simulate_config.persist_on_success,
         ),
+        persist_directory: get_env_var(
+            "AMARU_PERSIST_DIRECTORY",
+            simulate_config
+                .persist_directory
+                .to_string_lossy()
+                .to_string(),
+        ),
     }
 }
 
 /// Specify which simulation output to load.
 #[allow(dead_code)]
-enum At {
+enum On {
     Latest,
     Timestamp(String),
 }
 
-impl Display for At {
+impl Display for On {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            At::Latest => write!(f, "latest"),
-            At::Timestamp(ts) => write!(f, "{}", ts),
+            Latest => write!(f, "latest"),
+            On::Timestamp(ts) => write!(f, "{}", ts),
         }
     }
 }
 
 /// Load the Args from the test output directory at the given timestamp.
-fn get_args_at(at: At) -> anyhow::Result<Args> {
-    let path = format!("../../target/tests/{at}/args.json");
+fn get_args_at(test_directory: &Path, on: On) -> anyhow::Result<Args> {
+    let path = format!("{}/{on}/args.json", test_directory.display());
     let path = Path::new(&path);
-    let path =
-        fs::canonicalize(path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+    let path = fs::canonicalize(path)
+        .map_err(|e| anyhow!("cannot canonicalize the file at {path:?}: {e}"))?;
     let data = fs::read(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
     let args: Args = serde_json::from_slice(data.as_slice())?;
     Ok(args)
 }
 
 /// Load the TraceEntries from the test output directory at the given timestamp.
-fn get_traces_at(at: At) -> anyhow::Result<Vec<TraceEntry>> {
-    let path = format!("../../target/tests/{at}/traces.cbor");
+fn get_traces_at(test_directory: &Path, on: On) -> anyhow::Result<Vec<TraceEntry>> {
+    let path = format!("{}/{on}/{on}/traces.cbor", test_directory.display());
     let path = Path::new(&path);
     let latest_trace =
         fs::canonicalize(path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;

@@ -34,7 +34,6 @@ use tracing::info_span;
 // supposed to be deterministic in the simulation. Perhaps this
 // happens because of the tracing library?
 #[test]
-#[ignore]
 fn run_simulator_with_traces() {
     let args = Args {
         number_of_tests: 1,
@@ -45,6 +44,7 @@ fn run_simulator_with_traces() {
         disable_shrinking: true,
         seed: Some(43),
         persist_on_success: false,
+        persist_directory: "../../target/tests/run_simulator_with_traces".to_string(),
     };
     let node_config = NodeConfig::from(args.clone());
 

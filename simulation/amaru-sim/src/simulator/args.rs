@@ -51,6 +51,10 @@ pub struct Args {
     /// Persist generated data and pure-stage traces even if the test passes.
     #[arg(long)]
     pub persist_on_success: bool,
+
+    /// Directory when test data must be persisted
+    #[arg(long)]
+    pub persist_directory: String,
 }
 
 impl Args {
@@ -63,7 +67,8 @@ impl Args {
             generated_chain_depth: node_config.generated_chain_depth,
             disable_shrinking: simulate_config.disable_shrinking,
             seed: Some(simulate_config.seed),
-            persist_on_success: true,
+            persist_on_success: simulate_config.persist_on_success,
+            persist_directory: simulate_config.persist_directory.to_string_lossy().into(),
         }
     }
 }

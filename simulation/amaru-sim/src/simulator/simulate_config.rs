@@ -14,6 +14,7 @@
 
 use crate::simulator::Args;
 use rand::Rng;
+use std::path::{Path, PathBuf};
 
 /// Configuration for a simulation run
 #[derive(Debug, Clone)]
@@ -23,6 +24,7 @@ pub struct SimulateConfig {
     pub number_of_nodes: u8,
     pub disable_shrinking: bool,
     pub persist_on_success: bool,
+    pub persist_directory: PathBuf,
 }
 
 impl Default for SimulateConfig {
@@ -33,6 +35,7 @@ impl Default for SimulateConfig {
             number_of_nodes: 1,
             disable_shrinking: true,
             persist_on_success: true,
+            persist_directory: Path::new("../../target/tests").to_path_buf(),
         }
     }
 }
@@ -46,6 +49,7 @@ impl SimulateConfig {
             number_of_nodes: args.number_of_nodes,
             disable_shrinking: args.disable_shrinking,
             persist_on_success: args.persist_on_success,
+            persist_directory: Path::new(&args.persist_directory).to_path_buf(),
         }
     }
     pub fn with_number_of_tests(mut self, n: u32) -> Self {
@@ -68,8 +72,13 @@ impl SimulateConfig {
         self
     }
 
-    pub fn persist_on_success(mut self) -> Self {
-        self.persist_on_success = true;
+    pub fn persist_on_success(mut self, persist: bool) -> Self {
+        self.persist_on_success = persist;
+        self
+    }
+
+    pub fn persist_directory(mut self, directory: PathBuf) -> Self {
+        self.persist_directory = directory;
         self
     }
 }
