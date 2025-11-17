@@ -110,6 +110,13 @@ jobs:
           fi
         shell: bash
 
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-simulation-data
+          path: target/tests
+
   coverage:
     name: Test coverage
     runs-on: ubuntu-latest
