@@ -44,6 +44,7 @@ use crate::{
 };
 use either::Either::{Left, Right};
 use parking_lot::Mutex;
+use rand::Rng;
 use rand::rngs::StdRng;
 use std::{
     collections::{BTreeMap, BinaryHeap, VecDeque},
@@ -68,7 +69,6 @@ use tokio::{
 /// Note that all stages start out in the state of waiting to receive their first message,
 /// so you need to use [`resume_receive`](Self::resume_receive) to get them running.
 /// See also [`run_until_blocked`](Self::run_until_blocked) for how to achieve this.
-#[allow(dead_code)]
 pub struct SimulationRunning {
     stages: BTreeMap<Name, StageData>,
     inputs: Inputs,
@@ -300,7 +300,10 @@ impl SimulationRunning {
             tracing::debug!("blocking for reason: {:?}", reason);
             return Err(reason);
         } else {
-            self.runnable.pop_front().unwrap()
+            // pick one of the effects randomly
+            let mut rng = self.rng.lock();
+            let idx = rng.random_range(0..self.runnable.len());
+            self.runnable.remove(idx).unwrap()
         };
 
         tracing::debug!(name = %name, "resuming stage");
