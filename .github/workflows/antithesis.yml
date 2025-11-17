@@ -99,7 +99,7 @@ jobs:
         else
           render_no_faults=""
         fi
-        RESULT=$(moog requester create-test -d docker/$TESTNET" \
+        RESULT=$(moog requester create-test -d "docker/$TESTNET" \
           -c ${{ github.sha }} \
           -r "$GITHUB_REPOSITORY" \
           --try $TRY \
