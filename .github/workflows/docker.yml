@@ -5,17 +5,17 @@ env:
 
 on:
   push:
-    branches: ["*"]
+    branches: ["main"]
+
+permissions:
+  packages: write
+  contents: read
+  attestations: write
+  id-token: write
 
 jobs:
   build-docker-image:
     runs-on: ubuntu-latest
-
-    permissions:
-      packages: write
-      contents: read
-      attestations: write
-      id-token: write
 
     steps:
     - name: 📥 Checkout repository
