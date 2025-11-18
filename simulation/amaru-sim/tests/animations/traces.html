@@ -1001,6 +1001,58 @@
         }
     }
 
+    function addRunnableFromInputEvent(ev) {
+        const stageName = displayStageName(ev.stage ?? '(unknown)');
+        if (!Array.isArray(currentRunnable)) {
+            currentRunnable = [];
+        }
+        // Only add if not already present
+        const exists = currentRunnable.some(it => it && it.name === stageName);
+        if (exists) return;
+        currentRunnable = currentRunnable.concat([{name: stageName}]);
+        updateStack();
+    }
+
+    function addRunnableFromSuspendEvent(ev) {
+        const raw = ev.raw || {};
+        const eff = raw.effect || {};
+        let name;
+        if (eff.type === 'send') {
+            name = eff.to;
+        } else if (eff.type !== 'receive' && eff.at_stage) {
+            name = eff.at_stage;
+        } else {
+            return;
+        }
+        const stageName = displayStageName(name);
+        if (!Array.isArray(currentRunnable)) {
+            currentRunnable = [];
+        }
+        // Only add if not already present
+        const exists = currentRunnable.some(it => it && it.name === stageName);
+        if (exists) return;
+        currentRunnable = currentRunnable.concat([{name: stageName}]);
+        updateStack();
+    }
+
+    function removeRunnableByStage(evStage) {
+        const stageName = displayStageName(evStage ?? '(unknown)');
+        if (!Array.isArray(currentRunnable) || currentRunnable.length === 0) {
+            return;
+        }
+        const next = [];
+        let removed = false;
+        for (const it of currentRunnable) {
+            if (!removed && it && it.name === stageName) {
+                removed = true; // remove the first matching entry only
+                continue;
+            }
+            next.push(it);
+        }
+        currentRunnable = next;
+        updateStack();
+    }
+
     function setCurrentTrace(ev, hashVal = null, peer = null, traceType = null) {
         if (!currentTraceEl) return;
         if (!ev) {
@@ -1130,13 +1182,14 @@
                     clearEffectBadges();
                     clearSuspendFor(ev.stage);
                     highlightStage(ev.stage);
-                    updateStack(ev.runnable ?? null);
+                    removeRunnableByStage(ev.stage);
                     setCurrentTrace(ev);
                     setDebugTrace(ev);
                 } else if (ev.kind === 'input') {
                     const h = extractHash(ev.input);
                     const peer = extractPeer(ev.input);
                     const ttype = extractTraceType(ev.input);
+                    addRunnableFromInputEvent(ev);
                     setCurrentTrace(ev, h, peer, ttype);
                     setDebugTrace(ev);
                     showHashForStage(ev.stage, h, peer, ttype);
@@ -1144,7 +1197,7 @@
                     clearEffectBadges();
                     markSuspend(ev.stage);
                     highlightStage(ev.stage, 'suspend');
-                    updateStack(ev.runnable ?? null);
+                    addRunnableFromSuspendEvent(ev);
                     setCurrentTrace(ev);
                     showEffectLabel(
                         ev.stage,
@@ -1190,16 +1243,17 @@
             if (ev.kind === 'resume') {
                 clearSuspendFor(ev.stage);
                 highlightStage(ev.stage);
-                updateStack(ev.runnable ?? null);
+                removeRunnableByStage(ev.stage);
             } else if (ev.kind === 'input') {
                 const h = extractHash(ev.input);
                 const peer = extractPeer(ev.input);
                 const ttype = extractTraceType(ev.input);
+                addRunnableFromInputEvent(ev);
                 showHashForStage(ev.stage, h, peer, ttype);
             } else if (ev.kind === 'suspend') {
                 markSuspend(ev.stage);
                 highlightStage(ev.stage, 'suspend');
-                updateStack(ev.runnable ?? null);
+                addRunnableFromSuspendEvent(ev);
                 showEffectLabel(
                     ev.stage,
                     ev.effect_label || (ev.raw && ev.raw.effect && extractEffectLabel(ev.raw.effect.effect_type))
