@@ -52,13 +52,6 @@ use crate::{IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData};
 ///
 /// The serialized representation of `ScriptContext` may be different for each `PlutusVersion`,
 /// so it is important to specify the correct `PlutusVersion` when serializing.
-///
-/// # Example
-///
-/// ```rust
-/// let script_context = ScriptContext::new(&tx_info, &redeemer, Some(&datum))?;
-/// let script_arguments = script_context.to_script_args(PLUTUS_V3)?;
-/// ```
 pub struct ScriptContext<'a> {
     tx_info: &'a TxInfo<'a>,
     redeemer: &'a Redeemer,
