@@ -73,6 +73,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
+
+    info!(%network, chain_dir=%chain_dir.to_string_lossy(), config_dir=%args.config_dir.to_string_lossy(),
+          "Running command import-headers",
+    );
+
     import_headers_for_network(&network_dir, &chain_dir).await
 }
 

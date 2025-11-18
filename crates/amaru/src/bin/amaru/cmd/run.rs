@@ -23,7 +23,7 @@ use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use std::path::PathBuf;
 use thiserror::Error;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -128,6 +128,12 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(network).into());
+
+    info!(peer_address=%args.peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+        ledger_dir=%ledger_dir.to_string_lossy(), chain_dir=%chain_dir.to_string_lossy(), network=%args.network, listen_address=args.listen_address, max_downstream_peers = args.max_downstream_peers, max_extra_ledger_snapshots = %args.max_extra_ledger_snapshots, migrate_chain_db = args.migrate_chain_db, pid_file=%args.pid_file.unwrap_or_default().to_string_lossy(),
+        "Running command run",
+    );
+
     Ok(Config {
         ledger_store: StoreType::RocksDb(RocksDbConfig::new(ledger_dir).with_shared_env()),
         chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),

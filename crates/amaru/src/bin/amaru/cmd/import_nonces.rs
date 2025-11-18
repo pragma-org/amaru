@@ -81,6 +81,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
 
+    info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(), nonces_file=%nonces_file.to_string_lossy(),
+          "Running command import-nonces",
+    );
+
     // FIXME: import nonces function takes an EraHistory which we
     // construct from NetworkName. In the case of testnets this can be
     // problematic hence why we have started writing and reading such

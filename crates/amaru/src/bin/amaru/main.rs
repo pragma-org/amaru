@@ -13,11 +13,15 @@
 // limitations under the License.
 
 use amaru::observability;
-use amaru::observability::{DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAULT_SERVICE_NAME};
+use amaru::observability::{
+    DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL,
+};
+
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use observability::OpenTelemetryConfig;
 use panic::panic_handler;
 use std::sync::LazyLock;
+use tracing::info;
 
 mod cmd;
 mod metrics;
@@ -56,7 +60,7 @@ enum Command {
     FetchChainHeaders(cmd::fetch_chain_headers::Args),
 
     /// Run the node in all its glory.
-    Daemon(cmd::daemon::Args),
+    Run(cmd::run::Args),
 
     /// Import the ledger state from a CBOR export produced by a Haskell node.
     #[clap(alias = "import")]
@@ -112,9 +116,9 @@ struct Cli {
     #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
 
-    #[arg(long, value_name = "STRING", env("AMARU_SERVICE_NAME"), default_value_t = DEFAULT_SERVICE_NAME.to_string()
+    #[arg(long, value_name = "STRING", env("AMARU_OTLP_SERVICE_NAME"), default_value_t = DEFAULT_OTLP_SERVICE_NAME.to_string()
     )]
-    service_name: String,
+    otlp_service_name: String,
 
     #[arg(long, value_name = "URL", env("AMARU_OTLP_SPAN_URL"), default_value_t = DEFAULT_OTLP_SPAN_URL.to_string()
     )]
@@ -140,9 +144,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.with_open_telemetry {
             observability::setup_open_telemetry(
                 &OpenTelemetryConfig {
-                    service_name: args.service_name,
-                    span_url: args.otlp_span_url,
-                    metric_url: args.otlp_metric_url,
+                    service_name: args.otlp_service_name.clone(),
+                    span_url: args.otlp_span_url.clone(),
+                    metric_url: args.otlp_metric_url.clone(),
                 },
                 &mut subscriber,
             )
@@ -163,8 +167,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         notify();
     }
 
+    info!(
+        with_open_telemetry = args.with_open_telemetry,
+        with_json_traces = args.with_json_traces,
+        otlp_service_name = args.otlp_service_name,
+        otlp_span_url = args.otlp_span_url,
+        otlp_metric_url = args.otlp_metric_url,
+        "Started with global arguments"
+    );
+
     let result = match args.command {
-        Command::Daemon(args) => cmd::daemon::run(args, metrics).await,
+        Command::Run(args) => cmd::run::run(args, metrics).await,
         Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
