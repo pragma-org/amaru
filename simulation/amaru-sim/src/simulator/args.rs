@@ -16,6 +16,8 @@ use crate::simulator::{NodeConfig, SimulateConfig};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
+pub const TEST_DATA_DIR: &str = "test-data";
+
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 #[clap(name = "Amaru Simulator")]
 #[clap(bin_name = "amaru-sim")]
@@ -51,6 +53,10 @@ pub struct Args {
     /// Persist generated data and pure-stage traces even if the test passes.
     #[arg(long)]
     pub persist_on_success: bool,
+
+    /// Directory where test data must be persisted
+    #[arg(long, default_value = TEST_DATA_DIR)]
+    pub persist_directory: String,
 }
 
 impl Args {
@@ -63,7 +69,8 @@ impl Args {
             generated_chain_depth: node_config.generated_chain_depth,
             disable_shrinking: simulate_config.disable_shrinking,
             seed: Some(simulate_config.seed),
-            persist_on_success: false,
+            persist_on_success: simulate_config.persist_on_success,
+            persist_directory: simulate_config.persist_directory.to_string_lossy().into(),
         }
     }
 }

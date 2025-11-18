@@ -70,7 +70,7 @@ where
 {
     let rng = Arc::new(Mutex::new(StdRng::seed_from_u64(simulate_config.seed)));
     info!(seed=%simulate_config.seed, "simulate.start");
-    let tests_dir = Path::new("../../target/tests");
+    let tests_dir = simulate_config.persist_directory.as_path();
     if !tests_dir.exists() {
         create_dir_all(tests_dir)?;
     }
@@ -80,8 +80,15 @@ where
     let test_run_dir = tests_dir.join(test_run_name);
     create_dir_all(&test_run_dir)?;
     create_symlink_dir(test_run_dir.as_path(), tests_dir.join("latest").as_path());
+    persist_args(
+        test_run_dir.as_path(),
+        simulate_config,
+        node_config,
+        persist_on_success,
+    )?;
 
     for test_number in 1..=simulate_config.number_of_tests {
+        trace_buffer.lock().clear();
         let test_run_dir_n = test_run_dir.join(format!("test-{}", test_number));
         create_dir_all(&test_run_dir_n)?;
         create_symlink_dir(
@@ -96,15 +103,8 @@ where
         let generated_entries = generator(rng.clone());
         let generation_context = generated_entries.generation_context();
         display_test_stats(generation_context);
-        if persist_on_success {
-            persist_generated_entries_as_json(test_run_dir_n.as_path(), &generated_entries)?;
-            persist_generated_actions_as_json(
-                test_run_dir_n.as_path(),
-                &generated_entries.generation_context().actions(),
-            )?;
-        }
 
-        match run_test(
+        let result = match run_test(
             simulate_config,
             &spawn,
             &property,
@@ -113,17 +113,13 @@ where
             &generated_entries,
         ) {
             Err(error) => {
-                if !persist_on_success {
-                    persist_generated_data(&test_run_dir_n, &generated_entries)?;
-                }
-                persist_traces(test_run_dir.as_path(), trace_buffer.clone())?;
                 error!(
                     test_number,
                     total=%simulate_config.number_of_tests,
                     data_directory=%test_run_dir.to_str().unwrap(),
                     "simulate.test.failure"
                 );
-                return Err(anyhow!(error));
+                Err(anyhow!(error))
             }
             Ok(()) => {
                 display_test_stats(generation_context);
@@ -132,14 +128,18 @@ where
                     total=%simulate_config.number_of_tests,
                     "simulate.test.success"
                 );
+                Ok(())
             }
-        }
+        };
+        persist_generated_data(&test_run_dir_n, &generated_entries, persist_on_success)?;
+        persist_traces(
+            test_run_dir_n.as_path(),
+            trace_buffer.clone(),
+            persist_on_success,
+        )?;
+        result?;
     }
 
-    if persist_on_success {
-        persist_args(test_run_dir.as_path(), simulate_config, node_config)?;
-        persist_traces(test_run_dir.as_path(), trace_buffer.clone())?;
-    }
     info!(
         total=%simulate_config.number_of_tests,
         "simulate.complete"
@@ -276,7 +276,11 @@ fn create_failure_message<Msg: Debug>(
 fn persist_generated_data(
     test_run_dir_n: &Path,
     generated_entries: &GeneratedEntries<ChainSyncMessage, GeneratedActions>,
+    persist: bool,
 ) -> Result<(), anyhow::Error> {
+    if !persist {
+        return Ok(());
+    }
     persist_generated_entries_as_json(test_run_dir_n, generated_entries)?;
     persist_generated_actions_as_json(
         test_run_dir_n,
@@ -285,7 +289,14 @@ fn persist_generated_data(
     Ok(())
 }
 
-fn persist_traces(dir: &Path, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Result<(), anyhow::Error> {
+fn persist_traces(
+    dir: &Path,
+    trace_buffer: Arc<Mutex<TraceBuffer>>,
+    persist: bool,
+) -> Result<(), anyhow::Error> {
+    if !persist {
+        return Ok(());
+    }
     persist_traces_as_cbor(dir, trace_buffer.clone())?;
     persist_traces_as_json(dir, trace_buffer.clone())?;
     Ok(())
@@ -311,7 +322,11 @@ fn persist_args(
     dir: &Path,
     simulate_config: &SimulateConfig,
     node_config: &NodeConfig,
+    persist: bool,
 ) -> Result<(), anyhow::Error> {
+    if !persist {
+        return Ok(());
+    }
     let args = Args::from_configs(simulate_config, node_config);
     let path = dir.join("args.json");
     let mut file = File::create(&path)?;

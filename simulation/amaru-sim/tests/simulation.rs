@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::At::Latest;
+use amaru_sim::simulator::TEST_DATA_DIR;
 use amaru_sim::simulator::run::{replay, run};
 use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
 use anyhow::anyhow;
@@ -27,6 +27,7 @@ use tracing_subscriber::EnvFilter;
 mod traces;
 
 /// Run the simulator with arguments from environment variables.
+#[test]
 pub fn run_simulator() {
     initialize_logs();
     run(make_args());
@@ -38,8 +39,11 @@ pub fn run_simulator() {
 ///
 pub fn run_replay() {
     initialize_logs();
-    let args = get_args_at(Latest).expect("latest arguments");
-    let traces = get_traces_at(Latest).expect("latest traces");
+    let simulate_config = SimulateConfig::default();
+    let test_directory = simulate_config.persist_directory.as_path();
+    let args = get_args(test_directory, SimulationRun::Latest).expect("latest arguments");
+    let traces =
+        get_traces(test_directory, SimulationRun::Latest, TestRun::Latest).expect("latest traces");
     replay(args, traces).unwrap();
 }
 
@@ -49,8 +53,14 @@ fn test_run_replay() {
     let mut args = make_args();
     args.persist_on_success = true;
     args.number_of_tests = 1;
+    args.persist_directory = format!("{TEST_DATA_DIR}/run_replay");
     run(args.clone());
-    let traces = get_traces_at(Latest).expect("latest traces");
+    let traces = get_traces(
+        Path::new(&args.persist_directory),
+        SimulationRun::Latest,
+        TestRun::Latest,
+    )
+    .expect("latest traces");
     replay(args, traces).unwrap();
 }
 
@@ -96,42 +106,75 @@ fn make_args() -> Args {
             "AMARU_GENERATED_CHAIN_DEPTH",
             node_config.generated_chain_depth,
         ),
-        disable_shrinking: is_true("AMARU_DISABLE_SHRINKING"),
+        disable_shrinking: is_true_or("AMARU_DISABLE_SHRINKING", simulate_config.disable_shrinking),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
-        persist_on_success: is_true("AMARU_PERSIST_ON_SUCCESS"),
+        persist_on_success: is_true_or(
+            "AMARU_PERSIST_ON_SUCCESS",
+            simulate_config.persist_on_success,
+        ),
+        persist_directory: get_env_var(
+            "AMARU_PERSIST_DIRECTORY",
+            simulate_config
+                .persist_directory
+                .to_string_lossy()
+                .to_string(),
+        ),
     }
 }
 
 /// Specify which simulation output to load.
 #[allow(dead_code)]
-enum At {
+enum SimulationRun {
     Latest,
     Timestamp(String),
 }
 
-impl Display for At {
+impl Display for SimulationRun {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            At::Latest => write!(f, "latest"),
-            At::Timestamp(ts) => write!(f, "{}", ts),
+            SimulationRun::Latest => write!(f, "latest"),
+            SimulationRun::Timestamp(ts) => write!(f, "{}", ts),
         }
     }
 }
 
-/// Load the Args from the test output directory at the given timestamp.
-fn get_args_at(at: At) -> anyhow::Result<Args> {
-    let path = format!("../../target/tests/{at}/args.json");
+/// Specify which test run output to load.
+#[allow(dead_code)]
+enum TestRun {
+    Latest,
+    Number(u64),
+}
+
+impl Display for TestRun {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TestRun::Latest => write!(f, "latest"),
+            TestRun::Number(n) => write!(f, "test-{}", n),
+        }
+    }
+}
+
+/// Load the Args from the test output directory for a given simulation run.
+fn get_args(test_directory: &Path, simulation_run: SimulationRun) -> anyhow::Result<Args> {
+    let path = format!("{}/{simulation_run}/args.json", test_directory.display());
     let path = Path::new(&path);
-    let path =
-        fs::canonicalize(path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+    let path = fs::canonicalize(path)
+        .map_err(|e| anyhow!("cannot canonicalize the file at {path:?}: {e}"))?;
     let data = fs::read(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
     let args: Args = serde_json::from_slice(data.as_slice())?;
     Ok(args)
 }
 
-/// Load the TraceEntries from the test output directory at the given timestamp.
-fn get_traces_at(at: At) -> anyhow::Result<Vec<TraceEntry>> {
-    let path = format!("../../target/tests/{at}/traces.cbor");
+/// Load the TraceEntries from the test output directory for a given simulation run and test run.
+fn get_traces(
+    test_directory: &Path,
+    simulation_run: SimulationRun,
+    test_run: TestRun,
+) -> anyhow::Result<Vec<TraceEntry>> {
+    let path = format!(
+        "{}/{simulation_run}/{test_run}/traces.cbor",
+        test_directory.display()
+    );
     let path = Path::new(&path);
     let latest_trace =
         fs::canonicalize(path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
@@ -166,5 +209,19 @@ fn get_optional_env_var<T: FromStr>(var_name: &str) -> Option<T> {
 
 /// Return true if the environment variable `var_name` is set to "1" or "true".
 fn is_true(var_name: &str) -> bool {
-    env::var(var_name).is_ok_and(|v| v == "1" || v == "true")
+    env::var(var_name).is_ok_and(is_true_value)
+}
+
+/// Return true if the environment variable `var_name` is set to "1" or "true".
+/// Return the default value if the variable is not set.
+fn is_true_or(var_name: &str, default_value: bool) -> bool {
+    env::var(var_name)
+        .ok()
+        .map(is_true_value)
+        .unwrap_or(default_value)
+}
+
+/// Return true is the given string value represents a true value.
+fn is_true_value(value: String) -> bool {
+    ["1", "true", "y", "yes"].contains(&value.as_str())
 }
