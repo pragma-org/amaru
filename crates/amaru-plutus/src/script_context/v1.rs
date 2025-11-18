@@ -95,13 +95,13 @@ where
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         // In V1 and V2, we need to provide the zero ADA asset as well
-        if self.0.contains_key(&CurrencySymbol::Ada) {
+        if self.0.contains_key(&CurrencySymbol::Lovelace) {
             self.0.to_plutus_data()
         } else {
             let mut map = self.0.clone();
 
             map.insert(
-                CurrencySymbol::Ada,
+                CurrencySymbol::Lovelace,
                 BTreeMap::from([(Cow::Owned(AssetName::from(vec![])), 0u64)]),
             );
 
@@ -252,11 +252,12 @@ mod tests {
         let produced_contexts = redeemers
             .iter()
             .map(|redeemer| {
+                let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
                     &transaction.transaction_body,
                     &transaction.transaction_witness_set,
                     &transaction.transaction_body.original_hash(),
-                    &test_vector.input.utxo,
+                    &utxos,
                     &0.into(),
                     network,
                     network.into(),

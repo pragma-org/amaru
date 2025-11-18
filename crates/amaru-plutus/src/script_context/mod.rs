@@ -43,18 +43,21 @@ impl IsPrePlutusVersion3 for PlutusVersion<2> {}
 
 use crate::{IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData};
 
-/// A ScriptContext is one of the arguments passed to every Plutus validator.
+/// One of the arguments passed to a Plutus validator.
+///
+///
 /// It contains information about the transaction which is being validated, and the specific script which is being run.
 ///
-/// A `ScriptContext` can only be constructed via the `ScriptContext::new` function.
+/// A `ScriptContext` can only be constructed via the [`ScriptContext::new`](Self::new) function.
 ///
 /// The serialized representation of `ScriptContext` may be different for each `PlutusVersion`,
 /// so it is important to specify the correct `PlutusVersion` when serializing.
-/// # example usage
+///
+/// # Example
+///
 /// ```rust
-/// # use amaru_plutus::{script_context::{ScriptContext}, to_plutus_data::{PLUTUS_V3}}
-/// let script_context = ScriptContext::new(&tx_info, &redeemer, Some(&datum)).unwrap();
-/// let script_arguments = script_context.to_script_args(PLUTUS_V3).unwrap();
+/// let script_context = ScriptContext::new(&tx_info, &redeemer, Some(&datum))?;
+/// let script_arguments = script_context.to_script_args(PLUTUS_V3)?;
 /// ```
 pub struct ScriptContext<'a> {
     tx_info: &'a TxInfo<'a>,
@@ -64,6 +67,9 @@ pub struct ScriptContext<'a> {
 }
 
 impl<'a> ScriptContext<'a> {
+    /// Construct a new [`ScriptContext`]for a specific script execution (specified by the `Redeemer`).
+    ///
+    /// Returns `None` if the provided `Redeemer` does not exist in the `TxInfo`
     pub fn new(
         tx_info: &'a TxInfo<'a>,
         redeemer: &'a Redeemer,
@@ -89,6 +95,7 @@ impl<'a> ScriptContext<'a> {
         })
     }
 
+    /// Serialize `ScriptContext` to a list of arguments to be passed to a Plutus validator
     pub fn to_script_args<const V: u8>(
         &self,
         _version: PlutusVersion<V>,
@@ -133,40 +140,66 @@ impl<'a> ScriptContext<'a> {
     }
 }
 
+/// An opaque type that represents the `TxInfo` field used in a [`ScriptContext`].
+///
+/// `TxInfo` is an in-memory representation of a Cardano transaction used in Plutus scripts.
+///
+/// Notably, it is not an exact mapping of the transaction on the ledger.
+/// For example, bootstrap addresses are skipped in the inputs, reference inputs, and outputs.
 pub struct TxInfo<'a> {
-    pub inputs: Vec<OutputRef<'a>>,
-    pub reference_inputs: Vec<OutputRef<'a>>,
-    pub outputs: Vec<TransactionOutput<'a>>,
-    pub fee: Lovelace,
-    pub mint: Mint<'a>,
-    pub certificates: Vec<&'a Certificate>,
-    pub withdrawals: Withdrawals,
-    pub valid_range: TimeRange,
-    pub signatories: RequiredSigners,
-    pub redeemers: Redeemers<'a, ScriptPurpose<'a>>,
-    pub data: Datums<'a>,
-    pub id: TransactionId,
-    pub votes: Votes<'a>,
-    pub proposal_procedures: Vec<&'a Proposal>,
-    pub current_treasury_amount: Option<Lovelace>,
-    pub treasury_donation: Option<Lovelace>,
+    inputs: Vec<OutputRef<'a>>,
+    reference_inputs: Vec<OutputRef<'a>>,
+    outputs: Vec<TransactionOutput<'a>>,
+    fee: Lovelace,
+    mint: Mint<'a>,
+    certificates: Vec<&'a Certificate>,
+    withdrawals: Withdrawals,
+    valid_range: TimeRange,
+    signatories: RequiredSigners,
+    redeemers: Redeemers<'a, ScriptPurpose<'a>>,
+    data: Datums<'a>,
+    id: TransactionId,
+    votes: Votes<'a>,
+    proposal_procedures: Vec<&'a Proposal>,
+    current_treasury_amount: Option<Lovelace>,
+    treasury_donation: Option<Lovelace>,
 }
 
 #[derive(Debug, Error)]
+/// Represents possible errors that can occur during [`TxInfo` construction](TxInfo::new).
+///
+/// An occurance of this error should suggest a user error of one of two types:
+/// - A poorly constructed transaction that should fail phase-one validation
+/// - Incorrect chain state such as an incomplete UTxO slice, wrong network, or wrong slot value
 pub enum TxInfoTranslationError {
+    /// Some input was not in the provided [`Utxos`]
     #[error("missing input: {0}")]
     MissingInput(TransactionInputAdapter),
+    /// Some output is poorly constructed
     #[error("invalid output: {0}")]
     InvalidOutput(#[from] TransactionOutputError),
+    /// Some withdrawal is poorly constructed
     #[error("invalid withdrawal: {0}")]
     InvalidWithdrawal(#[from] WithdrawalError),
+    /// The validity interval cannot be converted to posix time
     #[error("invalid validity interval: {0}")]
     InvalidValidityInterval(#[from] EraHistoryError),
+    /// Some redeemer is poorly constructed
     #[error("invalid redeemer at index {0}")]
     InvalidRedeemer(usize),
 }
 
 impl<'a> TxInfo<'a> {
+    /// Construct a new `TxInfo` from a transaction and some additional context.
+    ///
+    /// This is a fallible operation which fails when some state can't be represented by `TxInfo`
+    /// See [TxInfoTranslationError] for more.
+    ///
+    /// It's important to note that a successful construction of a `TxInfo` does not mean it can be serialized for all Plutus versions.
+    /// For example, in Plutus V1, inputs that are locked by a bootstrap address are ignored, where as in V2 and V3 they are forbidden, resulting in an error.
+    ///
+    ///
+    /// Version-specific errors will arise during serialization.
     pub fn new(
         tx: &'a MintedTransactionBody<'_>,
         witness_set: &'a MintedWitnessSet<'_>,
@@ -295,19 +328,19 @@ impl<'a> TxInfo<'a> {
         inputs
             .iter()
             .sorted()
-            .map(|input| match utxos.get(input) {
-                Some(utxo) => Ok(OutputRef {
-                    input,
-                    output: utxo.into(),
-                }),
-                None => Err(TxInfoTranslationError::MissingInput(input.clone().into())),
+            .map(|input| {
+                utxos
+                    .resolve_input(input)
+                    .ok_or(TxInfoTranslationError::MissingInput(input.clone().into()))
             })
             .collect::<Result<Vec<_>, _>>()
     }
 }
 
+#[doc(hidden)]
 pub type ScriptPurpose<'a> = ScriptInfo<'a, ()>;
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub enum ScriptInfo<'a, T: Clone> {
     Minting(PolicyId),
@@ -374,19 +407,75 @@ impl<'a> ScriptPurpose<'a> {
     }
 }
 
+/// A resolved input which includes the output it references.
+#[doc(hidden)]
 pub struct OutputRef<'a> {
     pub input: &'a TransactionInput,
     pub output: TransactionOutput<'a>,
 }
 
-pub type Utxos = BTreeMap<TransactionInput, MemoizedTransactionOutput>;
+/// A subset of the UTxO set.
+///
+/// Maps from a `TransactionInput` to a `MemoizedTransactionOutput`
+pub struct Utxos(BTreeMap<TransactionInput, MemoizedTransactionOutput>);
 
+impl<'a> Utxos {
+    /// Resolve an input to the output it references, returning an [`OutputRef`]
+    ///
+    ///
+    /// Returns `None` when the input cannot be found in the UTxO slice.
+    pub fn resolve_input(&'a self, input: &'a TransactionInput) -> Option<OutputRef<'a>> {
+        self.0.get(input).map(|utxo| OutputRef {
+            input,
+            output: utxo.into(),
+        })
+    }
+}
+
+impl Deref for Utxos {
+    type Target = BTreeMap<TransactionInput, MemoizedTransactionOutput>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<BTreeMap<TransactionInput, MemoizedTransactionOutput>> for Utxos {
+    fn from(value: BTreeMap<TransactionInput, MemoizedTransactionOutput>) -> Self {
+        Self(value)
+    }
+}
+
+/// An interval of time using POSIX time
+///
+///
+/// Time is a difficult, and heavily documented, challenge on Cardano.
+/// To maintain deterministic transaction validation,
+/// Cardano uses a validity interval which makes a transaction only valid from slot X to slot Y.
+///
+/// By default, the validity interval is unbounded, meaning the transcation could always be valid.
+///
+/// One wrinkle that this causes is that while Ouroboros uses slots to handle time, Plutus uses POSIX time.
+/// See [`TimeRange::new`] for more information on converting from a validity interval from Ouroboros to a Plutus TimeRange.
+#[doc(hidden)]
 pub struct TimeRange {
-    pub lower_bound: Option<TimeMs>,
-    pub upper_bound: Option<TimeMs>,
+    pub(crate) lower_bound: Option<TimeMs>,
+    pub(crate) upper_bound: Option<TimeMs>,
 }
 
 impl TimeRange {
+    /// Construct a new [`TimeRange`] given a slot interval
+    ///
+    /// Slot lengths can change based at hard forks, so it is not safe to count slots.
+    /// Conversion is handled by the provided `era_history`, which depends on the correct `network` (to determine the `GlobalParamters`)
+    ///
+    /// There are a few cases that would lead to an `EraHistoryError`:
+    /// - `EraHistoryError::PastTimeHorizon`:
+    ///   If a bound is too far in the future, we cannot be sure that a hardfork will occur that will change timings.
+    ///   The time horizon is the "stability window", which can take up to 3k/f
+    /// - `EraHistory::InvalidEraHistory`:
+    ///   One of the bounds cannot be found in any era in the `EraHistory`, so we do not know the slot length
+    ///   and thus cannot convert to POSIX time. This is typically going to be the result of a user error (incorrect era history)
     pub fn new(
         valid_from_slot: Option<Slot>,
         valid_to_slot: Option<Slot>,
@@ -409,10 +498,13 @@ impl TimeRange {
     }
 }
 
-// This is a variant of `PolicyId` that makes it easier to work with
+/// An identifier for a currency in a [`Value`]
+///
+/// See [`Value`] for more
+#[doc(hidden)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CurrencySymbol {
-    Ada,
+    Lovelace,
     Native(Hash<28>),
 }
 
@@ -422,6 +514,11 @@ impl From<Hash<28>> for CurrencySymbol {
     }
 }
 
+/// A representation of `Value` used in Plutus
+///
+/// The ledger's `Value` contains both a `Coin` and, optionally, a `Multiasset`.
+/// In Plutus, this is simply a single map, with an empty bytestring representing lovelace
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct Value<'a>(pub BTreeMap<CurrencySymbol, BTreeMap<Cow<'a, AssetName>, u64>>);
 
@@ -429,13 +526,13 @@ impl<'a> From<&'a amaru_kernel::Value> for Value<'a> {
     fn from(value: &'a amaru_kernel::Value) -> Self {
         let assets = match value {
             amaru_kernel::Value::Coin(coin) => BTreeMap::from([(
-                CurrencySymbol::Ada,
+                CurrencySymbol::Lovelace,
                 BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), *coin)]),
             )]),
             amaru_kernel::Value::Multiasset(coin, multiasset) => {
                 let mut map = BTreeMap::new();
                 map.insert(
-                    CurrencySymbol::Ada,
+                    CurrencySymbol::Lovelace,
                     BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), *coin)]),
                 );
                 multiasset.iter().for_each(|(policy_id, asset_bundle)| {
@@ -460,13 +557,13 @@ impl<'a> From<amaru_kernel::Value> for Value<'a> {
     fn from(value: amaru_kernel::Value) -> Self {
         let assets = match value {
             amaru_kernel::Value::Coin(coin) => BTreeMap::from([(
-                CurrencySymbol::Ada,
+                CurrencySymbol::Lovelace,
                 BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]),
             )]),
             amaru_kernel::Value::Multiasset(coin, multiasset) => {
                 let mut map = BTreeMap::new();
                 map.insert(
-                    CurrencySymbol::Ada,
+                    CurrencySymbol::Lovelace,
                     BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]),
                 );
                 multiasset
@@ -492,11 +589,13 @@ impl<'a> From<amaru_kernel::Value> for Value<'a> {
 impl From<Lovelace> for Value<'_> {
     fn from(coin: Lovelace) -> Self {
         Self(BTreeMap::from([(
-            CurrencySymbol::Ada,
+            CurrencySymbol::Lovelace,
             BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]),
         )]))
     }
 }
+
+#[doc(hidden)]
 #[derive(Debug, Error)]
 pub enum AlonzoValueError {
     #[error("invalid quantity: {0}")]
@@ -527,7 +626,7 @@ impl<'a> TryFrom<&'a AlonzoValue> for Value<'a> {
             AlonzoValue::Multiasset(coin, multiasset) => {
                 let mut map = BTreeMap::new();
                 map.insert(
-                    CurrencySymbol::Ada,
+                    CurrencySymbol::Lovelace,
                     BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), *coin)]),
                 );
 
@@ -543,18 +642,21 @@ impl<'a> TryFrom<&'a AlonzoValue> for Value<'a> {
 
 impl Value<'_> {
     pub fn ada(&self) -> Option<u64> {
-        self.0.get(&CurrencySymbol::Ada).and_then(|asset_bundle| {
-            asset_bundle.iter().find_map(|(name, amount)| {
-                if name.is_empty() && amount != &0 {
-                    Some(*amount)
-                } else {
-                    None
-                }
+        self.0
+            .get(&CurrencySymbol::Lovelace)
+            .and_then(|asset_bundle| {
+                asset_bundle.iter().find_map(|(name, amount)| {
+                    if name.is_empty() && amount != &0 {
+                        Some(*amount)
+                    } else {
+                        None
+                    }
+                })
             })
-        })
     }
 }
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub enum Script<'a> {
     Native(&'a NativeScript),
@@ -585,6 +687,7 @@ impl<'a> From<&'a MemoizedScript> for Script<'a> {
     }
 }
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub enum DatumOption<'a> {
     None,
@@ -621,6 +724,7 @@ impl<'a> From<Option<&'a Hash<32>>> for DatumOption<'a> {
     }
 }
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct TransactionOutput<'a> {
     pub is_legacy: bool,
@@ -642,6 +746,7 @@ impl<'a> From<&'a MemoizedTransactionOutput> for TransactionOutput<'a> {
     }
 }
 
+#[doc(hidden)]
 #[derive(Debug, Error)]
 pub enum TransactionOutputError {
     #[error("invalid address: {0}")]
@@ -675,6 +780,7 @@ impl<'a> TryFrom<&'a MintedTransactionOutput<'a>> for TransactionOutput<'a> {
     }
 }
 
+#[doc(hidden)]
 #[derive(Debug, Default)]
 pub struct Mint<'a>(pub BTreeMap<Hash<28>, BTreeMap<Cow<'a, AssetName>, i64>>);
 
@@ -697,6 +803,7 @@ impl<'a> From<&'a amaru_kernel::Mint> for Mint<'a> {
     }
 }
 
+#[doc(hidden)]
 #[derive(Default)]
 pub struct RequiredSigners(pub BTreeSet<AddrKeyhash>);
 
@@ -706,9 +813,11 @@ impl<'a> From<&'a amaru_kernel::RequiredSigners> for RequiredSigners {
     }
 }
 
+#[doc(hidden)]
 #[derive(Default)]
 pub struct Withdrawals(pub BTreeMap<StakeAddress, Lovelace>);
 
+#[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct StakeAddress(amaru_kernel::StakeAddress);
 
@@ -757,6 +866,7 @@ impl PartialEq for StakeAddress {
 
 impl Eq for StakeAddress {}
 
+#[doc(hidden)]
 #[derive(Debug, Error)]
 pub enum WithdrawalError {
     #[error("invalid reward account: {0}")]
@@ -788,6 +898,7 @@ impl TryFrom<&NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdrawals {
     }
 }
 
+#[doc(hidden)]
 #[derive(Default)]
 pub struct Datums<'a>(pub BTreeMap<DatumHash, &'a PlutusData>);
 
@@ -802,9 +913,11 @@ impl<'a> From<&'a NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums<'a> {
     }
 }
 
+#[doc(hidden)]
 // FIXME: This should probably be a BTreeMap
 pub struct Redeemers<'a, T>(pub Vec<(T, Cow<'a, Redeemer>)>);
 
+#[doc(hidden)]
 #[derive(Default)]
 pub struct Votes<'a>(pub BTreeMap<&'a Voter, BTreeMap<ProposalIdAdapter<'a>, &'a Vote>>);
 
@@ -1153,7 +1266,7 @@ mod tests {
             // We should be excluding ADA values with a quantity of zero in Plutus V3
             let mut ada_map = BTreeMap::new();
             ada_map.insert(Cow::Owned(Bytes::from(vec![])), 0u64);
-            value_map.insert(CurrencySymbol::Ada, ada_map);
+            value_map.insert(CurrencySymbol::Lovelace, ada_map);
 
             for policy_bytes in policies {
                 let mut asset_map = BTreeMap::new();
@@ -1195,7 +1308,7 @@ mod tests {
 
             let mut ada_map = BTreeMap::new();
             ada_map.insert(Cow::Owned(Bytes::from(vec![])), ada_amount);
-            value_map.insert(CurrencySymbol::Ada, ada_map);
+            value_map.insert(CurrencySymbol::Lovelace, ada_map);
 
             for policy_bytes in policies {
                 let mut asset_map = BTreeMap::new();

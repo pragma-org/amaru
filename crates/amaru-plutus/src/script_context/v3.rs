@@ -128,7 +128,7 @@ impl ToPlutusData<3> for Value<'_> {
                 &self
                     .0
                     .iter()
-                    .filter(|(currency, _)| !matches!(currency, CurrencySymbol::Ada))
+                    .filter(|(currency, _)| !matches!(currency, CurrencySymbol::Lovelace))
                     .collect::<BTreeMap<_, _>>(),
             )
         } else {
@@ -664,11 +664,12 @@ mod tests {
                     None
                 };
 
+                let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
                     &transaction.transaction_body,
                     &transaction.transaction_witness_set,
                     &transaction.transaction_body.original_hash(),
-                    &test_vector.input.utxo,
+                    &utxos,
                     &0.into(),
                     network,
                     network.into(),

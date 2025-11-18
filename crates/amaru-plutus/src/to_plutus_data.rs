@@ -69,7 +69,7 @@ where
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
-            Self::Ada => <Vec<u8> as ToPlutusData<V>>::to_plutus_data(&vec![]),
+            Self::Lovelace => <Vec<u8> as ToPlutusData<V>>::to_plutus_data(&vec![]),
             Self::Native(policy_id) => policy_id.to_plutus_data(),
         }
     }
