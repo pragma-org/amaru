@@ -5,7 +5,8 @@ env:
 
 on:
   push:
-#    branches: ["*"]
+    branches:
+      - main
 
 permissions:
   packages: write
