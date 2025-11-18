@@ -137,6 +137,12 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
         run: make coverage-lconv
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-simulation-data
+          path: simulation/amaru-sim/test-data
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
         with:
