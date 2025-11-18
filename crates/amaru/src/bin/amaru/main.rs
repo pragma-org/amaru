@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use amaru::observability;
-use amaru::observability::{DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SPAN_URL, DEFAULT_SERVICE_NAME};
+use amaru::observability::{
+    DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL,
+};
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use observability::OpenTelemetryConfig;
@@ -114,7 +116,7 @@ struct Cli {
     #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
 
-    #[arg(long, value_name = "STRING", env("AMARU_OTLP_SERVICE_NAME"), default_value_t = DEFAULT_SERVICE_NAME.to_string()
+    #[arg(long, value_name = "STRING", env("AMARU_OTLP_SERVICE_NAME"), default_value_t = DEFAULT_OTLP_SERVICE_NAME.to_string()
     )]
     otlp_service_name: String,
 
