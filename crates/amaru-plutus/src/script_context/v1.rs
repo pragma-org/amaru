@@ -19,25 +19,10 @@ use amaru_kernel::{Address, AssetName, Hash, TransactionInput};
 use crate::{
     IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData, constr, constr_v1,
     script_context::{
-        Certificate, CurrencySymbol, DatumOption, Datums, HasScriptArugments, IsPrePlutusVersion3,
-        Mint, OutputRef, PlutusData, ScriptContext, ScriptPurpose, TransactionOutput, TxInfo,
-        Value, Withdrawals,
+        Certificate, CurrencySymbol, DatumOption, Datums, IsPrePlutusVersion3, Mint, OutputRef,
+        PlutusData, ScriptContext, ScriptPurpose, TransactionOutput, TxInfo, Value, Withdrawals,
     },
 };
-
-impl HasScriptArugments<1> for ScriptContext<'_> {
-    fn script_args(&self) -> Result<Vec<PlutusData>, PlutusDataError> {
-        let mut args = vec![];
-        if let Some(datum) = self.datum {
-            args.push(datum.clone());
-        }
-
-        args.push(self.redeemer.data.clone());
-        args.push(<Self as ToPlutusData<1>>::to_plutus_data(self)?);
-
-        Ok(args)
-    }
-}
 
 impl ToPlutusData<1> for OutputRef<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {

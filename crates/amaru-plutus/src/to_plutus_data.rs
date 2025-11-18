@@ -52,12 +52,16 @@ pub trait ToPlutusData<const VERSION: u8> {
 
 pub struct PlutusVersion<const V: u8>;
 
-/// A trait to restrict generic parameter `V` on `ToPlutusData` instances, to version we know
+/// A trait to restrict generic parameter `V` on `ToPlutusData` instances, to versions we know
 /// about.
 pub trait IsKnownPlutusVersion {}
 impl IsKnownPlutusVersion for PlutusVersion<1> {}
 impl IsKnownPlutusVersion for PlutusVersion<2> {}
 impl IsKnownPlutusVersion for PlutusVersion<3> {}
+
+pub const PLUTUS_V1: PlutusVersion<1> = PlutusVersion;
+pub const PLUTUS_V2: PlutusVersion<2> = PlutusVersion;
+pub const PLUTUS_V3: PlutusVersion<3> = PlutusVersion;
 
 impl<const V: u8> ToPlutusData<V> for CurrencySymbol
 where

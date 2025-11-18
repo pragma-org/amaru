@@ -41,24 +41,96 @@ pub trait IsPrePlutusVersion3 {}
 impl IsPrePlutusVersion3 for PlutusVersion<1> {}
 impl IsPrePlutusVersion3 for PlutusVersion<2> {}
 
-use crate::{PlutusDataError, PlutusVersion};
+use crate::{IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData};
 
-pub trait HasScriptArugments<const VERSION: u8> {
-    fn script_args(&self) -> Result<Vec<PlutusData>, PlutusDataError>;
+/// A ScriptContext is one of the arguments passed to every Plutus validator.
+/// It contains information about the transaction which is being validated, and the specific script which is being run.
+///
+/// A `ScriptContext` can only be constructed via the `ScriptContext::new` function.
+///
+/// The serialized representation of `ScriptContext` may be different for each `PlutusVersion`,
+/// so it is important to specify the correct `PlutusVersion` when serializing.
+/// # example usage
+/// ```rust
+/// # use amaru_plutus::{script_context::{ScriptContext}, to_plutus_data::{PLUTUS_V3}}
+/// let script_context = ScriptContext::new(&tx_info, &redeemer, Some(&datum)).unwrap();
+/// let script_arguments = script_context.to_script_args(PLUTUS_V3).unwrap();
+/// ```
+pub struct ScriptContext<'a> {
+    tx_info: &'a TxInfo<'a>,
+    redeemer: &'a Redeemer,
+    datum: Option<&'a PlutusData>,
+    script_purpose: &'a ScriptPurpose<'a>,
 }
 
-#[derive(Debug, Error)]
-pub enum TxInfoTranslationError {
-    #[error("missing input: {0}")]
-    MissingInput(TransactionInputAdapter),
-    #[error("invalid output: {0}")]
-    InvalidOutput(#[from] TransactionOutputError),
-    #[error("invalid withdrawal: {0}")]
-    InvalidWithdrawal(#[from] WithdrawalError),
-    #[error("invalid validity interval: {0}")]
-    InvalidValidityInterval(#[from] EraHistoryError),
-    #[error("invalid redeemer at index {0}")]
-    InvalidRedeemer(usize),
+impl<'a> ScriptContext<'a> {
+    pub fn new(
+        tx_info: &'a TxInfo<'a>,
+        redeemer: &'a Redeemer,
+        datum: Option<&'a PlutusData>,
+    ) -> Option<Self> {
+        let purpose = tx_info
+            .redeemers
+            .0
+            .iter()
+            .find_map(|(purpose, tx_redeemer)| {
+                if redeemer.tag == tx_redeemer.tag && redeemer.index == tx_redeemer.index {
+                    Some(purpose)
+                } else {
+                    None
+                }
+            });
+
+        purpose.map(|script_purpose| ScriptContext {
+            tx_info,
+            redeemer,
+            datum,
+            script_purpose,
+        })
+    }
+
+    pub fn to_script_args<const V: u8>(
+        &self,
+        _version: PlutusVersion<V>,
+    ) -> Result<Vec<PlutusData>, PlutusDataError>
+    where
+        PlutusVersion<V>: IsKnownPlutusVersion,
+    {
+        match V {
+            1 => self.v1_script_args(),
+            2 => self.v2_script_args(),
+            3 => self.v3_script_args(),
+            _ => unreachable!("unknown PlutusVersion passed to to_script_args"),
+        }
+    }
+
+    fn v1_script_args(&self) -> Result<Vec<PlutusData>, PlutusDataError> {
+        let mut args = vec![];
+        if let Some(datum) = self.datum {
+            args.push(datum.clone());
+        }
+
+        args.push(self.redeemer.data.clone());
+        args.push(<Self as ToPlutusData<1>>::to_plutus_data(self)?);
+
+        Ok(args)
+    }
+
+    fn v2_script_args(&self) -> Result<Vec<PlutusData>, PlutusDataError> {
+        let mut args = vec![];
+        if let Some(datum) = self.datum {
+            args.push(datum.clone());
+        }
+
+        args.push(self.redeemer.data.clone());
+        args.push(<Self as ToPlutusData<2>>::to_plutus_data(self)?);
+
+        Ok(args)
+    }
+
+    fn v3_script_args(&self) -> Result<Vec<PlutusData>, PlutusDataError> {
+        Ok(vec![<Self as ToPlutusData<3>>::to_plutus_data(self)?])
+    }
 }
 
 pub struct TxInfo<'a> {
@@ -78,6 +150,20 @@ pub struct TxInfo<'a> {
     pub proposal_procedures: Vec<&'a Proposal>,
     pub current_treasury_amount: Option<Lovelace>,
     pub treasury_donation: Option<Lovelace>,
+}
+
+#[derive(Debug, Error)]
+pub enum TxInfoTranslationError {
+    #[error("missing input: {0}")]
+    MissingInput(TransactionInputAdapter),
+    #[error("invalid output: {0}")]
+    InvalidOutput(#[from] TransactionOutputError),
+    #[error("invalid withdrawal: {0}")]
+    InvalidWithdrawal(#[from] WithdrawalError),
+    #[error("invalid validity interval: {0}")]
+    InvalidValidityInterval(#[from] EraHistoryError),
+    #[error("invalid redeemer at index {0}")]
+    InvalidRedeemer(usize),
 }
 
 impl<'a> TxInfo<'a> {
@@ -285,40 +371,6 @@ impl<'a> ScriptPurpose<'a> {
             ScriptInfo::Voting(v) => ScriptInfo::Voting(v),
             ScriptInfo::Proposing(i, p) => ScriptInfo::Proposing(*i, p),
         }
-    }
-}
-
-pub struct ScriptContext<'a> {
-    tx_info: &'a TxInfo<'a>,
-    redeemer: &'a Redeemer,
-    datum: Option<&'a PlutusData>,
-    script_purpose: &'a ScriptPurpose<'a>,
-}
-
-impl<'a> ScriptContext<'a> {
-    pub fn new(
-        tx_info: &'a TxInfo<'a>,
-        redeemer: &'a Redeemer,
-        datum: Option<&'a PlutusData>,
-    ) -> Option<Self> {
-        let purpose = tx_info
-            .redeemers
-            .0
-            .iter()
-            .find_map(|(purpose, tx_redeemer)| {
-                if redeemer.tag == tx_redeemer.tag && redeemer.index == tx_redeemer.index {
-                    Some(purpose)
-                } else {
-                    None
-                }
-            });
-
-        purpose.map(|script_purpose| ScriptContext {
-            tx_info,
-            redeemer,
-            datum,
-            script_purpose,
-        })
     }
 }
 

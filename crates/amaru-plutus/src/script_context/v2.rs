@@ -19,10 +19,16 @@ use amaru_kernel::{Address, KeyValuePairs};
 use crate::{
     PlutusDataError, ToPlutusData, constr_v2,
     script_context::{
-        Datums, OutputRef, PlutusData, Redeemers, ScriptPurpose, TransactionOutput, TxInfo, Value,
-        Withdrawals,
+        Datums, OutputRef, PlutusData, Redeemers, ScriptContext, ScriptPurpose, TransactionOutput,
+        TxInfo, Value, Withdrawals,
     },
 };
+
+impl ToPlutusData<2> for ScriptContext<'_> {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        constr_v2!(0, [self.tx_info, self.script_purpose])
+    }
+}
 
 impl ToPlutusData<2> for TxInfo<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {

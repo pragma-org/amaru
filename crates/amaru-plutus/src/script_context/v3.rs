@@ -24,25 +24,11 @@ use num::Integer;
 use crate::{
     PlutusDataError, ToPlutusData, constr, constr_v3,
     script_context::{
-        Certificate, CurrencySymbol, Datums, HasScriptArugments, KeyValuePairs, Mint, OutputRef,
-        PlutusData, Redeemers, ScriptContext, ScriptInfo, ScriptPurpose, TransactionInput,
-        TransactionOutput, TxInfo, Value, Voter, Votes, Withdrawals,
+        Certificate, CurrencySymbol, Datums, KeyValuePairs, Mint, OutputRef, PlutusData, Redeemers,
+        ScriptContext, ScriptInfo, ScriptPurpose, TransactionInput, TransactionOutput, TxInfo,
+        Value, Voter, Votes, Withdrawals,
     },
 };
-
-impl HasScriptArugments<3> for ScriptContext<'_> {
-    fn script_args(&self) -> Result<Vec<PlutusData>, PlutusDataError> {
-        let mut args = vec![];
-        if let Some(datum) = self.datum {
-            args.push(datum.clone());
-        }
-
-        args.push(self.redeemer.data.clone());
-        args.push(<Self as ToPlutusData<3>>::to_plutus_data(self)?);
-
-        Ok(args)
-    }
-}
 
 impl ToPlutusData<3> for OutputRef<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
@@ -611,7 +597,6 @@ impl ToPlutusData<3> for Votes<'_> {
 
 #[cfg(test)]
 mod tests {
-
     use super::super::test_vectors::{self, TestVector};
     use super::*;
     use amaru_kernel::network::NetworkName;
