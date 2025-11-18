@@ -31,6 +31,11 @@ impl ToPlutusData<1> for OutputRef<'_> {
 }
 
 impl ToPlutusData<1> for ScriptContext<'_> {
+    /// Convert a [`ScriptContext`] to the PlutusV1 representation of a `ScriptContext`.
+    ///
+    /// In PlutusV1 the `ScriptContext` contains:
+    ///     - TxInfo
+    ///     - ScriptPurpose
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr_v1!(0, [self.tx_info, self.script_purpose])
     }
@@ -68,6 +73,14 @@ impl<const V: u8> ToPlutusData<V> for ScriptPurpose<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
+    /// Serialize `ScriptPurpose` as PlutusData for PlutusV1 or PlutusV2.
+    ///
+    /// # Errors
+    /// The following ScriptPurposes cannot be included in PlutusV1 or PlutusV2:
+    /// - `SciptPurpose::Voting`
+    /// - `ScriptPurpose::Spending`
+    ///
+    /// Serializing any of those will result in a `PlutusDataError`
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             ScriptPurpose::Minting(policy_id) => constr_v1!(0, [policy_id]),
@@ -79,11 +92,11 @@ where
 
             ScriptPurpose::Voting(_) => Err(PlutusDataError::unsupported_version(
                 "voting purpose unsupported",
-                1,
+                V,
             )),
             ScriptPurpose::Proposing(_, _) => Err(PlutusDataError::unsupported_version(
                 "proposing purpose unsupported",
-                1,
+                V,
             )),
         }
     }
@@ -93,8 +106,11 @@ impl<const V: u8> ToPlutusData<V> for Value<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
+    /// Serialize a `Value` as PlutusData for PlutusV1 and PlutusV2.
+    ///
+    /// Notably, in PlutusV1 and PlutusV2, `Value` must include a
+    /// zero value lovelace asset, if there is no lovelace.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        // In V1 and V2, we need to provide the zero ADA asset as well
         if self.0.contains_key(&CurrencySymbol::Lovelace) {
             self.0.to_plutus_data()
         } else {
@@ -124,6 +140,26 @@ impl<const V: u8> ToPlutusData<V> for Certificate
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
+    /// Serialize `Certificate` as PlutusData for PlutusV1 or PlutusV2.
+    ///
+    /// # Errors
+    /// The following Certificates cannot be included in PlutusV1 or PlutusV2:
+    /// - `Certificate::Reg`
+    /// - `Certificate::UnReg`
+    /// - `Certificate::Reg`
+    /// - `Certificate::UnReg`
+    /// - `Certificate::VoteDeleg`
+    /// - `Certificate::StakeVoteDeleg`
+    /// - `Certificate::StakeRegDeleg`
+    /// - `Certificate::VoteRegDeleg`
+    /// - `Certificate::StakeVoteRegDeleg`
+    /// - `Certificate::AuthCommitteeHot`
+    /// - `Certificate::ResignCommitteeCold`
+    /// - `Certificate::RegDRepCert`
+    /// - `Certificate::UnRegDRepCert`
+    /// - `Certificate::UpdateDRepCert`
+    ///
+    /// Serializing any of those will result in a `PlutusDataError`
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             Certificate::StakeRegistration(stake_credential) => {
@@ -176,8 +212,11 @@ impl<const V: u8> ToPlutusData<V> for Mint<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
+    /// Serialize a `Mint` as PlutusData for PlutusV1 and PlutusV2.
+    ///
+    /// Notably, in PlutusV1 and PlutusV2, `Mint` must include a
+    /// zero value lovelace asset
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        // In V1 and V2, we need to provide the zero ADA asset as well
         let mut mint = self
             .0
             .iter()

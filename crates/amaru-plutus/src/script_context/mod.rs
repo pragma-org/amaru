@@ -95,7 +95,13 @@ impl<'a> ScriptContext<'a> {
         })
     }
 
-    /// Serialize `ScriptContext` to a list of arguments to be passed to a Plutus validator
+    /// Serialize `ScriptContext` to a list of arguments to be passed to a Plutus validator.
+    ///
+    /// For both PlutusV1 and PlutusV2, the list consists of:
+    /// `[datum?, redeemer, script_context]`
+    ///
+    /// For PlutusV3 the lists consists of:
+    /// `[script_context]`
     pub fn to_script_args<const V: u8>(
         &self,
         _version: PlutusVersion<V>,

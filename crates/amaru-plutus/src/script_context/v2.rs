@@ -54,8 +54,11 @@ impl ToPlutusData<2> for TxInfo<'_> {
 }
 
 impl ToPlutusData<2> for OutputRef<'_> {
+    /// Serialize an `OutputRef` as PlutusData for PlutusV2.
+    ///
+    /// # Errors
+    /// If the UTxO is locked at a bootstrap address, this will return a `PlutusDataError`.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        // In PlutusV2, Byron addresses are not allowed
         if let Address::Byron(_) = *self.output.address {
             return Err(PlutusDataError::unsupported_version(
                 "byron address included in OutputRef",

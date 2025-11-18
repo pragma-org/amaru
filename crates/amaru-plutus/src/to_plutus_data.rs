@@ -27,6 +27,7 @@ use thiserror::Error;
 
 use std::{borrow::Cow, collections::BTreeMap};
 
+/// Represents an error that occured during serialization to `PlutusData`.
 #[derive(Debug, Error)]
 pub enum PlutusDataError {
     #[error("unsupported for Plutus V{version}: {message}")]
@@ -50,17 +51,21 @@ pub trait ToPlutusData<const VERSION: u8> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError>;
 }
 
+#[doc(hidden)]
 pub struct PlutusVersion<const V: u8>;
 
-/// A trait to restrict generic parameter `V` on `ToPlutusData` instances, to versions we know
-/// about.
+/// A trait to restrict generic parameter `V` on `ToPlutusData` instances
+/// to versions we know about.
 pub trait IsKnownPlutusVersion {}
 impl IsKnownPlutusVersion for PlutusVersion<1> {}
 impl IsKnownPlutusVersion for PlutusVersion<2> {}
 impl IsKnownPlutusVersion for PlutusVersion<3> {}
 
+/// Plutus Version 1
 pub const PLUTUS_V1: PlutusVersion<1> = PlutusVersion;
+/// Plutus Version 2
 pub const PLUTUS_V2: PlutusVersion<2> = PlutusVersion;
+/// Plutus Version 3
 pub const PLUTUS_V3: PlutusVersion<3> = PlutusVersion;
 
 impl<const V: u8> ToPlutusData<V> for CurrencySymbol
@@ -114,12 +119,11 @@ impl<const V: u8> ToPlutusData<V> for Address
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
-    /// In both Plutus v1 and v2 encodings, Byron addresses are not possible encodings.
+    /// In all Plutus v1 and v2 and v3 encodings, Byron addresses are not possible encodings.
     ///
     /// In [PlutusV1](https://github.com/IntersectMBO/cardano-ledger/blob/59b52bb31c76a4a805e18860f68f549ec9022b14/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Plutus/TxInfo.hs#L111-L112), outputs containing Byron addresses are filtered out.
     ///
-    /// In [PlutusV2](https://github.com/IntersectMBO/cardano-ledger/blob/232511b0fa01cd848cd7a569d1acc322124cf9b8/eras/conway/impl/src/Cardano/Ledger/Conway/TxInfo.hs#L306), Byron addresses are completely disallowed, throwing an error instead
-    // FIXME: make byron addresses impossible at the type level, so that this is not an issue, an error is thrown
+    /// In [PlutusV2](https://github.com/IntersectMBO/cardano-ledger/blob/232511b0fa01cd848cd7a569d1acc322124cf9b8/eras/conway/impl/src/Cardano/Ledger/Conway/TxInfo.hs#L306) and PlutusV3, Byron addresses are completely disallowed, throwing an error instead.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             Address::Shelley(shelley_address) => {

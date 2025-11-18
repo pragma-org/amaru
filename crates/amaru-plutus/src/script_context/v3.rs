@@ -31,8 +31,11 @@ use crate::{
 };
 
 impl ToPlutusData<3> for OutputRef<'_> {
+    /// Serialize an `OutputRef` as PlutusData for PlutusV3.
+    ///
+    /// # Errors
+    /// If the UTxO is locked at a bootstrap address, this will return a `PlutusDataError`.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        // In PlutusV3, Byron addresses are not allowed
         if let Address::Byron(_) = *self.output.address {
             return Err(PlutusDataError::unsupported_version(
                 "byron address included in OutputRef",
@@ -298,6 +301,15 @@ impl ToPlutusData<3> for Proposal {
 
 #[allow(clippy::expect_used)]
 impl ToPlutusData<3> for GovAction {
+    /// Serializes a `GovAction` to PlutusData for PlutusV3.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// This will only return an error if
+    /// a treasury withdrawal is to an invalid reward address.
+    /// This can only happen if the transaction is poorly constructed,
+    /// in which case it will fail phase-one validation.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             GovAction::ParameterChange(previous_action, params, guardrail) => {
@@ -310,14 +322,17 @@ impl ToPlutusData<3> for GovAction {
                 let withdrawals = withdrawals
                     .iter()
                     .map(|(reward_account, amount)| {
-                        Ok((
-                            Address::from_bytes(reward_account).map_err(|_| {
-                                PlutusDataError::Custom(
-                                    "invalid stake address in treasury withdrawal?".into(),
-                                )
-                            })?,
-                            *amount,
-                        ))
+                        let reward_address = if let Ok(Address::Stake(reward_address)) =
+                            Address::from_bytes(reward_account)
+                        {
+                            Ok(reward_address)
+                        } else {
+                            Err(PlutusDataError::Custom(
+                                "invalid stake address in treasury withdrawal?".into(),
+                            ))
+                        }?;
+
+                        Ok((reward_address, *amount))
                     })
                     .collect::<Result<Vec<(_, _)>, _>>()?;
 
