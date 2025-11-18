@@ -1,6 +1,6 @@
 name: "Amaru Docker Image"
 env:
-  REGISTRY: "ghcr.io/pragma-org/amaru"
+  REGISTRY: "ghcr.io"
   IMAGE_NAME: amaru
 
 on:
@@ -32,7 +32,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
       with:
-       images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+       images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}
 
     - name: Build and push Docker image
       id: push
@@ -43,3 +43,5 @@ jobs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
