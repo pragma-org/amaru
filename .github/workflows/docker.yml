@@ -10,7 +10,7 @@ on:
 jobs:
   build-docker-image:
     runs-on: ubuntu-latest
-    # required permissions to be able to push to registry
+
     permissions:
       packages: write
       contents: read
