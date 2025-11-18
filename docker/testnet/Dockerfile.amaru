@@ -1,0 +1,44 @@
+FROM rust:bookworm AS rustbuilder
+
+ARG AMARU_REPO="https://github.com/pragma-org/amaru.git"
+ARG AMARU_REF="main"
+
+# Set time zone
+ENV TZ="UTC"
+RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && \
+    echo ${TZ} > /etc/timezone
+
+
+RUN apt-get update -y \
+    && apt-get install -y \
+        libclang-dev \
+        ca-certificates \
+        libssl3 \
+        llvm-14-runtime \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src
+RUN git clone --branch main ${AMARU_REPO}
+
+# Checkout ouroboros-consensus version
+WORKDIR /usr/src/amaru
+RUN git fetch --all --tags && \
+    git checkout ${AMARU_REF}
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
+
+FROM docker.io/debian:stable-slim AS main
+
+# Set time zone
+ENV TZ="UTC"
+RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && \
+    echo ${TZ} > /etc/timezone
+ENV LC_ALL=en_US.UTF-8
+
+COPY --from=rustbuilder --chown=root:root /usr/src/amaru/target/release/amaru /usr/local/bin/amaru
+
+# Create cardano group and user
+RUN groupadd --gid 10000 cardano && \
+    useradd --comment 'cardano' --create-home --gid 10000 --password '!' --shell '/bin/bash' --uid 10000 cardano
+
+ENTRYPOINT ["/usr/local/bin/amaru"]
