@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use crate::{
-    ArcMapped,
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
         PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
@@ -25,7 +24,7 @@ use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration,
     DatumHash, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
     PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash,
-    StakeCredential, TransactionInput, Vote, Voter,
+    StakeCredential, TransactionInput, Vote, Voter, arc_mapped::ArcMapped,
 };
 use amaru_slot_arithmetic::Epoch;
 use core::mem;

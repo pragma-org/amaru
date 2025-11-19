@@ -16,6 +16,11 @@ pub mod macros;
 pub mod script_context;
 pub mod to_plutus_data;
 
+#[doc(hidden)]
+/// **Unstable internal APIs** - no guarantees, may change at any time.
+/// Only use if you're maintaining code in this workspace.
+pub mod unstable;
+
 use to_plutus_data::*;
 
 pub fn to_cbor_tag(constr_index: u64) -> Option<u64> {

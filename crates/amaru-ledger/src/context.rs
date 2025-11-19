@@ -16,12 +16,12 @@ pub(crate) mod assert;
 mod default;
 mod script;
 
-use crate::{ArcMapped, state::diff_bind};
+use crate::state::diff_bind;
 use amaru_kernel::{
     AddrKeyhash, Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Hash, Lovelace,
     MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId,
     PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential,
-    TransactionInput, Vote, Voter,
+    TransactionInput, Vote, Voter, arc_mapped::ArcMapped,
 };
 use amaru_slot_arithmetic::Epoch;
 use std::{

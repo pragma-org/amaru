@@ -172,6 +172,7 @@ pub mod transaction_pointer;
 
 pub mod vote;
 
+pub mod arc_mapped;
 pub mod macros;
 pub mod serde_utils;
 pub mod string_utils;

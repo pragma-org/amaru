@@ -12,22 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    ArcMapped,
-    context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, Hash,
-        PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
-        PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
-        UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
-        blanket_known_scripts,
-    },
+use crate::context::{
+    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, Hash,
+    PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
+    PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
+    UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
+    blanket_known_scripts,
 };
 use amaru_kernel::{
     AddrKeyhash, Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
     ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, StakeCredentialType,
-    TransactionInput, Vote, Voter, VoterType, serde_utils, stake_credential_hash,
-    voter_credential_hash,
+    TransactionInput, Vote, Voter, VoterType, arc_mapped::ArcMapped, serde_utils,
+    stake_credential_hash, voter_credential_hash,
 };
 use amaru_slot_arithmetic::Epoch;
 use core::mem;

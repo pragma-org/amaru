@@ -146,22 +146,22 @@ impl<'a> ScriptContext<'a> {
 /// Notably, it is not an exact mapping of the transaction on the ledger.
 /// For example, bootstrap addresses are skipped in the inputs, reference inputs, and outputs.
 pub struct TxInfo<'a> {
-    inputs: Vec<OutputRef<'a>>,
-    reference_inputs: Vec<OutputRef<'a>>,
-    outputs: Vec<TransactionOutput<'a>>,
-    fee: Lovelace,
-    mint: Mint<'a>,
-    certificates: Vec<&'a Certificate>,
-    withdrawals: Withdrawals,
-    valid_range: TimeRange,
-    signatories: RequiredSigners,
-    redeemers: Redeemers<'a, ScriptPurpose<'a>>,
-    data: Datums<'a>,
-    id: TransactionId,
-    votes: Votes<'a>,
-    proposal_procedures: Vec<&'a Proposal>,
-    current_treasury_amount: Option<Lovelace>,
-    treasury_donation: Option<Lovelace>,
+    pub(crate) inputs: Vec<OutputRef<'a>>,
+    pub(crate) reference_inputs: Vec<OutputRef<'a>>,
+    pub(crate) outputs: Vec<TransactionOutput<'a>>,
+    pub(crate) fee: Lovelace,
+    pub(crate) mint: Mint<'a>,
+    pub(crate) certificates: Vec<&'a Certificate>,
+    pub(crate) withdrawals: Withdrawals,
+    pub(crate) valid_range: TimeRange,
+    pub(crate) signatories: RequiredSigners,
+    pub(crate) redeemers: Redeemers<'a, ScriptPurpose<'a>>,
+    pub(crate) data: Datums<'a>,
+    pub(crate) id: TransactionId,
+    pub(crate) votes: Votes<'a>,
+    pub(crate) proposal_procedures: Vec<&'a Proposal>,
+    pub(crate) current_treasury_amount: Option<Lovelace>,
+    pub(crate) treasury_donation: Option<Lovelace>,
 }
 
 #[derive(Debug, Error)]

@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use crate::{
-    ArcMapped,
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
         PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
@@ -25,13 +24,15 @@ use amaru_kernel::{
     Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Hash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
     ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput,
-    Vote, Voter,
+    Vote, Voter, arc_mapped::ArcMapped,
 };
 use amaru_slot_arithmetic::Epoch;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+
+use amaru_plutus::unstable::TxInfoStorage;
 use tracing::error;
 
 /// A validation context that also constructs a phase-2 script context. This allows to minimize
@@ -40,14 +41,14 @@ use tracing::error;
 #[derive(Debug)]
 pub struct ScriptEvaluationContext<V: ValidationContext> {
     phase1: V,
-    phase2: TxInfo,
+    phase2: TxInfoStorage,
 }
 
 impl<V: ValidationContext> ScriptEvaluationContext<V> {
     pub fn new(phase1: V) -> Self {
         Self {
             phase1,
-            phase2: TxInfo::default(),
+            phase2: TxInfoStorage::default(),
         }
     }
 }
@@ -261,26 +262,7 @@ impl<V: ValidationContext> WitnessSlice for ScriptEvaluationContext<V> {
     fn known_datums(
         &mut self,
     ) -> BTreeMap<DatumHash, ArcMapped<MemoizedTransactionOutput, MemoizedPlutusData>> {
-        self.phase2.datums = self.phase1.known_datums();
-        self.phase2.datums.clone()
-    }
-}
-
-// -----------------------------------
-
-#[derive(Debug, Default)]
-pub struct TxInfo {
-    inputs: BTreeMap<TransactionInput, Arc<MemoizedTransactionOutput>>,
-    outputs: Vec<Arc<MemoizedTransactionOutput>>,
-    datums: BTreeMap<DatumHash, ArcMapped<MemoizedTransactionOutput, MemoizedPlutusData>>,
-}
-
-impl TxInfo {
-    fn add_input(&mut self, input: TransactionInput, output: Arc<MemoizedTransactionOutput>) {
-        self.inputs.insert(input, output);
-    }
-
-    fn add_output(&mut self, output: Arc<MemoizedTransactionOutput>) {
-        self.outputs.push(output);
+        self.phase2.set_datums(self.phase1.known_datums());
+        self.phase2.datums().clone()
     }
 }

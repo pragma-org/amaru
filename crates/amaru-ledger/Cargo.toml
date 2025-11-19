@@ -34,7 +34,7 @@ amaru-ouroboros-traits.workspace = true
 amaru-progress-bar.workspace = true
 amaru-slot-arithmetic.workspace = true
 amaru-metrics.workspace = true
-
+amaru-plutus.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
