@@ -1001,16 +1001,9 @@
         }
     }
 
+
     function addRunnableFromInputEvent(ev) {
-        const stageName = displayStageName(ev.stage ?? '(unknown)');
-        if (!Array.isArray(currentRunnable)) {
-            currentRunnable = [];
-        }
-        // Only add if not already present
-        const exists = currentRunnable.some(it => it && it.name === stageName);
-        if (exists) return;
-        currentRunnable = currentRunnable.concat([{name: stageName}]);
-        updateStack();
+        addRunnableStage(ev.stage);
     }
 
     function addRunnableFromSuspendEvent(ev) {
@@ -1024,7 +1017,11 @@
         } else {
             return;
         }
-        const stageName = displayStageName(name);
+        addRunnableStage(name);
+    }
+
+    function addRunnableStage(stageNameRaw) {
+        const stageName = displayStageName(stageNameRaw ?? '(unknown)');
         if (!Array.isArray(currentRunnable)) {
             currentRunnable = [];
         }
