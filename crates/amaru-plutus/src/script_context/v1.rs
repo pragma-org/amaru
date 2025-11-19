@@ -77,8 +77,8 @@ where
     ///
     /// # Errors
     /// The following ScriptPurposes cannot be included in PlutusV1 or PlutusV2:
-    /// - `SciptPurpose::Voting`
-    /// - `ScriptPurpose::Spending`
+    /// - `ScriptPurpose::Voting`
+    /// - `ScriptPurpose::Proposing`
     ///
     /// Serializing any of those will result in a `PlutusDataError`
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
@@ -144,8 +144,6 @@ where
     ///
     /// # Errors
     /// The following Certificates cannot be included in PlutusV1 or PlutusV2:
-    /// - `Certificate::Reg`
-    /// - `Certificate::UnReg`
     /// - `Certificate::Reg`
     /// - `Certificate::UnReg`
     /// - `Certificate::VoteDeleg`

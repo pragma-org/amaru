@@ -60,7 +60,7 @@ pub struct ScriptContext<'a> {
 }
 
 impl<'a> ScriptContext<'a> {
-    /// Construct a new [`ScriptContext`]for a specific script execution (specified by the `Redeemer`).
+    /// Construct a new [`ScriptContext`] for a specific script execution (specified by the `Redeemer`).
     ///
     /// Returns `None` if the provided `Redeemer` does not exist in the `TxInfo`
     pub fn new(
