@@ -84,10 +84,11 @@ impl SelectChain {
         // Temporarily take the tree state out of self, to avoid borrowing self
         let tree_state = mem::take(&mut self.tree_state);
         let mut headers_tree = HeadersTree::create(store, tree_state);
-        let result = headers_tree.select_roll_forward(&peer, &header)?;
+        let result = headers_tree.select_roll_forward(&peer, &header);
+        // Make sure to put back the tree state before raising any error
         self.tree_state = headers_tree.into_tree_state();
 
-        let events = match result {
+        let events = match result? {
             ForwardChainSelection::NewTip { peer, tip } => {
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
@@ -366,6 +367,7 @@ pub fn stage(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::consensus::errors::InvalidHeaderParentData;
     use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
     use crate::consensus::{
         effects::mock_consensus_ops, errors::ValidationFailed, headers_tree::Tracker,
@@ -390,7 +392,7 @@ mod tests {
         store.set_anchor_hash(&header0.hash())?;
         store.set_best_chain_hash(&header0.hash())?;
 
-        let state = make_state(store.clone(), &peer, &header0.hash());
+        let state = make_state(store.clone(), &[&peer], &header0.hash());
         let message = make_roll_forward_message(&peer, &header1);
         let (select_chain, _, _) = stage(state, message.clone(), consensus_ops.clone()).await;
         let output = make_block_validated_event(&peer, &header1);
@@ -429,7 +431,7 @@ mod tests {
         store.set_anchor_hash(&header0.hash())?;
         store.set_best_chain_hash(&header0.hash())?;
 
-        let state = make_state(store, &peer, &header0.hash());
+        let state = make_state(store, &[&peer], &header0.hash());
         let message1 = make_roll_forward_message(&peer, &header1);
         let message2 = make_roll_forward_message(&peer, &header2);
         let message3 = make_rollback_message(&peer, &header1);
@@ -459,19 +461,99 @@ mod tests {
         Ok(())
     }
 
+    /// This test reproduces a scenario where a peer sends headers in an incorrect order (due
+    /// to network latencies for example). This causes an error to be raised when processing an
+    /// event. That error should not reset the tree state.
+    #[tokio::test]
+    async fn an_error_does_not_reset_the_tree_state() -> anyhow::Result<()> {
+        let peer1 = Peer::new("peer1");
+        let peer2 = Peer::new("peer2");
+        let headers = run(any_headers_chain(4));
+        let header0 = headers[0].clone();
+        let header1 = headers[1].clone();
+        let header2 = headers[2].clone();
+        let header3 = headers[3].clone();
+
+        let consensus_ops = mock_consensus_ops();
+        let store = consensus_ops.store();
+        store.store_header(&header0)?;
+        store.store_header(&header1)?;
+        store.store_header(&header2)?;
+        store.store_header(&header3)?;
+        store.set_anchor_hash(&header0.hash())?;
+        store.set_best_chain_hash(&header0.hash())?;
+
+        let state = make_state(store.clone(), &[&peer1, &peer2], &header0.hash());
+
+        let message1 = make_roll_forward_message(&peer1, &header1);
+        let message2 = make_roll_forward_message(&peer2, &header1);
+        let message3 = make_roll_forward_message(&peer2, &header3);
+        let message4 = make_roll_forward_message(&peer1, &header2);
+
+        let state1 = stage(state, message1, consensus_ops.clone()).await;
+        let state2 = stage(state1, message2, consensus_ops.clone()).await;
+        // message 3 will cause an error because header3's parent is header2, which
+        // has not been sent yet by peer2
+        let state3 = stage(state2.clone(), message3, consensus_ops.clone()).await;
+        assert_eq!(
+            state3.0.tree_state, state2.0.tree_state,
+            "the tree state should not change after an error"
+        );
+
+        let (select_chain, _, _) = stage(state3, message4.clone(), consensus_ops.clone()).await;
+
+        let output1 = make_block_validated_event(&peer1, &header1);
+        let output2 = make_block_validated_event(&peer1, &header2);
+        let failure = ValidationFailed::new(
+            &peer2,
+            ConsensusError::InvalidHeaderParent(Box::new(InvalidHeaderParentData {
+                peer: peer2.clone(),
+                forwarded: header3.point(),
+                actual: Some(header2.hash()),
+                expected: header1.point(),
+            })),
+        );
+
+        assert_eq!(
+            consensus_ops.mock_base.received(),
+            BTreeMap::from_iter(vec![
+                (
+                    "downstream".to_string(),
+                    vec![format!("{:?}", output1), format!("{:?}", output2)]
+                ),
+                ("errors".to_string(), vec![format!("{:?}", failure)])
+            ])
+        );
+
+        check_peers(
+            select_chain,
+            vec![
+                (Me, vec![header0.hash(), header1.hash(), header2.hash()]),
+                (
+                    SomePeer(peer1),
+                    vec![header0.hash(), header1.hash(), header2.hash()],
+                ),
+                (SomePeer(peer2), vec![header0.hash(), header1.hash()]),
+            ],
+        );
+        Ok(())
+    }
+
     // HELPERS
 
     fn make_state(
         store: Arc<dyn ChainStore<BlockHeader>>,
-        peer: &Peer,
+        peers: &[&Peer],
         anchor: &HeaderHash,
     ) -> State {
         let downstream: StageRef<BlockValidationResult> = StageRef::named("downstream");
         let errors: StageRef<ValidationFailed> = StageRef::named("errors");
         let mut tree_state = HeadersTreeState::new(10);
-        tree_state
-            .initialize_peer(store.clone(), peer, anchor)
-            .unwrap();
+        for peer in peers {
+            tree_state
+                .initialize_peer(store.clone(), peer, anchor)
+                .unwrap();
+        }
         (SelectChain::new(tree_state), downstream, errors)
     }
 
