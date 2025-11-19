@@ -131,12 +131,9 @@ where
                 Ok(())
             }
         };
-        persist_generated_data(&test_run_dir_n, &generated_entries, persist_on_success)?;
-        persist_traces(
-            test_run_dir_n.as_path(),
-            trace_buffer.clone(),
-            persist_on_success,
-        )?;
+        let persist = persist_on_success || result.is_err();
+        persist_generated_data(&test_run_dir_n, &generated_entries, persist)?;
+        persist_traces(test_run_dir_n.as_path(), trace_buffer.clone(), persist)?;
         result?;
     }
 

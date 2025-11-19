@@ -221,6 +221,8 @@
         <input type="file" id="dataFile" accept=".json" hidden>
         <button id="playPause">Pause</button>
         <button id="restart">Restart</button>
+        <button id="stepBack" title="Step backward">◀ Step</button>
+        <button id="stepFwd" title="Step forward">Step ▶</button>
     </div>
 
     <div class="controls">
@@ -255,9 +257,10 @@
     let nodeByHash = new Map(); // hash -> { x, y, slot, gEl, circleEl }
     let rafId = null;
     let running = false;
-    let simStart = 0;      // performance.now() baseline
+    let simStart = 0;      // performance.now() baseline (kept for compatibility, not required)
     let pausedAt = 0;
     let speed = 1.0;      // default from slider
+    let iStep = 0;        // how many messages have been applied so far
     let schedule = [];     // [{arrival: Number(sec), src: 'c1'|'c2', hash: string, shown: boolean}]
     // Keep one live badge per src (e.g., c1, c2) and move it on each arrival
     const srcBadges = new Map(); // src -> { g, rect, text }
@@ -286,6 +289,8 @@
     const speedSlider = document.getElementById('speed');
     const speedVal = document.getElementById('speedVal');
     const latestTimeEl = document.getElementById('latestTime');
+    const stepBackBtn = document.getElementById('stepBack');
+    const stepFwdBtn = document.getElementById('stepFwd');
 
     // Initialize speed UI
     speed = parseFloat(speedSlider.value || '1.0');
@@ -332,6 +337,21 @@
         if (key === 'f') {
             e.preventDefault();
             zoomFit();
+        }
+
+        if (key === 'arrowleft') {
+            if (stepBackBtn) stepBackBtn.click();
+            e.preventDefault();
+        }
+
+        if (key === 'arrowright') {
+            if (stepFwdBtn) stepFwdBtn.click();
+            e.preventDefault();
+        }
+
+        if (key === 'p') {
+            if (playPauseBtn) playPauseBtn.click();
+            e.preventDefault();
         }
     });
 
@@ -556,7 +576,20 @@
     function parseSeconds(s) {
         if (typeof s === 'number') return s;
         if (!s) return 0;
-        const v = parseFloat(String(s).replace(/s$/, '').trim());
+
+        const str = String(s).trim();
+
+        if (str.endsWith('ms')) {
+            const v = parseFloat(str.slice(0, -2)); // drop "ms"
+            return isNaN(v) ? 0 : v / 1000; // convert ms -> s
+        }
+
+        if (str.endsWith('s')) {
+            const v = parseFloat(str.slice(0, -1)); // drop "s"
+            return isNaN(v) ? 0 : v;
+        }
+
+        const v = parseFloat(str);
         return isNaN(v) ? 0 : v;
     }
 
@@ -718,8 +751,8 @@
         updateDeepestHighlightOnArrival(hash);
     }
 
-    function resetSimulation() {
-        // Clear any existing badges
+    function clearMessageState() {
+        // Clear any existing badges and per-node tracking
         Array.from(svg.querySelectorAll('.srcBadge')).forEach(n => n.remove());
         srcBadges.clear();
         srcAtNode.clear();
@@ -731,6 +764,11 @@
         }
         currentDeepestSlot = -Infinity;
         currentDeepestHash = null;
+    }
+
+    function resetSimulation() {
+        clearMessageState();
+
         // Build schedule from messages
         schedule = (messages || []).map(m => ({
             arrival: parseSeconds(m.arrival_time),
@@ -738,45 +776,115 @@
             hash: m.hash,
             shown: false
         })).sort((a, b) => a.arrival - b.arrival);
-        simStart = performance.now();
-        running = true;
-        playPauseBtn.textContent = 'Pause';
+
+        iStep = 0;
         latestTimeEl.textContent = 'Latest arrival: 0.000s';
-        if (!rafId) startLoop();
+        // startLoop() will cancel any existing RAF, reset running/nowStart,
+        // and set the play/pause label appropriately.
+        startLoop();
+    }
+
+    function renderUpToStep(targetIndex) {
+        if (!schedule || !schedule.length) {
+            clearMessageState();
+            latestTimeEl.textContent = 'Latest arrival: 0.000s';
+            iStep = 0;
+            return;
+        }
+
+        const maxIdx = schedule.length;
+        const target = Math.max(0, Math.min(targetIndex, maxIdx));
+
+        clearMessageState();
+
+        let latest = 0;
+        for (let i = 0; i < target; i++) {
+            const item = schedule[i];
+            showSrcBadge(item.hash, item.src, item.arrival);
+            latest = item.arrival;
+        }
+
+        latestTimeEl.textContent = `Latest arrival: ${latest.toFixed(3)}s`;
+        iStep = target;
     }
 
     function startLoop() {
-        if (rafId) cancelAnimationFrame(rafId);
-        // If resuming from pause, shift simStart so time continuity holds
-        if (!running) {
-            const now = performance.now();
-            const pausedDur = now - pausedAt;
-            simStart += pausedDur;
-            running = true;
-            playPauseBtn.textContent = 'Pause';
+        if (!schedule || !schedule.length) {
+            latestTimeEl.textContent = 'Latest arrival: 0.000s';
+            return;
         }
-        const step = () => {
-            const t = ((performance.now() - simStart) / 1000) * speed;
 
-            // Fire any arrivals whose time has come
-            let latest = 0;
-            for (const item of schedule) {
-                if (!item.shown && t >= item.arrival) {
-                    showSrcBadge(item.hash, item.src, item.arrival);
-                    item.shown = true;
-                }
-                if (item.shown) latest = Math.max(latest, item.arrival);
+        if (rafId) cancelAnimationFrame(rafId);
+
+        running = true;
+        playPauseBtn.textContent = 'Pause';
+
+        const nowStart = performance.now();
+        const baseArrival = (iStep > 0 && iStep <= schedule.length)
+            ? schedule[iStep - 1].arrival
+            : 0;
+
+        const step = () => {
+            if (!running) return;
+
+            const elapsedSec = ((performance.now() - nowStart) / 1000) * speed;
+            const t = baseArrival + elapsedSec;
+
+            let latest = (iStep > 0 && iStep <= schedule.length)
+                ? schedule[iStep - 1].arrival
+                : 0;
+
+            while (iStep < schedule.length && t >= schedule[iStep].arrival) {
+                const item = schedule[iStep];
+                showSrcBadge(item.hash, item.src, item.arrival);
+                latest = item.arrival;
+                iStep++;
             }
+
             latestTimeEl.textContent = `Latest arrival: ${latest.toFixed(3)}s`;
 
-            if (running) rafId = requestAnimationFrame(step);
+            if (iStep >= schedule.length) {
+                running = false;
+                playPauseBtn.textContent = 'Play';
+                rafId = null;
+                return;
+            }
+
+            rafId = requestAnimationFrame(step);
         };
+
         rafId = requestAnimationFrame(step);
     }
 
     function startVisualization(treeData, messagesData) {
         messages = messagesData; // ensure global
         resetSimulation();
+    }
+
+    if (stepBackBtn) {
+        stepBackBtn.addEventListener('click', () => {
+            if (!schedule || !schedule.length) return;
+            running = false;
+            playPauseBtn.textContent = 'Play';
+            if (rafId) {
+                cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+            renderUpToStep(iStep - 1);
+        });
+    }
+
+    if (stepFwdBtn) {
+        stepFwdBtn.addEventListener('click', () => {
+            if (!schedule || !schedule.length) return;
+            running = false;
+            playPauseBtn.textContent = 'Play';
+            if (rafId) {
+                cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+            renderUpToStep(iStep + 1);
+        });
     }
 </script>
 </body>
