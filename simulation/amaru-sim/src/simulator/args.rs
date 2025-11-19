@@ -24,38 +24,38 @@ pub const TEST_DATA_DIR: &str = "test-data";
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
     /// Number of tests to run in simulation
-    #[arg(long, default_value = "50")]
+    #[arg(long, default_value = "50", env = "AMARU_NUMBER_OF_TESTS")]
     pub number_of_tests: u32,
 
     /// Number of nodes in simulation.
-    #[arg(long, default_value = "1")]
+    #[arg(long, default_value = "1", env = "AMARU_NUMBER_OF_NODES")]
     pub number_of_nodes: u8,
 
     /// Number of upstream peers to simulate
-    #[arg(long, default_value = "2")]
+    #[arg(long, default_value = "2", env = "AMARU_NUMBER_OF_UPSTREAM_PEERS")]
     pub number_of_upstream_peers: u8,
 
     /// Number of downstream peers to simulate
-    #[arg(long, default_value = "1")]
+    #[arg(long, default_value = "1", env = "AMARU_NUMBER_OF_DOWNSTREAM_PEERS")]
     pub number_of_downstream_peers: u8,
 
     /// Maximum depth of the generated chain for a given peer
-    #[arg(long, default_value = "10")]
+    #[arg(long, default_value = "10", env = "AMARU_GENERATED_CHAIN_DEPTH")]
     pub generated_chain_depth: u64,
 
-    #[arg(long)]
+    #[arg(long, default_value = "false", env = "AMARU_DISABLE_SHRINKING")]
     pub disable_shrinking: bool,
 
     /// Seed for simulation testing.
-    #[arg(long)]
+    #[arg(long, env = "AMARU_TEST_SEED")]
     pub seed: Option<u64>,
 
     /// Persist generated data and pure-stage traces even if the test passes.
-    #[arg(long)]
+    #[arg(long, default_value = "false", env = "AMARU_PERSIST_ON_SUCCESS")]
     pub persist_on_success: bool,
 
     /// Directory where test data must be persisted
-    #[arg(long, default_value = TEST_DATA_DIR)]
+    #[arg(long, default_value = TEST_DATA_DIR, env = "AMARU_TEST_DATA_DIR")]
     pub persist_directory: String,
 }
 

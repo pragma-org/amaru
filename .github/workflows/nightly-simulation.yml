@@ -1,0 +1,94 @@
+name: "Simulation Tests"
+
+permissions:
+  contents: read
+
+env:
+  AMARU_NUMBER_OF_TESTS: ${{ inputs.tests-number || 100 }}
+  AMARU_GENERATED_CHAIN_DEPTH: ${{ inputs.chain-depth || 100 }}
+  AMARU_NUMBER_OF_UPSTREAM_PEERS: ${{ inputs.upstream-peers-number || 4 }}
+  AMARU_TEST_DATA_DIR: simulation/amaru-sim/test-data
+  RUST_BACKTRACE: full
+  RUST_MIN_STACK: 16777216
+
+  RUST_CACHE_PATH: |
+    ~/.cargo/bin/
+    ~/.cargo/registry/index/
+    ~/.cargo/registry/cache/
+    ~/.cargo/git/db/
+    target/
+
+on:
+
+  # This workflow runs on the main branch when there's a push
+  push:
+    branches: ["main"]
+
+  # This workflow can also be dispatched manually
+  workflow_dispatch:
+    inputs:
+      tests-number:
+        description: 'Number of tests'
+        required: true
+        default: 100
+        type: number
+      chain-depth:
+        description: 'Length of the longest generated chain'
+        required: true
+        default: 100
+        type: number
+      upstream-peers-number:
+        description: 'Number of upstream peers'
+        required: true
+        default: 4
+        type: number
+      test-seed:
+        description: 'Run with a specific seed (leave empty for a random seed)'
+        required: false
+        default: ''
+        type: string
+  schedule:
+    # run every 6 hours
+    - cron: '5 1,7,13,19 * * *'
+
+jobs:
+  run-simulation-tests:
+    name: Build ${{ matrix.environments.title }}
+    timeout-minutes: 600
+    strategy:
+      fail-fast: false
+      matrix:
+        # run only on linux for now.
+        environments:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            title: x86_64/linux
+
+    runs-on: ${{ matrix.environments.runner }}
+    steps:
+      - name: Set AMARU_TEST_SEED if provided
+        if: ${{ inputs.test-seed != '' }}
+        run: echo "AMARU_TEST_SEED=${{ inputs.test-seed }}" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      # restore the cache
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-${{ matrix.environments.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ matrix.environments.target }}-
+      - name: Run tests
+        shell: bash
+        run: |
+          set -e
+          cargo run -p amaru-sim --locked --target ${{ matrix.environments.target }}
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-simulation-data
+          path: simulation/amaru-sim/test-data
