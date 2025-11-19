@@ -40,8 +40,8 @@ use std::{
 pub use amaru_minicbor_extra::*;
 pub use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 pub use pallas_addresses::{
-    Address, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress,
-    StakePayload, byron::AddrType,
+    Address, Error as AddressError, Network, ShelleyAddress, ShelleyDelegationPart,
+    ShelleyPaymentPart, StakeAddress, StakePayload, byron::AddrType,
 };
 pub use pallas_codec::{
     minicbor as cbor,
