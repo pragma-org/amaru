@@ -28,7 +28,6 @@ cbor4ii = { version = "1.1.1", features = ["serde1", "use_std"] }
 clap = { version = "4.5.48", features = ["derive", "env"] }
 either = "1.15"
 futures-util = "0.3.31"
-gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
 hex = "0.4.3"
 indicatif = "0.18.0"
 indoc = "2.0"
@@ -66,7 +65,6 @@ sysinfo = "0.37.1"
 thiserror = "2.0.17"
 tokio = { version = "1.45.0", features = ["sync"] }
 tokio-util = "0.7.12"
-tokio-stream = "0.1.17"
 tracing = { version = "0.1.40", features = ["valuable"] }
 tracing-opentelemetry = "0.32.0"
 tracing-subscriber = { version = "0.3.20", features = [

@@ -14,6 +14,7 @@
 
 use amaru_consensus::consensus::effects::FetchBlockEffect;
 use amaru_consensus::consensus::errors::ConsensusError;
+use amaru_sim::simulator::TEST_DATA_DIR;
 use amaru_sim::simulator::{
     Args, GeneratedEntries, NodeConfig, SimulateConfig, generate_entries, run::spawn_node,
 };
@@ -34,7 +35,6 @@ use tracing::info_span;
 // supposed to be deterministic in the simulation. Perhaps this
 // happens because of the tracing library?
 #[test]
-#[ignore]
 fn run_simulator_with_traces() {
     let args = Args {
         number_of_tests: 1,
@@ -45,6 +45,7 @@ fn run_simulator_with_traces() {
         disable_shrinking: true,
         seed: Some(43),
         persist_on_success: false,
+        persist_directory: format!("{TEST_DATA_DIR}/run_simulator_with_traces"),
     };
     let node_config = NodeConfig::from(args.clone());
 
@@ -94,42 +95,37 @@ fn run_simulator_with_traces() {
     assert_spans_trees(
         execute,
         vec![json!(
-            {
-              "name": "handle_msg",
-              "children": [
-                {
-                  "name": "stage.receive_header",
-                  "children": [
-                    {
-                      "name": "consensus.decode_header"
-                    }
-                  ]
-                },
-                {
-                  "name": "stage.track_peers",
-                },
-                {
-                  "name": "stage.validate_header",
-                },
-                {
-                  "name": "stage.fetch_block"
-                },
-                {
-                  "name": "stage.validate_block"
-                },
-                {
-                  "name": "stage.select_chain",
-                  "children": [
-                    {
-                      "name": "trim_chain"
-                    }
-                  ]
-                },
-                {
-                  "name": "stage.forward_chain"
-                }
-              ]
-            }
-        )],
+        {
+         "name": "handle_msg",
+         "children": [
+           {
+             "name": "chain_sync.receive_header",
+             "children": [
+               {
+                 "name": "chain_sync.decode_header"
+               }
+             ]
+           },
+           {
+             "name": "chain_sync.track_peers"
+           },
+           {
+             "name": "chain_sync.validate_header"
+           },
+           {
+             "name": "diffusion.fetch_block"
+           },
+           {
+             "name": "chain_sync.validate_block"
+           },
+           {
+             "name": "chain_sync.select_chain"
+           },
+           {
+             "name": "diffusion.forward_chain"
+           }
+         ]
+        }
+         )],
     );
 }

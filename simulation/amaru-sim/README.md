@@ -8,8 +8,13 @@ increasing order of fidelity:
 1. ✅ In-process deterministic testing, completely simulating the environment,
    allowing arbitrary fault injections and full control over concurrency and
    other side-effects
-2. 🚧 [Maelstrom](https://github.com/jepsen-io/maelstrom/)-like testing through
-   stdin/stdout interface ignoring network interactions
+2. 🔴 [Maelstrom](https://github.com/jepsen-io/maelstrom/)-like testing through
+   stdin/stdout interface ignoring network interactions.
+
+   > [!NOTICE]
+   > This is where we started initially but it seems there are now more
+   > interesting alternatives like [cardano-ignite](https://github.com/cardano-foundation/cardano-ignite) or [Moog](https://github.com/cardano-foundation/moog)
+
 3. 🚧 [Jepsen](https://github.com/jepsen-io/jepsen)-like testing through
    full-blown deployment of a cluster and actual networking stack
 4. ✅ [Antithesis](https://antithesis.com) support
@@ -230,6 +235,14 @@ This will display:
   * `Suspend` stop the stage to execute an effect, like sending a message to another stage or use storage.
 * Below each stage, a label showing when the last header hash was received as an input.
 * Above each stage, if applicable, a label showing the external effect currently being executed.
+
+### Logging
+
+The simulator outputs its logs and traces to the `stdout` at the `info` level as JSON formatted entries. To get more details one can use the standard `RUST_LOG` environment variable, possibly with detailed configuration for different namespaces, eg.:
+
+```
+RUST_LOG=amaru=debug,amaru_sim::simulator::world=info cargo run -p amaru-sim
+```
 
 # References
 

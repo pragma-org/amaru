@@ -33,7 +33,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     mem,
 };
-use tracing::{Instrument, Span, info, trace};
+use tracing::{Instrument, Span, debug, info, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -74,7 +74,7 @@ impl SelectChain {
         result
     }
 
-    pub async fn select_chain(
+    pub async fn select_roll_forward(
         &mut self,
         store: Arc<dyn ChainStore<BlockHeader>>,
         peer: Peer,
@@ -96,11 +96,11 @@ impl SelectChain {
                 rollback_header,
                 fork,
             }) => {
-                info!(target: EVENT_TARGET, rollback = %rollback_header.point(), length = fork.len(), "switching to fork");
+                debug!(target: EVENT_TARGET, rollback_point = %rollback_header.point(), length = fork.len(), "roll_forward.switch_to_fork");
                 SelectChain::switch_to_fork(peer, rollback_header.point(), fork, span)
             }
             ForwardChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, "no change");
+                trace!(target: EVENT_TARGET, "roll_forward.no_change");
                 vec![]
             }
         };
@@ -127,7 +127,7 @@ impl SelectChain {
                 rollback_header,
                 fork,
             }) => {
-                info!(target: EVENT_TARGET, rollback = %rollback_header.point(), length = fork.len(), "switching to fork");
+                info!(target: EVENT_TARGET, rollback_point = %rollback_header.point(), length = fork.len(), "rollback.switch_to_fork");
                 Ok(SelectChain::switch_to_fork(
                     peer,
                     rollback_header.point(),
@@ -135,7 +135,10 @@ impl SelectChain {
                     span,
                 ))
             }
-            RollbackChainSelection::NoChange => Ok(vec![]),
+            RollbackChainSelection::NoChange => {
+                trace!(target: EVENT_TARGET, "rollback.no_change");
+                Ok(vec![])
+            }
             RollbackChainSelection::RollbackBeyondLimit {
                 peer,
                 rollback_point,
@@ -157,7 +160,10 @@ impl SelectChain {
             match chain_sync {
                 DecodedChainSyncEvent::RollForward {
                     peer, header, span, ..
-                } => self.select_chain(store.clone(), peer, header, span).await,
+                } => {
+                    self.select_roll_forward(store.clone(), peer, header, span)
+                        .await
+                }
                 DecodedChainSyncEvent::Rollback {
                     peer,
                     rollback_point,
@@ -275,7 +281,7 @@ pub fn stage(
     msg: DecodedChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "stage.select_chain");
+    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.select_chain");
     async move {
         let store = eff.store();
         let peer = msg.peer();

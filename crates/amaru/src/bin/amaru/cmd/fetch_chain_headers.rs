@@ -80,8 +80,8 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    info!(config=?args.config_dir, peer=%args.peer_address, network=%args.network,
-          "fetching chain headers",
+    info!(config=%args.config_dir.to_string_lossy(), peer=%args.peer_address, network=%args.network,
+          "Running command fetch-chain-headers",
     );
     let network = args.network;
     let network_dir = args.config_dir.join(&*network.to_string());
@@ -133,13 +133,6 @@ pub(crate) async fn fetch_headers(
     let mut count = 0;
     let mut progress: Option<Box<dyn ProgressBar>> = None;
 
-    // TODO: implement a proper pipelined client because this one is super slow
-    // Pipelining in Haskell is single threaded which implies the code handles
-    // scheduling between sending burst of MsgRequest and collecting responses.
-    // Here we can do better thanks to gasket's workers: just spawn 2 workers,
-    // one for sending requests and the other for handling responses, along
-    // with a shared counter.
-    // Pipelining stops when we reach the tip of the peer's chain.
     loop {
         let what = if client.has_agency() {
             request_next_block(&mut client, config_dir, &mut count, &mut progress, max).await?

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::echo::Envelope;
+use crate::simulator::Envelope;
 use crate::simulator::NodeConfig;
 use crate::simulator::{
     Args, History, NodeHandle, SimulateConfig, bytes::Bytes, generate::generate_entries,
@@ -120,7 +120,7 @@ pub fn spawn_node(
     Receiver<Envelope<ChainSyncMessage>>,
     Receiver<Envelope<ChainSyncMessage>>,
 ) {
-    info!("Spawning node!");
+    info!(node_id, "node.spawn");
     let (network_name, select_chain, sync_tracker, resource_header_store, resource_validation) =
         init_node(&node_config);
     let global_parameters: &GlobalParameters = network_name.into();
@@ -321,9 +321,10 @@ The actions are
 /// Generate statistics from actions and log them.
 fn display_entries_statistics(generated_actions: &GeneratedActions) {
     let statistics = generated_actions.statistics();
-    for statistic in statistics.display_as_lines() {
-        info!("{}", statistic);
-    }
+    info!(tree_depth=%statistics.tree_depth,
+          tree_nodes=%statistics.number_of_nodes,
+          tree_forks=%statistics.number_of_fork_nodes,
+          "simulate.generate_test_data.statistics");
 }
 
 /// Build the best chain from messages sent to downstream peers.

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::echo::Envelope;
+use crate::simulator::Envelope;
 use crate::sync::ChainSyncMessage;
 use futures_util::SinkExt;
 use tokio::io::{Stdout, stdout};

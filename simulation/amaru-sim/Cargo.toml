@@ -18,7 +18,6 @@ async-trait.workspace = true
 cbor4ii.workspace = true
 clap.workspace = true
 futures-util.workspace = true
-gasket.workspace = true
 hex.workspace = true
 pallas-crypto.workspace = true
 pallas-primitives.workspace = true
@@ -34,7 +33,6 @@ tokio = { workspace = true, features = [
   "signal",
   "io-util",
 ] }
-tokio-stream.workspace = true
 tokio-util.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
@@ -56,7 +54,3 @@ amaru-tracing-json.workspace = true
 [[bin]]
 name = "simulator"
 path = "src/bin/amaru-sim/main.rs"
-
-[[bin]]
-name = "echo"
-path = "src/bin/echo/main.rs"

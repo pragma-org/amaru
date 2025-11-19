@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::echo::Envelope;
+use crate::simulator::Envelope;
 use crate::simulator::world::world::Next::{Continue, Done, Panic};
 use crate::simulator::{NodeHandle, StepResult};
 use amaru_kernel::string_utils::ListToString;
@@ -22,7 +22,7 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::{BTreeMap, BinaryHeap};
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 /// This data structure represents a simulated 'world' of interconnected nodes.
 /// Nodes are identified by string ids:
@@ -101,7 +101,7 @@ impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
     /// Returns either the history of messages processed since the last run or an error with the reason
     /// for the panic and the history of messages processed until the panic.
     pub fn run_world(&mut self) -> Result<&[Envelope<Msg>], (String, &[Envelope<Msg>])> {
-        info!("Run the simulation, one step at a time");
+        info!("simulate.world.start");
         let prev = self.history.0.len();
         let mut next = Continue;
         while next == Continue {
@@ -126,8 +126,8 @@ impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
             // eg. run all nodes whose next action is earlier than msg's arrival time
             // and enqueue their output messages possibly bailing out and recursing
             {
-                info!(msg = %envelope, arrival = %arrival_time.to_string(), "stepping");
-                debug!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
+                debug!(msg = %envelope, arrival = %arrival_time.to_string(), "simulate.world.stepping");
+                trace!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "simulate.world.stepping");
                 if envelope.is_client_message() {
                     self.history.0.push(envelope.clone());
                 }
@@ -171,7 +171,7 @@ impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
                 );
 
                 if blocked_nodes_nb == self.nodes.len() && no_more_messages {
-                    info!("all nodes have finished processing messages");
+                    info!("simulate.world.done");
                     Done
                 } else {
                     Continue
@@ -183,7 +183,7 @@ impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
     fn process_outgoing(&mut self, arrival_time: Instant, outgoing: Vec<Envelope<Msg>>) {
         if !outgoing.is_empty() {
             let outgoing_to_string = format!("[{}]", outgoing.list_to_string(", "));
-            info!(outgoing = %outgoing_to_string, "outgoing");
+            debug!(outgoing = %outgoing_to_string, "simulate.world.outgoing");
         }
         let (client_responses, outputs): (Vec<Envelope<Msg>>, Vec<Envelope<Msg>>) = outgoing
             .into_iter()

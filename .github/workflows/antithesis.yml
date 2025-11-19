@@ -1,0 +1,118 @@
+name: "Antithesis Tests"
+env:
+  TESTNET: "testnet"
+  REGISTRY: ghcr.io/pragma-org/amaru
+  EMAILS: 'antithesis@cardanofoundation.org'
+  DURATION: ${{ inputs.duration || 3 }}
+on:
+  # can be dispatched manually
+  workflow_dispatch:
+     inputs:
+       test:
+        description: 'Test configuration to run (a sub-directory of docker/)'
+        required: true
+        default: testnet
+        type: string
+       duration:
+        description: 'Test duration (in hours)'
+        required: false
+        default: 5
+        type: number
+       no-faults:
+        description: 'Run the test without injecting faults'
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # run every 6 hours
+    - cron:  '5 1,7,13,19 * * *'
+
+jobs:
+  run-antithesis:
+    runs-on: ubuntu-latest
+    env:
+      MOOG_GITHUB_PAT: ${{ secrets.MOOG_GITHUB_PAT }}
+      MOOG_WALLET_FILE: wallet.json
+      MOOG_MPFS_HOST: ${{ vars.MOOG_MPFS_HOST }}
+      MOOG_TOKEN_ID: ${{ vars.MOOG_TOKEN_ID }}
+      MOOG_PLATFORM: github
+      MOOG_REQUESTER: abailly
+
+    timeout-minutes: 600
+
+    # required permissions to be able to push to registry
+    permissions:
+      packages: write
+      contents: read
+      attestations: write
+      id-token: write
+
+    steps:
+    - name: 🚧 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.ref_name || '' }}
+
+    - name: 🔑 Login Docker Registry
+      uses: docker/login-action@v3
+      with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+    - id: moog
+      name: Get latest moog release tag
+      uses: pozetroninc/github-action-get-latest-release@master
+      with:
+        repository: cardano-foundation/moog
+
+    - name: Download moog from latest release
+      uses: robinraju/release-downloader@v1.10
+      with:
+        repository: cardano-foundation/moog
+        tag: ${{ steps.moog.outputs.release }}
+        fileName: "moog-*-linux64.tar.gz"
+        out-file-path: "."
+        extract: true
+
+    - name: Install moog
+      run: |
+        echo "Release: ${{ steps.moog.outputs.release }}"
+        sudo install -m 0755 moog /usr/local/bin/moog
+        moog --version
+
+    - name: Configure moog wallet
+      run: printf '%s' "${{ secrets.MOOG_REQUESTER_WALLET }}" | base64 --decode > $MOOG_WALLET_FILE
+
+    - name: Submit test
+      id: request
+      run: |
+        set -euo pipefail
+        TRY=$(moog facts test-runs --whose abailly | jq 'map(select(.key.commitId == "${{ github.sha }}")) | length')
+        TRY=$(($TRY + 1)) # start with try=1
+        echo "TRY=$TRY"
+        if [ "${{ inputs.no-faults }}" = "true" ]; then
+          render_no_faults="--no-faults"
+        else
+          render_no_faults=""
+        fi
+        RESULT=$(moog requester create-test -d "docker/$TESTNET" \
+          -c ${{ github.sha }} \
+          -r "$GITHUB_REPOSITORY" \
+          --try $TRY \
+          -t $DURATION \
+          $render_no_faults)
+        echo $RESULT
+
+        # Passing -e and -r in separate jq calls ensures we both unwrap
+        # the string quotes and fail if the json isn't as expected.
+        ID=$(echo $RESULT | jq -e .value.testRunId | jq -r .)
+        TXID=$(echo $RESULT | jq -e .txHash | jq -r .)
+        echo "id=$ID" >> "$GITHUB_OUTPUT"
+        echo "txHash=$TXID" >> "$GITHUB_OUTPUT"
+
+    - name: Wait for results
+      run: timeout $((($DURATION + 1) * 3600)) ./scripts/wait-for-test.sh "${{ steps.request.outputs.id }}"

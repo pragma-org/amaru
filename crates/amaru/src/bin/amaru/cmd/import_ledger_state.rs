@@ -81,6 +81,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger_dir = args
         .ledger_dir
         .unwrap_or_else(|| default_ledger_dir(args.network).into());
+
+    info!(network = %args.network, ledger_dir=%ledger_dir.to_string_lossy(), snapshot=?args.snapshot, snapshot_dir=%args.snapshot_dir.clone().unwrap_or_default().to_string_lossy(),
+          "Running command import-ledger-state",
+    );
+
     if !args.snapshot.is_empty() {
         import_all(args.network, &args.snapshot, &ledger_dir).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
