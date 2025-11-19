@@ -274,7 +274,6 @@
             fill: var(--node);
             stroke: var(--node-stroke);
             stroke-width: 2;
-            r: 18;
             transition: stroke-width .2s ease, fill .2s ease;
         }
 
@@ -627,6 +626,7 @@
             const c = document.createElementNS(ns, 'circle');
             c.setAttribute('cx', x);
             c.setAttribute('cy', y);
+            c.setAttribute('r', 18);
             c.setAttribute('class', 'resumeNode');
             svg.appendChild(c);
 
