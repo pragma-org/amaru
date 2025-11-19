@@ -38,12 +38,12 @@ use tracing::error;
 /// cloning and traversal of transaction constituents during validation. It is built as a wrapper
 /// on top of an existing validation context to allow for a clearer separation of concerns.
 #[derive(Debug)]
-pub struct ScriptContext<V: ValidationContext> {
+pub struct ScriptEvaluationContext<V: ValidationContext> {
     phase1: V,
     phase2: TxInfo,
 }
 
-impl<V: ValidationContext> ScriptContext<V> {
+impl<V: ValidationContext> ScriptEvaluationContext<V> {
     pub fn new(phase1: V) -> Self {
         Self {
             phase1,
@@ -52,23 +52,25 @@ impl<V: ValidationContext> ScriptContext<V> {
     }
 }
 
-impl<V: ValidationContext + Into<VolatileState>> From<ScriptContext<V>> for VolatileState {
-    fn from(ctx: ScriptContext<V>) -> Self {
+impl<V: ValidationContext + Into<VolatileState>> From<ScriptEvaluationContext<V>>
+    for VolatileState
+{
+    fn from(ctx: ScriptEvaluationContext<V>) -> Self {
         ctx.phase1.into()
     }
 }
 
-impl<V: ValidationContext> ValidationContext for ScriptContext<V> {
+impl<V: ValidationContext> ValidationContext for ScriptEvaluationContext<V> {
     type FinalState = V::FinalState;
 }
 
-impl<V: ValidationContext> PotsSlice for ScriptContext<V> {
+impl<V: ValidationContext> PotsSlice for ScriptEvaluationContext<V> {
     fn add_fees(&mut self, fees: Lovelace) {
         self.phase1.add_fees(fees)
     }
 }
 
-impl<V: ValidationContext> UtxoSlice for ScriptContext<V> {
+impl<V: ValidationContext> UtxoSlice for ScriptEvaluationContext<V> {
     fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         UtxoSlice::lookup(&self.phase1, input)
     }
@@ -102,7 +104,7 @@ impl<V: ValidationContext> UtxoSlice for ScriptContext<V> {
     }
 }
 
-impl<V: ValidationContext> PoolsSlice for ScriptContext<V> {
+impl<V: ValidationContext> PoolsSlice for ScriptEvaluationContext<V> {
     fn lookup(&self, pool: &PoolId) -> Option<&PoolParams> {
         PoolsSlice::lookup(&self.phase1, pool)
     }
@@ -116,7 +118,7 @@ impl<V: ValidationContext> PoolsSlice for ScriptContext<V> {
     }
 }
 
-impl<V: ValidationContext> AccountsSlice for ScriptContext<V> {
+impl<V: ValidationContext> AccountsSlice for ScriptEvaluationContext<V> {
     fn lookup(&self, credential: &StakeCredential) -> Option<&AccountState> {
         AccountsSlice::lookup(&self.phase1, credential)
     }
@@ -156,7 +158,7 @@ impl<V: ValidationContext> AccountsSlice for ScriptContext<V> {
     }
 }
 
-impl<V: ValidationContext> DRepsSlice for ScriptContext<V> {
+impl<V: ValidationContext> DRepsSlice for ScriptEvaluationContext<V> {
     fn lookup(&self, credential: &StakeCredential) -> Option<&DRepRegistration> {
         DRepsSlice::lookup(&self.phase1, credential)
     }
@@ -183,7 +185,7 @@ impl<V: ValidationContext> DRepsSlice for ScriptContext<V> {
     }
 }
 
-impl<V: ValidationContext> CommitteeSlice for ScriptContext<V> {
+impl<V: ValidationContext> CommitteeSlice for ScriptEvaluationContext<V> {
     fn delegate_cold_key(
         &mut self,
         cc_member: StakeCredential,
@@ -201,7 +203,7 @@ impl<V: ValidationContext> CommitteeSlice for ScriptContext<V> {
     }
 }
 
-impl<V: ValidationContext> ProposalsSlice for ScriptContext<V> {
+impl<V: ValidationContext> ProposalsSlice for ScriptEvaluationContext<V> {
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
         self.phase1.acknowledge(id, pointer, proposal)
     }
@@ -211,7 +213,7 @@ impl<V: ValidationContext> ProposalsSlice for ScriptContext<V> {
     }
 }
 
-impl<V: ValidationContext> WitnessSlice for ScriptContext<V> {
+impl<V: ValidationContext> WitnessSlice for ScriptEvaluationContext<V> {
     fn require_vkey_witness(&mut self, vkey_hash: amaru_kernel::AddrKeyhash) {
         self.phase1.require_vkey_witness(vkey_hash)
     }
