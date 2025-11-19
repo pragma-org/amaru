@@ -19,7 +19,6 @@
     clippy::expect_used
 )]
 
-use crate::effect_box::SyncEffectBox;
 #[cfg(test)]
 use crate::simulation::SimulationBuilder;
 use crate::{
@@ -73,7 +72,6 @@ pub struct SimulationRunning {
     stages: BTreeMap<Name, StageData>,
     inputs: Inputs,
     effect: EffectBox,
-    sync_effect: SyncEffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
     runnable: VecDeque<(Name, StageResponse)>,
@@ -95,7 +93,6 @@ impl SimulationRunning {
         stages: BTreeMap<Name, StageData>,
         inputs: Inputs,
         effect: EffectBox,
-        sync_effect: SyncEffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
         resources: Resources,
         mailbox_size: usize,
@@ -108,7 +105,6 @@ impl SimulationRunning {
             stages,
             inputs,
             effect,
-            sync_effect,
             clock,
             resources,
             runnable: VecDeque::new(),
@@ -307,11 +303,7 @@ impl SimulationRunning {
         };
 
         tracing::debug!(name = %name, "resuming stage");
-        self.trace_buffer.lock().push_resume(
-            &name,
-            &response,
-            &self.runnable.iter().collect::<Vec<_>>(),
-        );
+        self.trace_buffer.lock().push_resume(&name, &response);
 
         let data = self
             .stages
@@ -319,7 +311,7 @@ impl SimulationRunning {
             .expect("stage was runnable, so it must exist");
 
         let effect = poll_stage(
-            &mut self.trace_buffer.lock(),
+            &self.trace_buffer,
             data,
             name.clone(),
             response,
@@ -340,10 +332,6 @@ impl SimulationRunning {
             resume_call_internal(data, run, id).ok();
         }
 
-        if let Some(sync_effect) = self.sync_effect.lock().take() {
-            let (_, effect) = sync_effect.split(name);
-            self.trace_buffer.lock().push_suspend(&effect);
-        };
         self.trace_buffer.lock().push_suspend(&effect);
 
         Ok(effect)
@@ -586,21 +574,6 @@ impl SimulationRunning {
                 let data = self.stages.get_mut(&at_stage).unwrap();
                 resume_external_internal(data, result, run)
                     .expect("external effect is always runnable");
-            }
-            Effect::ExternalSync {
-                at_stage,
-                effect_type,
-                effect,
-                response,
-            } => {
-                tracing::info!(stage = %at_stage, "external sync");
-                let effect = Effect::ExternalSync {
-                    at_stage,
-                    effect_type,
-                    effect,
-                    response,
-                };
-                self.trace_buffer.lock().push_suspend(&effect);
             }
             Effect::Terminate { at_stage } => {
                 tracing::info!(stage = %at_stage, "terminated");
@@ -1014,7 +987,7 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
 /// The `response` is the input with which the stage is resumed.
 #[cfg(feature = "simulation")]
 pub(crate) fn poll_stage(
-    trace_buffer: &mut TraceBuffer,
+    trace_buffer: &Arc<Mutex<TraceBuffer>>,
     data: &mut StageData,
     name: Name,
     response: StageResponse,
@@ -1031,7 +1004,7 @@ pub(crate) fn poll_stage(
     let result = pin.as_mut().poll(&mut Context::from_waker(Waker::noop()));
 
     if let Poll::Ready(state) = result {
-        trace_buffer.push_state(&name, &state);
+        trace_buffer.lock().push_state(&name, &state);
         data.state = StageState::Idle(state);
         data.waiting = Some(StageEffect::Receive);
         Effect::Receive { at_stage: name }

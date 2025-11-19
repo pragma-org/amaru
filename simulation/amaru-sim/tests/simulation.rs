@@ -175,9 +175,8 @@ fn get_traces(
         "{}/{simulation_run}/{test_run}/traces.cbor",
         test_directory.display()
     );
-    let path = Path::new(&path);
     let latest_trace =
-        fs::canonicalize(path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+        fs::canonicalize(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
     load_trace_entries(&latest_trace)
 }
 
