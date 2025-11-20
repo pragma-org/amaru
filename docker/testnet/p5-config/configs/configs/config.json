@@ -71,7 +71,8 @@
     "": {
       "backends": [
         "EKGBackend",
-        "Forwarder"
+        "Forwarder",
+        "Stdout HumanFormatColoured"
       ],
       "detail": "DNormal",
       "severity": "Notice"
@@ -104,16 +105,16 @@
       "severity": "Warning"
     },
     "Forge.Loop": {
-      "severity": "Info"
+      "severity": "Warning"
     },
     "Forge.StateInfo": {
-      "severity": "Info"
+      "severity": "Warning"
     },
     "Mempool": {
       "severity": "Silence"
     },
     "Net.ConnectionManager.Remote": {
-      "severity": "Info"
+      "severity": "Warning"
     },
     "Net.ConnectionManager.Remote.ConnectionManagerCounters": {
       "severity": "Silence"
@@ -128,10 +129,10 @@
       "severity": "Warning"
     },
     "Net.InboundGovernor.Remote": {
-      "severity": "Info"
+      "severity": "Warning"
     },
     "Net.Mux.Remote": {
-      "severity": "Info"
+      "severity": "Warning"
     },
     "Net.PeerSelection": {
       "severity": "Silence"
@@ -170,12 +171,12 @@
   "defaultScribes": [
     [
       "FileSK",
-      "/state/node.5.log"
+      "/state/node.1.log"
     ]
   ],
   "hasPrometheus": [
     "0.0.0.0",
-    9105
+    9101
   ],
   "minSeverity": "Info",
   "options": {
@@ -197,7 +198,7 @@
     {
       "scFormat": "ScJson",
       "scKind": "FileSK",
-      "scName": "/state/node.5.log",
+      "scName": "/state/node.1.log",
       "scRotation": null
     }
   ],
