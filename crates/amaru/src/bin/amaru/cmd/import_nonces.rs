@@ -74,8 +74,7 @@ fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let nonces_file = args
         .nonces_file
-        .unwrap_or_else(|| default_data_dir(args.network).into())
-        .join("nonces.json");
+        .unwrap_or_else(|| PathBuf::from(default_data_dir(args.network)).join("nonces.json"));
 
     let chain_dir = args
         .chain_dir
