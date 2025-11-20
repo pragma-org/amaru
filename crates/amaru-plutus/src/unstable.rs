@@ -5,8 +5,6 @@ use amaru_kernel::{
     arc_mapped::ArcMapped,
 };
 
-use crate::script_context::{OutputRef, TxInfo};
-
 /// A TxInfoStorage type to store owned data
 /// Which allows the `TxInfo` type to still use references
 ///
@@ -38,41 +36,5 @@ impl TxInfoStorage {
         &self,
     ) -> &BTreeMap<DatumHash, ArcMapped<MemoizedTransactionOutput, MemoizedPlutusData>> {
         &self.datums
-    }
-
-    pub fn to_tx_info(&self) -> TxInfo<'_> {
-        let inputs = self
-            .inputs
-            .iter()
-            .map(|(input, output)| OutputRef {
-                input,
-                output: output.as_ref().into(),
-            })
-            .collect();
-
-        let outputs = self
-            .outputs
-            .iter()
-            .map(|output| output.as_ref().into())
-            .collect();
-
-        TxInfo {
-            inputs,
-            outputs,
-            reference_inputs: todo!(),
-            fee: todo!(),
-            mint: todo!(),
-            certificates: todo!(),
-            withdrawals: todo!(),
-            valid_range: todo!(),
-            signatories: todo!(),
-            redeemers: todo!(),
-            data: todo!(),
-            id: todo!(),
-            votes: todo!(),
-            proposal_procedures: todo!(),
-            current_treasury_amount: todo!(),
-            treasury_donation: todo!(),
-        }
     }
 }

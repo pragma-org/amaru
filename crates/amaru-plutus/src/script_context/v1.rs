@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 use amaru_kernel::{Address, AssetName, Hash, TransactionInput};
 
@@ -24,7 +24,7 @@ use crate::{
     },
 };
 
-impl ToPlutusData<1> for OutputRef<'_> {
+impl ToPlutusData<1> for OutputRef {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr_v1!(0, [self.input, self.output])
     }
@@ -41,15 +41,15 @@ impl ToPlutusData<1> for ScriptContext<'_> {
     }
 }
 
-impl ToPlutusData<1> for TxInfo<'_> {
+impl ToPlutusData<1> for TxInfo {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         let inputs = self
             .inputs
             .iter()
-            .filter(|output_ref| !matches!(*output_ref.output.address, Address::Byron(..)))
+            .filter(|output_ref| !matches!(output_ref.output.address, Address::Byron(..)))
             .collect::<Vec<_>>();
 
-        let fee: Value<'_> = self.fee.into();
+        let fee: Value = self.fee.into();
 
         constr_v1!(
             0,
@@ -69,7 +69,7 @@ impl ToPlutusData<1> for TxInfo<'_> {
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for ScriptPurpose<'_>
+impl<const V: u8> ToPlutusData<V> for ScriptPurpose
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
@@ -102,7 +102,7 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for Value<'_>
+impl<const V: u8> ToPlutusData<V> for Value
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
@@ -118,7 +118,7 @@ where
 
             map.insert(
                 CurrencySymbol::Lovelace,
-                BTreeMap::from([(Cow::Owned(AssetName::from(vec![])), 0u64)]),
+                BTreeMap::from([(AssetName::from(vec![]), 0u64)]),
             );
 
             map.to_plutus_data()
@@ -189,7 +189,7 @@ where
     }
 }
 
-impl ToPlutusData<1> for TransactionOutput<'_> {
+impl ToPlutusData<1> for TransactionOutput {
     #[allow(clippy::wildcard_enum_match_arm)]
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr_v1!(
@@ -198,7 +198,7 @@ impl ToPlutusData<1> for TransactionOutput<'_> {
                 self.address,
                 self.value,
                 match self.datum {
-                    DatumOption::Hash(hash) => Some(*hash),
+                    DatumOption::Hash(hash) => Some(hash),
                     _ => None::<Hash<32>>,
                 },
             ]
@@ -206,7 +206,7 @@ impl ToPlutusData<1> for TransactionOutput<'_> {
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for Mint<'_>
+impl<const V: u8> ToPlutusData<V> for Mint
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
@@ -221,7 +221,7 @@ where
             .map(|(policy, multiasset)| (policy.to_vec(), multiasset))
             .collect::<BTreeMap<_, _>>();
 
-        let ada_bundle = BTreeMap::from([(Cow::Owned(vec![].into()), 0)]);
+        let ada_bundle = BTreeMap::from([(vec![].into(), 0)]);
         mint.insert(vec![], &ada_bundle);
 
         <BTreeMap<_, _> as ToPlutusData<1>>::to_plutus_data(&mint)
@@ -239,7 +239,7 @@ impl ToPlutusData<1> for Withdrawals {
     }
 }
 
-impl ToPlutusData<1> for Datums<'_> {
+impl ToPlutusData<1> for Datums {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         <Vec<_> as ToPlutusData<1>>::to_plutus_data(&self.0.iter().collect::<Vec<_>>())
     }
@@ -248,7 +248,6 @@ impl ToPlutusData<1> for Datums<'_> {
 // This test logic is basically 100% duplicated with v3. Should be able to simplify.
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
 
     use super::super::test_vectors::{self, TestVector};
     use super::*;
@@ -281,9 +280,9 @@ mod tests {
             transaction
                 .transaction_witness_set
                 .redeemer
-                .as_ref()
+                .clone()
                 .expect("no redeemers provided")
-                .deref(),
+                .unwrap(),
         );
 
         let produced_contexts = redeemers
@@ -291,8 +290,8 @@ mod tests {
             .map(|redeemer| {
                 let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
-                    &transaction.transaction_body,
-                    &transaction.transaction_witness_set,
+                    transaction.transaction_body.clone().unwrap(),
+                    transaction.transaction_witness_set.clone().unwrap(),
                     &transaction.transaction_body.original_hash(),
                     &utxos,
                     &0.into(),

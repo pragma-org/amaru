@@ -93,7 +93,7 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for DatumOption<'_>
+impl<const V: u8> ToPlutusData<V> for DatumOption
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
@@ -250,7 +250,7 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for Script<'_>
+impl<const V: u8> ToPlutusData<V> for Script
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {

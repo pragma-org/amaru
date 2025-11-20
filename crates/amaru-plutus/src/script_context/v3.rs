@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
+use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
     Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
     GovAction, PolicyId, PoolVotingThresholds, Proposal, ProposalId, ProposalIdAdapter,
-    ProtocolParamUpdate, RationalNumber, StakeCredential, Vote,
+    ProtocolParamUpdate, RationalNumber, Redeemer, StakeCredential, Vote,
 };
 use num::Integer;
 
@@ -30,13 +30,13 @@ use crate::{
     },
 };
 
-impl ToPlutusData<3> for OutputRef<'_> {
+impl ToPlutusData<3> for OutputRef {
     /// Serialize an `OutputRef` as PlutusData for PlutusV3.
     ///
     /// # Errors
     /// If the UTxO is locked at a bootstrap address, this will return a `PlutusDataError`.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        if let Address::Byron(_) = *self.output.address {
+        if let Address::Byron(_) = self.output.address {
             return Err(PlutusDataError::unsupported_version(
                 "byron address included in OutputRef",
                 3,
@@ -54,13 +54,15 @@ impl ToPlutusData<3> for ScriptContext<'_> {
             [
                 self.tx_info,
                 self.redeemer,
-                self.script_purpose.to_script_info(self.datum)
+                self.script_purpose
+                    .clone()
+                    .to_script_info(self.datum.cloned())
             ]
         )
     }
 }
 
-impl ToPlutusData<3> for TxInfo<'_> {
+impl ToPlutusData<3> for TxInfo {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr_v3!(
             0,
@@ -86,7 +88,7 @@ impl ToPlutusData<3> for TxInfo<'_> {
     }
 }
 
-impl ToPlutusData<3> for ScriptPurpose<'_> {
+impl ToPlutusData<3> for ScriptPurpose {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             ScriptPurpose::Minting(policy_id) => constr_v3!(0, [policy_id]),
@@ -99,7 +101,7 @@ impl ToPlutusData<3> for ScriptPurpose<'_> {
     }
 }
 
-impl ToPlutusData<3> for ScriptInfo<'_, Option<&'_ PlutusData>> {
+impl ToPlutusData<3> for ScriptInfo<Option<PlutusData>> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             ScriptInfo::Minting(policy_id) => constr_v3!(0, [policy_id]),
@@ -118,13 +120,13 @@ impl ToPlutusData<3> for TransactionInput {
     }
 }
 
-impl ToPlutusData<3> for TransactionOutput<'_> {
+impl ToPlutusData<3> for TransactionOutput {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr_v3!(0, [self.address, self.value, self.datum, self.script])
     }
 }
 
-impl ToPlutusData<3> for Value<'_> {
+impl ToPlutusData<3> for Value {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         if self.ada().is_none() {
             <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(
@@ -364,7 +366,7 @@ impl ToPlutusData<3> for ProposalId {
     }
 }
 
-impl ToPlutusData<3> for ProposalIdAdapter<'_> {
+impl ToPlutusData<3> for ProposalIdAdapter {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         self.deref().to_plutus_data()
     }
@@ -569,7 +571,7 @@ impl ToPlutusData<3> for Vote {
     }
 }
 
-impl ToPlutusData<3> for Mint<'_> {
+impl ToPlutusData<3> for Mint {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
     }
@@ -581,15 +583,15 @@ impl ToPlutusData<3> for Withdrawals {
     }
 }
 
-impl ToPlutusData<3> for Redeemers<'_, ScriptPurpose<'_>> {
+impl ToPlutusData<3> for Redeemers<ScriptPurpose> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         let converted: Result<Vec<_>, _> = self
             .0
             .iter()
             .map(|(purpose, data)| {
                 Ok((
-                    <ScriptPurpose<'_> as ToPlutusData<3>>::to_plutus_data(purpose)?,
-                    <Cow<'_, _> as ToPlutusData<3>>::to_plutus_data(data)?,
+                    <ScriptPurpose as ToPlutusData<3>>::to_plutus_data(purpose)?,
+                    <Redeemer as ToPlutusData<3>>::to_plutus_data(data)?,
                 ))
             })
             .collect();
@@ -598,13 +600,13 @@ impl ToPlutusData<3> for Redeemers<'_, ScriptPurpose<'_>> {
     }
 }
 
-impl ToPlutusData<3> for Datums<'_> {
+impl ToPlutusData<3> for Datums {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
     }
 }
 
-impl ToPlutusData<3> for Votes<'_> {
+impl ToPlutusData<3> for Votes {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         self.0.to_plutus_data()
     }
@@ -646,9 +648,9 @@ mod tests {
             transaction
                 .transaction_witness_set
                 .redeemer
-                .as_ref()
+                .clone()
                 .expect("no redeemers provided")
-                .deref(),
+                .unwrap(),
         );
 
         let produced_contexts = redeemers
@@ -681,8 +683,8 @@ mod tests {
 
                 let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
-                    &transaction.transaction_body,
-                    &transaction.transaction_witness_set,
+                    transaction.transaction_body.clone().unwrap(),
+                    transaction.transaction_witness_set.clone().unwrap(),
                     &transaction.transaction_body.original_hash(),
                     &utxos,
                     &0.into(),
