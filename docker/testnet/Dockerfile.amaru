@@ -3,6 +3,9 @@ FROM rust:bookworm AS rustbuilder
 ARG AMARU_REPO="https://github.com/pragma-org/amaru.git"
 ARG AMARU_REF="main"
 
+ARG AMARU_DOCTOR_REPO="https://github.com/jeluard/amaru-doctor.git"
+ARG AMARU_DOCTOR_REF="v0.0.10"
+
 # Set time zone
 ENV TZ="UTC"
 RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && \
@@ -27,6 +30,17 @@ RUN git fetch --all --tags && \
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
 
+# Amaru-doctor, useful for troubleshooting
+WORKDIR /usr/src
+RUN git clone --branch main ${AMARU_DOCTOR_REPO}
+
+# Checkout ouroboros-consensus version
+WORKDIR /usr/src/amaru-doctor
+RUN git fetch --all --tags && \
+    git checkout ${AMARU_DOCTOR_REF}
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
+
 FROM docker.io/debian:stable-slim AS main
 
 # Set time zone
@@ -36,6 +50,7 @@ RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && \
 ENV LC_ALL=en_US.UTF-8
 
 COPY --from=rustbuilder --chown=root:root /usr/src/amaru/target/release/amaru /usr/local/bin/amaru
+COPY --from=rustbuilder --chown=root:root /usr/src/amaru-doctor/target/release/amaru-doctor /usr/local/bin/amaru-doctor
 
 # Create cardano group and user
 RUN groupadd --gid 10000 cardano && \

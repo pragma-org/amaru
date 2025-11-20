@@ -5,7 +5,7 @@ RUN apt update && apt install -y jq coreutils bc
 COPY . /data/
 
 # temporary kludge, should be an official image but is our own for now
-COPY --from=ghcr.io/pragma-org/amaru/amaru:latest --chown=root:root /usr/src/amaru/target/debug/amaru /usr/local/bin
+COPY --from=ghcr.io/pragma-org/amaru/amaru:main --chown=root:root /usr/local/bin/amaru /usr/local/bin
 
 RUN chmod 0755 /data/cardano-loader.sh
 RUN chmod 0755 /data/amaru-loader.sh
