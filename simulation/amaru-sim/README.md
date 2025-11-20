@@ -236,6 +236,14 @@ This will display:
 * Below each stage, a label showing when the last header hash was received as an input.
 * Above each stage, if applicable, a label showing the external effect currently being executed.
 
+### Logging
+
+The simulator outputs its logs and traces to the `stdout` at the `info` level as JSON formatted entries. To get more details one can use the standard `RUST_LOG` environment variable, possibly with detailed configuration for different namespaces, eg.:
+
+```
+RUST_LOG=amaru=debug,amaru_sim::simulator::world=info cargo run -p amaru-sim
+```
+
 # References
 
 * [Cardano Consensus and Storage Layer](https://ouroboros-consensus.cardano.intersectmbo.org/assets/files/report-b72e7d765cfee85b26dc035c52c6de84.pdf)

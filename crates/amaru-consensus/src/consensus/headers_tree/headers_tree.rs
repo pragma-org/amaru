@@ -193,7 +193,9 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
     }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
+impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'static>
+    HeadersTree<H>
+{
     /// Create a new HeadersTree
     pub(crate) fn create(
         chain_store: Arc<dyn ChainStore<H>>,
@@ -632,7 +634,9 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
 #[cfg(any(test, doc, feature = "test-utils"))]
 /// Those functions are only used by tests
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
+impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'static>
+    HeadersTree<H>
+{
     /// Create a new HeadersTree with a given store and maximum chain length.
     pub fn new(store: Arc<dyn ChainStore<H>>, max_length: usize) -> HeadersTree<H> {
         assert!(

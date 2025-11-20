@@ -73,12 +73,15 @@ fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let nonces_file = args
         .nonces_file
-        .unwrap_or_else(|| default_data_dir(args.network).into())
-        .join("nonces.json");
+        .unwrap_or_else(|| PathBuf::from(default_data_dir(args.network)).join("nonces.json"));
 
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
+
+    info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(), nonces_file=%nonces_file.to_string_lossy(),
+          "Running command import-nonces",
+    );
 
     // FIXME: import nonces function takes an EraHistory which we
     // construct from NetworkName. In the case of testnets this can be

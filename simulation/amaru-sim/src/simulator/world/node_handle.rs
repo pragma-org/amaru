@@ -21,7 +21,7 @@ use std::fmt::{Debug, Display};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use tracing::{debug, info_span};
+use tracing::{info_span, trace};
 
 /// A `NodeHandle` is an async function that sends an Envelope<Msg> to a node and returns a list of Envelope<Msg>.
 /// as the result of processing that message (Envelope holds source/destination values representing node ids).
@@ -93,7 +93,7 @@ impl<Msg> NodeHandle<Msg> {
     {
         let handle = Box::new(move |msg: Option<Envelope<Msg>>| match msg {
             Some(msg) => {
-                debug!(msg = %msg, "enqueuing");
+                trace!(msg = %msg, "enqueuing");
                 running.enqueue_msg(&input, [msg]);
                 match running.run_one_step() {
                     Some(_blocked) => {
@@ -104,13 +104,10 @@ impl<Msg> NodeHandle<Msg> {
                     None => Ok(None),
                 }
             }
-            None => {
-                debug!("no message to enqueue");
-                match running.run_one_step() {
-                    Some(_) => Ok(Some(output.drain().collect::<Vec<_>>())),
-                    None => Ok(None),
-                }
-            }
+            None => match running.run_one_step() {
+                Some(_) => Ok(Some(output.drain().collect::<Vec<_>>())),
+                None => Ok(None),
+            },
         });
 
         let close = Box::new(move || ());

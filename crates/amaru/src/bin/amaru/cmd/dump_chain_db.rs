@@ -23,6 +23,7 @@ use amaru_stores::rocksdb::consensus::{ReadOnlyChainDB, RocksDBStore};
 use clap::{Parser, arg};
 use std::fmt::Display;
 use std::{error::Error, path::PathBuf};
+use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -47,6 +48,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
+
+    info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(),
+          "Running command dump-chain-db",
+    );
 
     let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
 

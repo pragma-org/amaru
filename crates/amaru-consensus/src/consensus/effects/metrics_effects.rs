@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
-use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use pure_stage::{
+    BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
+};
 use std::sync::Arc;
 
 /// Metrics operations available to a stage. This allows a stage to record a MetricsEvent that
@@ -55,8 +57,9 @@ impl RecordMetricsEffect {
 pub type ResourceMeter = Arc<Meter>;
 
 impl ExternalEffect for RecordMetricsEffect {
+    #[allow(clippy::unit_arg)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        Self::wrap_sync({
             if let Ok(meter) = resources.get::<ResourceMeter>() {
                 self.event.record_to_meter(&meter);
             }
@@ -68,3 +71,5 @@ impl ExternalEffect for RecordMetricsEffect {
 impl ExternalEffectAPI for RecordMetricsEffect {
     type Response = ();
 }
+
+impl ExternalEffectSync for RecordMetricsEffect {}

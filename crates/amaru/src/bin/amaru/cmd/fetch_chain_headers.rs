@@ -81,8 +81,8 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    info!(config=?args.config_dir, peer=%args.peer_address, network=%args.network,
-          "fetching chain headers",
+    info!(config=%args.config_dir.to_string_lossy(), peer=%args.peer_address, network=%args.network,
+          "Running command fetch-chain-headers",
     );
     let network = args.network;
     let network_dir = args.config_dir.join(&*network.to_string());

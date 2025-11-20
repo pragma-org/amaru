@@ -208,7 +208,7 @@ impl Default for OpenTelemetryHandle {
     }
 }
 
-pub const DEFAULT_SERVICE_NAME: &str = "amaru";
+pub const DEFAULT_OTLP_SERVICE_NAME: &str = "amaru";
 
 pub const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
 
@@ -229,7 +229,7 @@ pub struct OpenTelemetryConfig {
 impl Default for OpenTelemetryConfig {
     fn default() -> Self {
         OpenTelemetryConfig {
-            service_name: DEFAULT_SERVICE_NAME.to_string(),
+            service_name: DEFAULT_OTLP_SERVICE_NAME.to_string(),
             span_url: DEFAULT_OTLP_SPAN_URL.to_string(),
             metric_url: DEFAULT_OTLP_METRIC_URL.to_string(),
         }

@@ -49,7 +49,6 @@ use crate::{
     trace_buffer::TraceBuffer,
 };
 
-use crate::effect_box::SyncEffectBox;
 use parking_lot::Mutex;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -109,7 +108,6 @@ use tokio::runtime::Handle;
 pub struct SimulationBuilder {
     stages: BTreeMap<Name, InitStageData>,
     effect: EffectBox,
-    sync_effect: SyncEffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
     mailbox_size: usize,
@@ -156,7 +154,7 @@ impl SimulationBuilder {
                 )
             })
             .collect();
-        Replay::new(stages, self.effect)
+        Replay::new(stages, self.effect, self.trace_buffer)
     }
 }
 
@@ -167,7 +165,6 @@ impl Default for SimulationBuilder {
         Self {
             stages: Default::default(),
             effect: Default::default(),
-            sync_effect: Default::default(),
             clock,
             resources: Resources::default(),
             mailbox_size: 10,
@@ -201,10 +198,10 @@ impl StageGraph for SimulationBuilder {
         let effects = Effects::new(
             me,
             self.effect.clone(),
-            self.sync_effect.clone(),
             self.clock.clone(),
             self_sender,
             self.resources.clone(),
+            self.trace_buffer.clone(),
         );
         let transition: Transition =
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
@@ -278,7 +275,6 @@ impl StageGraph for SimulationBuilder {
         let Self {
             stages: s,
             effect,
-            sync_effect,
             clock,
             resources,
             mailbox_size,
@@ -317,7 +313,6 @@ impl StageGraph for SimulationBuilder {
             stages,
             inputs,
             effect,
-            sync_effect,
             clock,
             resources,
             mailbox_size,

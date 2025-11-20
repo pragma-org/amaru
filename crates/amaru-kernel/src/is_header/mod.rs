@@ -78,12 +78,26 @@ impl Display for BlockHeader {
     }
 }
 
+/// We serialize both the hash and the header, but we use serde's flattening
+/// to avoid nesting the header inside another object.
 impl Serialize for BlockHeader {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        self.header.serialize(serializer)
+        #[derive(Serialize)]
+        struct BlockHeaderSer<'a> {
+            hash: &'a HeaderHash,
+            #[serde(flatten)]
+            header: &'a Header,
+        }
+
+        let helper = BlockHeaderSer {
+            hash: &self.hash,
+            header: &self.header,
+        };
+
+        helper.serialize(serializer)
     }
 }
 

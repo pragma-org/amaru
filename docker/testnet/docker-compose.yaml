@@ -27,19 +27,21 @@ x-cardano-node: &cardano-node
       condition: service_completed_successfully
 
 x-amaru: &amaru
-  image: ghcr.io/pragma-org/amaru/amaru:latest
+  image: ghcr.io/pragma-org/amaru/amaru:main
   build:
-    context: ../..
-    dockerfile: docker/Dockerfile.amaru
+    context: .
+    dockerfile: Dockerfile.amaru
   restart:
     always
   depends_on:
     amaru-loader:
       condition: service_completed_successfully
+  command: >
+    run 
   environment:
     - AMARU_NETWORK
+    - AMARU_PEER_ADDRESS
     - AMARU_LEDGER_DIR
-    - CONFIG_FOLDER
     - AMARU_CHAIN_DIR
 
 services:
@@ -96,6 +98,9 @@ services:
     environment:
       - AMARU_PEER_ADDRESS=p1.example:3001
       - AMARU_NETWORK=testnet_42
+      - AMARU_CHAIN_DIR=/srv/amaru/chain.db
+      - AMARU_LEDGER_DIR=/srv/amaru/ledger.db
+    working_dir: /srv/amaru
     volumes:
       - a1-state:/srv/amaru
 
@@ -104,6 +109,9 @@ services:
     environment:
       - AMARU_PEER_ADDRESS=amaru-1:3000
       - AMARU_NETWORK=testnet_42
+      - AMARU_CHAIN_DIR=/srv/amaru/chain.db
+      - AMARU_LEDGER_DIR=/srv/amaru/ledger.db
+    working_dir: /srv/amaru
     volumes:
       - a2-state:/srv/amaru
 

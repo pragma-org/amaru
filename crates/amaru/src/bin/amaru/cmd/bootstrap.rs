@@ -90,8 +90,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
 
-    info!(config=?args.config_dir, ledger_dir=?ledger_dir, chain_dir=?chain_dir, network=?network,
-          "bootstrapping",
+    info!(config=%args.config_dir.to_string_lossy(), ledger_dir=%ledger_dir.to_string_lossy(), chain_dir=%chain_dir.to_string_lossy(), network=%network,
+          "Running command bootstrap",
     );
 
     let network_dir = args.config_dir.join(&*network.to_string());

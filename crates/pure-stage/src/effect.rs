@@ -20,10 +20,12 @@ use crate::{
     time::Clock,
 };
 
-use crate::effect_box::{EffectBox, SyncEffectBox, airlock_effect};
+use crate::effect_box::{EffectBox, airlock_effect};
 
+use crate::trace_buffer::{TraceBuffer, find_next_external_resume, find_next_external_suspend};
 use cbor4ii::{core::Value, serde::from_slice};
 use futures_util::FutureExt;
+use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use std::fmt::{Display, Error, Formatter};
 use std::{
@@ -36,19 +38,6 @@ use std::{
 };
 use tokio::sync::oneshot;
 
-impl<M> Clone for Effects<M> {
-    fn clone(&self) -> Self {
-        Self {
-            me: self.me.clone(),
-            effect: self.effect.clone(),
-            sync_effect: self.sync_effect.clone(),
-            clock: self.clock.clone(),
-            self_sender: self.self_sender.clone(),
-            resources: self.resources.clone(),
-        }
-    }
-}
-
 /// A handle for performing effects on the current stage.
 ///
 /// This is used to send messages to other stages, wait for durations, and call other stages.
@@ -58,10 +47,23 @@ impl<M> Clone for Effects<M> {
 pub struct Effects<M> {
     me: StageRef<M>,
     effect: EffectBox,
-    sync_effect: SyncEffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     self_sender: Sender<M>,
     resources: Resources,
+    trace_buffer: Arc<Mutex<TraceBuffer>>,
+}
+
+impl<M> Clone for Effects<M> {
+    fn clone(&self) -> Self {
+        Self {
+            me: self.me.clone(),
+            effect: self.effect.clone(),
+            clock: self.clock.clone(),
+            self_sender: self.self_sender.clone(),
+            resources: self.resources.clone(),
+            trace_buffer: self.trace_buffer.clone(),
+        }
+    }
 }
 
 impl<M: Debug> Debug for Effects<M> {
@@ -77,18 +79,18 @@ impl<M: SendData> Effects<M> {
     pub(crate) fn new(
         me: StageRef<M>,
         effect: EffectBox,
-        sync_effect: SyncEffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
         self_sender: Sender<M>,
         resources: Resources,
+        trace_buffer: Arc<Mutex<TraceBuffer>>,
     ) -> Self {
         Self {
             me,
             effect,
-            sync_effect,
             clock,
             self_sender,
             resources,
+            trace_buffer,
         }
     }
 
@@ -221,27 +223,47 @@ impl<M> Effects<M> {
 
     /// Run an effect that is not part of the StageGraph as a synchronous effect.
     /// In that case we return the response directly.
-    pub fn external_sync<T: ExternalEffectAPI + Clone>(&self, effect: T) -> T::Response
-    where
-        T::Response: Clone,
-    {
-        let effect_clone = effect.clone();
-        let effect_type = effect.typetag_name().to_string();
-        let effect = Box::new(effect);
-        // We set the sync effect box in order to let the simulation runner pick it up later and
-        // produce a trace in the trace buffer.
-        let mut sync_effect = self.sync_effect.lock();
-        let response = effect
-            .run(self.resources.clone())
-            .now_or_never()
-            .expect("an external sync effect must complete immediately in sync context")
-            .cast_deserialize::<T::Response>()
-            .expect("internal messaging type error");
-        *sync_effect = Some(StageEffect::ExternalSync(
-            effect_type,
-            Box::new(effect_clone),
-            Box::new(response.clone()),
-        ));
+    #[allow(clippy::panic)]
+    pub fn external_sync<T: ExternalEffectSync + serde::Serialize>(
+        &self,
+        effect: T,
+    ) -> T::Response {
+        self.trace_buffer
+            .lock()
+            .push_suspend_external(self.me.name(), &effect);
+
+        let response = if let Some(fetch_replay) = self.trace_buffer.lock().fetch_replay_mut() {
+            let Some(replayed) = find_next_external_suspend(fetch_replay, self.me.name()) else {
+                panic!("no entry found in fetch replay");
+            };
+            let Effect::External { effect, .. } = from_slice(&to_cbor(&Effect::External {
+                at_stage: self.me.name().clone(),
+                effect: Box::new(effect),
+            }))
+            .expect("internal replay error") else {
+                panic!("serde roundtrip broken");
+            };
+
+            assert!(
+                replayed.test_eq(&*effect),
+                "replayed effect {replayed:?}\ndoes not match performed effect {effect:?}"
+            );
+            find_next_external_resume(fetch_replay, self.me.name())
+                .expect("no response found in fetch replay")
+                .cast_deserialize::<T::Response>()
+                .expect("internal messaging type error")
+        } else {
+            Box::new(effect)
+                .run(self.resources.clone())
+                .now_or_never()
+                .expect("an external sync effect must complete immediately in sync context")
+                .cast_deserialize::<T::Response>()
+                .expect("internal messaging type error")
+        };
+
+        self.trace_buffer
+            .lock()
+            .push_resume_external(self.me.name(), &response);
         response
     }
 
@@ -316,6 +338,13 @@ impl Display for dyn ExternalEffect {
 pub trait ExternalEffectAPI: ExternalEffect {
     type Response: SendData + DeserializeOwned;
 }
+
+/// Marker trait for external effects that have a synchronous response.
+///
+/// The [`ExternalEffect::run`](ExternalEffect::run) method must return a Future that resolves
+/// at the first call to `poll`. You can ensure this by not using `.await` or by using `.await`
+/// only on Futures that resolve at the first call to `poll`.
+pub trait ExternalEffectSync: ExternalEffectAPI {}
 
 impl dyn ExternalEffect {
     pub fn is<T: ExternalEffect>(&self) -> bool {
@@ -443,7 +472,6 @@ pub(crate) enum StageEffect<T> {
     Wait(Duration),
     Respond(Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>, T),
     External(Box<dyn ExternalEffect>),
-    ExternalSync(String, Box<dyn ExternalEffect>, Box<dyn SendData>),
     Terminate,
 }
 
@@ -556,15 +584,6 @@ impl StageEffect<Box<dyn SendData>> {
                     effect,
                 },
             ),
-            StageEffect::ExternalSync(effect_type, effect, response) => (
-                StageEffect::ExternalSync(effect_type.clone(), Box::new(()), Box::new(())),
-                Effect::ExternalSync {
-                    at_stage: at_name,
-                    effect_type,
-                    effect,
-                    response,
-                },
-            ),
             StageEffect::Terminate => (
                 StageEffect::Terminate,
                 Effect::Terminate { at_stage: at_name },
@@ -604,14 +623,6 @@ pub enum Effect {
         at_stage: Name,
         #[serde(with = "crate::serde::serialize_external_effect")]
         effect: Box<dyn ExternalEffect>,
-    },
-    ExternalSync {
-        at_stage: Name,
-        effect_type: String,
-        #[serde(with = "crate::serde::serialize_send_data")]
-        effect: Box<dyn SendData>,
-        #[serde(with = "crate::serde::serialize_send_data")]
-        response: Box<dyn SendData>,
     },
     Terminate {
         at_stage: Name,
@@ -682,20 +693,6 @@ impl Effect {
                     "effect_type": format!("{}", as_send_data_value(effect.as_ref()).map(|v| v.typetag.clone()).unwrap_or("unknown".to_string())),
                 })
             }
-            Effect::ExternalSync {
-                at_stage,
-                effect_type,
-                effect,
-                response,
-            } => {
-                serde_json::json!({
-                    "type": "external",
-                    "at_stage": at_stage,
-                    "effect_type": effect_type,
-                    "effect": format!("{}", as_send_data_value(effect.as_ref()).expect("the effect must be serializable")),
-                    "response": format!("{}", as_send_data_value(response.as_ref()).expect("the response must be serializable")),
-                })
-            }
             Effect::Terminate { at_stage } => serde_json::json!({
                 "type": "terminate",
                 "at_stage": at_stage,
@@ -747,19 +744,6 @@ impl Display for Effect {
                     f,
                     "external {at_stage}: {effect}",
                     effect = as_send_data_value(effect.as_ref()).map_err(|_| Error)?
-                )
-            }
-            Effect::ExternalSync {
-                at_stage,
-                effect_type,
-                effect,
-                response,
-            } => {
-                write!(
-                    f,
-                    "external sync {at_stage}: {effect_type} ({effect}) -> {response}",
-                    effect = as_send_data_value(effect.as_ref()).map_err(|_| Error)?,
-                    response = as_send_data_value(response.as_ref()).map_err(|_| Error)?
                 )
             }
             Effect::Terminate { at_stage } => write!(f, "terminate {at_stage}"),
@@ -845,7 +829,6 @@ impl Effect {
             Effect::Wait { at_stage, .. } => at_stage,
             Effect::Respond { at_stage, .. } => at_stage,
             Effect::External { at_stage, .. } => at_stage,
-            Effect::ExternalSync { at_stage, .. } => at_stage,
             Effect::Terminate { at_stage, .. } => at_stage,
         }
     }
@@ -1074,25 +1057,6 @@ impl PartialEq for Effect {
                 } => {
                     at_stage == other_at_stage
                         && &**effect as &dyn SendData == &**other_effect as &dyn SendData
-                }
-                _ => false,
-            },
-            Effect::ExternalSync {
-                at_stage,
-                effect_type,
-                effect,
-                response,
-            } => match other {
-                Effect::ExternalSync {
-                    at_stage: other_at_stage,
-                    effect_type: other_effect_type,
-                    effect: other_effect,
-                    response: other_response,
-                } => {
-                    at_stage == other_at_stage
-                        && effect_type == other_effect_type
-                        && effect == other_effect
-                        && response == other_response
                 }
                 _ => false,
             },

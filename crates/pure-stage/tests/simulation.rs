@@ -73,7 +73,6 @@ fn basic() {
 }
 
 #[test]
-#[ignore]
 fn automatic() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);

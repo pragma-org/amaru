@@ -18,6 +18,7 @@
 //! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
 
 use crate::stage_ref::StageStateRef;
+use crate::trace_buffer::TraceBuffer;
 use crate::{
     BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
     effect::{StageEffect, StageResponse},
@@ -87,6 +88,7 @@ pub struct TokioBuilder {
     tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, ()>>>,
     inner: TokioInner,
     termination: watch::Receiver<bool>,
+    trace_buffer: Arc<Mutex<TraceBuffer>>,
 }
 
 impl Default for TokioBuilder {
@@ -96,6 +98,7 @@ impl Default for TokioBuilder {
             tasks: Default::default(),
             inner: TokioInner::new(termination),
             termination: termination_rx,
+            trace_buffer: TraceBuffer::new_shared(0, 0),
         }
     }
 }
@@ -144,19 +147,19 @@ impl StageGraph for TokioBuilder {
         } = stage;
         let stage_name = name.clone();
         let resources = self.inner.resources.clone();
+        let trace_buffer = self.trace_buffer.clone();
         self.tasks.push(Box::new(move |inner| {
             Box::pin(async move {
                 let me = StageRef::new(stage_name.clone());
                 let effect = Arc::new(Mutex::new(None));
-                let sync_effect = Arc::new(Mutex::new(None));
                 let sender = mk_sender(&stage_name, &inner);
                 let effects = Effects::new(
                     me,
                     effect.clone(),
-                    sync_effect.clone(),
                     inner.clock.clone(),
                     sender,
                     resources,
+                    trace_buffer,
                 );
                 while let Some(msg) = rx.recv().await {
                     let result = interpreter(
@@ -212,6 +215,7 @@ impl StageGraph for TokioBuilder {
             tasks,
             inner,
             termination,
+            trace_buffer,
         } = self;
         let inner = Arc::new(inner);
         let handles = Arc::new(Mutex::new(
@@ -234,6 +238,7 @@ impl StageGraph for TokioBuilder {
         TokioRunning {
             handles,
             termination,
+            trace_buffer,
         }
     }
 
@@ -330,13 +335,6 @@ async fn interpreter<St>(
                 tracing::debug!("stage `{name}` external effect: {:?}", effect);
                 StageResponse::ExternalResponse(effect.run(inner.resources.clone()).await)
             }
-            StageEffect::ExternalSync(effect_type, _effect, _response) => {
-                tracing::debug!(
-                    "stage `{name}` external sync effect with type: {:?}",
-                    effect_type
-                );
-                StageResponse::Unit
-            }
             StageEffect::Terminate => {
                 tracing::warn!("stage `{name}` terminated");
                 return None;
@@ -355,6 +353,7 @@ fn now() -> Instant {
 pub struct TokioRunning {
     handles: Arc<Mutex<Vec<JoinHandle<()>>>>,
     termination: watch::Receiver<bool>,
+    trace_buffer: Arc<Mutex<TraceBuffer>>,
 }
 
 impl TokioRunning {
@@ -372,6 +371,10 @@ impl TokioRunning {
                 tracing::error!("stage task failed: {:?}", err);
             });
         }
+    }
+
+    pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {
+        &self.trace_buffer
     }
 }
 

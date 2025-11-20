@@ -16,11 +16,11 @@
 macro_rules! constr {
     ($to_plutus_data_ann:path, $index:expr, [$($field:expr),* $(,)?]) => {{
         let maybe_constr_tag = $crate::to_cbor_tag($index);
-        amaru_kernel::PlutusData::Constr(amaru_kernel::Constr {
+        Ok(amaru_kernel::PlutusData::Constr(amaru_kernel::Constr {
             tag: maybe_constr_tag.unwrap_or(102),
             any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
-            fields: amaru_kernel::MaybeIndefArray::Indef(vec![$($to_plutus_data_ann(&$field)),*]),
-        })
+            fields: amaru_kernel::MaybeIndefArray::Indef(vec![$($to_plutus_data_ann(&$field)?),*]),
+        }))
     }};
 
     ($index:expr, [$($field:expr),* $(,)?] $(,)?) => {{
@@ -29,11 +29,11 @@ macro_rules! constr {
 
     ($index:expr $(,)?) => {{
         let maybe_constr_tag = $crate::to_cbor_tag($index);
-                amaru_kernel::PlutusData::Constr(amaru_kernel::Constr {
+                Ok(amaru_kernel::PlutusData::Constr(amaru_kernel::Constr {
                     tag: maybe_constr_tag.unwrap_or(102),
                     any_constructor: maybe_constr_tag.map_or(Some($index), |_| None),
-                    fields: amaru_kernel::MaybeIndefArray::Def(vec![]),  // Changed to Def
-                })
+                    fields: amaru_kernel::MaybeIndefArray::Def(vec![]),
+                }))
             }};
 }
 
