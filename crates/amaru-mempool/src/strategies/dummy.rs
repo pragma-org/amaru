@@ -12,51 +12,124 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{IntoKeys, Mempool};
-use std::{collections::BTreeSet, mem, ops::Deref};
+use crate::Mempool;
+use crate::mempool::TxId;
+use crate::strategies::{MempoolSeqNo, TxOrigin, TxRejectReason};
+use parking_lot::RwLock;
+use std::sync::Arc;
+use std::{collections::BTreeSet, mem};
+use minicbor::Encode;
 
 #[derive(Debug, Default)]
 pub struct DummyMempool<T> {
-    transactions: Vec<T>,
+    inner: RwLock<DummyMempoolInner<T>>,
 }
 
 impl<T> DummyMempool<T> {
     pub fn new() -> Self {
         DummyMempool {
+            inner: RwLock::new(DummyMempoolInner::new()),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct DummyMempoolInner<T> {
+    transactions: Vec<T>,
+}
+
+impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
+    fn insert(&self, tx: Tx, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+        let tx_id = TxId::from(&tx);
+        self.inner.write().transactions.push(tx);
+        Ok((tx_id, MempoolSeqNo(
+            self.inner.read().transactions.len() as u64 - 1,
+        )))
+    }
+
+    fn take(&self) -> Vec<Tx> {
+        mem::take(&mut self.inner.write().transactions)
+    }
+
+    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
+    where
+        I: IntoIterator<Item=TxKey>,
+    {
+        let keys_to_remove = BTreeSet::from_iter(keys(tx).into_iter());
+        self.inner
+            .write()
+            .transactions
+            .retain(|tx| !keys(tx).into_iter().any(|k| keys_to_remove.contains(&k)));
+    }
+
+    fn get_tx(&self, _tx_id: &TxId) -> Option<Arc<Tx>> {
+        None
+    }
+
+    fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: usize) -> Vec<(TxId, MempoolSeqNo)> {
+        vec![]
+    }
+
+    fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Arc<Tx>> {
+        vec![]
+    }
+}
+
+impl<T> DummyMempoolInner<T> {
+    pub fn new() -> Self {
+        DummyMempoolInner {
             transactions: vec![],
         }
     }
 }
 
-impl<T> Mempool<T> for DummyMempool<T>
-where
-    T: Deref + Send + Sync,
-    T::Target: IntoKeys,
-    <T::Target as IntoKeys>::Key: Ord,
-{
-    fn add(&mut self, tx: T) {
-        self.transactions.push(tx);
-    }
-
-    fn take(&mut self) -> Vec<T> {
-        mem::take(&mut self.transactions)
-    }
-
-    fn acknowledge(&mut self, tx: &T::Target) {
-        let refs: BTreeSet<&<T::Target as IntoKeys>::Key> = tx.keys().collect();
-        self.transactions
-            .retain(|tx| !tx.keys().any(|input| refs.contains(input)));
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use minicbor::encode::{Error, Write};
+    use minicbor::Encoder;
     use super::*;
+
+    #[test]
+    fn take_empty() {
+        let mempool: DummyMempool<FakeTx<'_>> = DummyMempool::new();
+        assert_eq!(mempool.take(), vec![]);
+    }
+
+    #[test]
+    fn add_then_take() {
+        let mempool = DummyMempool::new();
+        mempool.add(FakeTx::new("tx1", &[1])).unwrap();
+        mempool.add(FakeTx::new("tx2", &[2])).unwrap();
+        assert_eq!(
+            mempool.take(),
+            vec![FakeTx::new("tx1", &[1]), FakeTx::new("tx2", &[2])]
+        );
+    }
+
+    #[test]
+    fn invalidate_entries() {
+        let mempool = DummyMempool::new();
+        mempool.add(FakeTx::new("tx1", &[1, 2])).unwrap();
+        mempool.add(FakeTx::new("tx2", &[3, 4])).unwrap();
+        mempool.add(FakeTx::new("tx3", &[5, 6])).unwrap();
+        mempool.acknowledge(&FakeTx::new("tx4", &[2, 5, 7]), FakeTx::keys);
+        assert_eq!(mempool.take(), vec![FakeTx::new("tx2", &[3, 4])]);
+    }
+
+    // HELPERS
 
     #[derive(Debug, PartialEq, Eq)]
     struct FakeTx<'a> {
         id: &'a str,
         inputs: Vec<usize>,
+    }
+
+    impl Encode<()> for FakeTx<'_> {
+        fn encode<W: Write>(&self, e: &mut Encoder<W>, _ctx: &mut ()) -> Result<(), Error<W::Error>> {
+            e.encode(&self.id)?;
+            e.encode(&self.inputs)?;
+            Ok(())
+        }
     }
 
     impl<'a> FakeTx<'a> {
@@ -66,48 +139,9 @@ mod tests {
                 inputs: Vec::from(inputs),
             }
         }
-    }
 
-    impl Deref for FakeTx<'_> {
-        type Target = Self;
-
-        fn deref(&self) -> &Self::Target {
-            self
+        fn keys(&self) -> Vec<usize> {
+            self.inputs.clone()
         }
-    }
-
-    impl IntoKeys for FakeTx<'_> {
-        type Key = usize;
-
-        fn keys(&self) -> impl Iterator<Item = &Self::Key> {
-            self.inputs.iter()
-        }
-    }
-
-    #[test]
-    fn take_empty() {
-        let mut mempool: DummyMempool<FakeTx<'_>> = DummyMempool::new();
-        assert_eq!(mempool.take(), vec![]);
-    }
-
-    #[test]
-    fn add_then_take() {
-        let mut mempool = DummyMempool::new();
-        mempool.add(FakeTx::new("tx1", &[1]));
-        mempool.add(FakeTx::new("tx2", &[2]));
-        assert_eq!(
-            mempool.take(),
-            vec![FakeTx::new("tx1", &[1]), FakeTx::new("tx2", &[2])]
-        );
-    }
-
-    #[test]
-    fn invalidate_entries() {
-        let mut mempool = DummyMempool::new();
-        mempool.add(FakeTx::new("tx1", &[1, 2]));
-        mempool.add(FakeTx::new("tx2", &[3, 4]));
-        mempool.add(FakeTx::new("tx3", &[5, 6]));
-        mempool.acknowledge(&FakeTx::new("tx4", &[2, 5, 7]));
-        assert_eq!(mempool.take(), vec![FakeTx::new("tx2", &[3, 4])]);
     }
 }

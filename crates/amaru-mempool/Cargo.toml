@@ -12,3 +12,8 @@ rust-version.workspace = true
 
 [dependencies]
 amaru-kernel = { path = "../amaru-kernel" }
+parking_lot.workspace = true
+
+[dev-dependencies]
+minicbor.workspace = true
+assertables.workspace = true
