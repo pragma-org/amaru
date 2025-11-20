@@ -15,8 +15,8 @@
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Hash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
-    ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput,
-    Vote, Voter,
+    ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionId,
+    TransactionInput, Vote, Voter,
     arc_mapped::ArcMapped,
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
@@ -30,34 +30,23 @@ use std::{
     sync::Arc,
 };
 
-use amaru_plutus::unstable::TxInfoStorage;
-use tracing::error;
-
-use crate::state::VolatileState;
+use crate::script_context::TxInfo;
 
 /// A validation context that also constructs a phase-2 script context. This allows to minimize
 /// cloning and traversal of transaction constituents during validation. It is built as a wrapper
 /// on top of an existing validation context to allow for a clearer separation of concerns.
 #[derive(Debug)]
 pub struct ScriptEvaluationContext<V: ValidationContext> {
-    phase1: V,
-    phase2: TxInfoStorage,
+    pub phase1: V,
+    pub phase2: TxInfo,
 }
 
 impl<V: ValidationContext> ScriptEvaluationContext<V> {
-    pub fn new(phase1: V) -> Self {
+    pub fn new(phase1: V, tx_id: &TransactionId) -> Self {
         Self {
             phase1,
-            phase2: TxInfoStorage::default(),
+            phase2: TxInfo::empty(tx_id),
         }
-    }
-}
-
-impl<V: ValidationContext + Into<VolatileState>> From<ScriptEvaluationContext<V>>
-    for VolatileState
-{
-    fn from(ctx: ScriptEvaluationContext<V>) -> Self {
-        ctx.phase1.into()
     }
 }
 
@@ -85,11 +74,9 @@ impl<V: ValidationContext> UtxoSlice for ScriptEvaluationContext<V> {
         input: TransactionInput,
     ) -> Option<(&TransactionInput, Arc<MemoizedTransactionOutput>)> {
         if let Some((input, output)) = self.phase1.consume(input) {
-            self.phase2.add_input(input.clone(), output.clone());
+            // self.phase2.add_input(input.clone(), output.clone());
             return Some((input, output));
         }
-
-        error!("invariant violation: UtxoSlice::consume did not consume anything...");
 
         None
     }
@@ -100,7 +87,7 @@ impl<V: ValidationContext> UtxoSlice for ScriptEvaluationContext<V> {
         output: MemoizedTransactionOutput,
     ) -> Arc<MemoizedTransactionOutput> {
         let output = self.phase1.produce(input, output);
-        self.phase2.add_output(output.clone());
+        // self.phase2.add_output(output.clone());
         output
     }
 }
@@ -262,7 +249,9 @@ impl<V: ValidationContext> WitnessSlice for ScriptEvaluationContext<V> {
     fn known_datums(
         &mut self,
     ) -> BTreeMap<DatumHash, ArcMapped<MemoizedTransactionOutput, MemoizedPlutusData>> {
-        self.phase2.set_datums(self.phase1.known_datums());
-        self.phase2.datums().clone()
+        todo!()
+
+        // self.phase2.set_datums(self.phase1.known_datums());
+        // self.phase2.datums().clone()
     }
 }

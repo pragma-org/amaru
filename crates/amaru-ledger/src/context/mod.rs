@@ -14,7 +14,17 @@
 
 pub(crate) mod assert;
 mod default;
-mod script;
 
+use amaru_kernel::context::ValidationContext;
+use amaru_plutus::context::ScriptEvaluationContext;
 pub use default::*;
-pub use script::*;
+
+use crate::state::VolatileState;
+
+impl<V: ValidationContext + Into<VolatileState>> From<ScriptEvaluationContext<V>>
+    for VolatileState
+{
+    fn from(ctx: ScriptEvaluationContext<V>) -> Self {
+        ctx.phase1.into()
+    }
+}
