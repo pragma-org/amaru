@@ -17,7 +17,7 @@ pub mod script_context;
 pub mod to_plutus_data;
 
 #[doc(hidden)]
-pub mod context;
+pub mod evaluation_context;
 
 use to_plutus_data::*;
 

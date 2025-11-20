@@ -16,7 +16,7 @@ pub(crate) mod assert;
 mod default;
 
 use amaru_kernel::context::ValidationContext;
-use amaru_plutus::context::ScriptEvaluationContext;
+use amaru_plutus::evaluation_context::ScriptEvaluationContext;
 pub use default::*;
 
 use crate::state::VolatileState;

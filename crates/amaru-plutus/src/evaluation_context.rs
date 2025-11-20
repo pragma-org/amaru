@@ -56,7 +56,8 @@ impl<V: ValidationContext> ValidationContext for ScriptEvaluationContext<V> {
 
 impl<V: ValidationContext> PotsSlice for ScriptEvaluationContext<V> {
     fn add_fees(&mut self, fees: Lovelace) {
-        self.phase1.add_fees(fees)
+        self.phase1.add_fees(fees);
+        self.phase2.add_fees(fees);
     }
 }
 
@@ -197,7 +198,7 @@ impl<V: ValidationContext> ProposalsSlice for ScriptEvaluationContext<V> {
     }
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {
-        self.phase1.vote(proposal, voter, vote, anchor)
+        self.phase1.vote(proposal, voter, vote, anchor);
     }
 }
 
@@ -266,6 +267,10 @@ impl TxInfo {
 
     fn add_output(&mut self, output: MemoizedTransactionOutput) {
         self.outputs.push(output.into());
+    }
+
+    fn add_fees(&mut self, fees: u64) {
+        self.fee += fees;
     }
 
     pub fn set_datums(
