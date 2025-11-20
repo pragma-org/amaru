@@ -37,7 +37,7 @@ x-amaru: &amaru
     amaru-loader:
       condition: service_completed_successfully
   command: >
-    run 
+    run
   environment:
     - AMARU_NETWORK
     - AMARU_PEER_ADDRESS
@@ -46,7 +46,7 @@ x-amaru: &amaru
 
 services:
   cardano-loader:
-    image: ghcr.io/pragma-org/amaru/loader:latest
+    image: ghcr.io/pragma-org/amaru/loader:main
     build:
       context: .
       dockerfile: Dockerfile.loader
@@ -69,7 +69,7 @@ services:
        - "/data/cardano-loader.sh"
 
   amaru-loader:
-    image: ghcr.io/pragma-org/amaru/loader:latest
+    image: ghcr.io/pragma-org/amaru/loader:main
     container_name: amaru-loader
     volumes:
       - initial-data:/data/generated
