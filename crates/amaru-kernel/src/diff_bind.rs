@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// FIXME: This is probably not the right place for this to live.
+//
+// Since we moved `ValidationContext` to the `amaru-kernel`, we had to move `diff_bind` as well.
+//
+// It probably makes the most sense to have the generic types that exit in `amaru_ledger::state` be extracted to their own crate.
+
 use std::{
     collections::{BTreeMap, BTreeSet, btree_map::Entry},
     mem,

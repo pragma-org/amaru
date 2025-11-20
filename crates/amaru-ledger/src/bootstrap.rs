@@ -14,7 +14,7 @@
 
 use crate::{
     governance::ratification::ProposalsRootsRc,
-    state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
+    state::diff_epoch_reg::DiffEpochReg,
     store::{
         self, GovernanceActivity, Store, StoreError, TransactionalContext,
         columns::{proposals, utxo},
@@ -25,7 +25,9 @@ use amaru_kernel::{
     DRep, DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
     Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, Reward,
     ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
-    UnitInterval, Vote, Voter, cbor, heterogeneous_array,
+    UnitInterval, Vote, Voter, cbor,
+    diff_bind::Resettable,
+    heterogeneous_array,
     lazy::LazyDecoder,
     network::NetworkName,
     protocol_parameters::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters},

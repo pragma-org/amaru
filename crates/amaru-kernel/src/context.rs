@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub(crate) mod assert;
-mod default;
-mod script;
+// FIXME: This is probably not the right place for this to live.
+//
+// We need the `ValidationContext` to be accessible in both `amaru-plutus` and `amaru-ledger`
+// so the quick fix was to move it here.
+//
+// It probably makes the most sense to move it to it's own crate
 
-use crate::state::diff_bind;
-use amaru_kernel::{
+use crate::{
     AddrKeyhash, Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Hash, Lovelace,
     MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId,
     PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential,
-    TransactionInput, Vote, Voter, arc_mapped::ArcMapped,
+    TransactionInput, Vote, Voter, arc_mapped::ArcMapped, diff_bind,
 };
 use amaru_slot_arithmetic::Epoch;
 use std::{
@@ -30,9 +32,6 @@ use std::{
     marker::PhantomData,
     sync::Arc,
 };
-
-pub use default::*;
-pub use script::*;
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:

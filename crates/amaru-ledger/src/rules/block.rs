@@ -13,14 +13,14 @@
 // limitations under the License.
 
 use crate::{
-    context::ValidationContext,
     rules::{transaction, transaction::InvalidTransaction},
     state::FailedTransactions,
     store::GovernanceActivity,
 };
 use amaru_kernel::{
     AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hasher, HeaderHash, MintedBlock, Network,
-    OriginalHash, TransactionId, TransactionPointer, protocol_parameters::ProtocolParameters,
+    OriginalHash, TransactionId, TransactionPointer, context::ValidationContext,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Slot;
 use std::{

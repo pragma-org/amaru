@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
     HasStakeCredential, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript,
     ScriptPurpose, StakeCredential, Voter, VotingProcedure,
+    context::{ProposalsSlice, WitnessSlice},
 };
 use std::collections::BTreeMap;
 

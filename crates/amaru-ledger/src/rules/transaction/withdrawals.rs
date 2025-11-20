@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    context::{AccountsSlice, WitnessSlice},
-    rules::TransactionField,
-};
+use crate::rules::TransactionField;
 use amaru_kernel::{
     Address, HasOwnership, Lovelace, MemoizedDatum, RequiredScript, RewardAccount, ScriptPurpose,
+    context::{AccountsSlice, WitnessSlice},
 };
 use std::collections::BTreeMap;
 use thiserror::Error;

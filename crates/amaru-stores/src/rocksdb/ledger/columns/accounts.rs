@@ -18,16 +18,13 @@ use crate::rocksdb::{
 };
 use amaru_kernel::{
     CertificatePointer, DRep, Lovelace, PROTOCOL_VERSION_9, ProtocolVersion, StakeCredential,
-    StakeCredentialType, stake_credential_hash,
+    StakeCredentialType, diff_bind::Resettable, stake_credential_hash,
 };
-use amaru_ledger::{
-    state::diff_bind::Resettable,
-    store::{
-        StoreError,
-        columns::{
-            accounts::{EVENT_TARGET, Key, Row, Value},
-            unsafe_decode,
-        },
+use amaru_ledger::store::{
+    StoreError,
+    columns::{
+        accounts::{EVENT_TARGET, Key, Row, Value},
+        unsafe_decode,
     },
 };
 use rocksdb::Transaction;

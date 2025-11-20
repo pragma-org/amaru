@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
     DatumHash, HasRedeemers, MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemerKey,
-    RequiredScript, ScriptHash, ScriptKind, ScriptPurpose, display_collection,
-    get_provided_scripts, script_purpose_to_string,
+    RequiredScript, ScriptHash, ScriptKind, ScriptPurpose,
+    context::{UtxoSlice, WitnessSlice},
+    display_collection, get_provided_scripts, script_purpose_to_string,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},

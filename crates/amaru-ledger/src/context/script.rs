@@ -12,19 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
+use amaru_kernel::{
+    Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Hash, Lovelace,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput,
+    Vote, Voter,
+    arc_mapped::ArcMapped,
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
         PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
         UtxoSlice, ValidationContext, WitnessSlice,
     },
-    state::volatile_db::VolatileState,
-};
-use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Hash, Lovelace,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
-    ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput,
-    Vote, Voter, arc_mapped::ArcMapped,
 };
 use amaru_slot_arithmetic::Epoch;
 use std::{
@@ -34,6 +32,8 @@ use std::{
 
 use amaru_plutus::unstable::TxInfoStorage;
 use tracing::error;
+
+use crate::state::VolatileState;
 
 /// A validation context that also constructs a phase-2 script context. This allows to minimize
 /// cloning and traversal of transaction constituents during validation. It is built as a wrapper

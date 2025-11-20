@@ -12,19 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-    diff_bind::{Bind, DiffBind, Empty},
-    diff_epoch_reg::DiffEpochReg,
-    diff_set::DiffSet,
-};
+use super::{diff_epoch_reg::DiffEpochReg, diff_set::DiffSet};
 use crate::{
-    state::{diff_bind::Resettable, diff_epoch_reg::Registrations},
+    state::diff_epoch_reg::Registrations,
     store::{self, columns::*},
 };
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration,
     Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalPointer,
-    StakeCredential, TransactionInput, protocol_parameters::ProtocolParameters,
+    StakeCredential, TransactionInput,
+    diff_bind::{Bind, DiffBind, Empty, Resettable},
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Epoch;
 use std::{

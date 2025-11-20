@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{context::ValidationContext, store::GovernanceActivity};
+use crate::store::GovernanceActivity;
 use amaru_kernel::{
     AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, Network,
-    OriginalHash, TransactionInput, TransactionPointer, protocol_parameters::ProtocolParameters,
+    OriginalHash, TransactionInput, TransactionPointer, context::ValidationContext,
+    protocol_parameters::ProtocolParameters,
 };
 use core::mem;
 use std::{fmt, ops::Deref};

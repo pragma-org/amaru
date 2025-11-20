@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::PreparationContext;
-use amaru_kernel::{Bytes, MintedBlock, cbor, ed25519, into_sized_array};
+use amaru_kernel::{
+    Bytes, MintedBlock, cbor, context::PreparationContext, ed25519, into_sized_array,
+};
 use std::{array::TryFromSliceError, fmt, fmt::Display};
 use thiserror::Error;
 use tracing::{Level, instrument};

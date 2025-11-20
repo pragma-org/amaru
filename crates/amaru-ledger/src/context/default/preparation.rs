@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{
+use amaru_kernel::context::{
     PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice,
     PrepareUtxoSlice,
 };

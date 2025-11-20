@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
+use crate::store::GovernanceActivity;
+use amaru_kernel::{
+    Certificate, CertificatePointer, DRep, DRepRegistration, EraHistory, MemoizedDatum,
+    NonEmptySet, PROTOCOL_VERSION_9, PoolId, PoolParams, RequiredScript, ScriptHash, ScriptPurpose,
+    StakeCredential, TransactionPointer,
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
         PoolsSlice, RegisterError, UnregisterError, UpdateError, WitnessSlice,
     },
-    store::GovernanceActivity,
-};
-use amaru_kernel::{
-    Certificate, CertificatePointer, DRep, DRepRegistration, EraHistory, MemoizedDatum,
-    NonEmptySet, PROTOCOL_VERSION_9, PoolId, PoolParams, RequiredScript, ScriptHash, ScriptPurpose,
-    StakeCredential, TransactionPointer, protocol_parameters::ProtocolParameters,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use thiserror::Error;

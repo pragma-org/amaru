@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    context::{UtxoSlice, WitnessSlice},
-    rules::{WithPosition, format_vec},
-};
+use crate::rules::{WithPosition, format_vec};
 use amaru_kernel::{
     HasAddress, HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput,
-    MintedTransactionOutput, Network, TransactionInput, protocol_parameters::ProtocolParameters,
+    MintedTransactionOutput, Network, TransactionInput,
+    context::{UtxoSlice, WitnessSlice},
+    protocol_parameters::ProtocolParameters,
     to_network_id,
 };
 use thiserror::Error;
