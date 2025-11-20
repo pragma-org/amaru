@@ -51,11 +51,7 @@ impl<'a> ScriptContext<'a> {
     /// Construct a new [`ScriptContext`] for a specific script execution (specified by the `Redeemer`).
     ///
     /// Returns `None` if the provided `Redeemer` does not exist in the `TxInfo`
-    pub fn new(
-        tx_info: &'a TxInfo,
-        redeemer: &'a Redeemer,
-        datum: Option<&'a PlutusData>,
-    ) -> Option<Self> {
+    pub fn new(tx_info: &'a TxInfo, redeemer: &'a Redeemer) -> Option<Self> {
         let purpose = tx_info
             .redeemers
             .0
@@ -67,6 +63,19 @@ impl<'a> ScriptContext<'a> {
                     None
                 }
             });
+
+        let datum = if amaru_kernel::ScriptPurpose::Spend == redeemer.tag {
+            tx_info
+                .inputs
+                .get(redeemer.index as usize)
+                .and_then(|output_ref| match &output_ref.output.datum {
+                    DatumOption::None => None,
+                    DatumOption::Hash(hash) => tx_info.data.0.get(hash),
+                    DatumOption::Inline(plutus_data) => Some(plutus_data),
+                })
+        } else {
+            None
+        };
 
         purpose.map(|script_purpose| ScriptContext {
             tx_info,

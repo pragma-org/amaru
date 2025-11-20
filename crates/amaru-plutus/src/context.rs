@@ -30,7 +30,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::script_context::TxInfo;
+use crate::script_context::{OutputRef, TxInfo};
 
 /// A validation context that also constructs a phase-2 script context. This allows to minimize
 /// cloning and traversal of transaction constituents during validation. It is built as a wrapper
@@ -74,7 +74,7 @@ impl<V: ValidationContext> UtxoSlice for ScriptEvaluationContext<V> {
         input: TransactionInput,
     ) -> Option<(&TransactionInput, Arc<MemoizedTransactionOutput>)> {
         if let Some((input, output)) = self.phase1.consume(input) {
-            // self.phase2.add_input(input.clone(), output.clone());
+            self.phase2.add_input(input.clone(), (*output).clone());
             return Some((input, output));
         }
 
@@ -87,7 +87,7 @@ impl<V: ValidationContext> UtxoSlice for ScriptEvaluationContext<V> {
         output: MemoizedTransactionOutput,
     ) -> Arc<MemoizedTransactionOutput> {
         let output = self.phase1.produce(input, output);
-        // self.phase2.add_output(output.clone());
+        self.phase2.add_output((*output).clone());
         output
     }
 }
@@ -249,9 +249,29 @@ impl<V: ValidationContext> WitnessSlice for ScriptEvaluationContext<V> {
     fn known_datums(
         &mut self,
     ) -> BTreeMap<DatumHash, ArcMapped<MemoizedTransactionOutput, MemoizedPlutusData>> {
-        todo!()
+        let datums = self.phase1.known_datums();
+        self.phase2.set_datums(&datums);
+        datums
+    }
+}
 
-        // self.phase2.set_datums(self.phase1.known_datums());
-        // self.phase2.datums().clone()
+impl TxInfo {
+    fn add_input(&mut self, input: TransactionInput, output: MemoizedTransactionOutput) {
+        let output_ref = OutputRef {
+            input,
+            output: output.into(),
+        };
+        self.inputs.push(output_ref);
+    }
+
+    fn add_output(&mut self, output: MemoizedTransactionOutput) {
+        self.outputs.push(output.into());
+    }
+
+    pub fn set_datums(
+        &mut self,
+        datums: &BTreeMap<DatumHash, ArcMapped<MemoizedTransactionOutput, MemoizedPlutusData>>,
+    ) {
+        self.data = datums.into();
     }
 }

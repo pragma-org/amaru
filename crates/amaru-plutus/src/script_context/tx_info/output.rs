@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, ops::Deref};
+use std::{borrow::Borrow, collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
-    Address, AddressError, AlonzoValue, AssetName, Bytes, CborWrap, DatumHash, Hash, KeyValuePairs,
-    Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, MintedDatumOption,
-    MintedScriptRef, MintedTransactionOutput, NativeScript, PlutusData, PlutusScript, PseudoScript,
-    TransactionInput,
+    Address, AddressError, AlonzoValue, AssetName, Bytes, CborWrap, ComputeHash, DatumHash, Hash,
+    KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedPlutusData, MemoizedScript,
+    MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef, MintedTransactionOutput,
+    NativeScript, NonEmptySet, PlutusData, PlutusScript, PseudoScript, TransactionInput,
+    arc_mapped::ArcMapped,
 };
 use thiserror::Error;
 
@@ -307,5 +308,38 @@ impl From<Option<&Hash<32>>> for DatumOption {
             Some(hash) => Self::Hash(*hash),
             None => Self::None,
         }
+    }
+}
+
+#[doc(hidden)]
+#[derive(Default, Debug)]
+pub struct Datums(pub BTreeMap<DatumHash, PlutusData>);
+
+impl From<NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums {
+    fn from(plutus_data: NonEmptySet<KeepRaw<'_, PlutusData>>) -> Self {
+        Self(
+            plutus_data
+                .to_vec()
+                .into_iter()
+                .map(|data| (data.compute_hash(), data.unwrap()))
+                .collect(),
+        )
+    }
+}
+impl From<&BTreeMap<DatumHash, ArcMapped<MemoizedTransactionOutput, MemoizedPlutusData>>>
+    for Datums
+{
+    fn from(
+        value: &BTreeMap<DatumHash, ArcMapped<MemoizedTransactionOutput, MemoizedPlutusData>>,
+    ) -> Self {
+        Self(
+            value
+                .iter()
+                .map(|(hash, mapped)| {
+                    let data: &MemoizedPlutusData = mapped.borrow();
+                    (*hash, data.as_ref().clone())
+                })
+                .collect(),
+        )
     }
 }

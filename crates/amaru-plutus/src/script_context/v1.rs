@@ -300,7 +300,7 @@ mod tests {
                 )
                 .unwrap();
 
-                let script_context = ScriptContext::new(&tx_info, redeemer, None).unwrap();
+                let script_context = ScriptContext::new(&tx_info, redeemer).unwrap();
                 let plutus_data = to_cbor(
                     &<ScriptContext<'_> as ToPlutusData<1>>::to_plutus_data(&script_context)
                         .expect("failed to ScriptContext convert to PlutusData"),

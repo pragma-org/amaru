@@ -18,12 +18,12 @@ use std::{
 };
 
 use amaru_kernel::{
-    AddrKeyhash, Address, AddressError, AssetName, Certificate, ComputeHash, DatumHash, EraHistory,
-    Hash, KeepRaw, Lovelace, MintedTransactionBody, MintedWitnessSet, Network,
-    NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PolicyId, Proposal, ProposalIdAdapter,
-    Redeemer, RewardAccount, ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload,
-    TransactionId, TransactionInput, TransactionInputAdapter, Vote, Voter, VotingProcedures,
-    network::NetworkName, normalize_redeemers, protocol_parameters::GlobalParameters,
+    AddrKeyhash, Address, AddressError, AssetName, Certificate, EraHistory, Hash, Lovelace,
+    MintedTransactionBody, MintedWitnessSet, Network, NonEmptyKeyValuePairs, PlutusData, PolicyId,
+    Proposal, ProposalIdAdapter, Redeemer, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
+    StakeCredential, StakePayload, TransactionId, TransactionInput, TransactionInputAdapter, Vote,
+    Voter, VotingProcedures, network::NetworkName, normalize_redeemers,
+    protocol_parameters::GlobalParameters,
 };
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 use itertools::Itertools;
@@ -490,25 +490,6 @@ pub struct RequiredSigners(pub BTreeSet<AddrKeyhash>);
 impl From<&amaru_kernel::RequiredSigners> for RequiredSigners {
     fn from(value: &amaru_kernel::RequiredSigners) -> Self {
         Self(value.iter().copied().collect())
-    }
-}
-
-// Datums
-// ----------------------------------------------------------------------------
-
-#[doc(hidden)]
-#[derive(Default, Debug)]
-pub struct Datums(pub BTreeMap<DatumHash, PlutusData>);
-
-impl From<NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums {
-    fn from(plutus_data: NonEmptySet<KeepRaw<'_, PlutusData>>) -> Self {
-        Self(
-            plutus_data
-                .to_vec()
-                .into_iter()
-                .map(|data| (data.compute_hash(), data.unwrap()))
-                .collect(),
-        )
     }
 }
 
