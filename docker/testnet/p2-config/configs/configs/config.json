@@ -65,7 +65,7 @@
   "TraceOptionForwarder": {
     "connQueueSize": 64,
     "disconnQueueSize": 128,
-    "maxReconnectDeplay": 30
+    "maxReconnectDelay": 30
   },
   "TraceOptions": {
     "": {
