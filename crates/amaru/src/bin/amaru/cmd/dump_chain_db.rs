@@ -53,6 +53,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
           "Running command dump-chain-db",
     );
 
+    info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(),
+          "Running command dump-chain-db",
+    );
+
     let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
 
     print_iterator(

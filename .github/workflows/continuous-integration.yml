@@ -117,6 +117,13 @@ jobs:
           name: failed-simulation-data
           path: simulation/amaru-sim/test-data
 
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-simulation-data
+          path: simulation/amaru-sim/test-data
+
   coverage:
     name: Test coverage
     runs-on: ubuntu-latest
