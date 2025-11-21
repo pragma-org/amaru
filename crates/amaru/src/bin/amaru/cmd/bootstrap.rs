@@ -19,7 +19,7 @@ use crate::cmd::{default_chain_dir, default_ledger_dir, import_nonces::import_no
 use amaru::snapshots_dir;
 use amaru_kernel::network::NetworkName;
 use async_compression::tokio::bufread::GzipDecoder;
-use clap::{Parser, arg};
+use clap::Parser;
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 use std::{
