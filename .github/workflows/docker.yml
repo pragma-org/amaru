@@ -17,7 +17,16 @@ permissions:
 jobs:
   build-docker-image:
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: docker/testnet/Dockerfile.generator
+            image: ${{ env.REGISTRY }}/${{ github.repository }}/generator
+          - dockerfile: docker/testnet/Dockerfile.loader
+            image: ${{ env.REGISTRY }}/${{ github.repository }}/loader
+          - dockerfile: docker/testnet/Dockerfile.amaru
+            image: ${{ env.REGISTRY }}/${{ github.repository }}/amaru
     steps:
     - name: 📥 Checkout repository
       uses: actions/checkout@v5
@@ -36,14 +45,14 @@ jobs:
       id: meta
       uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
       with:
-       images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}
+       images: ${{ matrix.image }}
 
-    - name: Build and push Docker image
+    - name: Build and push Amaru Docker image
       id: push
       uses: docker/build-push-action@v6
       with:
         context: docker/testnet
-        file: docker/testnet/Dockerfile.amaru
+        file: ${{ matrix.dockerfile }}
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
