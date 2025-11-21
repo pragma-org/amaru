@@ -16,7 +16,7 @@ use crate::cmd::{WorkerError, connect_to_peer};
 use amaru_kernel::{BlockHeader, IsHeader, Point, from_cbor, network::NetworkName, peer::Peer};
 use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
-use clap::{Parser, arg};
+use clap::Parser;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse};
 use std::{
     error::Error,
