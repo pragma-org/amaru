@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap};
+use std::collections::BTreeMap;
 
-use amaru_kernel::{Address, KeyValuePairs};
+use amaru_kernel::{Address, KeyValuePairs, Redeemer};
 
 use crate::{
     PlutusDataError, ToPlutusData, constr_v2,
@@ -30,9 +30,9 @@ impl ToPlutusData<2> for ScriptContext<'_> {
     }
 }
 
-impl ToPlutusData<2> for TxInfo<'_> {
+impl ToPlutusData<2> for TxInfo {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let fee: Value<'_> = self.fee.into();
+        let fee: Value = self.fee.into();
         constr_v2!(
             0,
             [
@@ -53,13 +53,13 @@ impl ToPlutusData<2> for TxInfo<'_> {
     }
 }
 
-impl ToPlutusData<2> for OutputRef<'_> {
+impl ToPlutusData<2> for OutputRef {
     /// Serialize an `OutputRef` as PlutusData for PlutusV2.
     ///
     /// # Errors
     /// If the UTxO is locked at a bootstrap address, this will return a `PlutusDataError`.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        if let Address::Byron(_) = *self.output.address {
+        if let Address::Byron(_) = self.output.address {
             return Err(PlutusDataError::unsupported_version(
                 "byron address included in OutputRef",
                 2,
@@ -70,13 +70,13 @@ impl ToPlutusData<2> for OutputRef<'_> {
     }
 }
 
-impl ToPlutusData<2> for TransactionOutput<'_> {
+impl ToPlutusData<2> for TransactionOutput {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr_v2!(0, [self.address, self.value, self.datum, self.script])
     }
 }
 
-impl ToPlutusData<2> for Datums<'_> {
+impl ToPlutusData<2> for Datums {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         <BTreeMap<_, _> as ToPlutusData<2>>::to_plutus_data(&self.0)
     }
@@ -88,15 +88,15 @@ impl ToPlutusData<2> for Withdrawals {
     }
 }
 
-impl ToPlutusData<2> for Redeemers<'_, ScriptPurpose<'_>> {
+impl ToPlutusData<2> for Redeemers<ScriptPurpose> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         let converted: Result<Vec<_>, _> = self
             .0
             .iter()
             .map(|(purpose, data)| {
                 Ok((
-                    <ScriptPurpose<'_> as ToPlutusData<2>>::to_plutus_data(purpose)?,
-                    <Cow<'_, _> as ToPlutusData<2>>::to_plutus_data(data)?,
+                    <ScriptPurpose as ToPlutusData<2>>::to_plutus_data(purpose)?,
+                    <Redeemer as ToPlutusData<2>>::to_plutus_data(data)?,
                 ))
             })
             .collect();

@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::UtxoSlice;
 use amaru_kernel::{
     Address, AlonzoValue, HasOwnership, MemoizedTransactionOutput, MintedTransactionOutput,
-    StakeCredential, TransactionInput, TransactionInputAdapter, Value,
+    StakeCredential, TransactionInput, TransactionInputAdapter, Value, context::UtxoSlice,
     protocol_parameters::ProtocolParameters,
 };
 use std::{

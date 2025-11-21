@@ -38,7 +38,7 @@ use amaru_kernel::{
 };
 use columns::*;
 use std::{
-    borrow::BorrowMut,
+    borrow::{Borrow, BorrowMut},
     collections::{BTreeMap, BTreeSet},
     io, iter,
     ops::Deref,
@@ -277,7 +277,7 @@ pub trait TransactionalContext<'a>: ReadStore {
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
     #[expect(clippy::too_many_arguments)]
-    fn save(
+    fn save<U: Borrow<utxo::Value>>(
         &self,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
@@ -285,7 +285,7 @@ pub trait TransactionalContext<'a>: ReadStore {
         point: &Point,
         issuer: Option<&pools::Key>,
         add: Columns<
-            impl Iterator<Item = (utxo::Key, utxo::Value)>,
+            impl Iterator<Item = (utxo::Key, U)>,
             impl Iterator<Item = pools::Value>,
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
             impl Iterator<Item = (dreps::Key, dreps::Value)>,

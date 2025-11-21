@@ -13,13 +13,12 @@
 // limitations under the License.
 
 use crate::in_memory::MemoryStore;
-use amaru_ledger::{
-    state::diff_bind::Resettable,
-    store::{
-        StoreError,
-        columns::cc_members::{Key, Row, Value},
-    },
+use amaru_ledger::store::{
+    StoreError,
+    columns::cc_members::{Key, Row, Value},
 };
+
+use amaru_kernel::diff_bind::Resettable;
 
 pub fn add(
     store: &MemoryStore,

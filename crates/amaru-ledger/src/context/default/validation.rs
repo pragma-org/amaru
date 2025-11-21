@@ -12,28 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
-        PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
-        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
-    },
-    state::volatile_db::VolatileState,
-};
+use crate::state::volatile_db::VolatileState;
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration,
     DatumHash, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
     PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash,
     StakeCredential, TransactionInput, Vote, Voter,
+    arc_mapped::ArcMapped,
+    context::{
+        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
+        PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
+        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
+    },
 };
 use amaru_slot_arithmetic::Epoch;
 use core::mem;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 use tracing::trace;
 
 #[derive(Debug)]
 pub struct DefaultValidationContext {
-    utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    utxo: BTreeMap<TransactionInput, Arc<MemoizedTransactionOutput>>,
     state: VolatileState,
     known_scripts: BTreeMap<ScriptHash, TransactionInput>,
     known_datums: BTreeMap<DatumHash, TransactionInput>,
@@ -46,7 +48,7 @@ pub struct DefaultValidationContext {
 impl DefaultValidationContext {
     pub fn new(utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>) -> Self {
         Self {
-            utxo,
+            utxo: utxo.into_iter().map(|(i, o)| (i, Arc::new(o))).collect(),
             state: VolatileState::default(),
             required_signers: BTreeSet::default(),
             known_scripts: BTreeMap::new(),
@@ -76,16 +78,36 @@ impl PotsSlice for DefaultValidationContext {
 
 impl UtxoSlice for DefaultValidationContext {
     fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.utxo.get(input).or(self.state.utxo.produced.get(input))
+        self.utxo
+            .get(input)
+            .or(self.state.utxo.produced.get(input))
+            .map(|o| o.as_ref())
     }
 
-    fn consume(&mut self, input: TransactionInput) {
-        self.utxo.remove(&input);
-        self.state.utxo.consume(input)
+    fn get(&self, input: &TransactionInput) -> Option<Arc<MemoizedTransactionOutput>> {
+        self.utxo
+            .get(input)
+            .or(self.state.utxo.produced.get(input))
+            .cloned()
     }
 
-    fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput) {
-        self.state.utxo.produce(input, output)
+    fn consume(
+        &mut self,
+        input: TransactionInput,
+    ) -> Option<(&TransactionInput, Arc<MemoizedTransactionOutput>)> {
+        let from_utxo = self.utxo.remove_entry(&input).map(|(_, o)| o);
+        let (input, from_state) = self.state.utxo.consume(input);
+        from_utxo.or(from_state).map(|o| (input, o))
+    }
+
+    fn produce(
+        &mut self,
+        input: TransactionInput,
+        output: MemoizedTransactionOutput,
+    ) -> Arc<MemoizedTransactionOutput> {
+        let arc = Arc::new(output);
+        self.state.utxo.produce(input, arc.clone());
+        arc
     }
 }
 
@@ -282,7 +304,9 @@ impl WitnessSlice for DefaultValidationContext {
         blanket_known_scripts(self, known_scripts.into_iter())
     }
 
-    fn known_datums(&mut self) -> BTreeMap<DatumHash, &MemoizedPlutusData> {
+    fn known_datums(
+        &mut self,
+    ) -> BTreeMap<DatumHash, ArcMapped<MemoizedTransactionOutput, MemoizedPlutusData>> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
     }

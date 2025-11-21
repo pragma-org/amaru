@@ -18,15 +18,16 @@ use amaru_ledger::store::{
     StoreError,
     columns::utxo::{Key, Value},
 };
+use std::borrow::Borrow;
 
-pub fn add(
+pub fn add<V: Borrow<Value>>(
     store: &MemoryStore,
-    rows: impl Iterator<Item = (Key, Value)>,
+    rows: impl Iterator<Item = (Key, V)>,
 ) -> Result<(), StoreError> {
     let mut utxos = store.utxos.borrow_mut();
 
     for (input, output) in rows {
-        utxos.insert(input, output);
+        utxos.insert(input, output.borrow().clone());
     }
 
     Ok(())

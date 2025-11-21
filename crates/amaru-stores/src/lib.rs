@@ -22,7 +22,7 @@ pub mod tests {
     use amaru_kernel::{
         Anchor, ComparableProposalId, DRepRegistration, EraHistory, Hash,
         MemoizedTransactionOutput, Point, PoolId, PoolParams, Slot, StakeCredential,
-        TransactionInput,
+        TransactionInput, diff_bind,
         network::NetworkName,
         protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
         tests::{
@@ -30,17 +30,14 @@ pub mod tests {
             any_stake_credential,
         },
     };
-    use amaru_ledger::{
-        state::diff_bind,
-        store::{
-            Columns, GovernanceActivity, ReadStore, Store, StoreError, TransactionalContext,
-            columns::{
-                accounts::{self},
-                cc_members, dreps,
-                proposals::{self},
-                slots::tests::any_slot,
-                utxo::tests::{any_memoized_transaction_output, any_txin},
-            },
+    use amaru_ledger::store::{
+        Columns, GovernanceActivity, ReadStore, Store, StoreError, TransactionalContext,
+        columns::{
+            accounts::{self},
+            cc_members, dreps,
+            proposals::{self},
+            slots::tests::any_slot,
+            utxo::tests::{any_memoized_transaction_output, any_txin},
         },
     };
     use amaru_slot_arithmetic::Epoch;
@@ -420,7 +417,7 @@ pub mod tests {
             consecutive_dormant_epochs: 0,
         };
         let context = store.create_transaction();
-        context.save(
+        context.save::<MemoizedTransactionOutput>(
             &era_history,
             &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             &mut governance_activity,
@@ -459,7 +456,7 @@ pub mod tests {
             consecutive_dormant_epochs: 0,
         };
         let context = store.create_transaction();
-        context.save(
+        context.save::<MemoizedTransactionOutput>(
             &era_history,
             &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             &mut governance_activity,
@@ -493,7 +490,7 @@ pub mod tests {
             consecutive_dormant_epochs: 0,
         };
         let context = store.create_transaction();
-        context.save(
+        context.save::<MemoizedTransactionOutput>(
             &era_history,
             &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             &mut governance_activity,
@@ -547,7 +544,7 @@ pub mod tests {
             consecutive_dormant_epochs: 0,
         };
         let context = store.create_transaction();
-        context.save(
+        context.save::<MemoizedTransactionOutput>(
             &era_history,
             &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             &mut governance_activity,

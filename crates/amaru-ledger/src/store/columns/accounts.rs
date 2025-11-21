@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::state::diff_bind::Resettable;
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, StakeCredential, cbor};
+use amaru_kernel::{
+    CertificatePointer, DRep, Lovelace, PoolId, StakeCredential, cbor, diff_bind::Resettable,
+};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 

@@ -12,21 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod macros;
-pub mod script_context;
-pub mod to_plutus_data;
+pub(crate) mod assert;
+mod default;
 
-#[doc(hidden)]
-pub mod evaluation_context;
+use amaru_kernel::context::ValidationContext;
+use amaru_plutus::evaluation_context::ScriptEvaluationContext;
+pub use default::*;
 
-use to_plutus_data::*;
+use crate::state::VolatileState;
 
-pub fn to_cbor_tag(constr_index: u64) -> Option<u64> {
-    if constr_index <= 6 {
-        Some(121 + constr_index)
-    } else if constr_index <= 127 {
-        Some(1280 - 7 + constr_index)
-    } else {
-        None
+impl<V: ValidationContext + Into<VolatileState>> From<ScriptEvaluationContext<V>>
+    for VolatileState
+{
+    fn from(ctx: ScriptEvaluationContext<V>) -> Self {
+        ctx.phase1.into()
     }
 }
