@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::pin::Pin;
 use std::sync::Arc;
 use amaru_kernel::{Hash, Hasher, HEADER_HASH_SIZE};
 use amaru_kernel::cbor::Encode;
-use crate::strategies::{MempoolSeqNo, TxOrigin, TxRejectReason};
+use amaru_kernel::peer::Peer;
 
 /// An simple mempool interface to add transactions and forge blocks when needed.
 pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync
 where
 {
+    fn last_seq_no(&self) -> MempoolSeqNo;
+
     /// Add a new transaction to the mempool.
     ///
     /// TODO: Have the mempool perform its own set of validations and possibly fail to add new
@@ -55,7 +58,8 @@ where
     /// invalidate transactions within the mempool that are now considered invalid.
     fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
     where
-        I: IntoIterator<Item=TxKey>;
+        I: IntoIterator<Item=TxKey>,
+        Self: Sized;
 
     /// Retrieve a transaction by its id.
     fn get_tx(&self, tx_id: &TxId) -> Option<Arc<Tx>>;
@@ -64,8 +68,10 @@ where
     fn tx_ids_since(
         &self,
         from_seq: MempoolSeqNo,
-        limit: usize,
-    ) -> Vec<(TxId, MempoolSeqNo)>;
+        limit: u16,
+    ) -> Vec<(TxId, u32, MempoolSeqNo)>;
+
+    fn wait_for_at_least(&self, required: u16) -> Pin<Box<dyn Future<Output=bool> + Send + '_>>;
 
     /// Retrieve a list of transactions for the given ids.
     fn get_txs_for_ids(
@@ -78,6 +84,12 @@ where
 pub struct TxId(Hash<32>);
 
 impl TxId {
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.as_ref().to_vec()
+    }
+}
+
+impl TxId {
     pub fn new(hash: Hash<32>) -> Self {
         TxId(hash)
     }
@@ -86,4 +98,21 @@ impl TxId {
         let hash = Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&tx);
         TxId(hash)
     }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MempoolSeqNo(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TxRejectReason {
+    MempoolFull,
+    Duplicate,
+    Invalid,
+}
+
+#[derive(Debug, Clone)]
+pub enum TxOrigin {
+    Local,
+    Remote(Peer),
 }

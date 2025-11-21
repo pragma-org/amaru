@@ -24,5 +24,8 @@ pub use stores::*;
 pub mod praos;
 pub use praos::*;
 
+pub mod mempool;
+pub use mempool::*;
+
 pub mod network_operations;
 pub use network_operations::NetworkOperations;

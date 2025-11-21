@@ -207,9 +207,11 @@ name = "amaru-mempool"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-ouroboros-traits",
  "assertables",
  "minicbor",
  "parking_lot",
+ "tokio",
 ]
 
 [[package]]
@@ -234,6 +236,7 @@ version = "0.1.0"
 dependencies = [
  "acto",
  "amaru-kernel",
+ "amaru-mempool",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "anyhow",
@@ -241,6 +244,7 @@ dependencies = [
  "binrw",
  "bytes",
  "futures-util",
+ "minicbor",
  "pallas-network",
  "pallas-traverse",
  "parking_lot",

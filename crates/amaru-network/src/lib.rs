@@ -19,5 +19,6 @@ pub mod network_resource;
 pub mod point;
 pub mod protocol;
 pub mod session;
+pub mod tx_submission;
 
 pub use network_resource::NetworkResource;
