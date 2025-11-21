@@ -20,7 +20,6 @@ cbor4ii.workspace = true
 either.workspace = true
 futures-util.workspace = true
 hex.workspace = true
-itertools.workspace = true
 parking_lot.workspace = true
 rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive", "alloc", "rc"] }
