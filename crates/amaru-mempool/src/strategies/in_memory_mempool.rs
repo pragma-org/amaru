@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_ouroboros_traits::mempool::{Mempool, TxId};
 use amaru_kernel::cbor::Encode;
+use amaru_ouroboros_traits::mempool::{Mempool, TxId};
+use amaru_ouroboros_traits::{MempoolSeqNo, TxOrigin, TxRejectReason};
+use minicbor::CborLen;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
-use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
-use minicbor::CborLen;
-use amaru_ouroboros_traits::{MempoolSeqNo, TxOrigin, TxRejectReason};
 
 pub struct InMemoryMempool<Tx> {
     inner: parking_lot::RwLock<MempoolInner<Tx>>,
@@ -69,7 +68,9 @@ impl<Tx: Encode<()> + CborLen<()>> MempoolInner<Tx> {
         tx: Tx,
         tx_origin: TxOrigin,
     ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
-        if let Some(max_txs) = config.max_txs && self.entries_by_id.len() >= max_txs {
+        if let Some(max_txs) = config.max_txs
+            && self.entries_by_id.len() >= max_txs
+        {
             return Err(TxRejectReason::MempoolFull);
         }
 
@@ -100,7 +101,8 @@ impl<Tx: Encode<()> + CborLen<()>> MempoolInner<Tx> {
     }
 
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
-        self.entries_by_seq
+        let mut result: Vec<(TxId, u32, MempoolSeqNo)> = self
+            .entries_by_seq
             .range(from_seq..)
             .take(limit as usize)
             .map(|(seq, tx_id)| {
@@ -108,19 +110,26 @@ impl<Tx: Encode<()> + CborLen<()>> MempoolInner<Tx> {
                     let tx_size = entry.tx_size;
                     (tx_id.clone(), tx_size, *seq)
                 } else {
-                    panic!("Inconsistent mempool state: entry missing for tx_id {:?}", tx_id);
+                    panic!(
+                        "Inconsistent mempool state: entry missing for tx_id {:?}",
+                        tx_id
+                    );
                 }
             })
-            .collect()
+            .collect();
+        result.sort_by_key(|(_, _, seq_no)| seq_no.clone());
+        result
     }
 
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Arc<Tx>> {
-        self.entries_by_id
-            .iter().filter(|(key, _)| ids.contains(*key)).map(|(_, entry)| entry.tx.clone())
-            .collect()
+        // Make sure that the result are sorted by seq_no
+        let mut result: Vec<(&TxId, &MempoolEntry<Tx>)> = self.entries_by_id
+            .iter()
+            .filter(|(key, _)| ids.contains(*key)).collect();
+        result.sort_by_key(|(_, entry)| entry.seq_no);
+        result.into_iter().map(|(_, entry)| entry.tx.clone()).collect()
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct MempoolEntry<Tx> {
@@ -130,7 +139,6 @@ pub struct MempoolEntry<Tx> {
     tx_size: u32,
     origin: TxOrigin,
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct MempoolConfig {
@@ -144,11 +152,15 @@ impl MempoolConfig {
     }
 }
 
-
-impl<Tx: Deref + Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> for InMemoryMempool<Tx>
-{
+impl<Tx: Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> for InMemoryMempool<Tx> {
     fn last_seq_no(&self) -> MempoolSeqNo {
-        self.inner.read().entries_by_seq.keys().last().cloned().unwrap_or(MempoolSeqNo(0))
+        self.inner
+            .read()
+            .entries_by_seq
+            .keys()
+            .last()
+            .cloned()
+            .unwrap_or(MempoolSeqNo(0))
     }
 
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
@@ -159,7 +171,10 @@ impl<Tx: Deref + Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> f
         let mut inner = self.inner.write();
         let entries = mem::take(&mut inner.entries_by_id);
         let _ = mem::take(&mut inner.entries_by_seq);
-        entries.into_values().filter_map(|entry| Arc::into_inner(entry.tx)).collect()
+        entries
+            .into_values()
+            .filter_map(|entry| Arc::into_inner(entry.tx))
+            .collect()
     }
 
     fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
@@ -169,7 +184,11 @@ impl<Tx: Deref + Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> f
     {
         let keys_to_remove = BTreeSet::from_iter(keys(tx).into_iter());
         let mut inner = self.inner.write();
-        inner.entries_by_id.retain(|_, entry| !keys(&entry.tx).into_iter().any(|k| keys_to_remove.contains(&k)));
+        inner.entries_by_id.retain(|_, entry| {
+            !keys(&entry.tx)
+                .into_iter()
+                .any(|k| keys_to_remove.contains(&k))
+        });
     }
 
     fn get_tx(&self, tx_id: &TxId) -> Option<Arc<Tx>> {
@@ -180,13 +199,14 @@ impl<Tx: Deref + Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> f
         self.inner.read().tx_ids_since(from_seq, limit)
     }
 
-    fn wait_for_at_least(&self, required: u16) -> Pin<Box<dyn Future<Output=bool> + Send + '_>> {
+    fn wait_for_at_least(&self, _required: u16) -> Pin<Box<dyn Future<Output=bool> + Send + '_>> {
         Box::pin(async move {
             loop {
                 // TODO: make sure that transactions are valid before returning
                 // So we can make sure to send enough valid transactions upstream
-                if self.last_seq_no().0 >= required as u64 { return true; }
-                tokio::task::yield_now().await;
+                return true;
+                // when a significant validation is implemented we will yield here
+                // tokio::task::yield_now().await;
             }
         })
     }
@@ -198,23 +218,27 @@ impl<Tx: Deref + Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> f
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use assertables::{assert_some_eq_x};
-    use minicbor::{Decode};
-    use amaru_kernel::peer::Peer;
     use super::*;
+    use amaru_kernel::peer::Peer;
+    use assertables::assert_some_eq_x;
+    use minicbor::Decode;
+    use std::str::FromStr;
 
     #[test]
     fn insert_a_transaction() {
         let mempool = InMemoryMempool::new(MempoolConfig::default().with_max_txs(5));
         let tx = Tx::from_str("tx1").unwrap();
-        let (tx_id, seq_nb) = mempool.insert(tx.clone(), TxOrigin::Remote(Peer::new("peer-1"))).unwrap();
+        let (tx_id, seq_nb) = mempool
+            .insert(tx.clone(), TxOrigin::Remote(Peer::new("peer-1")))
+            .unwrap();
 
         assert_some_eq_x!(mempool.get_tx(&tx_id), Arc::new(tx.clone()));
-        assert_eq!(mempool.get_txs_for_ids(&[tx_id.clone()]), vec![Arc::new(tx.clone())]);
+        assert_eq!(
+            mempool.get_txs_for_ids(&[tx_id.clone()]),
+            vec![Arc::new(tx.clone())]
+        );
         assert_eq!(mempool.tx_ids_since(seq_nb, 100), vec![(tx_id, seq_nb)]);
     }
-
 
     // HELPERS
     #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]

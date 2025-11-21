@@ -14,7 +14,7 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use amaru_kernel::{Hash, Hasher, HEADER_HASH_SIZE};
+use amaru_kernel::{Hash, Hasher};
 use amaru_kernel::cbor::Encode;
 use amaru_kernel::peer::Peer;
 
@@ -64,7 +64,7 @@ where
     /// Retrieve a transaction by its id.
     fn get_tx(&self, tx_id: &TxId) -> Option<Arc<Tx>>;
 
-    /// Retrieve a list of transactions from a given sequence number, up to a given limit.
+    /// Retrieve a list of transactions from a given sequence number (inclusive), up to a given limit.
     fn tx_ids_since(
         &self,
         from_seq: MempoolSeqNo,
@@ -87,6 +87,10 @@ impl TxId {
     pub fn to_vec(&self) -> Vec<u8> {
         self.0.as_ref().to_vec()
     }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0.as_slice()
+    }
 }
 
 impl TxId {
@@ -95,7 +99,7 @@ impl TxId {
     }
 
     pub fn from<Tx: Encode<()>>(tx: Tx) -> Self {
-        let hash = Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&tx);
+        let hash = Hasher::<{ 32 * 8 }>::hash_cbor(&tx);
         TxId(hash)
     }
 }
@@ -104,10 +108,19 @@ impl TxId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MempoolSeqNo(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl MempoolSeqNo {
+    pub fn next(&self) -> MempoolSeqNo {
+        MempoolSeqNo(self.0 + 1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, thiserror::Error)]
 pub enum TxRejectReason {
+    #[error("Mempool is full")]
     MempoolFull,
+    #[error("Transaction is a duplicate")]
     Duplicate,
+    #[error("Transaction is invalid")]
     Invalid,
 }
 
