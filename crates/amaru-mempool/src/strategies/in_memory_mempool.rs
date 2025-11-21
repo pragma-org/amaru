@@ -12,17 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::mempool::{Mempool, TxId};
+use amaru_ouroboros_traits::mempool::{Mempool, TxId};
 use amaru_kernel::cbor::Encode;
-use amaru_kernel::peer::Peer;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 use std::ops::Deref;
+use std::pin::Pin;
 use std::sync::Arc;
+use minicbor::CborLen;
+use amaru_ouroboros_traits::{MempoolSeqNo, TxOrigin, TxRejectReason};
 
 pub struct InMemoryMempool<Tx> {
     inner: parking_lot::RwLock<MempoolInner<Tx>>,
     config: MempoolConfig,
+}
+
+impl<Tx> Default for InMemoryMempool<Tx> {
+    fn default() -> Self {
+        InMemoryMempool {
+            inner: parking_lot::RwLock::new(MempoolInner::default()),
+            config: MempoolConfig::default(),
+        }
+    }
 }
 
 impl<Tx> InMemoryMempool<Tx> {
@@ -51,7 +62,7 @@ impl<Tx> Default for MempoolInner<Tx> {
     }
 }
 
-impl<Tx: Encode<()>> MempoolInner<Tx> {
+impl<Tx: Encode<()> + CborLen<()>> MempoolInner<Tx> {
     fn insert(
         &mut self,
         config: &MempoolConfig,
@@ -70,10 +81,12 @@ impl<Tx: Encode<()>> MempoolInner<Tx> {
         let seq_no = MempoolSeqNo(self.next_seq);
         self.next_seq += 1;
 
+        let tx_size = minicbor::len(&tx) as u32;
         let entry = MempoolEntry {
             seq_no,
             tx_id: tx_id.clone(),
             tx: Arc::new(tx),
+            tx_size,
             origin: tx_origin,
         };
 
@@ -86,11 +99,18 @@ impl<Tx: Encode<()>> MempoolInner<Tx> {
         self.entries_by_id.get(tx_id).map(|entry| entry.tx.clone())
     }
 
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: usize) -> Vec<(TxId, MempoolSeqNo)> {
+    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
         self.entries_by_seq
             .range(from_seq..)
-            .take(limit)
-            .map(|(seq, tx_id)| (tx_id.clone(), *seq))
+            .take(limit as usize)
+            .map(|(seq, tx_id)| {
+                if let Some(entry) = self.entries_by_id.get(tx_id) {
+                    let tx_size = entry.tx_size;
+                    (tx_id.clone(), tx_size, *seq)
+                } else {
+                    panic!("Inconsistent mempool state: entry missing for tx_id {:?}", tx_id);
+                }
+            })
             .collect()
     }
 
@@ -102,29 +122,15 @@ impl<Tx: Encode<()>> MempoolInner<Tx> {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MempoolSeqNo(pub u64);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum TxRejectReason {
-    MempoolFull,
-    Duplicate,
-    Invalid,
-}
-
 #[derive(Debug, Clone)]
 pub struct MempoolEntry<Tx> {
     seq_no: MempoolSeqNo,
     tx_id: TxId,
     tx: Arc<Tx>,
+    tx_size: u32,
     origin: TxOrigin,
 }
 
-#[derive(Debug, Clone)]
-pub enum TxOrigin {
-    Local,
-    Remote(Peer),
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct MempoolConfig {
@@ -139,8 +145,12 @@ impl MempoolConfig {
 }
 
 
-impl<Tx: Deref + Send + Sync + 'static + Encode<()>> Mempool<Tx> for InMemoryMempool<Tx>
+impl<Tx: Deref + Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> for InMemoryMempool<Tx>
 {
+    fn last_seq_no(&self) -> MempoolSeqNo {
+        self.inner.read().entries_by_seq.keys().last().cloned().unwrap_or(MempoolSeqNo(0))
+    }
+
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         self.inner.write().insert(&self.config, tx, tx_origin)
     }
@@ -155,6 +165,7 @@ impl<Tx: Deref + Send + Sync + 'static + Encode<()>> Mempool<Tx> for InMemoryMem
     fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
     where
         I: IntoIterator<Item=TxKey>,
+        Self: Sized,
     {
         let keys_to_remove = BTreeSet::from_iter(keys(tx).into_iter());
         let mut inner = self.inner.write();
@@ -165,8 +176,19 @@ impl<Tx: Deref + Send + Sync + 'static + Encode<()>> Mempool<Tx> for InMemoryMem
         self.inner.read().get_tx(tx_id)
     }
 
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: usize) -> Vec<(TxId, MempoolSeqNo)> {
+    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
         self.inner.read().tx_ids_since(from_seq, limit)
+    }
+
+    fn wait_for_at_least(&self, required: u16) -> Pin<Box<dyn Future<Output=bool> + Send + '_>> {
+        Box::pin(async move {
+            loop {
+                // TODO: make sure that transactions are valid before returning
+                // So we can make sure to send enough valid transactions upstream
+                if self.last_seq_no().0 >= required as u64 { return true; }
+                tokio::task::yield_now().await;
+            }
+        })
     }
 
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Arc<Tx>> {

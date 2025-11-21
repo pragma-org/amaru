@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Mempool;
-use crate::mempool::TxId;
-use crate::strategies::{MempoolSeqNo, TxOrigin, TxRejectReason};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::{collections::BTreeSet, mem};
+use std::pin::Pin;
 use minicbor::Encode;
+use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxId, TxOrigin, TxRejectReason};
 
 #[derive(Debug, Default)]
 pub struct DummyMempool<T> {
@@ -39,6 +38,10 @@ pub struct DummyMempoolInner<T> {
 }
 
 impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
+    fn last_seq_no(&self) -> MempoolSeqNo {
+        MempoolSeqNo(self.inner.read().transactions.len() as u64)
+    }
+
     fn insert(&self, tx: Tx, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         let tx_id = TxId::from(&tx);
         self.inner.write().transactions.push(tx);
@@ -54,6 +57,7 @@ impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
     fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
     where
         I: IntoIterator<Item=TxKey>,
+        Self: Sized,
     {
         let keys_to_remove = BTreeSet::from_iter(keys(tx).into_iter());
         self.inner
@@ -66,8 +70,12 @@ impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
         None
     }
 
-    fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: usize) -> Vec<(TxId, MempoolSeqNo)> {
+    fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
         vec![]
+    }
+
+    fn wait_for_at_least(&self, _required: u16) -> Pin<Box<dyn Future<Output=bool> + Send + '_>> {
+        Box::pin(async move { true })
     }
 
     fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Arc<Tx>> {
