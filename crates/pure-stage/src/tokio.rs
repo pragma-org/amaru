@@ -275,24 +275,37 @@ async fn interpreter<St>(
                 }
             }
             StageEffect::Send(target, msg, call) => {
-                #[expect(clippy::expect_used)]
-                let tx = inner
-                    .senders
-                    .get(&target)
-                    .expect("stage ref contained unknown name");
-                let Ok(_) = tx.send(msg).await else {
-                    tracing::warn!("message send failed from stage `{name}` to stage `{target}`");
-                    return None;
-                };
-                if let Some((d, rx, _id)) = call {
-                    tokio::time::timeout(d, rx)
-                        .await
-                        .ok()
-                        .and_then(|r| r.ok())
-                        .map(StageResponse::CallResponse)
-                        .unwrap_or(StageResponse::CallTimeout)
+                if target.as_str().is_empty() {
+                    if let Some((duration, _, _)) = call {
+                        tracing::warn!(stage = %name, "call to blackhole stage dropped");
+                        tokio::time::sleep(duration).await;
+                        StageResponse::CallTimeout
+                    } else {
+                        tracing::warn!(stage = %name, "message send to blackhole stage dropped");
+                        StageResponse::Unit
+                    }
                 } else {
-                    StageResponse::Unit
+                    #[expect(clippy::expect_used)]
+                    let tx = inner
+                        .senders
+                        .get(&target)
+                        .expect("stage ref contained unknown name");
+                    let Ok(_) = tx.send(msg).await else {
+                        tracing::warn!(
+                            "message send failed from stage `{name}` to stage `{target}`"
+                        );
+                        return None;
+                    };
+                    if let Some((d, rx, _id)) = call {
+                        tokio::time::timeout(d, rx)
+                            .await
+                            .ok()
+                            .and_then(|r| r.ok())
+                            .map(StageResponse::CallResponse)
+                            .unwrap_or(StageResponse::CallTimeout)
+                    } else {
+                        StageResponse::Unit
+                    }
                 }
             }
             StageEffect::Clock => StageResponse::ClockResponse(now()),

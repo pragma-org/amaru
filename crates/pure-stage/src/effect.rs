@@ -14,9 +14,9 @@
 // limitations under the License.
 
 use crate::{
-    BoxFuture, CallId, CallRef, Instant, Name, Resources, SendData, Sender, StageRef,
+    BoxFuture, CallId, CallRef, Instant, Name, Resources, SendData, Sender, StageGraph, StageRef,
     serde::{SendDataValue, never, to_cbor},
-    simulation::{EffectBox, airlock_effect},
+    simulation::{EffectBox, SimulationRunning, airlock_effect},
     time::Clock,
 };
 use cbor4ii::{core::Value, serde::from_slice};
@@ -58,7 +58,7 @@ pub struct Effects<M> {
     resources: Resources,
 }
 
-impl<M: Debug> Debug for Effects<M> {
+impl<M> Debug for Effects<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Effects")
             .field("me", &self.me)
@@ -242,6 +242,58 @@ impl<M> Effects<M> {
     /// ```
     pub fn terminate<T>(&self) -> BoxFuture<'static, T> {
         airlock_effect(&self.effect, StageEffect::Terminate, |_eff| never())
+    }
+}
+
+#[allow(unused_variables)]
+impl<M> StageGraph for Effects<M> {
+    type Running = SimulationRunning;
+    type RefAux<Msg, State> = ();
+
+    fn stage<Msg, St, F, Fut>(
+        &mut self,
+        name: impl AsRef<str>,
+        f: F,
+    ) -> crate::StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
+    where
+        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+    {
+        todo!()
+    }
+
+    fn wire_up<Msg, St>(
+        &mut self,
+        stage: crate::StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        state: St,
+    ) -> crate::stage_ref::StageStateRef<Msg, St>
+    where
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+    {
+        todo!()
+    }
+
+    fn preload<Msg: SendData>(
+        &mut self,
+        stage: impl AsRef<StageRef<Msg>>,
+        messages: impl IntoIterator<Item = Msg>,
+    ) -> bool {
+        todo!()
+    }
+
+    fn run(self, rt: tokio::runtime::Handle) -> Self::Running {
+        todo!()
+    }
+
+    fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg> {
+        todo!()
+    }
+
+    fn resources(&self) -> &Resources {
+        todo!()
     }
 }
 

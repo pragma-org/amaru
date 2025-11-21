@@ -451,6 +451,14 @@ impl SimulationRunning {
                 msg,
                 call: _,
             } => {
+                if to.as_str().is_empty() {
+                    tracing::warn!(stage = %from, "message send to blackhole dropped");
+                    let data_from = self.stages.get_mut(&from).unwrap();
+                    let call = resume_send_internal(data_from, run, to.clone())
+                        .expect("call is always runnable");
+                    self.handle_call_continuation(from, to, call);
+                    return None;
+                }
                 let data_to = self.stages.get_mut(&to).unwrap();
                 if let Err(msg) = post_message(data_to, self.mailbox_size, msg) {
                     data_to.senders.push_back((from, msg));

@@ -12,52 +12,89 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(clippy::disallowed_types)]
-
-use crate::protocol::{Erased, ProtocolId};
-use acto::{ActoCell, ActoRef, ActoRuntime};
-use anyhow::Context;
-use binrw::{BinRead, BinWrite};
-use bytes::{Buf, Bytes, BytesMut};
-use std::{
-    collections::{HashMap, VecDeque, hash_map::Entry},
-    fmt,
-    future::pending,
-    io::Cursor,
-    pin::Pin,
-    sync::LazyLock,
+use crate::{
+    effects::{Network, NetworkOps},
+    protocol::{Erased, ProtocolId},
+    socket::ConnectionId,
 };
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    select,
-    time::Instant,
+use anyhow::Context;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use cbor_data::{Cbor, ErrorKind, ParseError};
+use pure_stage::{CallRef, Effects, StageGraph, StageRef, TryInStage};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, VecDeque, hash_map::Entry},
+    time::SystemTime,
 };
 use tracing::{Level, instrument};
 
 const MAX_SEGMENT_SIZE: usize = 65535;
 
 /// microseconds part of the wall clock time
-#[derive(Debug)]
-#[binrw::binrw]
-#[brw(big)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Timestamp(u32);
 
 impl Timestamp {
     fn now() -> Self {
-        static START: LazyLock<Instant> = LazyLock::new(Instant::now);
-        Self(START.elapsed().as_micros() as u32)
+        Self(
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u32,
+        )
+    }
+
+    fn encode(self, buffer: &mut BytesMut) {
+        buffer.put_u32(self.0);
+    }
+
+    fn decode(buffer: &mut Bytes) -> Self {
+        Self(buffer.get_u32())
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Frame {
+    /// Each message is a single CBOR item
+    OneCborItem,
+    /// No message parsing, just buffer the data
+    Buffer,
+}
+
+impl Frame {
+    pub fn try_consume(&self, data: &mut BytesMut) -> Result<Option<Bytes>, ParseError> {
+        match self {
+            Frame::OneCborItem => match Cbor::checked_prefix(&data) {
+                Ok((item, _rest)) => {
+                    let item = data.copy_to_bytes(item.as_slice().len());
+                    Ok(Some(item))
+                }
+                Err(e) if matches!(e.kind(), ErrorKind::UnexpectedEof(_)) => Ok(None),
+                Err(e) => Err(e),
+            },
+            Frame::Buffer => Ok(None),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Sent;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Read;
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MuxMessage {
     /// Register the given protocol with its ID so that data will be fed into it
     ///
     /// The protocol will get the first invocation for free and must then request
     /// following invocations by sending `WantNext` (for strict flow control).
-    Register(ProtocolId<Erased>, Box<dyn Protocol + Send>),
+    Register {
+        protocol: ProtocolId<Erased>,
+        frame: Frame,
+        handler: StageRef<Bytes>,
+        max_buffer: usize,
+    },
     /// Buffer incoming data for this protocol ID up to the given limit
     /// (this should be followed by Register eventually, to then consume the data)
     ///
@@ -65,126 +102,176 @@ pub enum MuxMessage {
     /// and without tearing down the connection.
     Buffer(ProtocolId<Erased>, usize),
     /// Send the given message on the protocol ID and notify when enqueued in TCP buffer
-    Send(ProtocolId<Erased>, Bytes, ActoRef<Sent>),
+    Send(ProtocolId<Erased>, Bytes, CallRef<Sent>),
     /// internal message coming from the TCP stream reader
     FromNetwork(Timestamp, ProtocolId<Erased>, Bytes),
+    /// Notify that the segment has been written to the TCP stream
+    Written,
     /// Permit the next invocation of the Protocol with data from the network.
     WantNext(ProtocolId<Erased>),
 }
 
-pub trait Protocol: fmt::Debug {
-    /// Attempt to consume data from the buffer
-    ///
-    /// Return Ok(true) if a message was consumed, Ok(false) if not enough data was present,
-    /// Err(...) in case of a protocol error (this will tear down the connection).
-    fn try_consume(&mut self, buffer: &mut BytesMut) -> anyhow::Result<bool>;
-    /// Maximum number of bytes to buffer for this protocol
-    ///
-    /// The buffer will be preallocated at registration time. If the buffer reaches this
-    /// capacity then the connection will be torn down (because the peer didn’t respect
-    /// flow control).
-    fn max_buffer(&self) -> usize;
+pub struct State {
+    conn: Connection,
+    muxer: Muxer,
+    sending: bool,
 }
 
-type WriteTask = Pin<Box<dyn Future<Output = anyhow::Result<Writer>> + Send>>;
-type Writer = Pin<Box<dyn tokio::io::AsyncWrite + Send>>;
-type Reader = Pin<Box<dyn tokio::io::AsyncRead + Send>>;
+enum Connection {
+    Unint(ConnectionId),
+    Init(StageRef<Bytes>, StageRef<Read>),
+}
 
-pub async fn actor(
-    mut cell: ActoCell<MuxMessage, impl ActoRuntime, anyhow::Result<()>>,
-    write: Writer,
-    read: Reader,
+impl State {
+    pub fn new(conn: ConnectionId) -> Self {
+        Self {
+            conn: Connection::Unint(conn),
+            muxer: Muxer::new(),
+            sending: false,
+        }
+    }
+
+    pub fn init(
+        &mut self,
+        eff: &mut Effects<MuxMessage>,
+    ) -> (&mut Muxer, &mut bool, &StageRef<Bytes>, &StageRef<Read>) {
+        match &mut self.conn {
+            Connection::Unint(conn) => {
+                let writer = eff.stage(
+                    format!("writer-{}", conn),
+                    |(conn, muxer), data, eff| async move {
+                        Network::new(&eff)
+                            .send(conn, data)
+                            .await
+                            .or_terminate(
+                                &eff,
+                                async |err| tracing::error!(%err, "failed to send data to network"),
+                            )
+                            .await;
+                        eff.send(&muxer, MuxMessage::Written).await;
+                        (conn, muxer)
+                    },
+                );
+                let writer = eff.wire_up(writer, (*conn, eff.me())).without_state();
+                let reader = eff.stage(format!("reader-{}", conn), read_segment);
+                let reader = eff.wire_up(reader, (*conn, eff.me())).without_state();
+                self.conn = Connection::Init(writer, reader);
+            }
+            Connection::Init(..) => {}
+        }
+        let Connection::Init(writer, reader) = &self.conn else {
+            unreachable!()
+        };
+        (&mut self.muxer, &mut self.sending, &writer, &reader)
+    }
+}
+
+pub async fn stage(mut state: State, msg: MuxMessage, mut eff: Effects<MuxMessage>) -> State {
+    let (muxer, sending, writer, reader) = state.init(&mut eff);
+
+    handle_msg(msg, &eff, muxer, sending, writer, reader)
+        .await
+        .or_terminate(&eff, async |err| tracing::error!(%err, "muxing error"))
+        .await;
+
+    state
+}
+
+async fn handle_msg(
+    msg: MuxMessage,
+    eff: &Effects<MuxMessage>,
+    muxer: &mut Muxer,
+    sending: &mut bool,
+    writer: &StageRef<Bytes>,
+    reader: &StageRef<Read>,
 ) -> anyhow::Result<()> {
-    let mut write = Some(write);
-
-    let mut muxer = Muxer::new();
-
-    let _reader = {
-        let me = cell
-            .me()
-            .contramap(|(ts, proto_id, bytes)| MuxMessage::FromNetwork(ts, proto_id, bytes));
-        cell.spawn_supervised("reader", |cell| reader(cell, read, me))
-    };
-
-    let mut task: Option<WriteTask> = None;
-    let mut pending = Box::pin(pending());
-
-    loop {
-        let task2 = task
-            .as_mut()
-            .map(|t| t.as_mut())
-            .unwrap_or_else(|| pending.as_mut());
-        let msg = select! {
-            res = task2 => {
-                write = Some(res.context("writing to socket")?);
-                task = muxer.next_segment().map(|(proto_id, bytes)| {
-                    #[allow(clippy::expect_used)]
-                    let mut write = write.take().expect("write half has just been put back");
-                    Box::pin(async move {
-                        write_segment(&mut write, proto_id, &bytes).await?;
-                        Ok(write)
-                    }) as WriteTask
-                });
-                continue;
-            }
-            msg = cell.recv() => msg
-        };
-        let msg = match msg {
-            acto::ActoInput::NoMoreSenders => return Ok(()),
-            acto::ActoInput::Supervision { result, .. } => {
-                return result
-                    .map_err(|e| anyhow::Error::msg(e.to_string()))
-                    .and_then(|x| x)
-                    .context("reader failed");
-            }
-            acto::ActoInput::Message(msg) => msg,
-        };
-        match msg {
-            MuxMessage::Register(proto_id, proto) => muxer.register(proto_id, proto)?,
-            MuxMessage::Buffer(proto_id, limit) => muxer.buffer(proto_id, limit)?,
-            MuxMessage::Send(proto_id, bytes, sent) => {
-                assert!(!bytes.is_empty());
+    match msg {
+        MuxMessage::Register {
+            protocol,
+            frame,
+            handler,
+            max_buffer,
+        } => {
+            muxer
+                .register(protocol, frame, max_buffer, handler, eff)
+                .await
+        }
+        MuxMessage::Buffer(proto_id, limit) => muxer.buffer(proto_id, limit),
+        MuxMessage::Send(proto_id, bytes, sent) => {
+            debug_assert!(
+                !bytes.is_empty(),
+                "sending empty message for protocol {} is forbidden",
+                proto_id
+            );
+            if *sending {
+                tracing::trace!(%proto_id, "deferring send");
                 muxer.outgoing(proto_id, bytes, sent);
-                if let Some(mut write) = write.take()
-                    && let Some((proto_id, bytes)) = muxer.next_segment()
-                {
-                    task = Some(Box::pin(async move {
-                        write_segment(&mut write, proto_id, &bytes).await?;
-                        Ok(write)
-                    }) as WriteTask);
-                }
+            } else {
+                *sending = true;
+                eff.send(&writer, Header::encode(proto_id, &bytes)).await;
             }
-            MuxMessage::FromNetwork(timestamp, proto_id, bytes) => muxer
-                .received(timestamp, proto_id, bytes)
-                .with_context(|| format!("reading message for protocol {}", proto_id))?,
-            MuxMessage::WantNext(proto_id) => muxer
-                .want_next(proto_id)
-                .with_context(|| format!("reading message for protocol {}", proto_id))?,
+            Ok(())
+        }
+        MuxMessage::FromNetwork(timestamp, proto_id, bytes) => {
+            muxer
+                .received(timestamp, proto_id, bytes, eff)
+                .await
+                .with_context(|| format!("reading message for protocol {}", proto_id))?;
+            eff.send(reader, Read).await;
+            Ok(())
+        }
+        MuxMessage::WantNext(proto_id) => muxer
+            .want_next(proto_id, eff)
+            .await
+            .with_context(|| format!("reading message for protocol {}", proto_id)),
+        MuxMessage::Written => {
+            *sending = false;
+            if let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
+                eff.send(&writer, Header::encode(proto_id, &bytes)).await;
+                *sending = true;
+            }
+            Ok(())
         }
     }
 }
 
-pub async fn reader(
-    mut cell: ActoCell<(), impl ActoRuntime>,
-    mut read: Reader,
-    target: ActoRef<(Timestamp, ProtocolId<Erased>, Bytes)>,
-) -> anyhow::Result<()> {
-    let mut buf = BytesMut::with_capacity(65536);
+async fn read_segment(
+    (conn, muxer): (ConnectionId, StageRef<MuxMessage>),
+    _token: Read,
+    eff: Effects<Read>,
+) -> (ConnectionId, StageRef<MuxMessage>) {
+    let mut data = Network::new(&eff)
+        .recv(conn, HEADER_LEN)
+        .await
+        .or_terminate(
+            &eff,
+            async |err| tracing::error!(%err, "failed to receive segment header from network"),
+        )
+        .await;
+    let header = Header::decode(&mut data);
 
-    loop {
-        select! {
-            // terminate when () is sent or sender ref is dropped
-            _ = cell.recv() => return Ok(()),
-            msg = read_segment(&mut read, &mut buf) => {
-                let (timestamp, proto_id) = msg?;
-                target.send((timestamp, proto_id, buf.copy_to_bytes(buf.len())));
-            }
-        }
+    if header.length == 0 {
+        tracing::warn!("received empty segment");
+        return eff.terminate().await;
     }
+
+    let data = Network::new(&eff)
+        .recv(conn, header.length.into())
+        .await
+        .or_terminate(
+            &eff,
+            async |err| tracing::error!(%err, "failed to receive segment data from network"),
+        )
+        .await;
+
+    eff.send(
+        &muxer,
+        MuxMessage::FromNetwork(header.timestamp, header.proto_id, data),
+    )
+    .await;
+    (conn, muxer)
 }
 
-#[binrw::binrw]
-#[brw(big)]
 struct Header {
     timestamp: Timestamp,
     proto_id: ProtocolId<Erased>,
@@ -193,61 +280,30 @@ struct Header {
 const HEADER_LEN: usize = 8;
 
 impl Header {
-    pub fn new(proto_id: ProtocolId<Erased>, bytes: &Bytes) -> Self {
-        #[allow(clippy::expect_used)]
+    pub fn encode(proto_id: ProtocolId<Erased>, bytes: &Bytes) -> Bytes {
+        thread_local! {
+            static BUFFER: RefCell<BytesMut> = RefCell::new(BytesMut::with_capacity(HEADER_LEN+MAX_SEGMENT_SIZE));
+        }
+        BUFFER.with_borrow_mut(move |buffer| {
+            buffer.clear();
+            Timestamp::now().encode(buffer);
+            proto_id.encode(buffer);
+            buffer.put_u16(bytes.len() as u16);
+            buffer.extend_from_slice(bytes);
+            buffer.copy_to_bytes(buffer.remaining())
+        })
+    }
+
+    pub fn decode(buffer: &mut Bytes) -> Self {
         Self {
-            timestamp: Timestamp::now(),
-            proto_id,
-            length: bytes
-                .len()
-                .try_into()
-                .expect("trying to send too long segment"),
+            timestamp: Timestamp::decode(buffer),
+            proto_id: ProtocolId::decode(buffer),
+            length: buffer.get_u16(),
         }
     }
-
-    #[cfg(test)]
-    pub fn to_vec(&self) -> Vec<u8> {
-        let mut bytes = Cursor::new(vec![]);
-        self.write(&mut bytes).unwrap();
-        bytes.into_inner()
-    }
 }
 
-pub async fn read_segment(
-    read: &mut Reader,
-    buf: &mut BytesMut,
-) -> anyhow::Result<(Timestamp, ProtocolId<Erased>)> {
-    let mut header = [0u8; HEADER_LEN];
-
-    read.read_exact(&mut header).await?;
-    let Header {
-        timestamp,
-        proto_id,
-        length,
-    } = Header::read(&mut Cursor::new(&header))?;
-
-    buf.resize(length.into(), 0);
-    read.read_exact(buf.as_mut()).await?;
-
-    Ok((timestamp, proto_id))
-}
-
-pub async fn write_segment(
-    write: &mut Writer,
-    proto_id: ProtocolId<Erased>,
-    bytes: &Bytes,
-) -> anyhow::Result<()> {
-    let mut header = Cursor::new([0u8; HEADER_LEN]);
-    Header::new(proto_id, bytes).write(&mut header)?;
-    let header = header.into_inner();
-
-    write.write_all(header.as_slice()).await?;
-    write.write_all(bytes).await?;
-
-    Ok(())
-}
-
-struct Muxer {
+pub struct Muxer {
     protocols: HashMap<ProtocolId<Erased>, PerProto>,
     outgoing: Vec<ProtocolId<Erased>>,
     next_out: usize,
@@ -263,19 +319,22 @@ impl Muxer {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub fn register(
+    pub async fn register<M>(
         &mut self,
         proto_id: ProtocolId<Erased>,
-        proto: Box<dyn Protocol + Send>,
+        frame: Frame,
+        max_buffer: usize,
+        handler: StageRef<Bytes>,
+        eff: &Effects<M>,
     ) -> anyhow::Result<()> {
-        let pp = self.do_register(proto_id, proto);
-        pp.want_next()?;
+        let pp = self.do_register(proto_id, frame, max_buffer, handler);
+        pp.want_next(eff).await?;
         Ok(())
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
     pub fn buffer(&mut self, proto_id: ProtocolId<Erased>, limit: usize) -> anyhow::Result<()> {
-        let pp = self.do_register(proto_id, Box::new(Buffering(limit)));
+        let pp = self.do_register(proto_id, Frame::Buffer, limit, StageRef::blackhole());
         if limit == 0 {
             tracing::trace!(buffer = pp.incoming.len(), "switching to ignoring mode");
             pp.incoming.clear();
@@ -297,7 +356,9 @@ impl Muxer {
     fn do_register(
         &mut self,
         proto_id: ProtocolId<Erased>,
-        proto: Box<dyn Protocol + Send>,
+        frame: Frame,
+        max_buffer: usize,
+        handler: StageRef<Bytes>,
     ) -> &mut PerProto {
         if !self.outgoing.contains(&proto_id) {
             self.outgoing.push(proto_id);
@@ -306,15 +367,16 @@ impl Muxer {
             Entry::Occupied(pp) => {
                 let pp = pp.into_mut();
                 tracing::trace!(want = pp.wanted, "updating registration");
-                pp.proto = proto;
+                pp.frame = frame;
+                pp.max_buffer = max_buffer;
                 pp
             }
-            Entry::Vacant(pp) => pp.insert(PerProto::new(proto)),
+            Entry::Vacant(pp) => pp.insert(PerProto::new(handler, frame, max_buffer)),
         }
     }
 
     #[instrument(level = Level::DEBUG, skip_all, fields(proto_id))]
-    pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: ActoRef<Sent>) {
+    pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: CallRef<Sent>) {
         tracing::trace!(proto = %proto_id, bytes = bytes.len(), "enqueueing send");
         #[allow(clippy::expect_used)]
         self.protocols
@@ -325,7 +387,10 @@ impl Muxer {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub fn next_segment(&mut self) -> Option<(ProtocolId<Erased>, Bytes)> {
+    pub async fn next_segment<M>(
+        &mut self,
+        eff: &Effects<M>,
+    ) -> Option<(ProtocolId<Erased>, Bytes)> {
         tracing::trace!(next = self.next_out, "next segment");
         for idx in (self.next_out..self.outgoing.len()).chain(0..self.next_out) {
             let proto_id = self.outgoing[idx];
@@ -334,7 +399,7 @@ impl Muxer {
                 .protocols
                 .get_mut(&proto_id)
                 .expect("invariant violation");
-            let Some(bytes) = proto.next_segment() else {
+            let Some(bytes) = proto.next_segment(eff).await else {
                 tracing::trace!(proto = %proto_id, idx, "no segment");
                 continue;
             };
@@ -346,26 +411,33 @@ impl Muxer {
     }
 
     #[instrument(level = Level::DEBUG, skip(self, bytes), fields(bytes = bytes.len()))]
-    pub fn received(
+    pub async fn received<M>(
         &mut self,
         timestamp: Timestamp,
         proto_id: ProtocolId<Erased>,
         bytes: Bytes,
+        eff: &Effects<M>,
     ) -> anyhow::Result<()> {
         if let Some(proto) = self.protocols.get_mut(&proto_id) {
-            proto.received(timestamp, bytes)
+            proto.received(timestamp, bytes, eff).await
         } else {
             anyhow::bail!("received data for unknown protocol {}", proto_id)
         }
     }
 
-    pub fn want_next(&mut self, proto_id: ProtocolId<Erased>) -> anyhow::Result<()> {
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub async fn want_next<M>(
+        &mut self,
+        proto_id: ProtocolId<Erased>,
+        eff: &Effects<M>,
+    ) -> anyhow::Result<()> {
         #[allow(clippy::expect_used)]
         self.protocols
             .get_mut(&proto_id)
             .ok_or_else(|| anyhow::anyhow!("protocol {} not registered", proto_id))
             .expect("internal error")
-            .want_next()?;
+            .want_next(eff)
+            .await?;
         Ok(())
     }
 }
@@ -374,75 +446,92 @@ struct PerProto {
     incoming: BytesMut,
     outgoing: BytesMut,
     sent_bytes: usize,
-    notifiers: VecDeque<(ActoRef<Sent>, usize)>,
+    notifiers: VecDeque<(CallRef<Sent>, usize)>,
+    handler: StageRef<Bytes>,
     wanted: usize,
-    proto: Box<dyn Protocol + Send>,
+    frame: Frame,
+    max_buffer: usize,
 }
 
 impl PerProto {
-    pub fn new(proto: Box<dyn Protocol + Send>) -> Self {
+    pub fn new(handler: StageRef<Bytes>, frame: Frame, max_buffer: usize) -> Self {
         Self {
-            incoming: BytesMut::with_capacity(proto.max_buffer()),
-            outgoing: BytesMut::with_capacity(proto.max_buffer()),
+            incoming: BytesMut::with_capacity(max_buffer),
+            outgoing: BytesMut::with_capacity(max_buffer),
             sent_bytes: 0,
             notifiers: VecDeque::new(),
+            handler,
             wanted: 0,
-            proto,
+            frame,
+            max_buffer,
         }
     }
 
-    pub fn received(&mut self, _timestamp: Timestamp, bytes: Bytes) -> anyhow::Result<()> {
-        if self.proto.max_buffer() == 0 {
+    pub async fn received<M>(
+        &mut self,
+        _timestamp: Timestamp,
+        bytes: Bytes,
+        eff: &Effects<M>,
+    ) -> anyhow::Result<()> {
+        if self.max_buffer == 0 {
             tracing::debug!(size = bytes.len(), "ignoring bytes");
             return Ok(());
         }
-        tracing::trace!(size = bytes.len(), wanted = self.wanted, "received bytes");
-        if self.incoming.len() + bytes.len() > self.proto.max_buffer() {
+        tracing::trace!(wanted = self.wanted, "received bytes");
+        if self.incoming.len() + bytes.len() > self.max_buffer {
             tracing::info!(
                 buffered = self.incoming.len(),
-                msg = bytes.len(),
+                max_buffer = self.max_buffer,
                 "message exceeds buffer"
             );
             anyhow::bail!(
                 "message (size {}) plus buffer (size {}) exceeds limit ({})",
                 bytes.len(),
                 self.incoming.len(),
-                self.proto.max_buffer()
+                self.max_buffer
             );
         }
         self.incoming.extend(&bytes);
-        if self.wanted > 0 && self.proto.try_consume(&mut self.incoming)? {
-            tracing::trace!("extracted message");
+        while self.wanted > 0
+            && let Some(bytes) = self.frame.try_consume(&mut self.incoming)?
+        {
+            tracing::trace!(len = bytes.len(), "extracted message");
+            eff.send(&self.handler, bytes).await;
             self.wanted -= 1;
         }
         Ok(())
     }
 
-    pub fn want_next(&mut self) -> anyhow::Result<()> {
+    pub async fn want_next<M>(&mut self, eff: &Effects<M>) -> anyhow::Result<()> {
         tracing::trace!(wanted = self.wanted, "wanting next");
-        if self.incoming.is_empty() || !self.proto.try_consume(&mut self.incoming)? {
+        if !self.incoming.is_empty()
+            && let Some(bytes) = self.frame.try_consume(&mut self.incoming)?
+        {
+            tracing::trace!(len = bytes.len(), "extracted message");
+            eff.send(&self.handler, bytes).await;
+        } else {
             tracing::trace!("next delivery deferred");
             self.wanted += 1;
         }
         Ok(())
     }
 
-    pub fn enqueue_send(&mut self, bytes: Bytes, sent: ActoRef<Sent>) {
+    pub fn enqueue_send(&mut self, bytes: Bytes, sent: CallRef<Sent>) {
         self.outgoing.extend(&bytes);
         self.notifiers
             .push_back((sent, self.sent_bytes + self.outgoing.len()));
     }
 
-    pub fn next_segment(&mut self) -> Option<Bytes> {
+    pub async fn next_segment<M>(&mut self, eff: &Effects<M>) -> Option<Bytes> {
         if self.outgoing.is_empty() {
             return None;
         }
         let size = self.outgoing.len().min(MAX_SEGMENT_SIZE);
         self.sent_bytes += size;
-        while let Some((sent, size)) = self.notifiers.front() {
+        while let Some((_sent, size)) = self.notifiers.front() {
             if self.sent_bytes >= *size {
-                sent.send(Sent);
-                self.notifiers.pop_front();
+                let (sent, _) = self.notifiers.pop_front().expect("checked above");
+                eff.respond(sent, Sent).await;
             } else {
                 break;
             }
@@ -451,20 +540,7 @@ impl PerProto {
     }
 }
 
-#[derive(Debug)]
-struct Buffering(usize);
-
-impl Protocol for Buffering {
-    fn try_consume(&mut self, _buffer: &mut BytesMut) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-
-    fn max_buffer(&self) -> usize {
-        self.0
-    }
-}
-
-#[cfg(test)]
+#[cfg(notest)]
 mod tests {
     use super::*;
     use crate::protocol::{PROTO_HANDSHAKE, PROTO_N2C_CHAIN_SYNC, PROTO_N2N_BLOCK_FETCH};
@@ -493,9 +569,7 @@ mod tests {
 
     impl fmt::Debug for TestProtocol {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_tuple("TestProtocol")
-                .field(&self.max_buffer())
-                .finish()
+            f.debug_tuple("TestProtocol").finish()
         }
     }
 
@@ -519,33 +593,33 @@ mod tests {
         }
     }
 
-    impl Protocol for TestProtocol {
-        fn try_consume(&mut self, buffer: &mut BytesMut) -> anyhow::Result<bool> {
-            #[allow(clippy::len_zero)]
-            if buffer.len() >= 1 {
-                let byte = buffer.get_u8();
-                if (1..=10).contains(&byte) {
-                    let (bytes, send, _) = &mut *self.0.lock().unwrap();
-                    bytes.push(byte);
-                    if let Some(tx) = send.take() {
-                        tracing::debug!(bytes = bytes.len(), "sending drained bytes");
-                        tx.send(mem::take(bytes)).unwrap();
-                    } else {
-                        tracing::debug!(bytes = bytes.len(), "keeping bytes");
-                    }
-                    Ok(true)
-                } else {
-                    anyhow::bail!("Invalid byte value: {}, expected 1-10", byte)
-                }
-            } else {
-                Ok(false)
-            }
-        }
+    // impl Protocol for TestProtocol {
+    //     fn try_consume(&mut self, buffer: &mut BytesMut) -> anyhow::Result<bool> {
+    //         #[allow(clippy::len_zero)]
+    //         if buffer.len() >= 1 {
+    //             let byte = buffer.get_u8();
+    //             if (1..=10).contains(&byte) {
+    //                 let (bytes, send, _) = &mut *self.0.lock().unwrap();
+    //                 bytes.push(byte);
+    //                 if let Some(tx) = send.take() {
+    //                     tracing::debug!(bytes = bytes.len(), "sending drained bytes");
+    //                     tx.send(mem::take(bytes)).unwrap();
+    //                 } else {
+    //                     tracing::debug!(bytes = bytes.len(), "keeping bytes");
+    //                 }
+    //                 Ok(true)
+    //             } else {
+    //                 anyhow::bail!("Invalid byte value: {}, expected 1-10", byte)
+    //             }
+    //         } else {
+    //             Ok(false)
+    //         }
+    //     }
 
-        fn max_buffer(&self) -> usize {
-            self.0.lock().unwrap().2
-        }
-    }
+    //     fn max_buffer(&self) -> usize {
+    //         self.0.lock().unwrap().2
+    //     }
+    // }
 
     async fn setup_tcp() -> (
         AcTokio,

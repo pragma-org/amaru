@@ -77,8 +77,12 @@ impl<Msg> StageRef<Msg> {
         }
     }
 
-    pub fn named(name: &str) -> StageRef<Msg> {
+    pub fn named_for_tests(name: &str) -> StageRef<Msg> {
         StageRef::new(Name::from(name))
+    }
+
+    pub fn blackhole() -> StageRef<Msg> {
+        StageRef::new(Name::from(""))
     }
 
     pub fn name(&self) -> &Name {
