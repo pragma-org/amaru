@@ -15,8 +15,11 @@
 use super::{
     import_headers::import_headers_for_network, import_ledger_state::import_all_from_directory,
 };
-use crate::cmd::{default_chain_dir, default_ledger_dir, import_nonces::import_nonces_from_file};
-use amaru::snapshots_dir;
+use crate::cmd::import_nonces::import_nonces_from_file;
+use amaru::{
+    DEFAULT_CONFIG_DIR, DEFAULT_NETWORK, default_chain_dir, default_ledger_dir,
+    default_snapshots_dir,
+};
 use amaru_kernel::network::NetworkName;
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::Parser;
@@ -53,7 +56,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -69,7 +72,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "DIR",
-        default_value = super::DEFAULT_CONFIG_DIR,
+        default_value = DEFAULT_CONFIG_DIR,
         verbatim_doc_comment,
         env = "AMARU_CONFIG_DIR"
     )]
@@ -94,7 +97,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network_dir = args.config_dir.join(&*network.to_string());
 
     let snapshots_file: PathBuf = network_dir.join("snapshots.json");
-    let snapshots_dir = PathBuf::from(snapshots_dir(network));
+    let snapshots_dir = PathBuf::from(default_snapshots_dir(network));
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 

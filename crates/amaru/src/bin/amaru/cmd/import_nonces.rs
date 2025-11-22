@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::{DEFAULT_NETWORK, default_chain_dir, default_data_dir};
 use amaru_kernel::{BlockHeader, EraHistory, Hash, HeaderHash, Nonce, Point, network::NetworkName};
 use amaru_ouroboros_traits::{ChainStore, Nonces};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
@@ -19,8 +20,6 @@ use clap::Parser;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{error::Error, path::PathBuf};
 use tracing::info;
-
-use crate::cmd::{default_chain_dir, default_data_dir};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -40,7 +39,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }
@@ -96,7 +95,7 @@ pub(crate) async fn import_nonces(
     chain_db_path: &PathBuf,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
-    let db = Box::new(RocksDBStore::open_and_migrate(RocksDbConfig::new(
+    let db = Box::new(RocksDBStore::open_and_migrate(&RocksDbConfig::new(
         chain_db_path.into(),
     ))?) as Box<dyn ChainStore<BlockHeader>>;
 
