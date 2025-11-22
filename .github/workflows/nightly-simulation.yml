@@ -4,8 +4,8 @@ permissions:
   contents: read
 
 env:
-  AMARU_NUMBER_OF_TESTS: ${{ inputs.tests-number || 100 }}
-  AMARU_GENERATED_CHAIN_DEPTH: ${{ inputs.chain-depth || 100 }}
+  AMARU_NUMBER_OF_TESTS: ${{ inputs.tests-number || 5000 }}
+  AMARU_GENERATED_CHAIN_DEPTH: ${{ inputs.chain-depth || 200 }}
   AMARU_NUMBER_OF_UPSTREAM_PEERS: ${{ inputs.upstream-peers-number || 4 }}
   AMARU_TEST_DATA_DIR: simulation/amaru-sim/test-data
   RUST_BACKTRACE: full
@@ -48,8 +48,8 @@ on:
         default: ''
         type: string
   schedule:
-    # run every 6 hours
-    - cron: '5 1,7,13,19 * * *'
+    # run once a day on 1:00 AM
+    - cron: '0 1 * * *'
 
 jobs:
   run-simulation-tests:

@@ -19,7 +19,7 @@ use amaru_stores::rocksdb::{
     RocksDbConfig,
     consensus::{check_db_version, migrate_db, util::open_db},
 };
-use clap::{Parser, arg};
+use clap::Parser;
 use std::{error::Error, path::PathBuf};
 use tracing::{error, info, info_span};
 

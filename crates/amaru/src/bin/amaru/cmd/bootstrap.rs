@@ -22,7 +22,7 @@ use amaru::{
 };
 use amaru_kernel::network::NetworkName;
 use async_compression::tokio::bufread::GzipDecoder;
-use clap::{Parser, arg};
+use clap::Parser;
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 use std::{
