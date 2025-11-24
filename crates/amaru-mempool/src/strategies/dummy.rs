@@ -38,10 +38,6 @@ pub struct DummyMempoolInner<T> {
 }
 
 impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
-    fn last_seq_no(&self) -> MempoolSeqNo {
-        MempoolSeqNo(self.inner.read().transactions.len() as u64)
-    }
-
     fn insert(&self, tx: Tx, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         let tx_id = TxId::from(&tx);
         self.inner.write().transactions.push(tx);
