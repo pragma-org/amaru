@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [ generator, loader, amaru ]
+        image: [ loader, amaru ]
     steps:
     - name: 📥 Checkout repository
       uses: actions/checkout@v5

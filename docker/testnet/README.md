@@ -28,10 +28,10 @@ The topology of the testnet is currently fixed:
 
 ### Build
 
-Build the _Generator_ image which contains Tools in Haskell to work with the ChainDB (takes a while):
+Build the _Loader_ image which contains Tools in Haskell to work with the ChainDB (takes a while):
 
 ```
-docker build -t ghcr.io/pragma-org/amaru/generator:latest -f Dockerfile.generator .
+docker build -t ghcr.io/pragma-org/amaru/loader:latest -f Dockerfile.loader .
 ```
 
 Build an up-to-date version of Amaru (might take a while):
@@ -92,8 +92,6 @@ The following diagram details how data is generated and flows to the various con
 
 ```mermaid
 flowchart LR
-    gen(generator) --> loader(cardano-loader)
-
     loader --> |generate| DB[(ChainDB)]
 
     DB -->  gene{initial-data}
