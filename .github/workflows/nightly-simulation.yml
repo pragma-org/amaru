@@ -4,9 +4,6 @@ permissions:
   contents: read
 
 env:
-  AMARU_NUMBER_OF_TESTS: ${{ inputs.tests-number || 5000 }}
-  AMARU_GENERATED_CHAIN_DEPTH: ${{ inputs.chain-depth || 200 }}
-  AMARU_NUMBER_OF_UPSTREAM_PEERS: ${{ inputs.upstream-peers-number || 4 }}
   AMARU_TEST_DATA_DIR: simulation/amaru-sim/test-data
   RUST_BACKTRACE: full
   RUST_MIN_STACK: 16777216
@@ -66,6 +63,31 @@ jobs:
 
     runs-on: ${{ matrix.environments.runner }}
     steps:
+      # Set different test values depending on the github event:
+      # - schedule: use more larger parameters
+      # - push to main: use moderate parameters
+      # - manual run (workflow_dispatch): use user-provided parameters
+      - name: Set AMARU params for scheduled runs
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          echo "AMARU_NUMBER_OF_TESTS=5000" >> $GITHUB_ENV
+          echo "AMARU_GENERATED_CHAIN_DEPTH=200" >> $GITHUB_ENV
+          echo "AMARU_NUMBER_OF_UPSTREAM_PEERS=4" >> $GITHUB_ENV
+
+      - name: Set AMARU params for pushes to main
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          echo "AMARU_NUMBER_OF_TESTS=200" >> $GITHUB_ENV
+          echo "AMARU_GENERATED_CHAIN_DEPTH=100" >> $GITHUB_ENV
+          echo "AMARU_NUMBER_OF_UPSTREAM_PEERS=2" >> $GITHUB_ENV
+
+      - name: Set AMARU params for manual runs
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "AMARU_NUMBER_OF_TESTS=${{ inputs.tests-number }}" >> $GITHUB_ENV
+          echo "AMARU_GENERATED_CHAIN_DEPTH=${{ inputs.chain-depth }}" >> $GITHUB_ENV
+          echo "AMARU_NUMBER_OF_UPSTREAM_PEERS=${{ inputs.upstream-peers-number }}" >> $GITHUB_ENV
+
       - name: Set AMARU_TEST_SEED if provided
         if: ${{ inputs.test-seed != '' }}
         run: echo "AMARU_TEST_SEED=${{ inputs.test-seed }}" >> $GITHUB_ENV
@@ -83,8 +105,15 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          set -e
-          cargo run -p amaru-sim --locked --target ${{ matrix.environments.target }}
+          set -euo pipefail
+          LOG_DIR=simulation/amaru-sim/test-data
+          LOG_FILE="$LOG_DIR/simulation.log"
+          mkdir -p "$LOG_DIR"
+          
+          # Print stderr only, save both streams
+          cargo run -p amaru-sim --locked --target ${{ matrix.environments.target }} \
+          1>>"$LOG_FILE" \
+          2> >(tee -a "$LOG_FILE" >&2)
 
       - name: Upload test artifacts on failure
         if: failure()
