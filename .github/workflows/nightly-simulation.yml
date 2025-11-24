@@ -105,8 +105,15 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          set -e
-          cargo run -p amaru-sim --locked --target ${{ matrix.environments.target }}
+          set -euo pipefail
+          LOG_DIR=simulation/amaru-sim/test-data
+          LOG_FILE="$LOG_DIR/simulation.log"
+          mkdir -p "$LOG_DIR"
+          
+          # Print stderr only, save both streams
+          cargo run -p amaru-sim --locked --target ${{ matrix.environments.target }} \
+          1>>"$LOG_FILE" \
+          2> >(tee -a "$LOG_FILE" >&2)
 
       - name: Upload test artifacts on failure
         if: failure()
