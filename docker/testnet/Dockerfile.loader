@@ -1,4 +1,4 @@
-FROM ghcr.io/pragma-org/amaru/generator:latest as loader
+FROM ghcr.io/pragma-org/amaru/generator:main as loader
 
 RUN apt update && apt install -y jq coreutils bc
 
