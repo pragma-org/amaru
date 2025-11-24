@@ -18,13 +18,13 @@ use amaru_kernel::{Hash, Hasher};
 use amaru_kernel::cbor::Encode;
 use amaru_kernel::peer::Peer;
 
-/// An simple mempool interface to add transactions and forge blocks when needed.
+/// An simple mempool interface to:
+///
+/// - Add transactions and forge blocks when needed.
 pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync
 where
 {
-    fn last_seq_no(&self) -> MempoolSeqNo;
-
-    /// Add a new transaction to the mempool.
+    /// Add a new, local, transaction to the mempool.
     ///
     /// TODO: Have the mempool perform its own set of validations and possibly fail to add new
     /// elements. This is non-trivial, since it requires the mempool to have ways of re-validating
@@ -33,19 +33,15 @@ where
     /// We shall circle back to this once we've done some progress on the ledger validations and
     /// the so-called ledger slices.
     ///
-    ///  originating from this node (wallet, API).
-    ///
-    ///  Should perform full validation using the ledger (phase-1 & phase-2),
-    ///  apply mempool rules (TTL, max size, min fee, etc.), and
-    ///  return the assigned `MempoolSeqNo` if accepted.
-    /// Should perform full validation using the ledger (phase-1 & phase-2),
-    /// apply mempool rules (TTL, max size, min fee, etc.), and
-    /// return the assigned `MempoolSeqNo` if accepted.
+    /// Return the assigned `MempoolSeqNo` if accepted.
     fn add(&self, tx: Tx) -> Result<(), TxRejectReason> {
         let _ = self.insert(tx, TxOrigin::Local)?;
         Ok(())
     }
 
+    /// Insert a transaction into the mempool, specifying its origin.
+    /// A TxOrigin::Local origin indicates the transaction was created on the current node,
+    /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason>;
 
     /// Take transactions out of the mempool, with the intent of forging a new block.
@@ -54,8 +50,9 @@ where
     /// units and select transactions accordingly.
     fn take(&self) -> Vec<Tx>;
 
-    /// Take note of a transaction happening outside of the mempool. This should in principle
-    /// invalidate transactions within the mempool that are now considered invalid.
+    /// Take note of a transaction that has been included in a block.
+    /// The keys function is used to detect all the transactions that should be removed from the mempool.
+    /// (if a transaction in the mempool shares any of the transactions keys, it should be removed).
     fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
     where
         I: IntoIterator<Item=TxKey>,
@@ -71,6 +68,14 @@ where
         limit: u16,
     ) -> Vec<(TxId, u32, MempoolSeqNo)>;
 
+    /// Wait until the mempool has at least the given number of _valid_ transactions.
+    /// Those transactions will be sent to an upstream peer.
+    ///
+    /// When the mempool already has at least the required number of transactions,
+    /// this future will resolve to `true` immediately.
+    ///
+    /// Otherwise, if for some reason the mempool cannot reach the required number, it should return
+    /// false.
     fn wait_for_at_least(&self, required: u16) -> Pin<Box<dyn Future<Output=bool> + Send + '_>>;
 
     /// Retrieve a list of transactions for the given ids.
@@ -80,6 +85,8 @@ where
     ) -> Vec<Arc<Tx>>;
 }
 
+/// Identifier for a transaction in the mempool.
+/// It is derived from the hash of the encoding of the transaction as CBOR.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TxId(Hash<32>);
 
@@ -104,7 +111,7 @@ impl TxId {
     }
 }
 
-
+/// Sequence number assigned to a transaction when inserted into the mempool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MempoolSeqNo(pub u64);
 
@@ -124,6 +131,9 @@ pub enum TxRejectReason {
     Invalid,
 }
 
+/// Origin of a transaction being inserted into the mempool:
+/// - Local: created locally
+/// - Remote(Peer): received from a remote peer
 #[derive(Debug, Clone)]
 pub enum TxOrigin {
     Local,

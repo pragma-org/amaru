@@ -153,16 +153,6 @@ impl MempoolConfig {
 }
 
 impl<Tx: Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> for InMemoryMempool<Tx> {
-    fn last_seq_no(&self) -> MempoolSeqNo {
-        self.inner
-            .read()
-            .entries_by_seq
-            .keys()
-            .last()
-            .cloned()
-            .unwrap_or(MempoolSeqNo(0))
-    }
-
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         self.inner.write().insert(&self.config, tx, tx_origin)
     }
