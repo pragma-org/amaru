@@ -1,5 +1,5 @@
 x-cardano-node: &cardano-node
-  image: ghcr.io/intersectmbo/cardano-node:10.5.1
+  image: ghcr.io/intersectmbo/cardano-node:10.5.3
   environment:
     CARDANO_BLOCK_PRODUCER: true
   command: >
@@ -84,7 +84,7 @@ services:
           condition: service_completed_successfully
 
   tracer:
-    image: ghcr.io/cardano-foundation/antithesis/tracer:latest
+    image: ghcr.io/intersectmbo/cardano-tracer:10.6.0
     hostname: tracer.example
     container_name: tracer
     volumes:
@@ -161,14 +161,14 @@ services:
       - tracer:/tracer
 
   sidecar:
-    image: ghcr.io/cardano-foundation/antithesis/sidecar:latest
+    image: ghcr.io/cardano-foundation/cardano-node-antithesis/sidecar:latest
     container_name: sidecar
     hostname: sidecar.example
     environment:
       POOLS: "5" # FIXME: could remove
 
   tracer-sidecar:
-    image: ghcr.io/cardano-foundation/antithesis/tracer-sidecar:latest
+    image: ghcr.io/cardano-foundation/cardano-node-antithesis/tracer-sidecar:latest
     container_name: tracer-sidecar
     hostname: tracer-sidecar.example
     environment:
