@@ -15,18 +15,18 @@
 use super::{
     EffectBox, Instant, StageData, StageEffect, StageResponse, StageState, inputs::Inputs,
 };
-use crate::simulation::SendBlock;
-use crate::stage_ref::StageStateRef;
 use crate::{
     BoxFuture, CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
     simulation::{
-        Blocked,
+        Blocked, SendBlock,
         resume::{
-            post_message, resume_call_internal, resume_clock_internal, resume_external_internal,
-            resume_receive_internal, resume_respond_internal, resume_send_internal,
-            resume_wait_internal,
+            post_message, resume_add_stage_internal, resume_call_internal, resume_clock_internal,
+            resume_external_internal, resume_receive_internal, resume_respond_internal,
+            resume_send_internal, resume_wait_internal, resume_wire_stage_internal,
         },
+        stage_name,
     },
+    stage_ref::StageStateRef,
     stagegraph::{CallRef, StageGraphRunning},
     time::Clock,
     trace_buffer::TraceBuffer,
@@ -58,6 +58,7 @@ use tokio::{
 /// See also [`run_until_blocked`](Self::run_until_blocked) for how to achieve this.
 pub struct SimulationRunning {
     stages: BTreeMap<Name, StageData>,
+    stage_count: usize,
     inputs: Inputs,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
@@ -88,6 +89,7 @@ impl SimulationRunning {
     ) -> Self {
         let (terminate, termination) = watch::channel(false);
         Self {
+            stage_count: stages.len(),
             stages,
             inputs,
             effect,
@@ -545,6 +547,32 @@ impl SimulationRunning {
                 self.terminate.send_replace(true);
                 return Some(Blocked::Terminated(at_stage));
             }
+            Effect::AddStage { at_stage, name } => {
+                let name = stage_name(&mut self.stage_count, name.as_str());
+                let data = self.stages.get_mut(&at_stage).unwrap();
+                resume_add_stage_internal(data, run, name)
+                    .expect("add stage effect is always runnable");
+            }
+            Effect::WireStage {
+                at_stage,
+                name,
+                initial_state,
+            } => {
+                let data = self.stages.get_mut(&at_stage).unwrap();
+                let transition = resume_wire_stage_internal(data, run)
+                    .expect("wire stage effect is always runnable");
+                self.stages.insert(
+                    name.clone(),
+                    StageData {
+                        name,
+                        mailbox: VecDeque::new(),
+                        state: StageState::Idle(initial_state),
+                        transition: (transition)(self.effect.clone()),
+                        waiting: Some(StageEffect::Receive),
+                        senders: VecDeque::new(),
+                    },
+                );
+            }
         }
         None
     }
@@ -811,6 +839,54 @@ impl SimulationRunning {
         resume_external_internal(data, result, &mut |name, response| {
             self.runnable.push_back((name, response));
         })
+    }
+
+    /// Resume an [`Effect::AddStage`].
+    pub fn resume_add_stage<Msg>(
+        &mut self,
+        at_stage: impl AsRef<StageRef<Msg>>,
+        name: Name,
+    ) -> anyhow::Result<()> {
+        let data = self
+            .stages
+            .get_mut(at_stage.as_ref().name())
+            .expect("stage ref exists, so stage must exist");
+        resume_add_stage_internal(
+            data,
+            &mut |name, response| {
+                self.runnable.push_back((name, response));
+            },
+            name,
+        )
+    }
+
+    /// Resume an [`Effect::WireStage`].
+    pub fn resume_wire_stage<Msg>(
+        &mut self,
+        at_stage: impl AsRef<StageRef<Msg>>,
+        name: Name,
+        initial_state: Box<dyn SendData>,
+    ) -> anyhow::Result<()> {
+        let data = self
+            .stages
+            .get_mut(at_stage.as_ref().name())
+            .expect("stage ref exists, so stage must exist");
+        let transition = resume_wire_stage_internal(data, &mut |name, response| {
+            self.runnable.push_back((name, response));
+        })?;
+
+        self.stages.insert(
+            name.clone(),
+            StageData {
+                name,
+                mailbox: VecDeque::new(),
+                state: StageState::Idle(initial_state),
+                transition: (transition)(self.effect.clone()),
+                waiting: Some(StageEffect::Receive),
+                senders: VecDeque::new(),
+            },
+        );
+        Ok(())
     }
 }
 

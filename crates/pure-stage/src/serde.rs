@@ -1,4 +1,4 @@
-#![expect(dead_code, clippy::borrowed_box)]
+#![expect(clippy::borrowed_box)]
 // Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,7 +23,7 @@ use std::cell::RefCell;
 /// Helper type to wrap futures/functions/etc. and thus avoid having to handroll
 /// a `Debug` implementation for a type containing the wrapped value.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct NoDebug<T>(T);
+pub struct NoDebug<T>(T);
 impl<T> NoDebug<T> {
     pub fn new(t: T) -> Self {
         Self(t)

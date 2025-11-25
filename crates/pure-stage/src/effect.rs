@@ -14,9 +14,9 @@
 // limitations under the License.
 
 use crate::{
-    BoxFuture, CallId, CallRef, Instant, Name, Resources, SendData, Sender, StageGraph, StageRef,
-    serde::{SendDataValue, never, to_cbor},
-    simulation::{EffectBox, SimulationRunning, airlock_effect},
+    BoxFuture, CallId, CallRef, Instant, Name, Resources, SendData, StageBuildRef, StageRef,
+    serde::{NoDebug, SendDataValue, never, to_cbor},
+    simulation::{EffectBox, Transition, airlock_effect},
     time::Clock,
 };
 use cbor4ii::{core::Value, serde::from_slice};
@@ -38,7 +38,6 @@ impl<M> Clone for Effects<M> {
             me: self.me.clone(),
             effect: self.effect.clone(),
             clock: self.clock.clone(),
-            self_sender: self.self_sender.clone(),
             resources: self.resources.clone(),
         }
     }
@@ -54,7 +53,6 @@ pub struct Effects<M> {
     me: StageRef<M>,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
-    self_sender: Sender<M>,
     resources: Resources,
 }
 
@@ -72,14 +70,12 @@ impl<M: SendData> Effects<M> {
         me: StageRef<M>,
         effect: EffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
-        self_sender: Sender<M>,
         resources: Resources,
     ) -> Self {
         Self {
             me,
             effect,
             clock,
-            self_sender,
             resources,
         }
     }
@@ -97,13 +93,6 @@ impl<M: SendData> Effects<M> {
     /// message to the current stage. For owned access, see [`me()`](Self::me).
     pub fn me_ref(&self) -> &StageRef<M> {
         &self.me
-    }
-
-    /// Obtain a handle for sending messages to the current stage from outside the network.
-    /// This allows you to perform arbitrary asynchronous tasks outside the control of the
-    /// StageGraph and then feed the results into the network.
-    pub fn self_sender(&self) -> Sender<M> {
-        self.self_sender.clone()
     }
 }
 
@@ -243,57 +232,71 @@ impl<M> Effects<M> {
     pub fn terminate<T>(&self) -> BoxFuture<'static, T> {
         airlock_effect(&self.effect, StageEffect::Terminate, |_eff| never())
     }
-}
 
-#[allow(unused_variables)]
-impl<M> StageGraph for Effects<M> {
-    type Running = SimulationRunning;
-    type RefAux<Msg, State> = ();
-
-    fn stage<Msg, St, F, Fut>(
-        &mut self,
+    pub async fn stage<Msg, St, F, Fut>(
+        &self,
         name: impl AsRef<str>,
-        f: F,
-    ) -> crate::StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
+        mut f: F,
+    ) -> crate::StageBuildRef<Msg, St, TransitionFactory>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
-        todo!()
+        let name = Name::from(name.as_ref());
+
+        let name = airlock_effect(&self.effect, StageEffect::AddStage(name), |eff| match eff {
+            Some(StageResponse::AddStageResponse(name)) => Some(name),
+            _ => None,
+        })
+        .await;
+
+        let clock = self.clock.clone();
+        let resources = self.resources.clone();
+        let me = StageRef::new(name.clone());
+
+        let transition = move |effect: EffectBox| {
+            let eff = Effects::new(me, effect, clock, resources);
+            Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
+                let state = state.cast::<St>().expect("internal state type error");
+                let msg = msg
+                    .cast_deserialize::<Msg>()
+                    .expect("internal message type error");
+                let state = f(*state, msg, eff.clone());
+                Box::pin(async move { Box::new(state.await) as Box<dyn SendData> })
+                    as BoxFuture<'static, Box<dyn SendData>>
+            }) as Transition
+        };
+        crate::StageBuildRef {
+            name,
+            network: Box::new(transition),
+            _ph: PhantomData,
+        }
     }
 
-    fn wire_up<Msg, St>(
-        &mut self,
-        stage: crate::StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+    pub async fn wire_up<Msg, St>(
+        &self,
+        stage: crate::StageBuildRef<Msg, St, TransitionFactory>,
         state: St,
-    ) -> crate::stage_ref::StageStateRef<Msg, St>
+    ) -> StageRef<Msg>
     where
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
-        todo!()
-    }
+        let StageBuildRef { name, network, _ph } = stage;
 
-    fn preload<Msg: SendData>(
-        &mut self,
-        stage: impl AsRef<StageRef<Msg>>,
-        messages: impl IntoIterator<Item = Msg>,
-    ) -> bool {
-        todo!()
-    }
+        airlock_effect(
+            &self.effect,
+            StageEffect::WireStage(name.clone(), NoDebug::new(network), Box::new(state)),
+            |eff| match eff {
+                Some(StageResponse::Unit) => Some(()),
+                _ => None,
+            },
+        )
+        .await;
 
-    fn run(self, rt: tokio::runtime::Handle) -> Self::Running {
-        todo!()
-    }
-
-    fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg> {
-        todo!()
-    }
-
-    fn resources(&self) -> &Resources {
-        todo!()
+        StageRef::new(name)
     }
 }
 
@@ -443,7 +446,7 @@ fn unknown_external_effect() {
 /// An effect emitted by a stage (in which case T is `Box<dyn Message>`) or an effect
 /// upon whose resumption the stage waits (in which case T is `()`).
 #[derive(Debug)]
-pub(crate) enum StageEffect<T> {
+pub enum StageEffect<T> {
     Receive,
     Send(
         Name,
@@ -463,7 +466,13 @@ pub(crate) enum StageEffect<T> {
     Respond(Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>, T),
     External(Box<dyn ExternalEffect>),
     Terminate,
+    AddStage(Name),
+    // the transition function is supplied separately because it cannot be SendData;
+    // response is StageResponse::Unit
+    WireStage(Name, NoDebug<TransitionFactory>, T),
 }
+
+pub type TransitionFactory = Box<dyn FnOnce(EffectBox) -> Transition + Send + 'static>;
 
 /// The response a stage receives from the execution of an effect.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -474,6 +483,7 @@ pub enum StageResponse {
     CallResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
     CallTimeout,
     ExternalResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
+    AddStageResponse(Name),
 }
 
 impl StageEffect<Box<dyn SendData>> {
@@ -529,6 +539,21 @@ impl StageEffect<Box<dyn SendData>> {
                 StageEffect::Terminate,
                 Effect::Terminate { at_stage: at_name },
             ),
+            StageEffect::AddStage(name) => (
+                StageEffect::AddStage(name.clone()),
+                Effect::AddStage {
+                    at_stage: at_name,
+                    name,
+                },
+            ),
+            StageEffect::WireStage(name, transition, initial_state) => (
+                StageEffect::WireStage(name.clone(), transition, ()),
+                Effect::WireStage {
+                    at_stage: at_name,
+                    name,
+                    initial_state,
+                },
+            ),
         }
     }
 }
@@ -567,6 +592,16 @@ pub enum Effect {
     },
     Terminate {
         at_stage: Name,
+    },
+    AddStage {
+        at_stage: Name,
+        name: Name,
+    },
+    WireStage {
+        at_stage: Name,
+        name: Name,
+        #[serde(with = "crate::serde::serialize_send_data")]
+        initial_state: Box<dyn SendData>,
     },
 }
 
@@ -649,6 +684,8 @@ impl Effect {
             Effect::Respond { at_stage, .. } => at_stage,
             Effect::External { at_stage, .. } => at_stage,
             Effect::Terminate { at_stage, .. } => at_stage,
+            Effect::AddStage { at_stage, .. } => at_stage,
+            Effect::WireStage { at_stage, .. } => at_stage,
         }
     }
 
@@ -883,6 +920,29 @@ impl PartialEq for Effect {
                 Effect::Terminate {
                     at_stage: other_at_stage,
                 } => at_stage == other_at_stage,
+                _ => false,
+            },
+            Effect::AddStage { at_stage, name } => match other {
+                Effect::AddStage {
+                    at_stage: other_at_stage,
+                    name: other_name,
+                } => at_stage == other_at_stage && name == other_name,
+                _ => false,
+            },
+            Effect::WireStage {
+                at_stage,
+                name,
+                initial_state,
+            } => match other {
+                Effect::WireStage {
+                    at_stage: other_at_stage,
+                    name: other_name,
+                    initial_state: other_initial_state,
+                } => {
+                    at_stage == other_at_stage
+                        && name == other_name
+                        && initial_state == other_initial_state
+                }
                 _ => false,
             },
         }

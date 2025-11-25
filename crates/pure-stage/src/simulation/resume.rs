@@ -14,7 +14,7 @@
 
 use crate::{
     CallId, Instant, Name, SendData, StageResponse,
-    effect::StageEffect,
+    effect::{StageEffect, TransitionFactory},
     simulation::state::{StageData, StageState},
     trace_buffer::TraceBuffer,
 };
@@ -239,4 +239,55 @@ pub fn resume_external_internal(
 
     run(data.name.clone(), StageResponse::ExternalResponse(result));
     Ok(())
+}
+
+pub fn resume_add_stage_internal(
+    data: &mut StageData,
+    run: &mut dyn FnMut(Name, StageResponse),
+    name: Name,
+) -> anyhow::Result<()> {
+    let waiting_for = data
+        .waiting
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+
+    if !matches!(waiting_for, StageEffect::AddStage(_)) {
+        anyhow::bail!(
+            "stage `{}` was not waiting for a add stage effect, but {:?}",
+            data.name,
+            waiting_for
+        )
+    }
+
+    // it is important that all validations (i.e. `?``) happen before this point
+    data.waiting = None;
+
+    run(data.name.clone(), StageResponse::AddStageResponse(name));
+    Ok(())
+}
+
+pub fn resume_wire_stage_internal(
+    data: &mut StageData,
+    run: &mut dyn FnMut(Name, StageResponse),
+) -> anyhow::Result<TransitionFactory> {
+    let waiting_for = data
+        .waiting
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+
+    if !matches!(waiting_for, StageEffect::WireStage(_, _, _)) {
+        anyhow::bail!(
+            "stage `{}` was not waiting for a wire stage effect, but {:?}",
+            data.name,
+            waiting_for
+        )
+    }
+
+    // it is important that all validations (i.e. `?``) happen before this point
+    let Some(StageEffect::WireStage(_, transition, _)) = data.waiting.take() else {
+        panic!("checked above");
+    };
+
+    run(data.name.clone(), StageResponse::Unit);
+    Ok(transition.into_inner())
 }

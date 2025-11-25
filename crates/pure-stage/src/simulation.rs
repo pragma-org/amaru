@@ -49,7 +49,9 @@ pub use running::{OverrideResult, SimulationRunning};
 
 use crate::stage_ref::StageStateRef;
 use inputs::Inputs;
-use state::{InitStageData, InitStageState, StageData, StageState, Transition};
+use state::{InitStageData, InitStageState, StageData, StageState};
+
+pub(crate) use state::Transition;
 
 mod blocked;
 mod inputs;
@@ -58,8 +60,7 @@ mod resume;
 mod running;
 mod state;
 
-pub(crate) type EffectBox =
-    Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
+pub type EffectBox = Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
 
 pub(crate) fn airlock_effect<Out>(
     eb: &EffectBox,
@@ -92,6 +93,11 @@ pub(crate) fn airlock_effect<Out>(
             out.map(Poll::Ready).unwrap_or(Poll::Pending)
         }
     }))
+}
+
+pub fn stage_name(counter: &mut usize, prefix: &str) -> Name {
+    *counter += 1;
+    Name::from(&*format!("{}-{}", prefix, counter))
 }
 
 /// A fully controllable and deterministic [`StageGraph`](crate::StageGraph) for testing purposes.
@@ -141,6 +147,7 @@ pub(crate) fn airlock_effect<Out>(
 /// ```
 pub struct SimulationBuilder {
     stages: BTreeMap<Name, InitStageData>,
+    stage_counter: usize,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
@@ -192,6 +199,7 @@ impl Default for SimulationBuilder {
 
         Self {
             stages: Default::default(),
+            stage_counter: 0,
             effect: Default::default(),
             clock,
             resources: Resources::default(),
@@ -219,14 +227,12 @@ impl super::StageGraph for SimulationBuilder {
         St: SendData,
     {
         // THIS MUST MATCH THE TOKIO BUILDER
-        let name = Name::from(&*format!("{}-{}", name.as_ref(), self.stages.len()));
+        let name = stage_name(&mut self.stage_counter, name.as_ref());
         let me = StageRef::new(name.clone());
-        let self_sender = self.inputs.sender(&me);
         let effects = Effects::new(
             me,
             self.effect.clone(),
             self.clock.clone(),
-            self_sender,
             self.resources.clone(),
         );
         let transition: Transition =
@@ -300,6 +306,7 @@ impl super::StageGraph for SimulationBuilder {
     fn run(self, rt: Handle) -> Self::Running {
         let Self {
             stages: s,
+            stage_counter,
             effect,
             clock,
             resources,
@@ -307,6 +314,9 @@ impl super::StageGraph for SimulationBuilder {
             inputs,
             trace_buffer,
         } = self;
+
+        debug_assert_eq!(stage_counter, s.len());
+
         let mut stages = BTreeMap::new();
         for (
             name,

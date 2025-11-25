@@ -20,7 +20,7 @@ use crate::{
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use cbor_data::{Cbor, ErrorKind, ParseError};
-use pure_stage::{CallRef, Effects, StageGraph, StageRef, TryInStage};
+use pure_stage::{CallRef, Effects, StageRef, TryInStage};
 use std::{
     cell::RefCell,
     collections::{HashMap, VecDeque, hash_map::Entry},
@@ -131,16 +131,17 @@ impl State {
         }
     }
 
-    pub fn init(
+    pub async fn init(
         &mut self,
         eff: &mut Effects<MuxMessage>,
     ) -> (&mut Muxer, &mut bool, &StageRef<Bytes>, &StageRef<Read>) {
         match &mut self.conn {
             Connection::Unint(conn) => {
-                let writer = eff.stage(
-                    format!("writer-{}", conn),
-                    |(conn, muxer), data, eff| async move {
-                        Network::new(&eff)
+                let writer = eff
+                    .stage(
+                        format!("writer-{}", conn),
+                        |(conn, muxer), data, eff| async move {
+                            Network::new(&eff)
                             .send(conn, data)
                             .await
                             .or_terminate(
@@ -148,13 +149,14 @@ impl State {
                                 async |err| tracing::error!(%err, "failed to send data to network"),
                             )
                             .await;
-                        eff.send(&muxer, MuxMessage::Written).await;
-                        (conn, muxer)
-                    },
-                );
-                let writer = eff.wire_up(writer, (*conn, eff.me())).without_state();
-                let reader = eff.stage(format!("reader-{}", conn), read_segment);
-                let reader = eff.wire_up(reader, (*conn, eff.me())).without_state();
+                            eff.send(&muxer, MuxMessage::Written).await;
+                            (conn, muxer)
+                        },
+                    )
+                    .await;
+                let writer = eff.wire_up(writer, (*conn, eff.me())).await;
+                let reader = eff.stage(format!("reader-{}", conn), read_segment).await;
+                let reader = eff.wire_up(reader, (*conn, eff.me())).await;
                 self.conn = Connection::Init(writer, reader);
             }
             Connection::Init(..) => {}
@@ -167,7 +169,7 @@ impl State {
 }
 
 pub async fn stage(mut state: State, msg: MuxMessage, mut eff: Effects<MuxMessage>) -> State {
-    let (muxer, sending, writer, reader) = state.init(&mut eff);
+    let (muxer, sending, writer, reader) = state.init(&mut eff).await;
 
     handle_msg(msg, &eff, muxer, sending, writer, reader)
         .await
