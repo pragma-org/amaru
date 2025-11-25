@@ -12,18 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::pin::Pin;
-use std::sync::Arc;
-use amaru_kernel::{Hash, Hasher};
 use amaru_kernel::cbor::Encode;
 use amaru_kernel::peer::Peer;
+use amaru_kernel::{Hash, Hasher};
+use std::pin::Pin;
+use std::sync::Arc;
 
 /// An simple mempool interface to:
 ///
 /// - Add transactions and forge blocks when needed.
-pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync
-where
-{
+pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// Add a new, local, transaction to the mempool.
     ///
     /// TODO: Have the mempool perform its own set of validations and possibly fail to add new
@@ -55,7 +53,7 @@ where
     /// (if a transaction in the mempool shares any of the transactions keys, it should be removed).
     fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
     where
-        I: IntoIterator<Item=TxKey>,
+        I: IntoIterator<Item = TxKey>,
         Self: Sized;
 
     /// Retrieve a transaction by its id.
@@ -66,11 +64,7 @@ where
     }
 
     /// Retrieve a list of transactions from a given sequence number (inclusive), up to a given limit.
-    fn tx_ids_since(
-        &self,
-        from_seq: MempoolSeqNo,
-        limit: u16,
-    ) -> Vec<(TxId, u32, MempoolSeqNo)>;
+    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)>;
 
     /// Wait until the mempool has at least the given number of _valid_ transactions.
     /// Those transactions will be sent to an upstream peer.
@@ -80,13 +74,10 @@ where
     ///
     /// Otherwise, if for some reason the mempool cannot reach the required number, it should return
     /// false.
-    fn wait_for_at_least(&self, required: u16) -> Pin<Box<dyn Future<Output=bool> + Send + '_>>;
+    fn wait_for_at_least(&self, required: u16) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
 
     /// Retrieve a list of transactions for the given ids.
-    fn get_txs_for_ids(
-        &self,
-        ids: &[TxId],
-    ) -> Vec<Arc<Tx>>;
+    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Arc<Tx>>;
 }
 
 /// Identifier for a transaction in the mempool.
@@ -100,7 +91,7 @@ impl TxId {
     }
 
     pub fn as_slice(&self) -> &[u8] {
-        &self.0.as_slice()
+        self.0.as_slice()
     }
 }
 
@@ -137,7 +128,7 @@ pub enum TxRejectReason {
 /// Origin of a transaction being inserted into the mempool:
 /// - Local: created locally
 /// - Remote(Peer): received from a remote peer
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TxOrigin {
     Local,
     Remote(Peer),

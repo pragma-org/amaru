@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::tx_submission::tx_server_transport::{PallasTxServerTransport, TxServerTransport};
+use amaru_kernel::Hash;
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros_traits::{Mempool, TxId, TxOrigin};
-use async_trait::async_trait;
 use minicbor::{CborLen, Decode, Encode};
-use pallas_network::miniprotocols::txsubmission;
 use pallas_network::miniprotocols::txsubmission::{
-    Blocking, EraTxBody, EraTxId, Reply, TxCount, TxIdAndSize,
+    Blocking, EraTxBody, EraTxId, Reply, TxIdAndSize,
 };
 use pallas_network::multiplexer::AgentChannel;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
-use amaru_kernel::{Hash, Hasher};
+use tracing::info;
 
 /// Tx submission server state machine for a given peer.
 ///
@@ -74,7 +74,7 @@ impl Ord for EraTxIdOrd {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.0.0.cmp(&other.0.0) {
             Ordering::Equal => self.0.1.cmp(&other.0.1),
-            other => other,
+            other @ (Ordering::Less | Ordering::Greater) => other,
         }
     }
 }
@@ -138,6 +138,10 @@ where
         &mut self,
         mut transport: T,
     ) -> anyhow::Result<()> {
+        info!(peer = %self.peer,
+            "Started tx submission server for peer {}",
+            self.peer
+        );
         transport.wait_for_init().await?;
         self.request_tx_ids(&mut transport).await?;
         loop {
@@ -175,14 +179,13 @@ where
 
             if already_in_mempool || already_rejected {
                 // pop from window and ack it
-                let (front_id, _) = self.window.pop_front().expect("front is Some");
-
-                // keep rejected set from growing forever
-                if already_rejected {
-                    self.rejected.remove(&front_id);
+                if let Some((front_id, _)) = self.window.pop_front() {
+                    // keep rejected set from growing forever
+                    if already_rejected {
+                        self.rejected.remove(&front_id);
+                    }
+                    ack = ack.saturating_add(1);
                 }
-
-                ack = ack.saturating_add(1);
             } else {
                 break;
             }
@@ -251,9 +254,9 @@ where
                 let tx: Tx = minicbor::decode(tx_body.1.as_slice())?;
                 let inserted = self.validate_tx(&tx)
                     && self
-                    .mempool
-                    .insert(tx, TxOrigin::Remote(self.peer.clone()))
-                    .is_ok();
+                        .mempool
+                        .insert(tx, TxOrigin::Remote(self.peer.clone()))
+                        .is_ok();
                 if !inserted {
                     self.rejected.insert(requested_id);
                 }
@@ -268,101 +271,53 @@ where
     }
 }
 
-/// Abstraction over the tx-submission wire used by the server state machine.
-///
-/// This lets us unit-test `TxSubmissionServer` without needing a real
-/// `AgentChannel` / `TcpStream`. Production code uses the pallas
-/// `txsubmission::Server<AgentChannel>` through the adapter below.
-#[async_trait]
-pub trait TxServerTransport: Send {
-    async fn wait_for_init(&mut self) -> anyhow::Result<()>;
-    fn is_done(&self) -> bool;
-
-    async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>>;
-
-    async fn acknowledge_and_request_tx_ids(
-        &mut self,
-        blocking: Blocking,
-        acknowledge: TxCount,
-        count: TxCount,
-    ) -> anyhow::Result<()>;
-
-    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> anyhow::Result<()>;
-}
-
-/// Production adapter around pallas' txsubmission server.
-pub struct PallasTxServerTransport {
-    inner: txsubmission::Server,
-}
-
-impl PallasTxServerTransport {
-    pub fn new(agent_channel: AgentChannel) -> Self {
-        Self {
-            inner: txsubmission::Server::new(agent_channel),
-        }
-    }
-}
-
-#[async_trait]
-impl TxServerTransport for PallasTxServerTransport {
-    async fn wait_for_init(&mut self) -> anyhow::Result<()> {
-        Ok(self.inner.wait_for_init().await?)
-    }
-
-    fn is_done(&self) -> bool {
-        self.inner.is_done()
-    }
-
-    async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>> {
-        Ok(self.inner.receive_next_reply().await?)
-    }
-
-    async fn acknowledge_and_request_tx_ids(
-        &mut self,
-        blocking: Blocking,
-        acknowledge: TxCount,
-        count: TxCount,
-    ) -> anyhow::Result<()> {
-        Ok(self
-            .inner
-            .acknowledge_and_request_tx_ids(blocking, acknowledge, count)
-            .await?)
-    }
-
-    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> anyhow::Result<()> {
-        Ok(self.inner.request_txs(txs).await?)
-    }
-}
-
-
 #[cfg(test)]
 mod tests {
-    use pallas_network::miniprotocols::txsubmission::{Message, Reply};
+    use super::*;
+    use crate::tx_submission::tests::{Tx, assert_next_message};
+    use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
+    use crate::tx_submission::tx_submission_client::tests::*;
+    use amaru_kernel::Hasher;
+    use amaru_mempool::strategies::InMemoryMempool;
+    use pallas_network::miniprotocols::txsubmission::Message;
     use tokio::sync::mpsc;
     use tokio::sync::mpsc::{Receiver, Sender};
     use tokio::task::JoinHandle;
-    use amaru_mempool::strategies::InMemoryMempool;
-    use crate::tx_submission::tx_submission_client::tests::*;
-    use super::*;
 
     #[test]
     fn check_ids() {
         let tx = Tx::new("0d8d00cdd4657ac84d82f0a56067634a");
         let tx_id = tx.tx_id();
         let tx_body = tx.tx_body();
-        assert_eq!(TxId::new(Hasher::<{ 32 * 8 }>::hash(tx_body.as_slice())), tx_id, "the tx id is the hash of the encoded body");
+        assert_eq!(
+            TxId::new(Hasher::<{ 32 * 8 }>::hash(tx_body.as_slice())),
+            tx_id,
+            "the tx id is the hash of the encoded body"
+        );
 
         let era_tx_id = new_era_tx_id(tx_id.clone());
         let era_tx_body = new_era_tx_body(tx_body.clone());
-        assert_eq!(TxId::new(Hash::from(era_tx_id.1.as_slice())), tx_id, "the era tx id transports the tx id hash");
-        assert_eq!(era_tx_body.1, tx_body.clone(), "sanity check: the era tx body transports the tx body");
-        assert_eq!(TxId::new(Hasher::<{ 32 * 8 }>::hash(era_tx_body.1.as_slice())), tx_id, "hashing the era tx body yields the same tx id");
+        assert_eq!(
+            TxId::new(Hash::from(era_tx_id.1.as_slice())),
+            tx_id,
+            "the era tx id transports the tx id hash"
+        );
+        assert_eq!(
+            era_tx_body.1,
+            tx_body.clone(),
+            "sanity check: the era tx body transports the tx body"
+        );
+        assert_eq!(
+            TxId::new(Hasher::<{ 32 * 8 }>::hash(era_tx_body.1.as_slice())),
+            tx_id,
+            "hashing the era tx body yields the same tx id"
+        );
     }
 
     #[tokio::test]
     async fn test_server() -> anyhow::Result<()> {
         // Prepare some transactions to be used in the test
-        let txs = vec![
+        let txs = [
             Tx::new("0d8d00cdd4657ac84d82f0a56067634a"),
             Tx::new("1d8d00cdd4657ac84d82f0a56067634a"),
             Tx::new("2d8d00cdd4657ac84d82f0a56067634a"),
@@ -387,9 +342,15 @@ mod tests {
         // Send replies from the client as if they were replies to previous requests from the server
         let replies = vec![
             Message::Init,
-            Message::ReplyTxIds(vec![TxIdAndSize(era_tx_ids[0].clone(), 32), TxIdAndSize(era_tx_ids[1].clone(), 32)]),
+            Message::ReplyTxIds(vec![
+                TxIdAndSize(era_tx_ids[0].clone(), 32),
+                TxIdAndSize(era_tx_ids[1].clone(), 32),
+            ]),
             Message::ReplyTxs(vec![era_tx_bodies[0].clone(), era_tx_bodies[1].clone()]),
-            Message::ReplyTxIds(vec![TxIdAndSize(era_tx_ids[2].clone(), 32), TxIdAndSize(era_tx_ids[3].clone(), 32)]),
+            Message::ReplyTxIds(vec![
+                TxIdAndSize(era_tx_ids[2].clone(), 32),
+                TxIdAndSize(era_tx_ids[3].clone(), 32),
+            ]),
             Message::ReplyTxs(vec![era_tx_bodies[2].clone(), era_tx_bodies[3].clone()]),
             Message::ReplyTxIds(vec![TxIdAndSize(era_tx_ids[4].clone(), 32)]),
             Message::ReplyTxs(vec![era_tx_bodies[4].clone()]),
@@ -401,64 +362,27 @@ mod tests {
 
         // Check messages sent by the server
         assert_next_message(&mut messages, Message::RequestTxIds(true, 0, 10)).await?;
-        assert_next_message(&mut messages, Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()])).await?;
+        assert_next_message(
+            &mut messages,
+            Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
+        )
+        .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
-        assert_next_message(&mut messages, Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()])).await?;
+        assert_next_message(
+            &mut messages,
+            Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
+        )
+        .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
-        assert_next_message(&mut messages, Message::RequestTxs(vec![era_tx_ids[4].clone()])).await?;
+        assert_next_message(
+            &mut messages,
+            Message::RequestTxs(vec![era_tx_ids[4].clone()]),
+        )
+        .await?;
         Ok(())
     }
 
     // HELPERS
-
-    pub(crate) struct MockServerTransport {
-        // client -> server replies
-        rx_reply: Receiver<Message<EraTxId, EraTxBody>>,
-        // server -> client messages
-        tx_request: Sender<Message<EraTxId, EraTxBody>>,
-    }
-
-    #[async_trait]
-    impl TxServerTransport for MockServerTransport {
-        async fn wait_for_init(&mut self) -> anyhow::Result<()> {
-            match self.rx_reply.recv().await {
-                Some(Message::Init) => Ok(()),
-                Some(other) => Err(anyhow::anyhow!("Expected Init message, got {:?}", other)),
-                None => Err(anyhow::anyhow!("No more replies")),
-            }
-        }
-
-        fn is_done(&self) -> bool {
-            false
-        }
-
-        async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>> {
-            match self.rx_reply.recv().await {
-                Some(Message::ReplyTxIds(tx_ids)) => Ok(Reply::TxIds(tx_ids)),
-                Some(Message::ReplyTxs(txs)) => Ok(Reply::Txs(txs)),
-                Some(Message::Done) => Ok(Reply::Done),
-                Some(other) => Err(anyhow::anyhow!("Expected a reply message, got {:?}", other)),
-                None => Err(anyhow::anyhow!("No more replies")),
-            }
-        }
-
-        async fn acknowledge_and_request_tx_ids(
-            &mut self,
-            _blocking: Blocking,
-            _acknowledge: TxCount,
-            _count: TxCount,
-        ) -> anyhow::Result<()> {
-            // Simulate sending a RequestTxIds message to the client
-            self.tx_request.send(Message::RequestTxIds(_blocking, _acknowledge, _count)).await?;
-            Ok(())
-        }
-
-        async fn request_txs(&mut self, txs: Vec<EraTxId>) -> anyhow::Result<()> {
-            // Simulate sending a RequestTxs message to the client
-            self.tx_request.send(Message::RequestTxs(txs)).await?;
-            Ok(())
-        }
-    }
 
     /// Send a series of reply from a tx submission client backed by the given mempool.
     /// Returns a receiver to collect the messages that the server sent back.
@@ -469,15 +393,16 @@ mod tests {
         Receiver<Message<EraTxId, EraTxBody>>,
         JoinHandle<anyhow::Result<()>>,
     )> {
-        let mut server = TxSubmissionServer::new(ServerParams::new(10, 2, true), mempool.clone(), Peer::new("peer-1"));
+        let mut server = TxSubmissionServer::new(
+            ServerParams::new(10, 2, true),
+            mempool.clone(),
+            Peer::new("peer-1"),
+        );
 
         let (tx_reply, rx_reply) = mpsc::channel(10);
         let (tx_message, rx_message) = mpsc::channel(10);
 
-        let transport = MockServerTransport {
-            rx_reply,
-            tx_request: tx_message,
-        };
+        let transport = MockServerTransport::new(rx_reply, tx_message);
 
         let server_handle =
             tokio::spawn(async move { server.start_server_with_transport(transport).await });
