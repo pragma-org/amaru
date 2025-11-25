@@ -61,6 +61,10 @@ where
     /// Retrieve a transaction by its id.
     fn get_tx(&self, tx_id: &TxId) -> Option<Arc<Tx>>;
 
+    fn contains(&self, tx_id: &TxId) -> bool {
+        self.get_tx(tx_id).is_some()
+    }
+
     /// Retrieve a list of transactions from a given sequence number (inclusive), up to a given limit.
     fn tx_ids_since(
         &self,
@@ -106,8 +110,7 @@ impl TxId {
     }
 
     pub fn from<Tx: Encode<()>>(tx: Tx) -> Self {
-        let hash = Hasher::<{ 32 * 8 }>::hash_cbor(&tx);
-        TxId(hash)
+        TxId(Hasher::<{ 32 * 8 }>::hash_cbor(&tx))
     }
 }
 
