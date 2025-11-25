@@ -14,7 +14,7 @@
 
 use crate::{
     context::ValidationContext,
-    rules::transaction::{self, phase_one::InvalidTransaction},
+    rules::transaction::{self, phase_one::PhaseOneError, phase_two::PhaseTwoError},
     state::FailedTransactions,
     store::GovernanceActivity,
 };
@@ -29,12 +29,20 @@ use std::{
     ops::{ControlFlow, Deref, FromResidual, Try},
     process::{ExitCode, Termination},
 };
+use thiserror::Error;
 use tracing::{Level, instrument};
 
 pub mod body_size;
 pub mod ex_units;
 pub mod header_size;
 
+#[derive(Debug, Error)]
+pub enum TransactionInvalid {
+    #[error("tranasction failed phase one validation: {0}")]
+    PhaseOneError(#[from] PhaseOneError),
+    #[error("transaction failed phase two validation: {0}")]
+    PhaseTwoError(#[from] PhaseTwoError),
+}
 #[derive(Debug)]
 pub enum InvalidBlockDetails {
     BlockSizeMismatch {
@@ -52,7 +60,7 @@ pub enum InvalidBlockDetails {
     Transaction {
         transaction_hash: TransactionId,
         transaction_index: u32,
-        violation: InvalidTransaction,
+        violation: TransactionInvalid,
     },
 }
 
@@ -205,6 +213,11 @@ where
     for (i, transaction) in (0u32..).zip(transactions.into_iter()) {
         let transaction_hash = transaction.original_hash();
 
+        let is_valid = !block
+            .invalid_transactions
+            .as_ref()
+            .is_some_and(|invalid_txs| invalid_txs.contains(&i));
+
         let witness_set = match block.transaction_witness_sets.get(i as usize) {
             Some(witness_set) => witness_set,
             None => {
@@ -237,25 +250,49 @@ where
             transaction_index: i as usize, // From u32
         };
 
-        if let Err(err) = transaction::phase_one::execute(
+        let consumed_inputs = match transaction::phase_one::execute(
             context,
-            arena_pool,
             network,
             protocol_params,
             era_history,
             governance_activity,
             pointer,
             !failed_transactions.has(i),
-            transaction,
-            witness_set,
+            transaction.clone(),
+            &witness_set.clone(),
             auxiliary_data,
+        ) {
+            Ok(inputs) => inputs,
+            Err(err) => {
+                return with_block_context(Err(InvalidBlockDetails::Transaction {
+                    transaction_hash,
+                    transaction_index: i,
+                    violation: err.into(),
+                }));
+            }
+        };
+
+        if let Err(e) = transaction::phase_two::execute(
+            context,
+            arena_pool,
+            network,
+            protocol_params,
+            era_history,
+            pointer,
+            is_valid,
+            &transaction,
+            witness_set,
         ) {
             return with_block_context(Err(InvalidBlockDetails::Transaction {
                 transaction_hash,
                 transaction_index: i,
-                violation: err,
+                violation: e.into(),
             }));
         }
+
+        consumed_inputs
+            .into_iter()
+            .for_each(|input| context.consume(input));
     }
 
     BlockValidation::Valid(())
