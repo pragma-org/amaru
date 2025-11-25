@@ -816,6 +816,42 @@ impl HasOwnership for Voter {
     }
 }
 
+impl HasOwnership for Certificate {
+    fn credential(&self) -> Option<StakeCredential> {
+        match self {
+            Certificate::StakeRegistration(stake_credential) => Some(stake_credential.clone()),
+            Certificate::StakeDeregistration(stake_credential) => Some(stake_credential.clone()),
+            Certificate::StakeDelegation(stake_credential, _) => Some(stake_credential.clone()),
+            Certificate::PoolRegistration {
+                operator: id,
+                vrf_keyhash: _vrf_keyhash,
+                pledge: _pledge,
+                cost: _cost,
+                margin: _margin,
+                reward_account: _reward_account,
+                pool_owners: _pool_owners,
+                relays: _relays,
+                pool_metadata: _pool_metadata,
+            } => Some(StakeCredential::AddrKeyhash(*id)),
+            Certificate::PoolRetirement(id, _) => Some(StakeCredential::AddrKeyhash(*id)),
+            Certificate::Reg(stake_credential, _) => Some(stake_credential.clone()),
+            Certificate::UnReg(stake_credential, _) => Some(stake_credential.clone()),
+            Certificate::VoteDeleg(stake_credential, _) => Some(stake_credential.clone()),
+            Certificate::StakeVoteDeleg(stake_credential, _, _) => Some(stake_credential.clone()),
+            Certificate::StakeRegDeleg(stake_credential, _, _) => Some(stake_credential.clone()),
+            Certificate::VoteRegDeleg(stake_credential, _, _) => Some(stake_credential.clone()),
+            Certificate::StakeVoteRegDeleg(stake_credential, _, _, _) => {
+                Some(stake_credential.clone())
+            }
+            Certificate::AuthCommitteeHot(stake_credential, _) => Some(stake_credential.clone()),
+            Certificate::ResignCommitteeCold(stake_credential, _) => Some(stake_credential.clone()),
+            Certificate::RegDRepCert(stake_credential, _, _) => Some(stake_credential.clone()),
+            Certificate::UnRegDRepCert(stake_credential, _) => Some(stake_credential.clone()),
+            Certificate::UpdateDRepCert(stake_credential, _) => Some(stake_credential.clone()),
+        }
+    }
+}
+
 pub trait HasScriptHash {
     /*
         To compute a script hash, one must prepend a tag to the bytes of the script before hashing.
@@ -933,6 +969,31 @@ pub fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
 // Redeemers
 // ----------------------------------------------------------------------------
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RedeemerAdapter(Redeemer);
+
+impl Deref for RedeemerAdapter {
+    type Target = Redeemer;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Cow<'_, Redeemer>> for RedeemerAdapter {
+    fn from(value: Cow<'_, Redeemer>) -> Self {
+        match value {
+            Cow::Borrowed(redeemer) => Self(redeemer.clone()),
+            Cow::Owned(redeemer) => Self(redeemer),
+        }
+    }
+}
+
+impl From<Redeemer> for RedeemerAdapter {
+    fn from(value: Redeemer) -> Self {
+        Self(value)
+    }
+}
 pub trait HasExUnits {
     fn ex_units(&self) -> Vec<&ExUnits>;
 }
@@ -1006,6 +1067,21 @@ pub fn normalize_redeemers(redeemers: &Redeemers) -> Vec<Cow<'_, Redeemer>> {
                 })
             })
             .collect(),
+    }
+}
+
+impl Ord for RedeemerAdapter {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.0.tag.as_index().cmp(&other.0.tag.as_index()) {
+            by_tag @ Ordering::Less | by_tag @ Ordering::Greater => by_tag,
+            Ordering::Equal => self.index.cmp(&other.index),
+        }
+    }
+}
+
+impl PartialOrd for RedeemerAdapter {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
