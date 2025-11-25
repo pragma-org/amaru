@@ -202,7 +202,7 @@ fn package_blocks(
         .first_key_value()
         .map(|kv| kv.0)
         .cloned()
-        .unwrap_or_default();
+        .expect("blocks map is non-empty here by construction");
     let archive_path = format!("{}/{}.tar.gz", dir, first_block);
     let mut f = File::create(&archive_path)?;
 
