@@ -167,7 +167,7 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
     }
 }
 
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 fn package_blocks(
     network: &NetworkName,
     blocks: &BTreeMap<String, &Vec<u8>>,
@@ -183,7 +183,7 @@ fn package_blocks(
         header.set_mtime(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs(),
         );
         header.set_uid(0);

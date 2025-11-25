@@ -41,7 +41,6 @@ opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
 pallas-hardano.workspace = true
 pallas-network.workspace = true
-pallas-traverse.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
