@@ -134,7 +134,7 @@ where
     }
 
     /// Core server state machine, parameterized over a transport for testability.
-    async fn start_server_with_transport<T: TxServerTransport>(
+    pub async fn start_server_with_transport<T: TxServerTransport>(
         &mut self,
         mut transport: T,
     ) -> anyhow::Result<()> {
@@ -145,7 +145,7 @@ where
         transport.wait_for_init().await?;
         self.request_tx_ids(&mut transport).await?;
         loop {
-            if transport.is_done() {
+            if transport.is_done().await? {
                 break;
             }
             match transport.receive_next_reply().await? {
@@ -254,9 +254,9 @@ where
                 let tx: Tx = minicbor::decode(tx_body.1.as_slice())?;
                 let inserted = self.validate_tx(&tx)
                     && self
-                        .mempool
-                        .insert(tx, TxOrigin::Remote(self.peer.clone()))
-                        .is_ok();
+                    .mempool
+                    .insert(tx, TxOrigin::Remote(self.peer.clone()))
+                    .is_ok();
                 if !inserted {
                     self.rejected.insert(requested_id);
                 }
@@ -366,19 +366,19 @@ mod tests {
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
         )
-        .await?;
+            .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
         )
-        .await?;
+            .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[4].clone()]),
         )
-        .await?;
+            .await?;
         Ok(())
     }
 

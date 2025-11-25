@@ -80,14 +80,14 @@ pub(crate) mod tests {
 
     pub(crate) struct MockClientTransport {
         // server -> client messages
-        rx_req: Receiver<Request<EraTxId>>,
+        rx_req: Receiver<Message<EraTxId, EraTxBody>>,
         // client -> server messages
         tx_reply: Sender<Message<EraTxId, EraTxBody>>,
     }
 
     impl MockClientTransport {
         pub(crate) fn new(
-            rx_req: Receiver<Request<EraTxId>>,
+            rx_req: Receiver<Message<EraTxId, EraTxBody>>,
             tx_reply: Sender<Message<EraTxId, EraTxBody>>,
         ) -> Self {
             Self { rx_req, tx_reply }
@@ -107,10 +107,21 @@ pub(crate) mod tests {
         }
 
         async fn next_request(&mut self) -> anyhow::Result<Request<EraTxId>> {
-            self.rx_req
-                .recv()
-                .await
-                .ok_or_else(|| anyhow::anyhow!("mock closed"))
+            match self.rx_req.recv().await {
+                Some(Message::RequestTxIds(blocking, ack, req)) => {
+                    if blocking {
+                        Ok(Request::TxIds(ack, req))
+                    } else {
+                        Ok(Request::TxIdsNonBlocking(ack, req))
+                    }
+                }
+                Some(Message::RequestTxs(x)) => Ok(Request::Txs(x)),
+                Some(other) => Err(anyhow::anyhow!(
+                    "Unexpected message received in MockClientTransport: {:?}",
+                    other
+                )),
+                None => Err(anyhow::anyhow!("mock closed")),
+            }
         }
 
         async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> anyhow::Result<()> {
