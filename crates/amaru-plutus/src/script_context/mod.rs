@@ -14,13 +14,14 @@
 
 use amaru_kernel::{
     AddrKeyhash, Address, AddressError, AlonzoValue, AssetName, Bytes, CborWrap, Certificate,
-    ComputeHash, DatumHash, EraHistory, Hash, KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum,
-    MemoizedScript, MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef,
-    MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, NativeScript, Network,
-    NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PlutusScript, PolicyId, Proposal,
-    ProposalIdAdapter, PseudoScript, Redeemer, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
-    StakeCredential, StakePayload, TransactionId, TransactionInput, TransactionInputAdapter, Vote,
-    Voter, VotingProcedures, network::NetworkName, normalize_redeemers,
+    ComputeHash, DatumHash, EraHistory, ExUnits, HasOwnership, HasScriptHash, Hash, KeepRaw,
+    KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
+    MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
+    MintedWitnessSet, NativeScript, Network, NonEmptyKeyValuePairs, NonEmptySet, Nullable,
+    PlutusData, PlutusScript, PolicyId, Proposal, ProposalIdAdapter, PseudoScript, Redeemer,
+    RedeemerAdapter, RewardAccount, ScriptPurpose as RedeemerTag, Slot, StakeCredential,
+    StakePayload, TransactionId, TransactionInput, TransactionInputAdapter, Vote, Voter,
+    VotingProcedures, network::NetworkName, normalize_redeemers,
     protocol_parameters::GlobalParameters,
 };
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
@@ -63,11 +64,7 @@ impl<'a> ScriptContext<'a> {
     /// Construct a new [`ScriptContext`] for a specific script execution (specified by the `Redeemer`).
     ///
     /// Returns `None` if the provided `Redeemer` does not exist in the `TxInfo`
-    pub fn new(
-        tx_info: &'a TxInfo<'a>,
-        redeemer: &'a Redeemer,
-        datum: Option<&'a PlutusData>,
-    ) -> Option<Self> {
+    pub fn new(tx_info: &'a TxInfo<'a>, redeemer: &'a Redeemer) -> Option<Self> {
         let purpose = tx_info
             .redeemers
             .0
@@ -79,6 +76,19 @@ impl<'a> ScriptContext<'a> {
                     None
                 }
             });
+
+        let datum = if amaru_kernel::ScriptPurpose::Spend == redeemer.tag {
+            tx_info
+                .inputs
+                .get(redeemer.index as usize)
+                .and_then(|output_ref| match output_ref.output.datum {
+                    DatumOption::None => None,
+                    DatumOption::Hash(hash) => tx_info.data.0.get(hash).copied(),
+                    DatumOption::Inline(plutus_data) => Some(plutus_data),
+                })
+        } else {
+            None
+        };
 
         purpose.map(|script_purpose| ScriptContext {
             tx_info,
@@ -108,6 +118,10 @@ impl<'a> ScriptContext<'a> {
             3 => self.v3_script_args(),
             _ => unreachable!("unknown PlutusVersion passed to to_script_args"),
         }
+    }
+
+    pub fn budget(&self) -> &ExUnits {
+        &self.redeemer.ex_units
     }
 
     fn v1_script_args(&self) -> Result<Vec<PlutusData>, PlutusDataError> {
@@ -162,6 +176,7 @@ pub struct TxInfo<'a> {
     proposal_procedures: Vec<&'a Proposal>,
     current_treasury_amount: Option<Lovelace>,
     treasury_donation: Option<Lovelace>,
+    script_table: BTreeMap<RedeemerAdapter, Script<'a>>,
 }
 
 #[derive(Debug, Error)]
@@ -208,11 +223,12 @@ impl<'a> TxInfo<'a> {
         network: NetworkName,
         era_history: &EraHistory,
     ) -> Result<Self, TxInfoTranslationError> {
-        let inputs = Self::translate_inputs(&tx.inputs, utxos)?;
+        let mut scripts: BTreeMap<Hash<28>, Script<'_>> = BTreeMap::new();
+        let inputs = Self::translate_inputs(&tx.inputs, utxos, &mut scripts)?;
         let reference_inputs = tx
             .reference_inputs
             .as_ref()
-            .map(|ref_inputs| Self::translate_inputs(ref_inputs, utxos))
+            .map(|ref_inputs| Self::translate_inputs(ref_inputs, utxos, &mut scripts))
             .transpose()?
             .unwrap_or_default();
 
@@ -263,6 +279,29 @@ impl<'a> TxInfo<'a> {
             .map(Votes::from)
             .unwrap_or_default();
 
+        if let Some(plutus_v1_scripts) = witness_set.plutus_v1_script.as_ref() {
+            plutus_v1_scripts.iter().for_each(|script| {
+                let script = Script::PlutusV1(script);
+                scripts.insert(script.script_hash(), script);
+            });
+        }
+
+        if let Some(plutus_v2_scripts) = witness_set.plutus_v2_script.as_ref() {
+            plutus_v2_scripts.iter().for_each(|script| {
+                let script = Script::PlutusV2(script);
+                scripts.insert(script.script_hash(), script);
+            });
+        }
+
+        if let Some(plutus_v3_scripts) = witness_set.plutus_v3_script.as_ref() {
+            plutus_v3_scripts.iter().for_each(|script| {
+                let script = Script::PlutusV3(script);
+                scripts.insert(script.script_hash(), script);
+            });
+        }
+
+        let mut script_table: BTreeMap<RedeemerAdapter, Script<'a>> = BTreeMap::new();
+
         let redeemers = Redeemers(
             witness_set
                 .redeemer
@@ -280,6 +319,8 @@ impl<'a> TxInfo<'a> {
                                     &certificates,
                                     &proposal_procedures,
                                     &votes,
+                                    &scripts,
+                                    &mut script_table,
                                 )
                                 .ok_or(TxInfoTranslationError::InvalidRedeemer(ix))?;
 
@@ -317,20 +358,39 @@ impl<'a> TxInfo<'a> {
             proposal_procedures,
             current_treasury_amount: tx.treasury_value,
             treasury_donation: tx.donation.map(|donation| donation.into()),
+            script_table,
         })
+    }
+
+    /// Construct all script contexts for this TxInfo
+    pub fn to_script_contexts(&self) -> Vec<(ScriptContext<'_>, &Script<'_>)> {
+        self.script_table
+            .iter()
+            .filter_map(|(redeemer, script)| {
+                let script_context = ScriptContext::new(self, redeemer)?;
+                Some((script_context, script))
+            })
+            .collect()
     }
 
     fn translate_inputs(
         inputs: &'a [TransactionInput],
         utxos: &'a Utxos,
+        scripts: &mut BTreeMap<Hash<28>, Script<'a>>,
     ) -> Result<Vec<OutputRef<'a>>, TxInfoTranslationError> {
         inputs
             .iter()
             .sorted()
             .map(|input| {
-                utxos
+                let output_ref = utxos
                     .resolve_input(input)
-                    .ok_or(TxInfoTranslationError::MissingInput(input.clone().into()))
+                    .ok_or(TxInfoTranslationError::MissingInput(input.clone().into()))?;
+
+                if let Some(script) = &output_ref.output.script {
+                    scripts.insert(script.script_hash(), script.clone());
+                };
+
+                Ok(output_ref)
             })
             .collect::<Result<Vec<_>, _>>()
     }
@@ -351,43 +411,108 @@ pub enum ScriptInfo<'a, T: Clone> {
 }
 
 impl<'a> ScriptPurpose<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn builder(
-        redeemer: &Redeemer,
+        redeemer: &Cow<'a, Redeemer>,
         inputs: &[OutputRef<'a>],
         mint: &Mint<'a>,
         withdrawals: &Withdrawals,
         certs: &[&'a Certificate],
         proposal_procedures: &[&'a Proposal],
         votes: &Votes<'a>,
+        scripts: &BTreeMap<Hash<28>, Script<'a>>,
+        script_table: &mut BTreeMap<RedeemerAdapter, Script<'a>>,
     ) -> Option<Self> {
         let index = redeemer.index as usize;
         match redeemer.tag {
-            RedeemerTag::Spend => inputs
-                .get(index)
-                .map(|output_ref| ScriptPurpose::Spending(output_ref.input, ())),
-            RedeemerTag::Mint => mint
-                .0
-                .keys()
-                .nth(index)
-                .copied()
-                .map(ScriptPurpose::Minting),
-            RedeemerTag::Reward => withdrawals.0.keys().nth(index).map(|stake| {
-                ScriptPurpose::Rewarding(match stake.0.payload() {
-                    amaru_kernel::StakePayload::Stake(hash) => StakeCredential::AddrKeyhash(*hash),
-                    amaru_kernel::StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
+            RedeemerTag::Spend => inputs.get(index).and_then(|OutputRef { input, output }| {
+                if let Some(StakeCredential::ScriptHash(hash)) = output.address.credential() {
+                    let script = scripts.get(&hash);
+                    script.map(|script| {
+                        script_table.insert(redeemer.clone().into(), script.clone());
+                        ScriptPurpose::Spending(input, ())
+                    })
+                } else {
+                    None
+                }
+            }),
+            RedeemerTag::Mint => mint.0.keys().nth(index).copied().and_then(|policy_id| {
+                let script = scripts.get(&policy_id);
+                script.map(|script| {
+                    script_table.insert(redeemer.clone().into(), script.clone());
+                    ScriptPurpose::Minting(policy_id)
                 })
             }),
-            RedeemerTag::Cert => certs
-                .get(index)
-                .map(|cert| ScriptPurpose::Certifying(index, cert)),
-            RedeemerTag::Vote => votes
-                .0
-                .keys()
-                .nth(index)
-                .map(|voter| ScriptPurpose::Voting(voter)),
-            RedeemerTag::Propose => proposal_procedures
-                .get(index)
-                .map(|p| ScriptPurpose::Proposing(index, p)),
+            RedeemerTag::Reward => {
+                withdrawals
+                    .0
+                    .keys()
+                    .nth(index)
+                    .and_then(|stake| match stake.0.payload() {
+                        StakePayload::Stake(hash) => Some(ScriptPurpose::Rewarding(
+                            StakeCredential::AddrKeyhash(*hash),
+                        )),
+                        StakePayload::Script(hash) => {
+                            let script = scripts.get(hash);
+                            script.map(|script| {
+                                script_table.insert(redeemer.clone().into(), script.clone());
+                                ScriptPurpose::Rewarding(StakeCredential::ScriptHash(*hash))
+                            })
+                        }
+                    })
+            }
+            RedeemerTag::Cert => certs.get(index).and_then(|certificate| {
+                if let Some(StakeCredential::ScriptHash(hash)) = certificate.credential() {
+                    let script = scripts.get(&hash);
+                    script.map(|script| {
+                        script_table.insert(redeemer.clone().into(), script.clone());
+                        ScriptPurpose::Certifying(index, certificate)
+                    })
+                } else {
+                    None
+                }
+            }),
+            RedeemerTag::Vote => votes.0.keys().nth(index).and_then(|voter| {
+                if let Some(StakeCredential::ScriptHash(hash)) = voter.credential() {
+                    let script = scripts.get(&hash);
+                    script.map(|script| {
+                        script_table.insert(redeemer.clone().into(), script.clone());
+                        ScriptPurpose::Voting(voter)
+                    })
+                } else {
+                    None
+                }
+            }),
+            RedeemerTag::Propose => proposal_procedures.get(index).and_then(|proposal| {
+                let script_hash = match proposal.gov_action {
+                    amaru_kernel::GovAction::ParameterChange(
+                        _,
+                        _,
+                        Nullable::Some(gov_proposal_hash),
+                    ) => Some(gov_proposal_hash),
+                    amaru_kernel::GovAction::TreasuryWithdrawals(
+                        _,
+                        Nullable::Some(gov_proposal_hash),
+                    ) => Some(gov_proposal_hash),
+                    amaru_kernel::GovAction::ParameterChange(..)
+                    | amaru_kernel::GovAction::HardForkInitiation(..)
+                    | amaru_kernel::GovAction::TreasuryWithdrawals(..)
+                    | amaru_kernel::GovAction::NoConfidence(_)
+                    | amaru_kernel::GovAction::UpdateCommittee(..)
+                    | amaru_kernel::GovAction::NewConstitution(..)
+                    | amaru_kernel::GovAction::Information => None,
+                };
+
+                if let Some(hash) = script_hash {
+                    let script = scripts.get(&hash);
+                    script.map(|script| {
+                        script_table.insert(redeemer.clone().into(), script.clone());
+                        ScriptPurpose::Proposing(index, proposal)
+                    })
+                } else {
+                    None
+                }
+            }),
         }
     }
 
@@ -664,6 +789,17 @@ pub enum Script<'a> {
     PlutusV3(&'a PlutusScript<3>),
 }
 
+impl Script<'_> {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            Script::PlutusV1(plutus_script) => plutus_script.0.clone().into(),
+            Script::PlutusV2(plutus_script) => plutus_script.0.clone().into(),
+            Script::PlutusV3(plutus_script) => plutus_script.0.clone().into(),
+            Script::Native(_) => unreachable!("a redeemer should never point to a native_script"),
+        }
+    }
+}
+
 impl<'a> From<&'a CborWrap<MintedScriptRef<'a>>> for Script<'a> {
     fn from(value: &'a CborWrap<MintedScriptRef<'a>>) -> Self {
         match &value.0 {
@@ -682,6 +818,17 @@ impl<'a> From<&'a MemoizedScript> for Script<'a> {
             PseudoScript::PlutusV1Script(script) => Script::PlutusV1(script),
             PseudoScript::PlutusV2Script(script) => Script::PlutusV2(script),
             PseudoScript::PlutusV3Script(script) => Script::PlutusV3(script),
+        }
+    }
+}
+
+impl<'a> HasScriptHash for Script<'a> {
+    fn script_hash(&self) -> amaru_kernel::ScriptHash {
+        match self {
+            Script::Native(native_script) => native_script.compute_hash(),
+            Script::PlutusV1(plutus_script) => plutus_script.compute_hash(),
+            Script::PlutusV2(plutus_script) => plutus_script.compute_hash(),
+            Script::PlutusV3(plutus_script) => plutus_script.compute_hash(),
         }
     }
 }
@@ -913,7 +1060,6 @@ impl<'a> From<&'a NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums<'a> {
 }
 
 #[doc(hidden)]
-// FIXME: This should probably be a BTreeMap
 pub struct Redeemers<'a, T>(pub Vec<(T, Cow<'a, Redeemer>)>);
 
 #[doc(hidden)]
