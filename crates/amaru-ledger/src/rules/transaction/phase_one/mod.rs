@@ -14,8 +14,8 @@
 
 use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
-    ArenaPool, AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet,
-    OriginalHash, TransactionInput, TransactionPointer, network::NetworkName,
+    AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash,
+    TransactionInput, TransactionPointer, network::NetworkName,
     protocol_parameters::ProtocolParameters,
 };
 use core::mem;
@@ -56,7 +56,7 @@ pub use scripts::InvalidScripts;
 pub mod mint;
 
 #[derive(Debug, Error)]
-pub enum InvalidTransaction {
+pub enum PhaseOneError {
     #[error("invalid inputs: {0}")]
     Inputs(#[from] InvalidInputs),
 
@@ -88,7 +88,6 @@ pub enum InvalidTransaction {
 #[expect(clippy::too_many_arguments)]
 pub fn execute<C>(
     context: &mut C,
-    _arena_pool: &ArenaPool,
     network: &NetworkName,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
@@ -98,7 +97,7 @@ pub fn execute<C>(
     transaction_body: KeepRaw<'_, MintedTransactionBody<'_>>,
     transaction_witness_set: &MintedWitnessSet<'_>,
     transaction_auxiliary_data_hash: Option<AuxiliaryDataHash>,
-) -> Result<(), InvalidTransaction>
+) -> Result<Vec<TransactionInput>, PhaseOneError>
 where
     C: ValidationContext + fmt::Debug,
 {
@@ -218,16 +217,14 @@ where
     scripts::execute(context, transaction_witness_set)?;
 
     // At last, consume inputs
-    if is_valid {
+    let consumed_inputs = if is_valid {
         transaction_body.inputs.to_vec()
     } else {
         transaction_body
             .collateral
             .map(|x| x.to_vec())
             .unwrap_or_default()
-    }
-    .into_iter()
-    .for_each(|input| context.consume(input));
+    };
 
-    Ok(())
+    Ok(consumed_inputs)
 }
