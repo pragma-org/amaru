@@ -60,7 +60,7 @@ impl<Tx: Encode<()> + CborLen<()> + Send + Sync + 'static> TxSubmissionClient<Tx
     }
 
     /// Core state machine, parameterized over a transport for testability.
-    async fn start_client_with_transport<T: TxClientTransport>(
+    pub async fn start_client_with_transport<T: TxClientTransport>(
         &mut self,
         mut transport: T,
     ) -> anyhow::Result<()> {
@@ -200,12 +200,12 @@ pub(crate) mod tests {
         // Send requests to retrieve transactions and block until they are available.
         // In this case they are immediately available since we pre-populated the mempool.
         let requests = vec![
-            Request::TxIds(0, 2),
-            Request::Txs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
-            Request::TxIds(2, 2),
-            Request::Txs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
-            Request::TxIds(2, 2),
-            Request::Txs(vec![era_tx_ids[4].clone()]),
+            Message::RequestTxIds(true, 0, 2),
+            Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
+            Message::RequestTxIds(true, 2, 2),
+            Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
+            Message::RequestTxIds(true, 2, 2),
+            Message::RequestTxs(vec![era_tx_ids[4].clone()]),
         ];
         for r in requests {
             tx_req.send(r).await?;
@@ -252,9 +252,9 @@ pub(crate) mod tests {
         // Send requests to retrieve transactions and block until they are available.
         // In this case they are immediately available since we pre-populated the mempool.
         let requests = vec![
-            Request::TxIdsNonBlocking(0, 2),
-            Request::Txs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
-            Request::TxIdsNonBlocking(2, 2),
+            Message::RequestTxIds(false, 0, 2),
+            Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
+            Message::RequestTxIds(false, 2, 2),
         ];
         for r in requests {
             tx_req.send(r).await?;
@@ -270,10 +270,10 @@ pub(crate) mod tests {
             mempool.add(tx.clone())?;
         }
         let requests = vec![
-            Request::TxIdsNonBlocking(2, 2),
-            Request::Txs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
-            Request::TxIdsNonBlocking(2, 2),
-            Request::Txs(vec![era_tx_ids[4].clone()]),
+            Message::RequestTxIds(false, 2, 2),
+            Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
+            Message::RequestTxIds(false, 2, 2),
+            Message::RequestTxs(vec![era_tx_ids[4].clone()]),
         ];
         for r in requests {
             tx_req.send(r).await?;
@@ -297,7 +297,7 @@ pub(crate) mod tests {
     async fn start_client(
         mempool: Arc<dyn Mempool<Tx>>,
     ) -> anyhow::Result<(
-        Sender<Request<EraTxId>>,
+        Sender<Message<EraTxId, EraTxBody>>,
         Receiver<Message<EraTxId, EraTxBody>>,
         JoinHandle<anyhow::Result<()>>,
     )> {

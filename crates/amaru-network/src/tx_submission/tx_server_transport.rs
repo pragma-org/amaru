@@ -25,8 +25,7 @@ use pallas_network::multiplexer::AgentChannel;
 #[async_trait]
 pub trait TxServerTransport: Send {
     async fn wait_for_init(&mut self) -> anyhow::Result<()>;
-    fn is_done(&self) -> bool;
-
+    async fn is_done(&self) -> anyhow::Result<bool>;
     async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>>;
 
     async fn acknowledge_and_request_tx_ids(
@@ -58,8 +57,8 @@ impl TxServerTransport for PallasTxServerTransport {
         Ok(self.inner.wait_for_init().await?)
     }
 
-    fn is_done(&self) -> bool {
-        self.inner.is_done()
+    async fn is_done(&self) -> anyhow::Result<bool> {
+        Ok(self.inner.is_done())
     }
 
     async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>> {
@@ -121,8 +120,8 @@ pub(crate) mod tests {
             }
         }
 
-        fn is_done(&self) -> bool {
-            false
+        async fn is_done(&self) -> anyhow::Result<bool> {
+            Ok(false)
         }
 
         async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>> {
