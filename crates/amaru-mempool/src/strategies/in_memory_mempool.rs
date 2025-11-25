@@ -54,7 +54,7 @@ struct MempoolInner<Tx> {
 impl<Tx> Default for MempoolInner<Tx> {
     fn default() -> Self {
         MempoolInner {
-            next_seq: 0,
+            next_seq: 1,
             entries_by_id: Default::default(),
             entries_by_seq: Default::default(),
         }
@@ -194,16 +194,18 @@ impl<Tx: Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> for InMem
         self.inner.read().tx_ids_since(from_seq, limit)
     }
 
-    fn wait_for_at_least(&self, _required: u16) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+    fn wait_for_at_least(
+        &self,
+        seq_no: MempoolSeqNo,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         Box::pin(async move {
             loop {
                 // TODO: make sure that transactions are valid before returning
                 // So we can make sure to send enough valid transactions upstream
-                if true {
+                if self.inner.read().next_seq >= seq_no.0 {
                     return true;
                 }
-                // when a significant validation is implemented we will yield here
-                // tokio::task::yield_now().await;
+                tokio::task::yield_now().await;
             }
         })
     }
