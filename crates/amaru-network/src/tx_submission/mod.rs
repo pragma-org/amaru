@@ -12,5 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod tx_submission_server;
+mod tx_client_transport;
+mod tx_server_transport;
 mod tx_submission_client;
+mod tx_submission_server;
+
+#[cfg(test)]
+mod tests;
+
+pub use tx_submission_client::*;
+pub use tx_submission_server::*;

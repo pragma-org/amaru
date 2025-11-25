@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxId, TxOrigin, TxRejectReason};
+use minicbor::Encode;
 use parking_lot::RwLock;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::{collections::BTreeSet, mem};
-use std::pin::Pin;
-use minicbor::Encode;
-use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxId, TxOrigin, TxRejectReason};
 
 #[derive(Debug, Default)]
 pub struct DummyMempool<T> {
@@ -41,9 +41,10 @@ impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
     fn insert(&self, tx: Tx, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         let tx_id = TxId::from(&tx);
         self.inner.write().transactions.push(tx);
-        Ok((tx_id, MempoolSeqNo(
-            self.inner.read().transactions.len() as u64 - 1,
-        )))
+        Ok((
+            tx_id,
+            MempoolSeqNo(self.inner.read().transactions.len() as u64 - 1),
+        ))
     }
 
     fn take(&self) -> Vec<Tx> {
@@ -52,10 +53,10 @@ impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
 
     fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
     where
-        I: IntoIterator<Item=TxKey>,
+        I: IntoIterator<Item = TxKey>,
         Self: Sized,
     {
-        let keys_to_remove = BTreeSet::from_iter(keys(tx).into_iter());
+        let keys_to_remove = BTreeSet::from_iter(keys(tx));
         self.inner
             .write()
             .transactions
@@ -70,7 +71,7 @@ impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
         vec![]
     }
 
-    fn wait_for_at_least(&self, _required: u16) -> Pin<Box<dyn Future<Output=bool> + Send + '_>> {
+    fn wait_for_at_least(&self, _required: u16) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         Box::pin(async move { true })
     }
 
@@ -89,9 +90,9 @@ impl<T> DummyMempoolInner<T> {
 
 #[cfg(test)]
 mod tests {
-    use minicbor::encode::{Error, Write};
-    use minicbor::Encoder;
     use super::*;
+    use minicbor::Encoder;
+    use minicbor::encode::{Error, Write};
 
     #[test]
     fn take_empty() {
@@ -129,8 +130,12 @@ mod tests {
     }
 
     impl Encode<()> for FakeTx<'_> {
-        fn encode<W: Write>(&self, e: &mut Encoder<W>, _ctx: &mut ()) -> Result<(), Error<W::Error>> {
-            e.encode(&self.id)?;
+        fn encode<W: Write>(
+            &self,
+            e: &mut Encoder<W>,
+            _ctx: &mut (),
+        ) -> Result<(), Error<W::Error>> {
+            e.encode(self.id)?;
             e.encode(&self.inputs)?;
             Ok(())
         }

@@ -117,21 +117,26 @@ impl<Tx: Encode<()> + CborLen<()>> MempoolInner<Tx> {
                 }
             })
             .collect();
-        result.sort_by_key(|(_, _, seq_no)| seq_no.clone());
+        result.sort_by_key(|(_, _, seq_no)| *seq_no);
         result
     }
 
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Arc<Tx>> {
         // Make sure that the result are sorted by seq_no
-        let mut result: Vec<(&TxId, &MempoolEntry<Tx>)> = self.entries_by_id
+        let mut result: Vec<(&TxId, &MempoolEntry<Tx>)> = self
+            .entries_by_id
             .iter()
-            .filter(|(key, _)| ids.contains(*key)).collect();
+            .filter(|(key, _)| ids.contains(*key))
+            .collect();
         result.sort_by_key(|(_, entry)| entry.seq_no);
-        result.into_iter().map(|(_, entry)| entry.tx.clone()).collect()
+        result
+            .into_iter()
+            .map(|(_, entry)| entry.tx.clone())
+            .collect()
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MempoolEntry<Tx> {
     seq_no: MempoolSeqNo,
     tx_id: TxId,
@@ -169,10 +174,10 @@ impl<Tx: Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> for InMem
 
     fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
     where
-        I: IntoIterator<Item=TxKey>,
+        I: IntoIterator<Item = TxKey>,
         Self: Sized,
     {
-        let keys_to_remove = BTreeSet::from_iter(keys(tx).into_iter());
+        let keys_to_remove = BTreeSet::from_iter(keys(tx));
         let mut inner = self.inner.write();
         inner.entries_by_id.retain(|_, entry| {
             !keys(&entry.tx)
@@ -189,12 +194,14 @@ impl<Tx: Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> for InMem
         self.inner.read().tx_ids_since(from_seq, limit)
     }
 
-    fn wait_for_at_least(&self, _required: u16) -> Pin<Box<dyn Future<Output=bool> + Send + '_>> {
+    fn wait_for_at_least(&self, _required: u16) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         Box::pin(async move {
             loop {
                 // TODO: make sure that transactions are valid before returning
                 // So we can make sure to send enough valid transactions upstream
-                return true;
+                if true {
+                    return true;
+                }
                 // when a significant validation is implemented we will yield here
                 // tokio::task::yield_now().await;
             }
@@ -212,6 +219,8 @@ mod tests {
     use amaru_kernel::peer::Peer;
     use assertables::assert_some_eq_x;
     use minicbor::Decode;
+    use std::ops::Deref;
+    use std::slice;
     use std::str::FromStr;
 
     #[test]
@@ -224,14 +233,14 @@ mod tests {
 
         assert_some_eq_x!(mempool.get_tx(&tx_id), Arc::new(tx.clone()));
         assert_eq!(
-            mempool.get_txs_for_ids(&[tx_id.clone()]),
+            mempool.get_txs_for_ids(slice::from_ref(&tx_id)),
             vec![Arc::new(tx.clone())]
         );
-        assert_eq!(mempool.tx_ids_since(seq_nb, 100), vec![(tx_id, seq_nb)]);
+        assert_eq!(mempool.tx_ids_since(seq_nb, 100), vec![(tx_id, 5, seq_nb)]);
     }
 
     // HELPERS
-    #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
+    #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, CborLen)]
     struct Tx(#[n(0)] String);
 
     impl Deref for Tx {
