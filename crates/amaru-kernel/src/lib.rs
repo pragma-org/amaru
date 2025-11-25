@@ -288,6 +288,12 @@ impl From<&[u8]> for RawBlock {
     }
 }
 
+impl From<Box<[u8]>> for RawBlock {
+    fn from(bytes: Box<[u8]>) -> Self {
+        Self(Arc::from(bytes))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TransactionInputAdapter(TransactionInput);
 
