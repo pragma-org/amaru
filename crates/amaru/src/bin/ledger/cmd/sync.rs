@@ -210,14 +210,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let archive_names = list_archive_names(network)?;
 
     let mut processed = 0;
-    // Process relevant points
     let before = Instant::now();
 
     'archives: for archive_name in &archive_names {
         let mut archive = load_archive(network, archive_name)?;
-        let blocks = load_blocks(&mut archive).await?;
-
-        for (point, raw_block) in blocks
+        for (point, raw_block) in load_blocks(&mut archive)
+            .await?
             .iter()
             // Do not process points already in the ledger
             .filter(|(point, _)| point.slot_or_default() > tip.slot_or_default())

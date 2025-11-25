@@ -20,7 +20,7 @@ use amaru_kernel::to_cbor;
 use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_stores::rocksdb::consensus::{ReadOnlyChainDB, RocksDBStore};
-use clap::{Parser, arg};
+use clap::Parser;
 use std::fmt::Display;
 use std::{error::Error, path::PathBuf};
 use tracing::info;

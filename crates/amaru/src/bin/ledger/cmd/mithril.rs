@@ -14,18 +14,18 @@
 
 use crate::cmd::new_block_validator;
 use amaru::{default_ledger_dir, point::to_network_point};
-use amaru_kernel::network::NetworkName;
+use amaru_kernel::{Hasher, network::NetworkName};
 use async_trait::async_trait;
 use clap::Parser;
 use flate2::{Compression, write::GzEncoder};
 use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
+use minicbor::Decoder;
 use mithril_client::{
     ClientBuilder, MessageBuilder,
     cardano_database_client::{DownloadUnpackOptions, ImmutableFileRange},
     feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
 };
 use pallas_hardano::storage::immutable::read_blocks_from_point;
-use pallas_traverse::MultiEraBlock;
 use std::{
     collections::BTreeMap,
     fmt,
@@ -168,7 +168,10 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
 }
 
 #[allow(clippy::unwrap_used)]
-fn package_blocks(network: &NetworkName, blocks: &BTreeMap<String, &Vec<u8>>) -> io::Result<()> {
+fn package_blocks(
+    network: &NetworkName,
+    blocks: &BTreeMap<String, &Vec<u8>>,
+) -> io::Result<String> {
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut tar = Builder::new(encoder);
 
@@ -201,11 +204,11 @@ fn package_blocks(network: &NetworkName, blocks: &BTreeMap<String, &Vec<u8>>) ->
         .cloned()
         .unwrap_or_default();
     let archive_path = format!("{}/{}.tar.gz", dir, first_block);
-    let mut f = File::create(archive_path)?;
+    let mut f = File::create(&archive_path)?;
 
     f.write_all(&compressed)?;
 
-    Ok(())
+    Ok(archive_path)
 }
 
 /// Returns the latest chunk number present in the given immutable directory.
@@ -335,6 +338,40 @@ async fn download_from_mithril(
     Ok(())
 }
 
+#[derive(Debug)]
+pub struct ParsedHeader {
+    pub slot: u64,
+    pub header_hash: [u8; 32],
+}
+
+fn extract_raw_cbor_value<'a>(
+    dec: &mut Decoder<'a>,
+    input: &'a [u8],
+) -> Result<&'a [u8], minicbor::decode::Error> {
+    let start = dec.position();
+    dec.skip()?;
+    let end = dec.position();
+    Ok(&input[start..end])
+}
+
+pub fn parse_header_slot_and_hash(input: &[u8]) -> Result<ParsedHeader, minicbor::decode::Error> {
+    let mut dec: Decoder<'_> = Decoder::new(input);
+
+    dec.array()?;
+    dec.u8()?;
+    dec.array()?;
+    let header_body_cbor = extract_raw_cbor_value(&mut dec, input)?;
+
+    let header_hash = *Hasher::<256>::hash(header_body_cbor);
+    let mut body = Decoder::new(header_body_cbor);
+
+    body.array()?;
+    body.array()?;
+    body.u64()?;
+    let slot = body.u64()?;
+    Ok(ParsedHeader { slot, header_hash })
+}
+
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let ledger_dir = args
@@ -373,18 +410,19 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         if chunk.is_empty() {
             break;
         }
-        let map = chunk
+        let map: BTreeMap<String, &Vec<u8>> = chunk
             .iter()
-            .filter_map(|cbor| {
-                // TODO only access the necessary info and do not decode the whole block
-                let block = MultiEraBlock::decode(cbor).ok()?;
-                let header = block.header();
-                let name = format!("{}.{}.cbor", header.slot(), header.hash());
-                Some((name, cbor))
+            .map(|cbor| {
+                let parsed = parse_header_slot_and_hash(cbor)?;
+                let name = format!("{}.{}.cbor", parsed.slot, hex::encode(parsed.header_hash));
+                Ok((name, cbor))
             })
-            .collect();
-        package_blocks(&network, &map)?;
+            .collect::<Result<BTreeMap<String, &Vec<u8>>, minicbor::decode::Error>>()?;
+        let dir = package_blocks(&network, &map)?;
+        info!("Created {}", dir);
     }
+
+    info!("Done");
 
     Ok(())
 }
