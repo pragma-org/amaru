@@ -22,7 +22,7 @@ use pallas_network::multiplexer::AgentChannel;
 use pallas_traverse::Era;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 /// Tx submission client state machine for a given peer.
 ///
@@ -73,13 +73,20 @@ impl<Tx: Encode<()> + CborLen<()> + Send + Sync + 'static> TxSubmissionClient<Tx
             let request = match transport.next_request().await {
                 Ok(r) => r,
                 Err(_) => {
-                    transport.send_done().await.ok();
+                    debug!(peer = %self.peer,
+                        "Error receiving next request from peer {}, terminating tx submission client",
+                        self.peer
+                    );
                     break;
                 }
             };
             match request {
                 Request::TxIds(acknowledged, required_next) => {
-                    if !self.mempool.wait_for_at_least(required_next).await {
+                    if !self
+                        .mempool
+                        .wait_for_at_least(self.next_seq().add(required_next as u64))
+                        .await
+                    {
                         transport.send_done().await?;
                         break;
                     }

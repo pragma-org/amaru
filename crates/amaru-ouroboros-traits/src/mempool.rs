@@ -66,15 +66,18 @@ pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// Retrieve a list of transactions from a given sequence number (inclusive), up to a given limit.
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)>;
 
-    /// Wait until the mempool has at least the given number of _valid_ transactions.
-    /// Those transactions will be sent to an upstream peer.
+    /// Wait until the mempool reaches at least the given sequence number.
+    /// Then a tx submission client knows that there are enough new transactions to send to its peer.
     ///
-    /// When the mempool already has at least the required number of transactions,
+    /// When the mempool is already at or above the required number,
     /// this future will resolve to `true` immediately.
     ///
     /// Otherwise, if for some reason the mempool cannot reach the required number, it should return
     /// false.
-    fn wait_for_at_least(&self, required: u16) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
+    fn wait_for_at_least(
+        &self,
+        seq_no: MempoolSeqNo,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
 
     /// Retrieve a list of transactions for the given ids.
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Arc<Tx>>;
@@ -112,6 +115,10 @@ pub struct MempoolSeqNo(pub u64);
 impl MempoolSeqNo {
     pub fn next(&self) -> MempoolSeqNo {
         MempoolSeqNo(self.0 + 1)
+    }
+
+    pub fn add(&self, n: u64) -> MempoolSeqNo {
+        MempoolSeqNo(self.0 + n)
     }
 }
 

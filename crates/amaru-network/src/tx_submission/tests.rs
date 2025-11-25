@@ -45,6 +45,7 @@ async fn test_client_server_interaction() -> anyhow::Result<()> {
         Tx::new("2d8d00cdd4657ac84d82f0a56067634a"),
         Tx::new("3d8d00cdd4657ac84d82f0a56067634a"),
         Tx::new("4d8d00cdd4657ac84d82f0a56067634a"),
+        Tx::new("5d8d00cdd4657ac84d82f0a56067634a"),
     ];
     for tx in txs.iter() {
         client_mempool.add(tx.clone())?;
@@ -80,7 +81,10 @@ async fn test_client_server_interaction() -> anyhow::Result<()> {
 
     sleep(Duration::from_millis(200)).await;
     for tx in txs {
-        assert!(server_mempool.contains(&tx.tx_id()), "the server mempool should contain the tx {tx:?}");
+        assert!(
+            server_mempool.contains(&tx.tx_id()),
+            "the server mempool should contain the tx {tx:?}"
+        );
     }
     Ok(())
 }
@@ -348,18 +352,18 @@ impl PartialEq for MessageEq {
                     .map(|id| EraTxIdOrd::new(id.clone()))
                     .collect::<Vec<_>>()
                     == ids2
-                    .iter()
-                    .map(|id| EraTxIdOrd::new(id.clone()))
-                    .collect::<Vec<_>>()
+                        .iter()
+                        .map(|id| EraTxIdOrd::new(id.clone()))
+                        .collect::<Vec<_>>()
             }
             (ReplyTxIds(ids1), ReplyTxIds(ids2)) => {
                 ids1.iter()
                     .map(|id| (id.0.0, id.0.1.clone(), id.1))
                     .collect::<Vec<_>>()
                     == ids2
-                    .iter()
-                    .map(|id| (id.0.0, id.0.1.clone(), id.1))
-                    .collect::<Vec<_>>()
+                        .iter()
+                        .map(|id| (id.0.0, id.0.1.clone(), id.1))
+                        .collect::<Vec<_>>()
             }
             (ReplyTxs(txs1), ReplyTxs(txs2)) => {
                 txs1.iter()
@@ -367,10 +371,10 @@ impl PartialEq for MessageEq {
                     .map(|tx| (tx.0, tx.1))
                     .collect::<Vec<_>>()
                     == txs2
-                    .iter()
-                    .cloned()
-                    .map(|tx| (tx.0, tx.1))
-                    .collect::<Vec<_>>()
+                        .iter()
+                        .cloned()
+                        .map(|tx| (tx.0, tx.1))
+                        .collect::<Vec<_>>()
             }
             _ => false,
         }

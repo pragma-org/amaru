@@ -71,7 +71,10 @@ impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
         vec![]
     }
 
-    fn wait_for_at_least(&self, _required: u16) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+    fn wait_for_at_least(
+        &self,
+        _seq_no: MempoolSeqNo,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         Box::pin(async move { true })
     }
 
