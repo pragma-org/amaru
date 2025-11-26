@@ -791,12 +791,19 @@ pub enum Script<'a> {
 
 impl Script<'_> {
     pub fn to_bytes(&self) -> Vec<u8> {
+        fn decode_cbor_bytes(cbor: &[u8]) -> Result<Vec<u8>, minicbor::decode::Error> {
+            minicbor::decode::Decoder::new(cbor)
+                .bytes()
+                .map(|b| b.to_vec())
+        }
+
         match self {
-            Script::PlutusV1(plutus_script) => plutus_script.0.clone().into(),
-            Script::PlutusV2(plutus_script) => plutus_script.0.clone().into(),
-            Script::PlutusV3(plutus_script) => plutus_script.0.clone().into(),
+            Script::PlutusV1(s) => decode_cbor_bytes(s.0.as_ref()),
+            Script::PlutusV2(s) => decode_cbor_bytes(s.0.as_ref()),
+            Script::PlutusV3(s) => decode_cbor_bytes(s.0.as_ref()),
             Script::Native(_) => unreachable!("a redeemer should never point to a native_script"),
         }
+        .unwrap()
     }
 }
 
