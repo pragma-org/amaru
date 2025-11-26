@@ -18,13 +18,15 @@ use amaru_kernel::peer::Peer;
 use amaru_ouroboros_traits::{Mempool, TxId, TxOrigin};
 use minicbor::{CborLen, Decode, Encode};
 use pallas_network::miniprotocols::txsubmission::{
-    Blocking, EraTxBody, EraTxId, Reply, TxIdAndSize,
+    EraTxBody, EraTxId, Reply, TxIdAndSize,
 };
 use pallas_network::multiplexer::AgentChannel;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
+use anyhow::anyhow;
 use tracing::info;
+use amaru_ouroboros_traits::can_validate_transactions::CanValidateTransactions;
 
 /// Tx submission server state machine for a given peer.
 ///
@@ -34,6 +36,8 @@ use tracing::info;
 pub struct TxSubmissionServer<Tx: Send + Sync + 'static> {
     /// Mempool to pull transactions from.
     mempool: Arc<dyn Mempool<Tx>>,
+    /// Transaction validator.
+    tx_validator: Arc<dyn CanValidateTransactions<Tx>>,
     /// Server parameters: batch sizes, window sizes, etc.
     params: ServerParams,
     /// Peer we are connecting to.
@@ -98,6 +102,21 @@ pub struct ServerParams {
     blocking: Blocking, // should the client block when we request more tx ids that it cannot serve
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Blocking {
+    Yes,
+    No,
+}
+
+impl Into<bool> for Blocking {
+    fn into(self) -> bool {
+        match self {
+            Blocking::Yes => true,
+            Blocking::No => false,
+        }
+    }
+}
+
 impl ServerParams {
     pub fn new(max_window: usize, fetch_batch: usize, blocking: Blocking) -> Self {
         Self {
@@ -113,9 +132,10 @@ where
     Tx: for<'a> Decode<'a, ()> + Encode<()> + CborLen<()> + Send + Sync + 'static,
 {
     /// Create a new tx submission server state machine for the given mempool and peer.
-    pub fn new(params: ServerParams, mempool: Arc<dyn Mempool<Tx>>, peer: Peer) -> Self {
+    pub fn new(params: ServerParams, mempool: Arc<dyn Mempool<Tx>>, tx_validator: Arc<dyn CanValidateTransactions<Tx>>, peer: Peer) -> Self {
         Self {
             mempool: mempool.clone(),
+            tx_validator: tx_validator.clone(),
             peer,
             params,
             window: VecDeque::new(),
@@ -156,7 +176,7 @@ where
                     }
                 }
                 Reply::Txs(txs) => {
-                    self.received_txs(txs)?;
+                    self.received_txs(txs).await?;
                     self.request_tx_ids(&mut transport).await?;
                 }
                 Reply::Done => break,
@@ -245,18 +265,18 @@ where
         }
     }
 
-    fn received_txs(&mut self, tx_bodies: Vec<EraTxBody>) -> anyhow::Result<()> {
+    async fn received_txs(&mut self, tx_bodies: Vec<EraTxBody>) -> anyhow::Result<()> {
         for tx_body in tx_bodies {
             // this is the exact id we requested for this body (FIFO)
             if let Some(requested_id) = self.inflight_fetch_queue.pop_front() {
                 self.inflight_fetch_set.remove(&requested_id);
 
                 let tx: Tx = minicbor::decode(tx_body.1.as_slice())?;
-                let inserted = self.validate_tx(&tx)
+                let inserted = self.validate_tx(&tx).await.is_ok()
                     && self
-                        .mempool
-                        .insert(tx, TxOrigin::Remote(self.peer.clone()))
-                        .is_ok();
+                    .mempool
+                    .insert(tx, TxOrigin::Remote(self.peer.clone()))
+                    .is_ok();
                 if !inserted {
                     self.rejected.insert(requested_id);
                 }
@@ -265,24 +285,23 @@ where
         Ok(())
     }
 
-    fn validate_tx(&self, _tx: &Tx) -> bool {
-        // Hook into amaru-ledger for local state validation.
-        true
+    async fn validate_tx(&self, tx: &Tx) -> anyhow::Result<()> {
+        Ok(self.tx_validator.validate_transaction(tx).await.map_err(|e| anyhow!(e))?)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tx_submission::tests::{Tx, assert_next_message};
+    use crate::tx_submission::tests::{Tx, assert_next_message, new_era_tx_id, new_era_tx_body};
     use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
-    use crate::tx_submission::tx_submission_client::tests::*;
     use amaru_kernel::Hasher;
     use amaru_mempool::strategies::InMemoryMempool;
     use pallas_network::miniprotocols::txsubmission::Message;
     use tokio::sync::mpsc;
     use tokio::sync::mpsc::{Receiver, Sender};
     use tokio::task::JoinHandle;
+    use amaru_ouroboros_traits::can_validate_transactions::mock::MockCanValidateTransactions;
 
     #[test]
     fn check_ids() {
@@ -336,8 +355,9 @@ mod tests {
         // Create a mempool with no initial transactions
         // since we are going to fetch them from a client
         let mempool: Arc<InMemoryMempool<Tx>> = Arc::new(InMemoryMempool::default());
+        let tx_validator: Arc<dyn CanValidateTransactions<Tx>> = Arc::new(MockCanValidateTransactions);
 
-        let (tx_reply, mut messages, _server_handle) = start_server(mempool).await?;
+        let (tx_reply, mut messages, _server_handle) = start_server(mempool, tx_validator).await?;
 
         // Send replies from the client as if they were replies to previous requests from the server
         let replies = vec![
@@ -366,19 +386,19 @@ mod tests {
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
         )
-        .await?;
+            .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
         )
-        .await?;
+            .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[4].clone()]),
         )
-        .await?;
+            .await?;
         Ok(())
     }
 
@@ -388,14 +408,16 @@ mod tests {
     /// Returns a receiver to collect the messages that the server sent back.
     async fn start_server(
         mempool: Arc<dyn Mempool<Tx>>,
+        tx_validator: Arc<dyn CanValidateTransactions<Tx>>,
     ) -> anyhow::Result<(
         Sender<Message<EraTxId, EraTxBody>>,
         Receiver<Message<EraTxId, EraTxBody>>,
         JoinHandle<anyhow::Result<()>>,
     )> {
         let mut server = TxSubmissionServer::new(
-            ServerParams::new(10, 2, true),
+            ServerParams::new(10, 2, Blocking::Yes),
             mempool.clone(),
+            tx_validator.clone(),
             Peer::new("peer-1"),
         );
 

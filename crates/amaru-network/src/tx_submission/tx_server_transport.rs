@@ -14,8 +14,9 @@
 
 use async_trait::async_trait;
 use pallas_network::miniprotocols::txsubmission;
-use pallas_network::miniprotocols::txsubmission::{Blocking, EraTxBody, EraTxId, Reply, TxCount};
+use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Reply, TxCount};
 use pallas_network::multiplexer::AgentChannel;
+use crate::tx_submission::Blocking;
 
 /// Abstraction over the tx-submission wire used by the server state machine.
 ///
@@ -73,7 +74,7 @@ impl TxServerTransport for PallasTxServerTransport {
     ) -> anyhow::Result<()> {
         Ok(self
             .inner
-            .acknowledge_and_request_tx_ids(blocking, acknowledge, count)
+            .acknowledge_and_request_tx_ids(blocking.into(), acknowledge, count)
             .await?)
     }
 
@@ -87,9 +88,10 @@ pub(crate) mod tests {
     use crate::tx_submission::tx_server_transport::TxServerTransport;
     use async_trait::async_trait;
     use pallas_network::miniprotocols::txsubmission::{
-        Blocking, EraTxBody, EraTxId, Message, Reply, TxCount,
+        EraTxBody, EraTxId, Message, Reply, TxCount,
     };
     use tokio::sync::mpsc::{Receiver, Sender};
+    use crate::tx_submission::Blocking;
 
     pub(crate) struct MockServerTransport {
         // client -> server replies
@@ -136,13 +138,13 @@ pub(crate) mod tests {
 
         async fn acknowledge_and_request_tx_ids(
             &mut self,
-            _blocking: Blocking,
-            _acknowledge: TxCount,
-            _count: TxCount,
+            blocking: Blocking,
+            acknowledge: TxCount,
+            count: TxCount,
         ) -> anyhow::Result<()> {
             // Simulate sending a RequestTxIds message to the client
             self.tx_request
-                .send(Message::RequestTxIds(_blocking, _acknowledge, _count))
+                .send(Message::RequestTxIds(blocking.into(), acknowledge, count))
                 .await?;
             Ok(())
         }

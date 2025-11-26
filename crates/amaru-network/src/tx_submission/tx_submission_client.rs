@@ -170,9 +170,7 @@ impl<Tx: Encode<()> + CborLen<()> + Send + Sync + 'static> TxSubmissionClient<Tx
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::tx_submission::tests::{
-        Tx, assert_next_message, assert_tx_bodies_reply, assert_tx_ids_reply,
-    };
+    use crate::tx_submission::tests::{Tx, assert_next_message, assert_tx_bodies_reply, assert_tx_ids_reply, new_era_tx_id, new_era_tx_body};
     use crate::tx_submission::tx_client_transport::tests::MockClientTransport;
     use amaru_mempool::strategies::InMemoryMempool;
     use pallas_network::miniprotocols::txsubmission::Message;
@@ -318,15 +316,5 @@ pub(crate) mod tests {
         let client_handle =
             tokio::spawn(async move { client.start_client_with_transport(transport).await });
         Ok((tx_req, rx_messages, client_handle))
-    }
-
-    /// Create a new EraTxId for the Conway era.
-    pub(crate) fn new_era_tx_id(tx_id: TxId) -> EraTxId {
-        EraTxId(Era::Conway.into(), tx_id.to_vec())
-    }
-
-    /// Create a new EraTxBody for the Conway era.
-    pub(crate) fn new_era_tx_body(tx_body: Vec<u8>) -> EraTxBody {
-        EraTxBody(Era::Conway.into(), tx_body)
     }
 }
