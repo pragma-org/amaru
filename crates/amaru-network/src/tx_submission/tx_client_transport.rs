@@ -79,31 +79,11 @@ pub(crate) mod tests {
     };
     use tokio::sync::mpsc::{Receiver, Sender};
 
-    pub struct SpyReceiver {
-        inner: Receiver<Message<EraTxId, EraTxBody>>,
-        pub seen: Vec<MessageEq>,
-    }
-
-    impl SpyReceiver {
-        pub fn new(inner: Receiver<Message<EraTxId, EraTxBody>>) -> Self {
-            Self {
-                inner,
-                seen: Vec::new(),
-            }
-        }
-
-        pub async fn recv(&mut self) -> Option<Message<EraTxId, EraTxBody>> {
-            if let Some(m) = self.inner.recv().await {
-                self.seen.push(MessageEq::from(&m));
-                Some(m)
-            } else {
-                None
-            }
-        }
-    }
     pub(crate) struct MockClientTransport {
         // server -> client messages
-        pub(crate) rx_req: SpyReceiver,
+        rx_req: Receiver<Message<EraTxId, EraTxBody>>,
+        // for external inspection of sent messages
+        tx_req: Sender<MessageEq>,
         // client -> server messages
         tx_reply: Sender<Message<EraTxId, EraTxBody>>,
     }
@@ -111,10 +91,12 @@ pub(crate) mod tests {
     impl MockClientTransport {
         pub(crate) fn new(
             rx_req: Receiver<Message<EraTxId, EraTxBody>>,
+            tx_req: Sender<MessageEq>,
             tx_reply: Sender<Message<EraTxId, EraTxBody>>,
         ) -> Self {
             Self {
-                rx_req: SpyReceiver::new(rx_req),
+                rx_req,
+                tx_req,
                 tx_reply,
             }
         }
@@ -133,7 +115,12 @@ pub(crate) mod tests {
         }
 
         async fn next_request(&mut self) -> anyhow::Result<Request<EraTxId>> {
-            match self.rx_req.recv().await {
+            let received = self.rx_req.recv().await;
+            if let Some(received) = &received {
+                self.tx_req.send(received.into()).await?;
+            };
+
+            match received {
                 Some(Message::RequestTxIds(blocking, ack, req)) => {
                     if blocking {
                         Ok(Request::TxIds(ack, req))

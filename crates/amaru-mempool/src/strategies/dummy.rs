@@ -81,6 +81,10 @@ impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
     fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Arc<Tx>> {
         vec![]
     }
+
+    fn last_seq_no(&self) -> MempoolSeqNo {
+        MempoolSeqNo(self.inner.read().transactions.len() as u64)
+    }
 }
 
 impl<T> DummyMempoolInner<T> {

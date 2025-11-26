@@ -213,6 +213,10 @@ impl<Tx: Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> for InMem
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Arc<Tx>> {
         self.inner.read().get_txs_for_ids(ids)
     }
+
+    fn last_seq_no(&self) -> MempoolSeqNo {
+        MempoolSeqNo(self.inner.read().next_seq - 1)
+    }
 }
 
 #[cfg(test)]

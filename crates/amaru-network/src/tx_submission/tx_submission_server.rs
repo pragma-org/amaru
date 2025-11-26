@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::tx_submission::tx_server_transport::{PallasTxServerTransport, TxServerTransport};
+use crate::tx_submission::{EraTxIdOrd, ServerParams};
 use amaru_kernel::Hash;
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros_traits::can_validate_transactions::CanValidateTransactions;
@@ -21,7 +22,6 @@ use anyhow::anyhow;
 use minicbor::{CborLen, Decode, Encode};
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Reply, TxIdAndSize};
 use pallas_network::multiplexer::AgentChannel;
-use std::cmp::Ordering;
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
 use tracing::info;
@@ -53,76 +53,6 @@ pub struct TxSubmissionServer<Tx: Send + Sync + 'static> {
     inflight_fetch_set: BTreeSet<EraTxIdOrd>,
     /// Tx ids we processed but didn't insert (invalid, policy failure, etc.).
     rejected: BTreeSet<EraTxIdOrd>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct EraTxIdOrd(EraTxId);
-
-impl PartialEq for EraTxIdOrd {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.0 == other.0.0 && self.0.1 == other.0.1
-    }
-}
-
-impl Eq for EraTxIdOrd {}
-
-impl PartialOrd for EraTxIdOrd {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for EraTxIdOrd {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.0.0.cmp(&other.0.0) {
-            Ordering::Equal => self.0.1.cmp(&other.0.1),
-            other @ (Ordering::Less | Ordering::Greater) => other,
-        }
-    }
-}
-
-impl EraTxIdOrd {
-    pub(crate) fn new(id: EraTxId) -> Self {
-        Self(id)
-    }
-}
-
-impl std::ops::Deref for EraTxIdOrd {
-    type Target = EraTxId;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-pub struct ServerParams {
-    max_window: usize,  // how many tx ids we keep in “window”
-    fetch_batch: usize, // how many txs we request per round
-    blocking: Blocking, // should the client block when we request more tx ids that it cannot serve
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Blocking {
-    Yes,
-    No,
-}
-
-impl From<Blocking> for bool {
-    fn from(value: Blocking) -> Self {
-        match value {
-            Blocking::Yes => true,
-            Blocking::No => false,
-        }
-    }
-}
-
-impl ServerParams {
-    pub fn new(max_window: usize, fetch_batch: usize, blocking: Blocking) -> Self {
-        Self {
-            max_window,
-            fetch_batch,
-            blocking,
-        }
-    }
 }
 
 impl<Tx> TxSubmissionServer<Tx>
@@ -173,8 +103,8 @@ where
             }
             match transport.receive_next_reply().await? {
                 Reply::TxIds(ids) => {
-                    self.received_tx_ids(ids);
-                    if let Some(tx_ids) = self.tx_ids_to_request() {
+                    self.received_tx_ids(ids)?;
+                    if let Some(tx_ids) = self.txs_to_request() {
                         transport.request_txs(tx_ids).await?;
                     }
                 }
@@ -228,8 +158,14 @@ where
         Ok(())
     }
 
-    fn received_tx_ids(&mut self, txs: Vec<TxIdAndSize<EraTxId>>) {
-        for tx_id_and_size in txs {
+    fn received_tx_ids(&mut self, tx_ids: Vec<TxIdAndSize<EraTxId>>) -> anyhow::Result<()> {
+        if self.params.blocking.into() && tx_ids.len() > self.params.max_window {
+            return Err(anyhow::anyhow!(
+                "Too transactions ids received in blocking mode"
+            ));
+        }
+
+        for tx_id_and_size in tx_ids {
             let (era_tx_id, size) = (tx_id_and_size.0, tx_id_and_size.1);
             let tx_id = tx_id_from_era_tx_id(&era_tx_id);
             let era_tx_id = EraTxIdOrd::new(era_tx_id);
@@ -242,9 +178,11 @@ where
                 self.pending_fetch.push_back(era_tx_id);
             }
         }
+
+        Ok(())
     }
 
-    fn tx_ids_to_request(&mut self) -> Option<Vec<EraTxId>> {
+    fn txs_to_request(&mut self) -> Option<Vec<EraTxId>> {
         let mut ids = Vec::new();
 
         while ids.len() < self.params.fetch_batch {
@@ -262,13 +200,19 @@ where
         } else {
             Some(
                 ids.into_iter()
-                    .map(|era_tx_id_ord| era_tx_id_ord.0)
+                    .map(|era_tx_id_ord| era_tx_id_ord.into())
                     .collect(),
             )
         }
     }
 
     async fn received_txs(&mut self, tx_bodies: Vec<EraTxBody>) -> anyhow::Result<()> {
+        if self.params.blocking.into() && tx_bodies.len() > self.params.fetch_batch {
+            return Err(anyhow::anyhow!(
+                "Too many transactions received in blocking mode"
+            ));
+        }
+
         for tx_body in tx_bodies {
             // this is the exact id we requested for this body (FIFO)
             if let Some(requested_id) = self.inflight_fetch_queue.pop_front() {
@@ -296,6 +240,7 @@ where
     }
 }
 
+/// Retrieves the TxId from an EraTxId.
 pub fn tx_id_from_era_tx_id(era_tx_id: &EraTxId) -> TxId {
     TxId::new(Hash::from(era_tx_id.1.as_slice()))
 }
@@ -303,7 +248,11 @@ pub fn tx_id_from_era_tx_id(era_tx_id: &EraTxId) -> TxId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tx_submission::tests::{Tx, assert_next_message, new_era_tx_body, new_era_tx_id};
+    use crate::tx_submission::Blocking;
+    use crate::tx_submission::tests::{
+        Tx, assert_next_message, create_transactions, new_era_tx_body, new_era_tx_id,
+        to_era_tx_bodies, to_era_tx_ids,
+    };
     use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
     use amaru_kernel::Hasher;
     use amaru_mempool::strategies::InMemoryMempool;
@@ -345,22 +294,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_server() -> anyhow::Result<()> {
-        // Prepare some transactions to be used in the test
-        let txs = [
-            Tx::new("0d8d00cdd4657ac84d82f0a56067634a"),
-            Tx::new("1d8d00cdd4657ac84d82f0a56067634a"),
-            Tx::new("2d8d00cdd4657ac84d82f0a56067634a"),
-            Tx::new("3d8d00cdd4657ac84d82f0a56067634a"),
-            Tx::new("4d8d00cdd4657ac84d82f0a56067634a"),
-        ];
-        let era_tx_ids = txs
-            .iter()
-            .map(|tx| new_era_tx_id(tx.tx_id()))
-            .collect::<Vec<_>>();
-        let era_tx_bodies = txs
-            .iter()
-            .map(|tx| new_era_tx_body(tx.tx_body()))
-            .collect::<Vec<_>>();
+        let txs = create_transactions(6);
+        let era_tx_ids = to_era_tx_ids(&txs);
+        let era_tx_bodies = to_era_tx_bodies(&txs);
 
         // Create a mempool with no initial transactions
         // since we are going to fetch them from a client
@@ -383,8 +319,11 @@ mod tests {
                 TxIdAndSize(era_tx_ids[3].clone(), 32),
             ]),
             Message::ReplyTxs(vec![era_tx_bodies[2].clone(), era_tx_bodies[3].clone()]),
-            Message::ReplyTxIds(vec![TxIdAndSize(era_tx_ids[4].clone(), 32)]),
-            Message::ReplyTxs(vec![era_tx_bodies[4].clone()]),
+            Message::ReplyTxIds(vec![
+                TxIdAndSize(era_tx_ids[4].clone(), 32),
+                TxIdAndSize(era_tx_ids[5].clone(), 32),
+            ]),
+            Message::ReplyTxs(vec![era_tx_bodies[4].clone(), era_tx_bodies[5].clone()]),
             Message::Done,
         ];
         for r in replies {
@@ -407,9 +346,36 @@ mod tests {
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
-            Message::RequestTxs(vec![era_tx_ids[4].clone()]),
+            Message::RequestTxs(vec![era_tx_ids[4].clone(), era_tx_ids[5].clone()]),
         )
         .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn in_blocking_mode_the_returned_tx_ids_should_respect_the_batch_size()
+    -> anyhow::Result<()> {
+        let txs = create_transactions(4);
+        let era_tx_ids = to_era_tx_ids(&txs);
+
+        // Create a mempool with no initial transactions
+        // since we are going to fetch them from a client
+        let mempool: Arc<InMemoryMempool<Tx>> = Arc::new(InMemoryMempool::default());
+        let tx_validator: Arc<dyn CanValidateTransactions<Tx>> =
+            Arc::new(MockCanValidateTransactions);
+
+        let (tx_reply, mut messages, _server_handle) = start_server(mempool, tx_validator).await?;
+
+        let replies = vec![
+            Message::Init,
+            Message::ReplyTxIds(vec![TxIdAndSize(era_tx_ids[0].clone(), 32)]),
+        ];
+        for r in replies {
+            tx_reply.send(r).await?;
+        }
+
+        // Check messages sent by the server
+        assert_next_message(&mut messages, Message::RequestTxIds(true, 0, 10)).await?;
         Ok(())
     }
 
