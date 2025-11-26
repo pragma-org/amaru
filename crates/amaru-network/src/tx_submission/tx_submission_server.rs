@@ -15,18 +15,16 @@
 use crate::tx_submission::tx_server_transport::{PallasTxServerTransport, TxServerTransport};
 use amaru_kernel::Hash;
 use amaru_kernel::peer::Peer;
+use amaru_ouroboros_traits::can_validate_transactions::CanValidateTransactions;
 use amaru_ouroboros_traits::{Mempool, TxId, TxOrigin};
+use anyhow::anyhow;
 use minicbor::{CborLen, Decode, Encode};
-use pallas_network::miniprotocols::txsubmission::{
-    EraTxBody, EraTxId, Reply, TxIdAndSize,
-};
+use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Reply, TxIdAndSize};
 use pallas_network::multiplexer::AgentChannel;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
-use anyhow::anyhow;
 use tracing::info;
-use amaru_ouroboros_traits::can_validate_transactions::CanValidateTransactions;
 
 /// Tx submission server state machine for a given peer.
 ///
@@ -108,9 +106,9 @@ pub enum Blocking {
     No,
 }
 
-impl Into<bool> for Blocking {
-    fn into(self) -> bool {
-        match self {
+impl From<Blocking> for bool {
+    fn from(value: Blocking) -> Self {
+        match value {
             Blocking::Yes => true,
             Blocking::No => false,
         }
@@ -132,7 +130,12 @@ where
     Tx: for<'a> Decode<'a, ()> + Encode<()> + CborLen<()> + Send + Sync + 'static,
 {
     /// Create a new tx submission server state machine for the given mempool and peer.
-    pub fn new(params: ServerParams, mempool: Arc<dyn Mempool<Tx>>, tx_validator: Arc<dyn CanValidateTransactions<Tx>>, peer: Peer) -> Self {
+    pub fn new(
+        params: ServerParams,
+        mempool: Arc<dyn Mempool<Tx>>,
+        tx_validator: Arc<dyn CanValidateTransactions<Tx>>,
+        peer: Peer,
+    ) -> Self {
         Self {
             mempool: mempool.clone(),
             tx_validator: tx_validator.clone(),
@@ -193,7 +196,7 @@ where
         let mut ack = 0_u16;
 
         while let Some((era_tx_id, _size)) = self.window.front() {
-            let tx_id = TxId::new(Hash::from(era_tx_id.1.as_slice()));
+            let tx_id = tx_id_from_era_tx_id(era_tx_id);
             let already_in_mempool = self.mempool.contains(&tx_id);
             let already_rejected = self.rejected.contains(era_tx_id);
 
@@ -228,7 +231,7 @@ where
     fn received_tx_ids(&mut self, txs: Vec<TxIdAndSize<EraTxId>>) {
         for tx_id_and_size in txs {
             let (era_tx_id, size) = (tx_id_and_size.0, tx_id_and_size.1);
-            let tx_id = TxId::new(Hash::from(era_tx_id.1.as_slice()));
+            let tx_id = tx_id_from_era_tx_id(&era_tx_id);
             let era_tx_id = EraTxIdOrd::new(era_tx_id);
             // We add the tx id to the window to acknowledge it on the next round.
             self.window.push_back((era_tx_id.clone(), size));
@@ -274,9 +277,9 @@ where
                 let tx: Tx = minicbor::decode(tx_body.1.as_slice())?;
                 let inserted = self.validate_tx(&tx).await.is_ok()
                     && self
-                    .mempool
-                    .insert(tx, TxOrigin::Remote(self.peer.clone()))
-                    .is_ok();
+                        .mempool
+                        .insert(tx, TxOrigin::Remote(self.peer.clone()))
+                        .is_ok();
                 if !inserted {
                     self.rejected.insert(requested_id);
                 }
@@ -286,22 +289,29 @@ where
     }
 
     async fn validate_tx(&self, tx: &Tx) -> anyhow::Result<()> {
-        Ok(self.tx_validator.validate_transaction(tx).await.map_err(|e| anyhow!(e))?)
+        self.tx_validator
+            .validate_transaction(tx)
+            .await
+            .map_err(|e| anyhow!(e))
     }
+}
+
+pub fn tx_id_from_era_tx_id(era_tx_id: &EraTxId) -> TxId {
+    TxId::new(Hash::from(era_tx_id.1.as_slice()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tx_submission::tests::{Tx, assert_next_message, new_era_tx_id, new_era_tx_body};
+    use crate::tx_submission::tests::{Tx, assert_next_message, new_era_tx_body, new_era_tx_id};
     use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
     use amaru_kernel::Hasher;
     use amaru_mempool::strategies::InMemoryMempool;
+    use amaru_ouroboros_traits::can_validate_transactions::mock::MockCanValidateTransactions;
     use pallas_network::miniprotocols::txsubmission::Message;
     use tokio::sync::mpsc;
     use tokio::sync::mpsc::{Receiver, Sender};
     use tokio::task::JoinHandle;
-    use amaru_ouroboros_traits::can_validate_transactions::mock::MockCanValidateTransactions;
 
     #[test]
     fn check_ids() {
@@ -317,7 +327,7 @@ mod tests {
         let era_tx_id = new_era_tx_id(tx_id.clone());
         let era_tx_body = new_era_tx_body(tx_body.clone());
         assert_eq!(
-            TxId::new(Hash::from(era_tx_id.1.as_slice())),
+            tx_id_from_era_tx_id(&era_tx_id),
             tx_id,
             "the era tx id transports the tx id hash"
         );
@@ -355,7 +365,8 @@ mod tests {
         // Create a mempool with no initial transactions
         // since we are going to fetch them from a client
         let mempool: Arc<InMemoryMempool<Tx>> = Arc::new(InMemoryMempool::default());
-        let tx_validator: Arc<dyn CanValidateTransactions<Tx>> = Arc::new(MockCanValidateTransactions);
+        let tx_validator: Arc<dyn CanValidateTransactions<Tx>> =
+            Arc::new(MockCanValidateTransactions);
 
         let (tx_reply, mut messages, _server_handle) = start_server(mempool, tx_validator).await?;
 
@@ -386,19 +397,19 @@ mod tests {
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
         )
-            .await?;
+        .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
         )
-            .await?;
+        .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[4].clone()]),
         )
-            .await?;
+        .await?;
         Ok(())
     }
 

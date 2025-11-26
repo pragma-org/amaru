@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::tx_submission::Blocking;
 use async_trait::async_trait;
 use pallas_network::miniprotocols::txsubmission;
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Reply, TxCount};
 use pallas_network::multiplexer::AgentChannel;
-use crate::tx_submission::Blocking;
 
 /// Abstraction over the tx-submission wire used by the server state machine.
 ///
@@ -85,13 +85,13 @@ impl TxServerTransport for PallasTxServerTransport {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::tx_submission::Blocking;
     use crate::tx_submission::tx_server_transport::TxServerTransport;
     use async_trait::async_trait;
     use pallas_network::miniprotocols::txsubmission::{
         EraTxBody, EraTxId, Message, Reply, TxCount,
     };
     use tokio::sync::mpsc::{Receiver, Sender};
-    use crate::tx_submission::Blocking;
 
     pub(crate) struct MockServerTransport {
         // client -> server replies

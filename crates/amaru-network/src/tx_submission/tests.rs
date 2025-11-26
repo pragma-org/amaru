@@ -137,7 +137,7 @@ async fn test_invalid_transactions() -> anyhow::Result<()> {
 
 // HELPERS
 
-fn create_transactions() -> Vec<Tx> {
+pub fn create_transactions() -> Vec<Tx> {
     vec![
         Tx::new("0d8d00cdd4657ac84d82f0a56067634a"),
         Tx::new("1d8d00cdd4657ac84d82f0a56067634a"),
@@ -298,8 +298,8 @@ async fn expect_transactions(txs: Vec<Tx>, server_mempool: Arc<dyn Mempool<Tx>>)
             sleep(Duration::from_millis(10)).await;
         }
     })
-        .await
-        .expect("all the transactions should have been transmitted to the server mempool");
+    .await
+    .expect("all the transactions should have been transmitted to the server mempool");
 }
 
 /// Check that the next message is a ReplyTxIds with the expected ids.
@@ -534,14 +534,14 @@ impl From<&Message<EraTxId, EraTxBody>> for MessageEq {
             RequestTxIds(blocking, tx_count, tx_count2) => {
                 RequestTxIds(*blocking, *tx_count, *tx_count2)
             }
-            RequestTxs(tx_ids) => RequestTxs(tx_ids.iter().cloned().collect()),
+            RequestTxs(tx_ids) => RequestTxs(tx_ids.to_vec()),
             ReplyTxIds(tx_ids_and_sizes) => ReplyTxIds(
                 tx_ids_and_sizes
                     .iter()
-                    .map(|t| TxIdAndSize(t.0.clone(), t.1.clone()))
+                    .map(|t| TxIdAndSize(t.0.clone(), t.1))
                     .collect(),
             ),
-            ReplyTxs(tx_bodies) => ReplyTxs(tx_bodies.iter().cloned().collect()),
+            ReplyTxs(tx_bodies) => ReplyTxs(tx_bodies.to_vec()),
             Message::Done => Message::Done,
         };
         MessageEq::new(clone)
@@ -598,18 +598,18 @@ impl PartialEq for MessageEq {
                     .map(|id| EraTxIdOrd::new(id.clone()))
                     .collect::<Vec<_>>()
                     == ids2
-                    .iter()
-                    .map(|id| EraTxIdOrd::new(id.clone()))
-                    .collect::<Vec<_>>()
+                        .iter()
+                        .map(|id| EraTxIdOrd::new(id.clone()))
+                        .collect::<Vec<_>>()
             }
             (ReplyTxIds(ids1), ReplyTxIds(ids2)) => {
                 ids1.iter()
                     .map(|id| (id.0.0, id.0.1.clone(), id.1))
                     .collect::<Vec<_>>()
                     == ids2
-                    .iter()
-                    .map(|id| (id.0.0, id.0.1.clone(), id.1))
-                    .collect::<Vec<_>>()
+                        .iter()
+                        .map(|id| (id.0.0, id.0.1.clone(), id.1))
+                        .collect::<Vec<_>>()
             }
             (ReplyTxs(txs1), ReplyTxs(txs2)) => {
                 txs1.iter()
@@ -617,10 +617,10 @@ impl PartialEq for MessageEq {
                     .map(|tx| (tx.0, tx.1))
                     .collect::<Vec<_>>()
                     == txs2
-                    .iter()
-                    .cloned()
-                    .map(|tx| (tx.0, tx.1))
-                    .collect::<Vec<_>>()
+                        .iter()
+                        .cloned()
+                        .map(|tx| (tx.0, tx.1))
+                        .collect::<Vec<_>>()
             }
             _ => false,
         }
