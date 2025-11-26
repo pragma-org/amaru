@@ -16,45 +16,230 @@ use crate::tx_submission::tx_client_transport::TxClientTransport;
 use crate::tx_submission::tx_client_transport::tests::MockClientTransport;
 use crate::tx_submission::tx_server_transport::TxServerTransport;
 use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
-use crate::tx_submission::{EraTxIdOrd, ServerParams, TxSubmissionClient, TxSubmissionServer};
+use crate::tx_submission::{
+    Blocking, EraTxIdOrd, ServerParams, TxSubmissionClient, TxSubmissionServer,
+};
 use amaru_kernel::Hash;
 use amaru_kernel::peer::Peer;
 use amaru_mempool::strategies::InMemoryMempool;
-use amaru_ouroboros_traits::{Mempool, TxId};
+use amaru_ouroboros_traits::can_validate_transactions::mock::MockCanValidateTransactions;
+use amaru_ouroboros_traits::{CanValidateTransactions, Mempool, TransactionValidationError, TxId};
 use async_trait::async_trait;
 use minicbor::encode::{Error, Write};
 use minicbor::{CborLen, Decode, Decoder, Encode, Encoder};
-use pallas_network::miniprotocols::txsubmission::Message::{ReplyTxIds, ReplyTxs};
-use pallas_network::miniprotocols::txsubmission::{
-    Blocking, EraTxBody, EraTxId, Message, Reply, Request, TxCount, TxIdAndSize,
+use pallas_network::miniprotocols::txsubmission::Message::{
+    ReplyTxIds, ReplyTxs, RequestTxIds, RequestTxs,
 };
+use pallas_network::miniprotocols::txsubmission::{
+    EraTxBody, EraTxId, Message, Reply, Request, TxCount, TxIdAndSize,
+};
+use pallas_traverse::Era;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{Mutex, mpsc};
-use tokio::time::sleep;
+use tokio::task::JoinHandle;
+use tokio::time::{sleep, timeout};
 
 #[tokio::test]
 async fn test_client_server_interaction() -> anyhow::Result<()> {
-    let client_mempool: Arc<InMemoryMempool<Tx>> = Arc::new(InMemoryMempool::default());
-    let mut client = TxSubmissionClient::new(client_mempool.clone(), Peer::new("server_peer"));
-    let txs = vec![
+    let txs = create_transactions();
+
+    let node = create_node();
+    for tx in txs.iter() {
+        node.client_mempool.add(tx.clone())?;
+    }
+
+    let node_handle = node.start();
+    expect_transactions(txs, node_handle.server_mempool).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_client_server_with_concurrent_filling_of_the_client_mempool() -> anyhow::Result<()> {
+    let txs = create_transactions();
+    let node = create_node();
+    let node_handle = node.start();
+    let txs_clone = txs.clone();
+    tokio::spawn(async move {
+        for tx in txs_clone {
+            node_handle.client_mempool.add(tx.clone()).unwrap();
+        }
+    });
+
+    expect_transactions(txs, node_handle.server_mempool).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_client_with_non_blocking_server() -> anyhow::Result<()> {
+    let txs = create_transactions();
+    let node = create_node_with(ServerOptions::default().with_params(ServerParams::new(
+        2,
+        10,
+        Blocking::No,
+    )));
+    let node_handle = node.start();
+    let txs_clone = txs.clone();
+    tokio::spawn(async move {
+        for tx in txs_clone {
+            node_handle.client_mempool.add(tx.clone()).unwrap();
+        }
+    });
+
+    expect_transactions(txs, node_handle.server_mempool).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_invalid_transactions() -> anyhow::Result<()> {
+    let txs = create_transactions();
+    let era_tx_ids: Vec<EraTxId> = txs.iter().map(|tx| new_era_tx_id(tx.tx_id())).collect();
+    // This validator rejects every second transaction
+    let tx_validator = Arc::new(FaultyTxValidator::default());
+    let node = create_node_with(ServerOptions::default().with_tx_validator(tx_validator));
+    let node_handle = node.start();
+    let txs_clone = txs.clone();
+    let client_mempool = node_handle.client_mempool.clone();
+    tokio::spawn(async move {
+        for tx in txs_clone {
+            client_mempool.add(tx.clone()).unwrap();
+        }
+    });
+
+    // Only the valid transactions (even indexed) should be in the server mempool
+    let mut expected = vec![];
+    for (i, tx) in txs.iter().enumerate() {
+        if i % 2 == 0 {
+            expected.push(tx.clone());
+        }
+    }
+    expect_transactions(expected, node_handle.server_mempool.clone()).await;
+
+    // Check the requests sent by the server do not ask again for the invalid transactions.
+    let actual: Vec<MessageEq> = node_handle.seen_requests().await;
+    let expected = vec![
+        RequestTxIds(true, 0, 2),
+        RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
+        RequestTxIds(true, 2, 2),
+        RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
+        RequestTxIds(true, 2, 2),
+        RequestTxs(vec![era_tx_ids[4].clone(), era_tx_ids[5].clone()]),
+        RequestTxIds(true, 2, 2),
+    ];
+    assert_eq!(
+        actual,
+        expected.iter().map(MessageEq::from).collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+// HELPERS
+
+fn create_transactions() -> Vec<Tx> {
+    vec![
         Tx::new("0d8d00cdd4657ac84d82f0a56067634a"),
         Tx::new("1d8d00cdd4657ac84d82f0a56067634a"),
         Tx::new("2d8d00cdd4657ac84d82f0a56067634a"),
         Tx::new("3d8d00cdd4657ac84d82f0a56067634a"),
         Tx::new("4d8d00cdd4657ac84d82f0a56067634a"),
         Tx::new("5d8d00cdd4657ac84d82f0a56067634a"),
-    ];
-    for tx in txs.iter() {
-        client_mempool.add(tx.clone())?;
+    ]
+}
+
+#[derive(Clone, Debug, Default)]
+struct FaultyTxValidator {
+    count: Arc<Mutex<u16>>,
+}
+
+#[async_trait]
+impl CanValidateTransactions<Tx> for FaultyTxValidator {
+    async fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+        // Reject every second transaction
+        let mut count = self.count.lock().await;
+        let is_valid = *count % 2 == 0;
+        *count += 1;
+        if is_valid {
+            Ok(())
+        } else {
+            Err(TransactionValidationError::new(anyhow::anyhow!(
+                "Transaction is invalid"
+            )))
+        }
+    }
+}
+
+struct Node {
+    client_mempool: Arc<dyn Mempool<Tx>>,
+    server_mempool: Arc<dyn Mempool<Tx>>,
+    client: TxSubmissionClient<Tx>,
+    server: TxSubmissionServer<Tx>,
+    transport: MockTransport,
+}
+
+struct NodeHandle {
+    server_mempool: Arc<dyn Mempool<Tx>>,
+    client_mempool: Arc<dyn Mempool<Tx>>,
+    transport: MockTransport,
+    _client_handle: JoinHandle<anyhow::Result<()>>,
+    _server_handle: JoinHandle<anyhow::Result<()>>,
+}
+
+impl NodeHandle {
+    async fn seen_requests(&self) -> Vec<MessageEq> {
+        let transport = self.transport.client_transport.lock().await;
+        transport.rx_req.seen.clone()
+    }
+}
+
+struct ServerOptions {
+    params: ServerParams,
+    mempool: Arc<dyn Mempool<Tx>>,
+    tx_validator: Arc<dyn CanValidateTransactions<Tx>>,
+}
+
+impl Default for ServerOptions {
+    fn default() -> Self {
+        ServerOptions {
+            params: ServerParams::new(2, 10, Blocking::Yes),
+            mempool: Arc::new(InMemoryMempool::default()),
+            tx_validator: Arc::new(MockCanValidateTransactions),
+        }
+    }
+}
+
+impl ServerOptions {
+    fn with_params(mut self, params: ServerParams) -> Self {
+        self.params = params;
+        self
     }
 
-    let server_mempool: Arc<InMemoryMempool<Tx>> = Arc::new(InMemoryMempool::default());
-    let mut server = TxSubmissionServer::new(
-        ServerParams::new(2, 10, true),
+    #[expect(dead_code)]
+    fn with_mempool(mut self, mempool: Arc<dyn Mempool<Tx>>) -> Self {
+        self.mempool = mempool;
+        self
+    }
+
+    fn with_tx_validator(mut self, tx_validator: Arc<dyn CanValidateTransactions<Tx>>) -> Self {
+        self.tx_validator = tx_validator;
+        self
+    }
+}
+
+fn create_node() -> Node {
+    create_node_with(ServerOptions::default())
+}
+
+fn create_node_with(server_options: ServerOptions) -> Node {
+    let client_mempool = Arc::new(InMemoryMempool::default());
+    let client = TxSubmissionClient::new(client_mempool.clone(), Peer::new("server_peer"));
+    let server_mempool = server_options.mempool;
+    let tx_validator = server_options.tx_validator;
+    let server = TxSubmissionServer::new(
+        server_options.params,
         server_mempool.clone(),
+        tx_validator.clone(),
         Peer::new("client_peer"),
     );
 
@@ -65,28 +250,56 @@ async fn test_client_server_interaction() -> anyhow::Result<()> {
     let server_transport = MockServerTransport::new(rx_reply, tx_req);
     let transport = MockTransport::new(client_transport, server_transport);
 
-    let transport_clone_server = transport.clone();
-    let _server_handle = tokio::spawn(async move {
-        server
-            .start_server_with_transport(transport_clone_server)
-            .await
-    });
-
-    let transport_clone_client = transport.clone();
-    let _client_handle = tokio::spawn(async move {
-        client
-            .start_client_with_transport(transport_clone_client)
-            .await
-    });
-
-    sleep(Duration::from_millis(200)).await;
-    for tx in txs {
-        assert!(
-            server_mempool.contains(&tx.tx_id()),
-            "the server mempool should contain the tx {tx:?}"
-        );
+    Node {
+        client_mempool,
+        server_mempool,
+        client,
+        server,
+        transport,
     }
-    Ok(())
+}
+
+impl Node {
+    fn start(self) -> NodeHandle {
+        let transport_clone_server = self.transport.clone();
+        let (mut client, mut server) = (self.client, self.server);
+        let server_handle = tokio::spawn(async move {
+            server
+                .start_server_with_transport(transport_clone_server)
+                .await
+        });
+
+        let transport_clone_client = self.transport.clone();
+        let client_handle = tokio::spawn(async move {
+            client
+                .start_client_with_transport(transport_clone_client)
+                .await
+        });
+        NodeHandle {
+            client_mempool: self.client_mempool,
+            server_mempool: self.server_mempool,
+            transport: self.transport,
+            _client_handle: client_handle,
+            _server_handle: server_handle,
+        }
+    }
+}
+
+async fn expect_transactions(txs: Vec<Tx>, server_mempool: Arc<dyn Mempool<Tx>>) {
+    let tx_ids: Vec<_> = txs.iter().map(|tx| tx.tx_id()).collect();
+
+    timeout(Duration::from_secs(1), async {
+        loop {
+            let all_present = tx_ids.iter().all(|id| server_mempool.contains(id));
+
+            if all_present {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+        .await
+        .expect("all the transactions should have been transmitted to the server mempool");
 }
 
 /// Check that the next message is a ReplyTxIds with the expected ids.
@@ -302,6 +515,39 @@ impl<'a> Decode<'a, ()> for Tx {
 /// Wrapper around Message to implement custom Display, Debug and PartialEq
 pub struct MessageEq(Message<EraTxId, EraTxBody>);
 
+impl MessageEq {
+    pub fn new(message: Message<EraTxId, EraTxBody>) -> Self {
+        MessageEq(message)
+    }
+}
+
+impl Clone for MessageEq {
+    fn clone(&self) -> Self {
+        MessageEq::from(&self.0)
+    }
+}
+
+impl From<&Message<EraTxId, EraTxBody>> for MessageEq {
+    fn from(m: &Message<EraTxId, EraTxBody>) -> Self {
+        let clone = match &m {
+            Message::Init => Message::Init,
+            RequestTxIds(blocking, tx_count, tx_count2) => {
+                RequestTxIds(*blocking, *tx_count, *tx_count2)
+            }
+            RequestTxs(tx_ids) => RequestTxs(tx_ids.iter().cloned().collect()),
+            ReplyTxIds(tx_ids_and_sizes) => ReplyTxIds(
+                tx_ids_and_sizes
+                    .iter()
+                    .map(|t| TxIdAndSize(t.0.clone(), t.1.clone()))
+                    .collect(),
+            ),
+            ReplyTxs(tx_bodies) => ReplyTxs(tx_bodies.iter().cloned().collect()),
+            Message::Done => Message::Done,
+        };
+        MessageEq::new(clone)
+    }
+}
+
 impl Debug for MessageEq {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self)
@@ -352,18 +598,18 @@ impl PartialEq for MessageEq {
                     .map(|id| EraTxIdOrd::new(id.clone()))
                     .collect::<Vec<_>>()
                     == ids2
-                        .iter()
-                        .map(|id| EraTxIdOrd::new(id.clone()))
-                        .collect::<Vec<_>>()
+                    .iter()
+                    .map(|id| EraTxIdOrd::new(id.clone()))
+                    .collect::<Vec<_>>()
             }
             (ReplyTxIds(ids1), ReplyTxIds(ids2)) => {
                 ids1.iter()
                     .map(|id| (id.0.0, id.0.1.clone(), id.1))
                     .collect::<Vec<_>>()
                     == ids2
-                        .iter()
-                        .map(|id| (id.0.0, id.0.1.clone(), id.1))
-                        .collect::<Vec<_>>()
+                    .iter()
+                    .map(|id| (id.0.0, id.0.1.clone(), id.1))
+                    .collect::<Vec<_>>()
             }
             (ReplyTxs(txs1), ReplyTxs(txs2)) => {
                 txs1.iter()
@@ -371,20 +617,30 @@ impl PartialEq for MessageEq {
                     .map(|tx| (tx.0, tx.1))
                     .collect::<Vec<_>>()
                     == txs2
-                        .iter()
-                        .cloned()
-                        .map(|tx| (tx.0, tx.1))
-                        .collect::<Vec<_>>()
+                    .iter()
+                    .cloned()
+                    .map(|tx| (tx.0, tx.1))
+                    .collect::<Vec<_>>()
             }
             _ => false,
         }
     }
 }
 
-fn era_tx_id_to_string(era_tx_id: &EraTxId) -> String {
+pub fn era_tx_id_to_string(era_tx_id: &EraTxId) -> String {
     Hash::<32>::from(era_tx_id.1.as_slice()).to_string()
 }
 
-fn era_tx_body_to_string(era_tx_body: &EraTxBody) -> String {
+pub fn era_tx_body_to_string(era_tx_body: &EraTxBody) -> String {
     String::from_utf8(era_tx_body.1.clone()).unwrap()
+}
+
+/// Create a new EraTxId for the Conway era.
+pub fn new_era_tx_id(tx_id: TxId) -> EraTxId {
+    EraTxId(Era::Conway.into(), tx_id.to_vec())
+}
+
+/// Create a new EraTxBody for the Conway era.
+pub fn new_era_tx_body(tx_body: Vec<u8>) -> EraTxBody {
+    EraTxBody(Era::Conway.into(), tx_body)
 }

@@ -77,10 +77,33 @@ pub(crate) mod tests {
         EraTxBody, EraTxId, Message, Request, TxIdAndSize,
     };
     use tokio::sync::mpsc::{Receiver, Sender};
+    use crate::tx_submission::tests::MessageEq;
 
+    pub struct SpyReceiver {
+        inner: Receiver<Message<EraTxId, EraTxBody>>,
+        pub seen: Vec<MessageEq>,
+    }
+
+    impl SpyReceiver {
+        pub fn new(inner: Receiver<Message<EraTxId, EraTxBody>>) -> Self {
+            Self {
+                inner,
+                seen: Vec::new(),
+            }
+        }
+
+        pub async fn recv(&mut self) -> Option<Message<EraTxId, EraTxBody>> {
+            if let Some(m) = self.inner.recv().await {
+                self.seen.push(MessageEq::from(&m));
+                Some(m)
+            } else {
+                None
+            }
+        }
+    }
     pub(crate) struct MockClientTransport {
         // server -> client messages
-        rx_req: Receiver<Message<EraTxId, EraTxBody>>,
+        pub(crate) rx_req: SpyReceiver,
         // client -> server messages
         tx_reply: Sender<Message<EraTxId, EraTxBody>>,
     }
@@ -90,7 +113,7 @@ pub(crate) mod tests {
             rx_req: Receiver<Message<EraTxId, EraTxBody>>,
             tx_reply: Sender<Message<EraTxId, EraTxBody>>,
         ) -> Self {
-            Self { rx_req, tx_reply }
+            Self { rx_req: SpyReceiver::new(rx_req), tx_reply }
         }
     }
 

@@ -12,23 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod has_stake_distribution;
-pub use has_stake_distribution::{HasStakeDistribution, PoolSummary};
+use crate::can_validate_transactions::{CanValidateTransactions, TransactionValidationError};
 
-pub mod can_validate_blocks;
-pub use can_validate_blocks::{BlockValidationError, CanValidateBlocks};
+/// A fake transactions validator.
+#[derive(Clone, Debug, Default)]
+pub struct MockCanValidateTransactions;
 
-pub mod can_validate_transactions;
-pub use can_validate_transactions::{TransactionValidationError, CanValidateTransactions};
-
-pub mod stores;
-pub use stores::*;
-
-pub mod praos;
-pub use praos::*;
-
-pub mod mempool;
-pub use mempool::*;
-
-pub mod network_operations;
-pub use network_operations::NetworkOperations;
+#[async_trait::async_trait]
+impl<Tx: Send + Sync + 'static> CanValidateTransactions<Tx> for MockCanValidateTransactions {
+    async fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+        Ok(())
+    }
+}
