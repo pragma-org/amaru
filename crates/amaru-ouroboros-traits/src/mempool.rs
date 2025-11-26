@@ -81,6 +81,9 @@ pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
 
     /// Retrieve a list of transactions for the given ids.
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Arc<Tx>>;
+
+    /// Get the last assigned sequence number in the mempool.
+    fn last_seq_no(&self) -> MempoolSeqNo;
 }
 
 /// Identifier for a transaction in the mempool.
