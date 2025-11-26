@@ -14,12 +14,14 @@
 // limitations under the License.
 
 use pure_stage::{
-    CallRef, Effect, ExternalEffect, Instant, OutputEffect, Receiver, Resources, SendData,
-    StageGraph, StageGraphRunning, StageRef, TryInStage,
+    CallRef, Effect, ExternalEffect, Instant, Name, OutputEffect, Receiver, Resources, SendData,
+    StageGraph, StageGraphRunning, StageRef, StageResponse, TryInStage, UnknownExternalEffect,
+    serde::SendDataValue,
     simulation::{OverrideResult, SimulationBuilder},
-    trace_buffer::TraceBuffer,
+    trace_buffer::{TraceBuffer, TraceEntry},
 };
 use std::{
+    collections::BTreeMap,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -458,5 +460,217 @@ fn call_timeout_terminates_graph() {
     assert_eq!(
         term.as_mut().poll(&mut Context::from_waker(Waker::noop())),
         Poll::Ready(())
+    );
+}
+
+#[test]
+fn create_stage_within_stage() {
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct ParentState {
+        child_ref: Option<StageRef<u32>>,
+        output: StageRef<u32>,
+    }
+
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct ChildState {
+        value: u32,
+        output: StageRef<u32>,
+    }
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let trace_buffer = TraceBuffer::new_shared(1, 1000000);
+    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
+
+    // Parent stage that creates a child stage
+    let parent = network.stage("parent", async |mut state: ParentState, msg: u32, eff| {
+        if state.child_ref.is_none() {
+            // Create a child stage within the parent stage
+            let child = eff
+                .stage("child", async |mut state: ChildState, msg: u32, eff| {
+                    state.value += msg;
+                    eff.send(&state.output, state.value).await;
+                    state
+                })
+                .await;
+
+            // Wire up the child stage with initial state that includes the output reference
+            let child_ref = eff
+                .wire_up(
+                    child,
+                    ChildState {
+                        value: 0u32,
+                        output: state.output.clone(),
+                    },
+                )
+                .await;
+            state.child_ref = Some(child_ref);
+        }
+
+        // Send a message to the child stage
+        if let Some(ref child) = state.child_ref {
+            eff.send(child, msg).await;
+        }
+
+        state
+    });
+
+    let (output, mut rx) = network.output("output", 10);
+    let parent = network.wire_up(
+        parent,
+        ParentState {
+            child_ref: None,
+            output: output.clone(),
+        },
+    );
+    let mut running = network.run(rt.handle().clone());
+
+    // Initially, parent is waiting for Receive
+    running.try_effect().unwrap_err().assert_idle();
+
+    // Send a message to the parent to trigger child stage creation
+    running.enqueue_msg(&parent, [42]);
+    running.resume_receive(&parent).unwrap();
+
+    // Assert that AddStage effect is emitted
+    let add_stage_effect = running.effect();
+    add_stage_effect.assert_add_stage(&parent, "child");
+    let child_ref = StageRef::named_for_tests("child-12");
+
+    running
+        .resume_add_stage(&parent, child_ref.name().clone())
+        .unwrap();
+
+    // Assert that WireStage effect is emitted
+    let wire_stage_effect = running.effect();
+    wire_stage_effect.assert_wire_stage(
+        &parent,
+        "child-12",
+        ChildState {
+            value: 0u32,
+            output: output.clone(),
+        },
+    );
+
+    // Resume the WireStage effect with the child's initial state
+    running.handle_effect(wire_stage_effect);
+
+    // Now the parent should send a message to the child
+    let send_effect = running.effect();
+    send_effect.assert_send(&parent, &child_ref, 42u32);
+    running.handle_effect(send_effect);
+
+    // The child should send a message to the output (as per its transition function)
+    let child_send_effect = running.effect();
+    child_send_effect.assert_send(&child_ref, &output, 42u32);
+    running.handle_effect(child_send_effect);
+
+    running.effect().assert_receive(&parent);
+
+    let external_effect = running.effect();
+    external_effect.assert_external(&output, &OutputEffect::fake(output.name().clone(), 42u32).0);
+    running.handle_effect(external_effect);
+
+    running.effect().assert_receive(&child_ref);
+    running.effect().assert_receive(&output);
+
+    // Verify output received the message from the child stage
+    assert_eq!(rx.drain().collect::<Vec<_>>(), vec![42]);
+
+    // verify trace buffer
+    pretty_assertions::assert_eq!(
+        trace_buffer.lock().hydrate(),
+        vec![
+            TraceEntry::state(
+                "output-2",
+                SendDataValue::from_json(
+                    "pure_stage::types::MpscSender<u32>",
+                    BTreeMap::<u8, u8>::new()
+                )
+            ),
+            TraceEntry::state(
+                parent.name(),
+                SendDataValue::boxed(ParentState {
+                    child_ref: None,
+                    output: output.clone()
+                })
+            ),
+            TraceEntry::input(parent.name(), SendDataValue::boxed(42u32)),
+            TraceEntry::resume(parent.name(), StageResponse::Unit),
+            TraceEntry::suspend(Effect::AddStage {
+                at_stage: parent.name().clone(),
+                name: Name::from("child")
+            }),
+            TraceEntry::resume(
+                parent.name(),
+                StageResponse::AddStageResponse(child_ref.name().clone())
+            ),
+            TraceEntry::suspend(Effect::WireStage {
+                at_stage: parent.name().clone(),
+                name: child_ref.name().clone(),
+                initial_state: SendDataValue::boxed(ChildState {
+                    value: 0u32,
+                    output: output.clone()
+                })
+            }),
+            TraceEntry::resume(parent.name(), StageResponse::Unit),
+            TraceEntry::suspend(Effect::Send {
+                from: parent.name().clone(),
+                to: child_ref.name().clone(),
+                msg: SendDataValue::boxed(42u32),
+                call: None
+            }),
+            TraceEntry::input(child_ref.name(), SendDataValue::boxed(42u32)),
+            TraceEntry::resume(child_ref.name(), StageResponse::Unit),
+            TraceEntry::suspend(Effect::Send {
+                from: child_ref.name().clone(),
+                to: output.name().clone(),
+                msg: SendDataValue::boxed(42u32),
+                call: None
+            }),
+            TraceEntry::input(output.name(), SendDataValue::boxed(42u32)),
+            TraceEntry::resume(parent.name(), StageResponse::Unit),
+            TraceEntry::state(
+                parent.name(),
+                SendDataValue::boxed(ParentState {
+                    child_ref: Some(child_ref.clone()),
+                    output: output.clone()
+                })
+            ),
+            TraceEntry::suspend(Effect::Receive {
+                at_stage: parent.name().clone()
+            }),
+            TraceEntry::resume(output.name(), StageResponse::Unit),
+            TraceEntry::suspend(Effect::External {
+                at_stage: output.name().clone(),
+                effect: UnknownExternalEffect::boxed(
+                    OutputEffect::fake(output.name().clone(), 42u32).0
+                )
+            }),
+            TraceEntry::resume(child_ref.name(), StageResponse::Unit),
+            TraceEntry::state(
+                child_ref.name(),
+                SendDataValue::boxed(ChildState {
+                    value: 42u32,
+                    output: output.clone()
+                })
+            ),
+            TraceEntry::suspend(Effect::Receive {
+                at_stage: child_ref.name().clone()
+            }),
+            TraceEntry::resume(
+                output.name(),
+                StageResponse::ExternalResponse(SendDataValue::boxed(()))
+            ),
+            TraceEntry::state(
+                output.name(),
+                SendDataValue::from_json(
+                    "pure_stage::types::MpscSender<u32>",
+                    BTreeMap::<u8, u8>::new()
+                )
+            ),
+            TraceEntry::suspend(Effect::Receive {
+                at_stage: output.name().clone()
+            }),
+        ]
     );
 }

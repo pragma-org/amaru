@@ -418,6 +418,10 @@ impl UnknownExternalEffect {
         let bytes = to_cbor(&self.value.value);
         Ok(from_slice(&bytes)?)
     }
+
+    pub fn boxed<T: ExternalEffect>(value: T) -> Box<dyn ExternalEffect> {
+        Box::new(Self::new(SendDataValue::new(value)))
+    }
 }
 
 impl ExternalEffect for UnknownExternalEffect {
@@ -845,6 +849,50 @@ impl Effect {
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for External at `{}` with effect {effect:?}",
                 at_stage.name()
+            ),
+        }
+    }
+
+    /// Assert that this effect is an add stage effect.
+    pub fn assert_add_stage<Msg>(
+        &self,
+        at_stage: impl AsRef<StageRef<Msg>>,
+        name: impl AsRef<str>,
+    ) {
+        let at_stage = at_stage.as_ref();
+        match self {
+            Effect::AddStage {
+                at_stage: a,
+                name: n,
+            } if a == at_stage.name() && n.as_str() == name.as_ref() => {}
+            _ => panic!(
+                "unexpected effect {self:?}\n  looking for AddStage at `{}` with name `{}`",
+                at_stage.name(),
+                name.as_ref()
+            ),
+        }
+    }
+
+    /// Assert that this effect is a wire stage effect.
+    pub fn assert_wire_stage<Msg, St: SendData + PartialEq>(
+        &self,
+        at_stage: impl AsRef<StageRef<Msg>>,
+        name: impl AsRef<str>,
+        initial_state: St,
+    ) {
+        let at_stage = at_stage.as_ref();
+        match self {
+            Effect::WireStage {
+                at_stage: a,
+                name: n,
+                initial_state: i,
+            } if a == at_stage.name()
+                && n.as_str() == name.as_ref()
+                && i.cast_ref::<St>().unwrap() == &initial_state => {}
+            _ => panic!(
+                "unexpected effect {self:?}\n  looking for WireStage at `{}` with name `{}`",
+                at_stage.name(),
+                name.as_ref()
             ),
         }
     }

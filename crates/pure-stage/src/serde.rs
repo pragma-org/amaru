@@ -16,7 +16,10 @@
 //! This module contains some serialization and deserialization code for the Pure Stage library.
 
 use crate::SendData;
-use cbor4ii::{core::utils::BufWriter, serde::to_writer};
+use cbor4ii::{
+    core::utils::BufWriter,
+    serde::{from_slice, to_writer},
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::cell::RefCell;
 
@@ -107,6 +110,15 @@ pub struct SendDataValue {
 }
 
 impl SendDataValue {
+    pub fn new<T: SendData>(value: T) -> Self {
+        let mut buf = cbor4ii::serde::Serializer::new(BufWriter::new(Vec::new()));
+        serialize_send_data::serialize(&(Box::new(value) as Box<dyn SendData>), &mut buf)
+            .expect("serialization should not fail");
+        let bytes = buf.into_inner().into_inner();
+        cbor4ii::serde::from_slice::<SendDataValue>(&bytes)
+            .expect("deserialization of serialized SendDataValue should not fail")
+    }
+
     /// Construct a boxed [`SendData`](crate::SendData) value from a concrete type.
     ///
     /// This is a convenience function that serializes the value to a vector of bytes and then
@@ -114,14 +126,14 @@ impl SendDataValue {
     /// useful in tests.
     #[expect(clippy::expect_used)]
     pub fn boxed<T: SendData>(value: T) -> Box<dyn SendData> {
-        let mut buf = cbor4ii::serde::Serializer::new(BufWriter::new(Vec::new()));
-        serialize_send_data::serialize(&(Box::new(value) as Box<dyn SendData>), &mut buf)
-            .expect("serialization should not fail");
-        let bytes = buf.into_inner().into_inner();
-        Box::new(
-            cbor4ii::serde::from_slice::<SendDataValue>(&bytes)
-                .expect("deserialization of serialized SendDataValue should not fail"),
-        )
+        Box::new(Self::new(value))
+    }
+
+    pub fn from_json(tag: impl AsRef<str>, value: impl Serialize) -> Box<dyn SendData> {
+        Box::new(Self {
+            typetag: tag.as_ref().to_string(),
+            value: from_slice(&to_cbor(&value)).unwrap(),
+        })
     }
 }
 
