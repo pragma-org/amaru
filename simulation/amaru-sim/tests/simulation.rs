@@ -30,7 +30,9 @@ mod traces;
 #[test]
 pub fn run_simulator() {
     initialize_logs();
-    run(make_args());
+    let mut args = make_args();
+    args.persist_on_success = false;
+    run(args);
 }
 
 /// Replay the latest simulation from the test output directory:
