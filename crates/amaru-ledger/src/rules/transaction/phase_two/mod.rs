@@ -52,13 +52,25 @@ where
         normalize_redeemers(&transaction_witness_set.redeemer.clone().unwrap()).len()
     );
 
-    let utxos = Utxos::from(
-        transaction_body
-            .inputs
-            .into_iter()
-            .map(|input| (input.clone(), context.lookup(input).unwrap().clone()))
-            .collect::<BTreeMap<_, _>>(),
-    );
+    let mut resolved_inputs = transaction_body
+        .inputs
+        .into_iter()
+        .map(|input| (input.clone(), context.lookup(input).unwrap().clone()))
+        .collect::<BTreeMap<_, _>>();
+
+    let mut resolved_reference_inptus = transaction_body
+        .reference_inputs
+        .as_ref()
+        .map(|reference_inputs| {
+            reference_inputs
+                .into_iter()
+                .map(|input| (input.clone(), context.lookup(input).unwrap().clone()))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    resolved_inputs.append(&mut resolved_reference_inptus);
+    let utxos = Utxos::from(resolved_inputs);
 
     let tx_info = TxInfo::new(
         transaction_body,
@@ -97,6 +109,12 @@ where
                 ),
             };
 
+            match version {
+                uplc_turbo::machine::PlutusVersion::V1 => println!("PLUTUS V1"),
+                uplc_turbo::machine::PlutusVersion::V2 => println!("PLUTUS V2"),
+                uplc_turbo::machine::PlutusVersion::V3 => println!("PLUTUS V3"),
+            };
+
             let mut program =
                 flat::decode::<DeBruijn>(&arena, &script.to_bytes()).expect("Failed to decode");
 
@@ -120,9 +138,9 @@ where
                 })
                 .collect::<Vec<_>>();
 
-            terms
-                .iter()
-                .for_each(|term| program = program.apply(&arena, term));
+            for term in terms.iter() {
+                program = program.apply(&arena, term);
+            }
 
             // let budget = script_context.budget();
 
@@ -131,13 +149,16 @@ where
 
             match result.term {
                 Ok(term) => {
-                    println!("Ran script! {:?}", result.info);
+                    println!("Ran script! {:?}", result.info.consumed_budget);
                     match term {
                         Term::Error => Err(PhaseTwoError::UplcMachineError),
                         _ => Ok(()),
                     }
                 }
-                Err(_) => Err(PhaseTwoError::UplcMachineError),
+                Err(e) => {
+                    println!("Error running script: {}", e);
+                    Err(PhaseTwoError::UplcMachineError)
+                }
             }
         })
         .collect::<Result<Vec<_>, _>>()
