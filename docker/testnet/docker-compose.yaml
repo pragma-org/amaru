@@ -86,12 +86,15 @@ services:
   tracer:
     image: ghcr.io/intersectmbo/cardano-tracer:10.6.0
     hostname: tracer.example
+    entrypoint: cardano-tracer
     container_name: tracer
     volumes:
       - tracer:/opt/cardano-tracer
+      - ./tracer-config.yaml:/tracer-config.yaml
     command:
        - "--config"
-       - "tracer-config.yaml"
+       - "/tracer-config.yaml"
+    restart: always
 
   amaru-1:
     <<: *amaru
