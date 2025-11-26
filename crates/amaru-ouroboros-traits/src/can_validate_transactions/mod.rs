@@ -19,10 +19,7 @@ pub mod mock;
 
 #[async_trait::async_trait]
 pub trait CanValidateTransactions<Tx>: Send + Sync {
-    async fn validate_transaction(
-        &self,
-        tx: &Tx,
-    ) -> Result<(), TransactionValidationError>;
+    async fn validate_transaction(&self, tx: &Tx) -> Result<(), TransactionValidationError>;
 }
 
 #[derive(Debug)]

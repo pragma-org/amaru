@@ -19,7 +19,7 @@ pub mod can_validate_blocks;
 pub use can_validate_blocks::{BlockValidationError, CanValidateBlocks};
 
 pub mod can_validate_transactions;
-pub use can_validate_transactions::{TransactionValidationError, CanValidateTransactions};
+pub use can_validate_transactions::{CanValidateTransactions, TransactionValidationError};
 
 pub mod stores;
 pub use stores::*;

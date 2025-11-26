@@ -71,13 +71,13 @@ impl TxClientTransport for PallasTxClientTransport {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::tx_submission::tests::MessageEq;
     use crate::tx_submission::tx_client_transport::TxClientTransport;
     use async_trait::async_trait;
     use pallas_network::miniprotocols::txsubmission::{
         EraTxBody, EraTxId, Message, Request, TxIdAndSize,
     };
     use tokio::sync::mpsc::{Receiver, Sender};
-    use crate::tx_submission::tests::MessageEq;
 
     pub struct SpyReceiver {
         inner: Receiver<Message<EraTxId, EraTxBody>>,
@@ -113,7 +113,10 @@ pub(crate) mod tests {
             rx_req: Receiver<Message<EraTxId, EraTxBody>>,
             tx_reply: Sender<Message<EraTxId, EraTxBody>>,
         ) -> Self {
-            Self { rx_req: SpyReceiver::new(rx_req), tx_reply }
+            Self {
+                rx_req: SpyReceiver::new(rx_req),
+                tx_reply,
+            }
         }
     }
 
