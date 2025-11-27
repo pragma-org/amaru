@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
     MemoizedDatum, Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash,
     ScriptPurpose, TransactionId, TransactionPointer,
+    context::{ProposalsSlice, WitnessSlice},
 };
 
 pub(crate) fn execute<C>(

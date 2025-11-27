@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{PotsSlice, UtxoSlice};
-use amaru_kernel::{HasLovelace, Lovelace, MintedTransactionOutput, TransactionInput};
+use amaru_kernel::{
+    HasLovelace, Lovelace, MintedTransactionOutput, TransactionInput,
+    context::{PotsSlice, UtxoSlice},
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidFees {

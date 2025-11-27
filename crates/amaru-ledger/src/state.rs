@@ -61,7 +61,6 @@ use crate::{
 };
 pub use volatile_db::VolatileState;
 
-pub mod diff_bind;
 pub mod diff_epoch_reg;
 pub mod diff_set;
 pub mod volatile_db;

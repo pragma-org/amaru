@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{UtxoSlice, WitnessSlice};
-use amaru_kernel::{MemoizedDatum, Multiasset, NonZeroInt, RequiredScript, ScriptPurpose};
+use amaru_kernel::{
+    MemoizedDatum, Multiasset, NonZeroInt, RequiredScript, ScriptPurpose,
+    context::{UtxoSlice, WitnessSlice},
+};
 
 pub fn execute<C>(context: &mut C, mint: Option<&Multiasset<NonZeroInt>>)
 where

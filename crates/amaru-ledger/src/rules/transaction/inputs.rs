@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
     AddrType, Address, HasScriptHash, MemoizedDatum, RequiredScript, ScriptPurpose,
     TransactionInput, TransactionInputAdapter,
+    context::{UtxoSlice, WitnessSlice},
 };
 use thiserror::Error;
 

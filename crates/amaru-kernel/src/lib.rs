@@ -172,6 +172,9 @@ pub mod transaction_pointer;
 
 pub mod vote;
 
+pub mod arc_mapped;
+pub mod context;
+pub mod diff_bind;
 pub mod macros;
 pub mod serde_utils;
 pub mod string_utils;
@@ -312,21 +315,21 @@ pub type Nonce = Hash<32>;
 pub type Withdrawal = (StakeAddress, Lovelace);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProposalIdAdapter<'a>(pub &'a ProposalId);
+pub struct ProposalIdAdapter(pub ProposalId);
 
-impl<'a> ProposalIdAdapter<'a> {
-    pub fn new(gov_action_id: &'a ProposalId) -> Self {
+impl ProposalIdAdapter {
+    pub fn new(gov_action_id: ProposalId) -> Self {
         Self(gov_action_id)
     }
 }
 
-impl PartialOrd for ProposalIdAdapter<'_> {
+impl PartialOrd for ProposalIdAdapter {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ProposalIdAdapter<'_> {
+impl Ord for ProposalIdAdapter {
     fn cmp(&self, other: &Self) -> Ordering {
         self.0
             .transaction_id
@@ -335,23 +338,23 @@ impl Ord for ProposalIdAdapter<'_> {
     }
 }
 
-impl<'a> From<&'a ProposalId> for ProposalIdAdapter<'a> {
-    fn from(proposal_id: &'a ProposalId) -> Self {
+impl From<ProposalId> for ProposalIdAdapter {
+    fn from(proposal_id: ProposalId) -> Self {
         Self(proposal_id)
     }
 }
 
-impl Deref for ProposalIdAdapter<'_> {
+impl Deref for ProposalIdAdapter {
     type Target = ProposalId;
 
     fn deref(&self) -> &Self::Target {
-        self.0
+        &self.0
     }
 }
 
-impl AsRef<ProposalId> for ProposalIdAdapter<'_> {
+impl AsRef<ProposalId> for ProposalIdAdapter {
     fn as_ref(&self) -> &ProposalId {
-        self.0
+        &self.0
     }
 }
 
@@ -987,18 +990,16 @@ impl HasRedeemers for Redeemers {
     }
 }
 
-pub fn normalize_redeemers(redeemers: &Redeemers) -> Vec<Cow<'_, Redeemer>> {
+pub fn normalize_redeemers(redeemers: Redeemers) -> Vec<Redeemer> {
     match redeemers {
-        Redeemers::List(list) => list.iter().map(Cow::Borrowed).collect(),
+        Redeemers::List(list) => list.to_vec(),
         Redeemers::Map(map) => map
-            .iter()
-            .map(|(tag, value)| {
-                Cow::Owned(Redeemer {
-                    tag: tag.tag,
-                    index: tag.index,
-                    data: value.data.clone(),
-                    ex_units: value.ex_units,
-                })
+            .into_iter()
+            .map(|(tag, value)| Redeemer {
+                tag: tag.tag,
+                index: tag.index,
+                data: value.data.clone(),
+                ex_units: value.ex_units,
             })
             .collect(),
     }

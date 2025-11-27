@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #![feature(try_trait_v2)]
+#![feature(btree_set_entry)]
 
 pub mod block_validator;
 pub mod bootstrap;

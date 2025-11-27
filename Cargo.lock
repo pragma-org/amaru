@@ -186,6 +186,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-metrics",
  "amaru-ouroboros-traits",
+ "amaru-plutus",
  "amaru-progress-bar",
  "amaru-slot-arithmetic",
  "amaru-tracing-json",

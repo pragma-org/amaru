@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    context::WitnessSlice,
-    rules::{
-        InvalidEd25519Signature, TransactionField, WithPosition, format_vec,
-        verify_ed25519_signature,
-    },
+use crate::rules::{
+    InvalidEd25519Signature, TransactionField, WithPosition, format_vec, verify_ed25519_signature,
 };
-use amaru_kernel::{BootstrapWitness, Hash, Hasher, TransactionId, VKeyWitness, to_root};
+use amaru_kernel::{
+    BootstrapWitness, Hash, Hasher, TransactionId, VKeyWitness, context::WitnessSlice, to_root,
+};
 use std::collections::BTreeSet;
 use thiserror::Error;
 

@@ -19,6 +19,7 @@ use amaru_ledger::store::{
     columns::utxo::{Key, Value},
 };
 use rocksdb::Transaction;
+use std::borrow::Borrow;
 
 /// Name prefixed used for storing UTxO entries. UTF-8 encoding for "utxo"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x75, 0x74, 0x78, 0x6f];
@@ -42,12 +43,12 @@ pub fn get(
         }))
 }
 
-pub fn add<DB>(
+pub fn add<V: Borrow<Value>, DB>(
     db: &Transaction<'_, DB>,
-    rows: impl Iterator<Item = (Key, Value)>,
+    rows: impl Iterator<Item = (Key, V)>,
 ) -> Result<(), StoreError> {
     for (input, output) in rows {
-        db.put(as_key(&PREFIX, input), as_value(output))
+        db.put(as_key(&PREFIX, input), as_value(output.borrow()))
             .map_err(|err| StoreError::Internal(err.into()))?;
     }
 
