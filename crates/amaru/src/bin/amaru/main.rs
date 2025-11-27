@@ -12,20 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::observability;
 use amaru::observability::{
-    DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL,
+    self, DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL,
+    OpenTelemetryConfig,
 };
+use amaru::panic::panic_handler;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
-use observability::OpenTelemetryConfig;
-use panic::panic_handler;
 use std::sync::LazyLock;
 use tracing::info;
 
 mod cmd;
-mod metrics;
-mod panic;
 mod pid;
 
 mod built_info {
