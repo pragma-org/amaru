@@ -615,7 +615,7 @@ mod tests {
     use super::super::test_vectors::{self, TestVector};
     use super::*;
     use amaru_kernel::network::NetworkName;
-    use amaru_kernel::{MintedTx, OriginalHash, ScriptPurpose, normalize_redeemers, to_cbor};
+    use amaru_kernel::{MintedTx, OriginalHash, normalize_redeemers, to_cbor};
     use test_case::test_case;
 
     macro_rules! fixture {
@@ -654,31 +654,6 @@ mod tests {
         let produced_contexts = redeemers
             .iter()
             .map(|redeemer| {
-                let datum = if let ScriptPurpose::Spend = redeemer.tag {
-                    let input = transaction
-                        .transaction_body
-                        .inputs
-                        .get(redeemer.index as usize)
-                        .expect("invalid redeemer index");
-                    match &test_vector
-                        .input
-                        .utxo
-                        .get(input)
-                        .expect("missing input in utxo set")
-                        .datum
-                    {
-                        amaru_kernel::MemoizedDatum::None => None,
-                        amaru_kernel::MemoizedDatum::Hash(hash) => {
-                            Some(PlutusData::BoundedBytes(hash.to_vec().into()))
-                        }
-                        amaru_kernel::MemoizedDatum::Inline(memoized_plutus_data) => {
-                            Some(memoized_plutus_data.as_ref().clone())
-                        }
-                    }
-                } else {
-                    None
-                };
-
                 let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
                     &transaction.transaction_body,
@@ -691,8 +666,7 @@ mod tests {
                 )
                 .unwrap();
 
-                let script_context =
-                    ScriptContext::new(&tx_info, redeemer, datum.as_ref()).unwrap();
+                let script_context = ScriptContext::new(&tx_info, redeemer).unwrap();
                 let plutus_data = to_cbor(
                     &<ScriptContext<'_> as ToPlutusData<3>>::to_plutus_data(&script_context)
                         .expect("failed to encode as PlutusData"),
