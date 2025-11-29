@@ -14,6 +14,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 cbor4ii.workspace = true
 either.workspace = true
+erased-serde.workspace = true
 futures-util.workspace = true
 parking_lot.workspace = true
 serde = { workspace = true, features = ["derive", "alloc", "rc"] }

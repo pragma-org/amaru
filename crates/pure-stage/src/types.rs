@@ -74,9 +74,20 @@ where
 }
 
 impl dyn SendData {
+    pub fn is<T: SendData>(&self) -> bool {
+        (self as &dyn Any).is::<T>()
+    }
+
     /// Cast a message to a given concrete type.
-    pub fn cast_ref<T: SendData>(&self) -> Option<&T> {
-        (self as &dyn Any).downcast_ref::<T>()
+    pub fn cast_ref<T: SendData>(&self) -> anyhow::Result<&T> {
+        (self as &dyn Any).downcast_ref::<T>().ok_or_else(|| {
+            anyhow::anyhow!(
+                "message type error: expected {}, got {:?} ({})",
+                type_name::<T>(),
+                self,
+                self.typetag_name()
+            )
+        })
     }
 
     fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
@@ -120,14 +131,7 @@ fn deserialize_value<T>(this: &dyn SendData) -> anyhow::Result<T>
 where
     T: SendData + serde::de::DeserializeOwned,
 {
-    let Some(this) = this.cast_ref::<SendDataValue>() else {
-        anyhow::bail!(
-            "message type error: expected {}, got {:?} ({})",
-            type_name::<T>(),
-            this,
-            this.typetag_name()
-        )
-    };
+    let this = this.cast_ref::<SendDataValue>()?;
     let bytes = to_cbor(&this.value);
     from_slice::<T>(&bytes).context(format!(
         "deserializing `{}` from {:?}",
@@ -167,6 +171,12 @@ impl Name {
 impl AsRef<str> for Name {
     fn as_ref(&self) -> &str {
         self.as_str()
+    }
+}
+
+impl AsRef<Name> for Name {
+    fn as_ref(&self) -> &Name {
+        self
     }
 }
 

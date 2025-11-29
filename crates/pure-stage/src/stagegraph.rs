@@ -94,6 +94,17 @@ impl<Resp: SendData> CallRef<Resp> {
             _ph: PhantomData,
         }
     }
+
+    /// Test facility for creating a fake call reference.
+    pub fn fake(target: impl AsRef<str>, id: u64, deadline: Instant) -> Self {
+        Self {
+            target: target.as_ref().into(),
+            id: CallId(id),
+            deadline,
+            response: oneshot::channel().0,
+            _ph: PhantomData,
+        }
+    }
 }
 
 /// A factory for processing network stages and their wiring.

@@ -88,4 +88,12 @@ impl Blocked {
             _ => panic!("expected breakpoint `{}`, got {:?}", name.as_ref(), self),
         }
     }
+
+    /// Assert that the blocking reason is `Terminated` by the given name.
+    pub fn assert_terminated(self, name: impl AsRef<str>) {
+        match self {
+            Blocked::Terminated(n) if n.as_str() == name.as_ref() => {}
+            _ => panic!("expected terminated `{}`, got {:?}", name.as_ref(), self),
+        }
+    }
 }

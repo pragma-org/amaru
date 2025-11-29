@@ -36,9 +36,12 @@ pub use output::OutputEffect;
 pub use receiver::Receiver;
 pub use resources::Resources;
 pub use sender::Sender;
+pub use serde::{
+    serialize_external_effect::register_effect_deserializer,
+    serialize_send_data::register_data_deserializer,
+};
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning};
 pub use time::{Clock, EPOCH, Instant};
 pub use types::{BoxFuture, Name, SendData, TryInStage};
-
 pub use typetag;

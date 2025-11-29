@@ -811,9 +811,9 @@ impl Effect {
     }
 
     /// Assert that this effect is an external effect.
-    pub fn assert_external<Msg, Eff: ExternalEffect + PartialEq>(
+    pub fn assert_external<Eff: ExternalEffect + PartialEq>(
         &self,
-        at_stage: impl AsRef<StageRef<Msg>>,
+        at_stage: impl AsRef<Name>,
         effect: &Eff,
     ) {
         let at_stage = at_stage.as_ref();
@@ -821,34 +821,33 @@ impl Effect {
             Effect::External {
                 at_stage: a,
                 effect: e,
-            } if a == at_stage.name() && &**e as &dyn SendData == effect as &dyn SendData => {}
+            } if a == at_stage && &**e as &dyn SendData == effect as &dyn SendData => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for External at `{}` with effect {effect:?}",
-                at_stage.name()
+                at_stage
             ),
         }
     }
 
     /// Extract the external effect from this effect.
-    pub fn extract_external<Eff: ExternalEffectAPI + PartialEq, Msg>(
+    pub fn extract_external<Eff: ExternalEffectAPI + PartialEq>(
         self,
-        at_stage: impl AsRef<StageRef<Msg>>,
-        effect: &Eff,
+        at_stage: impl AsRef<Name>,
     ) -> Box<Eff> {
         let at_stage = at_stage.as_ref();
         match self {
             Effect::External {
                 at_stage: a,
                 effect: e,
-            } if &a == at_stage.name() => {
+            } if &a == at_stage =>
+            {
                 #[expect(clippy::unwrap_used)]
-                let e = e.cast::<Eff>().unwrap();
-                assert_eq!(&*e, effect);
-                e
+                e.cast::<Eff>().unwrap()
             }
             _ => panic!(
-                "unexpected effect {self:?}\n  looking for External at `{}` with effect {effect:?}",
-                at_stage.name()
+                "unexpected effect {self:?}\n  looking for External at `{}` with effect {}",
+                at_stage,
+                type_name::<Eff>()
             ),
         }
     }
@@ -893,6 +892,25 @@ impl Effect {
                 "unexpected effect {self:?}\n  looking for WireStage at `{}` with name `{}`",
                 at_stage.name(),
                 name.as_ref()
+            ),
+        }
+    }
+
+    pub fn extract_wire_stage<Msg, St: SendData + PartialEq>(
+        &self,
+        at_stage: impl AsRef<StageRef<Msg>>,
+        initial_state: St,
+    ) -> &Name {
+        let at_stage = at_stage.as_ref();
+        match self {
+            Effect::WireStage {
+                at_stage: a,
+                name: n,
+                initial_state: i,
+            } if a == at_stage.name() && i.cast_ref::<St>().unwrap() == &initial_state => n,
+            _ => panic!(
+                "unexpected effect {self:?}\n  looking for WireStage at `{}` with initial state {initial_state:?}",
+                at_stage.name()
             ),
         }
     }

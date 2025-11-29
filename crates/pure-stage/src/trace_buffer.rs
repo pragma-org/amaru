@@ -245,4 +245,35 @@ impl TraceBuffer {
     pub fn dropped_messages(&self) -> usize {
         self.dropped_messages
     }
+
+    pub fn drop_guard(this: &Arc<Mutex<Self>>) -> DropGuard {
+        DropGuard {
+            buffer: this.clone(),
+            active: true,
+        }
+    }
+}
+
+pub struct DropGuard {
+    buffer: Arc<Mutex<TraceBuffer>>,
+    active: bool,
+}
+
+impl DropGuard {
+    pub fn defuse(mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for DropGuard {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        eprintln!("Dropping trace buffer");
+        for entry in self.buffer.lock().iter() {
+            eprintln!("{:?}", from_slice::<TraceEntry>(entry).unwrap());
+        }
+        eprintln!("Dropped trace buffer");
+    }
 }

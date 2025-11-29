@@ -69,6 +69,12 @@ impl<Msg> AsRef<StageRef<Msg>> for StageRef<Msg> {
     }
 }
 
+impl<Msg> AsRef<Name> for StageRef<Msg> {
+    fn as_ref(&self) -> &Name {
+        &self.name
+    }
+}
+
 impl<Msg> StageRef<Msg> {
     pub(crate) fn new(name: Name) -> Self {
         Self {

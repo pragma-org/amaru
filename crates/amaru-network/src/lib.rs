@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod acto_connection;
+pub mod bytes;
 pub mod chain_sync_client;
 pub mod effects;
 pub mod mux;

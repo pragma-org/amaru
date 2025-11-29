@@ -28,6 +28,7 @@ cbor-data = "0.8.19"
 cbor4ii = { version = "1.1.1", features = ["serde1", "use_std"] }
 clap = { version = "4.5.48", features = ["derive", "env"] }
 either = "1.15"
+erased-serde = "0.4.9"
 futures-util = "0.3.31"
 gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
 hex = "0.4.3"

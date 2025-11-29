@@ -16,7 +16,8 @@ use super::{
     EffectBox, Instant, StageData, StageEffect, StageResponse, StageState, inputs::Inputs,
 };
 use crate::{
-    BoxFuture, CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
+    BoxFuture, CallId, Effect, ExternalEffect, ExternalEffectAPI, Name, Resources, SendData,
+    StageRef,
     simulation::{
         Blocked, SendBlock,
         resume::{
@@ -637,14 +638,16 @@ impl SimulationRunning {
         &mut self,
         from: impl AsRef<StageRef<Msg1>>,
         to: impl AsRef<StageRef<Msg2>>,
-        msg: Msg2,
+        msg: Option<Msg2>,
     ) -> anyhow::Result<()> {
-        let data = self
-            .stages
-            .get_mut(to.as_ref().name())
-            .expect("stage ref exists, so stage must exist");
-        if post_message(data, self.mailbox_size, Box::new(msg)).is_err() {
-            anyhow::bail!("mailbox is full while resuming send");
+        if let Some(msg) = msg {
+            let data = self
+                .stages
+                .get_mut(to.as_ref().name())
+                .expect("stage ref exists, so stage must exist");
+            if post_message(data, self.mailbox_size, Box::new(msg)).is_err() {
+                anyhow::bail!("mailbox is full while resuming send");
+            }
         }
 
         let data = self
@@ -827,16 +830,31 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::External`].
-    pub fn resume_external<Msg>(
+    pub fn resume_external_box(
         &mut self,
-        at_stage: impl AsRef<StageRef<Msg>>,
+        at_stage: impl AsRef<Name>,
         result: Box<dyn SendData>,
     ) -> anyhow::Result<()> {
         let data = self
             .stages
-            .get_mut(at_stage.as_ref().name())
+            .get_mut(at_stage.as_ref())
             .expect("stage ref exists, so stage must exist");
         resume_external_internal(data, result, &mut |name, response| {
+            self.runnable.push_back((name, response));
+        })
+    }
+
+    /// Resume an [`Effect::External`].
+    pub fn resume_external<Eff: ExternalEffectAPI>(
+        &mut self,
+        at_stage: impl AsRef<Name>,
+        result: Eff::Response,
+    ) -> anyhow::Result<()> {
+        let data = self
+            .stages
+            .get_mut(at_stage.as_ref())
+            .expect("stage ref exists, so stage must exist");
+        resume_external_internal(data, Box::new(result), &mut |name, response| {
             self.runnable.push_back((name, response));
         })
     }
@@ -1116,7 +1134,7 @@ fn simulation_invariants() {
                 // resume_send will advance the stage to await the response
                 matches!(eff, Effect::Send { .. }).then(|| CallId::from_u64(1))
             }),
-            Box::new(|sim, stage, _id| sim.resume_send(stage, stage, Msg(None))),
+            Box::new(|sim, stage, _id| sim.resume_send(stage, stage, Some(Msg(None)))),
             "resume_send",
         ),
         (

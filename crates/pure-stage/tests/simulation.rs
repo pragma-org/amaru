@@ -54,17 +54,18 @@ fn basic() {
     running.enqueue_msg(&basic, [1]);
     running.resume_receive(&basic).unwrap();
     running.effect().assert_send(&basic, &output, 2u32);
-    running.resume_send(&basic, &output, 2u32).unwrap();
+    running.resume_send(&basic, &output, Some(2u32)).unwrap();
     running.effect().assert_receive(&basic);
 
     running.resume_receive(&output).unwrap();
     let ext = running
         .effect()
-        .extract_external(&output, &OutputEffect::fake(output.name().clone(), 2u32).0);
+        .extract_external::<OutputEffect<u32>>(&output);
+    assert_eq!(&*ext, &OutputEffect::fake(output.name().clone(), 2u32).0);
     let result = rt.block_on(ext.run(Resources::default()));
     // this check is also done when resuming, just want to show how to do it here
     assert_eq!(&*result, &() as &dyn SendData);
-    running.resume_external(&output, result).unwrap();
+    running.resume_external_box(&output, result).unwrap();
     running.effect().assert_receive(&output);
 
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
@@ -403,7 +404,8 @@ fn call() {
     );
 
     let cr2 = cr.dummy();
-    sim.resume_send(&caller, &callee, Msg3(msg, cr)).unwrap();
+    sim.resume_send(&caller, &callee, Some(Msg3(msg, cr)))
+        .unwrap();
     // still not runnable, now waiting for response
     sim.try_effect().unwrap_err().assert_busy([caller.name()]);
 
