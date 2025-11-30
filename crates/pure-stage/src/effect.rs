@@ -1014,3 +1014,44 @@ impl PartialEq for Effect {
         }
     }
 }
+
+/// A runner for external effects that does not use the current thread.
+///
+/// This resource will be used by [`SimulationRunning`] when set, otherwise it will
+/// use the Tokio runtime handle’s `block_on` method. Note that the latter panics
+/// if the simulation step is invoked from within a Tokio thread.
+#[derive(Clone)]
+pub struct EffectRunner {
+    tx: std::sync::mpsc::Sender<BoxFuture<'static, ()>>,
+}
+
+impl EffectRunner {
+    pub fn new() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            while let Ok(future) = rx.recv() {
+                rt.block_on(future);
+            }
+        });
+        Self { tx }
+    }
+
+    pub fn run<F>(&self, future: F) -> F::Output
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        self.tx
+            .send(Box::pin(async move {
+                let result = future.await;
+                tx.send(result).unwrap();
+            }))
+            .expect("receiver does still exist");
+        rx.recv().unwrap()
+    }
+}

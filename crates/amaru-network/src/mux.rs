@@ -586,46 +586,86 @@ mod tests {
     use crate::{
         effects::{RecvEffect, SendEffect},
         protocol::{Initiator, PROTO_HANDSHAKE, PROTO_N2C_CHAIN_SYNC, PROTO_N2N_BLOCK_FETCH},
+        socket::ConnectionResource,
     };
     use pure_stage::{
-        Effect, Instant, Name, StageGraph,
+        Effect, EffectRunner, Instant, Name, SendData, StageGraph,
         simulation::{Blocked, SimulationBuilder, SimulationRunning},
         trace_buffer::TraceBuffer,
     };
-    use std::time::Duration;
+    use std::{thread, time::Duration};
+    use tokio::{
+        io::AsyncReadExt,
+        net::{TcpListener, TcpStream},
+        runtime::Handle,
+        time::timeout,
+    };
 
     /// Tests with real async behaviour unfortunately need real wall clock sleep time to allow
     /// things to propagate or assert that something doesn’t get propagated. If tests below are
     /// flaky then this value may be too small for the machine running the test.
     const SAFE_SLEEP: Duration = Duration::from_millis(400);
+    const TIMEOUT: Duration = Duration::from_secs(1);
 
-    // impl Protocol for TestProtocol {
-    //     fn try_consume(&mut self, buffer: &mut BytesMut) -> anyhow::Result<bool> {
-    //         #[allow(clippy::len_zero)]
-    //         if buffer.len() >= 1 {
-    //             let byte = buffer.get_u8();
-    //             if (1..=10).contains(&byte) {
-    //                 let (bytes, send, _) = &mut *self.0.lock().unwrap();
-    //                 bytes.push(byte);
-    //                 if let Some(tx) = send.take() {
-    //                     tracing::debug!(bytes = bytes.len(), "sending drained bytes");
-    //                     tx.send(mem::take(bytes)).unwrap();
-    //                 } else {
-    //                     tracing::debug!(bytes = bytes.len(), "keeping bytes");
-    //                 }
-    //                 Ok(true)
-    //             } else {
-    //                 anyhow::bail!("Invalid byte value: {}, expected 1-10", byte)
-    //             }
-    //         } else {
-    //             Ok(false)
-    //         }
-    //     }
+    async fn t<F: Future>(f: F) -> F::Output {
+        timeout(TIMEOUT, f).await.unwrap()
+    }
 
-    //     fn max_buffer(&self) -> usize {
-    //         self.0.lock().unwrap().2
-    //     }
-    // }
+    #[tokio::test]
+    async fn test_tcp() {
+        let _guard = pure_stage::register_data_deserializer::<MuxMessage>();
+        let _guard = pure_stage::register_data_deserializer::<DebugBytes>();
+        let _guard = pure_stage::register_effect_deserializer::<SendEffect>();
+        let _guard = pure_stage::register_effect_deserializer::<RecvEffect>();
+        let _guard = pure_stage::register_data_deserializer::<State>();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server_addr = listener.local_addr().unwrap();
+        let server_task = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+
+        let network = ConnectionResource::new(65536);
+        let conn_id = t(network.connect(vec![server_addr])).await.unwrap();
+        let mut tcp = t(server_task).await.unwrap();
+
+        let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
+        let _guard = TraceBuffer::drop_guard(&trace_buffer);
+        let mut graph = SimulationBuilder::default().with_trace_buffer(trace_buffer);
+
+        let mux = graph.stage("mux", super::stage);
+        let mux = graph.wire_up(
+            mux,
+            State::new(conn_id, &[(PROTO_N2C_CHAIN_SYNC.erase(), 0)]),
+        );
+
+        let (output, mut rx) = graph.output::<Bytes>("output", 10);
+        let input = graph.input(&mux);
+
+        graph.resources().put(network);
+
+        let mut running = graph.run(Handle::current().clone());
+        let join_handle = thread::spawn(move || {
+            loop {
+                let Blocked::Terminated(name) = running.run_until_blocked() else {
+                    continue;
+                };
+                break name;
+            }
+        });
+
+        let (cr, cr_rx) = CallRef::channel();
+        input
+            .send(MuxMessage::Send(
+                PROTO_N2C_CHAIN_SYNC.erase(),
+                Bytes::copy_from_slice(&[1, 24, 33]).into(),
+                cr,
+            ))
+            .await
+            .unwrap();
+        let mut buf = [0u8; 11];
+        assert_eq!(t(tcp.read_exact(&mut buf)).await.unwrap(), 11);
+        t(cr_rx).await.unwrap().cast::<Sent>().unwrap();
+        assert_eq!(buf, [0u8; 11]);
+    }
 
     // async fn setup_tcp() -> (
     //     AcTokio,

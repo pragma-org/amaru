@@ -30,7 +30,8 @@ pub mod trace_buffer;
 mod types;
 
 pub use effect::{
-    Effect, Effects, ExternalEffect, ExternalEffectAPI, StageResponse, UnknownExternalEffect,
+    Effect, EffectRunner, Effects, ExternalEffect, ExternalEffectAPI, StageResponse,
+    UnknownExternalEffect,
 };
 pub use output::OutputEffect;
 pub use receiver::Receiver;

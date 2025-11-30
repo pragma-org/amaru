@@ -16,8 +16,8 @@ use super::{
     EffectBox, Instant, StageData, StageEffect, StageResponse, StageState, inputs::Inputs,
 };
 use crate::{
-    BoxFuture, CallId, Effect, ExternalEffect, ExternalEffectAPI, Name, Resources, SendData,
-    StageRef,
+    BoxFuture, CallId, Effect, EffectRunner, ExternalEffect, ExternalEffectAPI, Name, Resources,
+    SendData, StageRef,
     simulation::{
         Blocked, SendBlock,
         resume::{
@@ -537,8 +537,15 @@ impl SimulationRunning {
                         }
                     }
                 }
-                let result =
-                    result.unwrap_or_else(|| self.rt.block_on(effect.run(self.resources.clone())));
+                let result = result.unwrap_or_else(|| {
+                    if let Ok(res) = self.resources.get::<EffectRunner>() {
+                        let runner = res.clone();
+                        drop(res);
+                        runner.run(effect.run(self.resources.clone()))
+                    } else {
+                        self.rt.block_on(effect.run(self.resources.clone()))
+                    }
+                });
                 let data = self.stages.get_mut(&at_stage).unwrap();
                 resume_external_internal(data, result, run)
                     .expect("external effect is always runnable");
