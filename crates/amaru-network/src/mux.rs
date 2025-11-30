@@ -588,15 +588,16 @@ mod tests {
         protocol::{Initiator, PROTO_HANDSHAKE, PROTO_N2C_CHAIN_SYNC, PROTO_N2N_BLOCK_FETCH},
         socket::ConnectionResource,
     };
+    use futures_util::StreamExt;
     use pure_stage::{
-        Effect, EffectRunner, Instant, Name, SendData, StageGraph,
+        Effect, Instant, StageGraph,
         simulation::{Blocked, SimulationBuilder, SimulationRunning},
         trace_buffer::TraceBuffer,
     };
-    use std::{thread, time::Duration};
+    use std::{fmt, thread, time::Duration};
     use tokio::{
-        io::AsyncReadExt,
-        net::{TcpListener, TcpStream},
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
         runtime::Handle,
         time::timeout,
     };
@@ -606,6 +607,13 @@ mod tests {
     /// flaky then this value may be too small for the machine running the test.
     const SAFE_SLEEP: Duration = Duration::from_millis(400);
     const TIMEOUT: Duration = Duration::from_secs(1);
+
+    async fn s<F: Future>(f: F)
+    where
+        F::Output: fmt::Debug,
+    {
+        timeout(SAFE_SLEEP, f).await.unwrap_err();
+    }
 
     async fn t<F: Future>(f: F) -> F::Output {
         timeout(TIMEOUT, f).await.unwrap()
@@ -628,7 +636,7 @@ mod tests {
         let mut tcp = t(server_task).await.unwrap();
 
         let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
-        let _guard = TraceBuffer::drop_guard(&trace_buffer);
+        let trace_guard = TraceBuffer::drop_guard(&trace_buffer);
         let mut graph = SimulationBuilder::default().with_trace_buffer(trace_buffer);
 
         let mux = graph.stage("mux", super::stage);
@@ -643,12 +651,24 @@ mod tests {
         graph.resources().put(network);
 
         let mut running = graph.run(Handle::current().clone());
+        let rt = Handle::current().clone();
         let join_handle = thread::spawn(move || {
             loop {
-                let Blocked::Terminated(name) = running.run_until_blocked() else {
-                    continue;
+                let blocked = running.run_until_blocked();
+                eprintln!("{blocked:?}");
+                match blocked {
+                    Blocked::Idle => rt.block_on(running.await_external_input()),
+                    Blocked::Sleeping { .. } => unreachable!(),
+                    Blocked::Deadlock(send_blocks) => panic!("deadlock: {:?}", send_blocks),
+                    Blocked::Breakpoint(..) => unreachable!(),
+                    Blocked::Busy {
+                        external_effects, ..
+                    } => {
+                        assert!(external_effects > 0);
+                        rt.block_on(running.await_external_effect());
+                    }
+                    Blocked::Terminated(name) => return name,
                 };
-                break name;
             }
         });
 
@@ -664,267 +684,41 @@ mod tests {
         let mut buf = [0u8; 11];
         assert_eq!(t(tcp.read_exact(&mut buf)).await.unwrap(), 11);
         t(cr_rx).await.unwrap().cast::<Sent>().unwrap();
-        assert_eq!(buf, [0u8; 11]);
+        assert_eq!(&buf[4..], [0, 5, 0, 3, 1, 24, 33]);
+
+        input
+            .send(MuxMessage::Register {
+                protocol: PROTO_N2C_CHAIN_SYNC.erase(),
+                frame: Frame::OneCborItem,
+                handler: output,
+                max_buffer: 100,
+            })
+            .await
+            .unwrap();
+
+        t(tcp.write_all(&buf)).await.unwrap();
+        t(tcp.flush()).await.unwrap();
+        assert_eq!(t(rx.next()).await.unwrap(), Bytes::copy_from_slice(&[1]));
+        s(rx.next()).await;
+        input
+            .send(MuxMessage::WantNext(PROTO_N2C_CHAIN_SYNC.erase()))
+            .await
+            .unwrap();
+        assert_eq!(
+            t(rx.next()).await.unwrap(),
+            Bytes::copy_from_slice(&[24, 33])
+        );
+
+        // wrong protocol ID
+        buf[5] += 1;
+        t(tcp.write_all(&buf)).await.unwrap();
+        t(tcp.flush()).await.unwrap();
+        // MUST NOT block this thread by calling .join() directly, because then I/O driver won’t work for the simulation
+        let joined = Handle::current().spawn_blocking(move || join_handle.join().unwrap());
+        assert_eq!(&t(joined).await.unwrap(), mux.name());
+
+        trace_guard.defuse();
     }
-
-    // async fn setup_tcp() -> (
-    //     AcTokio,
-    //     Box<TestProtocol>,
-    //     TcpStream,
-    //     SupervisionRef<MuxMessage, TokioJoinHandle<anyhow::Result<()>>>,
-    // ) {
-    //     tracing_subscriber::fmt()
-    //         .with_test_writer()
-    //         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-    //         .try_init()
-    //         .ok();
-
-    //     // Create a TCP listener on an ephemeral port
-    //     tracing::info!("binding to 127.0.0.1:0");
-    //     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    //     let server_addr = listener.local_addr().unwrap();
-
-    //     // Spawn server task
-    //     let runtime = AcTokio::from_handle("test_server", Handle::current());
-    //     let test_proto = Box::new(TestProtocol::new());
-    //     let server_task = tokio::spawn(async move { listener.accept().await.unwrap().0 });
-
-    //     // Create client connection
-    //     let client_stream = TcpStream::connect(server_addr).await.unwrap();
-    //     let (reader, writer) = server_task.await.unwrap().into_split();
-
-    //     let cell = runtime.spawn_actor("server", |cell| {
-    //         actor(cell, Box::pin(writer), Box::pin(reader))
-    //     });
-
-    //     // Register test protocol for protocol ID 5 (PROTO_N2C_CHAIN_SYNC)
-    //     let proto_id = PROTO_N2C_CHAIN_SYNC.erase();
-    //     cell.me
-    //         .send(MuxMessage::Register(proto_id, test_proto.clone()));
-
-    //     (runtime, test_proto, client_stream, cell)
-    // }
-
-    // fn setup_duplex(
-    //     buffer: usize,
-    // ) -> (
-    //     AcTokio,
-    //     Box<TestProtocol>,
-    //     DuplexStream,
-    //     SupervisionRef<MuxMessage, TokioJoinHandle<anyhow::Result<()>>>,
-    // ) {
-    //     tracing_subscriber::fmt()
-    //         .with_test_writer()
-    //         .with_max_level(Level::TRACE)
-    //         .try_init()
-    //         .ok();
-
-    //     let runtime = AcTokio::from_handle("test_server", Handle::current());
-    //     let test_proto = Box::new(TestProtocol::new());
-    //     let (tester, muxer) = duplex(buffer);
-    //     let (reader, writer) = split(muxer);
-
-    //     let cell = runtime.spawn_actor("server", |cell| {
-    //         actor(cell, Box::pin(writer), Box::pin(reader))
-    //     });
-
-    //     // Register test protocol for protocol ID 5 (PROTO_N2C_CHAIN_SYNC)
-    //     let proto_id = PROTO_N2C_CHAIN_SYNC.erase();
-    //     cell.me
-    //         .send(MuxMessage::Register(proto_id, test_proto.clone()));
-
-    //     (runtime, test_proto, tester, cell)
-    // }
-
-    // async fn t<F, T>(f: F) -> anyhow::Result<T>
-    // where
-    //     F: Future<Output = T>,
-    // {
-    //     Ok(timeout(SAFE_SLEEP, f).await?)
-    // }
-
-    // async fn te<F, T, E>(f: F) -> anyhow::Result<T>
-    // where
-    //     F: Future<Output = Result<T, E>>,
-    //     E: std::error::Error + Send + Sync + 'static,
-    // {
-    //     Ok(timeout(SAFE_SLEEP, f).await??)
-    // }
-
-    // async fn to<F, T>(f: F) -> anyhow::Result<T>
-    // where
-    //     F: Future<Output = Option<T>>,
-    // {
-    //     timeout(SAFE_SLEEP, f)
-    //         .await?
-    //         .ok_or_else(|| anyhow::anyhow!("empty Option"))
-    // }
-
-    // #[track_caller]
-    // fn assert_elapsed<T: std::fmt::Debug>(err: anyhow::Result<T>) {
-    //     err.unwrap_err().downcast::<Elapsed>().unwrap();
-    // }
-
-    // async fn send(proto_id: ProtocolId<Erased>, payload: &[u8], client_stream: &mut TcpStream) {
-    //     let payload = Bytes::copy_from_slice(payload);
-    //     let header = Header::new(proto_id, &payload).to_vec();
-    //     client_stream.write_all(&header).await.unwrap();
-    //     client_stream.write_all(&payload).await.unwrap();
-    // }
-
-    // #[tokio::test]
-    // async fn test_tcp_connection_with_protocol_5() {
-    //     let (_runtime, test_proto, mut client_stream, cell) = setup_tcp().await;
-
-    //     let recv = test_proto.next();
-    //     send(PROTO_N2C_CHAIN_SYNC.erase(), &[1], &mut client_stream).await;
-    //     assert_eq!(recv.await.unwrap(), vec![1u8]);
-
-    //     // test flow control: block until want next
-    //     let mut recv = test_proto.next();
-    //     send(PROTO_N2C_CHAIN_SYNC.erase(), &[2], &mut client_stream).await;
-    //     timeout(SAFE_SLEEP, &mut recv).await.unwrap_err();
-
-    //     cell.me
-    //         .send(MuxMessage::WantNext(PROTO_N2C_CHAIN_SYNC.erase()));
-    //     assert_eq!(recv.await.unwrap(), vec![2u8]);
-
-    //     // test flow control: send immediately if next already wanted
-    //     cell.me
-    //         .send(MuxMessage::WantNext(PROTO_N2C_CHAIN_SYNC.erase()));
-    //     let recv = test_proto.next();
-    //     send(PROTO_N2C_CHAIN_SYNC.erase(), &[3], &mut client_stream).await;
-    //     assert_eq!(recv.await.unwrap(), vec![3u8]);
-    // }
-
-    // #[tokio::test]
-    // async fn test_tcp_wrong_message() {
-    //     let (_runtime, test_proto, mut client_stream, cell) = setup_tcp().await;
-
-    //     send(PROTO_N2C_CHAIN_SYNC.erase(), &[11], &mut client_stream).await;
-    //     let err = cell.handle.join().await.unwrap().unwrap_err();
-    //     let msg = format!("{:#}", err);
-    //     assert!(
-    //         msg.contains("protocol 5"),
-    //         "error didn't contain \"protocol 5\": {}",
-    //         msg
-    //     );
-    //     assert!(
-    //         msg.contains("Invalid byte") && msg.contains("11"),
-    //         "error didn't contain \"Invalid byte ... 11\": {}",
-    //         msg
-    //     );
-    //     assert_eq!(test_proto.drain(), vec![0u8; 0]);
-    // }
-
-    // #[tokio::test]
-    // async fn test_tcp_wrong_protocol() {
-    //     let (_runtime, test_proto, mut client_stream, cell) = setup_tcp().await;
-
-    //     send(PROTO_N2N_BLOCK_FETCH.erase(), &[1], &mut client_stream).await;
-    //     let err = cell.handle.join().await.unwrap().unwrap_err();
-    //     let msg = format!("{:#}", err);
-    //     assert!(
-    //         msg.contains("protocol 3"),
-    //         "error didn't contain \"protocol 3\": {}",
-    //         msg
-    //     );
-    //     assert_eq!(test_proto.drain(), vec![0u8; 0]);
-    // }
-
-    // #[tokio::test]
-    // async fn test_tcp_buffer_protocol() {
-    //     let (_runtime, test_proto, mut client_stream, cell) = setup_tcp().await;
-    //     test_proto.set_buffer(1);
-
-    //     cell.me
-    //         .send(MuxMessage::Buffer(PROTO_N2N_BLOCK_FETCH.erase(), 1));
-    //     let mut recv = test_proto.next();
-    //     send(PROTO_N2N_BLOCK_FETCH.erase(), &[1], &mut client_stream).await;
-    //     timeout(SAFE_SLEEP, &mut recv).await.unwrap_err();
-
-    //     cell.me.send(MuxMessage::Register(
-    //         PROTO_N2N_BLOCK_FETCH.erase(),
-    //         test_proto.clone(),
-    //     ));
-    //     assert_eq!(recv.await.unwrap(), vec![1u8]);
-
-    //     // test discarding of messages (which we need after demoting a hot peer to warm)
-    //     let mut recv = test_proto.next();
-    //     send(PROTO_N2N_BLOCK_FETCH.erase(), &[1], &mut client_stream).await;
-    //     timeout(SAFE_SLEEP, &mut recv).await.unwrap_err();
-    //     // this discards the message buffered above
-    //     cell.me
-    //         .send(MuxMessage::Buffer(PROTO_N2N_BLOCK_FETCH.erase(), 0));
-    //     send(PROTO_N2N_BLOCK_FETCH.erase(), &[1, 2], &mut client_stream).await;
-    //     timeout(SAFE_SLEEP, &mut recv).await.unwrap_err();
-
-    //     cell.me.send(MuxMessage::Register(
-    //         PROTO_N2N_BLOCK_FETCH.erase(),
-    //         test_proto.clone(),
-    //     ));
-    //     // consume the implied WantNext
-    //     send(PROTO_N2N_BLOCK_FETCH.erase(), &[4], &mut client_stream).await;
-    //     assert_eq!(recv.await.unwrap(), vec![4u8]);
-
-    //     let mut recv = test_proto.next();
-    //     send(PROTO_N2N_BLOCK_FETCH.erase(), &[5], &mut client_stream).await;
-    //     // filling the buffer should work
-    //     timeout(SAFE_SLEEP, &mut recv).await.unwrap_err();
-
-    //     // exceeding the buffer should not
-    //     send(PROTO_N2N_BLOCK_FETCH.erase(), &[6, 7], &mut client_stream).await;
-    //     let err = cell.handle.join().await.unwrap().unwrap_err();
-    //     let msg = format!("{:#}", err);
-    //     assert!(
-    //         msg.contains("protocol 3")
-    //             && msg.contains("size 1")
-    //             && msg.contains("size 2")
-    //             && msg.contains("limit (1)"),
-    //         "error didn't contain \"protocol 3...size 2...size 1...limit (1)\": {}",
-    //         msg
-    //     );
-    //     // the TestProtocol hasn’t received any of the data
-    //     assert_eq!(test_proto.drain(), vec![0u8; 0]);
-    // }
-
-    // #[tokio::test]
-    // async fn test_tcp_send() {
-    //     let (runtime, _test_proto, mut client_stream, cell) = setup_tcp().await;
-
-    //     let (tx, mut rx) = mpsc::channel(10);
-    //     let tester = runtime
-    //         .spawn_actor("tester", async move |mut cell: ActoCell<Sent, _, ()>| {
-    //             let mut count = 0usize;
-    //             while let ActoInput::Message(_) = cell.recv().await {
-    //                 count += 1;
-    //                 tx.send(count).await.unwrap();
-    //             }
-    //         })
-    //         .me;
-
-    //     let bytes = &[1, 2, 3][..];
-    //     cell.me.send(MuxMessage::Send(
-    //         PROTO_N2C_CHAIN_SYNC.erase(),
-    //         Bytes::copy_from_slice(bytes),
-    //         tester,
-    //     ));
-
-    //     assert_eq!(rx.recv().await.unwrap(), 1);
-    //     let mut buffer = vec![0; 11];
-    //     client_stream
-    //         .read_exact(buffer.as_mut_slice())
-    //         .await
-    //         .unwrap();
-
-    //     let mut buffer = Cursor::new(buffer);
-    //     let header = Header::read(&mut buffer).unwrap();
-    //     assert_eq!(header.proto_id, PROTO_N2C_CHAIN_SYNC.erase());
-    //     assert_eq!(usize::from(header.length), bytes.len());
-    //     assert_eq!(buffer.position(), HEADER_LEN as u64);
-    //     let buffer = buffer.into_inner();
-    //     assert_eq!(&buffer[HEADER_LEN..], bytes);
-    // }
 
     #[test]
     fn test_muxing() {

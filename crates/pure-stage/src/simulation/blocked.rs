@@ -26,8 +26,12 @@ pub enum Blocked {
     /// The given breakpoint was hit.
     Breakpoint(Name, Effect),
     /// The given stages are suspended on effects other than [`Effect::Receive`]
-    /// while none are suspended on [`Effect::Send`].
-    Busy(Vec<Name>),
+    /// while none are suspended on [`Effect::Send`]. The given number of
+    /// external effects are currently unresolved.
+    Busy {
+        external_effects: usize,
+        stages: Vec<Name>,
+    },
     /// The given stage has terminated.
     Terminated(Name),
 }
@@ -70,15 +74,26 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Busy` by at least the given stages.
-    pub fn assert_busy(&self, names: impl IntoIterator<Item = impl AsRef<str>>) {
+    pub fn assert_busy(&self, names: impl IntoIterator<Item = impl AsRef<str>>) -> &Self {
         let names = names
             .into_iter()
             .map(|n| Name::from(n.as_ref()))
             .collect::<Vec<_>>();
         match self {
-            Blocked::Busy(busy) if names.iter().all(|n| busy.contains(n)) => {}
+            Blocked::Busy { stages, .. } if names.iter().all(|n| stages.contains(n)) => {}
             _ => panic!("expected busy by {:?}, got {:?}", names, self),
         }
+        self
+    }
+
+    pub fn assert_external_effects(&self, effects: usize) {
+        let Self::Busy {
+            external_effects, ..
+        } = self
+        else {
+            panic!("expected busy state but got {:?}", self);
+        };
+        assert_eq!(*external_effects, effects);
     }
 
     /// Assert that the blocking reason is `Breakpoint` by the given name.

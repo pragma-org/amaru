@@ -16,8 +16,8 @@ use super::{
     EffectBox, Instant, StageData, StageEffect, StageResponse, StageState, inputs::Inputs,
 };
 use crate::{
-    BoxFuture, CallId, Effect, EffectRunner, ExternalEffect, ExternalEffectAPI, Name, Resources,
-    SendData, StageRef,
+    BoxFuture, CallId, Effect, ExternalEffect, ExternalEffectAPI, Name, Resources, SendData,
+    StageRef,
     simulation::{
         Blocked, SendBlock,
         resume::{
@@ -33,6 +33,7 @@ use crate::{
     trace_buffer::TraceBuffer,
 };
 use either::Either::{Left, Right};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, BinaryHeap, VecDeque},
@@ -42,7 +43,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    runtime::Handle,
+    select,
     sync::{oneshot, watch},
 };
 
@@ -68,12 +69,12 @@ pub struct SimulationRunning {
     sleeping: BinaryHeap<Sleeping>,
     responded: Vec<(Name, CallId)>,
     mailbox_size: usize,
-    rt: Handle,
     overrides: Vec<OverrideExternalEffect>,
     breakpoints: Vec<(Name, Box<dyn Fn(&Effect) -> bool + Send + 'static>)>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     terminate: watch::Sender<bool>,
     termination: watch::Receiver<bool>,
+    external_effects: FuturesUnordered<BoxFuture<'static, (Name, Box<dyn SendData>)>>,
 }
 
 impl SimulationRunning {
@@ -85,7 +86,6 @@ impl SimulationRunning {
         clock: Arc<dyn Clock + Send + Sync>,
         resources: Resources,
         mailbox_size: usize,
-        rt: Handle,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
     ) -> Self {
         let (terminate, termination) = watch::channel(false);
@@ -100,12 +100,12 @@ impl SimulationRunning {
             sleeping: BinaryHeap::new(),
             responded: Vec::new(),
             mailbox_size,
-            rt,
             overrides: Vec::new(),
             breakpoints: Vec::new(),
             trace_buffer,
             terminate,
             termination,
+            external_effects: FuturesUnordered::new(),
         }
     }
 
@@ -305,10 +305,9 @@ impl SimulationRunning {
             runnable.push_back((name, response));
         };
         for (name, id) in names {
-            let data = self
-                .stages
-                .get_mut(&name)
-                .expect("stage was responded to, so it must exist");
+            let Some(data) = self.stages.get_mut(&name) else {
+                continue; // responding to CallRef::channel()
+            };
             // just trying to resume as far as possible, so failure to resume is okay
             resume_call_internal(data, run, id).ok();
         }
@@ -343,6 +342,36 @@ impl SimulationRunning {
             }
         }
         InputsResult::Delivered(delivered)
+    }
+
+    /// When external effects are currently unresolved, await either the resolution of an effect
+    /// or the arrival of a new external input message.
+    pub async fn await_external_effect(&mut self) -> Option<Name> {
+        if self.external_effects.is_empty() {
+            return None;
+        }
+        let (at_stage, result) = select! {
+            x = self.external_effects.next() => x?,
+            env = self.inputs.next() => {
+                self.inputs.put_back(env);
+                return None;
+            }
+        };
+
+        let runnable = &mut self.runnable;
+        let run = &mut |name, response| {
+            runnable.push_back((name, response));
+        };
+
+        let data = self.stages.get_mut(&at_stage).unwrap();
+        resume_external_internal(data, result, run).expect("external effect is always runnable");
+        Some(at_stage)
+    }
+
+    pub async fn await_external_input(&mut self) {
+        let envelope = self.inputs.next().await;
+        tracing::debug!(target = %envelope.name, "awaited external input received");
+        self.inputs.put_back(envelope);
     }
 
     /// Keep on performing steps using [`Self::try_effect`] while possible and automatically
@@ -537,18 +566,16 @@ impl SimulationRunning {
                         }
                     }
                 }
-                let result = result.unwrap_or_else(|| {
-                    if let Ok(res) = self.resources.get::<EffectRunner>() {
-                        let runner = res.clone();
-                        drop(res);
-                        runner.run(effect.run(self.resources.clone()))
-                    } else {
-                        self.rt.block_on(effect.run(self.resources.clone()))
-                    }
-                });
-                let data = self.stages.get_mut(&at_stage).unwrap();
-                resume_external_internal(data, result, run)
-                    .expect("external effect is always runnable");
+                if let Some(result) = result {
+                    let data = self.stages.get_mut(&at_stage).unwrap();
+                    resume_external_internal(data, result, run)
+                        .expect("external effect is always runnable");
+                    return None;
+                }
+                let resources = self.resources.clone();
+                self.external_effects.push(Box::pin(async move {
+                    (at_stage, effect.run(resources).await)
+                }));
             }
             Effect::Terminate { at_stage } => {
                 tracing::info!(stage = %at_stage, "terminated");
@@ -1039,7 +1066,10 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
             panic!("no next wakeup but stages are waiting for a wait effect");
         }
     } else if !busy.is_empty() {
-        Blocked::Busy(busy)
+        Blocked::Busy {
+            stages: busy,
+            external_effects: sim.external_effects.len(),
+        }
     } else if !send.is_empty() {
         Blocked::Deadlock(send)
     } else {

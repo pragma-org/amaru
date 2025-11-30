@@ -303,7 +303,7 @@ impl super::StageGraph for SimulationBuilder {
         self.inputs.sender(stage.as_ref())
     }
 
-    fn run(self, rt: Handle) -> Self::Running {
+    fn run(self, _rt: Handle) -> Self::Running {
         let Self {
             stages: s,
             stage_counter,
@@ -351,7 +351,6 @@ impl super::StageGraph for SimulationBuilder {
             clock,
             resources,
             mailbox_size,
-            rt,
             trace_buffer,
         )
     }

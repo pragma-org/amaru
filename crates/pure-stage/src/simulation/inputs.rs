@@ -80,6 +80,13 @@ impl Inputs {
         self.peeked.take()
     }
 
+    pub async fn next(&mut self) -> Envelope {
+        if let Some(env) = self.peeked.take() {
+            return env;
+        }
+        self.rx.recv().await.expect("tx is never dropped")
+    }
+
     pub fn put_back(&mut self, envelope: Envelope) {
         assert!(self.peeked.is_none(), "cannot put back twice");
         self.peeked = Some(envelope);
