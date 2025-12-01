@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::tx_client_transport::{PallasTxClientTransport, TxClientTransport};
+use crate::tx_submission::tx_client_transport::{
+    PallasTxClientTransport, TxClientTransport,
+};
 use crate::tx_submission::tx_id_from_era_tx_id;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::to_cbor;

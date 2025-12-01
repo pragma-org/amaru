@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::tx_submission::Blocking;
+use crate::tx_submission::tx_client_transport::TransportError;
 use async_trait::async_trait;
 use pallas_network::miniprotocols::txsubmission;
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Reply, TxCount};
@@ -25,18 +26,18 @@ use pallas_network::multiplexer::AgentChannel;
 /// `txsubmission::Server<AgentChannel>` through the adapter below.
 #[async_trait]
 pub trait TxServerTransport: Send {
-    async fn wait_for_init(&mut self) -> anyhow::Result<()>;
-    async fn is_done(&self) -> anyhow::Result<bool>;
-    async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>>;
+    async fn wait_for_init(&mut self) -> Result<(), TransportError>;
+    async fn is_done(&self) -> Result<bool, TransportError>;
+    async fn receive_next_reply(&mut self) -> Result<Reply<EraTxId, EraTxBody>, TransportError>;
 
     async fn acknowledge_and_request_tx_ids(
         &mut self,
         blocking: Blocking,
         acknowledge: TxCount,
         count: TxCount,
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), TransportError>;
 
-    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> anyhow::Result<()>;
+    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> Result<(), TransportError>;
 }
 
 /// Production adapter around pallas' txsubmission server.
@@ -54,15 +55,15 @@ impl PallasTxServerTransport {
 
 #[async_trait]
 impl TxServerTransport for PallasTxServerTransport {
-    async fn wait_for_init(&mut self) -> anyhow::Result<()> {
+    async fn wait_for_init(&mut self) -> Result<(), TransportError> {
         Ok(self.inner.wait_for_init().await?)
     }
 
-    async fn is_done(&self) -> anyhow::Result<bool> {
+    async fn is_done(&self) -> Result<bool, TransportError> {
         Ok(self.inner.is_done())
     }
 
-    async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>> {
+    async fn receive_next_reply(&mut self) -> Result<Reply<EraTxId, EraTxBody>, TransportError> {
         Ok(self.inner.receive_next_reply().await?)
     }
 
@@ -71,14 +72,14 @@ impl TxServerTransport for PallasTxServerTransport {
         blocking: Blocking,
         acknowledge: TxCount,
         count: TxCount,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), TransportError> {
         Ok(self
             .inner
             .acknowledge_and_request_tx_ids(blocking.into(), acknowledge, count)
             .await?)
     }
 
-    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> anyhow::Result<()> {
+    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> Result<(), TransportError> {
         Ok(self.inner.request_txs(txs).await?)
     }
 }
@@ -86,7 +87,9 @@ impl TxServerTransport for PallasTxServerTransport {
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::tx_submission::Blocking;
+    use crate::tx_submission::tx_client_transport::TransportError;
     use crate::tx_submission::tx_server_transport::TxServerTransport;
+    use anyhow::anyhow;
     use async_trait::async_trait;
     use pallas_network::miniprotocols::txsubmission::{
         EraTxBody, EraTxId, Message, Reply, TxCount,
@@ -114,25 +117,27 @@ pub(crate) mod tests {
 
     #[async_trait]
     impl TxServerTransport for MockServerTransport {
-        async fn wait_for_init(&mut self) -> anyhow::Result<()> {
+        async fn wait_for_init(&mut self) -> Result<(), TransportError> {
             match self.rx_reply.recv().await {
                 Some(Message::Init) => Ok(()),
-                Some(other) => Err(anyhow::anyhow!("Expected Init message, got {:?}", other)),
-                None => Err(anyhow::anyhow!("No more replies")),
+                _ => Err(TransportError::Other(anyhow!("expected Init message"))),
             }
         }
 
-        async fn is_done(&self) -> anyhow::Result<bool> {
+        async fn is_done(&self) -> Result<bool, TransportError> {
             Ok(false)
         }
 
-        async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>> {
+        async fn receive_next_reply(
+            &mut self,
+        ) -> Result<Reply<EraTxId, EraTxBody>, TransportError> {
             match self.rx_reply.recv().await {
                 Some(Message::ReplyTxIds(tx_ids)) => Ok(Reply::TxIds(tx_ids)),
                 Some(Message::ReplyTxs(txs)) => Ok(Reply::Txs(txs)),
                 Some(Message::Done) => Ok(Reply::Done),
-                Some(other) => Err(anyhow::anyhow!("Expected a reply message, got {:?}", other)),
-                None => Err(anyhow::anyhow!("No more replies")),
+                _ => Err(TransportError::Other(anyhow!(
+                    "expected Reply or Done message"
+                ))),
             }
         }
 
@@ -141,17 +146,21 @@ pub(crate) mod tests {
             blocking: Blocking,
             acknowledge: TxCount,
             count: TxCount,
-        ) -> anyhow::Result<()> {
+        ) -> Result<(), TransportError> {
             // Simulate sending a RequestTxIds message to the client
             self.tx_request
                 .send(Message::RequestTxIds(blocking.into(), acknowledge, count))
-                .await?;
+                .await
+                .map_err(|e| anyhow!(e))?;
             Ok(())
         }
 
-        async fn request_txs(&mut self, txs: Vec<EraTxId>) -> anyhow::Result<()> {
+        async fn request_txs(&mut self, txs: Vec<EraTxId>) -> Result<(), TransportError> {
             // Simulate sending a RequestTxs message to the client
-            self.tx_request.send(Message::RequestTxs(txs)).await?;
+            self.tx_request
+                .send(Message::RequestTxs(txs))
+                .await
+                .map_err(|e| anyhow!(e))?;
             Ok(())
         }
     }
