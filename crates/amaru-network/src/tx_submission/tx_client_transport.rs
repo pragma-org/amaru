@@ -14,7 +14,9 @@
 
 use async_trait::async_trait;
 use pallas_network::miniprotocols::txsubmission;
-use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Request, TxIdAndSize};
+use pallas_network::miniprotocols::txsubmission::{
+    EraTxBody, EraTxId, Error, Request, TxIdAndSize,
+};
 use pallas_network::multiplexer::AgentChannel;
 
 /// Abstraction over the tx-submission wire used by the client state machine.
@@ -24,13 +26,21 @@ use pallas_network::multiplexer::AgentChannel;
 /// `txsubmission::Client<AgentChannel>` through the adapter below.
 #[async_trait]
 pub trait TxClientTransport: Send {
-    async fn send_init(&mut self) -> anyhow::Result<()>;
-    async fn send_done(&mut self) -> anyhow::Result<()>;
+    async fn send_init(&mut self) -> Result<(), TransportError>;
+    async fn send_done(&mut self) -> Result<(), TransportError>;
 
-    async fn next_request(&mut self) -> anyhow::Result<Request<EraTxId>>;
+    async fn next_request(&mut self) -> Result<Request<EraTxId>, TransportError>;
 
-    async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> anyhow::Result<()>;
-    async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> anyhow::Result<()>;
+    async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> Result<(), TransportError>;
+    async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> Result<(), TransportError>;
+}
+
+/// For now the transport error is either a pallas Error or a generic anyhow error.
+#[derive(thiserror::Error, Debug)]
+#[error(transparent)]
+pub enum TransportError {
+    PallasError(#[from] Error),
+    Other(#[from] anyhow::Error),
 }
 
 /// Production adapter around pallas' txsubmission client.
@@ -48,23 +58,23 @@ impl PallasTxClientTransport {
 
 #[async_trait]
 impl TxClientTransport for PallasTxClientTransport {
-    async fn send_init(&mut self) -> anyhow::Result<()> {
+    async fn send_init(&mut self) -> Result<(), TransportError> {
         Ok(self.inner.send_init().await?)
     }
 
-    async fn send_done(&mut self) -> anyhow::Result<()> {
+    async fn send_done(&mut self) -> Result<(), TransportError> {
         Ok(self.inner.send_done().await?)
     }
 
-    async fn next_request(&mut self) -> anyhow::Result<Request<EraTxId>> {
+    async fn next_request(&mut self) -> Result<Request<EraTxId>, TransportError> {
         Ok(self.inner.next_request().await?)
     }
 
-    async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> anyhow::Result<()> {
+    async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> Result<(), TransportError> {
         Ok(self.inner.reply_tx_ids(ids).await?)
     }
 
-    async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> anyhow::Result<()> {
+    async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> Result<(), TransportError> {
         Ok(self.inner.reply_txs(txs).await?)
     }
 }
@@ -72,7 +82,8 @@ impl TxClientTransport for PallasTxClientTransport {
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::tx_submission::tests::MessageEq;
-    use crate::tx_submission::tx_client_transport::TxClientTransport;
+    use crate::tx_submission::tx_client_transport::{TransportError, TxClientTransport};
+    use anyhow::anyhow;
     use async_trait::async_trait;
     use pallas_network::miniprotocols::txsubmission::{
         EraTxBody, EraTxId, Message, Request, TxIdAndSize,
@@ -104,20 +115,29 @@ pub(crate) mod tests {
 
     #[async_trait]
     impl TxClientTransport for MockClientTransport {
-        async fn send_init(&mut self) -> anyhow::Result<()> {
-            self.tx_reply.send(Message::Init).await?;
+        async fn send_init(&mut self) -> Result<(), TransportError> {
+            self.tx_reply
+                .send(Message::Init)
+                .await
+                .map_err(|e| anyhow!(e))?;
             Ok(())
         }
 
-        async fn send_done(&mut self) -> anyhow::Result<()> {
-            self.tx_reply.send(Message::Done).await?;
+        async fn send_done(&mut self) -> Result<(), TransportError> {
+            self.tx_reply
+                .send(Message::Done)
+                .await
+                .map_err(|e| anyhow!(e))?;
             Ok(())
         }
 
-        async fn next_request(&mut self) -> anyhow::Result<Request<EraTxId>> {
+        async fn next_request(&mut self) -> Result<Request<EraTxId>, TransportError> {
             let received = self.rx_req.recv().await;
             if let Some(received) = &received {
-                self.tx_req.send(received.into()).await?;
+                self.tx_req
+                    .send(received.into())
+                    .await
+                    .map_err(|e| anyhow!(e))?;
             };
 
             match received {
@@ -129,21 +149,30 @@ pub(crate) mod tests {
                     }
                 }
                 Some(Message::RequestTxs(x)) => Ok(Request::Txs(x)),
-                Some(other) => Err(anyhow::anyhow!(
+                Some(other) => Err(TransportError::Other(anyhow::anyhow!(
                     "Unexpected message received in MockClientTransport: {:?}",
                     other
-                )),
-                None => Err(anyhow::anyhow!("mock closed")),
+                ))),
+                None => Err(TransportError::Other(anyhow::anyhow!("mock closed"))),
             }
         }
 
-        async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> anyhow::Result<()> {
-            self.tx_reply.send(Message::ReplyTxIds(ids)).await?;
+        async fn reply_tx_ids(
+            &mut self,
+            ids: Vec<TxIdAndSize<EraTxId>>,
+        ) -> Result<(), TransportError> {
+            self.tx_reply
+                .send(Message::ReplyTxIds(ids))
+                .await
+                .map_err(|e| anyhow!(e))?;
             Ok(())
         }
 
-        async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> anyhow::Result<()> {
-            self.tx_reply.send(Message::ReplyTxs(txs)).await?;
+        async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> Result<(), TransportError> {
+            self.tx_reply
+                .send(Message::ReplyTxs(txs))
+                .await
+                .map_err(|e| anyhow!(e))?;
             Ok(())
         }
     }

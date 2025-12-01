@@ -14,8 +14,8 @@
 
 use crate::tx_submission::Blocking;
 use crate::tx_submission::tests::MessageEq;
-use crate::tx_submission::tx_client_transport::TxClientTransport;
 use crate::tx_submission::tx_client_transport::tests::MockClientTransport;
+use crate::tx_submission::tx_client_transport::{TransportError, TxClientTransport};
 use crate::tx_submission::tx_server_transport::TxServerTransport;
 use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
 use async_trait::async_trait;
@@ -60,15 +60,15 @@ impl MockTransport {
 
 #[async_trait]
 impl TxServerTransport for MockTransport {
-    async fn wait_for_init(&mut self) -> anyhow::Result<()> {
+    async fn wait_for_init(&mut self) -> Result<(), TransportError> {
         self.server_transport.wait_for_init().await
     }
 
-    async fn is_done(&self) -> anyhow::Result<bool> {
+    async fn is_done(&self) -> Result<bool, TransportError> {
         Ok(self.server_transport.is_done().await?)
     }
 
-    async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>> {
+    async fn receive_next_reply(&mut self) -> Result<Reply<EraTxId, EraTxBody>, TransportError> {
         self.server_transport.receive_next_reply().await
     }
 
@@ -77,28 +77,28 @@ impl TxServerTransport for MockTransport {
         blocking: Blocking,
         acknowledge: TxCount,
         count: TxCount,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), TransportError> {
         self.server_transport
             .acknowledge_and_request_tx_ids(blocking, acknowledge, count)
             .await
     }
 
-    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> anyhow::Result<()> {
+    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> Result<(), TransportError> {
         self.server_transport.request_txs(txs).await
     }
 }
 
 #[async_trait]
 impl TxServerTransport for Arc<Mutex<MockServerTransport>> {
-    async fn wait_for_init(&mut self) -> anyhow::Result<()> {
+    async fn wait_for_init(&mut self) -> Result<(), TransportError> {
         self.lock().await.wait_for_init().await
     }
 
-    async fn is_done(&self) -> anyhow::Result<bool> {
+    async fn is_done(&self) -> Result<bool, TransportError> {
         Ok(self.lock().await.is_done().await?)
     }
 
-    async fn receive_next_reply(&mut self) -> anyhow::Result<Reply<EraTxId, EraTxBody>> {
+    async fn receive_next_reply(&mut self) -> Result<Reply<EraTxId, EraTxBody>, TransportError> {
         self.lock().await.receive_next_reply().await
     }
 
@@ -107,60 +107,60 @@ impl TxServerTransport for Arc<Mutex<MockServerTransport>> {
         blocking: Blocking,
         acknowledge: TxCount,
         count: TxCount,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), TransportError> {
         self.lock()
             .await
             .acknowledge_and_request_tx_ids(blocking, acknowledge, count)
             .await
     }
 
-    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> anyhow::Result<()> {
+    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> Result<(), TransportError> {
         self.lock().await.request_txs(txs).await
     }
 }
 
 #[async_trait]
 impl TxClientTransport for MockTransport {
-    async fn send_init(&mut self) -> anyhow::Result<()> {
+    async fn send_init(&mut self) -> Result<(), TransportError> {
         self.client_transport.send_init().await
     }
 
-    async fn send_done(&mut self) -> anyhow::Result<()> {
+    async fn send_done(&mut self) -> Result<(), TransportError> {
         self.client_transport.send_done().await
     }
 
-    async fn next_request(&mut self) -> anyhow::Result<Request<EraTxId>> {
+    async fn next_request(&mut self) -> Result<Request<EraTxId>, TransportError> {
         self.client_transport.next_request().await
     }
 
-    async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> anyhow::Result<()> {
+    async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> Result<(), TransportError> {
         self.client_transport.reply_tx_ids(ids).await
     }
 
-    async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> anyhow::Result<()> {
+    async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> Result<(), TransportError> {
         self.client_transport.reply_txs(txs).await
     }
 }
 
 #[async_trait]
 impl TxClientTransport for Arc<Mutex<MockClientTransport>> {
-    async fn send_init(&mut self) -> anyhow::Result<()> {
+    async fn send_init(&mut self) -> Result<(), TransportError> {
         self.lock().await.send_init().await
     }
 
-    async fn send_done(&mut self) -> anyhow::Result<()> {
+    async fn send_done(&mut self) -> Result<(), TransportError> {
         self.lock().await.send_done().await
     }
 
-    async fn next_request(&mut self) -> anyhow::Result<Request<EraTxId>> {
+    async fn next_request(&mut self) -> Result<Request<EraTxId>, TransportError> {
         self.lock().await.next_request().await
     }
 
-    async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> anyhow::Result<()> {
+    async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> Result<(), TransportError> {
         self.lock().await.reply_tx_ids(ids).await
     }
 
-    async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> anyhow::Result<()> {
+    async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> Result<(), TransportError> {
         self.lock().await.reply_txs(txs).await
     }
 }
