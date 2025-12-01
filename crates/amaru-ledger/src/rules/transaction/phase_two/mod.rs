@@ -130,15 +130,7 @@ where
                 .collect::<Vec<_>>();
             let arguments = constants.iter().map(Term::Constant).collect::<Vec<_>>();
 
-            let terms = arguments
-                .iter()
-                .map(|argument| Term::Apply {
-                    function: program.term,
-                    argument,
-                })
-                .collect::<Vec<_>>();
-
-            for term in terms.iter() {
+            for term in arguments.iter() {
                 program = program.apply(&arena, term);
             }
 
