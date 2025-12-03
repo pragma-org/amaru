@@ -17,7 +17,6 @@ use pallas_network::miniprotocols::txsubmission;
 use pallas_network::miniprotocols::txsubmission::{
     EraTxBody, EraTxId, Error, Request, TxIdAndSize,
 };
-use pallas_network::multiplexer::AgentChannel;
 
 /// Abstraction over the tx-submission wire used by the client state machine.
 ///
@@ -45,43 +44,40 @@ pub enum TransportError {
 
 /// Production adapter around pallas' txsubmission client.
 pub struct PallasTxClientTransport {
-    inner: txsubmission::Client,
+    client: txsubmission::Client,
 }
 
 impl PallasTxClientTransport {
-    pub fn new(agent_channel: AgentChannel) -> Self {
-        Self {
-            inner: txsubmission::Client::new(agent_channel),
-        }
+    pub fn new(client: txsubmission::Client) -> Self {
+        Self { client }
     }
 }
 
 #[async_trait]
 impl TxClientTransport for PallasTxClientTransport {
     async fn send_init(&mut self) -> Result<(), TransportError> {
-        Ok(self.inner.send_init().await?)
+        Ok(self.client.send_init().await?)
     }
 
     async fn send_done(&mut self) -> Result<(), TransportError> {
-        Ok(self.inner.send_done().await?)
+        Ok(self.client.send_done().await?)
     }
 
     async fn next_request(&mut self) -> Result<Request<EraTxId>, TransportError> {
-        Ok(self.inner.next_request().await?)
+        Ok(self.client.next_request().await?)
     }
 
     async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> Result<(), TransportError> {
-        Ok(self.inner.reply_tx_ids(ids).await?)
+        Ok(self.client.reply_tx_ids(ids).await?)
     }
 
     async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> Result<(), TransportError> {
-        Ok(self.inner.reply_txs(txs).await?)
+        Ok(self.client.reply_txs(txs).await?)
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::tx_submission::tests::MessageEq;
     use crate::tx_submission::tx_client_transport::{TransportError, TxClientTransport};
     use anyhow::anyhow;
     use async_trait::async_trait;
@@ -94,7 +90,7 @@ pub(crate) mod tests {
         // server -> client messages
         rx_req: Receiver<Message<EraTxId, EraTxBody>>,
         // for external inspection of sent messages
-        tx_req: Sender<MessageEq>,
+        tx_req: Sender<Message<EraTxId, EraTxBody>>,
         // client -> server messages
         tx_reply: Sender<Message<EraTxId, EraTxBody>>,
     }
@@ -102,7 +98,7 @@ pub(crate) mod tests {
     impl MockClientTransport {
         pub(crate) fn new(
             rx_req: Receiver<Message<EraTxId, EraTxBody>>,
-            tx_req: Sender<MessageEq>,
+            tx_req: Sender<Message<EraTxId, EraTxBody>>,
             tx_reply: Sender<Message<EraTxId, EraTxBody>>,
         ) -> Self {
             Self {
@@ -135,7 +131,7 @@ pub(crate) mod tests {
             let received = self.rx_req.recv().await;
             if let Some(received) = &received {
                 self.tx_req
-                    .send(received.into())
+                    .send(received.clone())
                     .await
                     .map_err(|e| anyhow!(e))?;
             };

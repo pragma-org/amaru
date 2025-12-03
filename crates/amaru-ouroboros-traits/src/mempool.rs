@@ -12,16 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::cbor::Encode;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{Hash, Hasher};
+use amaru_kernel::tx_submission_events::TxId;
+use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::sync::Arc;
 
 /// An simple mempool interface to:
 ///
 /// - Add transactions and forge blocks when needed.
-pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
+pub trait Mempool<Tx: Send + Sync + 'static>: TxSubmissionMempool<Tx> + Send + Sync {
+    /// Take transactions out of the mempool, with the intent of forging a new block.
+    ///
+    /// TODO: Have this function take _constraints_, such as the block max size or max execution
+    /// units and select transactions accordingly.
+    fn take(&self) -> Vec<Tx>;
+
+    /// Take note of a transaction that has been included in a block.
+    /// The keys function is used to detect all the transactions that should be removed from the mempool.
+    /// (if a transaction in the mempool shares any of the transactions keys, it should be removed).
+    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
+    where
+        I: IntoIterator<Item = TxKey>,
+        Self: Sized;
+}
+
+pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
+    /// Insert a transaction into the mempool, specifying its origin.
+    /// A TxOrigin::Local origin indicates the transaction was created on the current node,
+    /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.
+    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason>;
+
     /// Add a new, local, transaction to the mempool.
     ///
     /// TODO: Have the mempool perform its own set of validations and possibly fail to add new
@@ -37,32 +58,13 @@ pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
         Ok(())
     }
 
-    /// Insert a transaction into the mempool, specifying its origin.
-    /// A TxOrigin::Local origin indicates the transaction was created on the current node,
-    /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.
-    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason>;
-
-    /// Take transactions out of the mempool, with the intent of forging a new block.
-    ///
-    /// TODO: Have this function take _constraints_, such as the block max size or max execution
-    /// units and select transactions accordingly.
-    fn take(&self) -> Vec<Tx>;
-
-    /// Take note of a transaction that has been included in a block.
-    /// The keys function is used to detect all the transactions that should be removed from the mempool.
-    /// (if a transaction in the mempool shares any of the transactions keys, it should be removed).
-    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
-    where
-        I: IntoIterator<Item = TxKey>,
-        Self: Sized;
-
     /// Retrieve a transaction by its id.
     fn get_tx(&self, tx_id: &TxId) -> Option<Arc<Tx>>;
 
+    /// Return true if the mempool contains a transaction with the given id.
     fn contains(&self, tx_id: &TxId) -> bool {
         self.get_tx(tx_id).is_some()
     }
-
     /// Retrieve a list of transactions from a given sequence number (inclusive), up to a given limit.
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)>;
 
@@ -86,33 +88,8 @@ pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
     fn last_seq_no(&self) -> MempoolSeqNo;
 }
 
-/// Identifier for a transaction in the mempool.
-/// It is derived from the hash of the encoding of the transaction as CBOR.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TxId(Hash<32>);
-
-impl TxId {
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.0.as_ref().to_vec()
-    }
-
-    pub fn as_slice(&self) -> &[u8] {
-        self.0.as_slice()
-    }
-}
-
-impl TxId {
-    pub fn new(hash: Hash<32>) -> Self {
-        TxId(hash)
-    }
-
-    pub fn from<Tx: Encode<()>>(tx: Tx) -> Self {
-        TxId(Hasher::<{ 32 * 8 }>::hash_cbor(&tx))
-    }
-}
-
 /// Sequence number assigned to a transaction when inserted into the mempool.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct MempoolSeqNo(pub u64);
 
 impl MempoolSeqNo {
@@ -125,7 +102,19 @@ impl MempoolSeqNo {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, thiserror::Error)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    thiserror::Error,
+    Serialize,
+    Deserialize,
+)]
 pub enum TxRejectReason {
     #[error("Mempool is full")]
     MempoolFull,
@@ -138,7 +127,7 @@ pub enum TxRejectReason {
 /// Origin of a transaction being inserted into the mempool:
 /// - Local: created locally
 /// - Remote(Peer): received from a remote peer
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum TxOrigin {
     Local,
     Remote(Peer),

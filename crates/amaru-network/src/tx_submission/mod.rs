@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod era_tx_id_ord;
+mod conversions;
 mod server_params;
 mod tx_client_transport;
 mod tx_server_transport;
 mod tx_submission_client;
 mod tx_submission_server;
 
-pub use era_tx_id_ord::*;
+pub use conversions::*;
 pub use server_params::*;
 pub use tx_submission_client::*;
 pub use tx_submission_server::*;

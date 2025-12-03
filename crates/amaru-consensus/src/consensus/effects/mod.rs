@@ -15,6 +15,7 @@
 mod base_effects;
 mod consensus_effects;
 mod ledger_effects;
+mod mempool_effects;
 mod metrics_effects;
 mod network_effects;
 mod store_effects;
@@ -22,10 +23,11 @@ mod store_effects;
 pub use base_effects::{Base, BaseOps};
 pub use consensus_effects::{ConsensusEffects, ConsensusOps};
 pub use ledger_effects::{Ledger, LedgerOps, ResourceBlockValidation, ResourceHeaderValidation};
+pub use mempool_effects::ResourceMempool;
 pub use metrics_effects::{MetricsOps, ResourceMeter};
 pub use network_effects::{
     ChainSyncEffect, DisconnectEffect, FetchBlockEffect, ForwardEvent, ForwardEventListener,
-    Network, NetworkOps, ResourceForwardEventListener,
+    Network, NetworkOps, ResourceForwardEventListener, TxRequestEffect,
 };
 pub use store_effects::{ResourceHeaderStore, ResourceParameters, Store};
 

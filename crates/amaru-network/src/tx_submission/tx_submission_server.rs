@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use crate::tx_submission::tx_server_transport::{PallasTxServerTransport, TxServerTransport};
-use crate::tx_submission::{EraTxIdOrd, ServerParams};
-use amaru_kernel::Hash;
+use crate::tx_submission::{ServerParams, tx_id_from_era_tx_id};
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros_traits::can_validate_transactions::CanValidateTransactions;
-use amaru_ouroboros_traits::{Mempool, TxId, TxOrigin};
+use amaru_ouroboros_traits::{Mempool, TxOrigin};
 use anyhow::anyhow;
 use minicbor::{CborLen, Decode, Encode};
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Reply, TxIdAndSize};
@@ -41,18 +40,18 @@ pub struct TxSubmissionServer<Tx: Send + Sync + 'static> {
     /// Peer we are connecting to.
     peer: Peer,
     /// All tx_ids advertised but not yet acked (and their size).
-    window: VecDeque<(EraTxIdOrd, u32)>,
+    window: VecDeque<(EraTxId, u32)>,
     /// Tx ids we want to fetch but haven't yet requested.
-    pending_fetch: VecDeque<EraTxIdOrd>,
+    pending_fetch: VecDeque<EraTxId>,
     /// Tx ids we requested; waiting for replies.
     /// First as a FIFO queue because when we receive tx bodies we don't get the ids back.
-    inflight_fetch_queue: VecDeque<EraTxIdOrd>,
+    inflight_fetch_queue: VecDeque<EraTxId>,
     /// Then as a set for quick lookup when processing received ids.
     /// This is kept in sync with `inflight_fetch_queue`. When we receive a tx body,
     /// we pop it from the front of the queue and remove it from the set.
-    inflight_fetch_set: BTreeSet<EraTxIdOrd>,
+    inflight_fetch_set: BTreeSet<EraTxId>,
     /// Tx ids we processed but didn't insert (invalid, policy failure, etc.).
-    rejected: BTreeSet<EraTxIdOrd>,
+    rejected: BTreeSet<EraTxId>,
 }
 
 impl<Tx> TxSubmissionServer<Tx>
@@ -168,7 +167,6 @@ where
         for tx_id_and_size in tx_ids {
             let (era_tx_id, size) = (tx_id_and_size.0, tx_id_and_size.1);
             let tx_id = tx_id_from_era_tx_id(&era_tx_id);
-            let era_tx_id = EraTxIdOrd::new(era_tx_id);
             // We add the tx id to the window to acknowledge it on the next round.
             self.window.push_back((era_tx_id.clone(), size));
 
@@ -195,15 +193,7 @@ where
             }
         }
 
-        if ids.is_empty() {
-            None
-        } else {
-            Some(
-                ids.into_iter()
-                    .map(|era_tx_id_ord| era_tx_id_ord.into())
-                    .collect(),
-            )
-        }
+        if ids.is_empty() { None } else { Some(ids) }
     }
 
     async fn received_txs(&mut self, tx_bodies: Vec<EraTxBody>) -> anyhow::Result<()> {
@@ -240,21 +230,17 @@ where
     }
 }
 
-/// Retrieves the TxId from an EraTxId.
-pub fn tx_id_from_era_tx_id(era_tx_id: &EraTxId) -> TxId {
-    TxId::new(Hash::from(era_tx_id.1.as_slice()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tx_submission::Blocking;
+    use crate::tx_submission::conversions::{new_era_tx_body, new_era_tx_id, tx_id_from_era_tx_id};
     use crate::tx_submission::tests::{
-        Tx, assert_next_message, create_transactions, new_era_tx_body, new_era_tx_id,
-        to_era_tx_bodies, to_era_tx_ids,
+        Tx, assert_next_message, create_transactions, to_era_tx_bodies, to_era_tx_ids,
     };
     use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
-    use amaru_kernel::Hasher;
+    use amaru_kernel::tx_submission_events::TxId;
+    use amaru_kernel::{Hasher, to_cbor};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_ouroboros_traits::can_validate_transactions::mock::MockCanValidateTransactions;
     use pallas_network::miniprotocols::txsubmission::Message;
@@ -266,7 +252,7 @@ mod tests {
     fn check_ids() {
         let tx = Tx::new("0d8d00cdd4657ac84d82f0a56067634a");
         let tx_id = tx.tx_id();
-        let tx_body = tx.tx_body();
+        let tx_body = to_cbor(&tx);
         assert_eq!(
             TxId::new(Hasher::<{ 32 * 8 }>::hash(tx_body.as_slice())),
             tx_id,

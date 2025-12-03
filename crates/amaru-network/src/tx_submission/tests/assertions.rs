@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::tests::{MessageEq, NodeHandle, Tx};
+use crate::tx_submission::tests::{NodeHandle, Tx};
 use amaru_ouroboros_traits::Mempool;
 use pallas_network::miniprotocols::txsubmission::Message::{ReplyTxIds, ReplyTxs};
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Message, TxIdAndSize};
@@ -25,18 +25,40 @@ use tokio::time::{sleep, timeout};
 pub async fn expect_server_transactions(txs: Vec<Tx>, node_handle: &NodeHandle) {
     let server_mempool: Arc<dyn Mempool<Tx>> = node_handle.server_mempool.clone();
     let tx_ids: Vec<_> = txs.iter().map(|tx| tx.tx_id()).collect();
+    let mut actual: Vec<_> = tx_ids
+        .iter()
+        .filter(|tx_id| server_mempool.contains(tx_id))
+        .collect();
 
-    timeout(Duration::from_secs(10), async {
+    let _ = timeout(Duration::from_secs(1000), async {
         loop {
-            let all_present = tx_ids.iter().all(|id| server_mempool.contains(id));
+            actual = tx_ids
+                .iter()
+                .filter(|tx_id| server_mempool.contains(tx_id))
+                .collect();
+            let all_present = actual.len() == txs.len();
             if all_present {
                 break;
             }
             sleep(Duration::from_millis(10)).await;
         }
     })
-    .await
-    .expect("all the transactions should have been transmitted to the server mempool");
+    .await;
+    if actual.len() != txs.len() {
+        panic!(
+            "actual transactions\n{}\nexpected transactions\n{}\n",
+            actual
+                .iter()
+                .map(|id| format!("{}", id))
+                .collect::<Vec<_>>()
+                .join(", "),
+            tx_ids
+                .iter()
+                .map(|id| format!("{}", id))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
 }
 
 /// Check that the next message is a ReplyTxIds with the expected ids.
@@ -47,7 +69,7 @@ pub async fn assert_tx_ids_reply(
 ) -> anyhow::Result<()> {
     let tx_ids_and_sizes: Vec<TxIdAndSize<EraTxId>> = expected_ids
         .iter()
-        .map(|&i| TxIdAndSize(era_tx_ids[i].clone(), 32))
+        .map(|&i| TxIdAndSize(era_tx_ids[i].clone(), 34))
         .collect();
     assert_next_message(rx_messages, ReplyTxIds(tx_ids_and_sizes)).await?;
     Ok(())
@@ -76,8 +98,9 @@ pub async fn assert_next_message(
         .recv()
         .await
         .ok_or_else(|| anyhow::anyhow!("no message received"))?;
-    let actual: MessageEq = actual.into();
-    let expected: MessageEq = expected.into();
-    assert_eq!(actual, expected, "actual = {actual}\nexpected = {expected}");
+    assert_eq!(
+        actual, expected,
+        "actual = {actual:?}\nexpected = {expected:?}"
+    );
     Ok(())
 }

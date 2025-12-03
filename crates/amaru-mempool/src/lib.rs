@@ -13,3 +13,5 @@
 // limitations under the License.
 
 pub mod strategies;
+
+pub use strategies::*;

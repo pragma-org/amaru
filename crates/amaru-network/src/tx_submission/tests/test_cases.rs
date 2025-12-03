@@ -12,16 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::Blocking;
 use crate::tx_submission::tests::{
-    FaultyTxValidator, MessageEq, ServerOptions, Tx, create_node, create_node_with,
-    expect_server_transactions,
+    FaultyTxValidator, ServerOptions, Tx, create_node, create_node_with, expect_server_transactions,
 };
-use amaru_kernel::Hash;
-use amaru_ouroboros_traits::TxId;
+use crate::tx_submission::{Blocking, new_era_tx_id};
 use pallas_network::miniprotocols::txsubmission::Message::{RequestTxIds, RequestTxs};
-use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId};
-use pallas_traverse::Era;
+use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Message};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -101,7 +97,7 @@ async fn test_invalid_transactions() -> anyhow::Result<()> {
     expect_server_transactions(expected, &node_handle).await;
 
     // Check the requests sent by the server do not ask again for the invalid transactions.
-    let actual: Vec<MessageEq> = node_handle.observe_messages().await;
+    let actual: Vec<Message<EraTxId, EraTxBody>> = node_handle.observe_messages().await;
 
     let expected = [
         RequestTxIds(true, 0, 6),
@@ -112,10 +108,7 @@ async fn test_invalid_transactions() -> anyhow::Result<()> {
         RequestTxs(vec![era_tx_ids[4].clone(), era_tx_ids[5].clone()]),
         RequestTxIds(true, 2, 6),
     ];
-    assert_eq!(
-        actual,
-        expected.iter().map(MessageEq::from).collect::<Vec<_>>()
-    );
+    assert_eq!(actual, expected);
     Ok(())
 }
 
@@ -127,34 +120,4 @@ pub fn create_transactions(number: u16) -> Vec<Tx> {
         txs.push(Tx::new(format!("{i}d8d00cdd4657ac84d82f0a56067634a")));
     }
     txs
-}
-
-pub fn to_era_tx_ids(txs: &[Tx]) -> Vec<EraTxId> {
-    txs.iter()
-        .map(|tx| new_era_tx_id(tx.tx_id()))
-        .collect::<Vec<_>>()
-}
-
-pub fn to_era_tx_bodies(txs: &[Tx]) -> Vec<EraTxBody> {
-    txs.iter()
-        .map(|tx| new_era_tx_body(tx.tx_body()))
-        .collect::<Vec<_>>()
-}
-
-pub fn era_tx_id_to_string(era_tx_id: &EraTxId) -> String {
-    Hash::<32>::from(era_tx_id.1.as_slice()).to_string()
-}
-
-pub fn era_tx_body_to_string(era_tx_body: &EraTxBody) -> String {
-    String::from_utf8(era_tx_body.1.clone()).unwrap()
-}
-
-/// Create a new EraTxId for the Conway era.
-pub fn new_era_tx_id(tx_id: TxId) -> EraTxId {
-    EraTxId(Era::Conway.into(), tx_id.to_vec())
-}
-
-/// Create a new EraTxBody for the Conway era.
-pub fn new_era_tx_body(tx_body: Vec<u8>) -> EraTxBody {
-    EraTxBody(Era::Conway.into(), tx_body)
 }

@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::stages::build_tx_submission_graph::build_tx_submission_graph;
 use crate::stages::{
-    build_stage_graph::build_stage_graph,
+    build_consensus_graph::build_consensus_graph,
     consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
 };
 use acto::AcTokio;
+use amaru_consensus::consensus::effects::ResourceMempool;
+use amaru_consensus::consensus::stages::pull_tx_requests;
 use amaru_consensus::{
     consensus::{
         effects::{
@@ -26,7 +29,7 @@ use amaru_consensus::{
         errors::ConsensusError,
         headers_tree::HeadersTreeState,
         stages::{
-            pull, select_chain::SelectChain, track_peers::SyncTracker,
+            pull_chain_sync_events, select_chain::SelectChain, track_peers::SyncTracker,
             validate_header::ValidateHeader,
         },
         tip::{AsHeaderTip, HeaderTip},
@@ -40,6 +43,7 @@ use amaru_kernel::{
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
+use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::NetworkResource;
 use amaru_network::point::to_network_point;
@@ -65,7 +69,8 @@ use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-pub mod build_stage_graph;
+pub mod build_consensus_graph;
+pub mod build_tx_submission_graph;
 pub mod consensus;
 
 /// Whether or not data is stored on disk or in memory.
@@ -224,15 +229,31 @@ pub async fn bootstrap(
     let acto_runtime = AcTokio::from_handle("network", Handle::current().clone());
 
     let receive_header_stage =
-        build_stage_graph(chain_selector, sync_tracker, our_tip, &mut network);
+        build_consensus_graph(chain_selector, sync_tracker, our_tip, &mut network);
 
-    let pull_stage = network.stage("pull", pull::stage);
-    let pull_stage = network.wire_up(pull_stage, receive_header_stage);
-    assert!(network.preload(pull_stage, vec![pull::NextSync]));
+    let receive_tx_request_stage = build_tx_submission_graph(&mut network);
+
+    let pull_chain_sync_events_stage = network.stage("pull", pull_chain_sync_events::stage);
+    let pull_chain_sync_events_stage =
+        network.wire_up(pull_chain_sync_events_stage, receive_header_stage);
+    assert!(network.preload(
+        pull_chain_sync_events_stage,
+        vec![pull_chain_sync_events::NextSync]
+    ));
+
+    let pull_tx_requests_stage = network.stage("pull", pull_tx_requests::stage);
+    let pull_tx_requests_stage = network.wire_up(pull_tx_requests_stage, receive_tx_request_stage);
+    assert!(network.preload(
+        pull_tx_requests_stage,
+        vec![pull_tx_requests::NextTxRequest]
+    ));
 
     network
         .resources()
         .put::<ResourceHeaderStore>(chain_store.clone());
+    network
+        .resources()
+        .put::<ResourceMempool>(Arc::new(InMemoryMempool::default()));
     network
         .resources()
         .put::<ResourceParameters>(global_parameters.clone());

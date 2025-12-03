@@ -72,6 +72,7 @@ dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",
+ "amaru-mempool",
  "amaru-metrics",
  "amaru-network",
  "amaru-ouroboros-traits",
@@ -116,7 +117,9 @@ name = "amaru-consensus"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-mempool",
  "amaru-metrics",
+ "amaru-network",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
@@ -127,6 +130,8 @@ dependencies = [
  "itertools 0.14.0",
  "opentelemetry",
  "pallas-crypto",
+ "pallas-network",
+ "pallas-traverse",
  "pprof",
  "proptest",
  "pure-stage",
@@ -249,6 +254,7 @@ dependencies = [
  "pallas-traverse",
  "parking_lot",
  "pure-stage",
+ "serde",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -1160,7 +1166,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1731,7 +1737,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2011,7 +2017,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2242,8 +2248,7 @@ checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
 [[package]]
 name = "pallas-addresses"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18f5f4dd205316335bf8eef77227e01a8a00b1fd60503d807520e93dd0362d0e"
+source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#2e1dc637624a8410620a54f2838ed8c4a847e9ea"
 dependencies = [
  "base58",
  "bech32 0.9.1",
@@ -2258,8 +2263,7 @@ dependencies = [
 [[package]]
 name = "pallas-codec"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b2737b05f0dbb6d197feeb26ef15d2567e54833184bd469f5655a0537da89fa"
+source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#2e1dc637624a8410620a54f2838ed8c4a847e9ea"
 dependencies = [
  "hex",
  "minicbor",
@@ -2270,8 +2274,7 @@ dependencies = [
 [[package]]
 name = "pallas-crypto"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0368945cd093e550febe36aef085431b1611c2e9196297cd70f4b21a4add054c"
+source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#2e1dc637624a8410620a54f2838ed8c4a847e9ea"
 dependencies = [
  "cryptoxide",
  "hex",
@@ -2285,8 +2288,7 @@ dependencies = [
 [[package]]
 name = "pallas-math"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "430e208033850256e555b9916a6e397a976287007175f03e3afc1f749e2f9d86"
+source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#2e1dc637624a8410620a54f2838ed8c4a847e9ea"
 dependencies = [
  "dashu-base",
  "dashu-int",
@@ -2297,8 +2299,7 @@ dependencies = [
 [[package]]
 name = "pallas-network"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1244da7a760a08b8a9d9a28a28112f10a7b6476d64192696a269cfd09a7ec55c"
+source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#2e1dc637624a8410620a54f2838ed8c4a847e9ea"
 dependencies = [
  "byteorder",
  "hex",
@@ -2315,8 +2316,7 @@ dependencies = [
 [[package]]
 name = "pallas-primitives"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb2acde8875c43446194d387c60fe2d6a127e4f8384bef3dcabd5a04e9422429"
+source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#2e1dc637624a8410620a54f2838ed8c4a847e9ea"
 dependencies = [
  "base58",
  "bech32 0.9.1",
@@ -2331,8 +2331,7 @@ dependencies = [
 [[package]]
 name = "pallas-traverse"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab64895a0d94fed1ef2d99dd37e480ed0483e91eb98dcd2f94cc614fb9575173"
+source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#2e1dc637624a8410620a54f2838ed8c4a847e9ea"
 dependencies = [
  "hex",
  "itertools 0.13.0",
@@ -2614,7 +2613,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.1",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2892,7 +2891,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3254,7 +3253,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

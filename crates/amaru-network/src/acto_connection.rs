@@ -12,19 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::tx_submission::{new_era_tx_body, new_era_tx_id, tx_id_from_era_tx_id};
 use crate::{
     chain_sync_client::{ChainSyncClient, to_traverse},
     point::{from_network_point, to_network_point},
 };
 use acto::{AcTokioRuntime, ActoCell, ActoInput};
+use amaru_kernel::tx_submission_events::{TxReply, TxRequest};
 use amaru_kernel::{
     BlockHeader, IsHeader, Point,
-    connection::{BlockFetchClientError, BlockSender, ConnMsg},
+    connection::{BlockSender, ClientConnectionError, ConnMsg},
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
+    to_cbor,
 };
 use amaru_ouroboros::ChainStore;
 use futures_util::FutureExt;
+use pallas_network::miniprotocols::txsubmission::{Request, TxIdAndSize};
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::{
@@ -34,7 +38,7 @@ use pallas_network::{
 };
 use pure_stage::BoxFuture;
 use std::{collections::VecDeque, future::pending, sync::Arc, time::Duration};
-use tokio::{select, sync::mpsc, task::JoinHandle, time::sleep};
+use tokio::{sync::mpsc, task::JoinHandle, time::sleep};
 use tracing::Span;
 
 /// The actor that handles the connection to a peer.
@@ -45,7 +49,7 @@ use tracing::Span;
 ///
 /// The actor basically oscillates between the two states:
 /// - trying to establish a connection to the peer
-/// - being connected to the peer and syncing headers / fetching blocks
+/// - being connected to the peer and syncing headers / fetching blocks / replying to tx-requests
 ///
 /// When a disconnect happens (either due to a network error or the ConnMsg::Disconnect message)
 /// the actor will drop the connection, wait for 10 seconds, and then try to reconnect.
@@ -53,9 +57,11 @@ pub async fn actor(
     mut cell: ActoCell<ConnMsg, AcTokioRuntime>,
     peer: Peer,
     magic: u64,
-    hd_tx: mpsc::Sender<Tracked<ChainSyncEvent>>,
     store: Arc<dyn ChainStore<BlockHeader>>,
-) {
+    chain_sync_event_tx: mpsc::Sender<Tracked<ChainSyncEvent>>,
+    tx_request_tx: mpsc::Sender<TxRequest>,
+    mut tx_reply_rx: mpsc::Receiver<TxReply>,
+) -> anyhow::Result<()> {
     let mut req = VecDeque::new();
 
     loop {
@@ -64,6 +70,7 @@ pub async fn actor(
             plexer,
             chainsync,
             blockfetch,
+            mut txsubmission,
             ..
         }) = PeerClient::connect(peer.name.as_str(), magic).await
         else {
@@ -79,8 +86,8 @@ pub async fn actor(
 
         // spawn task for handling the chainsync protocol
         let mut fetch = State::Idle(blockfetch);
-        let peer2 = peer.clone();
-        let hd_tx = hd_tx.clone();
+        let peer_clone = peer.clone();
+        let chain_sync_event_tx_clone = chain_sync_event_tx.clone();
         let intersection = {
             let hashes = [store.get_anchor_hash(), store.get_best_chain_hash()];
             hashes
@@ -88,31 +95,34 @@ pub async fn actor(
                 .filter_map(|h| store.load_header(h).map(|h| h.point()))
                 .collect()
         };
+
         let mut sync: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
-            let mut chainsync = ChainSyncClient::new(peer2.clone(), chainsync, intersection);
+            let mut chainsync = ChainSyncClient::new(peer_clone.clone(), chainsync, intersection);
             let point = chainsync.find_intersection().await.inspect_err(|e| {
-                tracing::error!(peer=%peer2, error=%e, "intersection.not_found");
+                tracing::error!(peer=%peer_clone, error=%e, "intersection.not_found");
             })?;
-            tracing::debug!(peer=%peer2, %point, "intersection.found");
+            tracing::debug!(peer=%peer_clone, %point, "intersection.found");
             loop {
                 match chainsync.request_next().await? {
-                    NextResponse::RollForward(hd, _tip) => roll_forward(&hd_tx, &peer2, hd).await?,
+                    NextResponse::RollForward(hd, _tip) => {
+                        roll_forward(&chain_sync_event_tx_clone, &peer_clone, hd).await?
+                    }
                     NextResponse::RollBackward(point, _tip) => {
-                        roll_back(&hd_tx, &peer2, point).await?
+                        roll_back(&chain_sync_event_tx_clone, &peer_clone, point).await?
                     }
                     NextResponse::Await => {
-                        hd_tx
+                        chain_sync_event_tx_clone
                             .send(Tracked::CaughtUp {
-                                peer: peer2.clone(),
+                                peer: peer_clone.clone(),
                                 span: Span::current(),
                             })
                             .await?;
                         match chainsync.await_next().await? {
                             NextResponse::RollForward(hd, _tip) => {
-                                roll_forward(&hd_tx, &peer2, hd).await?
+                                roll_forward(&chain_sync_event_tx_clone, &peer_clone, hd).await?
                             }
                             NextResponse::RollBackward(point, _tip) => {
-                                roll_back(&hd_tx, &peer2, point).await?
+                                roll_back(&chain_sync_event_tx_clone, &peer_clone, point).await?
                             }
                             NextResponse::Await => unreachable!(),
                         }
@@ -121,8 +131,20 @@ pub async fn actor(
             }
         });
 
+        // init tx-submission mini-protocol
+        if txsubmission.send_init().await.is_err() {
+            tracing::error!(%peer, "disconnecting.network_error");
+            plexer.abort().await;
+            sleep(Duration::from_secs(10)).await;
+            continue;
+        };
+
+        let tx_request_tx_clone = tx_request_tx.clone();
+        let peer_clone = peer.clone();
+
         // main loop handling
         // - chainsync errors → disconnect
+        // - tx_submission errors → disconnect
         // - blockfetch results → fetch next block if applicable
         // - commands to FetchBlock or Disconnect coming in via mailbox
         loop {
@@ -134,13 +156,83 @@ pub async fn actor(
                 // while not fetching, construct a Future that won't resolve
                 pending().right_future()
             };
-            let msg = select! {
+            let msg = tokio::select! {
+                // chainsync task died -> disconnect
                 res = &mut sync => {
                     tracing::error!(?res, %peer, "disconnecting.network_error");
                     plexer.abort().await;
                     sleep(Duration::from_secs(10)).await;
                     break;
                 },
+
+                // tx-submission: incoming requests from peer
+                req = txsubmission.next_request() => {
+                    let req = req?; // propagate error -> disconnect
+                    match req {
+                        Request::TxIds(ack, req) => {
+                            tx_request_tx_clone
+                                .send(TxRequest::TxIds {
+                                    peer: peer_clone.clone(),
+                                    ack,
+                                    req,
+                                    span: Span::current(),
+                                })
+                                .await?;
+                        }
+                        Request::TxIdsNonBlocking(ack, req) => {
+                            tx_request_tx_clone
+                                .send(TxRequest::TxIdsNonBlocking {
+                                    peer: peer_clone.clone(),
+                                    ack,
+                                    req,
+                                    span: Span::current(),
+                                })
+                                .await?;
+                        }
+                        Request::Txs(tx_ids) => {
+                            tx_request_tx_clone
+                                .send(TxRequest::Txs {
+                                    peer: peer_clone.clone(),
+                                    tx_ids: tx_ids.iter().map(tx_id_from_era_tx_id).collect(),
+                                    span: Span::current(),
+                                })
+                                .await?;
+                        }
+                    }
+                    continue;
+                },
+
+                // tx-submission: outgoing replies from node
+                reply = tx_reply_rx.recv() => {
+                    match reply {
+                        Some(TxReply::TxIds { tx_ids, .. }) => {
+                            txsubmission
+                                .reply_tx_ids(
+                                    tx_ids
+                                        .into_iter()
+                                        .map(|(tx_id, size)| TxIdAndSize(new_era_tx_id(tx_id), size))
+                                        .collect(),
+                                )
+                                .await?;
+                        }
+                        Some(TxReply::Txs { txs, .. }) => {
+                            txsubmission
+                                .reply_txs(
+                                    txs.into_iter()
+                                        .map(|tx| new_era_tx_body(to_cbor(&tx)))
+                                        .collect(),
+                                )
+                                .await?;
+                        }
+                        None => {
+                            // channel closed -> disconnect
+                            return Err(anyhow::anyhow!("tx_reply channel closed"));
+                        }
+                    }
+                    continue;
+                },
+
+                // existing blockfetch case
                 blockfetch = &mut may_fetch => {
                     if let Some((point, tx)) = req.pop_front() {
                         fetch = State::Running(do_fetch(blockfetch, point, tx, peer.clone()))
@@ -148,16 +240,19 @@ pub async fn actor(
                         fetch = State::Idle(blockfetch)
                     }
                     continue;
-                }
+                },
+
+                // mailbox input
                 msg = cell.recv() => msg,
             };
+
             match msg {
                 ActoInput::NoMoreSenders => {
                     // this won't actually happen with the current NetworkResource because that
                     // never drops the ActoRef, but who knows what the future holds...
                     plexer.abort().await;
                     sync.abort();
-                    return;
+                    return Ok(());
                 }
                 ActoInput::Supervision { .. } => unreachable!(),
                 ActoInput::Message(ConnMsg::FetchBlock(point, tx)) => match fetch {
@@ -179,12 +274,12 @@ pub async fn actor(
 }
 
 async fn roll_forward(
-    hd_tx: &mpsc::Sender<Tracked<ChainSyncEvent>>,
+    chain_sync_event_tx: &mpsc::Sender<Tracked<ChainSyncEvent>>,
     peer: &Peer,
     hd: HeaderContent,
 ) -> anyhow::Result<()> {
     let hd = to_traverse(&hd)?;
-    hd_tx
+    chain_sync_event_tx
         .send(Tracked::Wrapped(ChainSyncEvent::RollForward {
             peer: peer.clone(),
             point: Point::Specific(hd.slot(), hd.hash().to_vec()),
@@ -196,11 +291,11 @@ async fn roll_forward(
 }
 
 async fn roll_back(
-    hd_tx: &mpsc::Sender<Tracked<ChainSyncEvent>>,
+    chain_sync_event_tx: &mpsc::Sender<Tracked<ChainSyncEvent>>,
     peer: &Peer,
     point: pallas_network::miniprotocols::Point,
 ) -> anyhow::Result<()> {
-    hd_tx
+    chain_sync_event_tx
         .send(Tracked::Wrapped(ChainSyncEvent::Rollback {
             peer: peer.clone(),
             rollback_point: from_network_point(&point),
@@ -225,7 +320,7 @@ fn do_fetch(
             });
         let tx = tx.lock().take();
         if let Some(tx) = tx {
-            tx.send(body.map_err(|e| BlockFetchClientError::new(e.into())))
+            tx.send(body.map_err(|e| ClientConnectionError::new(e.into())))
                 .ok();
         }
         blockfetch

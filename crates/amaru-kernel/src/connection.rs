@@ -17,7 +17,7 @@ use parking_lot::Mutex;
 use std::{fmt, sync::Arc};
 use tokio::sync::oneshot;
 
-pub type BlockSender = Arc<Mutex<Option<oneshot::Sender<Result<Vec<u8>, BlockFetchClientError>>>>>;
+pub type BlockSender = Arc<Mutex<Option<oneshot::Sender<Result<Vec<u8>, ClientConnectionError>>>>>;
 
 #[allow(dead_code)]
 pub enum ConnMsg {
@@ -26,11 +26,11 @@ pub enum ConnMsg {
 }
 
 #[derive(Debug)]
-pub struct BlockFetchClientError(anyhow::Error);
+pub struct ClientConnectionError(anyhow::Error);
 
-impl BlockFetchClientError {
+impl ClientConnectionError {
     pub fn new(err: anyhow::Error) -> Self {
-        BlockFetchClientError(err)
+        ClientConnectionError(err)
     }
 
     pub fn to_anyhow(self) -> anyhow::Error {
@@ -50,19 +50,19 @@ impl BlockFetchClientError {
     }
 }
 
-impl From<anyhow::Error> for BlockFetchClientError {
+impl From<anyhow::Error> for ClientConnectionError {
     fn from(err: anyhow::Error) -> Self {
-        BlockFetchClientError::new(err)
+        ClientConnectionError::new(err)
     }
 }
 
-impl fmt::Display for BlockFetchClientError {
+impl fmt::Display for ClientConnectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BlockFetchClientError: {}", self.0)
     }
 }
 
-impl serde::Serialize for BlockFetchClientError {
+impl serde::Serialize for ClientConnectionError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -74,17 +74,17 @@ impl serde::Serialize for BlockFetchClientError {
 /// This deserialization implementation is a best-effort attempt to
 /// recover the error message. The original error type is lost during
 /// serialization, so we can only reconstruct the error message as a string.
-impl<'de> serde::Deserialize<'de> for BlockFetchClientError {
+impl<'de> serde::Deserialize<'de> for ClientConnectionError {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(BlockFetchClientError::new(anyhow::anyhow!(s)))
+        Ok(ClientConnectionError::new(anyhow::anyhow!(s)))
     }
 }
 
-impl PartialEq for BlockFetchClientError {
+impl PartialEq for ClientConnectionError {
     fn eq(&self, other: &Self) -> bool {
         self.0.to_string() == other.0.to_string()
     }

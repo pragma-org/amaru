@@ -13,8 +13,11 @@
 // limitations under the License.
 
 use crate::tx_submission::tests::Tx;
+use amaru_kernel::tx_submission_events::TxId;
 use amaru_mempool::strategies::InMemoryMempool;
-use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxId, TxOrigin, TxRejectReason};
+use amaru_ouroboros_traits::{
+    Mempool, MempoolSeqNo, TxOrigin, TxRejectReason, TxSubmissionMempool,
+};
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -36,21 +39,9 @@ impl SizedMempool {
     }
 }
 
-impl Mempool<Tx> for SizedMempool {
+impl TxSubmissionMempool<Tx> for SizedMempool {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         self.inner_mempool.insert(tx, tx_origin)
-    }
-
-    fn take(&self) -> Vec<Tx> {
-        self.inner_mempool.take()
-    }
-
-    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
-    where
-        I: IntoIterator<Item = TxKey>,
-        Self: Sized,
-    {
-        self.inner_mempool.acknowledge(tx, keys)
     }
 
     fn get_tx(&self, tx_id: &TxId) -> Option<Arc<Tx>> {
@@ -80,5 +71,19 @@ impl Mempool<Tx> for SizedMempool {
 
     fn last_seq_no(&self) -> MempoolSeqNo {
         self.inner_mempool.last_seq_no()
+    }
+}
+
+impl Mempool<Tx> for SizedMempool {
+    fn take(&self) -> Vec<Tx> {
+        self.inner_mempool.take()
+    }
+
+    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
+    where
+        I: IntoIterator<Item = TxKey>,
+        Self: Sized,
+    {
+        self.inner_mempool.acknowledge(tx, keys)
     }
 }

@@ -14,8 +14,10 @@
 
 pub mod fetch_block;
 pub mod forward_chain;
-pub mod pull;
+pub mod pull_chain_sync_events;
+pub mod pull_tx_requests;
 pub mod receive_header;
+pub mod receive_tx_request;
 pub mod select_chain;
 pub mod track_peers;
 pub mod validate_block;

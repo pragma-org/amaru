@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_ouroboros_traits::TxId;
+use crate::tx_submission::{new_era_tx_body, new_era_tx_id};
+use amaru_kernel::to_cbor;
+use amaru_kernel::tx_submission_events::TxId;
 use minicbor::encode::{Error, Write};
 use minicbor::{CborLen, Decode, Decoder, Encode, Encoder};
+use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId};
 
 /// Simple transaction data type for tests.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -30,17 +33,13 @@ impl Tx {
     }
 
     pub fn tx_id(&self) -> TxId {
-        TxId::from(self.tx_body.as_str())
-    }
-
-    pub fn tx_body(&self) -> Vec<u8> {
-        minicbor::to_vec(&self.tx_body).unwrap()
+        TxId::from(self)
     }
 }
 
 impl CborLen<()> for Tx {
     fn cbor_len(&self, _ctx: &mut ()) -> usize {
-        self.tx_body.len()
+        to_cbor(self).len()
     }
 }
 
@@ -56,4 +55,16 @@ impl<'a> Decode<'a, ()> for Tx {
         let tx_body: String = d.decode()?;
         Ok(Tx { tx_body })
     }
+}
+
+pub fn to_era_tx_ids(txs: &[Tx]) -> Vec<EraTxId> {
+    txs.iter()
+        .map(|tx| new_era_tx_id(tx.tx_id()))
+        .collect::<Vec<_>>()
+}
+
+pub fn to_era_tx_bodies(txs: &[Tx]) -> Vec<EraTxBody> {
+    txs.iter()
+        .map(|tx| new_era_tx_body(to_cbor(tx)))
+        .collect::<Vec<_>>()
 }
