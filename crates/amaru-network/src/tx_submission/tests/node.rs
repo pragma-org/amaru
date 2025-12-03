@@ -13,12 +13,13 @@
 // limitations under the License.
 
 use crate::tx_submission::tests::sized_mempool::SizedMempool;
-use crate::tx_submission::tests::{MessageEq, MockTransport, Tx};
+use crate::tx_submission::tests::{MockTransport, Tx};
 use crate::tx_submission::{Blocking, ServerParams, TxSubmissionClient, TxSubmissionServer};
 use amaru_kernel::peer::Peer;
 use amaru_mempool::strategies::InMemoryMempool;
 use amaru_ouroboros_traits::can_validate_transactions::mock::MockCanValidateTransactions;
 use amaru_ouroboros_traits::{CanValidateTransactions, Mempool};
+use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Message};
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
@@ -83,7 +84,7 @@ pub fn create_node() -> Node {
 /// Creates a test node with the specified server options.
 pub fn create_node_with(server_options: ServerOptions) -> Node {
     let client_mempool = Arc::new(SizedMempool::default(server_options.mempool_capacity));
-    let client = TxSubmissionClient::new(client_mempool.clone(), Peer::new("server_peer"));
+    let client = TxSubmissionClient::new(client_mempool.clone(), &Peer::new("server_peer"));
     let server_mempool = server_options.mempool;
     let tx_validator = server_options.tx_validator;
     let server = TxSubmissionServer::new(
@@ -109,7 +110,7 @@ pub fn create_node_with(server_options: ServerOptions) -> Node {
 pub struct NodeHandle {
     pub server_mempool: Arc<dyn Mempool<Tx>>,
     pub client_mempool: Arc<dyn Mempool<Tx>>,
-    pub rx_observe_messages: Receiver<MessageEq>,
+    pub rx_observe_messages: Receiver<Message<EraTxId, EraTxBody>>,
     _client_handle: JoinHandle<anyhow::Result<()>>,
     _server_handle: JoinHandle<anyhow::Result<()>>,
 }
@@ -126,7 +127,7 @@ impl NodeHandle {
         self._server_handle.abort();
     }
 
-    pub async fn observe_messages(&mut self) -> Vec<MessageEq> {
+    pub async fn observe_messages(&mut self) -> Vec<Message<EraTxId, EraTxBody>> {
         let mut messages = Vec::new();
         while let Ok(message) = self.rx_observe_messages.try_recv() {
             messages.push(message);

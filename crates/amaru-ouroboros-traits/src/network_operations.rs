@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::tx_submission_events::{TxReply, TxRequest};
 use amaru_kernel::{
     Point,
-    connection::BlockFetchClientError,
+    connection::ClientConnectionError,
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
 };
@@ -31,12 +32,18 @@ pub trait NetworkOperations: Send + Sync {
     /// we caught up with this peer's chain.
     async fn next_sync(&self) -> Tracked<ChainSyncEvent>;
 
+    /// Wait for the next tx request event from upstream peers.
+    async fn next_tx_request(&self) -> Result<TxRequest, ClientConnectionError>;
+
+    /// Wait for the next tx request event from upstream peers.
+    async fn send_tx_reply(&self, reply: TxReply) -> Result<(), ClientConnectionError>;
+
     /// Fetch a block from a specific peer at a given point.
     async fn fetch_block(
         &self,
         peer: &Peer,
         point: Point,
-    ) -> Result<Vec<u8>, BlockFetchClientError>;
+    ) -> Result<Vec<u8>, ClientConnectionError>;
 
     /// Disconnect from a specific peer.
     async fn disconnect(&self, peer: &Peer);

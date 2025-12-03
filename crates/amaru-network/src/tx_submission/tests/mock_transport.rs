@@ -13,14 +13,13 @@
 // limitations under the License.
 
 use crate::tx_submission::Blocking;
-use crate::tx_submission::tests::MessageEq;
 use crate::tx_submission::tx_client_transport::tests::MockClientTransport;
 use crate::tx_submission::tx_client_transport::{TransportError, TxClientTransport};
 use crate::tx_submission::tx_server_transport::TxServerTransport;
 use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
 use async_trait::async_trait;
 use pallas_network::miniprotocols::txsubmission::{
-    EraTxBody, EraTxId, Reply, Request, TxCount, TxIdAndSize,
+    EraTxBody, EraTxId, Message, Reply, Request, TxCount, TxIdAndSize,
 };
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
@@ -28,7 +27,7 @@ use tokio::sync::{Mutex, mpsc};
 pub struct MockTransport {
     pub client_transport: MockClientTransport,
     pub server_transport: MockServerTransport,
-    pub rx_observe_messages: mpsc::Receiver<MessageEq>,
+    pub rx_observe_messages: mpsc::Receiver<Message<EraTxId, EraTxBody>>,
 }
 
 impl MockTransport {
@@ -48,7 +47,7 @@ impl MockTransport {
     pub fn new(
         client_transport: MockClientTransport,
         server_transport: MockServerTransport,
-        rx_observe_messages: mpsc::Receiver<MessageEq>,
+        rx_observe_messages: mpsc::Receiver<Message<EraTxId, EraTxBody>>,
     ) -> Self {
         Self {
             client_transport,

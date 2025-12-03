@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::cbor::Encode;
-use amaru_ouroboros_traits::mempool::{Mempool, TxId};
-use amaru_ouroboros_traits::{MempoolSeqNo, TxOrigin, TxRejectReason};
-use minicbor::CborLen;
+use amaru_kernel::to_cbor;
+use amaru_kernel::tx_submission_events::TxId;
+use amaru_ouroboros_traits::mempool::Mempool;
+use amaru_ouroboros_traits::{MempoolSeqNo, TxOrigin, TxRejectReason, TxSubmissionMempool};
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 use std::pin::Pin;
@@ -61,7 +62,7 @@ impl<Tx> Default for MempoolInner<Tx> {
     }
 }
 
-impl<Tx: Encode<()> + CborLen<()>> MempoolInner<Tx> {
+impl<Tx: Encode<()>> MempoolInner<Tx> {
     fn insert(
         &mut self,
         config: &MempoolConfig,
@@ -82,12 +83,10 @@ impl<Tx: Encode<()> + CborLen<()>> MempoolInner<Tx> {
         let seq_no = MempoolSeqNo(self.next_seq);
         self.next_seq += 1;
 
-        let tx_size = minicbor::len(&tx) as u32;
         let entry = MempoolEntry {
             seq_no,
             tx_id: tx_id.clone(),
             tx: Arc::new(tx),
-            tx_size,
             origin: tx_origin,
         };
 
@@ -107,7 +106,7 @@ impl<Tx: Encode<()> + CborLen<()>> MempoolInner<Tx> {
             .take(limit as usize)
             .map(|(seq, tx_id)| {
                 if let Some(entry) = self.entries_by_id.get(tx_id) {
-                    let tx_size = entry.tx_size;
+                    let tx_size = to_cbor(&*entry.tx).len() as u32;
                     (tx_id.clone(), tx_size, *seq)
                 } else {
                     panic!(
@@ -141,7 +140,6 @@ pub struct MempoolEntry<Tx> {
     seq_no: MempoolSeqNo,
     tx_id: TxId,
     tx: Arc<Tx>,
-    tx_size: u32,
     origin: TxOrigin,
 }
 
@@ -157,33 +155,9 @@ impl MempoolConfig {
     }
 }
 
-impl<Tx: Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> for InMemoryMempool<Tx> {
+impl<Tx: Send + Sync + 'static + Encode<()>> TxSubmissionMempool<Tx> for InMemoryMempool<Tx> {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         self.inner.write().insert(&self.config, tx, tx_origin)
-    }
-
-    fn take(&self) -> Vec<Tx> {
-        let mut inner = self.inner.write();
-        let entries = mem::take(&mut inner.entries_by_id);
-        let _ = mem::take(&mut inner.entries_by_seq);
-        entries
-            .into_values()
-            .filter_map(|entry| Arc::into_inner(entry.tx))
-            .collect()
-    }
-
-    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
-    where
-        I: IntoIterator<Item = TxKey>,
-        Self: Sized,
-    {
-        let keys_to_remove = BTreeSet::from_iter(keys(tx));
-        let mut inner = self.inner.write();
-        inner.entries_by_id.retain(|_, entry| {
-            !keys(&entry.tx)
-                .into_iter()
-                .any(|k| keys_to_remove.contains(&k))
-        });
     }
 
     fn get_tx(&self, tx_id: &TxId) -> Option<Arc<Tx>> {
@@ -219,6 +193,32 @@ impl<Tx: Send + Sync + 'static + Encode<()> + CborLen<()>> Mempool<Tx> for InMem
     }
 }
 
+impl<Tx: Send + Sync + 'static + Encode<()>> Mempool<Tx> for InMemoryMempool<Tx> {
+    fn take(&self) -> Vec<Tx> {
+        let mut inner = self.inner.write();
+        let entries = mem::take(&mut inner.entries_by_id);
+        let _ = mem::take(&mut inner.entries_by_seq);
+        entries
+            .into_values()
+            .filter_map(|entry| Arc::into_inner(entry.tx))
+            .collect()
+    }
+
+    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
+    where
+        I: IntoIterator<Item = TxKey>,
+        Self: Sized,
+    {
+        let keys_to_remove = BTreeSet::from_iter(keys(tx));
+        let mut inner = self.inner.write();
+        inner.entries_by_id.retain(|_, entry| {
+            !keys(&entry.tx)
+                .into_iter()
+                .any(|k| keys_to_remove.contains(&k))
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,7 +246,7 @@ mod tests {
     }
 
     // HELPERS
-    #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, CborLen)]
+    #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
     struct Tx(#[n(0)] String);
 
     impl Deref for Tx {

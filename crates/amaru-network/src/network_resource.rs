@@ -14,14 +14,16 @@
 
 use crate::acto_connection;
 use acto::{AcTokioRuntime, ActoRef, ActoRuntime};
+use amaru_kernel::tx_submission_events::{TxReply, TxRequest};
 use amaru_kernel::{
     BlockHeader, Point,
-    connection::{BlockFetchClientError, ConnMsg},
+    connection::{ClientConnectionError, ConnMsg},
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
 };
 use amaru_ouroboros::ChainStore;
 use amaru_ouroboros_traits::NetworkOperations;
+use anyhow::anyhow;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
@@ -47,23 +49,40 @@ impl NetworkResource {
         magic: u64,
         store: Arc<dyn ChainStore<BlockHeader>>,
     ) -> Self {
-        let (hd_tx, hd_rx) = mpsc::channel(100);
-        let connections = peers
-            .into_iter()
-            .map(|peer| {
-                (
-                    peer.clone(),
-                    rt.spawn_actor(&format!("conn-{}", peer), |cell| {
-                        acto_connection::actor(cell, peer, magic, hd_tx.clone(), store.clone())
-                    })
-                    .me,
-                )
-            })
-            .collect();
+        let (chain_sync_tx, chain_sync_rx) = mpsc::channel(100);
+        let (tx_request_tx, tx_request_rx) = mpsc::channel(100);
+
+        let mut connections = BTreeMap::new();
+        let mut tx_reply_txs = BTreeMap::new();
+
+        for peer in peers {
+            let (tx_reply_tx, tx_reply_rx) = mpsc::channel(100);
+            tx_reply_txs.insert(peer.clone(), tx_reply_tx);
+
+            let peer_clone = peer.clone();
+            let conn = rt
+                .spawn_actor(&format!("conn-{}", peer), |cell| {
+                    acto_connection::actor(
+                        cell,
+                        peer_clone,
+                        magic,
+                        store.clone(),
+                        chain_sync_tx.clone(),
+                        tx_request_tx.clone(),
+                        tx_reply_rx,
+                    )
+                })
+                .me;
+
+            connections.insert(peer.clone(), conn);
+        }
+
         Self {
             inner: Arc::new(NetworkInner {
                 connections,
-                hd_rx: tokio::sync::Mutex::new(hd_rx),
+                chain_sync_rx: tokio::sync::Mutex::new(chain_sync_rx),
+                tx_request_rx: tokio::sync::Mutex::new(tx_request_rx),
+                tx_reply_txs,
             }),
         }
     }
@@ -71,7 +90,9 @@ impl NetworkResource {
 
 pub struct NetworkInner {
     connections: BTreeMap<Peer, ActoRef<ConnMsg>>,
-    hd_rx: tokio::sync::Mutex<mpsc::Receiver<Tracked<ChainSyncEvent>>>,
+    chain_sync_rx: tokio::sync::Mutex<mpsc::Receiver<Tracked<ChainSyncEvent>>>,
+    tx_request_rx: tokio::sync::Mutex<mpsc::Receiver<TxRequest>>,
+    tx_reply_txs: BTreeMap<Peer, mpsc::Sender<TxReply>>,
 }
 
 #[async_trait]
@@ -79,7 +100,7 @@ impl NetworkOperations for NetworkResource {
     async fn next_sync(&self) -> Tracked<ChainSyncEvent> {
         #[expect(clippy::expect_used)]
         self.inner
-            .hd_rx
+            .chain_sync_rx
             .lock()
             .await
             .recv()
@@ -87,11 +108,30 @@ impl NetworkOperations for NetworkResource {
             .expect("upstream funnel will never stop")
     }
 
+    async fn next_tx_request(&self) -> Result<TxRequest, ClientConnectionError> {
+        if let Some(tx_request) = self.inner.tx_request_rx.lock().await.recv().await {
+            Ok(tx_request)
+        } else {
+            Err(anyhow!("tx request channel closed").into())
+        }
+    }
+
+    async fn send_tx_reply(&self, reply: TxReply) -> Result<(), ClientConnectionError> {
+        if let Some(receiver) = self.inner.tx_reply_txs.get(reply.peer()) {
+            receiver
+                .send(reply)
+                .await
+                .map_err(|e| ClientConnectionError::new(e.into()))
+        } else {
+            Ok(())
+        }
+    }
+
     async fn fetch_block(
         &self,
         peer: &Peer,
         point: Point,
-    ) -> Result<Vec<u8>, BlockFetchClientError> {
+    ) -> Result<Vec<u8>, ClientConnectionError> {
         let (tx, rx) = oneshot::channel();
         let tx = Arc::new(Mutex::new(Some(tx)));
         if let Some(peer) = self.inner.connections.get(peer) {
@@ -100,7 +140,7 @@ impl NetworkOperations for NetworkResource {
         drop(tx);
         // if no sends were made then the drop above ensures that the below errors instead of deadlock
         rx.await
-            .map_err(|e| BlockFetchClientError::new(e.into()))
+            .map_err(|e| ClientConnectionError::new(e.into()))
             .flatten()
     }
 

@@ -20,7 +20,7 @@ use crate::simulator::{
 };
 use crate::sync::ChainSyncMessage;
 use acto::AcTokio;
-use amaru::stages::build_stage_graph::build_stage_graph;
+use amaru::stages::build_consensus_graph::build_consensus_graph;
 use amaru_consensus::consensus::effects::FetchBlockEffect;
 use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::headers_tree::data_generation::{Chain, GeneratedActions};
@@ -177,7 +177,7 @@ pub fn spawn_node(
     );
 
     let our_tip = HeaderTip::new(Point::Origin, 0);
-    let receive_header_ref = build_stage_graph(select_chain, sync_tracker, our_tip, network);
+    let receive_header_ref = build_consensus_graph(select_chain, sync_tracker, our_tip, network);
 
     let (output, rx1) = network.output("output", 10);
 

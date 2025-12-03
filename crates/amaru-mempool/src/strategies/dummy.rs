@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxId, TxOrigin, TxRejectReason};
+use amaru_kernel::tx_submission_events::TxId;
+use amaru_ouroboros_traits::{
+    Mempool, MempoolSeqNo, TxOrigin, TxRejectReason, TxSubmissionMempool,
+};
 use minicbor::Encode;
 use parking_lot::RwLock;
 use std::pin::Pin;
@@ -37,7 +40,7 @@ pub struct DummyMempoolInner<T> {
     transactions: Vec<T>,
 }
 
-impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
+impl<Tx: Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for DummyMempool<Tx> {
     fn insert(&self, tx: Tx, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         let tx_id = TxId::from(&tx);
         self.inner.write().transactions.push(tx);
@@ -45,22 +48,6 @@ impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
             tx_id,
             MempoolSeqNo(self.inner.read().transactions.len() as u64 - 1),
         ))
-    }
-
-    fn take(&self) -> Vec<Tx> {
-        mem::take(&mut self.inner.write().transactions)
-    }
-
-    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
-    where
-        I: IntoIterator<Item = TxKey>,
-        Self: Sized,
-    {
-        let keys_to_remove = BTreeSet::from_iter(keys(tx));
-        self.inner
-            .write()
-            .transactions
-            .retain(|tx| !keys(tx).into_iter().any(|k| keys_to_remove.contains(&k)));
     }
 
     fn get_tx(&self, _tx_id: &TxId) -> Option<Arc<Tx>> {
@@ -84,6 +71,24 @@ impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
 
     fn last_seq_no(&self) -> MempoolSeqNo {
         MempoolSeqNo(self.inner.read().transactions.len() as u64)
+    }
+}
+
+impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
+    fn take(&self) -> Vec<Tx> {
+        mem::take(&mut self.inner.write().transactions)
+    }
+
+    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
+    where
+        I: IntoIterator<Item = TxKey>,
+        Self: Sized,
+    {
+        let keys_to_remove = BTreeSet::from_iter(keys(tx));
+        self.inner
+            .write()
+            .transactions
+            .retain(|tx| !keys(tx).into_iter().any(|k| keys_to_remove.contains(&k)));
     }
 }
 

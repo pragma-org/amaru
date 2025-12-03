@@ -14,7 +14,6 @@
 
 mod assertions;
 mod faulty_tx_validator;
-mod message_eq;
 mod mock_transport;
 mod node;
 mod sized_mempool;
@@ -23,7 +22,6 @@ mod tx;
 
 pub use assertions::*;
 pub use faulty_tx_validator::*;
-pub use message_eq::*;
 pub use mock_transport::*;
 pub use node::*;
 pub use sized_mempool::*;
