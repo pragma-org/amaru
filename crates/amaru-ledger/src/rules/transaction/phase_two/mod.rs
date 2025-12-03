@@ -3,15 +3,21 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     ArenaPool, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash,
-    TransactionPointer, network::NetworkName, normalize_redeemers,
-    protocol_parameters::ProtocolParameters, to_cbor,
+    TransactionPointer, network::NetworkName, protocol_parameters::ProtocolParameters, to_cbor,
 };
 use amaru_plutus::{
     script_context::{Script, TxInfo, TxInfoTranslationError, Utxos},
     to_plutus_data::{PLUTUS_V1, PLUTUS_V2, PLUTUS_V3, PlutusDataError},
 };
 use thiserror::Error;
-use uplc_turbo::{binder::DeBruijn, constant::Constant, data::PlutusData, flat, term::Term};
+use uplc_turbo::{
+    binder::DeBruijn,
+    constant::Constant,
+    data::PlutusData,
+    flat,
+    machine::{MachineInfo, PlutusVersion},
+    term::Term,
+};
 
 use crate::context::UtxoSlice;
 
@@ -22,10 +28,18 @@ pub enum PhaseTwoError {
     #[error("illegal state in ScriptContext: {0}")]
     ScriptContextStateError(#[from] PlutusDataError),
     // TODO: convert from MachineError to PhaseTwoError
-    #[error("script evaluation failure")]
-    UplcMachineError,
+    #[error("script evaluation failure: {0:?}")]
+    UplcMachineError(UplcMachineError),
     #[error("expected scripts to fail but didn't")]
     ValidityStateError,
+}
+
+#[derive(Debug)]
+pub struct UplcMachineError {
+    pub plutus_version: PlutusVersion,
+    pub info: MachineInfo,
+    // This should be a `MachineError`, but I'm avoiding lifetime hell for now
+    pub err: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -46,11 +60,6 @@ where
     if transaction_witness_set.redeemer.is_none() {
         return Ok(());
     }
-
-    println!(
-        "Redemer Count: {}",
-        normalize_redeemers(&transaction_witness_set.redeemer.clone().unwrap()).len()
-    );
 
     let mut resolved_inputs = transaction_body
         .inputs
@@ -88,7 +97,7 @@ where
         .into_iter()
         .map(|(script_context, script)| {
             let arena = arena_pool.acquire();
-            let (args, cost_model, version) = match script {
+            let (args, cost_model, plutus_version) = match script {
                 Script::Native(_) => {
                     unreachable!("cannot have a redeemer point to a native_script")
                 }
@@ -107,12 +116,6 @@ where
                     protocol_parameters.cost_models.plutus_v3.clone().unwrap(),
                     uplc_turbo::machine::PlutusVersion::V3,
                 ),
-            };
-
-            match version {
-                uplc_turbo::machine::PlutusVersion::V1 => println!("PLUTUS V1"),
-                uplc_turbo::machine::PlutusVersion::V2 => println!("PLUTUS V2"),
-                uplc_turbo::machine::PlutusVersion::V3 => println!("PLUTUS V3"),
             };
 
             let mut program =
@@ -137,20 +140,22 @@ where
             // let budget = script_context.budget();
 
             // There is no API in UPLC to provide a budget to the program
-            let result = program.eval_version_with_model(&arena, version, &cost_model);
+            let result = program.eval_version_with_model(&arena, plutus_version, &cost_model);
 
             match result.term {
-                Ok(term) => {
-                    println!("Ran script! {:?}", result.info.consumed_budget);
-                    match term {
-                        Term::Error => Err(PhaseTwoError::UplcMachineError),
-                        _ => Ok(()),
-                    }
-                }
-                Err(e) => {
-                    println!("Error running script: {}", e);
-                    Err(PhaseTwoError::UplcMachineError)
-                }
+                Ok(term) => match term {
+                    Term::Error => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+                        plutus_version,
+                        info: result.info,
+                        err: "Error term evaluated".into(),
+                    })),
+                    _ => Ok(()),
+                },
+                Err(e) => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+                    plutus_version,
+                    info: result.info,
+                    err: e.to_string(),
+                })),
             }
         })
         .collect::<Result<Vec<_>, _>>()

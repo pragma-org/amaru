@@ -14,13 +14,13 @@
 
 use std::{borrow::Cow, collections::BTreeMap};
 
-use amaru_kernel::{Address, KeyValuePairs};
+use amaru_kernel::{Address, KeyValuePairs, StakePayload};
 
 use crate::{
     PlutusDataError, ToPlutusData, constr_v2,
     script_context::{
-        Datums, OutputRef, PlutusData, Redeemers, ScriptContext, ScriptPurpose, TransactionOutput,
-        TxInfo, Value, Withdrawals,
+        Datums, OutputRef, PlutusData, Redeemers, ScriptContext, ScriptPurpose, StakeAddress,
+        TransactionOutput, TxInfo, Value, Withdrawals,
     },
 };
 
@@ -102,5 +102,20 @@ impl ToPlutusData<2> for Redeemers<'_, ScriptPurpose<'_>> {
             .collect();
 
         Ok(PlutusData::Map(KeyValuePairs::Def(converted?)))
+    }
+}
+
+impl ToPlutusData<2> for amaru_kernel::StakeAddress {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        match self.payload() {
+            StakePayload::Stake(keyhash) => constr_v2!(0, [constr_v2!(0, [keyhash])?]),
+            StakePayload::Script(script_hash) => constr_v2!(0, [constr_v2!(1, [script_hash])?]),
+        }
+    }
+}
+
+impl ToPlutusData<2> for StakeAddress {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        <amaru_kernel::StakeAddress as ToPlutusData<2>>::to_plutus_data(&self.0)
     }
 }

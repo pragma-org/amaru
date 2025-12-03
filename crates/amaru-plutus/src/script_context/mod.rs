@@ -141,7 +141,6 @@ impl<'a> ScriptContext<'a> {
         if let Some(datum) = self.datum {
             args.push(datum.clone());
         }
-
         args.push(self.redeemer.data.clone());
         args.push(<Self as ToPlutusData<2>>::to_plutus_data(self)?);
 
