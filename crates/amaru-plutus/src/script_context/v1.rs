@@ -158,10 +158,12 @@ where
 {
     /// Serialize `Certificate` as PlutusData for PlutusV1 or PlutusV2.
     ///
+    /// It's worth noting that the following certificate variants are allowed, but translated to the "old" representation:
+    /// - `Certificate::Reg` -> `Certificate::StakeRegistration`
+    /// - `Certificate::UnReg` -> `Certificate::StakeDeregistration`
+    ///
     /// # Errors
     /// The following Certificates cannot be included in PlutusV1 or PlutusV2:
-    /// - `Certificate::Reg`
-    /// - `Certificate::UnReg`
     /// - `Certificate::VoteDeleg`
     /// - `Certificate::StakeVoteDeleg`
     /// - `Certificate::StakeRegDeleg`
@@ -179,7 +181,13 @@ where
             Certificate::StakeRegistration(stake_credential) => {
                 constr!(0, [stake_credential])
             }
+            Certificate::Reg(stake_credential, _) => {
+                constr!(0, [stake_credential])
+            }
             Certificate::StakeDeregistration(stake_credential) => {
+                constr!(1, [stake_credential])
+            }
+            Certificate::UnReg(stake_credential, _) => {
                 constr!(1, [stake_credential])
             }
             Certificate::StakeDelegation(stake_credential, hash) => {
