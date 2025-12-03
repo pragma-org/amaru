@@ -17,7 +17,7 @@ use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 use amaru_kernel::{
     Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
     GovAction, PolicyId, PoolVotingThresholds, Proposal, ProposalId, ProposalIdAdapter,
-    ProtocolParamUpdate, RationalNumber, StakeCredential, Vote,
+    ProtocolParamUpdate, RationalNumber, StakeCredential, StakePayload, Vote,
 };
 use num::Integer;
 
@@ -25,8 +25,8 @@ use crate::{
     PlutusDataError, ToPlutusData, constr, constr_v3,
     script_context::{
         Certificate, CurrencySymbol, Datums, KeyValuePairs, Mint, OutputRef, PlutusData, Redeemers,
-        ScriptContext, ScriptInfo, ScriptPurpose, TransactionInput, TransactionOutput, TxInfo,
-        Value, Voter, Votes, Withdrawals,
+        ScriptContext, ScriptInfo, ScriptPurpose, StakeAddress, TransactionInput,
+        TransactionOutput, TxInfo, Value, Voter, Votes, Withdrawals,
     },
 };
 
@@ -607,6 +607,21 @@ impl ToPlutusData<3> for Datums<'_> {
 impl ToPlutusData<3> for Votes<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         self.0.to_plutus_data()
+    }
+}
+
+impl ToPlutusData<3> for amaru_kernel::StakeAddress {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        match self.payload() {
+            StakePayload::Stake(keyhash) => constr_v3!(0, [keyhash]),
+            StakePayload::Script(script_hash) => constr_v3!(1, [script_hash]),
+        }
+    }
+}
+
+impl ToPlutusData<3> for StakeAddress {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        <amaru_kernel::StakeAddress as ToPlutusData<3>>::to_plutus_data(&self.0)
     }
 }
 

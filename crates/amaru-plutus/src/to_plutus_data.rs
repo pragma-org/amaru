@@ -14,14 +14,12 @@
 
 use crate::{
     constr,
-    script_context::{
-        CurrencySymbol, DatumOption, RequiredSigners, Script, StakeAddress, TimeRange,
-    },
+    script_context::{CurrencySymbol, DatumOption, RequiredSigners, Script, TimeRange},
 };
 use amaru_kernel::{
     Address, BigInt, Bytes, ComputeHash, Hash, Int, KeyValuePairs, MaybeIndefArray, MemoizedDatum,
     NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ShelleyDelegationPart,
-    ShelleyPaymentPart, StakeCredential, StakePayload,
+    ShelleyPaymentPart, StakeCredential,
 };
 use thiserror::Error;
 
@@ -158,7 +156,22 @@ where
 
                 constr!(0, [payment_part_plutus_data, stake_part_plutus_data])
             }
-            Address::Stake(stake_address) => stake_address.to_plutus_data(),
+            // This is horrible, but it works for now. Need to figure out a cleaner solution
+            Address::Stake(stake_address) => match V {
+                1 => {
+                    <amaru_kernel::StakeAddress as ToPlutusData<1>>::to_plutus_data(stake_address)?
+                        .to_plutus_data()
+                }
+                2 => {
+                    <amaru_kernel::StakeAddress as ToPlutusData<2>>::to_plutus_data(stake_address)?
+                        .to_plutus_data()
+                }
+                3 => {
+                    <amaru_kernel::StakeAddress as ToPlutusData<3>>::to_plutus_data(stake_address)?
+                        .to_plutus_data()
+                }
+                _ => unreachable!(),
+            },
             Address::Byron(_) => unreachable!("unable to encode Byron address in PlutusData"),
         }
     }
@@ -179,27 +192,6 @@ where
         };
 
         constr!(0, [lower?, upper?])
-    }
-}
-
-impl<const V: u8> ToPlutusData<V> for amaru_kernel::StakeAddress
-where
-    PlutusVersion<V>: IsKnownPlutusVersion,
-{
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self.payload() {
-            StakePayload::Stake(keyhash) => constr!(0, [keyhash]),
-            StakePayload::Script(script_hash) => constr!(1, [script_hash]),
-        }
-    }
-}
-
-impl<const V: u8> ToPlutusData<V> for StakeAddress
-where
-    PlutusVersion<V>: IsKnownPlutusVersion,
-{
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        amaru_kernel::StakeAddress::from(self.clone()).to_plutus_data()
     }
 }
 
