@@ -19,7 +19,7 @@ use crate::stages::{
 };
 use acto::AcTokio;
 use amaru_consensus::consensus::effects::ResourceMempool;
-use amaru_consensus::consensus::stages::pull_tx_requests;
+use amaru_consensus::consensus::stages::{pull_tx_replies, pull_tx_requests};
 use amaru_consensus::{
     consensus::{
         effects::{
@@ -231,7 +231,8 @@ pub async fn bootstrap(
     let receive_header_stage =
         build_consensus_graph(chain_selector, sync_tracker, our_tip, &mut network);
 
-    let receive_tx_request_stage = build_tx_submission_graph(&mut network);
+    let (receive_tx_request_stage, receive_tx_reply_stage) =
+        build_tx_submission_graph(&mut network);
 
     let pull_chain_sync_events_stage = network.stage("pull", pull_chain_sync_events::stage);
     let pull_chain_sync_events_stage =
@@ -247,6 +248,10 @@ pub async fn bootstrap(
         pull_tx_requests_stage,
         vec![pull_tx_requests::NextTxRequest]
     ));
+
+    let pull_tx_replies_stage = network.stage("pull", pull_tx_replies::stage);
+    let pull_tx_replies_stage = network.wire_up(pull_tx_replies_stage, receive_tx_reply_stage);
+    assert!(network.preload(pull_tx_replies_stage, vec![pull_tx_replies::NextTxReply]));
 
     network
         .resources()

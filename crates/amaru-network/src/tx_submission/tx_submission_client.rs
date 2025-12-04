@@ -260,7 +260,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn serve_transactions_blocking() -> anyhow::Result<()> {
         // Create a mempool with some transactions
-        let mempool = Arc::new(SizedMempool::default(6));
+        let mempool = Arc::new(SizedMempool::with_capacity(6));
         let txs = create_transactions(6);
         let era_tx_ids = to_era_tx_ids(&txs);
         let era_tx_bodies = to_era_tx_bodies(&txs);
@@ -301,7 +301,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn serve_transactions_non_blocking() -> anyhow::Result<()> {
         // Create a mempool with some transactions
-        let mempool = Arc::new(SizedMempool::default(6));
+        let mempool = Arc::new(SizedMempool::with_capacity(6));
         let txs = create_transactions(6);
         let era_tx_ids = to_era_tx_ids(&txs);
         let era_tx_bodies = to_era_tx_bodies(&txs);
@@ -355,7 +355,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn request_txs_must_come_from_requested_ids() -> anyhow::Result<()> {
         // Create a mempool with some transactions
-        let mempool = Arc::new(SizedMempool::default(6));
+        let mempool = Arc::new(SizedMempool::with_capacity(6));
         let txs = create_transactions(4);
         let era_tx_ids = to_era_tx_ids(&txs);
         for tx in txs.iter() {
@@ -386,7 +386,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn requested_ids_must_be_greater_than_0() -> anyhow::Result<()> {
-        let mempool = Arc::new(SizedMempool::default(6));
+        let mempool = Arc::new(SizedMempool::with_capacity(6));
         let (tx_req, mut replies, _rx_observe_messages, _client_handle) =
             start_client(mempool.clone()).await?;
 
@@ -402,7 +402,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn requested_txs_must_be_greater_than_0() -> anyhow::Result<()> {
-        let mempool = Arc::new(SizedMempool::default(4));
+        let mempool = Arc::new(SizedMempool::with_capacity(4));
         let txs = create_transactions(4);
         let era_tx_ids = to_era_tx_ids(&txs);
         for tx in txs.iter() {

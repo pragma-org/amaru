@@ -14,7 +14,10 @@
 
 use amaru_kernel::Tx;
 use amaru_kernel::tx_submission_events::TxId;
-use amaru_ouroboros_traits::{MempoolSeqNo, TxOrigin, TxRejectReason, TxSubmissionMempool};
+use amaru_ouroboros_traits::{
+    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxOrigin, TxRejectReason,
+    TxSubmissionMempool,
+};
 use pure_stage::{
     BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
 };
@@ -43,6 +46,12 @@ impl<T> MemoryPool<T> {
         T: SendData + Sync,
     {
         self.effects.external_sync(effect)
+    }
+}
+
+impl<T: SendData + Sync> CanValidateTransactions<Tx> for MemoryPool<T> {
+    fn validate_transaction(&self, tx: &Tx) -> Result<(), TransactionValidationError> {
+        self.effects.external_sync(ValidateTransaction(tx.clone()))
     }
 }
 
@@ -109,6 +118,28 @@ impl ExternalEffectAPI for Insert {
 }
 
 impl ExternalEffectSync for Insert {}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct ValidateTransaction(Tx);
+
+impl ExternalEffect for ValidateTransaction {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let mempool = resources
+                .get::<ResourceMempool>()
+                .expect("ResourceMempool requires a mempool")
+                .clone();
+            mempool.validate_transaction(&self.0)
+        })
+    }
+}
+
+impl ExternalEffectAPI for ValidateTransaction {
+    type Response = Result<(), TransactionValidationError>;
+}
+
+impl ExternalEffectSync for ValidateTransaction {}
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct GetTx {

@@ -18,9 +18,8 @@ use crate::can_validate_transactions::{CanValidateTransactions, TransactionValid
 #[derive(Clone, Debug, Default)]
 pub struct MockCanValidateTransactions;
 
-#[async_trait::async_trait]
 impl<Tx: Send + Sync + 'static> CanValidateTransactions<Tx> for MockCanValidateTransactions {
-    async fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+    fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
         Ok(())
     }
 }

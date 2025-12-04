@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::CanValidateTransactions;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::tx_submission_events::TxId;
 use serde::{Deserialize, Serialize};
@@ -37,7 +38,9 @@ pub trait Mempool<Tx: Send + Sync + 'static>: TxSubmissionMempool<Tx> + Send + S
         Self: Sized;
 }
 
-pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
+pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>:
+    Send + Sync + CanValidateTransactions<Tx>
+{
     /// Insert a transaction into the mempool, specifying its origin.
     /// A TxOrigin::Local origin indicates the transaction was created on the current node,
     /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.

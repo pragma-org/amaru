@@ -22,7 +22,7 @@ use std::fmt::{Display, Formatter};
 use tracing::Span;
 
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum TxRequest {
+pub enum TxServerRequest {
     Txs {
         peer: Peer,
         tx_ids: Vec<TxId>,
@@ -45,10 +45,10 @@ pub enum TxRequest {
     },
 }
 
-impl fmt::Debug for TxRequest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Debug for TxServerRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            TxRequest::Txs { peer, tx_ids, .. } => f
+            TxServerRequest::Txs { peer, tx_ids, .. } => f
                 .debug_struct("Txs")
                 .field("peer", &peer.name)
                 .field(
@@ -56,13 +56,13 @@ impl fmt::Debug for TxRequest {
                     &tx_ids.iter().map(|tx_id| tx_id.to_string()).join(", "),
                 )
                 .finish(),
-            TxRequest::TxIds { peer, ack, req, .. } => f
+            TxServerRequest::TxIds { peer, ack, req, .. } => f
                 .debug_struct("TxIds")
                 .field("peer", &peer.name)
                 .field("ack", &ack)
                 .field("req", &req)
                 .finish(),
-            TxRequest::TxIdsNonBlocking { peer, ack, req, .. } => f
+            TxServerRequest::TxIdsNonBlocking { peer, ack, req, .. } => f
                 .debug_struct("TxIdsNonBlocking")
                 .field("peer", &peer.name)
                 .field("ack", &ack)
@@ -72,16 +72,16 @@ impl fmt::Debug for TxRequest {
     }
 }
 
-impl TxRequest {
+impl TxServerRequest {
     pub fn set_span(&mut self, span: Span) {
         match self {
-            TxRequest::Txs { span: s, .. } => {
+            TxServerRequest::Txs { span: s, .. } => {
                 *s = span;
             }
-            TxRequest::TxIds { span: s, .. } => {
+            TxServerRequest::TxIds { span: s, .. } => {
                 *s = span;
             }
-            TxRequest::TxIdsNonBlocking { span: s, .. } => {
+            TxServerRequest::TxIdsNonBlocking { span: s, .. } => {
                 *s = span;
             }
         }
@@ -89,46 +89,79 @@ impl TxRequest {
 
     pub fn span(&self) -> &Span {
         match self {
-            TxRequest::Txs { span, .. } => span,
-            TxRequest::TxIds { span, .. } => span,
-            TxRequest::TxIdsNonBlocking { span, .. } => span,
+            TxServerRequest::Txs { span, .. } => span,
+            TxServerRequest::TxIds { span, .. } => span,
+            TxServerRequest::TxIdsNonBlocking { span, .. } => span,
         }
     }
 
     pub fn peer(&self) -> &Peer {
         match self {
-            TxRequest::Txs { peer, .. } => peer,
-            TxRequest::TxIds { peer, .. } => peer,
-            TxRequest::TxIdsNonBlocking { peer, .. } => peer,
+            TxServerRequest::Txs { peer, .. } => peer,
+            TxServerRequest::TxIds { peer, .. } => peer,
+            TxServerRequest::TxIdsNonBlocking { peer, .. } => peer,
         }
     }
 }
 
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum TxReply {
+pub enum TxClientReply {
+    Init {
+        peer: Peer,
+        #[serde(skip, default = "Span::none")]
+        span: Span,
+    },
     TxIds {
         peer: Peer,
         tx_ids: Vec<(TxId, u32)>,
+        #[serde(skip, default = "Span::none")]
+        span: Span,
     },
     Txs {
         peer: Peer,
         txs: Vec<Tx>,
+        #[serde(skip, default = "Span::none")]
+        span: Span,
     },
 }
 
-impl TxReply {
+impl TxClientReply {
+    pub fn set_span(&mut self, span: Span) {
+        match self {
+            TxClientReply::Init { span: s, .. } => {
+                *s = span;
+            }
+            TxClientReply::Txs { span: s, .. } => {
+                *s = span;
+            }
+            TxClientReply::TxIds { span: s, .. } => {
+                *s = span;
+            }
+        }
+    }
+
+    pub fn span(&self) -> &Span {
+        match self {
+            TxClientReply::Init { span, .. } => span,
+            TxClientReply::Txs { span, .. } => span,
+            TxClientReply::TxIds { span, .. } => span,
+        }
+    }
+
     pub fn peer(&self) -> &Peer {
         match self {
-            TxReply::TxIds { peer, .. } => peer,
-            TxReply::Txs { peer, .. } => peer,
+            TxClientReply::Init { peer, .. } => peer,
+            TxClientReply::TxIds { peer, .. } => peer,
+            TxClientReply::Txs { peer, .. } => peer,
         }
     }
 }
 
-impl fmt::Debug for TxReply {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Debug for TxClientReply {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            TxReply::TxIds { peer, tx_ids } => f
+            TxClientReply::Init { peer, .. } => f.debug_struct("Init").field("peer", peer).finish(),
+            TxClientReply::TxIds { peer, tx_ids, .. } => f
                 .debug_struct("TxIds")
                 .field("peer", peer)
                 .field(
@@ -139,7 +172,7 @@ impl fmt::Debug for TxReply {
                         .join(", "),
                 )
                 .finish(),
-            TxReply::Txs { peer, txs } => f
+            TxClientReply::Txs { peer, txs, .. } => f
                 .debug_struct("Txs")
                 .field("peer", peer)
                 .field("tx_count", &txs.len())

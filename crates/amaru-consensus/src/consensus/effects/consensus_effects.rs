@@ -223,10 +223,27 @@ pub mod tests {
             Box::pin(ready(Ok(())))
         }
 
+        fn request_tx_ids(
+            &self,
+            _peer: Peer,
+            _ack: u16,
+            _req: u16,
+        ) -> BoxFuture<'_, Result<(), ClientConnectionError>> {
+            Box::pin(ready(Ok(())))
+        }
+
         fn send_txs(
             &self,
             _peer: Peer,
             _txs: Vec<Tx>,
+        ) -> BoxFuture<'_, Result<(), ClientConnectionError>> {
+            Box::pin(ready(Ok(())))
+        }
+
+        fn request_txs(
+            &self,
+            _peer: Peer,
+            _tx_ids: Vec<TxId>,
         ) -> BoxFuture<'_, Result<(), ClientConnectionError>> {
             Box::pin(ready(Ok(())))
         }

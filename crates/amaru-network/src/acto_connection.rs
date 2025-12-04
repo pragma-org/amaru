@@ -18,9 +18,9 @@ use crate::{
     point::{from_network_point, to_network_point},
 };
 use acto::{AcTokioRuntime, ActoCell, ActoInput};
-use amaru_kernel::tx_submission_events::{TxReply, TxRequest};
+use amaru_kernel::tx_submission_events::TxServerRequest;
 use amaru_kernel::{
-    BlockHeader, IsHeader, Point,
+    BlockHeader, IsHeader, Point, TxClientReply,
     connection::{BlockSender, ClientConnectionError, ConnMsg},
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
@@ -59,8 +59,8 @@ pub async fn actor(
     magic: u64,
     store: Arc<dyn ChainStore<BlockHeader>>,
     chain_sync_event_tx: mpsc::Sender<Tracked<ChainSyncEvent>>,
-    tx_request_tx: mpsc::Sender<TxRequest>,
-    mut tx_reply_rx: mpsc::Receiver<TxReply>,
+    tx_server_request_sender: mpsc::Sender<TxServerRequest>,
+    mut tx_client_reply_receiver: mpsc::Receiver<TxClientReply>,
 ) -> anyhow::Result<()> {
     let mut req = VecDeque::new();
 
@@ -139,7 +139,7 @@ pub async fn actor(
             continue;
         };
 
-        let tx_request_tx_clone = tx_request_tx.clone();
+        let tx_request_tx_clone = tx_server_request_sender.clone();
         let peer_clone = peer.clone();
 
         // main loop handling
@@ -171,7 +171,7 @@ pub async fn actor(
                     match req {
                         Request::TxIds(ack, req) => {
                             tx_request_tx_clone
-                                .send(TxRequest::TxIds {
+                                .send(TxServerRequest::TxIds {
                                     peer: peer_clone.clone(),
                                     ack,
                                     req,
@@ -181,7 +181,7 @@ pub async fn actor(
                         }
                         Request::TxIdsNonBlocking(ack, req) => {
                             tx_request_tx_clone
-                                .send(TxRequest::TxIdsNonBlocking {
+                                .send(TxServerRequest::TxIdsNonBlocking {
                                     peer: peer_clone.clone(),
                                     ack,
                                     req,
@@ -191,7 +191,7 @@ pub async fn actor(
                         }
                         Request::Txs(tx_ids) => {
                             tx_request_tx_clone
-                                .send(TxRequest::Txs {
+                                .send(TxServerRequest::Txs {
                                     peer: peer_clone.clone(),
                                     tx_ids: tx_ids.iter().map(tx_id_from_era_tx_id).collect(),
                                     span: Span::current(),
@@ -203,9 +203,14 @@ pub async fn actor(
                 },
 
                 // tx-submission: outgoing replies from node
-                reply = tx_reply_rx.recv() => {
+                reply = tx_client_reply_receiver.recv() => {
                     match reply {
-                        Some(TxReply::TxIds { tx_ids, .. }) => {
+                        Some(TxClientReply::Init { .. }) => {
+                            txsubmission
+                                .send_init()
+                                .await?;
+                        }
+                        Some(TxClientReply::TxIds { tx_ids, .. }) => {
                             txsubmission
                                 .reply_tx_ids(
                                     tx_ids
@@ -215,7 +220,7 @@ pub async fn actor(
                                 )
                                 .await?;
                         }
-                        Some(TxReply::Txs { txs, .. }) => {
+                        Some(TxClientReply::Txs { txs, .. }) => {
                             txsubmission
                                 .reply_txs(
                                     txs.into_iter()

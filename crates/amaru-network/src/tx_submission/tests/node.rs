@@ -14,7 +14,9 @@
 
 use crate::tx_submission::tests::sized_mempool::SizedMempool;
 use crate::tx_submission::tests::{MockTransport, Tx};
-use crate::tx_submission::{Blocking, ServerParams, TxSubmissionClient, TxSubmissionServer};
+use crate::tx_submission::tx_submission_client::TxSubmissionClient;
+use crate::tx_submission::tx_submission_server::TxSubmissionServer;
+use crate::tx_submission::{Blocking, ServerParams};
 use amaru_kernel::peer::Peer;
 use amaru_mempool::strategies::InMemoryMempool;
 use amaru_ouroboros_traits::can_validate_transactions::mock::MockCanValidateTransactions;
@@ -83,14 +85,15 @@ pub fn create_node() -> Node {
 
 /// Creates a test node with the specified server options.
 pub fn create_node_with(server_options: ServerOptions) -> Node {
-    let client_mempool = Arc::new(SizedMempool::default(server_options.mempool_capacity));
+    let client_mempool = Arc::new(SizedMempool::with_tx_validator(
+        server_options.mempool_capacity,
+        server_options.tx_validator,
+    ));
     let client = TxSubmissionClient::new(client_mempool.clone(), &Peer::new("server_peer"));
     let server_mempool = server_options.mempool;
-    let tx_validator = server_options.tx_validator;
     let server = TxSubmissionServer::new(
         server_options.params,
         server_mempool.clone(),
-        tx_validator.clone(),
         Peer::new("client_peer"),
     );
 

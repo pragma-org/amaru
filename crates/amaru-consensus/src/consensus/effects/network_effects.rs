@@ -17,11 +17,11 @@ use crate::consensus::{
     tip::HeaderTip,
 };
 use amaru_kernel::connection::ClientConnectionError;
-use amaru_kernel::tx_submission_events::TxRequest;
 use amaru_kernel::{
-    BlockHeader, IsHeader, Point, Tx, TxId, TxReply,
+    BlockHeader, IsHeader, Point, Tx, TxId,
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
+    tx_submission_events::{TxClientReply, TxServerRequest},
 };
 use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use anyhow::anyhow;
@@ -29,6 +29,7 @@ use async_trait::async_trait;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, sync::Arc};
+use tracing::Span;
 
 /// Network operations available to a stage: fetch block and forward events to peers.
 /// This trait can have mock implementations for unit testing a stage.
@@ -57,10 +58,23 @@ pub trait NetworkOps {
         tx_ids: Vec<(TxId, u32)>,
     ) -> BoxFuture<'_, Result<(), ClientConnectionError>>;
 
+    fn request_tx_ids(
+        &self,
+        peer: Peer,
+        ack: u16,
+        req: u16,
+    ) -> BoxFuture<'_, Result<(), ClientConnectionError>>;
+
     fn send_txs(
         &self,
         peer: Peer,
         txs: Vec<Tx>,
+    ) -> BoxFuture<'_, Result<(), ClientConnectionError>>;
+
+    fn request_txs(
+        &self,
+        peer: Peer,
+        tx_ids: Vec<TxId>,
     ) -> BoxFuture<'_, Result<(), ClientConnectionError>>;
 
     fn disconnect(&self, peer: Peer) -> BoxFuture<'_, ()>;
@@ -112,12 +126,29 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
         self.0.external(TxIdsReplyEffect::new(peer, tx_ids))
     }
 
+    fn request_tx_ids(
+        &self,
+        peer: Peer,
+        ack: u16,
+        req: u16,
+    ) -> BoxFuture<'_, Result<(), ClientConnectionError>> {
+        self.0.external(TxIdsRequestEffect::new(peer, ack, req))
+    }
+
     fn send_txs(
         &self,
         peer: Peer,
         txs: Vec<Tx>,
     ) -> BoxFuture<'_, Result<(), ClientConnectionError>> {
         self.0.external(TxsReplyEffect::new(peer, txs))
+    }
+
+    fn request_txs(
+        &self,
+        peer: Peer,
+        tx_ids: Vec<TxId>,
+    ) -> BoxFuture<'_, Result<(), ClientConnectionError>> {
+        self.0.external(TxsRequestEffect::new(peer, tx_ids))
     }
 
     fn disconnect(&self, peer: Peer) -> BoxFuture<'_, ()> {
@@ -222,13 +253,13 @@ impl ExternalEffect for ChainSyncEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TxRequestEffect;
+pub struct ReceiveTxServerRequestEffect;
 
-impl ExternalEffectAPI for TxRequestEffect {
-    type Response = Result<TxRequest, ClientConnectionError>;
+impl ExternalEffectAPI for ReceiveTxServerRequestEffect {
+    type Response = Result<TxServerRequest, ClientConnectionError>;
 }
 
-impl ExternalEffect for TxRequestEffect {
+impl ExternalEffect for ReceiveTxServerRequestEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
@@ -237,6 +268,26 @@ impl ExternalEffect for TxRequestEffect {
                 .expect("TxRequestEffect requires a NetworkOperations")
                 .clone();
             network.next_tx_request().await
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ReceiveTxClientReplyEffect;
+
+impl ExternalEffectAPI for ReceiveTxClientReplyEffect {
+    type Response = Result<TxClientReply, ClientConnectionError>;
+}
+
+impl ExternalEffect for ReceiveTxClientReplyEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let network = resources
+                .get::<ResourceNetworkOperations>()
+                .expect("TxReplyEffect requires a NetworkOperations")
+                .clone();
+            network.next_tx_reply().await
         })
     }
 }
@@ -263,9 +314,11 @@ impl ExternalEffect for TxIdsReplyEffect {
                 .clone();
 
             let result: <Self as ExternalEffectAPI>::Response = network_operations
-                .send_tx_reply(TxReply::TxIds {
+                .send_tx_reply(TxClientReply::TxIds {
                     peer: self.peer.clone(),
                     tx_ids: self.tx_ids,
+                    // TODO: check if this is the correct span to use
+                    span: Span::current(),
                 })
                 .await;
             Box::new(result) as Box<dyn SendData>
@@ -274,6 +327,46 @@ impl ExternalEffect for TxIdsReplyEffect {
 }
 
 impl ExternalEffectAPI for TxIdsReplyEffect {
+    type Response = Result<(), ClientConnectionError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TxIdsRequestEffect {
+    peer: Peer,
+    ack: u16,
+    req: u16,
+}
+
+impl TxIdsRequestEffect {
+    pub fn new(peer: Peer, ack: u16, req: u16) -> Self {
+        Self { peer, ack, req }
+    }
+}
+
+impl ExternalEffect for TxIdsRequestEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Box::pin(async move {
+            let network_operations = resources
+                .get::<ResourceNetworkOperations>()
+                .expect("TxIdsReplyEffect requires a NetworkOperations instance")
+                .clone();
+
+            let result: <Self as ExternalEffectAPI>::Response = network_operations
+                .send_tx_request(TxServerRequest::TxIds {
+                    peer: self.peer.clone(),
+                    ack: self.ack,
+                    req: self.req,
+                    // TODO: check if this is the correct span to use
+                    span: Span::current(),
+                })
+                .await;
+            Box::new(result) as Box<dyn SendData>
+        })
+    }
+}
+
+impl ExternalEffectAPI for TxIdsRequestEffect {
     type Response = Result<(), ClientConnectionError>;
 }
 
@@ -299,9 +392,11 @@ impl ExternalEffect for TxsReplyEffect {
                 .clone();
 
             let result: <Self as ExternalEffectAPI>::Response = network_operations
-                .send_tx_reply(TxReply::Txs {
+                .send_tx_reply(TxClientReply::Txs {
                     peer: self.peer.clone(),
                     txs: self.txs,
+                    // TODO: check if this is the correct span to use
+                    span: Span::current(),
                 })
                 .await;
             Box::new(result) as Box<dyn SendData>
@@ -310,6 +405,44 @@ impl ExternalEffect for TxsReplyEffect {
 }
 
 impl ExternalEffectAPI for TxsReplyEffect {
+    type Response = Result<(), ClientConnectionError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TxsRequestEffect {
+    peer: Peer,
+    tx_ids: Vec<TxId>,
+}
+
+impl TxsRequestEffect {
+    pub fn new(peer: Peer, tx_ids: Vec<TxId>) -> Self {
+        Self { peer, tx_ids }
+    }
+}
+
+impl ExternalEffect for TxsRequestEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Box::pin(async move {
+            let network_operations = resources
+                .get::<ResourceNetworkOperations>()
+                .expect("TxsReplyEffect requires a NetworkOperations instance")
+                .clone();
+
+            let result: <Self as ExternalEffectAPI>::Response = network_operations
+                .send_tx_request(TxServerRequest::Txs {
+                    peer: self.peer.clone(),
+                    tx_ids: self.tx_ids,
+                    // TODO: check if this is the correct span to use
+                    span: Span::current(),
+                })
+                .await;
+            Box::new(result) as Box<dyn SendData>
+        })
+    }
+}
+
+impl ExternalEffectAPI for TxsRequestEffect {
     type Response = Result<(), ClientConnectionError>;
 }
 

@@ -14,7 +14,8 @@
 
 use amaru_kernel::tx_submission_events::TxId;
 use amaru_ouroboros_traits::{
-    Mempool, MempoolSeqNo, TxOrigin, TxRejectReason, TxSubmissionMempool,
+    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxOrigin,
+    TxRejectReason, TxSubmissionMempool,
 };
 use minicbor::Encode;
 use parking_lot::RwLock;
@@ -38,6 +39,12 @@ impl<T> DummyMempool<T> {
 #[derive(Debug, Default)]
 pub struct DummyMempoolInner<T> {
     transactions: Vec<T>,
+}
+
+impl<Tx: Encode<()> + Send + Sync + 'static> CanValidateTransactions<Tx> for DummyMempool<Tx> {
+    fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+        Ok(())
+    }
 }
 
 impl<Tx: Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for DummyMempool<Tx> {

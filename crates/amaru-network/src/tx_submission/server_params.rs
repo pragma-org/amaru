@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerParams {
     pub max_window: usize,  // how many tx ids we keep in “window”
     pub fetch_batch: usize, // how many txs we request per round
     pub blocking: Blocking, // should the client block when we request more tx ids that it cannot serve
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Blocking {
     Yes,
     No,

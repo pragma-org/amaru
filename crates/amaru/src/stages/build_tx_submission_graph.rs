@@ -12,18 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::stages::receive_tx_request;
+use amaru_consensus::consensus::stages::receive_tx_reply::Servers;
 use amaru_consensus::consensus::stages::receive_tx_request::Clients;
+use amaru_consensus::consensus::stages::{receive_tx_reply, receive_tx_request};
 use amaru_consensus::consensus::{effects::ConsensusEffects, errors::ProcessingFailed};
-use amaru_kernel::tx_submission_events::TxRequest;
+use amaru_kernel::TxClientReply;
+use amaru_kernel::tx_submission_events::TxServerRequest;
+use amaru_network::tx_submission::{Blocking, ServerParams};
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the tx submission protocol.
-pub fn build_tx_submission_graph(network: &mut impl StageGraph) -> StageRef<TxRequest> {
+pub fn build_tx_submission_graph(
+    network: &mut impl StageGraph,
+) -> (StageRef<TxServerRequest>, StageRef<TxClientReply>) {
     let receive_tx_request_stage = network.stage(
         "receive_tx_request",
         with_tx_effects(receive_tx_request::stage),
     );
+    let receive_tx_reply_stage =
+        network.stage("receive_tx_reply", with_tx_effects(receive_tx_reply::stage));
 
     let processing_errors_stage = network.stage(
         "processing_errors",
@@ -35,12 +42,26 @@ pub fn build_tx_submission_graph(network: &mut impl StageGraph) -> StageRef<TxRe
     );
     let processing_errors_stage = network.wire_up(processing_errors_stage, ());
 
-    let receive_header_stage = network.wire_up(
+    let receive_tx_request_stage = network.wire_up(
         receive_tx_request_stage,
-        (Clients::new(), processing_errors_stage.without_state()),
+        (
+            Clients::new(),
+            processing_errors_stage.clone().without_state(),
+        ),
     );
 
-    receive_header_stage.without_state()
+    let receive_tx_reply_stage = network.wire_up(
+        receive_tx_reply_stage,
+        (
+            Servers::new(ServerParams::new(100, 100, Blocking::Yes)),
+            processing_errors_stage.without_state(),
+        ),
+    );
+
+    (
+        receive_tx_request_stage.without_state(),
+        receive_tx_reply_stage.without_state(),
+    )
 }
 
 pub fn with_tx_effects<Msg, St, F1, Fut>(

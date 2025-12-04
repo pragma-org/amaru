@@ -16,7 +16,10 @@ use amaru_kernel::cbor::Encode;
 use amaru_kernel::to_cbor;
 use amaru_kernel::tx_submission_events::TxId;
 use amaru_ouroboros_traits::mempool::Mempool;
-use amaru_ouroboros_traits::{MempoolSeqNo, TxOrigin, TxRejectReason, TxSubmissionMempool};
+use amaru_ouroboros_traits::{
+    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxOrigin, TxRejectReason,
+    TxSubmissionMempool,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 use std::pin::Pin;
@@ -24,6 +27,7 @@ use std::sync::Arc;
 
 pub struct InMemoryMempool<Tx> {
     inner: parking_lot::RwLock<MempoolInner<Tx>>,
+    tx_validator: Arc<dyn CanValidateTransactions<Tx>>,
     config: MempoolConfig,
 }
 
@@ -31,17 +35,33 @@ impl<Tx> Default for InMemoryMempool<Tx> {
     fn default() -> Self {
         InMemoryMempool {
             inner: parking_lot::RwLock::new(MempoolInner::default()),
+            tx_validator: Arc::new(DefaultCanValidateTransactions),
             config: MempoolConfig::default(),
         }
     }
 }
 
 impl<Tx> InMemoryMempool<Tx> {
-    pub fn new(config: MempoolConfig) -> Self {
+    pub fn new(config: MempoolConfig, tx_validator: Arc<dyn CanValidateTransactions<Tx>>) -> Self {
         InMemoryMempool {
             inner: parking_lot::RwLock::new(MempoolInner::default()),
+            tx_validator,
             config,
         }
+    }
+
+    pub fn from_config(config: MempoolConfig) -> Self {
+        Self::new(config, Arc::new(DefaultCanValidateTransactions))
+    }
+}
+
+/// A default transactions validator.
+#[derive(Clone, Debug, Default)]
+pub struct DefaultCanValidateTransactions;
+
+impl<Tx> CanValidateTransactions<Tx> for DefaultCanValidateTransactions {
+    fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+        Ok(())
     }
 }
 
@@ -155,6 +175,12 @@ impl MempoolConfig {
     }
 }
 
+impl<Tx: Send + Sync + 'static> CanValidateTransactions<Tx> for InMemoryMempool<Tx> {
+    fn validate_transaction(&self, tx: &Tx) -> Result<(), TransactionValidationError> {
+        self.tx_validator.validate_transaction(tx)
+    }
+}
+
 impl<Tx: Send + Sync + 'static + Encode<()>> TxSubmissionMempool<Tx> for InMemoryMempool<Tx> {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         self.inner.write().insert(&self.config, tx, tx_origin)
@@ -231,7 +257,7 @@ mod tests {
 
     #[test]
     fn insert_a_transaction() {
-        let mempool = InMemoryMempool::new(MempoolConfig::default().with_max_txs(5));
+        let mempool = InMemoryMempool::from_config(MempoolConfig::default().with_max_txs(5));
         let tx = Tx::from_str("tx1").unwrap();
         let (tx_id, seq_nb) = mempool
             .insert(tx.clone(), TxOrigin::Remote(Peer::new("peer-1")))
