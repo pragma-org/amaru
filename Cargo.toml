@@ -76,6 +76,7 @@ typetag = "0.2.21"
 
 # FIXME: should this come from uplc-turbo directly, so the versions are consistent?
 bumpalo = { version = "3.16.0", features = ["collections"] }
+# uplc-turbo = {path = "./../sundae/uplc/crates/uplc"}
 uplc-turbo = { git = "https://github.com/pragma-org/uplc"}
 
 
