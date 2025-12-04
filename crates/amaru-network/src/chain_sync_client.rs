@@ -13,9 +13,14 @@
 // limitations under the License.
 
 use crate::point::{from_network_point, to_network_point};
-use amaru_kernel::{Point, peer::Peer};
+use amaru_kernel::IsHeader;
+use amaru_kernel::is_header::HeaderTip;
+use amaru_kernel::{BlockHeader, Point, peer::Peer};
+use async_trait::async_trait;
 use pallas_network::miniprotocols::chainsync::{Client, ClientError, HeaderContent, NextResponse};
 use pallas_traverse::MultiEraHeader;
+use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use tracing::{Level, instrument};
 
 pub type RawHeader = Vec<u8>;
@@ -115,5 +120,36 @@ impl ChainSyncClient {
 
     pub fn has_agency(&self) -> bool {
         self.chain_sync.has_agency()
+    }
+}
+
+/// A listener interface for forward events (new headers or rollbacks).
+/// These events are either caught for tests or forwarded to downstream peers (see the TcpForwardEventListener implementation).
+#[async_trait]
+pub trait ForwardEventListener {
+    async fn send(&self, event: ForwardEvent) -> anyhow::Result<()>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ForwardEvent {
+    Forward(BlockHeader),
+    Backward(HeaderTip),
+}
+
+impl ForwardEvent {
+    pub fn point(&self) -> Point {
+        match self {
+            ForwardEvent::Forward(header) => header.point(),
+            ForwardEvent::Backward(tip) => tip.point(),
+        }
+    }
+}
+
+impl Display for ForwardEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ForwardEvent::Forward(header) => write!(f, "Forward({})", header.point()),
+            ForwardEvent::Backward(tip) => write!(f, "Backward({})", tip),
+        }
     }
 }

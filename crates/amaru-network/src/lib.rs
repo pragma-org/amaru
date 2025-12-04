@@ -18,6 +18,7 @@ pub mod mux;
 pub mod network_resource;
 pub mod point;
 pub mod protocol;
+pub mod server;
 pub mod session;
 pub mod tx_submission;
 

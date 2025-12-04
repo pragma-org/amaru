@@ -44,7 +44,7 @@ impl Deref for NetworkResource {
 
 impl NetworkResource {
     pub fn new(
-        peers: impl IntoIterator<Item = Peer>,
+        upstream_peers: impl IntoIterator<Item = Peer>,
         rt: &AcTokioRuntime,
         magic: u64,
         store: Arc<dyn ChainStore<BlockHeader>>,
@@ -57,7 +57,7 @@ impl NetworkResource {
         let mut tx_client_reply_senders = BTreeMap::new();
         let tx_server_request_senders = BTreeMap::new();
 
-        for peer in peers {
+        for peer in upstream_peers {
             let (tx_reply_tx, tx_reply_rx) = mpsc::channel(100);
             tx_client_reply_senders.insert(peer.clone(), tx_reply_tx);
 

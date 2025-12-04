@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::chain_sync_client::{ForwardEvent, ForwardEventListener};
 use crate::point::to_network_point;
-use crate::stages::consensus::forward_chain::client_protocol::{
-    ClientMsg, ClientOp, ClientProtocolMsg, client_protocols,
-};
+use crate::server::client_protocol::{ClientMsg, ClientOp, ClientProtocolMsg, client_protocols};
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
-use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
-use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
+use amaru_kernel::is_header::{AsHeaderTip, HeaderTip};
 use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_ouroboros_traits::ChainStore;
 use async_trait::async_trait;
@@ -31,18 +29,18 @@ use tokio::runtime::Handle;
 
 pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 
-/// The TcpForwardChainServer listens for incoming TCP connections from peers
+/// The DownstreamServer listens for incoming TCP connections from peers
 /// and spawns a client protocol handler for each accepted connection.
-/// It also implements the ForwardEventListener trait to receive forward events
+/// It also implements the ForwardEventListener trait to receive chain selection forward events
 /// and forward them to all connected peers.
-pub struct TcpForwardChainServer<H> {
+pub struct DownstreamServer<H> {
     our_tip: Arc<Mutex<HeaderTip>>,
     clients: ActoRef<ClientMsg<H>>,
     _runtime: AcTokio,
 }
 
-impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
-    /// Creates a new TcpForwardChainServer instance:
+impl<H: IsHeader + 'static + Clone + Send> DownstreamServer<H> {
+    /// Creates a new DownstreamServer instance:
     ///
     ///  - Start an Acto runtime
     ///  - Bind a TCP listener to the given address
@@ -55,10 +53,10 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
         our_tip: HeaderTip,
     ) -> anyhow::Result<Self> {
         let tcp_listener = TcpListener::bind(&listen_address).await?;
-        TcpForwardChainServer::create(store, tcp_listener, network_magic, max_peers, our_tip)
+        DownstreamServer::create(store, tcp_listener, network_magic, max_peers, our_tip)
     }
 
-    /// Creates a new TcpForwardChainServer instance with a provided Acto runtime and TcpListener.
+    /// Creates a new DownstreamServer instance with a provided Acto runtime and TcpListener.
     #[expect(clippy::expect_used)]
     pub fn create(
         store: Arc<dyn ChainStore<H>>,
@@ -122,7 +120,7 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
 
 /// This implementation of ForwardEventListener sends the received events to all connected clients.
 #[async_trait]
-impl ForwardEventListener for TcpForwardChainServer<BlockHeader> {
+impl ForwardEventListener for DownstreamServer<BlockHeader> {
     async fn send(&self, event: ForwardEvent) -> anyhow::Result<()> {
         match event {
             ForwardEvent::Forward(header) => {

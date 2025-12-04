@@ -21,9 +21,9 @@ use amaru_consensus::consensus::{
         track_peers::{self, SyncTracker},
         validate_block, validate_header,
     },
-    tip::HeaderTip,
 };
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
+use amaru_kernel::is_header::HeaderTip;
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the consensus protocol.

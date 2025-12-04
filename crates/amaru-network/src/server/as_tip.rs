@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod chain_follower;
-pub mod client_protocol;
-pub mod tcp_forward_chain_server;
+use crate::point::to_network_point;
+use amaru_kernel::IsHeader;
+use pallas_network::miniprotocols::chainsync::Tip;
 
-#[cfg(test)]
-mod test_infra;
-#[cfg(test)]
-mod tests;
+pub trait AsTip {
+    fn as_tip(&self) -> Tip;
+}
+
+impl<H: IsHeader> AsTip for H {
+    fn as_tip(&self) -> Tip {
+        Tip(to_network_point(self.point()), self.block_height())
+    }
+}
