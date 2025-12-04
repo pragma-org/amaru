@@ -16,13 +16,13 @@ mod conversions;
 mod server_params;
 mod tx_client_transport;
 mod tx_server_transport;
-mod tx_submission_client;
-mod tx_submission_server;
+pub mod tx_submission_client;
+pub mod tx_submission_server;
 
 pub use conversions::*;
 pub use server_params::*;
-pub use tx_submission_client::*;
-pub use tx_submission_server::*;
+pub use tx_submission_client::TxSubmissionClientState;
+pub use tx_submission_server::TxSubmissionServerState;
 
 #[cfg(test)]
 mod tests;

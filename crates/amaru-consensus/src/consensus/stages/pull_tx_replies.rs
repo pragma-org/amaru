@@ -12,23 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::ReceiveTxServerRequestEffect;
-use amaru_kernel::tx_submission_events::TxServerRequest;
+use crate::consensus::effects::ReceiveTxClientReplyEffect;
+use amaru_kernel::TxClientReply;
 use pure_stage::{Effects, StageRef};
 use tracing::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NextTxRequest;
+pub struct NextTxReply;
 
 pub async fn stage(
-    downstream: StageRef<TxServerRequest>,
-    _msg: NextTxRequest,
-    eff: Effects<NextTxRequest>,
-) -> StageRef<TxServerRequest> {
+    downstream: StageRef<TxClientReply>,
+    _msg: NextTxReply,
+    eff: Effects<NextTxReply>,
+) -> StageRef<TxClientReply> {
     let span = tracing::trace_span!("diffusion.tx.wait");
     if let Ok(mut msg) = eff
-        .external(ReceiveTxServerRequestEffect)
+        .external(ReceiveTxClientReplyEffect)
         .instrument(span)
         .await
     {
@@ -41,13 +41,13 @@ pub async fn stage(
         drop(entered);
         async {
             eff.send(&downstream, msg).await;
-            eff.send(eff.me_ref(), NextTxRequest).await;
+            eff.send(eff.me_ref(), NextTxReply).await;
         }
         .instrument(span)
         .await;
         downstream
     } else {
-        eff.send(eff.me_ref(), NextTxRequest).await;
+        eff.send(eff.me_ref(), NextTxReply).await;
         downstream
     }
 }

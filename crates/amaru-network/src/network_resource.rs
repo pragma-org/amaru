@@ -14,9 +14,9 @@
 
 use crate::acto_connection;
 use acto::{AcTokioRuntime, ActoRef, ActoRuntime};
-use amaru_kernel::tx_submission_events::{TxReply, TxRequest};
+use amaru_kernel::tx_submission_events::TxServerRequest;
 use amaru_kernel::{
-    BlockHeader, Point,
+    BlockHeader, Point, TxClientReply,
     connection::{ClientConnectionError, ConnMsg},
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
@@ -51,13 +51,15 @@ impl NetworkResource {
     ) -> Self {
         let (chain_sync_tx, chain_sync_rx) = mpsc::channel(100);
         let (tx_request_tx, tx_request_rx) = mpsc::channel(100);
+        let (_tx_reply_tx, tx_reply_rx) = mpsc::channel(100);
 
         let mut connections = BTreeMap::new();
-        let mut tx_reply_txs = BTreeMap::new();
+        let mut tx_client_reply_senders = BTreeMap::new();
+        let tx_server_request_senders = BTreeMap::new();
 
         for peer in peers {
             let (tx_reply_tx, tx_reply_rx) = mpsc::channel(100);
-            tx_reply_txs.insert(peer.clone(), tx_reply_tx);
+            tx_client_reply_senders.insert(peer.clone(), tx_reply_tx);
 
             let peer_clone = peer.clone();
             let conn = rt
@@ -81,8 +83,10 @@ impl NetworkResource {
             inner: Arc::new(NetworkInner {
                 connections,
                 chain_sync_rx: tokio::sync::Mutex::new(chain_sync_rx),
-                tx_request_rx: tokio::sync::Mutex::new(tx_request_rx),
-                tx_reply_txs,
+                tx_server_request_receiver: tokio::sync::Mutex::new(tx_request_rx),
+                tx_client_reply_receiver: tokio::sync::Mutex::new(tx_reply_rx),
+                tx_client_reply_senders,
+                tx_server_request_senders,
             }),
         }
     }
@@ -91,8 +95,10 @@ impl NetworkResource {
 pub struct NetworkInner {
     connections: BTreeMap<Peer, ActoRef<ConnMsg>>,
     chain_sync_rx: tokio::sync::Mutex<mpsc::Receiver<Tracked<ChainSyncEvent>>>,
-    tx_request_rx: tokio::sync::Mutex<mpsc::Receiver<TxRequest>>,
-    tx_reply_txs: BTreeMap<Peer, mpsc::Sender<TxReply>>,
+    tx_server_request_receiver: tokio::sync::Mutex<mpsc::Receiver<TxServerRequest>>,
+    tx_client_reply_receiver: tokio::sync::Mutex<mpsc::Receiver<TxClientReply>>,
+    tx_client_reply_senders: BTreeMap<Peer, mpsc::Sender<TxClientReply>>,
+    tx_server_request_senders: BTreeMap<Peer, mpsc::Sender<TxServerRequest>>,
 }
 
 #[async_trait]
@@ -108,18 +114,51 @@ impl NetworkOperations for NetworkResource {
             .expect("upstream funnel will never stop")
     }
 
-    async fn next_tx_request(&self) -> Result<TxRequest, ClientConnectionError> {
-        if let Some(tx_request) = self.inner.tx_request_rx.lock().await.recv().await {
+    async fn next_tx_request(&self) -> Result<TxServerRequest, ClientConnectionError> {
+        if let Some(tx_request) = self
+            .inner
+            .tx_server_request_receiver
+            .lock()
+            .await
+            .recv()
+            .await
+        {
             Ok(tx_request)
         } else {
             Err(anyhow!("tx request channel closed").into())
         }
     }
 
-    async fn send_tx_reply(&self, reply: TxReply) -> Result<(), ClientConnectionError> {
-        if let Some(receiver) = self.inner.tx_reply_txs.get(reply.peer()) {
+    async fn next_tx_reply(&self) -> Result<TxClientReply, ClientConnectionError> {
+        if let Some(tx_reply) = self
+            .inner
+            .tx_client_reply_receiver
+            .lock()
+            .await
+            .recv()
+            .await
+        {
+            Ok(tx_reply)
+        } else {
+            Err(anyhow!("tx repyl channel closed").into())
+        }
+    }
+
+    async fn send_tx_reply(&self, reply: TxClientReply) -> Result<(), ClientConnectionError> {
+        if let Some(receiver) = self.inner.tx_client_reply_senders.get(reply.peer()) {
             receiver
                 .send(reply)
+                .await
+                .map_err(|e| ClientConnectionError::new(e.into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn send_tx_request(&self, request: TxServerRequest) -> Result<(), ClientConnectionError> {
+        if let Some(receiver) = self.inner.tx_server_request_senders.get(request.peer()) {
+            receiver
+                .send(request)
                 .await
                 .map_err(|e| ClientConnectionError::new(e.into()))
         } else {

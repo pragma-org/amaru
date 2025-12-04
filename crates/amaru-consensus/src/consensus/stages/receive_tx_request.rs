@@ -17,8 +17,9 @@ use crate::consensus::effects::ConsensusOps;
 use crate::consensus::effects::NetworkOps;
 use crate::consensus::errors::ProcessingFailed;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::tx_submission_events::TxRequest;
-use amaru_network::tx_submission::{TxResponse, TxSubmissionClientState, new_era_tx_id};
+use amaru_kernel::tx_submission_events::TxServerRequest;
+use amaru_network::tx_submission::tx_submission_client::TxResponse;
+use amaru_network::tx_submission::{TxSubmissionClientState, new_era_tx_id};
 use pallas_network::miniprotocols::txsubmission::{EraTxId, Request};
 use pure_stage::StageRef;
 use serde::{Deserialize, Serialize};
@@ -31,7 +32,7 @@ type State = (Clients, StageRef<ProcessingFailed>);
 
 pub fn stage(
     (mut clients, errors): State,
-    msg: TxRequest,
+    msg: TxServerRequest,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
     let span = tracing::trace_span!(parent: msg.span(), "tx_submission.receive_tx_request");
@@ -105,15 +106,15 @@ impl Clients {
     }
 }
 
-fn to_network_request(tx_request: &TxRequest) -> Request<EraTxId> {
+fn to_network_request(tx_request: &TxServerRequest) -> Request<EraTxId> {
     match tx_request {
-        TxRequest::Txs { tx_ids, .. } => Request::Txs(
+        TxServerRequest::Txs { tx_ids, .. } => Request::Txs(
             tx_ids
                 .iter()
                 .map(|tx_id| new_era_tx_id(tx_id.clone()))
                 .collect(),
         ),
-        TxRequest::TxIds { ack, req, .. } => Request::TxIds(*ack, *req),
-        TxRequest::TxIdsNonBlocking { ack, req, .. } => Request::TxIdsNonBlocking(*ack, *req),
+        TxServerRequest::TxIds { ack, req, .. } => Request::TxIds(*ack, *req),
+        TxServerRequest::TxIdsNonBlocking { ack, req, .. } => Request::TxIdsNonBlocking(*ack, *req),
     }
 }

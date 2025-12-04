@@ -14,9 +14,7 @@
 
 use crate::tx_submission::tests::Tx;
 use amaru_ouroboros_traits::{CanValidateTransactions, TransactionValidationError};
-use async_trait::async_trait;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// This faulty transaction validator rejects every second transaction.
 #[derive(Clone, Debug, Default)]
@@ -24,12 +22,11 @@ pub struct FaultyTxValidator {
     count: Arc<Mutex<u16>>,
 }
 
-#[async_trait]
 impl CanValidateTransactions<Tx> for FaultyTxValidator {
-    async fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+    fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
         // Reject every second transaction
-        let mut count = self.count.lock().await;
-        let is_valid = *count % 2 == 0;
+        let mut count = self.count.lock().unwrap();
+        let is_valid = (*count).is_multiple_of(2);
         *count += 1;
         if is_valid {
             Ok(())

@@ -16,6 +16,7 @@ amaru-ouroboros-traits.workspace = true
 minicbor.workspace = true
 parking_lot.workspace = true
 tokio = "1.48.0"
+async-trait = "0.1.89"
 
 [dev-dependencies]
 minicbor.workspace = true

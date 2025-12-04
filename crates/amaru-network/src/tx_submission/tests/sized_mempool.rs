@@ -15,8 +15,10 @@
 use crate::tx_submission::tests::Tx;
 use amaru_kernel::tx_submission_events::TxId;
 use amaru_mempool::strategies::InMemoryMempool;
+use amaru_mempool::{DefaultCanValidateTransactions, MempoolConfig};
 use amaru_ouroboros_traits::{
-    Mempool, MempoolSeqNo, TxOrigin, TxRejectReason, TxSubmissionMempool,
+    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxOrigin,
+    TxRejectReason, TxSubmissionMempool,
 };
 use std::pin::Pin;
 use std::sync::Arc;
@@ -34,8 +36,24 @@ impl SizedMempool {
         }
     }
 
-    pub fn default(capacity: u64) -> Self {
-        SizedMempool::new(capacity, Arc::new(InMemoryMempool::default()))
+    pub fn with_capacity(capacity: u64) -> Self {
+        SizedMempool::with_tx_validator(capacity, Arc::new(DefaultCanValidateTransactions))
+    }
+
+    pub fn with_tx_validator(
+        capacity: u64,
+        tx_validator: Arc<dyn CanValidateTransactions<Tx>>,
+    ) -> Self {
+        SizedMempool::new(
+            capacity,
+            Arc::new(InMemoryMempool::new(MempoolConfig::default(), tx_validator)),
+        )
+    }
+}
+
+impl CanValidateTransactions<Tx> for SizedMempool {
+    fn validate_transaction(&self, tx: &Tx) -> Result<(), TransactionValidationError> {
+        self.inner_mempool.validate_transaction(tx)
     }
 }
 
