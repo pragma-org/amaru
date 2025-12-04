@@ -38,10 +38,10 @@ pub trait NetworkOperations: Send + Sync {
     /// Wait for the next tx reply event from downstream peers.
     async fn next_tx_reply(&self) -> Result<TxClientReply, ClientConnectionError>;
 
-    /// Send a client reply to a specific peer.
+    /// Send a client reply to a specific upstream peer.
     async fn send_tx_reply(&self, reply: TxClientReply) -> Result<(), ClientConnectionError>;
 
-    /// Send a server request to a specific peer.
+    /// Send a server request to a specific downstream peer.
     async fn send_tx_request(&self, request: TxServerRequest) -> Result<(), ClientConnectionError>;
 
     /// Fetch a block from a specific peer at a given point.

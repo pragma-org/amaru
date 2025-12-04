@@ -12,23 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
-    errors::{ConsensusError, ProcessingFailed},
-    tip::HeaderTip,
-};
+use crate::consensus::errors::{ConsensusError, ProcessingFailed};
 use amaru_kernel::connection::ClientConnectionError;
+use amaru_kernel::is_header::HeaderTip;
 use amaru_kernel::{
-    BlockHeader, IsHeader, Point, Tx, TxId,
+    BlockHeader, Point, Tx, TxId,
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
     tx_submission_events::{TxClientReply, TxServerRequest},
 };
+use amaru_network::chain_sync_client::{ForwardEvent, ForwardEventListener};
 use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use anyhow::anyhow;
-use async_trait::async_trait;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, sync::Arc};
+use std::sync::Arc;
 use tracing::Span;
 
 /// Network operations available to a stage: fetch block and forward events to peers.
@@ -159,37 +157,6 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
 // EXTERNAL EFFECTS DEFINITIONS
 
 pub type ResourceForwardEventListener = Arc<dyn ForwardEventListener + Send + Sync>;
-
-/// A listener interface for forward events (new headers or rollbacks).
-/// These events are either caught for tests or forwarded to downstream peers (see the TcpForwardEventListener implementation).
-#[async_trait]
-pub trait ForwardEventListener {
-    async fn send(&self, event: ForwardEvent) -> anyhow::Result<()>;
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ForwardEvent {
-    Forward(BlockHeader),
-    Backward(HeaderTip),
-}
-
-impl ForwardEvent {
-    pub fn point(&self) -> Point {
-        match self {
-            ForwardEvent::Forward(header) => header.point(),
-            ForwardEvent::Backward(tip) => tip.point(),
-        }
-    }
-}
-
-impl Display for ForwardEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ForwardEvent::Forward(header) => write!(f, "Forward({})", header.point()),
-            ForwardEvent::Backward(tip) => write!(f, "Backward({})", tip),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForwardEventEffect {

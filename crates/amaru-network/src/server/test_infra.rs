@@ -13,14 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::chain_sync_client::{ForwardEvent, ForwardEventListener};
 use crate::point::to_network_point;
-use crate::stages::consensus::forward_chain::client_protocol::PrettyPoint;
-use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
-use amaru_consensus::ReadOnlyChainStore;
-use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
-use amaru_consensus::consensus::tip::AsHeaderTip;
+use crate::server::client_protocol::PrettyPoint;
+use crate::server::downstream_server::DownstreamServer;
+use amaru_kernel::is_header::AsHeaderTip;
 use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor};
 use amaru_ouroboros_traits::ChainStore;
+use amaru_ouroboros_traits::ReadOnlyChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use pallas_network::{
     facades::PeerClient,
@@ -94,7 +94,7 @@ pub fn amaru_point(slot: u64, hash: &str) -> amaru_kernel::Point {
 
 pub struct TestChainForwarder {
     pub store: Arc<dyn ChainStore<BlockHeader>>,
-    listener: TcpForwardChainServer<BlockHeader>,
+    listener: DownstreamServer<BlockHeader>,
     port: u16,
 }
 
@@ -111,13 +111,8 @@ impl TestChainForwarder {
         let tcp_listener = TcpListener::bind("127.0.0.1:0").await?;
 
         let port = tcp_listener.local_addr()?.port();
-        let listener = TcpForwardChainServer::create(
-            store.clone(),
-            tcp_listener,
-            42,
-            1,
-            header.as_header_tip(),
-        )?;
+        let listener =
+            DownstreamServer::create(store.clone(), tcp_listener, 42, 1, header.as_header_tip())?;
 
         Ok(TestChainForwarder {
             store,

@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::point::from_network_point;
+use crate::point::{from_network_point, to_network_point};
 
 use super::chain_follower::ChainFollower;
-use crate::stages::AsTip;
+use crate::server::as_tip::AsTip;
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
-use amaru_consensus::ChainStore;
 use amaru_kernel::{Hash, HeaderHash, IsHeader, to_cbor};
-use amaru_network::point::to_network_point;
+use amaru_ouroboros_traits::ChainStore;
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{

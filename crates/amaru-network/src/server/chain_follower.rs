@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::AsTip;
-use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
-use amaru_consensus::ReadOnlyChainStore;
+use crate::point::{from_network_point, to_network_point};
+use crate::server::as_tip::AsTip;
+use crate::server::client_protocol::{ClientOp, hash_point};
 use amaru_kernel::IsHeader;
-use amaru_network::point::{from_network_point, to_network_point};
-use amaru_ouroboros_traits::ChainStore;
+use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore};
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
 use std::fmt;
@@ -216,17 +215,16 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::stages::AsTip;
-    use crate::stages::consensus::forward_chain::chain_follower::ChainFollower;
-    use crate::stages::consensus::forward_chain::client_protocol::ClientOp;
-    use crate::stages::consensus::forward_chain::test_infra::{
+    use crate::point::{from_network_point, to_network_point};
+    use crate::server::as_tip::AsTip;
+    use crate::server::chain_follower::ChainFollower;
+    use crate::server::client_protocol::ClientOp;
+    use crate::server::test_infra::{
         CHAIN_47, FIRST_HEADER, FORK_47, LOST_47, TIP_47, WINNER_47, hash, mk_in_memory_store,
     };
     use amaru_kernel::is_header::tests::{any_header_with_parent, run};
     use amaru_kernel::{BlockHeader, IsHeader};
     use amaru_kernel::{Hash, HeaderHash};
-    use amaru_network::point::from_network_point;
-    use amaru_network::point::to_network_point;
     use amaru_ouroboros_traits::ChainStore;
     use pallas_network::miniprotocols::Point;
     use pallas_network::miniprotocols::chainsync::Tip;

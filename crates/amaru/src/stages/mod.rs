@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::stages::build_consensus_graph::build_consensus_graph;
 use crate::stages::build_tx_submission_graph::build_tx_submission_graph;
-use crate::stages::{
-    build_consensus_graph::build_consensus_graph,
-    consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
-};
 use acto::AcTokio;
 use amaru_consensus::consensus::effects::ResourceMempool;
 use amaru_consensus::consensus::stages::{pull_tx_replies, pull_tx_requests};
@@ -32,12 +29,12 @@ use amaru_consensus::{
             pull_chain_sync_events, select_chain::SelectChain, track_peers::SyncTracker,
             validate_header::ValidateHeader,
         },
-        tip::{AsHeaderTip, HeaderTip},
     },
     network_operations::ResourceNetworkOperations,
 };
+use amaru_kernel::is_header::{AsHeaderTip, HeaderTip};
 use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
+    BlockHeader, EraHistory, HeaderHash, ORIGIN_HASH, Point,
     network::NetworkName,
     peer::Peer,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
@@ -46,7 +43,7 @@ use amaru_ledger::block_validator::BlockValidator;
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::NetworkResource;
-use amaru_network::point::to_network_point;
+use amaru_network::server::downstream_server::DownstreamServer;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
@@ -58,7 +55,6 @@ use amaru_stores::{
 use anyhow::Context;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pallas_network::miniprotocols::chainsync::Tip;
 use pure_stage::{StageGraph, tokio::TokioBuilder};
 use std::{
     fmt::{Debug, Display},
@@ -71,7 +67,6 @@ use tracing::info;
 
 pub mod build_consensus_graph;
 pub mod build_tx_submission_graph;
-pub mod consensus;
 
 /// Whether or not data is stored on disk or in memory.
 #[derive(Clone)]
@@ -212,10 +207,16 @@ pub async fn bootstrap(
         ledger.get_stake_distribution(),
     );
 
-    let sync_tracker = SyncTracker::new(&peers);
+    let acto_runtime = AcTokio::from_handle("network", Handle::current().clone());
+    let network_resource = NetworkResource::new(
+        peers.clone(),
+        &acto_runtime,
+        config.network_magic.into(),
+        chain_store.clone(),
+    );
 
-    let forward_event_listener = Arc::new(
-        TcpForwardChainServer::new(
+    let downstream_server = Arc::new(
+        DownstreamServer::new(
             chain_store.clone(),
             config.listen_address.clone(),
             config.network_magic as u64,
@@ -226,8 +227,8 @@ pub async fn bootstrap(
     );
 
     let mut network = TokioBuilder::default();
-    let acto_runtime = AcTokio::from_handle("network", Handle::current().clone());
 
+    let sync_tracker = SyncTracker::new(&peers);
     let receive_header_stage =
         build_consensus_graph(chain_selector, sync_tracker, our_tip, &mut network);
 
@@ -270,15 +271,10 @@ pub async fn bootstrap(
         .put::<ResourceHeaderValidation>(Arc::new(validate_header));
     network
         .resources()
-        .put::<ResourceForwardEventListener>(forward_event_listener);
+        .put::<ResourceForwardEventListener>(downstream_server);
     network
         .resources()
-        .put::<ResourceNetworkOperations>(Arc::new(NetworkResource::new(
-            peers,
-            &acto_runtime,
-            config.network_magic.into(),
-            chain_store,
-        )));
+        .put::<ResourceNetworkOperations>(Arc::new(network_resource));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);
@@ -400,16 +396,6 @@ fn make_chain_selector(
     }
 
     Ok(SelectChain::new(tree_state))
-}
-
-pub trait AsTip {
-    fn as_tip(&self) -> Tip;
-}
-
-impl<H: IsHeader> AsTip for H {
-    fn as_tip(&self) -> Tip {
-        Tip(to_network_point(self.point()), self.block_height())
-    }
 }
 
 #[cfg(test)]

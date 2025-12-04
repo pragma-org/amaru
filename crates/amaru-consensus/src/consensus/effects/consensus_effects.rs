@@ -106,8 +106,8 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
 pub mod tests {
     use super::*;
     use crate::consensus::errors::{ConsensusError, ProcessingFailed};
-    use crate::consensus::tip::HeaderTip;
     use amaru_kernel::connection::ClientConnectionError;
+    use amaru_kernel::is_header::HeaderTip;
     use amaru_kernel::peer::Peer;
     use amaru_kernel::{Point, PoolId, RawBlock, TxId};
     use amaru_mempool::strategies::InMemoryMempool;

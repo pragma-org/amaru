@@ -27,20 +27,21 @@ use amaru_consensus::consensus::headers_tree::data_generation::{Chain, Generated
 use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_consensus::consensus::{
     effects::{
-        ForwardEvent, ForwardEventListener, ResourceBlockValidation, ResourceForwardEventListener,
-        ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
+        ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
+        ResourceHeaderValidation, ResourceParameters,
     },
     headers_tree::HeadersTreeState,
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
-    tip::HeaderTip,
 };
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
+use amaru_kernel::is_header::HeaderTip;
 use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
 use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
     Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
 use amaru_network::NetworkResource;
+use amaru_network::chain_sync_client::{ForwardEvent, ForwardEventListener};
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateHeaders;
 use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use amaru_ouroboros::{
