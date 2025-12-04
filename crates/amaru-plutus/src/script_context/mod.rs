@@ -55,7 +55,8 @@ use crate::{IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData};
 /// so it is important to specify the correct `PlutusVersion` when serializing.
 pub struct ScriptContext<'a> {
     tx_info: &'a TxInfo<'a>,
-    redeemer: &'a Redeemer,
+    // TODO: this should not be exposed, this is just for testing purposes atm
+    pub redeemer: &'a Redeemer,
     datum: Option<&'a PlutusData>,
     script_purpose: &'a ScriptPurpose<'a>,
 }
