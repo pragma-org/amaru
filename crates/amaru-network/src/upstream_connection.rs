@@ -78,13 +78,13 @@ pub async fn actor(
             continue;
         };
 
-        enum State {
+        enum BlockFetchState {
             Idle(blockfetch::Client),
             Running(BoxFuture<'static, blockfetch::Client>),
         }
+        let mut fetch = BlockFetchState::Idle(blockfetch);
 
         // spawn task for handling the chainsync protocol
-        let mut fetch = State::Idle(blockfetch);
         let peer_clone = peer.clone();
         let chain_sync_event_tx_clone = chain_sync_event_sender.clone();
         let intersection = {
@@ -130,16 +130,140 @@ pub async fn actor(
             }
         });
 
-        // init tx-submission mini-protocol
-        if txsubmission.send_init().await.is_err() {
-            tracing::error!(%peer, "disconnecting.network_error");
-            plexer.abort().await;
-            sleep(Duration::from_secs(10)).await;
-            continue;
-        };
+        let (tx_reply_to_txsub, rx_reply_to_txsub) = mpsc::channel::<TxClientReply>(32);
 
         let tx_request_tx_clone = tx_server_request_sender.clone();
         let peer_clone = peer.clone();
+        let mut rx_reply_to_txsub = rx_reply_to_txsub;
+
+        let mut txsubmission_task: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
+            // init tx-submission mini-protocol
+            if txsubmission.send_init().await.is_err() {
+                tracing::error!(peer = %peer_clone, "disconnecting.network_error");
+                return Err(anyhow::anyhow!("txsubmission init failed"));
+            };
+
+            // Main tx-submission loop:
+            // We wait for a request, forward it to the kernel, then wait
+            // for exactly one reply before reading the next request.
+            loop {
+                // 1. Wait for the next request from the peer.
+                let req = txsubmission.next_request().await?; // propagate error -> disconnect
+
+                match req {
+                    Request::TxIds(ack, req) => {
+                        // forward to kernel
+                        tx_request_tx_clone
+                            .send(TxServerRequest::TxIds {
+                                peer: peer_clone.clone(),
+                                ack,
+                                req,
+                                span: Span::current(),
+                            })
+                            .await?;
+
+                        // wait for matching TxIds reply from kernel
+                        loop {
+                            match rx_reply_to_txsub.recv().await {
+                                Some(TxClientReply::TxIds { tx_ids, .. }) => {
+                                    txsubmission
+                                        .reply_tx_ids(
+                                            tx_ids
+                                                .into_iter()
+                                                .map(|(tx_id, size)| {
+                                                    TxIdAndSize(new_era_tx_id(tx_id), size)
+                                                })
+                                                .collect(),
+                                        )
+                                        .await?;
+                                    break; // done with this request
+                                }
+                                Some(TxClientReply::Init { .. }) => {
+                                    // extra Init from kernel; log and ignore (or handle if you really need)
+                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for TxIds");
+                                }
+                                Some(TxClientReply::Txs { .. }) => {
+                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Txs while waiting for TxIds");
+                                }
+                                None => {
+                                    return Err(anyhow::anyhow!("tx_reply channel closed"));
+                                }
+                            }
+                        }
+                    }
+
+                    Request::TxIdsNonBlocking(ack, req) => {
+                        tx_request_tx_clone
+                            .send(TxServerRequest::TxIdsNonBlocking {
+                                peer: peer_clone.clone(),
+                                ack,
+                                req,
+                                span: Span::current(),
+                            })
+                            .await?;
+
+                        // non-blocking still expects one TxIds reply
+                        loop {
+                            match rx_reply_to_txsub.recv().await {
+                                Some(TxClientReply::TxIds { tx_ids, .. }) => {
+                                    txsubmission
+                                        .reply_tx_ids(
+                                            tx_ids
+                                                .into_iter()
+                                                .map(|(tx_id, size)| {
+                                                    TxIdAndSize(new_era_tx_id(tx_id), size)
+                                                })
+                                                .collect(),
+                                        )
+                                        .await?;
+                                    break;
+                                }
+                                Some(TxClientReply::Init { .. }) => {
+                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for TxIdsNonBlocking");
+                                }
+                                Some(TxClientReply::Txs { .. }) => {
+                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Txs while waiting for TxIdsNonBlocking");
+                                }
+                                None => {
+                                    return Err(anyhow::anyhow!("tx_reply channel closed"));
+                                }
+                            }
+                        }
+                    }
+
+                    Request::Txs(tx_ids) => {
+                        tx_request_tx_clone
+                            .send(TxServerRequest::Txs {
+                                peer: peer_clone.clone(),
+                                tx_ids: tx_ids.iter().map(tx_id_from_era_tx_id).collect(),
+                                span: Span::current(),
+                            })
+                            .await?;
+
+                        // wait for matching Txs reply from kernel
+                        loop {
+                            match rx_reply_to_txsub.recv().await {
+                                Some(TxClientReply::Txs { txs, .. }) => {
+                                    txsubmission
+                                        .reply_txs(txs.iter().map(new_era_tx_body).collect())
+                                        .await?;
+                                    break;
+                                }
+                                Some(TxClientReply::Init { .. }) => {
+                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for Txs");
+                                }
+                                Some(TxClientReply::TxIds { .. }) => {
+                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::TxIds while waiting for Txs");
+                                }
+                                None => {
+                                    return Err(anyhow::anyhow!("tx_reply channel closed"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
 
         // main loop handling
         // - chainsync errors → disconnect
@@ -148,100 +272,57 @@ pub async fn actor(
         // - commands to FetchBlock or Disconnect coming in via mailbox
         loop {
             // keep select!() below uniform, no matter whether currently fetching or not
-            let mut may_fetch = if let State::Running(f) = &mut fetch {
+            let mut may_fetch = if let BlockFetchState::Running(f) = &mut fetch {
                 // left_future/right_future for merging to different Future types without boxing
                 f.left_future()
             } else {
                 // while not fetching, construct a Future that won't resolve
                 pending().right_future()
             };
+
             let msg = tokio::select! {
                 // chainsync task died -> disconnect
                 res = &mut sync => {
+                    tracing::error!(?res, %peer, "disconnecting.network_error");
+                    plexer.abort().await;
+                    txsubmission_task.abort();
+                    sleep(Duration::from_secs(10)).await;
+                    break;
+                },
+
+                res = &mut txsubmission_task => {
                     tracing::error!(?res, %peer, "disconnecting.network_error");
                     plexer.abort().await;
                     sleep(Duration::from_secs(10)).await;
                     break;
                 },
 
-                // tx-submission: incoming requests from peer
-                req = txsubmission.next_request() => {
-                    let req = req?; // propagate error -> disconnect
-                    match req {
-                        Request::TxIds(ack, req) => {
-                            tx_request_tx_clone
-                                .send(TxServerRequest::TxIds {
-                                    peer: peer_clone.clone(),
-                                    ack,
-                                    req,
-                                    span: Span::current(),
-                                })
-                                .await?;
-                        }
-                        Request::TxIdsNonBlocking(ack, req) => {
-                            tx_request_tx_clone
-                                .send(TxServerRequest::TxIdsNonBlocking {
-                                    peer: peer_clone.clone(),
-                                    ack,
-                                    req,
-                                    span: Span::current(),
-                                })
-                                .await?;
-                        }
-                        Request::Txs(tx_ids) => {
-                            tx_request_tx_clone
-                                .send(TxServerRequest::Txs {
-                                    peer: peer_clone.clone(),
-                                    tx_ids: tx_ids.iter().map(tx_id_from_era_tx_id).collect(),
-                                    span: Span::current(),
-                                })
-                                .await?;
-                        }
-                    }
-                    continue;
-                },
-
-                // tx-submission: outgoing replies from node
-                reply = tx_client_reply_receiver.recv() => {
-                    match reply {
-                        Some(TxClientReply::Init { .. }) => {
-                            txsubmission
-                                .send_init()
-                                .await?;
-                        }
-                        Some(TxClientReply::TxIds { tx_ids, .. }) => {
-                            txsubmission
-                                .reply_tx_ids(
-                                    tx_ids
-                                        .into_iter()
-                                        .map(|(tx_id, size)| TxIdAndSize(new_era_tx_id(tx_id), size))
-                                        .collect(),
-                                )
-                                .await?;
-                        }
-                        Some(TxClientReply::Txs { txs, .. }) => {
-                            txsubmission
-                                .reply_txs(
-                                    txs.iter()
-                                        .map(new_era_tx_body)
-                                        .collect(),
-                                )
-                                .await?;
-                        }
-                        None => {
-                            // channel closed -> disconnect
-                            return Err(anyhow::anyhow!("tx_reply channel closed"));
-                        }
-                    }
-                    continue;
-                },
-
-                // existing blockfetch case
                 blockfetch = &mut may_fetch => {
                     if let Some((point, tx)) = req.pop_front() {
-                        fetch = State::Running(do_fetch(blockfetch, point, tx, peer.clone()))
+                        fetch = BlockFetchState::Running(do_fetch(blockfetch, point, tx, peer.clone()))
                     } else {
-                        fetch = State::Idle(blockfetch)
+                        fetch = BlockFetchState::Idle(blockfetch)
+                    }
+                    continue;
+                },
+
+                // replies from client: forward to tx-submission task
+                reply_from_client = tx_client_reply_receiver.recv() => {
+                    match reply_from_client {
+                        Some(r) => {
+                            if tx_reply_to_txsub.send(r).await.is_err() {
+                                tracing::error!(%peer, "txsubmission_task_gone");
+                                plexer.abort().await;
+                                sleep(Duration::from_secs(10)).await;
+                                break;
+                            }
+                        }
+                        None => {
+                            tracing::warn!(%peer, "tx_reply_channel_closed");
+                            plexer.abort().await;
+                            txsubmission_task.abort();
+                            return Ok(());
+                        }
                     }
                     continue;
                 },
@@ -255,20 +336,21 @@ pub async fn actor(
                     // this won't actually happen with the current NetworkResource because that
                     // never drops the ActoRef, but who knows what the future holds...
                     plexer.abort().await;
-                    sync.abort();
+                    txsubmission_task.abort();
                     return Ok(());
                 }
                 ActoInput::Supervision { .. } => unreachable!(),
                 ActoInput::Message(ConnMsg::FetchBlock(point, tx)) => match fetch {
-                    State::Running(_) => req.push_back((point, tx)),
-                    State::Idle(blockfetch) => {
-                        fetch = State::Running(do_fetch(blockfetch, point, tx, peer.clone()))
+                    BlockFetchState::Running(_) => req.push_back((point, tx)),
+                    BlockFetchState::Idle(blockfetch) => {
+                        fetch =
+                            BlockFetchState::Running(do_fetch(blockfetch, point, tx, peer.clone()))
                     }
                 },
                 ActoInput::Message(ConnMsg::Disconnect) => {
                     tracing::warn!(%peer, "disconnecting.node_policy");
                     plexer.abort().await;
-                    sync.abort();
+                    txsubmission_task.abort();
                     sleep(Duration::from_secs(10)).await;
                     break;
                 }
@@ -324,8 +406,8 @@ fn do_fetch(
             });
         let tx = tx.lock().take();
         if let Some(tx) = tx {
-            tx.send(body.map_err(|e| ClientConnectionError::new(e.into())))
-                .ok();
+            let body = body.map_err(|e| ClientConnectionError::new(e.into()));
+            tx.send(body).ok();
         }
         blockfetch
     })
