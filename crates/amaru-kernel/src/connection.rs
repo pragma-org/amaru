@@ -58,7 +58,7 @@ impl From<anyhow::Error> for ClientConnectionError {
 
 impl fmt::Display for ClientConnectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "BlockFetchClientError: {}", self.0)
+        write!(f, "ClientConnectionError: {}", self.0)
     }
 }
 
