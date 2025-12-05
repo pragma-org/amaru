@@ -151,16 +151,11 @@ where
                     })),
                     _ => Ok(()),
                 },
-                Err(e) => {
-                    eprintln!("Redeemer: {:?}", script_context.redeemer);
-                    eprintln!("Script Context: {:?}", hex::encode(to_cbor(&args[0])));
-                    eprintln!("=======");
-                    Err(PhaseTwoError::UplcMachineError(UplcMachineError {
-                        plutus_version,
-                        info: result.info,
-                        err: e.to_string(),
-                    }))
-                }
+                Err(e) => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+                    plutus_version,
+                    info: result.info,
+                    err: e.to_string(),
+                })),
             }
         })
         .collect::<Result<Vec<_>, _>>()
