@@ -14,12 +14,11 @@
 
 use crate::simulator::Envelope;
 use crate::simulator::NodeConfig;
+use crate::simulator::mock_network_resource::MockNetworkResource;
 use crate::simulator::{
-    Args, History, NodeHandle, SimulateConfig, bytes::Bytes, generate::generate_entries,
-    simulate::simulate,
+    Args, History, NodeHandle, SimulateConfig, generate::generate_entries, simulate::simulate,
 };
 use crate::sync::ChainSyncMessage;
-use acto::AcTokio;
 use amaru::stages::build_consensus_graph::build_consensus_graph;
 use amaru_consensus::consensus::effects::FetchBlockEffect;
 use amaru_consensus::consensus::errors::ConsensusError;
@@ -27,8 +26,7 @@ use amaru_consensus::consensus::headers_tree::data_generation::{Chain, Generated
 use amaru_consensus::consensus::stages::track_peers::SyncTracker;
 use amaru_consensus::consensus::{
     effects::{
-        ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
-        ResourceHeaderValidation, ResourceParameters,
+        ResourceBlockValidation, ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
     },
     headers_tree::HeadersTreeState,
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
@@ -38,29 +36,20 @@ use amaru_kernel::is_header::HeaderTip;
 use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
 use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
-    Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
+    Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters,
 };
-use amaru_network::NetworkResource;
-use amaru_network::chain_sync_client::{ForwardEvent, ForwardEventListener};
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateHeaders;
 use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use amaru_ouroboros::{
     ChainStore, can_validate_blocks::mock::MockCanValidateBlocks,
     in_memory_consensus_store::InMemConsensusStore,
 };
-use async_trait::async_trait;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::simulation::running::OverrideResult;
 use pure_stage::trace_buffer::TraceEntry;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef, trace_buffer::TraceBuffer};
 use rand::rngs::StdRng;
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use tokio::{runtime::Runtime, sync::mpsc};
 use tracing::{Span, info};
 
@@ -77,8 +66,7 @@ pub fn run(args: Args) {
         let mut network = SimulationBuilder::default()
             .with_trace_buffer(trace_buffer.clone())
             .with_rng(rng);
-        let (input, init_messages, output) =
-            spawn_node(node_id, node_config.clone(), &mut network, &rt);
+        let (input, init_messages, output) = spawn_node(node_id, node_config.clone(), &mut network);
         let mut running = network.run(rt.handle().clone());
         running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
             OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
@@ -115,7 +103,6 @@ pub fn spawn_node(
     node_id: String,
     node_config: NodeConfig,
     network: &mut SimulationBuilder,
-    rt: &Runtime,
 ) -> (
     StageRef<Envelope<ChainSyncMessage>>,
     Receiver<Envelope<ChainSyncMessage>>,
@@ -178,15 +165,14 @@ pub fn spawn_node(
     );
 
     let our_tip = HeaderTip::new(Point::Origin, 0);
-    let receive_header_ref = build_consensus_graph(select_chain, sync_tracker, our_tip, network);
+    let receive_header_ref =
+        build_consensus_graph(select_chain, sync_tracker, our_tip.clone(), network);
 
     let (output, rx1) = network.output("output", 10);
 
     // The number of received messages sent by the forward event listener is proportional
     // to the number of downstream peers, as each event is duplicated to each downstream peer.
     let (sender, rx2) = mpsc::channel(1_000_000);
-    let listener =
-        MockForwardEventListener::new(node_id, node_config.number_of_downstream_peers, sender);
 
     let receiver = network.wire_up(receiver, (receive_header_ref, output.clone()));
 
@@ -204,14 +190,10 @@ pub fn spawn_node(
         .put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
     network
         .resources()
-        .put::<ResourceForwardEventListener>(Arc::new(listener));
-    network
-        .resources()
-        .put::<ResourceNetworkOperations>(Arc::new(NetworkResource::new(
-            [],
-            &AcTokio::from_handle("upstream", rt.handle().clone()),
-            0,
-            resource_header_store,
+        .put::<ResourceNetworkOperations>(Arc::new(MockNetworkResource::new(
+            node_id,
+            node_config.number_of_downstream_peers,
+            sender,
         )));
 
     (receiver.without_state(), rx1, Receiver::new(rx2))
@@ -368,82 +350,9 @@ fn make_best_chain_from_downstream_messages(
 
 /// Replay a previous simulation run:
 pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
-    let rt = Runtime::new()?;
     let mut network = SimulationBuilder::default();
     let node_config = NodeConfig::from(args);
-    let _ = spawn_node("n1".to_string(), node_config, &mut network, &rt);
+    let _ = spawn_node("n1".to_string(), node_config, &mut network);
     let mut replay = network.replay();
     replay.run_trace(traces)
-}
-
-/// This implementation of ForwardEventListener sends the received events a Sender that can collect them
-/// to check them later.
-///
-/// A message id is maintained for each received event and each message is duplicated to the number of downstream peers.
-#[derive(Clone, Debug)]
-pub struct MockForwardEventListener {
-    node_id: String,
-    number_of_downstream_peers: u8,
-    sender: mpsc::Sender<Envelope<ChainSyncMessage>>,
-    msg_id: Arc<AtomicU64>,
-}
-
-impl MockForwardEventListener {
-    pub fn new(
-        node_id: String,
-        number_of_downstream_peers: u8,
-        sender: mpsc::Sender<Envelope<ChainSyncMessage>>,
-    ) -> Self {
-        Self {
-            node_id,
-            number_of_downstream_peers,
-            msg_id: Arc::new(AtomicU64::new(0)),
-            sender,
-        }
-    }
-}
-
-#[async_trait]
-impl ForwardEventListener for MockForwardEventListener {
-    async fn send(&self, event: ForwardEvent) -> anyhow::Result<()> {
-        fn message(event: &ForwardEvent, msg_id: u64) -> ChainSyncMessage {
-            match event {
-                ForwardEvent::Forward(header) => ChainSyncMessage::Fwd {
-                    msg_id,
-                    slot: header.point().slot_or_default(),
-                    hash: Bytes {
-                        bytes: header.hash().as_slice().to_vec(),
-                    },
-                    header: Bytes {
-                        bytes: to_cbor(&header),
-                    },
-                },
-                ForwardEvent::Backward(tip) => ChainSyncMessage::Bck {
-                    msg_id,
-                    slot: tip.point().slot_or_default(),
-                    hash: Bytes {
-                        bytes: tip.hash().as_slice().to_vec(),
-                    },
-                },
-            }
-        }
-
-        // This allocates a range of message ids from
-        // self.msg_id to self.msg_id + number_of_downstream_peers
-        let base_msg_id = self
-            .msg_id
-            .fetch_add(self.number_of_downstream_peers as u64, Ordering::Relaxed);
-
-        for i in 1..=self.number_of_downstream_peers {
-            let dest = format!("c{}", i);
-            let msg_id = base_msg_id + i as u64;
-            let envelope = Envelope {
-                src: self.node_id.clone(),
-                dest,
-                body: message(&event, msg_id),
-            };
-            self.sender.send(envelope).await?;
-        }
-        Ok(())
-    }
 }

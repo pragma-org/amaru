@@ -12,13 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::point::{from_network_point, to_network_point};
+use crate::point::from_network_point;
 
 use super::chain_follower::ChainFollower;
 use crate::server::as_tip::AsTip;
+use crate::tx_submission::{new_era_tx_id, tx_from_era_tx_body, tx_id_and_size};
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
-use amaru_kernel::{Hash, HeaderHash, IsHeader, to_cbor};
+use amaru_kernel::peer::Peer;
+use amaru_kernel::{
+    BlockHeader, Hash, HeaderHash, IsHeader, Tx, TxClientReply, TxId, TxServerRequest, to_cbor,
+};
 use amaru_ouroboros_traits::ChainStore;
+use pallas_network::miniprotocols::txsubmission::Reply;
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{
@@ -29,6 +34,9 @@ use pallas_network::{
     },
 };
 use std::sync::Arc;
+use tokio::select;
+use tokio::sync::mpsc::Sender;
+use tracing::Span;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -46,65 +54,26 @@ pub enum ClientError {
     CannotServeRange(Point, Point),
 }
 
-#[derive(Clone)]
-pub enum ClientOp<H> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChainSyncOp {
     /// the tip to go back to
     Backward(Tip),
     /// the header to go forward to and the tip we will be at after sending this header
-    Forward(H),
+    Forward(BlockHeader),
 }
 
-impl<H: PartialEq> PartialEq for ClientOp<H> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Backward(l0), Self::Backward(r0)) => (&l0.0, l0.1) == (&r0.0, r0.1),
-            (Self::Forward(l0), Self::Forward(r0)) => l0 == r0,
-            _ => false,
-        }
-    }
-}
-
-impl<H: Eq> Eq for ClientOp<H> {}
-
-impl<H: IsHeader> std::fmt::Debug for ClientOp<H> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Backward(tip) => f
-                .debug_struct("Backward")
-                .field("tip", &(tip.1, PrettyPoint(&tip.0)))
-                .finish(),
-            Self::Forward(header) => f
-                .debug_struct("Forward")
-                .field(
-                    "header",
-                    &(
-                        header.block_height(),
-                        PrettyPoint(&to_network_point(header.point())),
-                    ),
-                )
-                .field(
-                    "tip",
-                    &(
-                        header.as_tip().1,
-                        PrettyPoint(&to_network_point(header.point())),
-                    ),
-                )
-                .finish(),
-        }
-    }
-}
-
-impl<H: IsHeader> ClientOp<H> {
+impl ChainSyncOp {
     pub fn tip(&self) -> Tip {
         match self {
-            ClientOp::Backward(tip) => tip.clone(),
-            ClientOp::Forward(header) => header.as_tip(),
+            ChainSyncOp::Backward(tip) => tip.clone(),
+            ChainSyncOp::Forward(header) => header.as_tip(),
         }
     }
 }
 
-pub enum ClientProtocolMsg<H> {
-    Op(ClientOp<H>),
+pub enum ClientProtocolMsg {
+    ChainSync(ChainSyncOp),
+    TxSubmission(TxServerRequest),
 }
 
 pub struct PrettyPoint<'a>(pub &'a Point);
@@ -127,27 +96,31 @@ pub(crate) fn hash_point(point: &Point) -> HeaderHash {
     }
 }
 
-pub enum ClientMsg<H> {
+pub enum ClientMsg {
     /// A new peer has connected to us.
     ///
     /// Our tip is included to get the connection handlers started correctly.
     Peer(PeerServer, Tip),
     /// An operation to be executed on all clients.
-    Op(ClientOp<H>),
+    ChainSync(ChainSyncOp),
+    /// An tx submission operation to be executed on a specific client.
+    TxSubmission(TxServerRequest),
 }
 
-pub async fn client_protocols<H: IsHeader + 'static + Clone + Send>(
-    mut cell: ActoCell<ClientProtocolMsg<H>, impl ActoRuntime, anyhow::Result<()>>,
+pub async fn client_protocols(
+    mut cell: ActoCell<ClientProtocolMsg, impl ActoRuntime, anyhow::Result<()>>,
     server: PeerServer,
-    store: Arc<dyn ChainStore<H>>,
+    peer: Peer,
+    store: Arc<dyn ChainStore<BlockHeader>>,
     our_tip: Tip,
+    tx_client_reply_sender: Sender<TxClientReply>,
 ) -> anyhow::Result<()> {
     let _block_fetch = cell.spawn_supervised("block_fetch", {
         let store = store.clone();
         move |cell| block_fetch(cell, server.blockfetch, store)
     });
-    let _tx_submission = cell.spawn_supervised("tx_submission", move |cell| {
-        tx_submission(cell, server.txsubmission)
+    let tx_submission = cell.spawn_supervised("tx_submission", move |cell| {
+        tx_submission(cell, server.txsubmission, peer, tx_client_reply_sender)
     });
     let _keep_alive =
         cell.spawn_supervised("keep_alive", move |cell| keep_alive(cell, server.keepalive));
@@ -158,25 +131,27 @@ pub async fn client_protocols<H: IsHeader + 'static + Clone + Send>(
 
     while let ActoInput::Message(msg) = cell.recv().await {
         match msg {
-            ClientProtocolMsg::Op(op) => chain_sync.send(ChainSyncMsg::Op(op)),
+            ClientProtocolMsg::ChainSync(op) => chain_sync.send(ChainSyncMsg::Op(op)),
+            ClientProtocolMsg::TxSubmission(op) => tx_submission.send(TxSubmissionMsg::Op(op)),
         };
     }
 
     Ok(())
 }
 
-pub enum ChainSyncMsg<H> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChainSyncMsg {
     /// An operation coming in from the ledger
-    Op(ClientOp<H>),
+    Op(ChainSyncOp),
     /// A request for data from the client
     ReqNext,
 }
 
-async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
-    mut cell: ActoCell<ChainSyncMsg<H>, impl ActoRuntime, anyhow::Result<()>>,
+async fn chain_sync(
+    mut cell: ActoCell<ChainSyncMsg, impl ActoRuntime, anyhow::Result<()>>,
     mut server: chainsync::Server<HeaderContent>,
     our_tip: Tip,
-    store: Arc<dyn ChainStore<H>>,
+    store: Arc<dyn ChainStore<BlockHeader>>,
 ) -> anyhow::Result<()> {
     // TODO: do we need to handle validation updates already here in case the client is really slow to ask for intersection?
     let Some(ClientRequest::Intersect(requested_points)) = server.recv_while_idle().await? else {
@@ -206,7 +181,7 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
         .await?;
 
     let parent = cell.me();
-    let handler = cell.spawn_supervised("chainsync_handler", move |cell| {
+    let chainsync_handler = cell.spawn_supervised("chainsync_handler", move |cell| {
         chain_sync_handler(cell, server, parent)
     });
 
@@ -222,17 +197,17 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
                 if waiting && let Some(op) = chain_follower.next_op(store.clone()) {
                     tracing::trace!(operation = ?op, "reply await");
                     waiting = false;
-                    handler.send(Some((op, our_tip.clone())));
+                    chainsync_handler.send(Some((op, our_tip.clone())));
                 }
             }
             ActoInput::Message(ChainSyncMsg::ReqNext) => {
                 tracing::trace!("client request next");
                 if let Some(op) = chain_follower.next_op(store.clone()) {
                     tracing::trace!(operation = ?op, "forward next operation");
-                    handler.send(Some((op, our_tip.clone())));
+                    chainsync_handler.send(Some((op, our_tip.clone())));
                 } else {
                     tracing::trace!("sending await reply");
-                    handler.send(None);
+                    chainsync_handler.send(None);
                     waiting = true;
                 }
             }
@@ -252,17 +227,17 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
 /// This actor handles the ReqNext part of the chainsync protocol.
 /// It will ask the parent for the next operation whenever needed.
 /// The parent may respond with None to indicate the need to await, then it will eventually send the next operation.
-async fn chain_sync_handler<H: IsHeader + 'static + Clone + Send>(
-    mut cell: ActoCell<Option<(ClientOp<H>, Tip)>, impl ActoRuntime>,
+async fn chain_sync_handler(
+    mut cell: ActoCell<Option<(ChainSyncOp, Tip)>, impl ActoRuntime>,
     mut server: chainsync::Server<HeaderContent>,
-    parent: ActoRef<ChainSyncMsg<H>>,
+    parent: ActoRef<ChainSyncMsg>,
 ) -> anyhow::Result<()> {
     loop {
         let Some(req) = server.recv_while_idle().await? else {
             tracing::debug!("client terminated");
             return Err(ClientError::ClientTerminated.into());
         };
-        // FIXME: a client should always be able to request an interception
+        // FIXME: a client should always be able to request an intersection
         if !matches!(req, ClientRequest::RequestNext) {
             tracing::debug!("late intersection");
             return Err(ClientError::LateIntersection.into());
@@ -272,13 +247,13 @@ async fn chain_sync_handler<H: IsHeader + 'static + Clone + Send>(
 
         if let ActoInput::Message(op) = cell.recv().await {
             match op {
-                Some((ClientOp::Forward(header), tip)) => {
+                Some((ChainSyncOp::Forward(header), tip)) => {
                     tracing::trace!(?tip, "roll forward");
                     server
                         .send_roll_forward(to_header_content(header), tip)
                         .await?;
                 }
-                Some((ClientOp::Backward(point), tip)) => {
+                Some((ChainSyncOp::Backward(point), tip)) => {
                     tracing::trace!(?point, "roll backward");
                     server.send_roll_backward(point.0, tip).await?;
                 }
@@ -289,12 +264,12 @@ async fn chain_sync_handler<H: IsHeader + 'static + Clone + Send>(
                         return Ok(());
                     };
                     match op {
-                        ClientOp::Forward(header) => {
+                        ChainSyncOp::Forward(header) => {
                             server
                                 .send_roll_forward(to_header_content(header), tip)
                                 .await?;
                         }
-                        ClientOp::Backward(point) => {
+                        ChainSyncOp::Backward(point) => {
                             server.send_roll_backward(point.0, tip).await?;
                         }
                     }
@@ -318,10 +293,10 @@ pub(super) fn to_header_content<H: IsHeader>(header: H) -> HeaderContent {
 
 enum BlockFetchMsg {}
 
-async fn block_fetch<H: IsHeader>(
+async fn block_fetch(
     _cell: ActoCell<BlockFetchMsg, impl ActoRuntime>,
     mut server: blockfetch::Server,
-    store: Arc<dyn ChainStore<H>>, // TODO: need a block store here
+    store: Arc<dyn ChainStore<BlockHeader>>, // TODO: need a block store here
 ) -> anyhow::Result<()> {
     loop {
         let Some(req) = server.recv_while_idle().await? else {
@@ -343,16 +318,66 @@ async fn block_fetch<H: IsHeader>(
     }
 }
 
-enum TxSubmissionMsg {}
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TxSubmissionMsg {
+    Op(TxServerRequest),
+}
 
 async fn tx_submission(
-    _cell: ActoCell<TxSubmissionMsg, impl ActoRuntime>,
+    mut cell: ActoCell<TxSubmissionMsg, impl ActoRuntime>,
     mut server: txsubmission::Server,
+    peer: Peer,
+    tx_client_reply_sender: Sender<TxClientReply>,
 ) -> anyhow::Result<()> {
     server.wait_for_init().await?;
+    loop {
+        select! {
+            reply = server.receive_next_reply() => {
+                let tx_client_reply = match reply? {
+                    Reply::TxIds(tx_ids) => {
+                        let tx_ids: Vec<(TxId, u32)> = tx_ids.into_iter().map(tx_id_and_size).collect();
+                        TxClientReply::TxIds { peer: peer.clone(), tx_ids, span: Span::current() }
+                    },
+                    Reply::Txs(tx_bodies) => {
+                        let mut txs: Vec<Tx> = vec![];
+                        for tx_body in tx_bodies {
+                            let tx = tx_from_era_tx_body(&tx_body)?;
+                            txs.push(tx);
+                        }
+                        TxClientReply::Txs { peer: peer.clone(), txs, span: Span::current() }
+                    },
+                    Reply::Done => {
+                        break;
+                    },
+                };
+                tx_client_reply_sender.send(tx_client_reply).await.ok();
+            },
+            message = cell.recv() => {
+                match message {
+                    ActoInput::Message(TxSubmissionMsg::Op(TxServerRequest::TxIds { ack, req, .. })) => {
+                        server
+                            .acknowledge_and_request_tx_ids(true, ack, req)
+                            .await?
+                    },
+                    ActoInput::Message(TxSubmissionMsg::Op(TxServerRequest::TxIdsNonBlocking { ack, req, .. })) => {
+                        server
+                            .acknowledge_and_request_tx_ids(false, ack, req)
+                            .await?
+                    },
+                    ActoInput::Message(TxSubmissionMsg::Op(TxServerRequest::Txs { tx_ids, .. })) => {
+                        server
+                            .request_txs(tx_ids.into_iter().map(new_era_tx_id).collect())
+                            .await?
+                    },
+                    ActoInput::NoMoreSenders | ActoInput::Supervision { .. }  => {
+                        tracing::debug!("parent terminated");
+                        break;
 
-    // TODO: Implement tx submission
-
+                   }
+                }
+            }
+        }
+    }
     Ok(())
 }
 

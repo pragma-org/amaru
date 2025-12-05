@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::chain_sync_client::{ForwardEvent, ForwardEventListener};
 use crate::point::to_network_point;
 use crate::server::client_protocol::PrettyPoint;
 use crate::server::downstream_server::DownstreamServer;
@@ -22,6 +21,7 @@ use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor};
 use amaru_ouroboros_traits::ChainStore;
 use amaru_ouroboros_traits::ReadOnlyChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+use amaru_ouroboros_traits::network_operations::ForwardEvent;
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::{
@@ -94,7 +94,7 @@ pub fn amaru_point(slot: u64, hash: &str) -> amaru_kernel::Point {
 
 pub struct TestChainForwarder {
     pub store: Arc<dyn ChainStore<BlockHeader>>,
-    listener: DownstreamServer<BlockHeader>,
+    listener: DownstreamServer,
     port: u16,
 }
 

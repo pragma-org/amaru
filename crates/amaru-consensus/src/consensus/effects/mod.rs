@@ -27,7 +27,7 @@ pub use mempool_effects::ResourceMempool;
 pub use metrics_effects::{MetricsOps, ResourceMeter};
 pub use network_effects::{
     ChainSyncEffect, DisconnectEffect, FetchBlockEffect, Network, NetworkOps,
-    ReceiveTxClientReplyEffect, ReceiveTxServerRequestEffect, ResourceForwardEventListener,
+    ReceiveTxClientReplyEffect, ReceiveTxServerRequestEffect,
 };
 pub use store_effects::{ResourceHeaderStore, ResourceParameters, Store};
 
