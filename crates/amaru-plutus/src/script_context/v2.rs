@@ -83,8 +83,17 @@ impl ToPlutusData<2> for Datums<'_> {
 }
 
 impl ToPlutusData<2> for Withdrawals {
+    /// In PlutusV1 and PlutusV2:
+    /// Anywhere a `StakeCredential` is used, it is actually an enum with variants `Pointer` and `Credential`
+    ///
+    /// It is actually not possible (by the ledger serialization) logic to construct a Withdrawal with a `Pointer`, so this can be hardcoded
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        <BTreeMap<_, _> as ToPlutusData<2>>::to_plutus_data(&self.0)
+        let map = self
+            .0
+            .iter()
+            .map(|(address, coin)| Ok((constr_v2!(0, [address])?, *coin)))
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        <BTreeMap<_, _> as ToPlutusData<2>>::to_plutus_data(&map)
     }
 }
 
