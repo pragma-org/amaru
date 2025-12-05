@@ -19,14 +19,12 @@ use amaru_sim::simulator::{
     Args, GeneratedEntries, NodeConfig, SimulateConfig, generate_entries, run::spawn_node,
 };
 use amaru_tracing_json::assert_spans_trees;
-use parking_lot::Mutex;
-use pure_stage::simulation::SimulationBuilder;
+use pure_stage::Instant;
 use pure_stage::simulation::running::OverrideResult;
-use pure_stage::{Instant, StageGraph};
+use pure_stage::simulation::{RandStdRng, SimulationBuilder};
 use rand::SeedableRng;
 use rand::prelude::StdRng;
 use serde_json::json;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tracing::info_span;
@@ -50,7 +48,7 @@ fn run_simulator_with_traces() {
     let node_config = NodeConfig::from(args.clone());
 
     let rt = Runtime::new().unwrap();
-    let generate_one = |rng: Arc<Mutex<StdRng>>| {
+    let generate_one = |rng: RandStdRng| {
         let generated_entries = generate_entries(
             &node_config,
             Instant::at_offset(Duration::from_secs(0)),
@@ -70,8 +68,8 @@ fn run_simulator_with_traces() {
     };
 
     let simulate_config = SimulateConfig::from(args.clone());
-    let rng = Arc::new(Mutex::new(StdRng::seed_from_u64(simulate_config.seed)));
-    let generated_entries = generate_one(rng.clone());
+    let mut rng = RandStdRng(StdRng::seed_from_u64(simulate_config.seed));
+    let generated_entries = generate_one(rng.derive());
     let msg = generated_entries
         .entries()
         .first()
@@ -82,13 +80,15 @@ fn run_simulator_with_traces() {
     let execute = || {
         let mut network = SimulationBuilder::default();
         let (input, _, _) = spawn_node("n1".to_string(), node_config.clone(), &mut network, &rt);
-        let mut running = network.run(rt.handle().clone());
+        let mut running = network.run();
         running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
             OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
         });
         info_span!("handle_msg").in_scope(|| {
             running.enqueue_msg(&input, [msg]);
-            _ = running.run_until_blocked();
+            running
+                .run_until_blocked_incl_effects(rt.handle())
+                .assert_terminated("processing_errors");
         });
     };
 

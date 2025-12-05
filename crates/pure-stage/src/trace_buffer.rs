@@ -16,11 +16,11 @@
 //! This module contains the [`TraceBuffer`] type, which is used to record the trace of a simulation.
 
 use crate::ExternalEffect;
-use crate::types::as_send_data_value;
 use crate::{Effect, Instant, Name, SendData, effect::StageResponse, serde::to_cbor};
 use cbor4ii::serde::from_slice;
 use parking_lot::Mutex;
-use std::fmt::{Debug, Display, Error, Formatter};
+use std::borrow::Borrow;
+use std::fmt::{Debug, Display, Formatter};
 use std::{collections::VecDeque, sync::Arc};
 
 /// A buffer for recording the trace of a simulation.
@@ -136,7 +136,8 @@ impl Display for TraceEntry {
                         | other @ StageResponse::WaitResponse(_)
                         | other @ StageResponse::CallResponse(_)
                         | other @ StageResponse::CallTimeout
-                        | other @ StageResponse::ExternalResponse(_) => format!(" -> {other}"),
+                        | other @ StageResponse::ExternalResponse(_)
+                        | other @ StageResponse::AddStageResponse(_) => format!(" -> {other}"),
                     },
                 )
             }
@@ -146,7 +147,7 @@ impl Display for TraceEntry {
                     f,
                     "input {stage} -> {input}",
                     stage = stage.as_str(),
-                    input = as_send_data_value(input.as_ref()).map_err(|_| Error)?
+                    input = input.as_send_data_value().borrow()
                 )
             }
             TraceEntry::State { stage, state } => {
@@ -154,7 +155,7 @@ impl Display for TraceEntry {
                     f,
                     "state {stage} -> {state}",
                     stage = stage.as_str(),
-                    state = as_send_data_value(state.as_ref()).map_err(|_| Error)?
+                    state = state.as_send_data_value().borrow()
                 )
             }
         }
@@ -408,6 +409,42 @@ impl TraceBuffer {
 
     pub fn fetch_replay_mut(&mut self) -> Option<&mut std::vec::IntoIter<TraceEntry>> {
         self.fetch_replay.as_mut()
+    }
+
+    pub fn drop_guard(this: &Arc<Mutex<Self>>) -> DropGuard {
+        DropGuard {
+            buffer: this.clone(),
+            active: true,
+        }
+    }
+}
+
+pub struct DropGuard {
+    buffer: Arc<Mutex<TraceBuffer>>,
+    active: bool,
+}
+
+impl DropGuard {
+    pub fn defuse(mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for DropGuard {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        eprintln!("Dropping trace buffer");
+        #[expect(clippy::expect_used)]
+        for entry in self.buffer.lock().iter() {
+            eprintln!(
+                "{:?}",
+                from_slice::<TraceEntry>(entry)
+                    .expect("trace buffer is not supposed to contain invalid CBOR")
+            );
+        }
+        eprintln!("Dropped trace buffer");
     }
 }
 

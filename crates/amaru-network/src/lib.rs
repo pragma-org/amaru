@@ -13,11 +13,15 @@
 // limitations under the License.
 
 pub mod acto_connection;
+pub mod bytes;
 pub mod chain_sync_client;
+pub mod effects;
 pub mod mux;
 pub mod network_resource;
 pub mod point;
 pub mod protocol;
 pub mod session;
+pub mod socket;
+pub mod socket_addr;
 
 pub use network_resource::NetworkResource;

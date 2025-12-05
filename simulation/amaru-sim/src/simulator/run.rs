@@ -48,11 +48,11 @@ use amaru_ouroboros::{
     in_memory_consensus_store::InMemConsensusStore,
 };
 use async_trait::async_trait;
+use pure_stage::simulation::RandStdRng;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::simulation::running::OverrideResult;
 use pure_stage::trace_buffer::TraceEntry;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef, trace_buffer::TraceBuffer};
-use rand::rngs::StdRng;
 use std::{
     sync::{
         Arc,
@@ -72,17 +72,18 @@ pub fn run(args: Args) {
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
     let node_config = NodeConfig::from(args.clone());
 
-    let spawn = |node_id: String, rng: Arc<parking_lot::Mutex<StdRng>>| {
+    let spawn = |node_id: String, rng: RandStdRng| {
         let mut network = SimulationBuilder::default()
             .with_trace_buffer(trace_buffer.clone())
-            .with_rng(rng);
+            .with_eval_strategy(rng);
         let (input, init_messages, output) =
             spawn_node(node_id, node_config.clone(), &mut network, &rt);
-        let mut running = network.run(rt.handle().clone());
+        let mut running = network.run();
         running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
             OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
         });
-        NodeHandle::from_pure_stage(input, init_messages, output, running).unwrap()
+        NodeHandle::from_pure_stage(input, init_messages, output, running, rt.handle().clone())
+            .unwrap()
     };
 
     let simulate_config = SimulateConfig::from(args.clone());

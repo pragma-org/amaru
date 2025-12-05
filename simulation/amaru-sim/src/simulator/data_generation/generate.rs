@@ -22,14 +22,13 @@ use amaru_consensus::consensus::headers_tree::data_generation::{
 };
 use amaru_kernel::{IsHeader, Point, is_header::tests::run_with_rng, peer::Peer, to_cbor};
 use amaru_slot_arithmetic::Slot;
-use parking_lot::Mutex;
 use pure_stage::Instant;
+use pure_stage::simulation::RandStdRng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 use std::time::Duration;
 
 /// Holds a list of generated entries along with the context used to generate them.
@@ -193,22 +192,21 @@ impl From<Entry<ChainSyncMessage>> for GeneratedEntry {
 /// for now shrink the list of actions generated here. This means that if a test fails the generated data
 /// will not be minimized to find a smaller failing case. The generation is deterministic though based on the
 /// RNG passed as a parameter.
-pub fn generate_entries<R: Rng>(
+pub fn generate_entries(
     node_config: &NodeConfig,
     start_time: Instant,
     mean_millis: f64,
-) -> impl Fn(Arc<Mutex<R>>) -> GeneratedEntries<ChainSyncMessage, GeneratedActions> {
-    move |rng: Arc<Mutex<R>>| {
-        let mut rng = rng.lock();
+) -> impl Fn(RandStdRng) -> GeneratedEntries<ChainSyncMessage, GeneratedActions> {
+    move |mut rng: RandStdRng| {
         // Generate a tree of headers.
         let generated_tree = run_with_rng(
-            &mut rng,
+            &mut rng.0,
             any_tree_of_headers(node_config.generated_chain_depth as usize),
         );
 
         // Generate actions corresponding to peers doing roll forwards and roll backs on the tree.
         let generated_actions = run_with_rng(
-            &mut rng,
+            &mut rng.0,
             any_select_chains_from_tree(
                 &generated_tree,
                 node_config.number_of_upstream_peers as usize,
@@ -219,11 +217,11 @@ pub fn generate_entries<R: Rng>(
         let mut entries_by_peer: BTreeMap<Peer, Vec<Entry<ChainSyncMessage>>> = BTreeMap::new();
         for (peer, actions) in generated_actions.actions_per_peer().iter() {
             // introduce a random start delay for each peer simulate different connection times
-            let start_delay = rng.random_range(0..(mean_millis as u64 * 10));
+            let start_delay = rng.0.random_range(0..(mean_millis as u64 * 10));
             let arrival_times = generate_arrival_times(
                 start_time + Duration::from_millis(start_delay),
                 mean_millis,
-            )(actions.len(), &mut rng);
+            )(actions.len(), &mut rng.0);
             make_entries_for_peer(&mut entries_by_peer, peer, actions.clone(), arrival_times);
         }
 
@@ -312,7 +310,7 @@ mod tests {
 
         let rng = StdRng::seed_from_u64(42);
         let generate = generate_entries(&node_config, start_time, deviation_millis);
-        let generated_entries = generate(Arc::new(Mutex::new(rng)));
+        let generated_entries = generate(RandStdRng(rng));
 
         // Uncomment these lines to print the generated entries for debugging
         // for entry in generated_entries.lines() {

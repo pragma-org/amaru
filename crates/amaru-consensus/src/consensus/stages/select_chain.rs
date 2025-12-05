@@ -546,8 +546,8 @@ mod tests {
         peers: &[&Peer],
         anchor: &HeaderHash,
     ) -> State {
-        let downstream: StageRef<BlockValidationResult> = StageRef::named("downstream");
-        let errors: StageRef<ValidationFailed> = StageRef::named("errors");
+        let downstream: StageRef<BlockValidationResult> = StageRef::named_for_tests("downstream");
+        let errors: StageRef<ValidationFailed> = StageRef::named_for_tests("errors");
         let mut tree_state = HeadersTreeState::new(10);
         for peer in peers {
             tree_state

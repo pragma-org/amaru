@@ -12,11 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::marker::PhantomData;
 
-#[binrw::binrw]
-#[brw(big)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct ProtocolId<T: Role>(u16, PhantomData<T>);
+
+impl<T: Role> ProtocolId<T> {
+    pub fn encode(self, buffer: &mut BytesMut) {
+        buffer.put_u16(self.0);
+    }
+
+    pub fn decode(buffer: &mut Bytes) -> Self {
+        Self(buffer.get_u16(), PhantomData)
+    }
+}
 
 impl<T: Role> std::fmt::Display for ProtocolId<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

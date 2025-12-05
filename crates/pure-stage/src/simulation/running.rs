@@ -22,29 +22,30 @@
 #[cfg(test)]
 use crate::simulation::SimulationBuilder;
 use crate::{
-    BoxFuture, CallId, Effect, ExternalEffect, Instant, Name, Resources, SendData, StageRef,
-    StageResponse,
+    BoxFuture, CallId, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources,
+    SendData, StageRef, StageResponse,
     effect::StageEffect,
     effect_box::EffectBox,
     simulation::{
         blocked::{Blocked, SendBlock},
         inputs::Inputs,
+        random::EvalStrategy,
         resume::{
-            post_message, resume_call_internal, resume_clock_internal, resume_external_internal,
-            resume_receive_internal, resume_respond_internal, resume_send_internal,
-            resume_wait_internal,
+            post_message, resume_add_stage_internal, resume_call_internal, resume_clock_internal,
+            resume_external_internal, resume_receive_internal, resume_respond_internal,
+            resume_send_internal, resume_wait_internal, resume_wire_stage_internal,
         },
         state::{StageData, StageState},
     },
+    stage_name,
     stage_ref::StageStateRef,
     stagegraph::{CallRef, StageGraphRunning},
     time::Clock,
     trace_buffer::TraceBuffer,
 };
 use either::Either::{Left, Right};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
-use rand::Rng;
-use rand::rngs::StdRng;
 use std::{
     collections::{BTreeMap, BinaryHeap, VecDeque},
     mem::{replace, take},
@@ -54,6 +55,7 @@ use std::{
 };
 use tokio::{
     runtime::Handle,
+    select,
     sync::{oneshot, watch},
 };
 
@@ -70,6 +72,7 @@ use tokio::{
 /// See also [`run_until_blocked`](Self::run_until_blocked) for how to achieve this.
 pub struct SimulationRunning {
     stages: BTreeMap<Name, StageData>,
+    stage_count: usize,
     inputs: Inputs,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
@@ -78,13 +81,13 @@ pub struct SimulationRunning {
     sleeping: BinaryHeap<Sleeping>,
     responded: Vec<(Name, CallId)>,
     mailbox_size: usize,
-    rt: Handle,
     overrides: Vec<OverrideExternalEffect>,
     breakpoints: Vec<(Name, Box<dyn Fn(&Effect) -> bool + Send + 'static>)>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
-    rng: Arc<Mutex<StdRng>>,
+    eval_strategy: Box<dyn EvalStrategy>,
     terminate: watch::Sender<bool>,
     termination: watch::Receiver<bool>,
+    external_effects: FuturesUnordered<BoxFuture<'static, (Name, Box<dyn SendData>)>>,
 }
 
 impl SimulationRunning {
@@ -96,12 +99,12 @@ impl SimulationRunning {
         clock: Arc<dyn Clock + Send + Sync>,
         resources: Resources,
         mailbox_size: usize,
-        rt: Handle,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
-        rng: Arc<Mutex<StdRng>>,
+        eval_strategy: Box<dyn EvalStrategy>,
     ) -> Self {
         let (terminate, termination) = watch::channel(false);
         Self {
+            stage_count: stages.len(),
             stages,
             inputs,
             effect,
@@ -111,13 +114,13 @@ impl SimulationRunning {
             sleeping: BinaryHeap::new(),
             responded: Vec::new(),
             mailbox_size,
-            rt,
             overrides: Vec::new(),
             breakpoints: Vec::new(),
             trace_buffer,
-            rng,
+            eval_strategy,
             terminate,
             termination,
+            external_effects: FuturesUnordered::new(),
         }
     }
 
@@ -228,6 +231,7 @@ impl SimulationRunning {
     fn schedule_wakeup(
         &mut self,
         duration: Duration,
+        call_id: Option<CallId>,
         wakeup: impl FnOnce(&mut SimulationRunning) + Send + 'static,
     ) {
         assert!(
@@ -237,6 +241,7 @@ impl SimulationRunning {
         let time = self.clock.now() + duration;
         self.sleeping.push(Sleeping {
             time,
+            call_id,
             wakeup: Box::new(wakeup),
         });
     }
@@ -289,17 +294,13 @@ impl SimulationRunning {
     /// the classification of why no step can be taken (can be because the network is idle
     /// and needs more inputs, it could be deadlocked, or a stage is still suspended on an
     /// effect other than send (the latter case is called “busy” for want of a better term).
-    #[expect(clippy::unwrap_used)]
     pub fn try_effect(&mut self) -> Result<Effect, Blocked> {
         let (name, response) = if self.runnable.is_empty() {
             let reason = block_reason(self);
             tracing::debug!("blocking for reason: {:?}", reason);
             return Err(reason);
         } else {
-            // pick one of the effects randomly
-            let mut rng = self.rng.lock();
-            let idx = rng.random_range(0..self.runnable.len());
-            self.runnable.remove(idx).unwrap()
+            self.eval_strategy.pick_runnable(&mut self.runnable)
         };
 
         tracing::debug!(name = %name, "resuming stage");
@@ -323,11 +324,18 @@ impl SimulationRunning {
         let run = &mut |name, response| {
             runnable.push_back((name, response));
         };
+        if !names.is_empty() {
+            self.sleeping.retain(|s| {
+                let Some(cid) = s.call_id else {
+                    return true;
+                };
+                names.iter().all(|(_, id)| cid != *id)
+            });
+        }
         for (name, id) in names {
-            let data = self
-                .stages
-                .get_mut(&name)
-                .expect("stage was responded to, so it must exist");
+            let Some(data) = self.stages.get_mut(&name) else {
+                continue; // responding to CallRef::channel()
+            };
             // just trying to resume as far as possible, so failure to resume is okay
             resume_call_internal(data, run, id).ok();
         }
@@ -362,6 +370,54 @@ impl SimulationRunning {
             }
         }
         InputsResult::Delivered(delivered)
+    }
+
+    /// When external effects are currently unresolved, await either the resolution of an effect
+    /// or the arrival of a new external input message.
+    pub async fn await_external_effect(&mut self) -> Option<Name> {
+        if self.external_effects.is_empty() {
+            return None;
+        }
+        let (at_stage, result) = select! {
+            x = self.external_effects.next() => x?,
+            env = self.inputs.next() => {
+                self.inputs.put_back(env);
+                return None;
+            }
+        };
+
+        let runnable = &mut self.runnable;
+        let run = &mut |name, response| {
+            runnable.push_back((name, response));
+        };
+
+        let data = self.stages.get_mut(&at_stage).unwrap();
+        resume_external_internal(data, result, run).expect("external effect is always runnable");
+        Some(at_stage)
+    }
+
+    /// Wait for a message to be enqueued via an external input to the simulation.
+    pub async fn await_external_input(&mut self) {
+        let envelope = self.inputs.next().await;
+        tracing::debug!(target = %envelope.name, "awaited external input received");
+        self.inputs.put_back(envelope);
+    }
+
+    /// Keep alternating between [`Self::run_until_blocked`] and
+    /// [`Self::await_external_effect`] until the simulation is blocked
+    /// without waiting for external effects to be resolved.
+    pub fn run_until_blocked_incl_effects(&mut self, rt: &Handle) -> Blocked {
+        loop {
+            match self.run_until_sleeping_or_blocked() {
+                Blocked::Busy { .. } => {
+                    rt.block_on(self.await_external_effect());
+                }
+                Blocked::Sleeping { .. } => {
+                    assert!(self.skip_to_next_wakeup(None));
+                }
+                blocked => return blocked,
+            }
+        }
     }
 
     /// Keep on performing steps using [`Self::try_effect`] while possible and automatically
@@ -416,9 +472,14 @@ impl SimulationRunning {
         }
     }
 
-    pub fn run_one_step(&mut self) -> Option<Blocked> {
+    // FIXME: shouldn’t this have a clock ceiling?
+    pub fn run_one_step(&mut self, rt: &Handle) -> Option<Blocked> {
         self.receive_inputs();
         match self.run_effect() {
+            Some(Blocked::Busy { .. }) => {
+                rt.block_on(self.await_external_effect());
+                None
+            }
             Some(Blocked::Sleeping { .. }) => {
                 assert!(self.skip_to_next_wakeup(None));
                 None
@@ -459,10 +520,7 @@ impl SimulationRunning {
             }
         }
 
-        if let Some(blocked) = self.handle_effect(effect) {
-            return Some(blocked);
-        }
-        None
+        self.handle_effect(effect)
     }
 
     /// Handle the given effect as it would be by [`Self::run_until_sleeping_or_blocked`].
@@ -494,6 +552,14 @@ impl SimulationRunning {
                 msg,
                 call: _,
             } => {
+                if to.as_str().is_empty() {
+                    tracing::warn!(stage = %from, "message send to blackhole dropped");
+                    let data_from = self.stages.get_mut(&from).unwrap();
+                    let call = resume_send_internal(data_from, run, to.clone())
+                        .expect("call is always runnable");
+                    self.handle_call_continuation(from, to, call);
+                    return None;
+                }
                 let data_to = self.stages.get_mut(&to).unwrap();
                 if let Err(msg) = post_message(data_to, self.mailbox_size, msg) {
                     data_to.senders.push_back((from, msg));
@@ -512,7 +578,7 @@ impl SimulationRunning {
                     .expect("clock effect is always runnable");
             }
             Effect::Wait { at_stage, duration } => {
-                self.schedule_wakeup(duration, move |sim| {
+                self.schedule_wakeup(duration, None, move |sim| {
                     let data = sim
                         .stages
                         .get_mut(&at_stage)
@@ -569,16 +635,47 @@ impl SimulationRunning {
                         }
                     }
                 }
-                let result =
-                    result.unwrap_or_else(|| self.rt.block_on(effect.run(self.resources.clone())));
-                let data = self.stages.get_mut(&at_stage).unwrap();
-                resume_external_internal(data, result, run)
-                    .expect("external effect is always runnable");
+                if let Some(result) = result {
+                    let data = self.stages.get_mut(&at_stage).unwrap();
+                    resume_external_internal(data, result, run)
+                        .expect("external effect is always runnable");
+                    return None;
+                }
+                let resources = self.resources.clone();
+                self.external_effects.push(Box::pin(async move {
+                    (at_stage, effect.run(resources).await)
+                }));
             }
             Effect::Terminate { at_stage } => {
                 tracing::info!(stage = %at_stage, "terminated");
                 self.terminate.send_replace(true);
                 return Some(Blocked::Terminated(at_stage));
+            }
+            Effect::AddStage { at_stage, name } => {
+                let name = stage_name(&mut self.stage_count, name.as_str());
+                let data = self.stages.get_mut(&at_stage).unwrap();
+                resume_add_stage_internal(data, run, name)
+                    .expect("add stage effect is always runnable");
+            }
+            Effect::WireStage {
+                at_stage,
+                name,
+                initial_state,
+            } => {
+                let data = self.stages.get_mut(&at_stage).unwrap();
+                let transition = resume_wire_stage_internal(data, run)
+                    .expect("wire stage effect is always runnable");
+                self.stages.insert(
+                    name.clone(),
+                    StageData {
+                        name,
+                        mailbox: VecDeque::new(),
+                        state: StageState::Idle(initial_state),
+                        transition: (transition)(self.effect.clone()),
+                        waiting: Some(StageEffect::Receive),
+                        senders: VecDeque::new(),
+                    },
+                );
             }
         }
         None
@@ -644,14 +741,16 @@ impl SimulationRunning {
         &mut self,
         from: impl AsRef<StageRef<Msg1>>,
         to: impl AsRef<StageRef<Msg2>>,
-        msg: Msg2,
+        msg: Option<Msg2>,
     ) -> anyhow::Result<()> {
-        let data = self
-            .stages
-            .get_mut(to.as_ref().name())
-            .expect("stage ref exists, so stage must exist");
-        if post_message(data, self.mailbox_size, Box::new(msg)).is_err() {
-            anyhow::bail!("mailbox is full while resuming send");
+        if let Some(msg) = msg {
+            let data = self
+                .stages
+                .get_mut(to.as_ref().name())
+                .expect("stage ref exists, so stage must exist");
+            if post_message(data, self.mailbox_size, Box::new(msg)).is_err() {
+                anyhow::bail!("mailbox is full while resuming send");
+            }
         }
 
         let data = self
@@ -690,7 +789,7 @@ impl SimulationRunning {
                 .get_mut(&from)
                 .expect("stage ref exists, so stage must exist")
                 .waiting = Some(StageEffect::Call(to, deadline, (), recv, id));
-            self.schedule_wakeup(timeout, move |sim| {
+            self.schedule_wakeup(timeout, Some(id), move |sim| {
                 let data = sim
                     .stages
                     .get_mut(&from)
@@ -834,18 +933,81 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::External`].
-    pub fn resume_external<Msg>(
+    pub fn resume_external_box(
+        &mut self,
+        at_stage: impl AsRef<Name>,
+        result: Box<dyn SendData>,
+    ) -> anyhow::Result<()> {
+        let data = self
+            .stages
+            .get_mut(at_stage.as_ref())
+            .expect("stage ref exists, so stage must exist");
+        resume_external_internal(data, result, &mut |name, response| {
+            self.runnable.push_back((name, response));
+        })
+    }
+
+    /// Resume an [`Effect::External`].
+    pub fn resume_external<Eff: ExternalEffectAPI>(
+        &mut self,
+        at_stage: impl AsRef<Name>,
+        result: Eff::Response,
+    ) -> anyhow::Result<()> {
+        let data = self
+            .stages
+            .get_mut(at_stage.as_ref())
+            .expect("stage ref exists, so stage must exist");
+        resume_external_internal(data, Box::new(result), &mut |name, response| {
+            self.runnable.push_back((name, response));
+        })
+    }
+
+    /// Resume an [`Effect::AddStage`].
+    pub fn resume_add_stage<Msg>(
         &mut self,
         at_stage: impl AsRef<StageRef<Msg>>,
-        result: Box<dyn SendData>,
+        name: Name,
     ) -> anyhow::Result<()> {
         let data = self
             .stages
             .get_mut(at_stage.as_ref().name())
             .expect("stage ref exists, so stage must exist");
-        resume_external_internal(data, result, &mut |name, response| {
+        resume_add_stage_internal(
+            data,
+            &mut |name, response| {
+                self.runnable.push_back((name, response));
+            },
+            name,
+        )
+    }
+
+    /// Resume an [`Effect::WireStage`].
+    pub fn resume_wire_stage<Msg>(
+        &mut self,
+        at_stage: impl AsRef<StageRef<Msg>>,
+        name: Name,
+        initial_state: Box<dyn SendData>,
+    ) -> anyhow::Result<()> {
+        let data = self
+            .stages
+            .get_mut(at_stage.as_ref().name())
+            .expect("stage ref exists, so stage must exist");
+        let transition = resume_wire_stage_internal(data, &mut |name, response| {
             self.runnable.push_back((name, response));
-        })
+        })?;
+
+        self.stages.insert(
+            name.clone(),
+            StageData {
+                name,
+                mailbox: VecDeque::new(),
+                state: StageState::Idle(initial_state),
+                transition: (transition)(self.effect.clone()),
+                waiting: Some(StageEffect::Receive),
+                senders: VecDeque::new(),
+            },
+        );
+        Ok(())
     }
 }
 
@@ -868,6 +1030,7 @@ impl StageGraphRunning for SimulationRunning {
 /// The `wakeup` is secondarily ordered according to the address of the closure.
 struct Sleeping {
     time: Instant,
+    call_id: Option<CallId>,
     wakeup: Box<dyn FnOnce(&mut SimulationRunning) + Send + 'static>,
 }
 
@@ -961,19 +1124,22 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
                 is_call: call.is_some(),
             }),
             StageEffect::Receive => {}
-            StageEffect::Wait(..) => sleep.push(k.clone()),
+            StageEffect::Wait(..) | StageEffect::Call(..) => sleep.push(k.clone()),
             _ => busy.push(k.clone()),
         }
     }
 
-    if !sleep.is_empty() {
-        if let Some(next_wakeup) = sim.next_wakeup() {
-            Blocked::Sleeping { next_wakeup }
-        } else {
-            panic!("no next wakeup but stages are waiting for a wait effect");
+    if !busy.is_empty() {
+        Blocked::Busy {
+            stages: busy,
+            external_effects: sim.external_effects.len(),
         }
-    } else if !busy.is_empty() {
-        Blocked::Busy(busy)
+    } else if !sleep.is_empty() {
+        Blocked::Sleeping {
+            next_wakeup: sim
+                .next_wakeup()
+                .expect("stages are waiting for a wait effect"),
+        }
     } else if !send.is_empty() {
         Blocked::Deadlock(send)
     } else {
@@ -985,7 +1151,6 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
 ///
 /// It is used to poll a stage and return the effect that should be run next.
 /// The `response` is the input with which the stage is resumed.
-#[cfg(feature = "simulation")]
 pub(crate) fn poll_stage(
     trace_buffer: &Arc<Mutex<TraceBuffer>>,
     data: &mut StageData,
@@ -1052,10 +1217,7 @@ fn simulation_invariants() {
     });
 
     let stage = network.wire_up(stage, false);
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap();
-    let mut sim = network.run(rt.handle().clone());
+    let mut sim = network.run();
 
     #[expect(clippy::type_complexity)]
     let ops: [(
@@ -1076,7 +1238,7 @@ fn simulation_invariants() {
                 // resume_send will advance the stage to await the response
                 matches!(eff, Effect::Send { .. }).then(|| CallId::from_u64(1))
             }),
-            Box::new(|sim, stage, _id| sim.resume_send(stage, stage, Msg(None))),
+            Box::new(|sim, stage, _id| sim.resume_send(stage, stage, Some(Msg(None)))),
             "resume_send",
         ),
         (

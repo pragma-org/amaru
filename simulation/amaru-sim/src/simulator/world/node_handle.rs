@@ -21,6 +21,7 @@ use std::fmt::{Debug, Display};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use tokio::runtime::Handle;
 use tracing::{info_span, trace};
 
 /// A `NodeHandle` is an async function that sends an Envelope<Msg> to a node and returns a list of Envelope<Msg>.
@@ -81,6 +82,7 @@ impl<Msg> NodeHandle<Msg> {
         mut init_messages: Receiver<Envelope<Msg>>,
         mut output: Receiver<Envelope<Msg>>,
         mut running: SimulationRunning,
+        rt: Handle,
     ) -> anyhow::Result<NodeHandle<Msg>>
     where
         Msg: PartialEq
@@ -95,7 +97,7 @@ impl<Msg> NodeHandle<Msg> {
             Some(msg) => {
                 trace!(msg = %msg, "enqueuing");
                 running.enqueue_msg(&input, [msg]);
-                match running.run_one_step() {
+                match running.run_one_step(&rt) {
                     Some(_blocked) => {
                         let mut result = init_messages.drain().collect::<Vec<_>>();
                         result.extend(output.drain().collect::<Vec<_>>());
@@ -104,7 +106,7 @@ impl<Msg> NodeHandle<Msg> {
                     None => Ok(None),
                 }
             }
-            None => match running.run_one_step() {
+            None => match running.run_one_step(&rt) {
                 Some(_) => Ok(Some(output.drain().collect::<Vec<_>>())),
                 None => Ok(None),
             },

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use futures_util::StreamExt;
-use pure_stage::{StageGraph, tokio::TokioBuilder};
+use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -62,4 +62,76 @@ fn basic() {
 
         graph.abort();
     });
+}
+
+#[test]
+fn add_stage() {
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct ParentState {
+        child_ref: Option<StageRef<u32>>,
+        output: StageRef<u32>,
+    }
+
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct ChildState {
+        value: u32,
+        output: StageRef<u32>,
+    }
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut network = TokioBuilder::default();
+
+    // Parent stage that creates a child stage
+    let parent = network.stage("parent", async |mut state: ParentState, msg: u32, eff| {
+        if state.child_ref.is_none() {
+            // Create a child stage within the parent stage
+            let child = eff
+                .stage("child", async |mut state: ChildState, msg: u32, eff| {
+                    state.value += msg;
+                    eff.send(&state.output, state.value).await;
+                    state
+                })
+                .await;
+
+            // Wire up the child stage with initial state that includes the output reference
+            let child_ref = eff
+                .wire_up(
+                    child,
+                    ChildState {
+                        value: 0u32,
+                        output: state.output.clone(),
+                    },
+                )
+                .await;
+            state.child_ref = Some(child_ref);
+        }
+
+        // Send a message to the child stage
+        if let Some(ref child) = state.child_ref {
+            eff.send(child, msg).await;
+        }
+
+        state
+    });
+
+    let (output, mut rx) = network.output("output", 10);
+    let parent = network.wire_up(
+        parent,
+        ParentState {
+            child_ref: None,
+            output: output.clone(),
+        },
+    );
+    let input = network.input(&parent);
+
+    let running = network.run(rt.handle().clone());
+
+    rt.block_on(async move {
+        input.send(42).await.unwrap();
+        assert_eq!(rx.next().await.unwrap(), 42);
+        input.send(42).await.unwrap();
+        assert_eq!(rx.next().await.unwrap(), 84);
+    });
+
+    running.abort();
 }

@@ -22,7 +22,7 @@ hex.workspace = true
 pallas-crypto.workspace = true
 pallas-primitives.workspace = true
 parking_lot.workspace = true
-pure-stage = { workspace = true, features = ["simulation"] }
+pure-stage = { workspace = true }
 rand.workspace = true
 rand_distr.workspace = true
 serde.workspace = true
