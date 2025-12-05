@@ -81,7 +81,7 @@ fn run_simulator_with_traces() {
 
     let execute = || {
         let mut network = SimulationBuilder::default();
-        let (input, _, _) = spawn_node("n1".to_string(), node_config.clone(), &mut network, &rt);
+        let (input, _, _) = spawn_node("n1".to_string(), node_config.clone(), &mut network);
         let mut running = network.run(rt.handle().clone());
         running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
             OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))

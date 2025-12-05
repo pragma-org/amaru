@@ -18,7 +18,6 @@ use crate::consensus::effects::NetworkOps;
 use crate::consensus::errors::ProcessingFailed;
 use amaru_kernel::connection::ClientConnectionError;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::to_cbor;
 use amaru_kernel::tx_submission_events::TxClientReply;
 use amaru_network::tx_submission::tx_submission_server::TxResponse;
 use amaru_network::tx_submission::{
@@ -122,9 +121,7 @@ impl Servers {
 
 fn to_network_reply(tx_reply: &TxClientReply) -> Reply<EraTxId, EraTxBody> {
     match tx_reply {
-        TxClientReply::Txs { txs, .. } => {
-            Reply::Txs(txs.iter().map(|tx| new_era_tx_body(to_cbor(tx))).collect())
-        }
+        TxClientReply::Txs { txs, .. } => Reply::Txs(txs.iter().map(new_era_tx_body).collect()),
         TxClientReply::TxIds { tx_ids, .. } => Reply::TxIds(
             tx_ids
                 .iter()

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::{new_era_tx_body, new_era_tx_id};
+use crate::tx_submission::{new_era_tx_body_from_vec, new_era_tx_id};
 use amaru_kernel::to_cbor;
 use amaru_kernel::tx_submission_events::TxId;
 use minicbor::encode::{Error, Write};
@@ -65,6 +65,6 @@ pub fn to_era_tx_ids(txs: &[Tx]) -> Vec<EraTxId> {
 
 pub fn to_era_tx_bodies(txs: &[Tx]) -> Vec<EraTxBody> {
     txs.iter()
-        .map(|tx| new_era_tx_body(to_cbor(tx)))
+        .map(|tx| new_era_tx_body_from_vec(to_cbor(tx)))
         .collect::<Vec<_>>()
 }

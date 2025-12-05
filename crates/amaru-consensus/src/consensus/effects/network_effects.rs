@@ -21,12 +21,11 @@ use amaru_kernel::{
     peer::Peer,
     tx_submission_events::{TxClientReply, TxServerRequest},
 };
-use amaru_network::chain_sync_client::{ForwardEvent, ForwardEventListener};
 use amaru_ouroboros::network_operations::ResourceNetworkOperations;
+use amaru_ouroboros_traits::network_operations::ForwardEvent;
 use anyhow::anyhow;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use tracing::Span;
 
 /// Network operations available to a stage: fetch block and forward events to peers.
@@ -156,8 +155,6 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
 
 // EXTERNAL EFFECTS DEFINITIONS
 
-pub type ResourceForwardEventListener = Arc<dyn ForwardEventListener + Send + Sync>;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForwardEventEffect {
     peer: Peer,
@@ -175,11 +172,11 @@ impl ExternalEffect for ForwardEventEffect {
     fn run(
         self: Box<Self>,
         resources: Resources,
-    ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
+    ) -> BoxFuture<'static, Box<dyn pure_stage::SendData>> {
         Box::pin(async move {
             let listener = resources
-                .get::<ResourceForwardEventListener>()
-                .expect("ForwardEventEffect requires a ForwardEventListener")
+                .get::<ResourceNetworkOperations>()
+                .expect("ForwardEventEffect requires a ResourceNetworkOperations")
                 .clone();
 
             let point = self.event.point();

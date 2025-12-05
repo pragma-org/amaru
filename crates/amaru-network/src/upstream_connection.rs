@@ -24,7 +24,6 @@ use amaru_kernel::{
     connection::{BlockSender, ClientConnectionError, ConnMsg},
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
-    to_cbor,
 };
 use amaru_ouroboros::ChainStore;
 use futures_util::FutureExt;
@@ -58,7 +57,7 @@ pub async fn actor(
     peer: Peer,
     magic: u64,
     store: Arc<dyn ChainStore<BlockHeader>>,
-    chain_sync_event_tx: mpsc::Sender<Tracked<ChainSyncEvent>>,
+    chain_sync_event_sender: mpsc::Sender<Tracked<ChainSyncEvent>>,
     tx_server_request_sender: mpsc::Sender<TxServerRequest>,
     mut tx_client_reply_receiver: mpsc::Receiver<TxClientReply>,
 ) -> anyhow::Result<()> {
@@ -87,7 +86,7 @@ pub async fn actor(
         // spawn task for handling the chainsync protocol
         let mut fetch = State::Idle(blockfetch);
         let peer_clone = peer.clone();
-        let chain_sync_event_tx_clone = chain_sync_event_tx.clone();
+        let chain_sync_event_tx_clone = chain_sync_event_sender.clone();
         let intersection = {
             let hashes = [store.get_anchor_hash(), store.get_best_chain_hash()];
             hashes
@@ -223,8 +222,8 @@ pub async fn actor(
                         Some(TxClientReply::Txs { txs, .. }) => {
                             txsubmission
                                 .reply_txs(
-                                    txs.into_iter()
-                                        .map(|tx| new_era_tx_body(to_cbor(&tx)))
+                                    txs.iter()
+                                        .map(new_era_tx_body)
                                         .collect(),
                                 )
                                 .await?;

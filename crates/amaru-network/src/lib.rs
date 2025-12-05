@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod acto_connection;
 pub mod chain_sync_client;
 pub mod mux;
 pub mod network_resource;
@@ -21,5 +20,6 @@ pub mod protocol;
 pub mod server;
 pub mod session;
 pub mod tx_submission;
+pub mod upstream_connection;
 
 pub use network_resource::NetworkResource;

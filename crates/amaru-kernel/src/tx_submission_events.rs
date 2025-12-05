@@ -21,7 +21,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use tracing::Span;
 
-#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum TxServerRequest {
     Txs {
         peer: Peer,
@@ -44,6 +44,56 @@ pub enum TxServerRequest {
         span: Span,
     },
 }
+
+impl PartialEq for TxServerRequest {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                TxServerRequest::Txs {
+                    peer: p1,
+                    tx_ids: t1,
+                    ..
+                },
+                TxServerRequest::Txs {
+                    peer: p2,
+                    tx_ids: t2,
+                    ..
+                },
+            ) => p1 == p2 && t1 == t2,
+            (
+                TxServerRequest::TxIds {
+                    peer: p1,
+                    ack: a1,
+                    req: r1,
+                    ..
+                },
+                TxServerRequest::TxIds {
+                    peer: p2,
+                    ack: a2,
+                    req: r2,
+                    ..
+                },
+            ) => p1 == p2 && a1 == a2 && r1 == r2,
+            (
+                TxServerRequest::TxIdsNonBlocking {
+                    peer: p1,
+                    ack: a1,
+                    req: r1,
+                    ..
+                },
+                TxServerRequest::TxIdsNonBlocking {
+                    peer: p2,
+                    ack: a2,
+                    req: r2,
+                    ..
+                },
+            ) => p1 == p2 && a1 == a2 && r1 == r2,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for TxServerRequest {}
 
 impl fmt::Debug for TxServerRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

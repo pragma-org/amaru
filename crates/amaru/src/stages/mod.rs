@@ -20,8 +20,8 @@ use amaru_consensus::consensus::stages::{pull_tx_replies, pull_tx_requests};
 use amaru_consensus::{
     consensus::{
         effects::{
-            ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
-            ResourceHeaderValidation, ResourceMeter, ResourceParameters,
+            ResourceBlockValidation, ResourceHeaderStore, ResourceHeaderValidation, ResourceMeter,
+            ResourceParameters,
         },
         errors::ConsensusError,
         headers_tree::HeadersTreeState,
@@ -43,7 +43,6 @@ use amaru_ledger::block_validator::BlockValidator;
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::NetworkResource;
-use amaru_network::server::downstream_server::DownstreamServer;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
@@ -209,22 +208,15 @@ pub async fn bootstrap(
 
     let acto_runtime = AcTokio::from_handle("network", Handle::current().clone());
     let network_resource = NetworkResource::new(
-        peers.clone(),
         &acto_runtime,
-        config.network_magic.into(),
         chain_store.clone(),
-    );
-
-    let downstream_server = Arc::new(
-        DownstreamServer::new(
-            chain_store.clone(),
-            config.listen_address.clone(),
-            config.network_magic as u64,
-            config.max_downstream_peers,
-            our_tip.clone(),
-        )
-        .await?,
-    );
+        peers.clone(),
+        config.max_downstream_peers,
+        config.network_magic.into(),
+        config.listen_address.clone(),
+        our_tip.clone(),
+    )
+    .await?;
 
     let mut network = TokioBuilder::default();
 
@@ -269,9 +261,6 @@ pub async fn bootstrap(
     network
         .resources()
         .put::<ResourceHeaderValidation>(Arc::new(validate_header));
-    network
-        .resources()
-        .put::<ResourceForwardEventListener>(downstream_server);
     network
         .resources()
         .put::<ResourceNetworkOperations>(Arc::new(network_resource));

@@ -277,12 +277,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tx_submission::Blocking;
-    use crate::tx_submission::conversions::{new_era_tx_body, new_era_tx_id, tx_id_from_era_tx_id};
+    use crate::tx_submission::conversions::{new_era_tx_id, tx_id_from_era_tx_id};
     use crate::tx_submission::tests::{
         Tx, assert_next_message, create_transactions, to_era_tx_bodies, to_era_tx_ids,
     };
     use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
+    use crate::tx_submission::{Blocking, new_era_tx_body_from_vec};
     use amaru_kernel::tx_submission_events::TxId;
     use amaru_kernel::{Hasher, to_cbor};
     use amaru_mempool::strategies::InMemoryMempool;
@@ -303,7 +303,7 @@ mod tests {
         );
 
         let era_tx_id = new_era_tx_id(tx_id.clone());
-        let era_tx_body = new_era_tx_body(tx_body.clone());
+        let era_tx_body = new_era_tx_body_from_vec(tx_body.clone());
         assert_eq!(
             tx_id_from_era_tx_id(&era_tx_id),
             tx_id,
