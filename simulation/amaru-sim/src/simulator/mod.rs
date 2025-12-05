@@ -33,4 +33,6 @@ pub use world::*;
 pub mod run;
 
 mod data_generation;
+mod mock_network_resource;
+
 pub use data_generation::*;

@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod chain_sync_client;
-pub mod mux;
-pub mod network_resource;
-pub mod point;
-pub mod protocol;
-pub mod server;
-pub mod session;
-pub mod tx_submission;
-pub mod upstream_connection;
+use crate::point::to_network_point;
+use amaru_kernel::IsHeader;
+use pallas_network::miniprotocols::chainsync::Tip;
 
-pub use network_resource::NetworkResource;
+pub trait AsTip {
+    fn as_tip(&self) -> Tip;
+}
+
+impl<H: IsHeader> AsTip for H {
+    fn as_tip(&self) -> Tip {
+        Tip(to_network_point(self.point()), self.block_height())
+    }
+}

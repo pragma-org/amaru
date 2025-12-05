@@ -12,57 +12,51 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Point;
-use parking_lot::Mutex;
-use std::{fmt, sync::Arc};
-use tokio::sync::oneshot;
+use serde::{Deserialize, Serialize};
+use std::fmt::{Debug, Display, Formatter};
 
-pub type BlockSender = Arc<Mutex<Option<oneshot::Sender<Result<Vec<u8>, ClientConnectionError>>>>>;
+pub mod mock;
 
-#[allow(dead_code)]
-pub enum ConnMsg {
-    FetchBlock(Point, BlockSender),
-    Disconnect,
+pub trait CanValidateTransactions<Tx>: Send + Sync {
+    fn validate_transaction(&self, tx: &Tx) -> Result<(), TransactionValidationError>;
 }
 
 #[derive(Debug)]
-pub struct ClientConnectionError(anyhow::Error);
+pub struct TransactionValidationError(anyhow::Error);
 
-impl ClientConnectionError {
+impl TransactionValidationError {
     pub fn new(err: anyhow::Error) -> Self {
-        ClientConnectionError(err)
+        TransactionValidationError(err)
     }
 
     pub fn to_anyhow(self) -> anyhow::Error {
         self.0
     }
 
-    pub fn downcast<T: std::error::Error + fmt::Debug + Send + Sync + 'static>(
+    pub fn downcast<T: std::error::Error + Debug + Send + Sync + 'static>(
         self,
     ) -> Result<T, anyhow::Error> {
         self.0.downcast::<T>()
     }
 
-    pub fn downcast_ref<T: std::error::Error + fmt::Debug + Send + Sync + 'static>(
-        &self,
-    ) -> Option<&T> {
+    pub fn downcast_ref<T: std::error::Error + Debug + Send + Sync + 'static>(&self) -> Option<&T> {
         self.0.downcast_ref::<T>()
     }
 }
 
-impl From<anyhow::Error> for ClientConnectionError {
+impl From<anyhow::Error> for TransactionValidationError {
     fn from(err: anyhow::Error) -> Self {
-        ClientConnectionError::new(err)
+        TransactionValidationError::new(err)
     }
 }
 
-impl fmt::Display for ClientConnectionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "BlockFetchClientError: {}", self.0)
+impl Display for TransactionValidationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TransactionValidationError: {}", self.0)
     }
 }
 
-impl serde::Serialize for ClientConnectionError {
+impl Serialize for TransactionValidationError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -74,17 +68,17 @@ impl serde::Serialize for ClientConnectionError {
 /// This deserialization implementation is a best-effort attempt to
 /// recover the error message. The original error type is lost during
 /// serialization, so we can only reconstruct the error message as a string.
-impl<'de> serde::Deserialize<'de> for ClientConnectionError {
+impl<'de> Deserialize<'de> for TransactionValidationError {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(ClientConnectionError::new(anyhow::anyhow!(s)))
+        Ok(TransactionValidationError::new(anyhow::anyhow!(s)))
     }
 }
 
-impl PartialEq for ClientConnectionError {
+impl PartialEq for TransactionValidationError {
     fn eq(&self, other: &Self) -> bool {
         self.0.to_string() == other.0.to_string()
     }

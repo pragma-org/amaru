@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod chain_sync_client;
-pub mod mux;
-pub mod network_resource;
-pub mod point;
-pub mod protocol;
-pub mod server;
-pub mod session;
-pub mod tx_submission;
-pub mod upstream_connection;
+mod assertions;
+mod faulty_tx_validator;
+mod mock_transport;
+mod node;
+mod sized_mempool;
+mod test_cases;
+mod tx;
 
-pub use network_resource::NetworkResource;
+pub use assertions::*;
+pub use faulty_tx_validator::*;
+pub use mock_transport::*;
+pub use node::*;
+pub use sized_mempool::*;
+pub use test_cases::*;
+pub use tx::*;

@@ -14,10 +14,10 @@
 
 use super::chain_follower::tests::ChainStoreExt;
 use super::test_infra::{ClientMsg, FORK_47, LOST_47, TIP_47, TestChainForwarder, WINNER_47, hash};
-use crate::stages::AsTip;
+use crate::point::to_network_point;
+use crate::server::as_tip::AsTip;
 use amaru_kernel::IsHeader;
 use amaru_kernel::Point;
-use amaru_network::point::to_network_point;
 
 #[tokio::test]
 async fn test_chain_sync() {

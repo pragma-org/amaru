@@ -12,22 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::AsTip;
-use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
-use amaru_consensus::ReadOnlyChainStore;
-use amaru_kernel::IsHeader;
-use amaru_network::point::{from_network_point, to_network_point};
-use amaru_ouroboros_traits::ChainStore;
+use crate::point::{from_network_point, to_network_point};
+use crate::server::as_tip::AsTip;
+use crate::server::client_protocol::{ChainSyncOp, hash_point};
+use amaru_kernel::{BlockHeader, IsHeader};
+use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore};
 use pallas_network::miniprotocols::{Point, chainsync::Tip};
 use std::collections::VecDeque;
-use std::fmt;
 use std::sync::Arc;
 use tracing::{trace, warn};
 
 /// A structure that maintains state to follow the best chain for a given client.
 ///
 /// The `ops` list may contain up to one rollback at the front only.
-pub(super) struct ChainFollower<H> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ChainFollower {
     /// Initial rollback.
     /// Should we send `Rollback` to client that just asked for an intersection?
     initial: Option<Tip>,
@@ -41,7 +40,7 @@ pub(super) struct ChainFollower<H> {
     anchor: Tip,
 
     /// The buffer of _operations_ to send to the client.
-    ops: VecDeque<ClientOp<H>>,
+    ops: VecDeque<ChainSyncOp>,
 
     /// The current intersection `Tip` for this follower.
     ///
@@ -51,20 +50,9 @@ pub(super) struct ChainFollower<H> {
     intersection: Tip,
 }
 
-impl<H: IsHeader> fmt::Debug for ChainFollower<H> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ChainFollower")
-            .field("initial", &self.initial)
-            .field("anchor", &self.anchor)
-            .field("ops", &self.ops)
-            .field("intersection", &self.intersection)
-            .finish()
-    }
-}
-
-impl<H: IsHeader + Clone + Send> ChainFollower<H> {
+impl ChainFollower {
     pub fn new(
-        store: Arc<dyn ChainStore<H>>,
+        store: Arc<dyn ChainStore<BlockHeader>>,
         current_tip: &Point,
         points: &[Point],
     ) -> Option<Self> {
@@ -123,7 +111,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
                         break;
                     }
 
-                    headers.push(ClientOp::Forward(header.clone()));
+                    headers.push(ChainSyncOp::Forward(header.clone()));
                     current_header = header;
                 }
                 None => return None, // FIXME: Broken chain, shouldn't we panic?
@@ -146,10 +134,13 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
     }
 
     #[allow(clippy::panic)]
-    pub fn next_op(&mut self, store: Arc<dyn ReadOnlyChainStore<H>>) -> Option<ClientOp<H>> {
+    pub fn next_op(
+        &mut self,
+        store: Arc<dyn ReadOnlyChainStore<BlockHeader>>,
+    ) -> Option<ChainSyncOp> {
         // is this initial rollback?
         if let Some(ref init_tip) = self.initial {
-            let result = Some(ClientOp::Backward(init_tip.clone()));
+            let result = Some(ChainSyncOp::Backward(init_tip.clone()));
             self.initial = None;
             return result;
         }
@@ -166,7 +157,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
                         Some(child) => {
                             self.intersection = child.as_tip();
                             trace!(forwarded = %child.point(), anchor = ?self.anchor, "forwarding from store at origin");
-                            return Some(ClientOp::Forward(child));
+                            return Some(ChainSyncOp::Forward(child));
                         }
                         None => panic!(
                             "Store invariant violated:\nnext_best_chain returned {} but header not in store (intersection: {:?}, anchor: {:?})",
@@ -189,21 +180,21 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         }
     }
 
-    pub fn add_op(&mut self, op: ClientOp<H>) {
+    pub fn add_op(&mut self, op: ChainSyncOp) {
         match op {
-            ClientOp::Backward(tip) => {
+            ChainSyncOp::Backward(tip) => {
                 if let Some((index, _)) =
                     self.ops.iter().enumerate().rfind(
-                        |(_, op)| matches!(op, ClientOp::Forward(header2) if to_network_point(header2.point()) == tip.0),
+                        |(_, op)| matches!(op, ChainSyncOp::Forward(header2) if to_network_point(header2.point()) == tip.0),
                     )
                 {
                     self.ops.truncate(index + 1);
                 } else {
                     self.ops.clear();
-                    self.ops.push_back(ClientOp::Backward(tip));
+                    self.ops.push_back(ChainSyncOp::Backward(tip));
                 }
             }
-            op @ ClientOp::Forward(..) => {
+            op @ ChainSyncOp::Forward(..) => {
                 self.ops.push_back(op);
             }
         }
@@ -216,17 +207,16 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::stages::AsTip;
-    use crate::stages::consensus::forward_chain::chain_follower::ChainFollower;
-    use crate::stages::consensus::forward_chain::client_protocol::ClientOp;
-    use crate::stages::consensus::forward_chain::test_infra::{
+    use crate::point::{from_network_point, to_network_point};
+    use crate::server::as_tip::AsTip;
+    use crate::server::chain_follower::ChainFollower;
+    use crate::server::client_protocol::ChainSyncOp;
+    use crate::server::test_infra::{
         CHAIN_47, FIRST_HEADER, FORK_47, LOST_47, TIP_47, WINNER_47, hash, mk_in_memory_store,
     };
     use amaru_kernel::is_header::tests::{any_header_with_parent, run};
     use amaru_kernel::{BlockHeader, IsHeader};
     use amaru_kernel::{Hash, HeaderHash};
-    use amaru_network::point::from_network_point;
-    use amaru_network::point::to_network_point;
     use amaru_ouroboros_traits::ChainStore;
     use pallas_network::miniprotocols::Point;
     use pallas_network::miniprotocols::chainsync::Tip;
@@ -260,7 +250,7 @@ pub(crate) mod tests {
 
         assert_eq!(
             chain_follower.next_op(store.clone()),
-            Some(ClientOp::Backward(start))
+            Some(ChainSyncOp::Backward(start))
         );
     }
 
@@ -278,7 +268,7 @@ pub(crate) mod tests {
 
         assert_eq!(
             chain_follower.next_op(store.clone()),
-            Some(ClientOp::Backward(expected.as_tip()))
+            Some(ChainSyncOp::Backward(expected.as_tip()))
         );
     }
 
@@ -298,7 +288,7 @@ pub(crate) mod tests {
         let mut chain_follower = ChainFollower::new(store.clone(), &tip, &points).unwrap();
         assert_eq!(
             chain_follower.next_op(store.clone()),
-            Some(ClientOp::Backward(Tip(expected, 8)))
+            Some(ChainSyncOp::Backward(Tip(expected, 8)))
         );
     }
 
@@ -316,11 +306,11 @@ pub(crate) mod tests {
 
         assert_eq!(
             chain_follower.next_op(store.clone()),
-            Some(ClientOp::Backward(Tip(Point::Origin, 0)))
+            Some(ChainSyncOp::Backward(Tip(Point::Origin, 0)))
         );
         assert_eq!(
             chain_follower.next_op(store.clone()),
-            Some(ClientOp::Forward(first))
+            Some(ChainSyncOp::Forward(first))
         );
     }
 

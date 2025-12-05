@@ -12,11 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod chain_follower;
-pub mod client_protocol;
-pub mod tcp_forward_chain_server;
+mod conversions;
+mod server_params;
+mod tx_client_transport;
+mod tx_server_transport;
+pub mod tx_submission_client;
+pub mod tx_submission_server;
 
-#[cfg(test)]
-mod test_infra;
+pub use conversions::*;
+pub use server_params::*;
+pub use tx_submission_client::TxSubmissionClientState;
+pub use tx_submission_server::TxSubmissionServerState;
+
 #[cfg(test)]
 mod tests;

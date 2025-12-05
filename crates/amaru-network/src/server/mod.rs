@@ -12,4 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod forward_chain;
+pub mod as_tip;
+pub mod chain_follower;
+pub mod client_protocol;
+pub mod downstream_server;
+
+#[cfg(test)]
+mod test_infra;
+#[cfg(test)]
+mod tests;

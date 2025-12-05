@@ -21,15 +21,15 @@ use amaru_consensus::consensus::{
         track_peers::{self, SyncTracker},
         validate_block, validate_header,
     },
-    tip::HeaderTip,
 };
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
+use amaru_kernel::is_header::HeaderTip;
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the consensus protocol.
 /// The output of the graph is passed as a parameter, allowing the caller to
 /// decide what to do with the results the graph processing.
-pub fn build_stage_graph(
+pub fn build_consensus_graph(
     chain_selector: SelectChain,
     sync_tracker: SyncTracker,
     our_tip: HeaderTip,

@@ -12,37 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::{
-    build_stage_graph::build_stage_graph,
-    consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
-};
+use crate::stages::build_consensus_graph::build_consensus_graph;
+use crate::stages::build_tx_submission_graph::build_tx_submission_graph;
 use acto::AcTokio;
+use amaru_consensus::consensus::effects::ResourceMempool;
+use amaru_consensus::consensus::stages::{pull_tx_replies, pull_tx_requests};
 use amaru_consensus::{
     consensus::{
         effects::{
-            ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
-            ResourceHeaderValidation, ResourceMeter, ResourceParameters,
+            ResourceBlockValidation, ResourceHeaderStore, ResourceHeaderValidation, ResourceMeter,
+            ResourceParameters,
         },
         errors::ConsensusError,
         headers_tree::HeadersTreeState,
         stages::{
-            pull, select_chain::SelectChain, track_peers::SyncTracker,
+            pull_chain_sync_events, select_chain::SelectChain, track_peers::SyncTracker,
             validate_header::ValidateHeader,
         },
-        tip::{AsHeaderTip, HeaderTip},
     },
     network_operations::ResourceNetworkOperations,
 };
+use amaru_kernel::is_header::{AsHeaderTip, HeaderTip};
 use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
+    BlockHeader, EraHistory, HeaderHash, ORIGIN_HASH, Point,
     network::NetworkName,
     peer::Peer,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
+use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::NetworkResource;
-use amaru_network::point::to_network_point;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
@@ -54,7 +54,6 @@ use amaru_stores::{
 use anyhow::Context;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pallas_network::miniprotocols::chainsync::Tip;
 use pure_stage::{StageGraph, tokio::TokioBuilder};
 use std::{
     fmt::{Debug, Display},
@@ -65,8 +64,8 @@ use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-pub mod build_stage_graph;
-pub mod consensus;
+pub mod build_consensus_graph;
+pub mod build_tx_submission_graph;
 
 /// Whether or not data is stored on disk or in memory.
 #[derive(Clone)]
@@ -207,32 +206,52 @@ pub async fn bootstrap(
         ledger.get_stake_distribution(),
     );
 
-    let sync_tracker = SyncTracker::new(&peers);
-
-    let forward_event_listener = Arc::new(
-        TcpForwardChainServer::new(
-            chain_store.clone(),
-            config.listen_address.clone(),
-            config.network_magic as u64,
-            config.max_downstream_peers,
-            our_tip.clone(),
-        )
-        .await?,
-    );
+    let acto_runtime = AcTokio::from_handle("network", Handle::current().clone());
+    let network_resource = NetworkResource::new(
+        &acto_runtime,
+        chain_store.clone(),
+        peers.clone(),
+        config.max_downstream_peers,
+        config.network_magic.into(),
+        config.listen_address.clone(),
+        our_tip.clone(),
+    )
+    .await?;
 
     let mut network = TokioBuilder::default();
-    let acto_runtime = AcTokio::from_handle("network", Handle::current().clone());
 
+    let sync_tracker = SyncTracker::new(&peers);
     let receive_header_stage =
-        build_stage_graph(chain_selector, sync_tracker, our_tip, &mut network);
+        build_consensus_graph(chain_selector, sync_tracker, our_tip, &mut network);
 
-    let pull_stage = network.stage("pull", pull::stage);
-    let pull_stage = network.wire_up(pull_stage, receive_header_stage);
-    assert!(network.preload(pull_stage, vec![pull::NextSync]));
+    let (receive_tx_request_stage, receive_tx_reply_stage) =
+        build_tx_submission_graph(&mut network);
+
+    let pull_chain_sync_events_stage = network.stage("pull", pull_chain_sync_events::stage);
+    let pull_chain_sync_events_stage =
+        network.wire_up(pull_chain_sync_events_stage, receive_header_stage);
+    assert!(network.preload(
+        pull_chain_sync_events_stage,
+        vec![pull_chain_sync_events::NextSync]
+    ));
+
+    let pull_tx_requests_stage = network.stage("pull", pull_tx_requests::stage);
+    let pull_tx_requests_stage = network.wire_up(pull_tx_requests_stage, receive_tx_request_stage);
+    assert!(network.preload(
+        pull_tx_requests_stage,
+        vec![pull_tx_requests::NextTxRequest]
+    ));
+
+    let pull_tx_replies_stage = network.stage("pull", pull_tx_replies::stage);
+    let pull_tx_replies_stage = network.wire_up(pull_tx_replies_stage, receive_tx_reply_stage);
+    assert!(network.preload(pull_tx_replies_stage, vec![pull_tx_replies::NextTxReply]));
 
     network
         .resources()
         .put::<ResourceHeaderStore>(chain_store.clone());
+    network
+        .resources()
+        .put::<ResourceMempool>(Arc::new(InMemoryMempool::default()));
     network
         .resources()
         .put::<ResourceParameters>(global_parameters.clone());
@@ -244,15 +263,7 @@ pub async fn bootstrap(
         .put::<ResourceHeaderValidation>(Arc::new(validate_header));
     network
         .resources()
-        .put::<ResourceForwardEventListener>(forward_event_listener);
-    network
-        .resources()
-        .put::<ResourceNetworkOperations>(Arc::new(NetworkResource::new(
-            peers,
-            &acto_runtime,
-            config.network_magic.into(),
-            chain_store,
-        )));
+        .put::<ResourceNetworkOperations>(Arc::new(network_resource));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);
@@ -374,16 +385,6 @@ fn make_chain_selector(
     }
 
     Ok(SelectChain::new(tree_state))
-}
-
-pub trait AsTip {
-    fn as_tip(&self) -> Tip;
-}
-
-impl<H: IsHeader> AsTip for H {
-    fn as_tip(&self) -> Tip {
-        Tip(to_network_point(self.point()), self.block_height())
-    }
 }
 
 #[cfg(test)]
