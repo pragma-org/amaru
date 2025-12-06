@@ -24,8 +24,8 @@ pub(crate) mod import_headers;
 pub(crate) mod import_ledger_state;
 pub(crate) mod import_nonces;
 pub(crate) mod migrate_chain_db;
-pub(crate) mod run;
 pub(crate) mod reset_to_epoch;
+pub(crate) mod run;
 
 pub(crate) const DEFAULT_NETWORK: NetworkName = NetworkName::Preprod;
 
