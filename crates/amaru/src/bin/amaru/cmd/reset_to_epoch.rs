@@ -14,7 +14,24 @@
 
 use clap::Parser;
 use std::fs;
+use std::io;
 use std::{error::Error, path::PathBuf};
+
+fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -122,6 +139,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let Some(pentultimate_epoch) = pentultimate_epoch else {
         return Err("invariant violated: check_safe_to_reset should have guaranteed that pentultimate_epoch gets assigned".into());
     };
-    fs::copy(pentultimate_epoch, args.ledger_dir.join("live"))?;
+    copy_dir_recursive(&pentultimate_epoch, &args.ledger_dir.join("live"))?;
     Ok(())
 }
