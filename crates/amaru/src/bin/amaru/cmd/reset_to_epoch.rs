@@ -97,7 +97,11 @@ fn check_safe_to_reset(epoch: u64, folders: &Vec<Folder>) -> Result<(), Box<dyn 
     // The +1 here is because if we're resetting to 175, and the max epoch is 174,
     // we're *in* epoch 175, and we can just delete `live/` and copy `174` to `live`
     if epoch > max_epoch + 1 {
-        return Err(format!("cannot reset to an epoch in the future. We're currently in epoch {}", max_epoch + 1).into())
+        return Err(format!(
+            "cannot reset to an epoch in the future. We're currently in epoch {}",
+            max_epoch + 1
+        )
+        .into());
     }
 
     // We need 3 previous epochs *plus* the "live" epoch, to function
@@ -122,7 +126,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     for folder in folders {
         match folder.epoch {
             Epoch::Live => {
-                fs::remove_dir_all(&folder.path).map_err(|e| format!("failed to remove {}: {}", folder.path.display(), e))?;
+                fs::remove_dir_all(&folder.path)
+                    .map_err(|e| format!("failed to remove {}: {}", folder.path.display(), e))?;
             }
             Epoch::Past(epoch) => {
                 if epoch == args.epoch - 1 {
@@ -131,7 +136,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     // with the existing directory
                     pentultimate_epoch = Some(folder.path);
                 } else if epoch >= args.epoch {
-                    fs::remove_dir_all(&folder.path).map_err(|e| format!("failed to remove {}: {}", folder.path.display(), e))?;
+                    fs::remove_dir_all(&folder.path).map_err(|e| {
+                        format!("failed to remove {}: {}", folder.path.display(), e)
+                    })?;
                 }
             }
         }
