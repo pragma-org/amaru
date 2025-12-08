@@ -62,7 +62,6 @@ use std::{
     sync::Arc,
 };
 use tokio::runtime::Handle;
-use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 pub mod build_stage_graph;
@@ -160,8 +159,6 @@ impl From<MaxExtraLedgerSnapshots> for u64 {
 
 pub async fn bootstrap(
     config: Config,
-    peers: Vec<Peer>,
-    exit: CancellationToken,
     meter_provider: Option<SdkMeterProvider>,
 ) -> anyhow::Result<()> {
     let era_history: &EraHistory = config.network.into();
@@ -190,6 +187,7 @@ pub async fn bootstrap(
         .map(|h| h.as_header_tip())
         .unwrap_or(HeaderTip::new(Point::Origin, 0));
 
+    let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
     let chain_selector = make_chain_selector(
         chain_store.clone(),
         &peers,
@@ -260,8 +258,6 @@ pub async fn bootstrap(
     };
 
     let _running = network.run(Handle::current().clone());
-
-    exit.cancelled().await;
 
     Ok(())
 }

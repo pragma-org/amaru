@@ -17,7 +17,6 @@ use crate::pid::with_optional_pid_file;
 use crate::{cmd::default_ledger_dir, metrics::track_system_metrics};
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap};
 use amaru_kernel::network::NetworkName;
-use amaru_kernel::peer::Peer;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -105,11 +104,11 @@ pub async fn run(
             .map(track_system_metrics)
             .transpose()?;
 
-        let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
-
         let exit = amaru::exit::hook_exit_token();
 
-        bootstrap(config, peers, exit, meter_provider).await?;
+        bootstrap(config, meter_provider).await?;
+
+        exit.cancelled().await;
 
         if let Some(handle) = metrics {
             handle.abort();

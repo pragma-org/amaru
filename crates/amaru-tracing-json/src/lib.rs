@@ -35,8 +35,12 @@ impl JsonTraceCollector {
     }
 
     pub fn flush(&self) -> Vec<json::Value> {
-        match self.0.read() {
-            Ok(traces) => traces.clone(),
+        match self.0.write() {
+            Ok(mut traces) => {
+                let lines = traces.clone();
+                traces.clear();
+                lines
+            }
             // The RwLock can only get poisoned should the thread panic while pushing a new line
             // onto the stack. In case this happen, we'll likely be missing traces which should be
             // caught by assertions down the line anyway. So it is fine here to simply return the
@@ -137,7 +141,7 @@ impl tracing::field::Visit for JsonVisitor {
     }
 }
 
-struct JsonLayer(JsonTraceCollector);
+pub struct JsonLayer(JsonTraceCollector);
 
 impl JsonLayer {
     pub fn new(collector: JsonTraceCollector) -> Self {
