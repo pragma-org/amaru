@@ -63,7 +63,7 @@ pub struct Args {
     /// needed for bootstrapping. Given a source directory `data`, and a
     /// a network name of `preview`, the expected layout for configuration files would be:
     ///
-    /// * `data/preview/snapshots.json`: a list of `Snapshot` vaalues,
+    /// * `data/preview/snapshots.json`: a list of `Snapshot` values,
     /// * `data/preview/nonces.json`: a list of `InitialNonces` values,
     /// * `data/preview/headers.json`: a list of `Point`s.
     #[arg(
@@ -91,18 +91,24 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
           "Running command bootstrap",
     );
 
-    let network_dir = args.config_dir.join(&*network.to_string());
+    // Only bootstrap if the ledger directory does not already exist
+    // Allows idempotent re-execution of the bootstrap command
+    if !ledger_dir.exists() {
+        let network_dir = args.config_dir.join(&*network.to_string());
 
-    let snapshots_file: PathBuf = network_dir.join("snapshots.json");
-    let snapshots_dir = PathBuf::from(snapshots_dir(network));
+        let snapshots_file: PathBuf = network_dir.join("snapshots.json");
+        let snapshots_dir = PathBuf::from(snapshots_dir(network));
 
-    download_snapshots(&snapshots_file, &snapshots_dir).await?;
+        download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
-    import_all_from_directory(network, &ledger_dir, &snapshots_dir).await?;
+        import_all_from_directory(network, &ledger_dir, &snapshots_dir).await?;
 
-    import_nonces_for_network(network, &network_dir, &chain_dir).await?;
+        import_nonces_for_network(network, &network_dir, &chain_dir).await?;
 
-    import_headers_for_network(&network_dir, &chain_dir).await?;
+        import_headers_for_network(&network_dir, &chain_dir).await?;
+    } else {
+        info!("Ledger directory already initialized, skipping bootstrap");
+    }
 
     Ok(())
 }
