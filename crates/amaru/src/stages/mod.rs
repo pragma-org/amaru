@@ -55,7 +55,10 @@ use anyhow::Context;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::miniprotocols::chainsync::Tip;
-use pure_stage::{StageGraph, tokio::{TokioBuilder, TokioRunning}};
+use pure_stage::{
+    StageGraph,
+    tokio::{TokioBuilder, TokioRunning},
+};
 use std::{
     fmt::{Debug, Display},
     path::PathBuf,
