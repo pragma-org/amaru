@@ -106,7 +106,7 @@ pub async fn run(
 
         let exit = amaru::exit::hook_exit_token();
 
-        bootstrap(config, meter_provider).await?;
+        let _ = bootstrap(config, meter_provider).await?;
 
         exit.cancelled().await;
 
