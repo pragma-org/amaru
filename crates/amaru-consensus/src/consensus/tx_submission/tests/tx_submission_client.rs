@@ -12,21 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::tx_client_transport::{PallasTxClientTransport, TxClientTransport};
-use crate::tx_submission::tx_id_from_era_tx_id;
+use crate::consensus::tx_submission::TxSubmissionClientState;
+use crate::consensus::tx_submission::tests::{
+    MockClientTransport, SizedMempool, TxClientTransport, assert_next_message,
+    assert_tx_bodies_reply, assert_tx_ids_reply, create_transactions,
+};
+use crate::consensus::tx_submission::tx_submission_client_state::TxClientResponse;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::to_cbor;
-use amaru_kernel::tx_submission_events::TxId;
-use amaru_ouroboros_traits::{MempoolSeqNo, TxSubmissionMempool};
-use minicbor::Encode;
-use pallas_network::miniprotocols::txsubmission;
-use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Request, TxIdAndSize};
-use pallas_traverse::Era;
-use pure_stage::typetag::__private21::serde::Serialize;
-use serde::Deserialize;
-use std::collections::VecDeque;
-use std::fmt::Debug;
+use amaru_network::{era_tx_bodies, era_tx_id, era_tx_ids, to_pallas_request};
+use amaru_ouroboros_traits::{Mempool, TxId, TxSubmissionMempool};
+use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Message, TxIdAndSize};
+use pallas_primitives::conway::Tx;
 use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::task::JoinHandle;
 use tracing::{debug, info};
 
 /// Tx submission client state machine for a given peer.
@@ -42,124 +42,7 @@ pub struct TxSubmissionClient<Tx> {
     state: TxSubmissionClientState,
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TxSubmissionClientState {
-    /// Peer we are serving.
-    peer: Peer,
-    /// What we’ve already advertised but has not yet been fully acked.
-    window: VecDeque<(TxId, MempoolSeqNo)>,
-    /// Last seq_no we have ever pulled from the mempool for this peer.
-    /// None if we have not pulled anything yet.
-    last_seq: Option<MempoolSeqNo>,
-}
-
-impl TxSubmissionClientState {
-    pub fn new(peer: &Peer) -> Self {
-        Self {
-            peer: peer.clone(),
-            window: VecDeque::new(),
-            last_seq: None,
-        }
-    }
-
-    pub async fn process_tx_request<Tx: Send + Debug + Sync + 'static>(
-        &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-        request: Request<EraTxId>,
-    ) -> anyhow::Result<TxResponse<Tx>> {
-        match request {
-            Request::TxIds(acknowledged, required_next) => {
-                if required_next == 0 {
-                    debug!(peer = %self.peer,
-                        "Requested 0 tx ids, terminating tx submission client",
-                    );
-                    return Ok(TxResponse::<Tx>::Done);
-                }
-                if !mempool
-                    .wait_for_at_least(mempool.last_seq_no().add(required_next as u64))
-                    .await
-                {
-                    return Ok(TxResponse::<Tx>::Done);
-                }
-                let tx_ids = self
-                    .get_next_tx_ids(mempool, acknowledged, required_next)
-                    .await?;
-                Ok(TxResponse::NextIds(tx_ids))
-            }
-            Request::TxIdsNonBlocking(acknowledged, required_next) => Ok(TxResponse::NextIds(
-                self.get_next_tx_ids(mempool, acknowledged, required_next)
-                    .await?,
-            )),
-            Request::Txs(ids) => {
-                if ids.is_empty() {
-                    debug!(peer = %self.peer,
-                        "Requested 0 txs, terminating tx submission client"
-                    );
-                    return Ok(TxResponse::<Tx>::Done);
-                }
-                let ids: Vec<TxId> = ids.iter().map(tx_id_from_era_tx_id).collect();
-                if ids
-                    .iter()
-                    .any(|id| !self.window.iter().any(|(wid, _)| wid == id))
-                {
-                    debug!(peer = %self.peer,
-                        "Requested unknown tx ids, terminating tx submission client"
-                    );
-                    return Ok(TxResponse::<Tx>::Done);
-                }
-                let txs = mempool.get_txs_for_ids(ids.as_slice());
-                if txs.is_empty() {
-                    Ok(TxResponse::<Tx>::Done)
-                } else {
-                    Ok(TxResponse::NextTxs(txs))
-                }
-            }
-        }
-    }
-
-    /// Take notice of the acknowledged transactions, and send the next batch of tx ids.
-    async fn get_next_tx_ids<Tx: Send + Debug + Sync + 'static>(
-        &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-        acknowledged: u16,
-        required_next: u16,
-    ) -> anyhow::Result<Vec<(TxId, u32)>> {
-        self.discard(acknowledged);
-        let tx_ids = mempool.tx_ids_since(self.next_seq(), required_next);
-        let result = tx_ids
-            .clone()
-            .into_iter()
-            .map(|(tx_id, tx_size, _)| (tx_id, tx_size))
-            .collect();
-        self.update(tx_ids);
-        Ok(result)
-    }
-
-    /// We discard up to 'acknowledged' transactions from our window.
-    fn discard(&mut self, acknowledged: u16) {
-        if self.window.len() >= acknowledged as usize {
-            self.window = self.window.drain(acknowledged as usize..).collect();
-        }
-    }
-
-    /// We update our window with tx ids retrieved from the mempool and just sent to the server.
-    fn update(&mut self, tx_ids: Vec<(TxId, u32, MempoolSeqNo)>) {
-        for (tx_id, _size, seq_no) in tx_ids {
-            self.window.push_back((tx_id, seq_no));
-            self.last_seq = Some(seq_no);
-        }
-    }
-
-    /// Compute the next sequence number to use when pulling from the mempool.
-    fn next_seq(&self) -> MempoolSeqNo {
-        match self.last_seq {
-            Some(seq) => seq.next(),
-            None => MempoolSeqNo(0),
-        }
-    }
-}
-
-impl<Tx: Encode<()> + Send + Debug + Sync + 'static> TxSubmissionClient<Tx> {
+impl TxSubmissionClient<Tx> {
     /// Create a new tx submission client state machine for the given mempool and peer.
     pub fn new(mempool: Arc<dyn TxSubmissionMempool<Tx>>, peer: &Peer) -> Self {
         Self {
@@ -168,27 +51,20 @@ impl<Tx: Encode<()> + Send + Debug + Sync + 'static> TxSubmissionClient<Tx> {
         }
     }
 
-    /// Start the tx submission client state machine over the given agent channel.
-    /// This function drives the state machine until completion.
-    pub async fn start_client(&mut self, client: txsubmission::Client) -> anyhow::Result<()> {
-        let transport = PallasTxClientTransport::new(client);
-        self.start_client_with_transport(transport).await
-    }
-
     /// Core state machine, parameterized over a transport for testability.
     pub async fn start_client_with_transport<T: TxClientTransport>(
         &mut self,
         mut transport: T,
     ) -> anyhow::Result<()> {
         transport.send_init().await?;
-        info!(peer = %self.state.peer,
+        info!(peer = %self.state.peer(),
             "Started tx submission client"
         );
         loop {
             let request = match transport.next_request().await {
                 Ok(r) => r,
                 Err(e) => {
-                    debug!(peer = %self.state.peer,
+                    debug!(peer = %self.state.peer(),
                         "Error receiving next request, terminating tx submission client: {e:?}"
                     );
                     break;
@@ -196,39 +72,35 @@ impl<Tx: Encode<()> + Send + Debug + Sync + 'static> TxSubmissionClient<Tx> {
             };
             match self
                 .state
-                .process_tx_request(self.mempool.clone(), request)
+                .process_tx_request(
+                    self.mempool.clone(),
+                    to_pallas_request(self.state.peer(), request),
+                )
                 .await?
             {
-                TxResponse::Done => {
+                TxClientResponse::Done => {
                     transport.send_done().await?;
                     break;
                 }
-                TxResponse::NextIds(tx_ids) => {
+                TxClientResponse::NextIds(tx_ids) => {
                     transport
                         .reply_tx_ids(
                             tx_ids
                                 .iter()
                                 .map(|(tx_id, tx_size)| {
-                                    TxIdAndSize(
-                                        EraTxId(Era::Conway.into(), tx_id.to_vec()),
-                                        *tx_size,
-                                    )
+                                    TxIdAndSize(era_tx_id(tx_id.clone()), *tx_size)
                                 })
                                 .collect(),
                         )
                         .await?
                 }
-                TxResponse::NextTxs(txs) => {
+                TxClientResponse::NextTxs(txs) => {
                     transport
-                        .reply_txs(
-                            txs.into_iter()
-                                .map(|tx| {
-                                    let tx_body = to_cbor(&*tx);
-                                    // TODO: see how to handle multiple eras
-                                    EraTxBody(Era::Conway.into(), tx_body)
-                                })
+                        .reply_txs(era_tx_bodies(
+                            &txs.into_iter()
+                                .map(|tx| tx.as_ref().clone())
                                 .collect::<Vec<_>>(),
-                        )
+                        ))
                         .await?;
                 }
             };
@@ -237,36 +109,20 @@ impl<Tx: Encode<()> + Send + Debug + Sync + 'static> TxSubmissionClient<Tx> {
     }
 }
 
-pub enum TxResponse<Tx> {
-    Done,
-    NextIds(Vec<(TxId, u32)>),
-    NextTxs(Vec<Arc<Tx>>),
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
-    use crate::tx_submission::tests::{
-        SizedMempool, Tx, assert_next_message, assert_tx_bodies_reply, assert_tx_ids_reply,
-        create_transactions, to_era_tx_bodies, to_era_tx_ids,
-    };
-    use crate::tx_submission::tx_client_transport::tests::MockClientTransport;
-    use amaru_ouroboros_traits::Mempool;
-    use pallas_network::miniprotocols::txsubmission::Message;
-    use tokio::sync::mpsc;
-    use tokio::sync::mpsc::{Receiver, Sender};
-    use tokio::task::JoinHandle;
 
     #[tokio::test]
     async fn serve_transactions_blocking() -> anyhow::Result<()> {
         // Create a mempool with some transactions
         let mempool = Arc::new(SizedMempool::with_capacity(6));
         let txs = create_transactions(6);
-        let era_tx_ids = to_era_tx_ids(&txs);
-        let era_tx_bodies = to_era_tx_bodies(&txs);
-        for tx in txs.into_iter() {
-            mempool.add(tx)?;
+        let mut tx_ids = vec![];
+        for tx in txs.iter() {
+            tx_ids.push(TxId::from(tx));
+            mempool.add(tx.clone())?;
         }
+        let era_tx_ids = era_tx_ids(&tx_ids);
         let (tx_req, mut replies, _rx_observe_messages, _client_handle) =
             start_client(mempool).await?;
 
@@ -288,12 +144,12 @@ pub(crate) mod tests {
         // We basically assert that we receive the expected ids and transactions
         // 2 by 2, then the last one, since we requested batches of 2.
         assert_next_message(&mut replies, Message::Init).await?;
-        assert_tx_ids_reply(&mut replies, &era_tx_ids, &[0, 1]).await?;
-        assert_tx_bodies_reply(&mut replies, &era_tx_bodies, &[0, 1]).await?;
-        assert_tx_ids_reply(&mut replies, &era_tx_ids, &[2, 3]).await?;
-        assert_tx_bodies_reply(&mut replies, &era_tx_bodies, &[2, 3]).await?;
-        assert_tx_ids_reply(&mut replies, &era_tx_ids, &[4, 5]).await?;
-        assert_tx_bodies_reply(&mut replies, &era_tx_bodies, &[4, 5]).await?;
+        assert_tx_ids_reply(&mut replies, &tx_ids, &[0, 1]).await?;
+        assert_tx_bodies_reply(&mut replies, &txs, &[0, 1]).await?;
+        assert_tx_ids_reply(&mut replies, &tx_ids, &[2, 3]).await?;
+        assert_tx_bodies_reply(&mut replies, &txs, &[2, 3]).await?;
+        assert_tx_ids_reply(&mut replies, &tx_ids, &[4, 5]).await?;
+        assert_tx_bodies_reply(&mut replies, &txs, &[4, 5]).await?;
 
         Ok(())
     }
@@ -303,8 +159,12 @@ pub(crate) mod tests {
         // Create a mempool with some transactions
         let mempool = Arc::new(SizedMempool::with_capacity(6));
         let txs = create_transactions(6);
-        let era_tx_ids = to_era_tx_ids(&txs);
-        let era_tx_bodies = to_era_tx_bodies(&txs);
+        let mut tx_ids = vec![];
+        for tx in txs.iter() {
+            tx_ids.push(TxId::from(tx));
+        }
+        let era_tx_ids = era_tx_ids(&tx_ids);
+
         for tx in txs.iter().take(2) {
             mempool.add(tx.clone())?;
         }
@@ -323,8 +183,8 @@ pub(crate) mod tests {
         }
 
         assert_next_message(&mut replies, Message::Init).await?;
-        assert_tx_ids_reply(&mut replies, &era_tx_ids, &[0, 1]).await?;
-        assert_tx_bodies_reply(&mut replies, &era_tx_bodies, &[0, 1]).await?;
+        assert_tx_ids_reply(&mut replies, &tx_ids, &[0, 1]).await?;
+        assert_tx_bodies_reply(&mut replies, &txs, &[0, 1]).await?;
 
         // Refill the mempool with more transactions
         for tx in &txs[2..] {
@@ -343,11 +203,11 @@ pub(crate) mod tests {
         // Check replies
         // We basically assert that we receive the expected ids and transactions
         // 2 by 2, then the last one, since we requested batches of 2.
-        assert_tx_ids_reply(&mut replies, &era_tx_ids, &[]).await?;
-        assert_tx_ids_reply(&mut replies, &era_tx_ids, &[2, 3]).await?;
-        assert_tx_bodies_reply(&mut replies, &era_tx_bodies, &[2, 3]).await?;
-        assert_tx_ids_reply(&mut replies, &era_tx_ids, &[4, 5]).await?;
-        assert_tx_bodies_reply(&mut replies, &era_tx_bodies, &[4, 5]).await?;
+        assert_tx_ids_reply(&mut replies, &tx_ids, &[]).await?;
+        assert_tx_ids_reply(&mut replies, &tx_ids, &[2, 3]).await?;
+        assert_tx_bodies_reply(&mut replies, &txs, &[2, 3]).await?;
+        assert_tx_ids_reply(&mut replies, &tx_ids, &[4, 5]).await?;
+        assert_tx_bodies_reply(&mut replies, &txs, &[4, 5]).await?;
 
         Ok(())
     }
@@ -357,10 +217,12 @@ pub(crate) mod tests {
         // Create a mempool with some transactions
         let mempool = Arc::new(SizedMempool::with_capacity(6));
         let txs = create_transactions(4);
-        let era_tx_ids = to_era_tx_ids(&txs);
+        let mut tx_ids = vec![];
         for tx in txs.iter() {
+            tx_ids.push(TxId::from(tx));
             mempool.add(tx.clone())?;
         }
+        let era_tx_ids = era_tx_ids(&tx_ids);
         let (tx_req, mut replies, _rx_observe_messages, _client_handle) =
             start_client(mempool.clone()).await?;
 
@@ -379,7 +241,7 @@ pub(crate) mod tests {
         }
 
         assert_next_message(&mut replies, Message::Init).await?;
-        assert_tx_ids_reply(&mut replies, &era_tx_ids, &[0, 1]).await?;
+        assert_tx_ids_reply(&mut replies, &tx_ids, &[0, 1]).await?;
         assert_next_message(&mut replies, Message::Done).await?;
         Ok(())
     }
@@ -404,8 +266,9 @@ pub(crate) mod tests {
     async fn requested_txs_must_be_greater_than_0() -> anyhow::Result<()> {
         let mempool = Arc::new(SizedMempool::with_capacity(4));
         let txs = create_transactions(4);
-        let era_tx_ids = to_era_tx_ids(&txs);
+        let mut tx_ids = vec![];
         for tx in txs.iter() {
+            tx_ids.push(TxId::from(tx));
             mempool.add(tx.clone())?;
         }
         let (tx_req, mut replies, _rx_observe_messages, _client_handle) =
@@ -420,7 +283,7 @@ pub(crate) mod tests {
         }
 
         assert_next_message(&mut replies, Message::Init).await?;
-        assert_tx_ids_reply(&mut replies, &era_tx_ids, &[0, 1]).await?;
+        assert_tx_ids_reply(&mut replies, &tx_ids, &[0, 1]).await?;
         assert_next_message(&mut replies, Message::Done).await?;
         Ok(())
     }

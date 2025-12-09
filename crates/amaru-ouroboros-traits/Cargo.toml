@@ -19,9 +19,15 @@ test-utils = ["dep:rand"]
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+hex.workspace = true
+itertools.workspace = true
+minicbor.workspace = true
+pallas-crypto.workspace = true
+pallas-primitives.workspace = true
 rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
+tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true

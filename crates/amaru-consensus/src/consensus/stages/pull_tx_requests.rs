@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::consensus::effects::ReceiveTxServerRequestEffect;
-use amaru_kernel::tx_submission_events::TxServerRequest;
+use amaru_ouroboros_traits::TxServerRequest;
 use pure_stage::{Effects, StageRef};
 use tracing::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;

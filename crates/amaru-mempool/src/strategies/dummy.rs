@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::tx_submission_events::TxId;
 use amaru_ouroboros_traits::{
-    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxOrigin,
+    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
     TxRejectReason, TxSubmissionMempool,
 };
 use minicbor::Encode;

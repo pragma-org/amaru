@@ -1,4 +1,6 @@
 #![feature(assert_matches)]
+#![feature(async_fn_track_caller)]
+
 // Copyright 2024 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");

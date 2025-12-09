@@ -25,7 +25,6 @@ pallas-network.workspace = true
 pallas-traverse.workspace = true
 parking_lot.workspace = true
 pure-stage.workspace = true
-serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -35,7 +34,6 @@ amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
 
 [dev-dependencies]
-amaru-mempool.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "net"] }
 tracing-subscriber.workspace = true

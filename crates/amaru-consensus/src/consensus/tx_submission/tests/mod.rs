@@ -12,13 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[macro_use]
 mod assertions;
 mod faulty_tx_validator;
 mod mock_transport;
 mod node;
 mod sized_mempool;
 mod test_cases;
-mod tx;
+mod tx_client_transport;
+mod tx_server_transport;
+mod tx_submission_client;
+mod tx_submission_server;
 
 pub use assertions::*;
 pub use faulty_tx_validator::*;
@@ -26,4 +30,7 @@ pub use mock_transport::*;
 pub use node::*;
 pub use sized_mempool::*;
 pub use test_cases::*;
-pub use tx::*;
+pub use tx_client_transport::*;
+pub use tx_server_transport::*;
+pub use tx_submission_client::*;
+pub use tx_submission_server::*;

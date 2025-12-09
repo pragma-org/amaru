@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::Blocking;
-use crate::tx_submission::tx_client_transport::tests::MockClientTransport;
-use crate::tx_submission::tx_client_transport::{TransportError, TxClientTransport};
-use crate::tx_submission::tx_server_transport::TxServerTransport;
-use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
+use crate::consensus::tx_submission::Blocking;
+use crate::consensus::tx_submission::tests::{
+    MockClientTransport, MockServerTransport, TransportError, TxClientTransport, TxServerTransport,
+};
 use async_trait::async_trait;
 use pallas_network::miniprotocols::txsubmission::{
     EraTxBody, EraTxId, Message, Reply, Request, TxCount, TxIdAndSize,

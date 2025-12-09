@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::tests::Tx;
 use amaru_ouroboros_traits::{CanValidateTransactions, TransactionValidationError};
 use std::sync::{Arc, Mutex};
 
@@ -22,7 +21,7 @@ pub struct FaultyTxValidator {
     count: Arc<Mutex<u16>>,
 }
 
-impl CanValidateTransactions<Tx> for FaultyTxValidator {
+impl<Tx> CanValidateTransactions<Tx> for FaultyTxValidator {
     fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
         // Reject every second transaction
         let mut count = self.count.lock().unwrap();

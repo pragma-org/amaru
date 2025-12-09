@@ -15,10 +15,9 @@
 use amaru_consensus::consensus::stages::receive_tx_reply::Servers;
 use amaru_consensus::consensus::stages::receive_tx_request::Clients;
 use amaru_consensus::consensus::stages::{receive_tx_reply, receive_tx_request};
+use amaru_consensus::consensus::tx_submission::{Blocking, ServerParams};
 use amaru_consensus::consensus::{effects::ConsensusEffects, errors::ProcessingFailed};
-use amaru_kernel::TxClientReply;
-use amaru_kernel::tx_submission_events::TxServerRequest;
-use amaru_network::tx_submission::{Blocking, ServerParams};
+use amaru_ouroboros_traits::{TxClientReply, TxServerRequest};
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the tx submission protocol.

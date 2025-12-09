@@ -15,12 +15,12 @@
 use crate::point::to_network_point;
 use crate::server::client_protocol::{ChainSyncOp, ClientMsg, ClientProtocolMsg, client_protocols};
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
+use amaru_kernel::BlockHeader;
 use amaru_kernel::connection::ClientConnectionError;
 use amaru_kernel::is_header::{AsHeaderTip, HeaderTip};
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{BlockHeader, TxClientReply, TxServerRequest};
-use amaru_ouroboros_traits::ChainStore;
 use amaru_ouroboros_traits::network_operations::ForwardEvent;
+use amaru_ouroboros_traits::{ChainStore, TxClientReply, TxServerRequest};
 use anyhow::anyhow;
 use pallas_network::{facades::PeerServer, miniprotocols::chainsync::Tip};
 use std::collections::BTreeMap;

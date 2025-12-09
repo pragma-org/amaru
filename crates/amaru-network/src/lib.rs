@@ -23,3 +23,4 @@ pub mod tx_submission;
 pub mod upstream_connection;
 
 pub use network_resource::NetworkResource;
+pub use tx_submission::*;

@@ -16,14 +16,11 @@ use crate::consensus::effects::BaseOps;
 use crate::consensus::effects::ConsensusOps;
 use crate::consensus::effects::NetworkOps;
 use crate::consensus::errors::ProcessingFailed;
+use crate::consensus::tx_submission::tx_submission_server_state::TxServerResponse;
+use crate::consensus::tx_submission::{ServerParams, TxSubmissionServerState};
 use amaru_kernel::connection::ClientConnectionError;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::tx_submission_events::TxClientReply;
-use amaru_network::tx_submission::tx_submission_server::TxResponse;
-use amaru_network::tx_submission::{
-    ServerParams, TxSubmissionServerState, new_era_tx_body, new_era_tx_id, tx_id_from_era_tx_id,
-};
-use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Reply, TxIdAndSize};
+use amaru_ouroboros_traits::TxClientReply;
 use pure_stage::StageRef;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -39,40 +36,35 @@ pub fn stage(
 ) -> impl Future<Output = State> {
     let span = tracing::trace_span!(parent: msg.span(), "tx_submission.receive_tx_reply");
     async move {
-        let peer = msg.peer();
+        let peer = msg.peer().clone();
         match msg {
+            TxClientReply::Done { .. } => {
+                servers.by_peer.remove(&peer);
+            }
             TxClientReply::Init { .. } => {
-                if let Err(e) = servers.init_peer(peer, &eff).await {
-                    let processing_failed = ProcessingFailed::new(peer, e.to_anyhow());
+                if let Err(e) = servers.init_peer(&peer, &eff).await {
+                    let processing_failed = ProcessingFailed::new(&peer, e.to_anyhow());
                     let _ = eff.base().send(&errors, processing_failed).await;
                 }
             }
             TxClientReply::TxIds { .. } | TxClientReply::Txs { .. } => {
-                if let Some(server) = servers.by_peer.get_mut(peer) {
-                    let result = match server
-                        .process_tx_reply(eff.mempool(), to_network_reply(&msg))
-                        .await
-                    {
-                        Ok(TxResponse::Done) => {
-                            servers.by_peer.remove(peer);
+                if let Some(server) = servers.by_peer.get_mut(&peer) {
+                    let result = match server.process_tx_reply(eff.mempool(), msg).await {
+                        Ok(TxServerResponse::Done) => {
+                            servers.by_peer.remove(&peer);
                             Ok(())
                         }
-                        Ok(TxResponse::NextTxIds(ack, req)) => {
+                        Ok(TxServerResponse::NextTxIds(ack, req)) => {
                             eff.network().request_tx_ids(peer.clone(), ack, req).await
                         }
-                        Ok(TxResponse::NextTxs(Some(tx_ids))) => {
-                            eff.network()
-                                .request_txs(
-                                    peer.clone(),
-                                    tx_ids.iter().map(tx_id_from_era_tx_id).collect(),
-                                )
-                                .await
+                        Ok(TxServerResponse::NextTxs(Some(tx_ids))) => {
+                            eff.network().request_txs(peer.clone(), tx_ids).await
                         }
-                        Ok(TxResponse::NextTxs(None)) => Ok(()),
+                        Ok(TxServerResponse::NextTxs(None)) => Ok(()),
                         Err(e) => Err(e.into()),
                     };
                     if let Err(e) = result {
-                        let processing_failed = ProcessingFailed::new(peer, e.to_anyhow());
+                        let processing_failed = ProcessingFailed::new(&peer, e.to_anyhow());
                         let _ = eff.base().send(&errors, processing_failed).await;
                     }
                 }
@@ -116,18 +108,5 @@ impl Servers {
         eff.network().request_tx_ids(peer.clone(), ack, req).await?;
         let _ = self.by_peer.insert(peer.clone(), state);
         Ok(())
-    }
-}
-
-fn to_network_reply(tx_reply: &TxClientReply) -> Reply<EraTxId, EraTxBody> {
-    match tx_reply {
-        TxClientReply::Txs { txs, .. } => Reply::Txs(txs.iter().map(new_era_tx_body).collect()),
-        TxClientReply::TxIds { tx_ids, .. } => Reply::TxIds(
-            tx_ids
-                .iter()
-                .map(|(tx_id, size)| TxIdAndSize(new_era_tx_id(tx_id.clone()), *size))
-                .collect(),
-        ),
-        TxClientReply::Init { .. } => unreachable!(),
     }
 }

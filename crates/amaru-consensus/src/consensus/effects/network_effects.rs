@@ -16,13 +16,13 @@ use crate::consensus::errors::{ConsensusError, ProcessingFailed};
 use amaru_kernel::connection::ClientConnectionError;
 use amaru_kernel::is_header::HeaderTip;
 use amaru_kernel::{
-    BlockHeader, Point, Tx, TxId,
+    BlockHeader, Point, Tx,
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
-    tx_submission_events::{TxClientReply, TxServerRequest},
 };
 use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use amaru_ouroboros_traits::network_operations::ForwardEvent;
+use amaru_ouroboros_traits::{TxClientReply, TxId, TxServerRequest};
 use anyhow::anyhow;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};

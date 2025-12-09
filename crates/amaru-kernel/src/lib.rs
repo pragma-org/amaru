@@ -169,8 +169,6 @@ use crate::string_utils::ListToString;
 pub use transaction_pointer::*;
 
 pub mod transaction_pointer;
-pub mod tx_submission_events;
-pub use tx_submission_events::*;
 
 pub mod vote;
 

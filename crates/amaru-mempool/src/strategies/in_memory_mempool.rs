@@ -14,11 +14,10 @@
 
 use amaru_kernel::cbor::Encode;
 use amaru_kernel::to_cbor;
-use amaru_kernel::tx_submission_events::TxId;
 use amaru_ouroboros_traits::mempool::Mempool;
 use amaru_ouroboros_traits::{
-    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxOrigin, TxRejectReason,
-    TxSubmissionMempool,
+    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
+    TxRejectReason, TxSubmissionMempool,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;

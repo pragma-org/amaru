@@ -159,7 +159,7 @@ debug = true
 
 [profile.release]
 lto = true
-codegen-units = 8
+codegen-units = 1
 
 [profile.profiling]
 inherits = "release"

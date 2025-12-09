@@ -16,16 +16,15 @@ use crate::server::downstream_server::DownstreamServer;
 use crate::upstream_connection;
 use acto::{AcTokioRuntime, ActoRef, ActoRuntime};
 use amaru_kernel::is_header::HeaderTip;
-use amaru_kernel::tx_submission_events::TxServerRequest;
 use amaru_kernel::{
-    BlockHeader, Point, TxClientReply,
+    BlockHeader, Point,
     connection::{ClientConnectionError, ConnMsg},
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
 };
 use amaru_ouroboros::ChainStore;
-use amaru_ouroboros_traits::NetworkOperations;
 use amaru_ouroboros_traits::network_operations::ForwardEvent;
+use amaru_ouroboros_traits::{NetworkOperations, TxClientReply, TxServerRequest};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use parking_lot::Mutex;
