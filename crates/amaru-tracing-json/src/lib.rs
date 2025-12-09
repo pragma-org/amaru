@@ -175,6 +175,7 @@ where
                 "id": Value::String(format!("{id:?}")),
                 "name": span.name().to_string(),
                 "type": "span".to_string(),
+                "level": format!("{}", span.metadata().level()),
             });
 
             if let Some(parent) = span.parent() {
@@ -208,6 +209,7 @@ where
         let mut event_json = json::json!({
             "name": name,
             "type": "event",
+            "level": format!("{}", event.metadata().level()),
         });
 
         for (key, value) in visitor.fields {
