@@ -14,8 +14,8 @@
 
 use amaru_kernel::{
     AddrKeyhash, Address, AddressError, AlonzoValue, AssetName, Bytes, CborWrap, Certificate,
-    ComputeHash, DatumHash, EraHistory, ExUnits, HasOwnership, HasScriptHash, Hash, KeepRaw,
-    KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
+    ComputeHash, DatumHash, EraHistory, ExUnits, HasIndex, HasOwnership, HasScriptHash, Hash,
+    KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
     MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
     MintedWitnessSet, NativeScript, Network, NonEmptyKeyValuePairs, NonEmptySet, Nullable,
     PlutusData, PlutusScript, PolicyId, Proposal, ProposalIdAdapter, PseudoScript, Redeemer,
@@ -302,12 +302,11 @@ impl<'a> TxInfo<'a> {
 
         let mut script_table: BTreeMap<RedeemerAdapter, Script<'a>> = BTreeMap::new();
 
-        let redeemers = Redeemers(
-            witness_set
-                .redeemer
-                .as_ref()
-                .map(|redeemers| {
-                    normalize_redeemers(redeemers.deref())
+        let normalized_redeemers = witness_set
+            .redeemer
+            .as_ref()
+            .map(|redeemers| {
+                normalize_redeemers(redeemers.deref())
                             .into_iter()
                             .enumerate()
                             .map(|(ix, redeemer)| {
@@ -330,10 +329,11 @@ impl<'a> TxInfo<'a> {
                                 Vec<(ScriptPurpose<'a>, Cow<'a, Redeemer>)>,
                                 TxInfoTranslationError,
                             >>()
-                })
-                .transpose()?
-                .unwrap_or_default(),
-        );
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let redeemers = Redeemers::new(normalized_redeemers);
 
         let datums = witness_set
             .plutus_data
@@ -1068,6 +1068,26 @@ impl<'a> From<&'a NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums<'a> {
 
 #[doc(hidden)]
 pub struct Redeemers<'a, T>(pub Vec<(T, Cow<'a, Redeemer>)>);
+
+impl<'a, T> Redeemers<'a, T> {
+    pub fn new(redeemers: Vec<(T, Cow<'a, Redeemer>)>) -> Self {
+        Self(
+            redeemers
+                .into_iter()
+                .sorted_by(|(_, redeemer_a), (_, redeemer_b)| {
+                    Self::sort_redeemers(redeemer_a, redeemer_b)
+                })
+                .collect(),
+        )
+    }
+
+    fn sort_redeemers(a: &Cow<'_, Redeemer>, b: &Cow<'_, Redeemer>) -> Ordering {
+        match a.tag.as_index().cmp(&b.tag.as_index()) {
+            by_tag @ Ordering::Less | by_tag @ Ordering::Greater => by_tag,
+            Ordering::Equal => a.index.cmp(&b.index),
+        }
+    }
+}
 
 #[doc(hidden)]
 #[derive(Default)]

@@ -128,6 +128,10 @@ where
 }
 
 impl ToPlutusData<1> for amaru_kernel::StakeAddress {
+    /// In PlutusV1 and PlutusV2:
+    /// Anywhere a `StakeCredential` is used, it is actually an enum with variants `Pointer` and `Credential`
+    ///
+    /// It is actually not possible (by the ledger serialization) logic to construct a StakeAddress with a `Pointer`, so this can be hardcoded
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self.payload() {
             StakePayload::Stake(keyhash) => constr_v1!(0, [constr_v1!(0, [keyhash])?]),
@@ -258,18 +262,8 @@ where
 }
 
 impl ToPlutusData<1> for Withdrawals {
-    /// In PlutusV1 and PlutusV2:
-    /// Anywhere a `StakeCredential` is used, it is actually an enum with variants `Pointer` and `Credential`
-    ///
-    /// It is actually not possible (by the ledger serialization) logic to construct a Withdrawal with a `Pointer`, so this can be hardcoded
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        <Vec<_> as ToPlutusData<1>>::to_plutus_data(
-            &self
-                .0
-                .iter()
-                .map(|(address, coin)| Ok((constr_v1!(0, [address])?, *coin)))
-                .collect::<Result<Vec<_>, _>>()?,
-        )
+        <Vec<_> as ToPlutusData<1>>::to_plutus_data(&self.0.iter().collect::<Vec<_>>())
     }
 }
 
