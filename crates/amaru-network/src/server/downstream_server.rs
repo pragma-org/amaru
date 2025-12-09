@@ -95,6 +95,7 @@ impl DownstreamServer {
                 match PeerServer::accept(&tcp_listener, network_magic).await {
                     Ok(peer) => {
                         let our_tip = our_tip_clone.lock().await.clone();
+
                         clients_clone.send(ClientMsg::Peer(
                             peer,
                             Tip(to_network_point(our_tip.point()), our_tip.block_height()),
@@ -110,24 +111,6 @@ impl DownstreamServer {
                 };
             }
         });
-
-        // let clients_clone = clients.clone();
-        // tokio::spawn(async move {
-        //     loop {
-        //         if let Some(msg) = clients_clone.recv().await.has_senders() {
-        //             match msg {
-        //                 ActoMsgSuper::Message(ClientProtocolMsg::TxClientReply(reply)) => {
-        //                     if tx.send(reply).await.is_err() {
-        //                         break;
-        //                     }
-        //                 }
-        //                 _ => {}
-        //             }
-        //         } else {
-        //             break;
-        //         }
-        //     }
-        // });
 
         Ok(Self {
             _runtime: runtime,

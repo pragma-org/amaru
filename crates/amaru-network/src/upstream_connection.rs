@@ -144,7 +144,7 @@ pub async fn actor(
             };
 
             // Main tx-submission loop:
-            // We wait for a request, forward it to the kernel, then wait
+            // We wait for a request, forward it to the processing stage, then wait
             // for exactly one reply before reading the next request.
             loop {
                 // 1. Wait for the next request from the peer.
@@ -152,7 +152,7 @@ pub async fn actor(
 
                 match req {
                     Request::TxIds(ack, req) => {
-                        // forward to kernel
+                        // forward to stage
                         tx_request_tx_clone
                             .send(TxServerRequest::TxIds {
                                 peer: peer_clone.clone(),
@@ -162,32 +162,30 @@ pub async fn actor(
                             })
                             .await?;
 
-                        // wait for matching TxIds reply from kernel
-                        loop {
-                            match rx_reply_to_txsub.recv().await {
-                                Some(TxClientReply::TxIds { tx_ids, .. }) => {
-                                    txsubmission
-                                        .reply_tx_ids(
-                                            tx_ids
-                                                .into_iter()
-                                                .map(|(tx_id, size)| {
-                                                    TxIdAndSize(new_era_tx_id(tx_id), size)
-                                                })
-                                                .collect(),
-                                        )
-                                        .await?;
-                                    break; // done with this request
-                                }
-                                Some(TxClientReply::Init { .. }) => {
-                                    // extra Init from kernel; log and ignore (or handle if you really need)
-                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for TxIds");
-                                }
-                                Some(TxClientReply::Txs { .. }) => {
-                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Txs while waiting for TxIds");
-                                }
-                                None => {
-                                    return Err(anyhow::anyhow!("tx_reply channel closed"));
-                                }
+                        match rx_reply_to_txsub.recv().await {
+                            Some(TxClientReply::TxIds { tx_ids, .. }) => {
+                                txsubmission
+                                    .reply_tx_ids(
+                                        tx_ids
+                                            .into_iter()
+                                            .map(|(tx_id, size)| {
+                                                TxIdAndSize(new_era_tx_id(tx_id), size)
+                                            })
+                                            .collect(),
+                                    )
+                                    .await?;
+                            }
+                            Some(TxClientReply::Init { .. }) => {
+                                // extra Init from stage; log and ignore (or handle if you really need)
+                                tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for TxIds");
+                                return Err(anyhow::anyhow!("unexpected TxClientReply::Init"));
+                            }
+                            Some(TxClientReply::Txs { .. }) => {
+                                tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Txs while waiting for TxIds");
+                                return Err(anyhow::anyhow!("unexpected TxClientReply::Txs"));
+                            }
+                            None => {
+                                return Err(anyhow::anyhow!("tx_reply channel closed"));
                             }
                         }
                     }
@@ -202,31 +200,29 @@ pub async fn actor(
                             })
                             .await?;
 
-                        // non-blocking still expects one TxIds reply
-                        loop {
-                            match rx_reply_to_txsub.recv().await {
-                                Some(TxClientReply::TxIds { tx_ids, .. }) => {
-                                    txsubmission
-                                        .reply_tx_ids(
-                                            tx_ids
-                                                .into_iter()
-                                                .map(|(tx_id, size)| {
-                                                    TxIdAndSize(new_era_tx_id(tx_id), size)
-                                                })
-                                                .collect(),
-                                        )
-                                        .await?;
-                                    break;
-                                }
-                                Some(TxClientReply::Init { .. }) => {
-                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for TxIdsNonBlocking");
-                                }
-                                Some(TxClientReply::Txs { .. }) => {
-                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Txs while waiting for TxIdsNonBlocking");
-                                }
-                                None => {
-                                    return Err(anyhow::anyhow!("tx_reply channel closed"));
-                                }
+                        match rx_reply_to_txsub.recv().await {
+                            Some(TxClientReply::TxIds { tx_ids, .. }) => {
+                                txsubmission
+                                    .reply_tx_ids(
+                                        tx_ids
+                                            .into_iter()
+                                            .map(|(tx_id, size)| {
+                                                TxIdAndSize(new_era_tx_id(tx_id), size)
+                                            })
+                                            .collect(),
+                                    )
+                                    .await?;
+                            }
+                            Some(TxClientReply::Init { .. }) => {
+                                tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for TxIdsNonBlocking");
+                                return Err(anyhow::anyhow!("unexpected TxClientReply::Init"));
+                            }
+                            Some(TxClientReply::Txs { .. }) => {
+                                tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Txs while waiting for TxIdsNonBlocking");
+                                return Err(anyhow::anyhow!("unexpected TxClientReply::Txs"));
+                            }
+                            None => {
+                                return Err(anyhow::anyhow!("tx_reply channel closed"));
                             }
                         }
                     }
@@ -240,24 +236,23 @@ pub async fn actor(
                             })
                             .await?;
 
-                        // wait for matching Txs reply from kernel
-                        loop {
-                            match rx_reply_to_txsub.recv().await {
-                                Some(TxClientReply::Txs { txs, .. }) => {
-                                    txsubmission
-                                        .reply_txs(txs.iter().map(new_era_tx_body).collect())
-                                        .await?;
-                                    break;
-                                }
-                                Some(TxClientReply::Init { .. }) => {
-                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for Txs");
-                                }
-                                Some(TxClientReply::TxIds { .. }) => {
-                                    tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::TxIds while waiting for Txs");
-                                }
-                                None => {
-                                    return Err(anyhow::anyhow!("tx_reply channel closed"));
-                                }
+                        match rx_reply_to_txsub.recv().await {
+                            Some(TxClientReply::Txs { txs, .. }) => {
+                                txsubmission
+                                    .reply_txs(txs.iter().map(new_era_tx_body).collect())
+                                    .await?;
+                                continue;
+                            }
+                            Some(TxClientReply::Init { .. }) => {
+                                tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for Txs");
+                                return Err(anyhow::anyhow!("unexpected TxClientReply::Init"));
+                            }
+                            Some(TxClientReply::TxIds { .. }) => {
+                                tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::TxIds while waiting for Txs");
+                                return Err(anyhow::anyhow!("unexpected TxClientReply::TxIds"));
+                            }
+                            None => {
+                                return Err(anyhow::anyhow!("tx_reply channel closed"));
                             }
                         }
                     }

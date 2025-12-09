@@ -68,7 +68,8 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>:
     fn contains(&self, tx_id: &TxId) -> bool {
         self.get_tx(tx_id).is_some()
     }
-    /// Retrieve a list of transactions from a given sequence number (inclusive), up to a given limit.
+
+    /// Retrieve a list of transaction ids from a given sequence number (inclusive), up to a given limit.
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)>;
 
     /// Wait until the mempool reaches at least the given sequence number.
