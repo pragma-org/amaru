@@ -19,13 +19,11 @@ test-utils = ["proptest", "dep:rand", "serde_json"]
 
 [dependencies]
 anyhow.workspace = true
-async-trait.workspace = true
 hex.workspace = true
 itertools.workspace = true
 opentelemetry.workspace = true
 pallas-crypto.workspace = true
 pallas-network.workspace = true
-pallas-traverse.workspace = true
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 rayon.workspace = true
@@ -47,6 +45,7 @@ pure-stage.workspace = true
 
 [dev-dependencies]
 hex.workspace = true
+pallas-primitives.workspace = true
 proptest.workspace = true
 rand.workspace = true
 serde_json.workspace = true

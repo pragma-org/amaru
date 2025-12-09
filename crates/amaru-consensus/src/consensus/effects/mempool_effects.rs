@@ -286,3 +286,109 @@ impl ExternalEffectAPI for LastSeqNo {
 }
 
 impl ExternalEffectSync for LastSeqNo {}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{Nullable, Tx, TxId};
+    use amaru_ouroboros_traits::{
+        CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxOrigin,
+        TxRejectReason, TxSubmissionMempool,
+    };
+    use pallas_primitives::Set;
+    use pallas_primitives::conway::{PseudoTransactionBody, PseudoTx, WitnessSet};
+    use std::pin::Pin;
+    use std::sync::Arc;
+
+    #[allow(dead_code)]
+    pub struct ConstantMempool {
+        tx: Tx,
+    }
+
+    impl ConstantMempool {
+        #[allow(dead_code)]
+        pub fn new() -> Self {
+            let transaction_body = PseudoTransactionBody {
+                inputs: Set::from(vec![]),
+                outputs: vec![],
+                fee: 0,
+                ttl: None,
+                certificates: None,
+                withdrawals: None,
+                auxiliary_data_hash: None,
+                validity_interval_start: None,
+                mint: None,
+                script_data_hash: None,
+                required_signers: None,
+                network_id: None,
+                collateral_return: None,
+                total_collateral: None,
+                reference_inputs: None,
+                voting_procedures: None,
+                proposal_procedures: None,
+                treasury_value: None,
+                collateral: None,
+                donation: None,
+            };
+            let transaction_witness_set = WitnessSet {
+                vkeywitness: None,
+                native_script: None,
+                bootstrap_witness: None,
+                plutus_v1_script: None,
+                plutus_data: None,
+                redeemer: None,
+                plutus_v2_script: None,
+                plutus_v3_script: None,
+            };
+            let tx: Tx = PseudoTx {
+                transaction_body,
+                transaction_witness_set,
+                success: true,
+                auxiliary_data: Nullable::Null,
+            };
+            Self { tx }
+        }
+    }
+
+    impl TxSubmissionMempool<Tx> for ConstantMempool {
+        fn insert(
+            &self,
+            tx: Tx,
+            _tx_origin: TxOrigin,
+        ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+            Ok((TxId::from(tx), MempoolSeqNo(1)))
+        }
+
+        fn get_tx(&self, _tx_id: &TxId) -> Option<Arc<Tx>> {
+            Some(Arc::new(self.tx.clone()))
+        }
+
+        fn tx_ids_since(
+            &self,
+            _from_seq: MempoolSeqNo,
+            _limit: u16,
+        ) -> Vec<(TxId, u32, MempoolSeqNo)> {
+            vec![(TxId::from(self.tx.clone()), 100, MempoolSeqNo(1))]
+        }
+
+        fn wait_for_at_least(
+            &self,
+            _seq_no: MempoolSeqNo,
+        ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            Box::pin(async { true })
+        }
+
+        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Arc<Tx>> {
+            vec![Arc::new(self.tx.clone())]
+        }
+
+        fn last_seq_no(&self) -> MempoolSeqNo {
+            MempoolSeqNo(1)
+        }
+    }
+
+    impl CanValidateTransactions<Tx> for ConstantMempool {
+        fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+            Ok(())
+        }
+    }
+}

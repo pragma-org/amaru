@@ -388,6 +388,6 @@ async fn keep_alive(
     mut server: keepalive::Server,
 ) -> anyhow::Result<()> {
     loop {
-        server.keepalive_roundtrip().await?;
+        server.keepalive_roundtrip().await?
     }
 }
