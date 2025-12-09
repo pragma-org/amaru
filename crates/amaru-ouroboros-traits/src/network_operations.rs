@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{TxClientReply, TxServerRequest};
 use amaru_kernel::is_header::HeaderTip;
-use amaru_kernel::tx_submission_events::TxServerRequest;
 use amaru_kernel::{
-    BlockHeader, IsHeader, Point, TxClientReply,
+    BlockHeader, IsHeader, Point,
     connection::ClientConnectionError,
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,

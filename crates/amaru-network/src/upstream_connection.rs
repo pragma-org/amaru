@@ -12,20 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::{new_era_tx_body, new_era_tx_id, tx_id_from_era_tx_id};
+use crate::tx_submission::conversions::{new_era_tx_body, new_era_tx_id, tx_id_from_era_tx_id};
 use crate::{
     chain_sync_client::{ChainSyncClient, to_traverse},
     point::{from_network_point, to_network_point},
 };
 use acto::{AcTokioRuntime, ActoCell, ActoInput};
-use amaru_kernel::tx_submission_events::TxServerRequest;
 use amaru_kernel::{
-    BlockHeader, IsHeader, Point, TxClientReply,
+    BlockHeader, IsHeader, Point,
     connection::{BlockSender, ClientConnectionError, ConnMsg},
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
 };
 use amaru_ouroboros::ChainStore;
+use amaru_ouroboros_traits::{TxClientReply, TxServerRequest};
 use futures_util::FutureExt;
 use pallas_network::miniprotocols::txsubmission::{Request, TxIdAndSize};
 use pallas_network::{

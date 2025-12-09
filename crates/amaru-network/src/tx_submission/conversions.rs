@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::tx_submission_events::TxId;
 use amaru_kernel::{Hash, Tx, to_cbor};
+use amaru_ouroboros_traits::TxId;
 use minicbor::decode;
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, TxIdAndSize};
 use pallas_traverse::Era;

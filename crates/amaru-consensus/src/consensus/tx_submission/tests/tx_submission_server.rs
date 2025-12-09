@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::tx_submission::TxResponse;
 use crate::tx_submission::tx_server_transport::{PallasTxServerTransport, TxServerTransport};
 use crate::tx_submission::{ServerParams, tx_id_from_era_tx_id};
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros_traits::{TxOrigin, TxSubmissionMempool};
 use minicbor::{CborLen, Decode, Encode};
-use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Reply, TxIdAndSize};
-use pallas_network::multiplexer::AgentChannel;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -36,174 +35,6 @@ pub struct TxSubmissionServer<Tx: Send + Sync + 'static> {
     mempool: Arc<dyn TxSubmissionMempool<Tx>>,
     /// State tracked for this peer.
     state: TxSubmissionServerState,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TxSubmissionServerState {
-    /// Server parameters: batch sizes, window sizes, etc.
-    params: ServerParams,
-    /// Peer we are connecting to.
-    peer: Peer,
-    /// All tx_ids advertised but not yet acked (and their size).
-    window: VecDeque<(EraTxId, u32)>,
-    /// Tx ids we want to fetch but haven't yet requested.
-    pending_fetch: VecDeque<EraTxId>,
-    /// Tx ids we requested; waiting for replies.
-    /// First as a FIFO queue because when we receive tx bodies we don't get the ids back.
-    inflight_fetch_queue: VecDeque<EraTxId>,
-    /// Then as a set for quick lookup when processing received ids.
-    /// This is kept in sync with `inflight_fetch_queue`. When we receive a tx body,
-    /// we pop it from the front of the queue and remove it from the set.
-    inflight_fetch_set: BTreeSet<EraTxId>,
-    /// Tx ids we processed but didn't insert (invalid, policy failure, etc.).
-    rejected: BTreeSet<EraTxId>,
-}
-
-impl TxSubmissionServerState {
-    pub fn new(peer: &Peer, params: ServerParams) -> Self {
-        Self {
-            params,
-            peer: peer.clone(),
-            window: VecDeque::new(),
-            pending_fetch: VecDeque::new(),
-            inflight_fetch_queue: VecDeque::new(),
-            inflight_fetch_set: BTreeSet::new(),
-            rejected: BTreeSet::new(),
-        }
-    }
-
-    pub async fn process_tx_reply<Tx: Send + Sync + for<'a> Decode<'a, ()> + 'static>(
-        &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-        reply: Reply<EraTxId, EraTxBody>,
-    ) -> anyhow::Result<TxResponse> {
-        match reply {
-            Reply::TxIds(tx_ids) => {
-                self.received_tx_ids(mempool, tx_ids)?;
-                Ok(TxResponse::NextTxs(self.txs_to_request()))
-            }
-            Reply::Txs(txs) => {
-                self.received_txs(mempool.clone(), txs).await?;
-                let (ack, req) = self.request_tx_ids(mempool.clone()).await?;
-                Ok(TxResponse::NextTxIds(ack, req))
-            }
-            Reply::Done => Ok(TxResponse::Done),
-        }
-    }
-
-    pub async fn request_tx_ids<Tx: Send + Sync + 'static>(
-        &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-    ) -> anyhow::Result<(u16, u16)> {
-        // Acknowledge everything we’ve already processed.
-        let mut ack = 0_u16;
-
-        while let Some((era_tx_id, _size)) = self.window.front() {
-            let tx_id = tx_id_from_era_tx_id(era_tx_id);
-            let already_in_mempool = mempool.contains(&tx_id);
-            let already_rejected = self.rejected.contains(era_tx_id);
-
-            if already_in_mempool || already_rejected {
-                // pop from window and ack it
-                if let Some((front_id, _)) = self.window.pop_front() {
-                    // keep rejected set from growing forever
-                    if already_rejected {
-                        self.rejected.remove(&front_id);
-                    }
-                    ack = ack.saturating_add(1);
-                }
-            } else {
-                break;
-            }
-        }
-
-        // Request as many as we can fit in the window.
-        // Note: we cap at u16::MAX because the protocol uses u16 for counts.
-        let req = self
-            .params
-            .max_window
-            .saturating_sub(self.window.len())
-            .min(u16::MAX as usize) as u16;
-        Ok((ack, req))
-    }
-
-    pub fn received_tx_ids<Tx: Send + Sync + 'static>(
-        &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-        tx_ids: Vec<TxIdAndSize<EraTxId>>,
-    ) -> anyhow::Result<()> {
-        if self.params.blocking.into() && tx_ids.len() > self.params.max_window {
-            return Err(anyhow::anyhow!(
-                "Too transactions ids received in blocking mode"
-            ));
-        }
-
-        for tx_id_and_size in tx_ids {
-            let (era_tx_id, size) = (tx_id_and_size.0, tx_id_and_size.1);
-            let tx_id = tx_id_from_era_tx_id(&era_tx_id);
-            // We add the tx id to the window to acknowledge it on the next round.
-            self.window.push_back((era_tx_id.clone(), size));
-
-            // We only add to pending fetch if we haven't received it yet in the mempool.
-            // and the tx id is not already rejected.
-            if !mempool.contains(&tx_id) && !self.rejected.contains(&era_tx_id) {
-                self.pending_fetch.push_back(era_tx_id);
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn txs_to_request(&mut self) -> Option<Vec<EraTxId>> {
-        let mut ids = Vec::new();
-
-        while ids.len() < self.params.fetch_batch {
-            if let Some(id) = self.pending_fetch.pop_front() {
-                self.inflight_fetch_queue.push_back(id.clone());
-                self.inflight_fetch_set.insert(id.clone());
-                ids.push(id);
-            } else {
-                break;
-            }
-        }
-
-        if ids.is_empty() { None } else { Some(ids) }
-    }
-
-    pub async fn received_txs<Tx: Send + Sync + for<'a> Decode<'a, ()> + 'static>(
-        &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-        tx_bodies: Vec<EraTxBody>,
-    ) -> anyhow::Result<()> {
-        if self.params.blocking.into() && tx_bodies.len() > self.params.fetch_batch {
-            return Err(anyhow::anyhow!(
-                "Too many transactions received in blocking mode"
-            ));
-        }
-
-        for tx_body in tx_bodies {
-            // this is the exact id we requested for this body (FIFO)
-            if let Some(requested_id) = self.inflight_fetch_queue.pop_front() {
-                self.inflight_fetch_set.remove(&requested_id);
-
-                let tx: Tx = minicbor::decode(tx_body.1.as_slice())?;
-                let inserted = mempool.validate_transaction(&tx).is_ok()
-                    && mempool
-                        .insert(tx, TxOrigin::Remote(self.peer.clone()))
-                        .is_ok();
-                if !inserted {
-                    self.rejected.insert(requested_id);
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-pub enum TxResponse {
-    Done,
-    NextTxIds(u16, u16),
-    NextTxs(Option<Vec<EraTxId>>),
 }
 
 impl<Tx> TxSubmissionServer<Tx>
@@ -283,9 +114,9 @@ mod tests {
     };
     use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
     use crate::tx_submission::{Blocking, new_era_tx_body_from_vec};
-    use amaru_kernel::tx_submission_events::TxId;
     use amaru_kernel::{Hasher, to_cbor};
     use amaru_mempool::strategies::InMemoryMempool;
+    use amaru_ouroboros_traits::TxId;
     use pallas_network::miniprotocols::txsubmission::Message;
     use tokio::sync::mpsc;
     use tokio::sync::mpsc::{Receiver, Sender};

@@ -16,13 +16,11 @@ use crate::point::from_network_point;
 
 use super::chain_follower::ChainFollower;
 use crate::server::as_tip::AsTip;
-use crate::tx_submission::{new_era_tx_id, tx_from_era_tx_body, tx_id_and_size};
+use crate::tx_submission::conversions::{new_era_tx_id, tx_from_era_tx_body, tx_id_and_size};
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, Tx, TxClientReply, TxId, TxServerRequest, to_cbor,
-};
-use amaru_ouroboros_traits::ChainStore;
+use amaru_kernel::{BlockHeader, Hash, HeaderHash, IsHeader, Tx, to_cbor};
+use amaru_ouroboros_traits::{ChainStore, TxClientReply, TxId, TxServerRequest};
 use pallas_network::miniprotocols::txsubmission::Reply;
 use pallas_network::{
     facades::PeerServer,

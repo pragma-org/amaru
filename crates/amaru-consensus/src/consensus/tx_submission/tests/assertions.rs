@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::tests::{NodeHandle, Tx};
+use crate::consensus::tx_submission::tests::{NodeHandle, Tx};
 use amaru_ouroboros_traits::Mempool;
 use pallas_network::miniprotocols::txsubmission::Message::{ReplyTxIds, ReplyTxs};
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Message, TxIdAndSize};

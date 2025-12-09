@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::CanValidateTransactions;
+use crate::{CanValidateTransactions, TxId};
 use amaru_kernel::peer::Peer;
-use amaru_kernel::tx_submission_events::TxId;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::sync::Arc;

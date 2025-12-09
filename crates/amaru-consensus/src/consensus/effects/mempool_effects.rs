@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::Tx;
-use amaru_kernel::tx_submission_events::TxId;
 use amaru_ouroboros_traits::{
-    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxOrigin, TxRejectReason,
-    TxSubmissionMempool,
+    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
+    TxRejectReason, TxSubmissionMempool,
 };
 use pure_stage::{
     BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
@@ -289,9 +288,9 @@ impl ExternalEffectSync for LastSeqNo {}
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Nullable, Tx, TxId};
+    use amaru_kernel::{Nullable, Tx};
     use amaru_ouroboros_traits::{
-        CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxOrigin,
+        CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
         TxRejectReason, TxSubmissionMempool,
     };
     use pallas_primitives::Set;

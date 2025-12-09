@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::peer::Peer;
+use amaru_kernel::peer::Peer;
 use itertools::Itertools;
 use minicbor::Encode;
 use pallas_crypto::hash::{Hash, Hasher};

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::tests::Tx;
+use crate::consensus::tx_submission::tests::Tx;
 use amaru_ouroboros_traits::{CanValidateTransactions, TransactionValidationError};
 use std::sync::{Arc, Mutex};
 

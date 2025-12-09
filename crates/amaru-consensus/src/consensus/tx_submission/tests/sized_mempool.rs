@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use crate::tx_submission::tests::Tx;
-use amaru_kernel::tx_submission_events::TxId;
 use amaru_mempool::strategies::InMemoryMempool;
 use amaru_mempool::{DefaultCanValidateTransactions, MempoolConfig};
 use amaru_ouroboros_traits::{
-    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxOrigin,
+    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
     TxRejectReason, TxSubmissionMempool,
 };
 use std::pin::Pin;

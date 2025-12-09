@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::consensus::effects::ReceiveTxClientReplyEffect;
-use amaru_kernel::TxClientReply;
+use amaru_ouroboros_traits::TxClientReply;
 use pure_stage::{Effects, StageRef};
 use tracing::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;

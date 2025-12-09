@@ -18,12 +18,7 @@ use crate::consensus::effects::NetworkOps;
 use crate::consensus::errors::ProcessingFailed;
 use amaru_kernel::connection::ClientConnectionError;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::tx_submission_events::TxClientReply;
-use amaru_network::tx_submission::tx_submission_server::TxResponse;
-use amaru_network::tx_submission::{
-    ServerParams, TxSubmissionServerState, new_era_tx_body, new_era_tx_id, tx_id_from_era_tx_id,
-};
-use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Reply, TxIdAndSize};
+use amaru_ouroboros_traits::TxClientReply;
 use pure_stage::StageRef;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -49,10 +44,7 @@ pub fn stage(
             }
             TxClientReply::TxIds { .. } | TxClientReply::Txs { .. } => {
                 if let Some(server) = servers.by_peer.get_mut(peer) {
-                    let result = match server
-                        .process_tx_reply(eff.mempool(), to_network_reply(&msg))
-                        .await
-                    {
+                    let result = match server.process_tx_reply(eff.mempool(), &msg).await {
                         Ok(TxResponse::Done) => {
                             servers.by_peer.remove(peer);
                             Ok(())

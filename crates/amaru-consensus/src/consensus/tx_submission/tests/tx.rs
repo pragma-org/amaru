@@ -14,7 +14,7 @@
 
 use crate::tx_submission::{new_era_tx_body_from_vec, new_era_tx_id};
 use amaru_kernel::to_cbor;
-use amaru_kernel::tx_submission_events::TxId;
+use amaru_ouroboros_traits::TxId;
 use minicbor::encode::{Error, Write};
 use minicbor::{CborLen, Decode, Decoder, Encode, Encoder};
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId};

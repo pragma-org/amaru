@@ -12,17 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::tx_submission::TxSubmissionClientState;
 use crate::tx_submission::tx_client_transport::{PallasTxClientTransport, TxClientTransport};
 use crate::tx_submission::tx_id_from_era_tx_id;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::to_cbor;
-use amaru_kernel::tx_submission_events::TxId;
-use amaru_ouroboros_traits::{MempoolSeqNo, TxSubmissionMempool};
+use amaru_ouroboros_traits::{MempoolSeqNo, TxId, TxSubmissionMempool};
 use minicbor::Encode;
-use pallas_network::miniprotocols::txsubmission;
-use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Request, TxIdAndSize};
-use pallas_traverse::Era;
-use pure_stage::typetag::__private21::serde::Serialize;
 use serde::Deserialize;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -40,123 +36,6 @@ pub struct TxSubmissionClient<Tx> {
     mempool: Arc<dyn TxSubmissionMempool<Tx>>,
     /// In-memory state of the client.
     state: TxSubmissionClientState,
-}
-
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TxSubmissionClientState {
-    /// Peer we are serving.
-    peer: Peer,
-    /// What we’ve already advertised but has not yet been fully acked.
-    window: VecDeque<(TxId, MempoolSeqNo)>,
-    /// Last seq_no we have ever pulled from the mempool for this peer.
-    /// None if we have not pulled anything yet.
-    last_seq: Option<MempoolSeqNo>,
-}
-
-impl TxSubmissionClientState {
-    pub fn new(peer: &Peer) -> Self {
-        Self {
-            peer: peer.clone(),
-            window: VecDeque::new(),
-            last_seq: None,
-        }
-    }
-
-    pub async fn process_tx_request<Tx: Send + Debug + Sync + 'static>(
-        &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-        request: Request<EraTxId>,
-    ) -> anyhow::Result<TxResponse<Tx>> {
-        match request {
-            Request::TxIds(acknowledged, required_next) => {
-                if required_next == 0 {
-                    debug!(peer = %self.peer,
-                        "Requested 0 tx ids, terminating tx submission client",
-                    );
-                    return Ok(TxResponse::<Tx>::Done);
-                }
-                if !mempool
-                    .wait_for_at_least(mempool.last_seq_no().add(required_next as u64))
-                    .await
-                {
-                    return Ok(TxResponse::<Tx>::Done);
-                }
-                let tx_ids = self
-                    .get_next_tx_ids(mempool, acknowledged, required_next)
-                    .await?;
-                Ok(TxResponse::NextIds(tx_ids))
-            }
-            Request::TxIdsNonBlocking(acknowledged, required_next) => Ok(TxResponse::NextIds(
-                self.get_next_tx_ids(mempool, acknowledged, required_next)
-                    .await?,
-            )),
-            Request::Txs(ids) => {
-                if ids.is_empty() {
-                    debug!(peer = %self.peer,
-                        "Requested 0 txs, terminating tx submission client"
-                    );
-                    return Ok(TxResponse::<Tx>::Done);
-                }
-                let ids: Vec<TxId> = ids.iter().map(tx_id_from_era_tx_id).collect();
-                if ids
-                    .iter()
-                    .any(|id| !self.window.iter().any(|(wid, _)| wid == id))
-                {
-                    debug!(peer = %self.peer,
-                        "Requested unknown tx ids, terminating tx submission client"
-                    );
-                    return Ok(TxResponse::<Tx>::Done);
-                }
-                let txs = mempool.get_txs_for_ids(ids.as_slice());
-                if txs.is_empty() {
-                    Ok(TxResponse::<Tx>::Done)
-                } else {
-                    Ok(TxResponse::NextTxs(txs))
-                }
-            }
-        }
-    }
-
-    /// Take notice of the acknowledged transactions, and send the next batch of tx ids.
-    async fn get_next_tx_ids<Tx: Send + Debug + Sync + 'static>(
-        &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-        acknowledged: u16,
-        required_next: u16,
-    ) -> anyhow::Result<Vec<(TxId, u32)>> {
-        self.discard(acknowledged);
-        let tx_ids = mempool.tx_ids_since(self.next_seq(), required_next);
-        let result = tx_ids
-            .clone()
-            .into_iter()
-            .map(|(tx_id, tx_size, _)| (tx_id, tx_size))
-            .collect();
-        self.update(tx_ids);
-        Ok(result)
-    }
-
-    /// We discard up to 'acknowledged' transactions from our window.
-    fn discard(&mut self, acknowledged: u16) {
-        if self.window.len() >= acknowledged as usize {
-            self.window = self.window.drain(acknowledged as usize..).collect();
-        }
-    }
-
-    /// We update our window with tx ids retrieved from the mempool and just sent to the server.
-    fn update(&mut self, tx_ids: Vec<(TxId, u32, MempoolSeqNo)>) {
-        for (tx_id, _size, seq_no) in tx_ids {
-            self.window.push_back((tx_id, seq_no));
-            self.last_seq = Some(seq_no);
-        }
-    }
-
-    /// Compute the next sequence number to use when pulling from the mempool.
-    fn next_seq(&self) -> MempoolSeqNo {
-        match self.last_seq {
-            Some(seq) => seq.next(),
-            None => MempoolSeqNo(0),
-        }
-    }
 }
 
 impl<Tx: Encode<()> + Send + Debug + Sync + 'static> TxSubmissionClient<Tx> {
@@ -235,12 +114,6 @@ impl<Tx: Encode<()> + Send + Debug + Sync + 'static> TxSubmissionClient<Tx> {
         }
         Ok(())
     }
-}
-
-pub enum TxResponse<Tx> {
-    Done,
-    NextIds(Vec<(TxId, u32)>),
-    NextTxs(Vec<Arc<Tx>>),
 }
 
 #[cfg(test)]
