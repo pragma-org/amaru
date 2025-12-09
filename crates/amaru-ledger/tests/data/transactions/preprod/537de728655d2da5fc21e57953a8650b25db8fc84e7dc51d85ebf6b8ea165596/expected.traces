@@ -1,5 +1,5 @@
-[ {"name":"require_script_witness","hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9", "type": "span"}
-, {"name":"require_script_witness","hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9", "type": "span"}
-, {"name":"require_script_witness","hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9", "type": "span"}
-, {"name":"require_vkey_witness","hash":"fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01", "type": "span"}
+[ {"name":"require_script_witness","hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9", "level": "TRACE", "type": "span"}
+, {"name":"require_script_witness","hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9", "level": "TRACE", "type": "span"}
+, {"name":"require_script_witness","hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9", "level": "TRACE", "type": "span"}
+, {"name":"require_vkey_witness","hash":"fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01", "level": "TRACE", "type": "span"}
 ]

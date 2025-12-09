@@ -412,9 +412,9 @@ mod tests {
                     })
                 },
                 vec![
-                    json!({ "name": "foo", "type": "span" }),
-                    json!({ "name": "basic", "a": 1, "type": "event" }),
-                    json!({ "name": "nested_fields", "a": { "foo": 1, "bar": 2 }, "type": "event" }),
+                    json!({ "name": "foo", "type": "span", "level": "INFO" }),
+                    json!({ "name": "basic", "a": 1, "type": "event", "level": "INFO" }),
+                    json!({ "name": "nested_fields", "a": { "foo": 1, "bar": 2 }, "level": "INFO", "type": "event" }),
                 ],
             ),
             "result"
