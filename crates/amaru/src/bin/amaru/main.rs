@@ -60,6 +60,7 @@ enum Command {
     FetchChainHeaders(cmd::fetch_chain_headers::Args),
 
     /// Run the node in all its glory.
+    #[command(alias = "daemon")]
     Run(cmd::run::Args),
 
     /// Import the ledger state from a CBOR export produced by a Haskell node.
