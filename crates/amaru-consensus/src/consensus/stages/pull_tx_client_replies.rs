@@ -18,21 +18,20 @@ use pure_stage::{Effects, StageRef};
 use tracing::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NextTxReply;
-
+/// This stage continuously pulls tx submission client replies and
+/// forwards them downstream for processing
 pub async fn stage(
     downstream: StageRef<TxClientReply>,
     _msg: NextTxReply,
     eff: Effects<NextTxReply>,
 ) -> StageRef<TxClientReply> {
-    let span = tracing::trace_span!("diffusion.tx.wait");
+    let span = tracing::trace_span!("tx_submission.tx_client_reply.wait");
     if let Ok(mut msg) = eff
         .external(ReceiveTxClientReplyEffect)
         .instrument(span)
         .await
     {
-        let span = tracing::trace_span!("diffusion.tx");
+        let span = tracing::trace_span!("tx_submission.tx_client_reply");
         span.set_parent(msg.span().context()).ok();
         let entered = span.enter();
 
@@ -51,3 +50,6 @@ pub async fn stage(
         downstream
     }
 }
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NextTxReply;

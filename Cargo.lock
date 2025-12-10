@@ -212,6 +212,7 @@ version = "0.1.0"
 dependencies = [
  "amaru-kernel",
  "amaru-ouroboros-traits",
+ "anyhow",
  "assertables",
  "minicbor",
  "parking_lot",

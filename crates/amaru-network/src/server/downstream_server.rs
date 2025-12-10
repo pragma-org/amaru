@@ -25,6 +25,7 @@ use anyhow::anyhow;
 use pallas_network::{facades::PeerServer, miniprotocols::chainsync::Tip};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::Sender;
@@ -34,8 +35,6 @@ pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 
 /// The DownstreamServer listens for incoming TCP connections from peers
 /// and spawns a client protocol handler for each accepted connection.
-/// It also implements the ForwardEventListener trait to receive chain selection forward events
-/// and forward them to all connected peers.
 pub struct DownstreamServer {
     _runtime: AcTokio,
     our_tip: Arc<Mutex<HeaderTip>>,
@@ -121,10 +120,15 @@ impl DownstreamServer {
     }
 
     pub async fn next_tx_reply(&self) -> Result<TxClientReply, ClientConnectionError> {
-        if let Some(tx_reply) = self.tx_client_reply_receiver.lock().await.recv().await {
-            Ok(tx_reply)
-        } else {
-            Err(anyhow!("tx reply channel closed").into())
+        match tokio::time::timeout(
+            Duration::from_secs(10),
+            self.tx_client_reply_receiver.lock().await.recv(),
+        )
+        .await
+        {
+            Ok(Some(tx_reply)) => Ok(tx_reply),
+            Ok(None) => Err(anyhow!("tx reply channel closed").into()),
+            Err(_) => Err(anyhow!("timeout waiting for tx reply").into()),
         }
     }
 
@@ -132,8 +136,11 @@ impl DownstreamServer {
         &self,
         request: TxServerRequest,
     ) -> Result<(), ClientConnectionError> {
-        self.clients.send(ClientMsg::TxSubmission(request));
-        Ok(())
+        if self.clients.send(ClientMsg::TxSubmission(request)) {
+            Ok(())
+        } else {
+            Err(anyhow!("failed to send tx request to client supervisor").into())
+        }
     }
 
     pub async fn send(&self, event: ForwardEvent) -> anyhow::Result<()> {
@@ -168,7 +175,8 @@ async fn client_supervisor(
     max_peers: usize,
     tx_client_reply_sender: Sender<TxClientReply>,
 ) {
-    let mut clients = BTreeMap::new();
+    let mut clients_by_peer = BTreeMap::new();
+    let mut peers_by_client_id = BTreeMap::new();
     while let Some(msg) = cell.recv().await.has_senders() {
         match msg {
             ActoMsgSuper::Message(ClientMsg::Peer(peer_server, tip)) => {
@@ -177,15 +185,16 @@ async fn client_supervisor(
                     .map(|a| a.to_string())
                     .unwrap_or_default();
 
-                if clients.len() >= max_peers {
+                if clients_by_peer.len() >= max_peers {
                     tracing::warn!(target: EVENT_TARGET, "max peers reached, dropping peer from {addr}");
                     continue;
                 }
 
                 let tx_client_reply_sender_clone = tx_client_reply_sender.clone();
+                let peer = Peer::new(&addr);
+                let peer_clone = peer.clone();
                 let client = cell.spawn_supervised(&addr, {
                     let store = store.clone();
-                    let peer = Peer::new(&addr);
                     move |cell| {
                         client_protocols(
                             cell,
@@ -197,26 +206,30 @@ async fn client_supervisor(
                         )
                     }
                 });
-                clients.insert(Peer::new(&addr), client);
+                let client_id = client.id();
+                clients_by_peer.insert(peer_clone, client);
+                peers_by_client_id.insert(client_id, Peer::new(&addr));
             }
             ActoMsgSuper::Message(ClientMsg::ChainSync(op)) => {
-                for client in clients.values() {
+                for client in clients_by_peer.values() {
                     client.send(ClientProtocolMsg::ChainSync(op.clone()));
                 }
             }
             ActoMsgSuper::Message(ClientMsg::TxSubmission(request)) => {
-                if let Some(sender) = clients.get(request.peer()) {
+                if let Some(sender) = clients_by_peer.get(request.peer()) {
                     let peer = request.peer().clone();
                     if !sender.send(ClientProtocolMsg::TxSubmission(request)) {
                         tracing::warn!(target: EVENT_TARGET, "failed to send tx request to peer: {}", peer);
                     }
                 } else {
-                    tracing::warn!(target: EVENT_TARGET, "no connected peers to send tx request");
+                    tracing::warn!(target: EVENT_TARGET, "peer {} not connected, cannot send tx request", request.peer());
                 }
             }
             ActoMsgSuper::Supervision { id, name, result } => {
                 tracing::info!(target: EVENT_TARGET, "client {} terminated: {:?}", name, result);
-                clients.retain(|_, c| c.id() != id);
+                if let Some(client_peer) = peers_by_client_id.remove(&id) {
+                    clients_by_peer.remove(&client_peer);
+                };
             }
         }
     }

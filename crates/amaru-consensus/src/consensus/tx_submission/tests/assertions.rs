@@ -33,7 +33,7 @@ pub async fn expect_server_transactions(txs: Vec<Tx>, node_handle: &NodeHandle) 
         .filter(|tx_id| server_mempool.contains(tx_id))
         .collect();
 
-    let _ = timeout(Duration::from_secs(1000), async {
+    let _ = timeout(Duration::from_secs(10), async {
         loop {
             actual = tx_ids
                 .iter()
@@ -109,6 +109,20 @@ pub async fn assert_next_message(
     assert_eq!(
         actual, expected,
         "actual = {actual:?}\nexpected = {expected:?}"
+    );
+    Ok(())
+}
+
+/// Check there is no more message
+#[track_caller]
+pub async fn assert_no_message(
+    rx_messages: &mut Receiver<Message<EraTxId, EraTxBody>>,
+) -> anyhow::Result<()> {
+    let actual = rx_messages.try_recv();
+    assert!(
+        actual.is_err(),
+        "expected no message, but got one: {:?}",
+        actual.ok()
     );
     Ok(())
 }

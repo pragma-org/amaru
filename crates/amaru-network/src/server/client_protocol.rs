@@ -117,14 +117,16 @@ pub async fn client_protocols(
         let store = store.clone();
         move |cell| block_fetch(cell, server.blockfetch, store)
     });
-    let tx_submission = cell.spawn_supervised("tx_submission", move |cell| {
-        tx_submission(cell, server.txsubmission, peer, tx_client_reply_sender)
-    });
+
     let _keep_alive =
         cell.spawn_supervised("keep_alive", move |cell| keep_alive(cell, server.keepalive));
 
     let chain_sync = cell.spawn_supervised("chain_sync", move |cell| {
         chain_sync(cell, server.chainsync, our_tip, store)
+    });
+
+    let tx_submission = cell.spawn_supervised("tx_submission", move |cell| {
+        tx_submission(cell, server.txsubmission, peer, tx_client_reply_sender)
     });
 
     while let ActoInput::Message(msg) = cell.recv().await {
@@ -386,6 +388,6 @@ async fn keep_alive(
     mut server: keepalive::Server,
 ) -> anyhow::Result<()> {
     loop {
-        server.keepalive_roundtrip().await?
+        server.keepalive_roundtrip().await?;
     }
 }

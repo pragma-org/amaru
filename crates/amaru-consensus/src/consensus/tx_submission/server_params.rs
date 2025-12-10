@@ -14,13 +14,23 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Parameters used to control the behavior of the transaction submission server.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerParams {
     pub max_window: usize,  // how many tx ids we keep in “window”
     pub fetch_batch: usize, // how many txs we request per round
-    pub blocking: Blocking, // should the client block when we request more tx ids that it cannot serve
 }
 
+impl ServerParams {
+    pub fn new(max_window: usize, fetch_batch: usize) -> Self {
+        Self {
+            max_window,
+            fetch_batch,
+        }
+    }
+}
+
+/// Whether the transaction submission client should block until it can fulfill a server request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Blocking {
     Yes,
@@ -32,16 +42,6 @@ impl From<Blocking> for bool {
         match value {
             Blocking::Yes => true,
             Blocking::No => false,
-        }
-    }
-}
-
-impl ServerParams {
-    pub fn new(max_window: usize, fetch_batch: usize, blocking: Blocking) -> Self {
-        Self {
-            max_window,
-            fetch_batch,
-            blocking,
         }
     }
 }

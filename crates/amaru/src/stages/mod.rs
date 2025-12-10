@@ -16,7 +16,7 @@ use crate::stages::build_consensus_graph::build_consensus_graph;
 use crate::stages::build_tx_submission_graph::build_tx_submission_graph;
 use acto::AcTokio;
 use amaru_consensus::consensus::effects::ResourceMempool;
-use amaru_consensus::consensus::stages::{pull_tx_replies, pull_tx_requests};
+use amaru_consensus::consensus::stages::{pull_tx_client_replies, pull_tx_server_requests};
 use amaru_consensus::{
     consensus::{
         effects::{
@@ -235,16 +235,19 @@ pub async fn bootstrap(
         vec![pull_chain_sync_events::NextSync]
     ));
 
-    let pull_tx_requests_stage = network.stage("pull", pull_tx_requests::stage);
+    let pull_tx_requests_stage = network.stage("pull", pull_tx_server_requests::stage);
     let pull_tx_requests_stage = network.wire_up(pull_tx_requests_stage, receive_tx_request_stage);
     assert!(network.preload(
         pull_tx_requests_stage,
-        vec![pull_tx_requests::NextTxRequest]
+        vec![pull_tx_server_requests::NextTxRequest]
     ));
 
-    let pull_tx_replies_stage = network.stage("pull", pull_tx_replies::stage);
+    let pull_tx_replies_stage = network.stage("pull", pull_tx_client_replies::stage);
     let pull_tx_replies_stage = network.wire_up(pull_tx_replies_stage, receive_tx_reply_stage);
-    assert!(network.preload(pull_tx_replies_stage, vec![pull_tx_replies::NextTxReply]));
+    assert!(network.preload(
+        pull_tx_replies_stage,
+        vec![pull_tx_client_replies::NextTxReply]
+    ));
 
     network
         .resources()

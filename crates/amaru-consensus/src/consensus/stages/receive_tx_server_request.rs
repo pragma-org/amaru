@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::BaseOps;
 use crate::consensus::effects::ConsensusOps;
 use crate::consensus::effects::NetworkOps;
 use crate::consensus::errors::ProcessingFailed;
@@ -25,10 +24,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt::Debug;
-use tracing::Instrument;
+use tracing::{Instrument, debug};
 
-type State = (Clients, StageRef<ProcessingFailed>);
-
+/// This stage processes incoming tx submission server requests
+///
+/// It keeps track of the state of each connected peer (advertised transactions, sequence numbers, etc...)
+///
 pub fn stage(
     (mut clients, errors): State,
     msg: TxServerRequest,
@@ -37,37 +38,32 @@ pub fn stage(
     let span = tracing::trace_span!(parent: msg.span(), "tx_submission.receive_tx_request");
     async move {
         let peer = msg.peer().clone();
-        let client = clients.get_client_mut(&peer);
-        let result = match client.process_tx_request(eff.mempool(), msg).await {
+        let client = clients.get_client(&peer);
+        let result = match client.process_tx_server_request(eff.mempool(), msg).await {
             Ok(TxClientResponse::Done) => {
+                debug!(peer = %peer, "cannot serve any more transactions to this peer");
                 clients.by_peer.remove(&peer);
-                Ok(())
+                eff.network().send_tx_client_done(peer.clone()).await
             }
+            Ok(TxClientResponse::ProtocolError(e)) => Err(e.into()),
             Ok(TxClientResponse::NextIds(tx_ids)) => {
                 eff.network().send_tx_ids(peer.clone(), tx_ids).await
             }
-            Ok(TxClientResponse::NextTxs(txs)) => {
-                eff.network()
-                    .send_txs(
-                        peer.clone(),
-                        txs.into_iter().map(|tx| tx.as_ref().clone()).collect(),
-                    )
-                    .await
-            }
+            Ok(TxClientResponse::NextTxs(txs)) => eff.network().send_txs(peer.clone(), txs).await,
             Err(e) => Err(e.into()),
         };
-        match result {
-            Ok(_) => {}
-            Err(e) => {
-                let processing_failed = ProcessingFailed::new(&peer, e.to_anyhow());
-                let _ = eff.base().send(&errors, processing_failed).await;
-            }
+        if let Err(e) = result {
+            clients.by_peer.remove(&peer);
+            debug!(peer = %peer, error = %e, "error processing tx server request");
         }
         (clients, errors)
     }
     .instrument(span)
 }
 
+type State = (Clients, StageRef<ProcessingFailed>);
+
+/// List of client states, indexed by peer.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Clients {
     by_peer: BTreeMap<Peer, TxSubmissionClientState>,
@@ -94,7 +90,8 @@ impl Clients {
         }
     }
 
-    pub fn get_client_mut(&mut self, peer: &Peer) -> &mut TxSubmissionClientState {
+    /// Return or initialize the state of the client for the given peer.
+    pub fn get_client(&mut self, peer: &Peer) -> &mut TxSubmissionClientState {
         match self.by_peer.entry(peer.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry.insert(TxSubmissionClientState::new(peer)),

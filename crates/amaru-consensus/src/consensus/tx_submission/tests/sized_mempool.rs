@@ -22,6 +22,13 @@ use pallas_primitives::conway::Tx;
 use std::pin::Pin;
 use std::sync::Arc;
 
+/// A mempool wrapper that limits the effective capacity of the inner mempool.
+/// When the last sequence number requested is beyond the capacity, it returns `false` on
+/// `wait_for_at_least` in order for the client to:
+///
+/// - stop blocking on the server waiting for transaction ids.
+/// - return Done.
+///
 pub struct SizedMempool {
     capacity: u64,
     inner_mempool: Arc<InMemoryMempool<Tx>>,
@@ -61,7 +68,7 @@ impl TxSubmissionMempool<Tx> for SizedMempool {
         self.inner_mempool.insert(tx, tx_origin)
     }
 
-    fn get_tx(&self, tx_id: &TxId) -> Option<Arc<Tx>> {
+    fn get_tx(&self, tx_id: &TxId) -> Option<Tx> {
         self.inner_mempool.get_tx(tx_id)
     }
 
@@ -73,16 +80,16 @@ impl TxSubmissionMempool<Tx> for SizedMempool {
         &self,
         seq_no: MempoolSeqNo,
     ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        if seq_no <= MempoolSeqNo(self.capacity)
-            && self.inner_mempool.last_seq_no() >= MempoolSeqNo(self.capacity)
-        {
-            self.inner_mempool.wait_for_at_least(seq_no)
+        // Return false if we are beyond capacity
+        // otherwise delegate to inner mempool.
+        if seq_no > MempoolSeqNo(self.capacity) {
+            Box::pin(async move { false })
         } else {
-            Box::pin(async move { true })
+            self.inner_mempool.wait_for_at_least(seq_no)
         }
     }
 
-    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Arc<Tx>> {
+    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx> {
         self.inner_mempool.get_txs_for_ids(ids)
     }
 

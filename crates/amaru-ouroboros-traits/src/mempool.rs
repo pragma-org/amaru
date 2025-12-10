@@ -16,11 +16,13 @@ use crate::{CanValidateTransactions, TxId};
 use amaru_kernel::peer::Peer;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
-use std::sync::Arc;
 
 /// An simple mempool interface to:
 ///
-/// - Add transactions and forge blocks when needed.
+/// - Retrieve transactions to be included in a new block.
+/// - Acknowledge the transactions included in a block, so they can be removed from the pool.
+/// - Support the transaction submission protocol to share transactions with peers.
+///
 pub trait Mempool<Tx: Send + Sync + 'static>: TxSubmissionMempool<Tx> + Send + Sync {
     /// Take transactions out of the mempool, with the intent of forging a new block.
     ///
@@ -61,7 +63,7 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>:
     }
 
     /// Retrieve a transaction by its id.
-    fn get_tx(&self, tx_id: &TxId) -> Option<Arc<Tx>>;
+    fn get_tx(&self, tx_id: &TxId) -> Option<Tx>;
 
     /// Return true if the mempool contains a transaction with the given id.
     fn contains(&self, tx_id: &TxId) -> bool {
@@ -85,14 +87,16 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>:
     ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
 
     /// Retrieve a list of transactions for the given ids.
-    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Arc<Tx>>;
+    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx>;
 
     /// Get the last assigned sequence number in the mempool.
     fn last_seq_no(&self) -> MempoolSeqNo;
 }
 
 /// Sequence number assigned to a transaction when inserted into the mempool.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub struct MempoolSeqNo(pub u64);
 
 impl MempoolSeqNo {

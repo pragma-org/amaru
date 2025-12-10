@@ -26,7 +26,7 @@ pub use ledger_effects::{Ledger, LedgerOps, ResourceBlockValidation, ResourceHea
 pub use mempool_effects::ResourceMempool;
 pub use metrics_effects::{MetricsOps, ResourceMeter};
 pub use network_effects::{
-    ChainSyncEffect, DisconnectEffect, FetchBlockEffect, Network, NetworkOps,
+    ChainSyncEffect, DisconnectUpstreamPeerEffect, FetchBlockEffect, Network, NetworkOps,
     ReceiveTxClientReplyEffect, ReceiveTxServerRequestEffect,
 };
 pub use store_effects::{ResourceHeaderStore, ResourceParameters, Store};

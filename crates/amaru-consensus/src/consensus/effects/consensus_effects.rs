@@ -28,7 +28,8 @@ pub trait ConsensusOps: Send + Sync + Clone {
     fn store(&self) -> Arc<dyn ChainStore<BlockHeader>>;
     /// Return a NetworkOps implementation to access network operations, like fetch_block
     fn network(&self) -> impl NetworkOps;
-    /// Return a NetworkOps implementation to access mempool operations, like fetch_block
+    /// Return a TxSubmissionMempool implementation to access mempool operations, like get_tx to retrieve a transaction
+    /// from the mempool.
     fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Tx>>;
     /// Return a LedgerOps implementation to access ledger operations, considering that it is a sub-system
     /// external to consensus.
@@ -106,6 +107,7 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
 pub mod tests {
     use super::*;
     use crate::consensus::errors::{ConsensusError, ProcessingFailed};
+    use crate::consensus::tx_submission::Blocking;
     use amaru_kernel::connection::ClientConnectionError;
     use amaru_kernel::is_header::HeaderTip;
     use amaru_kernel::peer::Peer;
@@ -228,6 +230,14 @@ pub mod tests {
             _peer: Peer,
             _ack: u16,
             _req: u16,
+            _blocking: Blocking,
+        ) -> BoxFuture<'_, Result<(), ClientConnectionError>> {
+            Box::pin(ready(Ok(())))
+        }
+
+        fn send_tx_client_done(
+            &self,
+            _peer: Peer,
         ) -> BoxFuture<'_, Result<(), ClientConnectionError>> {
             Box::pin(ready(Ok(())))
         }

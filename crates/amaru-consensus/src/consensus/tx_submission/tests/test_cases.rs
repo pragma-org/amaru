@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::tx_submission::Blocking;
 use crate::consensus::tx_submission::tests::{
     FaultyTxValidator, ServerOptions, create_node, create_node_with, expect_server_transactions,
 };
@@ -26,14 +25,14 @@ use pallas_primitives::TransactionInput;
 use pallas_primitives::conway::{PseudoTransactionBody, PseudoTx, Tx, WitnessSet};
 use std::sync::Arc;
 
+/// Test that all the transactions known to the client are eventually received by the server.
 #[tokio::test]
 async fn test_client_server_interaction() -> anyhow::Result<()> {
     let txs = create_transactions(8);
     let server_options = ServerOptions::default()
         .with_mempool_capacity(8)
         .with_max_window(8)
-        .with_fetch_batch(2)
-        .with_blocking(Blocking::Yes);
+        .with_fetch_batch(2);
     let node = create_node_with(server_options);
     node.insert_client_transactions(&txs);
     let node_handle = node.start();
@@ -42,6 +41,8 @@ async fn test_client_server_interaction() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Test that all the transactions known to the client are eventually received by the server.
+/// The transactions are added to the client mempool concurrently while the server is fetching them.
 #[tokio::test]
 async fn test_client_server_with_concurrent_filling_of_the_client_mempool() -> anyhow::Result<()> {
     let txs = create_transactions(8);
@@ -60,22 +61,8 @@ async fn test_client_server_with_concurrent_filling_of_the_client_mempool() -> a
     Ok(())
 }
 
-#[tokio::test]
-async fn test_client_with_non_blocking_server() -> anyhow::Result<()> {
-    let txs = create_transactions(8);
-    let server_options = ServerOptions::default()
-        .with_mempool_capacity(8)
-        .with_max_window(8)
-        .with_fetch_batch(2)
-        .with_blocking(Blocking::No);
-    let node = create_node_with(server_options);
-    node.insert_client_transactions(&txs);
-    let node_handle = node.start();
-
-    expect_server_transactions(txs, &node_handle).await;
-    Ok(())
-}
-
+/// Test that invalid transactions are not added to the server mempool,
+/// and that the server does not request them again.
 #[tokio::test]
 async fn test_invalid_transactions() -> anyhow::Result<()> {
     let txs = create_transactions(6);
@@ -88,7 +75,6 @@ async fn test_invalid_transactions() -> anyhow::Result<()> {
         .with_mempool_capacity(6)
         .with_max_window(6)
         .with_fetch_batch(2)
-        .with_blocking(Blocking::Yes)
         .with_tx_validator(tx_validator);
     let node = create_node_with(server_options);
     node.insert_client_transactions(&txs);
@@ -109,9 +95,9 @@ async fn test_invalid_transactions() -> anyhow::Result<()> {
     let expected = [
         RequestTxIds(true, 0, 6),
         RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
-        RequestTxIds(true, 2, 2),
+        RequestTxIds(false, 2, 2),
         RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
-        RequestTxIds(true, 2, 4),
+        RequestTxIds(false, 2, 4),
         RequestTxs(vec![era_tx_ids[4].clone(), era_tx_ids[5].clone()]),
         RequestTxIds(true, 2, 6),
     ];
@@ -129,10 +115,11 @@ pub fn create_transactions(number: u64) -> Vec<Tx> {
     txs
 }
 
-pub fn create_transaction(number: u64) -> Tx {
+/// Create a transaction with a unique input based on the given id.
+pub fn create_transaction(id: u64) -> Tx {
     let tx_input = TransactionInput {
         transaction_id: Hash::new([1; 32]),
-        index: number,
+        index: id,
     };
     let transaction_body = PseudoTransactionBody {
         inputs: Set::from(vec![tx_input]),

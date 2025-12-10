@@ -12,24 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::stages::receive_tx_reply::Servers;
-use amaru_consensus::consensus::stages::receive_tx_request::Clients;
-use amaru_consensus::consensus::stages::{receive_tx_reply, receive_tx_request};
-use amaru_consensus::consensus::tx_submission::{Blocking, ServerParams};
+use amaru_consensus::consensus::stages::receive_tx_client_reply::Servers;
+use amaru_consensus::consensus::stages::receive_tx_server_request::Clients;
+use amaru_consensus::consensus::stages::{receive_tx_client_reply, receive_tx_server_request};
+use amaru_consensus::consensus::tx_submission::ServerParams;
 use amaru_consensus::consensus::{effects::ConsensusEffects, errors::ProcessingFailed};
 use amaru_ouroboros_traits::{TxClientReply, TxServerRequest};
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the tx submission protocol.
+///
+/// There are two main stages:
+///
+///  - `receive_tx_server_request`: handles upstream requests from peers asking for transactions.
+///  - `receive_tx_client_reply`: handles downstream replies from peers sending transactions.
+///
 pub fn build_tx_submission_graph(
     network: &mut impl StageGraph,
 ) -> (StageRef<TxServerRequest>, StageRef<TxClientReply>) {
-    let receive_tx_request_stage = network.stage(
-        "receive_tx_request",
-        with_tx_effects(receive_tx_request::stage),
+    let receive_tx_server_request_stage = network.stage(
+        "receive_tx_server_request",
+        with_tx_effects(receive_tx_server_request::stage),
     );
-    let receive_tx_reply_stage =
-        network.stage("receive_tx_reply", with_tx_effects(receive_tx_reply::stage));
+    let receive_tx_client_reply_stage = network.stage(
+        "receive_tx_client_reply",
+        with_tx_effects(receive_tx_client_reply::stage),
+    );
 
     let processing_errors_stage = network.stage(
         "processing_errors",
@@ -42,7 +50,7 @@ pub fn build_tx_submission_graph(
     let processing_errors_stage = network.wire_up(processing_errors_stage, ());
 
     let receive_tx_request_stage = network.wire_up(
-        receive_tx_request_stage,
+        receive_tx_server_request_stage,
         (
             Clients::new(),
             processing_errors_stage.clone().without_state(),
@@ -50,9 +58,9 @@ pub fn build_tx_submission_graph(
     );
 
     let receive_tx_reply_stage = network.wire_up(
-        receive_tx_reply_stage,
+        receive_tx_client_reply_stage,
         (
-            Servers::new(ServerParams::new(100, 100, Blocking::Yes)),
+            Servers::new(ServerParams::new(100, 100)),
             processing_errors_stage.without_state(),
         ),
     );

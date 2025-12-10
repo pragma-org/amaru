@@ -28,8 +28,10 @@ use amaru_ouroboros_traits::{NetworkOperations, TxClientReply, TxServerRequest};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use parking_lot::Mutex;
+use std::time::Duration;
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
+use tracing::warn;
 
 #[derive(Clone)]
 pub struct NetworkResource {
@@ -127,7 +129,7 @@ impl UpstreamClient {
         }
     }
 
-    async fn next_sync(&self) -> Tracked<ChainSyncEvent> {
+    async fn next_chain_sync_event(&self) -> Tracked<ChainSyncEvent> {
         #[expect(clippy::expect_used)]
         self.chain_sync_event_receiver
             .lock()
@@ -137,21 +139,30 @@ impl UpstreamClient {
             .expect("upstream funnel will never stop")
     }
 
-    async fn next_tx_request(&self) -> Result<TxServerRequest, ClientConnectionError> {
-        if let Some(tx_request) = self.tx_server_request_receiver.lock().await.recv().await {
-            Ok(tx_request)
-        } else {
-            Err(anyhow!("tx request channel closed").into())
+    async fn next_tx_server_request(&self) -> Result<TxServerRequest, ClientConnectionError> {
+        match tokio::time::timeout(
+            Duration::from_secs(10),
+            self.tx_server_request_receiver.lock().await.recv(),
+        )
+        .await
+        {
+            Ok(Some(tx_request)) => Ok(tx_request),
+            Ok(None) => Err(anyhow!("tx request channel closed").into()),
+            Err(_) => Err(anyhow!("timeout waiting for tx request").into()),
         }
     }
 
-    async fn send_tx_reply(&self, reply: TxClientReply) -> Result<(), ClientConnectionError> {
+    async fn send_tx_client_reply(
+        &self,
+        reply: TxClientReply,
+    ) -> Result<(), ClientConnectionError> {
         if let Some(receiver) = self.tx_client_reply_senders.get(reply.peer()) {
             receiver
                 .send(reply)
                 .await
                 .map_err(|e| ClientConnectionError::new(e.into()))
         } else {
+            warn!(peer = %reply.peer(), "no tx client reply sender for peer");
             Ok(())
         }
     }
@@ -173,7 +184,7 @@ impl UpstreamClient {
             .flatten()
     }
 
-    async fn disconnect(&self, peer: &Peer) {
+    async fn disconnect_upstream_peer(&self, peer: &Peer) {
         if let Some(p) = self.connections.get(peer) {
             p.send_wait(ConnMsg::Disconnect).await;
         }
@@ -182,16 +193,19 @@ impl UpstreamClient {
 
 #[async_trait]
 impl NetworkOperations for NetworkResource {
-    async fn next_sync(&self) -> Tracked<ChainSyncEvent> {
-        self.upstream_client.next_sync().await
+    async fn next_chain_sync_event(&self) -> Tracked<ChainSyncEvent> {
+        self.upstream_client.next_chain_sync_event().await
     }
 
-    async fn next_tx_request(&self) -> Result<TxServerRequest, ClientConnectionError> {
-        self.upstream_client.next_tx_request().await
+    async fn next_tx_server_request(&self) -> Result<TxServerRequest, ClientConnectionError> {
+        self.upstream_client.next_tx_server_request().await
     }
 
-    async fn send_tx_reply(&self, reply: TxClientReply) -> Result<(), ClientConnectionError> {
-        self.upstream_client.send_tx_reply(reply).await
+    async fn send_tx_client_reply(
+        &self,
+        reply: TxClientReply,
+    ) -> Result<(), ClientConnectionError> {
+        self.upstream_client.send_tx_client_reply(reply).await
     }
 
     async fn fetch_block(
@@ -202,19 +216,22 @@ impl NetworkOperations for NetworkResource {
         self.upstream_client.fetch_block(peer, point).await
     }
 
-    async fn disconnect(&self, peer: &Peer) {
-        self.upstream_client.disconnect(peer).await
+    async fn disconnect_upstream_peer(&self, peer: &Peer) {
+        self.upstream_client.disconnect_upstream_peer(peer).await
     }
 
-    async fn next_tx_reply(&self) -> Result<TxClientReply, ClientConnectionError> {
+    async fn next_tx_client_reply(&self) -> Result<TxClientReply, ClientConnectionError> {
         self.downstream_server.next_tx_reply().await
     }
 
-    async fn send_tx_request(&self, request: TxServerRequest) -> Result<(), ClientConnectionError> {
+    async fn send_tx_server_request(
+        &self,
+        request: TxServerRequest,
+    ) -> Result<(), ClientConnectionError> {
         self.downstream_server.send_tx_request(request).await
     }
 
-    async fn send(&self, event: ForwardEvent) -> anyhow::Result<()> {
+    async fn send_forward_event(&self, event: ForwardEvent) -> anyhow::Result<()> {
         self.downstream_server.send(event).await
     }
 }

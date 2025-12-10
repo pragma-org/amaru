@@ -21,6 +21,12 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use tracing::Span;
 
+/// Requests sent by the tx submission server to the tx submission client.
+///
+/// This data type is equivalent to the `Message::RequestXXX` messages provided by the
+/// pallas-network crate, but adapted to our internal types and with tracing spans included.
+/// It allows some decoupling between the network layer and the consensus layer.
+///
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum TxServerRequest {
     Txs {
@@ -154,7 +160,13 @@ impl TxServerRequest {
     }
 }
 
-#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+/// Requests sent by the tx submission client to the tx submission server.
+///
+/// This data type is equivalent to the `Message::ReplyXXX` messages provided by the
+/// pallas-network crate, but adapted to our internal types and with tracing spans included.
+/// It allows some decoupling between the network layer and the consensus layer.
+///
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum TxClientReply {
     Done {
         peer: Peer,
@@ -217,6 +229,42 @@ impl TxClientReply {
     }
 }
 
+impl PartialEq for TxClientReply {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (TxClientReply::Done { peer: p1, .. }, TxClientReply::Done { peer: p2, .. }) => {
+                p1 == p2
+            }
+            (TxClientReply::Init { peer: p1, .. }, TxClientReply::Init { peer: p2, .. }) => {
+                p1 == p2
+            }
+            (
+                TxClientReply::TxIds {
+                    peer: p1,
+                    tx_ids: t1,
+                    ..
+                },
+                TxClientReply::TxIds {
+                    peer: p2,
+                    tx_ids: t2,
+                    ..
+                },
+            ) => p1 == p2 && t1 == t2,
+            (
+                TxClientReply::Txs {
+                    peer: p1, txs: t1, ..
+                },
+                TxClientReply::Txs {
+                    peer: p2, txs: t2, ..
+                },
+            ) => p1 == p2 && t1 == t2,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for TxClientReply {}
+
 impl fmt::Debug for TxClientReply {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -229,7 +277,7 @@ impl fmt::Debug for TxClientReply {
                     "tx_ids",
                     &tx_ids
                         .iter()
-                        .map(|(tx_id, size)| format!("{} (size: {}))", tx_id, size))
+                        .map(|(tx_id, size)| format!("{} (size: {})", tx_id, size))
                         .join(", "),
                 )
                 .finish(),

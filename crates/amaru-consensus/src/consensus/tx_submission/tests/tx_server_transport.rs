@@ -21,9 +21,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 /// Abstraction over the tx-submission wire used by the server state machine.
 ///
-/// This lets us unit-test `TxSubmissionServer` without needing a real
-/// `AgentChannel` / `TcpStream`. Production code uses the pallas
-/// `txsubmission::Server<AgentChannel>` through the adapter below.
+/// This lets us unit test the `TxSubmissionServer` without needing a real `TcpStream`.
 #[async_trait]
 pub trait TxServerTransport: Send {
     async fn wait_for_init(&mut self) -> Result<(), TransportError>;
@@ -32,9 +30,9 @@ pub trait TxServerTransport: Send {
 
     async fn acknowledge_and_request_tx_ids(
         &mut self,
-        blocking: Blocking,
         acknowledge: TxCount,
         count: TxCount,
+        blocking: Blocking,
     ) -> Result<(), TransportError>;
 
     async fn request_txs(&mut self, txs: Vec<EraTxId>) -> Result<(), TransportError>;
@@ -85,9 +83,9 @@ impl TxServerTransport for MockServerTransport {
 
     async fn acknowledge_and_request_tx_ids(
         &mut self,
-        blocking: Blocking,
         acknowledge: TxCount,
         count: TxCount,
+        blocking: Blocking,
     ) -> Result<(), TransportError> {
         // Simulate sending a RequestTxIds message to the client
         self.tx_request

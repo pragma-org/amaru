@@ -21,9 +21,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 /// Abstraction over the tx-submission wire used by the client state machine.
 ///
-/// This lets us unit-test `TxSubmissionClient` without needing a real
-/// `AgentChannel` / `TcpStream`. Production code uses the pallas
-/// `txsubmission::Client<AgentChannel>` through the adapter below.
+/// This lets us unit test the `TxSubmissionClient` without needing a real `TcpStream`.
 #[async_trait]
 pub trait TxClientTransport: Send {
     async fn send_init(&mut self) -> Result<(), TransportError>;
@@ -37,9 +35,10 @@ pub trait TxClientTransport: Send {
 
 /// For now the transport error is either a pallas Error or a generic anyhow error.
 #[derive(thiserror::Error, Debug)]
-#[error(transparent)]
 pub enum TransportError {
+    #[error("pallas error: {0}")]
     PallasError(#[from] Error),
+    #[error("other error: {0}")]
     Other(#[from] anyhow::Error),
 }
 

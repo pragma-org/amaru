@@ -19,7 +19,6 @@ use amaru_ouroboros_traits::{
 use minicbor::Encode;
 use parking_lot::RwLock;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::{collections::BTreeSet, mem};
 
 #[derive(Debug, Default)]
@@ -49,14 +48,13 @@ impl<Tx: Encode<()> + Send + Sync + 'static> CanValidateTransactions<Tx> for Dum
 impl<Tx: Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for DummyMempool<Tx> {
     fn insert(&self, tx: Tx, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         let tx_id = TxId::from(&tx);
-        self.inner.write().transactions.push(tx);
-        Ok((
-            tx_id,
-            MempoolSeqNo(self.inner.read().transactions.len() as u64 - 1),
-        ))
+        let mut inner = self.inner.write();
+        inner.transactions.push(tx);
+        let seq_no = MempoolSeqNo(inner.transactions.len() as u64 - 1);
+        Ok((tx_id, seq_no))
     }
 
-    fn get_tx(&self, _tx_id: &TxId) -> Option<Arc<Tx>> {
+    fn get_tx(&self, _tx_id: &TxId) -> Option<Tx> {
         None
     }
 
@@ -71,12 +69,12 @@ impl<Tx: Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for DummyMe
         Box::pin(async move { true })
     }
 
-    fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Arc<Tx>> {
+    fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Tx> {
         vec![]
     }
 
     fn last_seq_no(&self) -> MempoolSeqNo {
-        MempoolSeqNo(self.inner.read().transactions.len() as u64)
+        MempoolSeqNo(self.inner.read().transactions.len() as u64 - 1)
     }
 }
 

@@ -23,6 +23,8 @@ use pallas_network::miniprotocols::txsubmission::{
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
+/// This transport is used to connect the client and server sides of the tx submission protocol for
+/// testing. The `rx_observe_messages` channel can be used to observe all messages exchanged between them.
 pub struct MockTransport {
     pub client_transport: MockClientTransport,
     pub server_transport: MockServerTransport,
@@ -72,12 +74,12 @@ impl TxServerTransport for MockTransport {
 
     async fn acknowledge_and_request_tx_ids(
         &mut self,
-        blocking: Blocking,
         acknowledge: TxCount,
         count: TxCount,
+        blocking: Blocking,
     ) -> Result<(), TransportError> {
         self.server_transport
-            .acknowledge_and_request_tx_ids(blocking, acknowledge, count)
+            .acknowledge_and_request_tx_ids(acknowledge, count, blocking)
             .await
     }
 
@@ -102,13 +104,13 @@ impl TxServerTransport for Arc<Mutex<MockServerTransport>> {
 
     async fn acknowledge_and_request_tx_ids(
         &mut self,
-        blocking: Blocking,
         acknowledge: TxCount,
         count: TxCount,
+        blocking: Blocking,
     ) -> Result<(), TransportError> {
         self.lock()
             .await
-            .acknowledge_and_request_tx_ids(blocking, acknowledge, count)
+            .acknowledge_and_request_tx_ids(acknowledge, count, blocking)
             .await
     }
 

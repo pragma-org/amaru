@@ -14,12 +14,20 @@
 
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros_traits::{MempoolSeqNo, TxId, TxServerRequest, TxSubmissionMempool};
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::debug;
 
+/// State of a transaction submission client for a given peer.
+///
+/// We keep track of:
+///
+///  - Which transaction ids have been advertised to the peer but not yet fully acknowledged.
+///  - The last sequence number we pulled from the mempool for this peer, so we know where to continue from.
+///
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxSubmissionClientState {
     /// Peer we are serving.
@@ -44,7 +52,8 @@ impl TxSubmissionClientState {
         &self.peer
     }
 
-    pub async fn process_tx_request<Tx: Send + Debug + Sync + 'static>(
+    /// Process a request from the tx submission server
+    pub async fn process_tx_server_request<Tx: Send + Debug + Sync + 'static>(
         &mut self,
         mempool: Arc<dyn TxSubmissionMempool<Tx>>,
         request: TxServerRequest,
@@ -55,26 +64,38 @@ impl TxSubmissionClientState {
                     debug!(peer = %self.peer,
                         "Requested 0 tx ids, terminating tx submission client",
                     );
-                    return Ok(TxClientResponse::<Tx>::Done);
+                    return Ok(TxClientResponse::<Tx>::ProtocolError(anyhow!(
+                        "0 transaction ids requested"
+                    )));
                 }
+                // update the window by discarding acknowledged tx ids
+                // and update the last_seq
+                self.discard(ack);
                 if !mempool
-                    .wait_for_at_least(mempool.last_seq_no().add(req as u64))
+                    .wait_for_at_least(self.last_seq.unwrap_or_default().add(req as u64))
                     .await
                 {
                     return Ok(TxClientResponse::<Tx>::Done);
                 }
-                let tx_ids = self.get_next_tx_ids(mempool, ack, req).await?;
+                let tx_ids = self.get_next_tx_ids(mempool, req).await?;
                 Ok(TxClientResponse::NextIds(tx_ids))
             }
-            TxServerRequest::TxIdsNonBlocking { ack, req, .. } => Ok(TxClientResponse::NextIds(
-                self.get_next_tx_ids(mempool, ack, req).await?,
-            )),
+            TxServerRequest::TxIdsNonBlocking { ack, req, .. } => {
+                // update the window by discarding acknowledged tx ids
+                // and update the last_seq
+                self.discard(ack);
+                Ok(TxClientResponse::NextIds(
+                    self.get_next_tx_ids(mempool, req).await?,
+                ))
+            }
             TxServerRequest::Txs { tx_ids, .. } => {
                 if tx_ids.is_empty() {
                     debug!(peer = %self.peer,
                         "Requested 0 txs, terminating tx submission client"
                     );
-                    return Ok(TxClientResponse::<Tx>::Done);
+                    return Ok(TxClientResponse::<Tx>::ProtocolError(anyhow!(
+                        "0 transactions requested"
+                    )));
                 }
                 if tx_ids
                     .iter()
@@ -83,11 +104,17 @@ impl TxSubmissionClientState {
                     debug!(peer = %self.peer,
                         "Requested unknown tx ids, terminating tx submission client"
                     );
-                    return Ok(TxClientResponse::<Tx>::Done);
+                    return Ok(TxClientResponse::<Tx>::ProtocolError(anyhow!(
+                        "unadvertised transaction ids requested: {:?}",
+                        tx_ids
+                    )));
                 }
                 let txs = mempool.get_txs_for_ids(tx_ids.as_slice());
                 if txs.is_empty() {
-                    Ok(TxClientResponse::<Tx>::Done)
+                    Ok(TxClientResponse::<Tx>::ProtocolError(anyhow!(
+                        "unknown transactions requested: {:?}",
+                        tx_ids
+                    )))
                 } else {
                     Ok(TxClientResponse::NextTxs(txs))
                 }
@@ -99,10 +126,8 @@ impl TxSubmissionClientState {
     async fn get_next_tx_ids<Tx: Send + Debug + Sync + 'static>(
         &mut self,
         mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-        acknowledged: u16,
         required_next: u16,
     ) -> anyhow::Result<Vec<(TxId, u32)>> {
-        self.discard(acknowledged);
         let tx_ids = mempool.tx_ids_since(self.next_seq(), required_next);
         let result = tx_ids
             .clone()
@@ -139,6 +164,7 @@ impl TxSubmissionClientState {
 
 pub enum TxClientResponse<Tx> {
     Done,
+    ProtocolError(anyhow::Error),
     NextIds(Vec<(TxId, u32)>),
-    NextTxs(Vec<Arc<Tx>>),
+    NextTxs(Vec<Tx>),
 }

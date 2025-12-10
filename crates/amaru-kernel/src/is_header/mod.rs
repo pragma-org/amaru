@@ -26,7 +26,6 @@ use std::{
 pub mod tests;
 
 mod tip;
-
 pub use tip::*;
 
 /// Interface to a header for the purpose of chain selection.

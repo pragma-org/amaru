@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::tx_submission::ServerParams;
+use crate::consensus::tx_submission::{Blocking, ServerParams};
 use amaru_kernel::peer::Peer;
-use amaru_ouroboros_traits::{TxClientReply, TxId, TxOrigin, TxSubmissionMempool};
+use amaru_ouroboros_traits::{TxId, TxOrigin, TxSubmissionMempool};
 use pallas_primitives::conway::Tx;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
 
+/// State of a transaction submission server for a given peer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxSubmissionServerState {
     /// Server parameters: batch sizes, window sizes, etc.
@@ -58,33 +59,28 @@ impl TxSubmissionServerState {
         &self.peer
     }
 
-    pub async fn process_tx_reply(
+    pub fn process_tx_ids_reply(
         &mut self,
         mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-        reply: TxClientReply,
-    ) -> anyhow::Result<TxServerResponse> {
-        match reply {
-            TxClientReply::Done { .. } => Ok(TxServerResponse::Done),
-            TxClientReply::Init { .. } => {
-                // This should never happen; the client only sends Init once.
-                Ok(TxServerResponse::Done)
-            }
-            TxClientReply::TxIds { tx_ids, .. } => {
-                self.received_tx_ids(mempool, tx_ids)?;
-                Ok(TxServerResponse::NextTxs(self.txs_to_request()))
-            }
-            TxClientReply::Txs { txs, .. } => {
-                self.received_txs(mempool.clone(), txs).await?;
-                let (ack, req) = self.request_tx_ids(mempool.clone()).await?;
-                Ok(TxServerResponse::NextTxIds(ack, req))
-            }
-        }
+        tx_ids: Vec<(TxId, u32)>,
+    ) -> anyhow::Result<Option<Vec<TxId>>> {
+        self.received_tx_ids(mempool, tx_ids)?;
+        Ok(self.txs_to_request())
+    }
+
+    pub async fn process_txs_reply(
+        &mut self,
+        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        txs: Vec<Tx>,
+    ) -> anyhow::Result<(u16, u16, Blocking)> {
+        self.received_txs(mempool.clone(), txs).await?;
+        self.request_tx_ids(mempool.clone()).await
     }
 
     pub async fn request_tx_ids(
         &mut self,
         mempool: Arc<dyn TxSubmissionMempool<Tx>>,
-    ) -> anyhow::Result<(u16, u16)> {
+    ) -> anyhow::Result<(u16, u16, Blocking)> {
         // Acknowledge everything we’ve already processed.
         let mut ack = 0_u16;
 
@@ -113,7 +109,14 @@ impl TxSubmissionServerState {
             .max_window
             .saturating_sub(self.window.len())
             .min(u16::MAX as usize) as u16;
-        Ok((ack, req))
+
+        // We need to block if there are no more outstanding tx ids.
+        let blocking = if self.window.is_empty() {
+            Blocking::Yes
+        } else {
+            Blocking::No
+        };
+        Ok((ack, req, blocking))
     }
 
     pub fn received_tx_ids<Tx: Send + Sync + 'static>(
@@ -121,10 +124,8 @@ impl TxSubmissionServerState {
         mempool: Arc<dyn TxSubmissionMempool<Tx>>,
         tx_ids: Vec<(TxId, u32)>,
     ) -> anyhow::Result<()> {
-        if self.params.blocking.into() && tx_ids.len() > self.params.max_window {
-            return Err(anyhow::anyhow!(
-                "Too transactions ids received in blocking mode"
-            ));
+        if tx_ids.len() > self.params.max_window {
+            return Err(anyhow::anyhow!("Too many transactions ids received"));
         }
 
         for tx_id_and_size in tx_ids {
@@ -163,9 +164,9 @@ impl TxSubmissionServerState {
         mempool: Arc<dyn TxSubmissionMempool<Tx>>,
         txs: Vec<Tx>,
     ) -> anyhow::Result<()> {
-        if self.params.blocking.into() && txs.len() > self.params.fetch_batch {
+        if txs.len() > self.params.fetch_batch {
             return Err(anyhow::anyhow!(
-                "Too many transactions received in blocking mode"
+                "Too many transactions received in one batch"
             ));
         }
 
@@ -185,10 +186,4 @@ impl TxSubmissionServerState {
         }
         Ok(())
     }
-}
-
-pub enum TxServerResponse {
-    Done,
-    NextTxIds(u16, u16),
-    NextTxs(Option<Vec<TxId>>),
 }

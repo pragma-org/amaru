@@ -27,6 +27,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc;
 
+/// TODO: implement the simulation of the tx submission protocol and use this MockNetworkResource
+/// to support it.
 pub struct MockNetworkResource {
     node_id: String,
     number_of_downstream_peers: u8,
@@ -51,27 +53,30 @@ impl MockNetworkResource {
 
 #[async_trait]
 impl NetworkOperations for MockNetworkResource {
-    async fn next_sync(&self) -> Tracked<ChainSyncEvent> {
+    async fn next_chain_sync_event(&self) -> Tracked<ChainSyncEvent> {
         todo!("next_sync")
     }
 
-    async fn next_tx_request(&self) -> Result<TxServerRequest, ClientConnectionError> {
+    async fn next_tx_server_request(&self) -> Result<TxServerRequest, ClientConnectionError> {
         todo!("next_tx_request")
     }
 
-    async fn next_tx_reply(&self) -> Result<TxClientReply, ClientConnectionError> {
+    async fn next_tx_client_reply(&self) -> Result<TxClientReply, ClientConnectionError> {
         todo!("next_tx_reply")
     }
 
-    async fn send_tx_reply(&self, _reply: TxClientReply) -> Result<(), ClientConnectionError> {
-        todo!("send_tx_reply")
+    async fn send_tx_client_reply(
+        &self,
+        _reply: TxClientReply,
+    ) -> Result<(), ClientConnectionError> {
+        Ok(())
     }
 
-    async fn send_tx_request(
+    async fn send_tx_server_request(
         &self,
         _request: TxServerRequest,
     ) -> Result<(), ClientConnectionError> {
-        todo!("send_tx_request")
+        Ok(())
     }
 
     async fn fetch_block(
@@ -79,10 +84,10 @@ impl NetworkOperations for MockNetworkResource {
         _peer: &Peer,
         _point: Point,
     ) -> Result<Vec<u8>, ClientConnectionError> {
-        todo!("fetch_block")
+        Ok(vec![])
     }
 
-    async fn send(&self, event: ForwardEvent) -> anyhow::Result<()> {
+    async fn send_forward_event(&self, event: ForwardEvent) -> anyhow::Result<()> {
         fn message(event: &ForwardEvent, msg_id: u64) -> ChainSyncMessage {
             match event {
                 ForwardEvent::Forward(header) => ChainSyncMessage::Fwd {
@@ -124,7 +129,5 @@ impl NetworkOperations for MockNetworkResource {
         Ok(())
     }
 
-    async fn disconnect(&self, _peer: &Peer) {
-        todo!("disconnect")
-    }
+    async fn disconnect_upstream_peer(&self, _peer: &Peer) {}
 }

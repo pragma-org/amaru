@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::tx_submission::ServerParams;
 use crate::consensus::tx_submission::tests::{
     MockTransport, SizedMempool, TxSubmissionClient, TxSubmissionServer,
 };
-use crate::consensus::tx_submission::{Blocking, ServerParams};
 use amaru_kernel::peer::Peer;
 use amaru_mempool::strategies::InMemoryMempool;
 use amaru_ouroboros_traits::can_validate_transactions::mock::MockCanValidateTransactions;
@@ -149,7 +149,7 @@ pub struct ServerOptions {
 impl Default for ServerOptions {
     fn default() -> Self {
         ServerOptions {
-            params: ServerParams::new(4, 2, Blocking::Yes),
+            params: ServerParams::new(4, 2),
             mempool: Arc::new(InMemoryMempool::default()),
             mempool_capacity: 4,
             tx_validator: Arc::new(MockCanValidateTransactions),
@@ -161,11 +161,6 @@ impl ServerOptions {
     #[expect(dead_code)]
     pub fn with_params(mut self, params: ServerParams) -> Self {
         self.params = params;
-        self
-    }
-
-    pub fn with_blocking(mut self, blocking: Blocking) -> Self {
-        self.params.blocking = blocking;
         self
     }
 

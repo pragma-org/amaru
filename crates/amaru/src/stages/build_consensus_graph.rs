@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::{
-    effects::{ConsensusEffects, DisconnectEffect},
+    effects::{ConsensusEffects, DisconnectUpstreamPeerEffect},
     errors::{ProcessingFailed, ValidationFailed},
     stages::{
         fetch_block, forward_chain, receive_header,
@@ -62,7 +62,7 @@ pub fn build_consensus_graph(
     let validation_errors_stage = network.stage("validation_errors", async |_, error, eff| {
         let ValidationFailed { peer, error } = error;
         tracing::error!(%peer, %error, "peer error");
-        eff.external(DisconnectEffect::new(peer)).await;
+        eff.external(DisconnectUpstreamPeerEffect::new(peer)).await;
     });
 
     let processing_errors_stage = network.stage(

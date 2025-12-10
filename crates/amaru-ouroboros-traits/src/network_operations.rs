@@ -30,16 +30,32 @@ pub type ResourceNetworkOperations = Arc<dyn NetworkOperations>;
 /// This trait abstracts network operations that can be used by consensus stages.
 #[async_trait::async_trait]
 pub trait NetworkOperations: Send + Sync {
+    /// Wait for the next tx request event from an upstream peer.
+    async fn next_tx_server_request(&self) -> Result<TxServerRequest, ClientConnectionError>;
+
+    /// Send a client reply to a specific upstream peer.
+    async fn send_tx_client_reply(&self, reply: TxClientReply)
+    -> Result<(), ClientConnectionError>;
+
+    /// Disconnect from a specific upstream peer.
+    async fn disconnect_upstream_peer(&self, peer: &Peer);
+
+    /// Wait for the next tx client reply event from a downstream peer.
+    async fn next_tx_client_reply(&self) -> Result<TxClientReply, ClientConnectionError>;
+
+    /// Send a server request to a specific downstream peer.
+    async fn send_tx_server_request(
+        &self,
+        request: TxServerRequest,
+    ) -> Result<(), ClientConnectionError>;
+
     /// Wait for the next chain sync event from upstream peers.
     /// This can either be one of the `ChainSyncEvent` variants or a notification that
     /// we caught up with this peer's chain.
-    async fn next_sync(&self) -> Tracked<ChainSyncEvent>;
+    async fn next_chain_sync_event(&self) -> Tracked<ChainSyncEvent>;
 
-    /// Wait for the next tx request event from upstream peers.
-    async fn next_tx_request(&self) -> Result<TxServerRequest, ClientConnectionError>;
-
-    /// Send a client reply to a specific upstream peer.
-    async fn send_tx_reply(&self, reply: TxClientReply) -> Result<(), ClientConnectionError>;
+    /// Send a forward or backward event to downstream peers.
+    async fn send_forward_event(&self, event: ForwardEvent) -> anyhow::Result<()>;
 
     /// Fetch a block from a specific peer at a given point.
     async fn fetch_block(
@@ -47,17 +63,6 @@ pub trait NetworkOperations: Send + Sync {
         peer: &Peer,
         point: Point,
     ) -> Result<Vec<u8>, ClientConnectionError>;
-
-    /// Disconnect from a specific upstream peer.
-    async fn disconnect(&self, peer: &Peer);
-
-    /// Wait for the next tx reply event from downstream peers.
-    async fn next_tx_reply(&self) -> Result<TxClientReply, ClientConnectionError>;
-
-    /// Send a server request to a specific downstream peer.
-    async fn send_tx_request(&self, request: TxServerRequest) -> Result<(), ClientConnectionError>;
-
-    async fn send(&self, event: ForwardEvent) -> anyhow::Result<()>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

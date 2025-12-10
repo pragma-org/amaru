@@ -25,7 +25,13 @@ use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::Arc;
 
-/// Implementation of Mempool using pure_stage::Effects.
+/// Implementation of Mempool effects using pure_stage::Effects.
+///
+/// It supports operations
+///
+/// - for the tx submission protocol
+/// - for transaction validation
+///
 #[derive(Clone)]
 pub struct MemoryPool<T> {
     effects: Effects<T>,
@@ -49,24 +55,32 @@ impl<T> MemoryPool<T> {
 }
 
 impl<T: SendData + Sync> CanValidateTransactions<Tx> for MemoryPool<T> {
+    /// This effect uses the ledger to validate a transaction before adding it to the mempool.
     fn validate_transaction(&self, tx: &Tx) -> Result<(), TransactionValidationError> {
         self.effects.external_sync(ValidateTransaction(tx.clone()))
     }
 }
 
 impl<T: SendData + Sync> TxSubmissionMempool<Tx> for MemoryPool<T> {
+    /// This effect inserts a transaction into the mempool, specifying its origin.
+    /// A TxOrigin::Local origin indicates the transaction was created on the current node,
+    /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         self.external_sync(Insert::new(tx, tx_origin))
     }
 
-    fn get_tx(&self, tx_id: &TxId) -> Option<Arc<Tx>> {
+    /// This effect retrieves a transaction by its id.
+    /// It returns None if the transaction is not found.
+    fn get_tx(&self, tx_id: &TxId) -> Option<Tx> {
         self.external_sync(GetTx::new(tx_id.clone()))
     }
 
+    /// This effect retrieves a list of transaction ids from a given sequence number (inclusive), up to a given limit.
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
         self.external_sync(TxIdsSince::new(from_seq, limit))
     }
 
+    /// This effect waits until the mempool reaches at least the given sequence number.
     fn wait_for_at_least(
         &self,
         seq_no: MempoolSeqNo,
@@ -74,10 +88,12 @@ impl<T: SendData + Sync> TxSubmissionMempool<Tx> for MemoryPool<T> {
         self.effects.external(WaitForAtLeast::new(seq_no))
     }
 
-    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Arc<Tx>> {
+    /// This effect retrieves a list of transactions for the given ids.
+    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx> {
         self.external_sync(GetTxsForIds::new(ids))
     }
 
+    /// This effect gets the last assigned sequence number in the mempool.
     fn last_seq_no(&self) -> MempoolSeqNo {
         self.external_sync(LastSeqNo)
     }
@@ -165,7 +181,7 @@ impl ExternalEffect for GetTx {
 }
 
 impl ExternalEffectAPI for GetTx {
-    type Response = Option<Arc<Tx>>;
+    type Response = Option<Tx>;
 }
 
 impl ExternalEffectSync for GetTx {}
@@ -259,7 +275,7 @@ impl ExternalEffect for GetTxsForIds {
 }
 
 impl ExternalEffectAPI for GetTxsForIds {
-    type Response = Vec<Arc<Tx>>;
+    type Response = Vec<Tx>;
 }
 
 impl ExternalEffectSync for GetTxsForIds {}
@@ -296,7 +312,6 @@ mod tests {
     use pallas_primitives::Set;
     use pallas_primitives::conway::{PseudoTransactionBody, PseudoTx, WitnessSet};
     use std::pin::Pin;
-    use std::sync::Arc;
 
     #[allow(dead_code)]
     pub struct ConstantMempool {
@@ -357,8 +372,8 @@ mod tests {
             Ok((TxId::from(&tx), MempoolSeqNo(1)))
         }
 
-        fn get_tx(&self, _tx_id: &TxId) -> Option<Arc<Tx>> {
-            Some(Arc::new(self.tx.clone()))
+        fn get_tx(&self, _tx_id: &TxId) -> Option<Tx> {
+            Some(self.tx.clone())
         }
 
         fn tx_ids_since(
@@ -376,8 +391,8 @@ mod tests {
             Box::pin(async { true })
         }
 
-        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Arc<Tx>> {
-            vec![Arc::new(self.tx.clone())]
+        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Tx> {
+            vec![self.tx.clone()]
         }
 
         fn last_seq_no(&self) -> MempoolSeqNo {

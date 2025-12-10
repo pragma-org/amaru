@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use crate::consensus::tx_submission::tests::TxServerTransport;
-use crate::consensus::tx_submission::tx_submission_server_state::TxServerResponse;
-use crate::consensus::tx_submission::{ServerParams, TxSubmissionServerState};
+use crate::consensus::tx_submission::{Blocking, ServerParams, TxSubmissionServerState};
 use amaru_kernel::peer::Peer;
 use amaru_network::{era_tx_id, from_pallas_reply};
-use amaru_ouroboros_traits::TxSubmissionMempool;
+use amaru_ouroboros_traits::{TxClientReply, TxSubmissionMempool};
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId};
 use pallas_primitives::conway::Tx;
 use std::sync::Arc;
@@ -25,12 +24,10 @@ use tracing::info;
 
 /// Tx submission server state machine for a given peer.
 ///
-/// The `window` field tracks the transactions that have been advertised to the peer.
-/// The `last_seq` field tracks the last sequence number that has been acknowledged by the peer.
+/// Most of the logic is in the `TxSubmissionServerState` struct, this struct just
+/// ties it together with a mempool and a transport.
 ///
 pub struct TxSubmissionServer<Tx: Send + Sync + 'static> {
-    /// Server parameters: batch sizes, window sizes, etc.
-    params: ServerParams,
     /// Mempool to pull transactions from.
     mempool: Arc<dyn TxSubmissionMempool<Tx>>,
     /// State tracked for this peer.
@@ -47,17 +44,9 @@ impl TxSubmissionServer<Tx> {
         let state = TxSubmissionServerState::new(&peer, params.clone());
         Self {
             mempool: mempool.clone(),
-            params,
             state,
         }
     }
-
-    // /// Start the tx submission server state machine over the given agent channel.
-    // /// This function drives the state machine until completion.
-    // pub async fn start_server(&mut self, agent_channel: AgentChannel) -> anyhow::Result<()> {
-    //     let transport = PallasTxServerTransport::new(agent_channel);
-    //     self.start_server_with_transport(transport).await
-    // }
 
     /// Core server state machine, parameterized over a transport for testability.
     pub async fn start_server_with_transport<T: TxServerTransport>(
@@ -69,37 +58,37 @@ impl TxSubmissionServer<Tx> {
             self.state.peer()
         );
         transport.wait_for_init().await?;
-        let (ack, req) = self.state.request_tx_ids(self.mempool.clone()).await?;
+        let (ack, req, _blocking) = self.state.request_tx_ids(self.mempool.clone()).await?;
+        // The first request is always blocking
         transport
-            .acknowledge_and_request_tx_ids(self.params.blocking, ack, req)
+            .acknowledge_and_request_tx_ids(ack, req, Blocking::Yes)
             .await?;
         loop {
             if transport.is_done().await? {
                 break;
             }
             let tx_reply = transport.receive_next_reply().await?;
-            let response = self
-                .state
-                .process_tx_reply(
-                    self.mempool.clone(),
-                    from_pallas_reply(self.state.peer(), tx_reply)?,
-                )
-                .await?;
-            match response {
-                TxServerResponse::NextTxIds(ack, req) => {
-                    transport
-                        .acknowledge_and_request_tx_ids(self.params.blocking, ack, req)
-                        .await?;
-                }
-                TxServerResponse::NextTxs(tx_ids) => {
-                    if let Some(tx_ids) = tx_ids {
+            match from_pallas_reply(self.state.peer(), tx_reply)? {
+                TxClientReply::Done { .. } => {}
+                TxClientReply::Init { .. } => {}
+                TxClientReply::TxIds { tx_ids, .. } => {
+                    if let Some(txs_to_request) = self
+                        .state
+                        .process_tx_ids_reply(self.mempool.clone(), tx_ids)?
+                    {
                         transport
-                            .request_txs(tx_ids.into_iter().map(era_tx_id).collect())
+                            .request_txs(txs_to_request.into_iter().map(era_tx_id).collect())
                             .await?;
                     }
                 }
-                TxServerResponse::Done => {
-                    break;
+                TxClientReply::Txs { txs, .. } => {
+                    let (ack, req, blocking) = self
+                        .state
+                        .process_txs_reply(self.mempool.clone(), txs)
+                        .await?;
+                    transport
+                        .acknowledge_and_request_tx_ids(ack, req, blocking)
+                        .await?;
                 }
             }
         }
@@ -109,7 +98,6 @@ impl TxSubmissionServer<Tx> {
 
 mod tests {
     use super::*;
-    use crate::consensus::tx_submission::Blocking;
     use crate::consensus::tx_submission::tests::{
         MockServerTransport, assert_next_message, create_transaction, create_transactions,
     };
@@ -254,7 +242,7 @@ mod tests {
         JoinHandle<anyhow::Result<()>>,
     )> {
         let mut server = TxSubmissionServer::new(
-            ServerParams::new(10, 2, Blocking::Yes),
+            ServerParams::new(10, 2),
             mempool.clone(),
             Peer::new("peer-1"),
         );

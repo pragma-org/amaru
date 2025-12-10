@@ -30,10 +30,8 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info};
 
 /// Tx submission client state machine for a given peer.
-///
-/// The `window` field tracks the transactions that have been advertised to the peer.
-/// The `last_seq` field tracks the last sequence number that has been acknowledged by the peer.
-///
+/// Most of the logic is in the `TxSubmissionClientState`,
+/// this struct just wires it up to a mempool and a transport.
 #[derive(Clone)]
 pub struct TxSubmissionClient<Tx> {
     /// Mempool to pull transactions from.
@@ -72,7 +70,7 @@ impl TxSubmissionClient<Tx> {
             };
             match self
                 .state
-                .process_tx_request(
+                .process_tx_server_request(
                     self.mempool.clone(),
                     to_pallas_request(self.state.peer(), request),
                 )
@@ -80,6 +78,9 @@ impl TxSubmissionClient<Tx> {
             {
                 TxClientResponse::Done => {
                     transport.send_done().await?;
+                    break;
+                }
+                TxClientResponse::ProtocolError(_) => {
                     break;
                 }
                 TxClientResponse::NextIds(tx_ids) => {
@@ -95,13 +96,7 @@ impl TxSubmissionClient<Tx> {
                         .await?
                 }
                 TxClientResponse::NextTxs(txs) => {
-                    transport
-                        .reply_txs(era_tx_bodies(
-                            &txs.into_iter()
-                                .map(|tx| tx.as_ref().clone())
-                                .collect::<Vec<_>>(),
-                        ))
-                        .await?;
+                    transport.reply_txs(era_tx_bodies(&txs)).await?;
                 }
             };
         }
@@ -111,9 +106,10 @@ impl TxSubmissionClient<Tx> {
 
 mod tests {
     use super::*;
+    use crate::consensus::tx_submission::tests::assert_no_message;
 
     #[tokio::test]
-    async fn serve_transactions_blocking() -> anyhow::Result<()> {
+    async fn serve_transactions() -> anyhow::Result<()> {
         // Create a mempool with some transactions
         let mempool = Arc::new(SizedMempool::with_capacity(6));
         let txs = create_transactions(6);
@@ -131,9 +127,9 @@ mod tests {
         let requests = vec![
             Message::RequestTxIds(true, 0, 2),
             Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
-            Message::RequestTxIds(true, 2, 2),
+            Message::RequestTxIds(false, 2, 2),
             Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
-            Message::RequestTxIds(true, 2, 2),
+            Message::RequestTxIds(false, 2, 2),
             Message::RequestTxs(vec![era_tx_ids[4].clone(), era_tx_ids[5].clone()]),
         ];
         for r in requests {
@@ -155,7 +151,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn serve_transactions_non_blocking() -> anyhow::Result<()> {
+    async fn serve_transactions_with_mempool_refilling() -> anyhow::Result<()> {
         // Create a mempool with some transactions
         let mempool = Arc::new(SizedMempool::with_capacity(6));
         let txs = create_transactions(6);
@@ -174,7 +170,7 @@ mod tests {
         // Send requests to retrieve transactions and block until they are available.
         // In this case they are immediately available since we pre-populated the mempool.
         let requests = vec![
-            Message::RequestTxIds(false, 0, 2),
+            Message::RequestTxIds(true, 0, 2),
             Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
             Message::RequestTxIds(false, 2, 2),
         ];
@@ -242,7 +238,7 @@ mod tests {
 
         assert_next_message(&mut replies, Message::Init).await?;
         assert_tx_ids_reply(&mut replies, &tx_ids, &[0, 1]).await?;
-        assert_next_message(&mut replies, Message::Done).await?;
+        assert_no_message(&mut replies).await?;
         Ok(())
     }
 
@@ -258,7 +254,7 @@ mod tests {
         }
 
         assert_next_message(&mut replies, Message::Init).await?;
-        assert_next_message(&mut replies, Message::Done).await?;
+        assert_no_message(&mut replies).await?;
         Ok(())
     }
 
@@ -284,7 +280,7 @@ mod tests {
 
         assert_next_message(&mut replies, Message::Init).await?;
         assert_tx_ids_reply(&mut replies, &tx_ids, &[0, 1]).await?;
-        assert_next_message(&mut replies, Message::Done).await?;
+        assert_no_message(&mut replies).await?;
         Ok(())
     }
 
