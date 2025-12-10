@@ -16,7 +16,7 @@ use crate::point::from_network_point;
 
 use super::chain_follower::ChainFollower;
 use crate::server::as_tip::AsTip;
-use crate::tx_submission::conversions::{new_era_tx_id, tx_from_era_tx_body, tx_id_and_size};
+use crate::tx_submission::conversions::{era_tx_id, tx_from_era_tx_body, tx_id_and_size};
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{BlockHeader, Hash, HeaderHash, IsHeader, Tx, to_cbor};
@@ -364,7 +364,7 @@ async fn tx_submission(
                     },
                     ActoInput::Message(TxSubmissionMsg::Op(TxServerRequest::Txs { tx_ids, .. })) => {
                         server
-                            .request_txs(tx_ids.into_iter().map(new_era_tx_id).collect())
+                            .request_txs(tx_ids.into_iter().map(era_tx_id).collect())
                             .await?
                     },
                     ActoInput::NoMoreSenders | ActoInput::Supervision { .. }  => {

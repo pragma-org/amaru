@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::tests::sized_mempool::SizedMempool;
-use crate::tx_submission::tests::{MockTransport, Tx};
-use crate::tx_submission::tx_submission_client::TxSubmissionClient;
-use crate::tx_submission::tx_submission_server::TxSubmissionServer;
-use crate::tx_submission::{Blocking, ServerParams};
+use crate::consensus::tx_submission::tests::{
+    MockTransport, SizedMempool, TxSubmissionClient, TxSubmissionServer,
+};
+use crate::consensus::tx_submission::{Blocking, ServerParams};
 use amaru_kernel::peer::Peer;
 use amaru_mempool::strategies::InMemoryMempool;
 use amaru_ouroboros_traits::can_validate_transactions::mock::MockCanValidateTransactions;
 use amaru_ouroboros_traits::{CanValidateTransactions, Mempool};
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Message};
+use pallas_primitives::conway::Tx;
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;

@@ -12,19 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::tx_submission::tests::{NodeHandle, Tx};
-use amaru_ouroboros_traits::Mempool;
+use crate::consensus::tx_submission::tests::NodeHandle;
+use amaru_network::{era_tx_body, era_tx_ids};
+use amaru_ouroboros_traits::{Mempool, TxId};
 use pallas_network::miniprotocols::txsubmission::Message::{ReplyTxIds, ReplyTxs};
 use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Message, TxIdAndSize};
+use pallas_primitives::conway::Tx;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::{sleep, timeout};
 
 /// Check that all the given transactions are eventually present in the server mempool.
+#[track_caller]
 pub async fn expect_server_transactions(txs: Vec<Tx>, node_handle: &NodeHandle) {
     let server_mempool: Arc<dyn Mempool<Tx>> = node_handle.server_mempool.clone();
-    let tx_ids: Vec<_> = txs.iter().map(|tx| tx.tx_id()).collect();
+    let tx_ids: Vec<_> = txs.iter().map(TxId::from).collect();
     let mut actual: Vec<_> = tx_ids
         .iter()
         .filter(|tx_id| server_mempool.contains(tx_id))
@@ -62,34 +65,39 @@ pub async fn expect_server_transactions(txs: Vec<Tx>, node_handle: &NodeHandle) 
 }
 
 /// Check that the next message is a ReplyTxIds with the expected ids.
+#[track_caller]
 pub async fn assert_tx_ids_reply(
     rx_messages: &mut Receiver<Message<EraTxId, EraTxBody>>,
-    era_tx_ids: &[EraTxId],
+    tx_ids: &[TxId],
     expected_ids: &[usize],
 ) -> anyhow::Result<()> {
+    let era_tx_ids = era_tx_ids(tx_ids);
     let tx_ids_and_sizes: Vec<TxIdAndSize<EraTxId>> = expected_ids
         .iter()
-        .map(|&i| TxIdAndSize(era_tx_ids[i].clone(), 34))
+        .map(|&i| TxIdAndSize(era_tx_ids[i].clone(), 50))
         .collect();
     assert_next_message(rx_messages, ReplyTxIds(tx_ids_and_sizes)).await?;
     Ok(())
 }
 
 /// Check that the next message is a ReplyTxs with the expected transaction bodies.
+#[track_caller]
 pub async fn assert_tx_bodies_reply(
     rx_messages: &mut Receiver<Message<EraTxId, EraTxBody>>,
-    era_tx_bodies: &[EraTxBody],
+    txs: &[Tx],
     expected_body_ids: &[usize],
 ) -> anyhow::Result<()> {
     let txs: Vec<EraTxBody> = expected_body_ids
         .iter()
-        .map(|&i| era_tx_bodies[i].clone())
+        .map(|&i| era_tx_body(&txs[i]))
         .collect();
+
     assert_next_message(rx_messages, ReplyTxs(txs)).await?;
     Ok(())
 }
 
 /// Check that the next message matches the expected one.
+#[track_caller]
 pub async fn assert_next_message(
     rx_messages: &mut Receiver<Message<EraTxId, EraTxBody>>,
     expected: Message<EraTxId, EraTxBody>,

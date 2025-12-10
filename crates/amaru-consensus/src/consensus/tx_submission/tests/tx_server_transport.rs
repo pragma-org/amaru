@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::Blocking;
-use crate::tx_submission::tx_client_transport::TransportError;
+use crate::consensus::tx_submission::Blocking;
+use crate::consensus::tx_submission::tests::TransportError;
+use anyhow::anyhow;
 use async_trait::async_trait;
-use pallas_network::miniprotocols::txsubmission;
-use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Reply, TxCount};
-use pallas_network::multiplexer::AgentChannel;
+use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId, Message, Reply, TxCount};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 /// Abstraction over the tx-submission wire used by the server state machine.
 ///
@@ -38,50 +38,6 @@ pub trait TxServerTransport: Send {
     ) -> Result<(), TransportError>;
 
     async fn request_txs(&mut self, txs: Vec<EraTxId>) -> Result<(), TransportError>;
-}
-
-/// Production adapter around pallas' txsubmission server.
-pub struct PallasTxServerTransport {
-    inner: txsubmission::Server,
-}
-
-impl PallasTxServerTransport {
-    pub fn new(agent_channel: AgentChannel) -> Self {
-        Self {
-            inner: txsubmission::Server::new(agent_channel),
-        }
-    }
-}
-
-#[async_trait]
-impl TxServerTransport for PallasTxServerTransport {
-    async fn wait_for_init(&mut self) -> Result<(), TransportError> {
-        Ok(self.inner.wait_for_init().await?)
-    }
-
-    async fn is_done(&self) -> Result<bool, TransportError> {
-        Ok(self.inner.is_done())
-    }
-
-    async fn receive_next_reply(&mut self) -> Result<Reply<EraTxId, EraTxBody>, TransportError> {
-        Ok(self.inner.receive_next_reply().await?)
-    }
-
-    async fn acknowledge_and_request_tx_ids(
-        &mut self,
-        blocking: Blocking,
-        acknowledge: TxCount,
-        count: TxCount,
-    ) -> Result<(), TransportError> {
-        Ok(self
-            .inner
-            .acknowledge_and_request_tx_ids(blocking.into(), acknowledge, count)
-            .await?)
-    }
-
-    async fn request_txs(&mut self, txs: Vec<EraTxId>) -> Result<(), TransportError> {
-        Ok(self.inner.request_txs(txs).await?)
-    }
 }
 
 pub(crate) struct MockServerTransport {

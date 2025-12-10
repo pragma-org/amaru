@@ -44,6 +44,8 @@ amaru-slot-arithmetic.workspace = true
 pure-stage.workspace = true
 
 [dev-dependencies]
+amaru-network.workspace = true
+async-trait.workspace = true
 hex.workspace = true
 pallas-network.workspace = true
 pallas-primitives.workspace = true

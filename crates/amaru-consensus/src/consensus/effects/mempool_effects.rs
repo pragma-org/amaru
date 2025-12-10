@@ -354,7 +354,7 @@ mod tests {
             tx: Tx,
             _tx_origin: TxOrigin,
         ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
-            Ok((TxId::from(tx), MempoolSeqNo(1)))
+            Ok((TxId::from(&tx), MempoolSeqNo(1)))
         }
 
         fn get_tx(&self, _tx_id: &TxId) -> Option<Arc<Tx>> {
@@ -366,7 +366,7 @@ mod tests {
             _from_seq: MempoolSeqNo,
             _limit: u16,
         ) -> Vec<(TxId, u32, MempoolSeqNo)> {
-            vec![(TxId::from(self.tx.clone()), 100, MempoolSeqNo(1))]
+            vec![(TxId::from(&self.tx), 100, MempoolSeqNo(1))]
         }
 
         fn wait_for_at_least(

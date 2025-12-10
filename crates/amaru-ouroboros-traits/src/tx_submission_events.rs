@@ -156,6 +156,11 @@ impl TxServerRequest {
 
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TxClientReply {
+    Done {
+        peer: Peer,
+        #[serde(skip, default = "Span::none")]
+        span: Span,
+    },
     Init {
         peer: Peer,
         #[serde(skip, default = "Span::none")]
@@ -178,6 +183,9 @@ pub enum TxClientReply {
 impl TxClientReply {
     pub fn set_span(&mut self, span: Span) {
         match self {
+            TxClientReply::Done { span: s, .. } => {
+                *s = span;
+            }
             TxClientReply::Init { span: s, .. } => {
                 *s = span;
             }
@@ -192,6 +200,7 @@ impl TxClientReply {
 
     pub fn span(&self) -> &Span {
         match self {
+            TxClientReply::Done { span, .. } => span,
             TxClientReply::Init { span, .. } => span,
             TxClientReply::Txs { span, .. } => span,
             TxClientReply::TxIds { span, .. } => span,
@@ -201,6 +210,7 @@ impl TxClientReply {
     pub fn peer(&self) -> &Peer {
         match self {
             TxClientReply::Init { peer, .. } => peer,
+            TxClientReply::Done { peer, .. } => peer,
             TxClientReply::TxIds { peer, .. } => peer,
             TxClientReply::Txs { peer, .. } => peer,
         }
@@ -210,6 +220,7 @@ impl TxClientReply {
 impl fmt::Debug for TxClientReply {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            TxClientReply::Done { peer, .. } => f.debug_struct("Done").field("peer", peer).finish(),
             TxClientReply::Init { peer, .. } => f.debug_struct("Init").field("peer", peer).finish(),
             TxClientReply::TxIds { peer, tx_ids, .. } => f
                 .debug_struct("TxIds")
@@ -253,8 +264,8 @@ impl TxId {
         TxId(hash)
     }
 
-    pub fn from<Tx: Encode<()>>(tx: Tx) -> Self {
-        TxId(Hasher::<{ 32 * 8 }>::hash_cbor(&tx))
+    pub fn from<Tx: Encode<()>>(tx: &Tx) -> Self {
+        TxId(Hasher::<{ 32 * 8 }>::hash_cbor(tx))
     }
 }
 

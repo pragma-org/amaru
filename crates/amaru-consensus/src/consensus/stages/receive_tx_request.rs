@@ -16,6 +16,8 @@ use crate::consensus::effects::BaseOps;
 use crate::consensus::effects::ConsensusOps;
 use crate::consensus::effects::NetworkOps;
 use crate::consensus::errors::ProcessingFailed;
+use crate::consensus::tx_submission::TxSubmissionClientState;
+use crate::consensus::tx_submission::tx_submission_client_state::TxClientResponse;
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros_traits::TxServerRequest;
 use pure_stage::StageRef;
@@ -34,20 +36,17 @@ pub fn stage(
 ) -> impl Future<Output = State> {
     let span = tracing::trace_span!(parent: msg.span(), "tx_submission.receive_tx_request");
     async move {
-        let peer = msg.peer();
-        let client = clients.get_client_mut(peer);
-        let result = match client
-            .process_tx_request(eff.mempool(), to_network_request(&msg))
-            .await
-        {
-            Ok(TxResponse::Done) => {
-                clients.by_peer.remove(peer);
+        let peer = msg.peer().clone();
+        let client = clients.get_client_mut(&peer);
+        let result = match client.process_tx_request(eff.mempool(), msg).await {
+            Ok(TxClientResponse::Done) => {
+                clients.by_peer.remove(&peer);
                 Ok(())
             }
-            Ok(TxResponse::NextIds(tx_ids)) => {
+            Ok(TxClientResponse::NextIds(tx_ids)) => {
                 eff.network().send_tx_ids(peer.clone(), tx_ids).await
             }
-            Ok(TxResponse::NextTxs(txs)) => {
+            Ok(TxClientResponse::NextTxs(txs)) => {
                 eff.network()
                     .send_txs(
                         peer.clone(),
@@ -60,7 +59,7 @@ pub fn stage(
         match result {
             Ok(_) => {}
             Err(e) => {
-                let processing_failed = ProcessingFailed::new(peer, e.to_anyhow());
+                let processing_failed = ProcessingFailed::new(&peer, e.to_anyhow());
                 let _ = eff.base().send(&errors, processing_failed).await;
             }
         }
@@ -100,18 +99,5 @@ impl Clients {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry.insert(TxSubmissionClientState::new(peer)),
         }
-    }
-}
-
-fn to_network_request(tx_request: &TxServerRequest) -> Request<EraTxId> {
-    match tx_request {
-        TxServerRequest::Txs { tx_ids, .. } => Request::Txs(
-            tx_ids
-                .iter()
-                .map(|tx_id| new_era_tx_id(tx_id.clone()))
-                .collect(),
-        ),
-        TxServerRequest::TxIds { ack, req, .. } => Request::TxIds(*ack, *req),
-        TxServerRequest::TxIdsNonBlocking { ack, req, .. } => Request::TxIdsNonBlocking(*ack, *req),
     }
 }

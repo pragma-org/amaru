@@ -15,12 +15,10 @@
 use crate::consensus::tx_submission::ServerParams;
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros_traits::{TxClientReply, TxId, TxOrigin, TxSubmissionMempool};
-use minicbor::{Decode};
+use pallas_primitives::conway::Tx;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
-use pallas_primitives::conway::Tx;
-use tracing::info;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxSubmissionServerState {
@@ -56,24 +54,29 @@ impl TxSubmissionServerState {
         }
     }
 
+    pub fn peer(&self) -> &Peer {
+        &self.peer
+    }
+
     pub async fn process_tx_reply(
         &mut self,
         mempool: Arc<dyn TxSubmissionMempool<Tx>>,
         reply: TxClientReply,
-    ) -> anyhow::Result<TxResponse> {
+    ) -> anyhow::Result<TxServerResponse> {
         match reply {
+            TxClientReply::Done { .. } => Ok(TxServerResponse::Done),
             TxClientReply::Init { .. } => {
                 // This should never happen; the client only sends Init once.
-                Ok(TxResponse::Done)
+                Ok(TxServerResponse::Done)
             }
             TxClientReply::TxIds { tx_ids, .. } => {
                 self.received_tx_ids(mempool, tx_ids)?;
-                Ok(TxResponse::NextTxs(self.txs_to_request()))
+                Ok(TxServerResponse::NextTxs(self.txs_to_request()))
             }
             TxClientReply::Txs { txs, .. } => {
                 self.received_txs(mempool.clone(), txs).await?;
                 let (ack, req) = self.request_tx_ids(mempool.clone()).await?;
-                Ok(TxResponse::NextTxIds(ack, req))
+                Ok(TxServerResponse::NextTxIds(ack, req))
             }
         }
     }
@@ -86,7 +89,7 @@ impl TxSubmissionServerState {
         let mut ack = 0_u16;
 
         while let Some((tx_id, _size)) = self.window.front() {
-            let already_in_mempool = mempool.contains(&tx_id);
+            let already_in_mempool = mempool.contains(tx_id);
             let already_rejected = self.rejected.contains(tx_id);
 
             if already_in_mempool || already_rejected {
@@ -173,8 +176,8 @@ impl TxSubmissionServerState {
 
                 let inserted = mempool.validate_transaction(&tx).is_ok()
                     && mempool
-                    .insert(tx, TxOrigin::Remote(self.peer.clone()))
-                    .is_ok();
+                        .insert(tx, TxOrigin::Remote(self.peer.clone()))
+                        .is_ok();
                 if !inserted {
                     self.rejected.insert(requested_id);
                 }
@@ -184,7 +187,7 @@ impl TxSubmissionServerState {
     }
 }
 
-pub enum TxResponse {
+pub enum TxServerResponse {
     Done,
     NextTxIds(u16, u16),
     NextTxs(Option<Vec<TxId>>),

@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::tx_submission::TxResponse;
-use crate::tx_submission::tx_server_transport::{PallasTxServerTransport, TxServerTransport};
-use crate::tx_submission::{ServerParams, tx_id_from_era_tx_id};
+use crate::consensus::tx_submission::tests::TxServerTransport;
+use crate::consensus::tx_submission::tx_submission_server_state::TxServerResponse;
+use crate::consensus::tx_submission::{ServerParams, TxSubmissionServerState};
 use amaru_kernel::peer::Peer;
-use amaru_ouroboros_traits::{TxOrigin, TxSubmissionMempool};
-use minicbor::{CborLen, Decode, Encode};
-use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, VecDeque};
+use amaru_network::{era_tx_id, from_pallas_reply};
+use amaru_ouroboros_traits::TxSubmissionMempool;
+use pallas_network::miniprotocols::txsubmission::{EraTxBody, EraTxId};
+use pallas_primitives::conway::Tx;
 use std::sync::Arc;
 use tracing::info;
 
@@ -37,10 +37,7 @@ pub struct TxSubmissionServer<Tx: Send + Sync + 'static> {
     state: TxSubmissionServerState,
 }
 
-impl<Tx> TxSubmissionServer<Tx>
-where
-    Tx: for<'a> Decode<'a, ()> + Encode<()> + CborLen<()> + Send + Sync + 'static,
-{
+impl TxSubmissionServer<Tx> {
     /// Create a new tx submission server state machine for the given mempool and peer.
     pub fn new(
         params: ServerParams,
@@ -55,21 +52,21 @@ where
         }
     }
 
-    /// Start the tx submission server state machine over the given agent channel.
-    /// This function drives the state machine until completion.
-    pub async fn start_server(&mut self, agent_channel: AgentChannel) -> anyhow::Result<()> {
-        let transport = PallasTxServerTransport::new(agent_channel);
-        self.start_server_with_transport(transport).await
-    }
+    // /// Start the tx submission server state machine over the given agent channel.
+    // /// This function drives the state machine until completion.
+    // pub async fn start_server(&mut self, agent_channel: AgentChannel) -> anyhow::Result<()> {
+    //     let transport = PallasTxServerTransport::new(agent_channel);
+    //     self.start_server_with_transport(transport).await
+    // }
 
     /// Core server state machine, parameterized over a transport for testability.
     pub async fn start_server_with_transport<T: TxServerTransport>(
         &mut self,
         mut transport: T,
     ) -> anyhow::Result<()> {
-        info!(peer = %self.state.peer,
+        info!(peer = %self.state.peer(),
             "Started tx submission server for peer {}",
-            self.state.peer
+            self.state.peer()
         );
         transport.wait_for_init().await?;
         let (ack, req) = self.state.request_tx_ids(self.mempool.clone()).await?;
@@ -83,20 +80,25 @@ where
             let tx_reply = transport.receive_next_reply().await?;
             let response = self
                 .state
-                .process_tx_reply(self.mempool.clone(), tx_reply)
+                .process_tx_reply(
+                    self.mempool.clone(),
+                    from_pallas_reply(self.state.peer(), tx_reply)?,
+                )
                 .await?;
             match response {
-                TxResponse::NextTxIds(ack, req) => {
+                TxServerResponse::NextTxIds(ack, req) => {
                     transport
                         .acknowledge_and_request_tx_ids(self.params.blocking, ack, req)
                         .await?;
                 }
-                TxResponse::NextTxs(tx_ids) => {
+                TxServerResponse::NextTxs(tx_ids) => {
                     if let Some(tx_ids) = tx_ids {
-                        transport.request_txs(tx_ids).await?;
+                        transport
+                            .request_txs(tx_ids.into_iter().map(era_tx_id).collect())
+                            .await?;
                     }
                 }
-                TxResponse::Done => {
+                TxServerResponse::Done => {
                     break;
                 }
             }
@@ -105,27 +107,26 @@ where
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tx_submission::conversions::{new_era_tx_id, tx_id_from_era_tx_id};
-    use crate::tx_submission::tests::{
-        Tx, assert_next_message, create_transactions, to_era_tx_bodies, to_era_tx_ids,
+    use crate::consensus::tx_submission::Blocking;
+    use crate::consensus::tx_submission::tests::{
+        MockServerTransport, assert_next_message, create_transaction, create_transactions,
     };
-    use crate::tx_submission::tx_server_transport::tests::MockServerTransport;
-    use crate::tx_submission::{Blocking, new_era_tx_body_from_vec};
     use amaru_kernel::{Hasher, to_cbor};
     use amaru_mempool::strategies::InMemoryMempool;
+    use amaru_network::{era_tx_bodies, era_tx_body_from_vec, era_tx_ids, tx_id_from_era_tx_id};
     use amaru_ouroboros_traits::TxId;
-    use pallas_network::miniprotocols::txsubmission::Message;
+    use pallas_network::miniprotocols::txsubmission::{Message, TxIdAndSize};
+    use pallas_primitives::conway::Tx;
     use tokio::sync::mpsc;
     use tokio::sync::mpsc::{Receiver, Sender};
     use tokio::task::JoinHandle;
 
     #[test]
     fn check_ids() {
-        let tx = Tx::new("0d8d00cdd4657ac84d82f0a56067634a");
-        let tx_id = tx.tx_id();
+        let tx = create_transaction(0);
+        let tx_id = TxId::from(&tx);
         let tx_body = to_cbor(&tx);
         assert_eq!(
             TxId::new(Hasher::<{ 32 * 8 }>::hash(tx_body.as_slice())),
@@ -133,8 +134,8 @@ mod tests {
             "the tx id is the hash of the encoded body"
         );
 
-        let era_tx_id = new_era_tx_id(tx_id.clone());
-        let era_tx_body = new_era_tx_body_from_vec(tx_body.clone());
+        let era_tx_id = era_tx_id(tx_id.clone());
+        let era_tx_body = era_tx_body_from_vec(tx_body.clone());
         assert_eq!(
             tx_id_from_era_tx_id(&era_tx_id),
             tx_id,
@@ -155,8 +156,12 @@ mod tests {
     #[tokio::test]
     async fn test_server() -> anyhow::Result<()> {
         let txs = create_transactions(6);
-        let era_tx_ids = to_era_tx_ids(&txs);
-        let era_tx_bodies = to_era_tx_bodies(&txs);
+        let mut tx_ids = vec![];
+        for tx in &txs {
+            tx_ids.push(TxId::from(tx));
+        }
+        let era_tx_ids = era_tx_ids(&tx_ids);
+        let era_tx_bodies = era_tx_bodies(&txs);
 
         // Create a mempool with no initial transactions
         // since we are going to fetch them from a client
@@ -167,18 +172,18 @@ mod tests {
         let replies = vec![
             Message::Init,
             Message::ReplyTxIds(vec![
-                TxIdAndSize(era_tx_ids[0].clone(), 32),
-                TxIdAndSize(era_tx_ids[1].clone(), 32),
+                TxIdAndSize(era_tx_ids[0].clone(), 50),
+                TxIdAndSize(era_tx_ids[1].clone(), 50),
             ]),
             Message::ReplyTxs(vec![era_tx_bodies[0].clone(), era_tx_bodies[1].clone()]),
             Message::ReplyTxIds(vec![
-                TxIdAndSize(era_tx_ids[2].clone(), 32),
-                TxIdAndSize(era_tx_ids[3].clone(), 32),
+                TxIdAndSize(era_tx_ids[2].clone(), 50),
+                TxIdAndSize(era_tx_ids[3].clone(), 50),
             ]),
             Message::ReplyTxs(vec![era_tx_bodies[2].clone(), era_tx_bodies[3].clone()]),
             Message::ReplyTxIds(vec![
-                TxIdAndSize(era_tx_ids[4].clone(), 32),
-                TxIdAndSize(era_tx_ids[5].clone(), 32),
+                TxIdAndSize(era_tx_ids[4].clone(), 50),
+                TxIdAndSize(era_tx_ids[5].clone(), 50),
             ]),
             Message::ReplyTxs(vec![era_tx_bodies[4].clone(), era_tx_bodies[5].clone()]),
             Message::Done,
@@ -213,7 +218,11 @@ mod tests {
     async fn in_blocking_mode_the_returned_tx_ids_should_respect_the_batch_size()
     -> anyhow::Result<()> {
         let txs = create_transactions(4);
-        let era_tx_ids = to_era_tx_ids(&txs);
+        let mut tx_ids = vec![];
+        for tx in &txs {
+            tx_ids.push(TxId::from(tx));
+        }
+        let era_tx_ids = era_tx_ids(&tx_ids);
 
         // Create a mempool with no initial transactions
         // since we are going to fetch them from a client

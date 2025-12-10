@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use anyhow::anyhow;
 use async_trait::async_trait;
-use pallas_network::miniprotocols::txsubmission;
 use pallas_network::miniprotocols::txsubmission::{
-    EraTxBody, EraTxId, Error, Request, TxIdAndSize,
+    EraTxBody, EraTxId, Error, Message, Request, TxIdAndSize,
 };
+use tokio::sync::mpsc::{Receiver, Sender};
 
 /// Abstraction over the tx-submission wire used by the client state machine.
 ///
@@ -40,40 +41,6 @@ pub trait TxClientTransport: Send {
 pub enum TransportError {
     PallasError(#[from] Error),
     Other(#[from] anyhow::Error),
-}
-
-/// Production adapter around pallas' txsubmission client.
-pub struct PallasTxClientTransport {
-    client: txsubmission::Client,
-}
-
-impl PallasTxClientTransport {
-    pub fn new(client: txsubmission::Client) -> Self {
-        Self { client }
-    }
-}
-
-#[async_trait]
-impl TxClientTransport for PallasTxClientTransport {
-    async fn send_init(&mut self) -> Result<(), TransportError> {
-        Ok(self.client.send_init().await?)
-    }
-
-    async fn send_done(&mut self) -> Result<(), TransportError> {
-        Ok(self.client.send_done().await?)
-    }
-
-    async fn next_request(&mut self) -> Result<Request<EraTxId>, TransportError> {
-        Ok(self.client.next_request().await?)
-    }
-
-    async fn reply_tx_ids(&mut self, ids: Vec<TxIdAndSize<EraTxId>>) -> Result<(), TransportError> {
-        Ok(self.client.reply_tx_ids(ids).await?)
-    }
-
-    async fn reply_txs(&mut self, txs: Vec<EraTxBody>) -> Result<(), TransportError> {
-        Ok(self.client.reply_txs(txs).await?)
-    }
 }
 
 pub struct MockClientTransport {

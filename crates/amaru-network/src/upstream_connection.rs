@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::conversions::{new_era_tx_body, new_era_tx_id, tx_id_from_era_tx_id};
+use crate::tx_submission::conversions::{era_tx_body, era_tx_id, tx_id_from_era_tx_id};
 use crate::{
     chain_sync_client::{ChainSyncClient, to_traverse},
     point::{from_network_point, to_network_point},
@@ -169,16 +169,18 @@ pub async fn actor(
                                         tx_ids
                                             .into_iter()
                                             .map(|(tx_id, size)| {
-                                                TxIdAndSize(new_era_tx_id(tx_id), size)
+                                                TxIdAndSize(era_tx_id(tx_id), size)
                                             })
                                             .collect(),
                                     )
                                     .await?;
                             }
                             Some(TxClientReply::Init { .. }) => {
-                                // extra Init from stage; log and ignore (or handle if you really need)
                                 tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for TxIds");
                                 return Err(anyhow::anyhow!("unexpected TxClientReply::Init"));
+                            }
+                            Some(TxClientReply::Done { .. }) => {
+                                return Err(anyhow::anyhow!("TxClientReply::Done"));
                             }
                             Some(TxClientReply::Txs { .. }) => {
                                 tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Txs while waiting for TxIds");
@@ -207,7 +209,7 @@ pub async fn actor(
                                         tx_ids
                                             .into_iter()
                                             .map(|(tx_id, size)| {
-                                                TxIdAndSize(new_era_tx_id(tx_id), size)
+                                                TxIdAndSize(era_tx_id(tx_id), size)
                                             })
                                             .collect(),
                                     )
@@ -216,6 +218,9 @@ pub async fn actor(
                             Some(TxClientReply::Init { .. }) => {
                                 tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for TxIdsNonBlocking");
                                 return Err(anyhow::anyhow!("unexpected TxClientReply::Init"));
+                            }
+                            Some(TxClientReply::Done { .. }) => {
+                                return Err(anyhow::anyhow!("TxClientReply::Done"));
                             }
                             Some(TxClientReply::Txs { .. }) => {
                                 tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Txs while waiting for TxIdsNonBlocking");
@@ -239,9 +244,12 @@ pub async fn actor(
                         match rx_reply_to_txsub.recv().await {
                             Some(TxClientReply::Txs { txs, .. }) => {
                                 txsubmission
-                                    .reply_txs(txs.iter().map(new_era_tx_body).collect())
+                                    .reply_txs(txs.iter().map(era_tx_body).collect())
                                     .await?;
                                 continue;
+                            }
+                            Some(TxClientReply::Done { .. }) => {
+                                return Err(anyhow::anyhow!("TxClientReply::Done"));
                             }
                             Some(TxClientReply::Init { .. }) => {
                                 tracing::warn!(peer = %peer_clone, "unexpected TxClientReply::Init while waiting for Txs");

@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tracing::{debug};
+use tracing::debug;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxSubmissionClientState {
@@ -40,29 +40,33 @@ impl TxSubmissionClientState {
         }
     }
 
+    pub fn peer(&self) -> &Peer {
+        &self.peer
+    }
+
     pub async fn process_tx_request<Tx: Send + Debug + Sync + 'static>(
         &mut self,
         mempool: Arc<dyn TxSubmissionMempool<Tx>>,
         request: TxServerRequest,
-    ) -> anyhow::Result<TxResponse<Tx>> {
+    ) -> anyhow::Result<TxClientResponse<Tx>> {
         match request {
             TxServerRequest::TxIds { ack, req, .. } => {
                 if req == 0 {
                     debug!(peer = %self.peer,
                         "Requested 0 tx ids, terminating tx submission client",
                     );
-                    return Ok(TxResponse::<Tx>::Done);
+                    return Ok(TxClientResponse::<Tx>::Done);
                 }
                 if !mempool
                     .wait_for_at_least(mempool.last_seq_no().add(req as u64))
                     .await
                 {
-                    return Ok(TxResponse::<Tx>::Done);
+                    return Ok(TxClientResponse::<Tx>::Done);
                 }
                 let tx_ids = self.get_next_tx_ids(mempool, ack, req).await?;
-                Ok(TxResponse::NextIds(tx_ids))
+                Ok(TxClientResponse::NextIds(tx_ids))
             }
-            TxServerRequest::TxIdsNonBlocking { ack, req, .. } => Ok(TxResponse::NextIds(
+            TxServerRequest::TxIdsNonBlocking { ack, req, .. } => Ok(TxClientResponse::NextIds(
                 self.get_next_tx_ids(mempool, ack, req).await?,
             )),
             TxServerRequest::Txs { tx_ids, .. } => {
@@ -70,7 +74,7 @@ impl TxSubmissionClientState {
                     debug!(peer = %self.peer,
                         "Requested 0 txs, terminating tx submission client"
                     );
-                    return Ok(TxResponse::<Tx>::Done);
+                    return Ok(TxClientResponse::<Tx>::Done);
                 }
                 if tx_ids
                     .iter()
@@ -79,13 +83,13 @@ impl TxSubmissionClientState {
                     debug!(peer = %self.peer,
                         "Requested unknown tx ids, terminating tx submission client"
                     );
-                    return Ok(TxResponse::<Tx>::Done);
+                    return Ok(TxClientResponse::<Tx>::Done);
                 }
                 let txs = mempool.get_txs_for_ids(tx_ids.as_slice());
                 if txs.is_empty() {
-                    Ok(TxResponse::<Tx>::Done)
+                    Ok(TxClientResponse::<Tx>::Done)
                 } else {
-                    Ok(TxResponse::NextTxs(txs))
+                    Ok(TxClientResponse::NextTxs(txs))
                 }
             }
         }
@@ -133,7 +137,7 @@ impl TxSubmissionClientState {
     }
 }
 
-pub enum TxResponse<Tx> {
+pub enum TxClientResponse<Tx> {
     Done,
     NextIds(Vec<(TxId, u32)>),
     NextTxs(Vec<Arc<Tx>>),
