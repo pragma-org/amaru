@@ -117,6 +117,14 @@ jobs:
           name: failed-simulation-data
           path: simulation/amaru-sim/test-data
 
+  docker:
+    name: Build Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build . -f docker/Dockerfile.amaru -t dev_amaru
+
   coverage:
     name: Test coverage
     runs-on: ubuntu-latest
