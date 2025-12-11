@@ -17,7 +17,7 @@ use crate::{Anchor, Vote, cbor, heterogeneous_array};
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ballot {
     pub vote: Vote,
-    pub anchor: Option<Anchor>,
+    pub anchor: Option<Box<Anchor>>,
 }
 
 impl<C> cbor::encode::Encode<C> for Ballot {
@@ -61,7 +61,7 @@ pub mod tests {
         ) -> Ballot  {
             Ballot {
                 vote,
-                anchor,
+                anchor: anchor.map(Box::new),
             }
         }
     }

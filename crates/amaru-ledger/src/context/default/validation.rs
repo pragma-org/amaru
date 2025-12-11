@@ -231,7 +231,10 @@ impl ProposalsSlice for DefaultValidationContext {
                 proposal: ComparableProposalId::from(proposal),
                 voter,
             },
-            Ballot { vote, anchor },
+            Ballot {
+                vote,
+                anchor: anchor.map(Box::new),
+            },
         )
     }
 }
