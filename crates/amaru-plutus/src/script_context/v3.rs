@@ -15,7 +15,7 @@
 use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
-    Address, AssetName, Bytes, Certificate as PallasCertificate, Constitution, DRep,
+    Address, AssetName, Bytes, Certificate as PallasCertificate, Constitution, CostModels, DRep,
     DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, PolicyId, PoolVotingThresholds,
     Proposal, ProposalId, ProposalIdAdapter, ProtocolParamUpdate, RationalNumber, StakeCredential,
     StakePayload, Vote,
@@ -448,9 +448,11 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         // TODO: this is from Aiken, need to implement this
-        #[allow(clippy::redundant_pattern_matching)]
-        if let Some(_) = self.cost_models_for_script_languages {
-            unimplemented!("TODO: ToPlutusData for cost models.");
+        if let Some(cost_models) = &self.cost_models_for_script_languages {
+            push(
+                18,
+                <CostModels as ToPlutusData<3>>::to_plutus_data(cost_models),
+            )?;
         }
 
         if let Some(ref p) = self.execution_costs {
@@ -514,6 +516,20 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         Ok(PlutusData::Map(KeyValuePairs::Def(pparams)))
+    }
+}
+
+impl ToPlutusData<3> for CostModels {
+    // TODO: this has to be validated against the Haskell logic, this is a "best guess"
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        constr_v3!(
+            0,
+            [
+                <Option<_> as ToPlutusData<3>>::to_plutus_data(&self.plutus_v1)?,
+                <Option<_> as ToPlutusData<3>>::to_plutus_data(&self.plutus_v2)?,
+                <Option<_> as ToPlutusData<3>>::to_plutus_data(&self.plutus_v3)?,
+            ]
+        )
     }
 }
 
