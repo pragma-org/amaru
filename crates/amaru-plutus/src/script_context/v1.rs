@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap};
+use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
-use amaru_kernel::{Address, AssetName, Hash, StakePayload, TransactionInput};
+use amaru_kernel::{
+    Address, AssetName, Certificate as PallasCertificate, Hash, StakePayload, TransactionInput,
+};
 
 use crate::{
     IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData, constr, constr_v1,
@@ -156,7 +158,7 @@ where
 }
 
 #[allow(clippy::wildcard_enum_match_arm)]
-impl<const V: u8> ToPlutusData<V> for Certificate
+impl<const V: u8> ToPlutusData<V> for Certificate<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
@@ -186,23 +188,23 @@ where
     ///
     /// It is actually not possible (by the ledger serialization) logic to construct a Certificate with a `Pointer`, so this can be hardcoded to `Constr(0, [cred])`
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self {
-            Certificate::StakeRegistration(stake_credential) => {
+        match self.deref() {
+            PallasCertificate::StakeRegistration(stake_credential) => {
                 constr!(0, [constr!(0, [stake_credential])?])
             }
-            Certificate::Reg(stake_credential, _) => {
+            PallasCertificate::Reg(stake_credential, _) => {
                 constr!(0, [constr!(0, [stake_credential])?])
             }
-            Certificate::StakeDeregistration(stake_credential) => {
+            PallasCertificate::StakeDeregistration(stake_credential) => {
                 constr!(1, [constr!(0, [stake_credential])?])
             }
-            Certificate::UnReg(stake_credential, _) => {
+            PallasCertificate::UnReg(stake_credential, _) => {
                 constr!(1, [constr!(0, [stake_credential])?])
             }
-            Certificate::StakeDelegation(stake_credential, hash) => {
+            PallasCertificate::StakeDelegation(stake_credential, hash) => {
                 constr!(2, [constr!(0, [stake_credential])?, hash])
             }
-            Certificate::PoolRegistration {
+            PallasCertificate::PoolRegistration {
                 operator,
                 vrf_keyhash,
                 pledge: _,
@@ -213,7 +215,7 @@ where
                 relays: _,
                 pool_metadata: _,
             } => constr!(3, [operator, vrf_keyhash]),
-            Certificate::PoolRetirement(hash, epoch) => constr!(4, [hash, epoch]),
+            PallasCertificate::PoolRetirement(hash, epoch) => constr!(4, [hash, epoch]),
             certificate => Err(PlutusDataError::unsupported_version(
                 format!("illegal certificate type: {certificate:?}"),
                 V,
@@ -281,7 +283,7 @@ mod tests {
     use super::super::test_vectors::{self, TestVector};
     use super::*;
     use amaru_kernel::network::NetworkName;
-    use amaru_kernel::{MintedTx, OriginalHash, normalize_redeemers, to_cbor};
+    use amaru_kernel::{MintedTx, OriginalHash, PROTOCOL_VERSION_10, normalize_redeemers, to_cbor};
     use test_case::test_case;
 
     const PLUTUS_VERSION: u8 = 1;
@@ -326,6 +328,7 @@ mod tests {
                     &0.into(),
                     network,
                     network.into(),
+                    PROTOCOL_VERSION_10,
                 )
                 .unwrap();
 

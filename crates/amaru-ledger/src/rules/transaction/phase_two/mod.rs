@@ -89,6 +89,7 @@ where
         &pointer.slot,
         *network,
         era_history,
+        protocol_parameters.protocol_version,
     )?;
 
     let scripts_to_execute = tx_info.to_script_contexts();
@@ -151,15 +152,28 @@ where
                     })),
                     _ => Ok(()),
                 },
-                Err(e) => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
-                    plutus_version,
-                    info: result.info,
-                    err: e.to_string(),
-                })),
+                Err(e) => {
+                    eprintln!("Redeemer: {:?}", script_context.redeemer);
+                    eprintln!("Script Context: {:?}", hex::encode(to_cbor(&args[0])));
+                    eprintln!("=======");
+                    Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+                        plutus_version,
+                        info: result.info,
+                        err: e.to_string(),
+                    }))
+                }
             }
         })
         .collect::<Result<Vec<_>, _>>()
         .map(|_| ());
+
+    // eprintln!(
+    //     "Script Result! Tx {} | is_valid {} | is_ok {} | protocol version {:?}",
+    //     hex::encode(transaction_body.original_hash()),
+    //     is_valid,
+    //     script_results.is_ok(),
+    //     protocol_parameters.protocol_version,
+    // );
 
     if is_valid {
         script_results

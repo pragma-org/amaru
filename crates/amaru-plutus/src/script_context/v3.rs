@@ -15,9 +15,10 @@
 use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
-    Address, AssetName, Bytes, Constitution, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
-    GovAction, PolicyId, PoolVotingThresholds, Proposal, ProposalId, ProposalIdAdapter,
-    ProtocolParamUpdate, RationalNumber, StakeCredential, StakePayload, Vote,
+    Address, AssetName, Bytes, Certificate as PallasCertificate, Constitution, DRep,
+    DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, PolicyId, PoolVotingThresholds,
+    Proposal, ProposalId, ProposalIdAdapter, ProtocolParamUpdate, RationalNumber, StakeCredential,
+    StakePayload, Vote,
 };
 use num::Integer;
 
@@ -196,52 +197,62 @@ impl ToPlutusData<3> for DRep {
     }
 }
 
-impl ToPlutusData<3> for Certificate {
+impl ToPlutusData<3> for Certificate<'_> {
+    /// There is a bug in protocol version 9 that omitted the deposit valeus of new certificates.
+    /// This was fixed in protocol version 10, but we must make sure that, for protocol version 9, the bug is included
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self {
-            Certificate::StakeRegistration(stake_credential) => {
+        match self.certificate {
+            PallasCertificate::StakeRegistration(stake_credential) => {
                 constr_v3!(0, [stake_credential, None::<PlutusData>])
             }
-            Certificate::Reg(stake_credential, coin) => {
-                constr_v3!(0, [stake_credential, Some(coin)])
+            PallasCertificate::Reg(stake_credential, coin) => {
+                if self.protocol_verison.0 > 9 {
+                    constr_v3!(0, [stake_credential, Some(coin)])
+                } else {
+                    constr_v3!(0, [stake_credential, None::<PlutusData>])
+                }
             }
-            Certificate::StakeDeregistration(stake_credential) => {
+            PallasCertificate::StakeDeregistration(stake_credential) => {
                 constr_v3!(1, [stake_credential, None::<PlutusData>])
             }
-            Certificate::UnReg(stake_credential, coin) => {
-                constr_v3!(1, [stake_credential, Some(coin)])
+            PallasCertificate::UnReg(stake_credential, coin) => {
+                if self.protocol_verison.0 > 9 {
+                    constr_v3!(1, [stake_credential, Some(coin)])
+                } else {
+                    constr_v3!(1, [stake_credential, None::<PlutusData>])
+                }
             }
-            Certificate::StakeDelegation(stake_credential, pool_id) => {
+            PallasCertificate::StakeDelegation(stake_credential, pool_id) => {
                 constr_v3!(2, [stake_credential, constr_v3!(0, [pool_id])?])
             }
-            Certificate::VoteDeleg(stake_credential, drep) => {
+            PallasCertificate::VoteDeleg(stake_credential, drep) => {
                 constr_v3!(2, [stake_credential, constr_v3!(1, [drep])?])
             }
-            Certificate::StakeVoteDeleg(stake_credential, pool_id, drep) => {
+            PallasCertificate::StakeVoteDeleg(stake_credential, pool_id, drep) => {
                 constr_v3!(2, [stake_credential, constr_v3!(2, [pool_id, drep])?])
             }
-            Certificate::StakeRegDeleg(stake_credential, pool_id, deposit) => {
+            PallasCertificate::StakeRegDeleg(stake_credential, pool_id, deposit) => {
                 constr_v3!(3, [stake_credential, constr_v3!(0, [pool_id])?, deposit])
             }
-            Certificate::VoteRegDeleg(stake_credential, drep, deposit) => {
+            PallasCertificate::VoteRegDeleg(stake_credential, drep, deposit) => {
                 constr_v3!(3, [stake_credential, constr_v3!(1, [drep])?, deposit])
             }
-            Certificate::StakeVoteRegDeleg(stake_credential, pool_id, drep, deposit) => {
+            PallasCertificate::StakeVoteRegDeleg(stake_credential, pool_id, drep, deposit) => {
                 constr_v3!(
                     3,
                     [stake_credential, constr_v3!(2, [pool_id, drep])?, deposit]
                 )
             }
-            Certificate::RegDRepCert(drep_credential, deposit, _anchor) => {
+            PallasCertificate::RegDRepCert(drep_credential, deposit, _anchor) => {
                 constr_v3!(4, [drep_credential, deposit])
             }
-            Certificate::UpdateDRepCert(drep_credential, _anchor) => {
+            PallasCertificate::UpdateDRepCert(drep_credential, _anchor) => {
                 constr_v3!(5, [drep_credential])
             }
-            Certificate::UnRegDRepCert(drep_credential, deposit) => {
+            PallasCertificate::UnRegDRepCert(drep_credential, deposit) => {
                 constr_v3!(6, [drep_credential, deposit])
             }
-            Certificate::PoolRegistration {
+            PallasCertificate::PoolRegistration {
                 operator,
                 vrf_keyhash,
                 pledge: _,
@@ -252,13 +263,13 @@ impl ToPlutusData<3> for Certificate {
                 relays: _,
                 pool_metadata: _,
             } => constr_v3!(7, [operator, vrf_keyhash]),
-            Certificate::PoolRetirement(pool_keyhash, epoch) => {
+            PallasCertificate::PoolRetirement(pool_keyhash, epoch) => {
                 constr_v3!(8, [pool_keyhash, epoch])
             }
-            Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
+            PallasCertificate::AuthCommitteeHot(cold_credential, hot_credential) => {
                 constr_v3!(9, [cold_credential, hot_credential])
             }
-            Certificate::ResignCommitteeCold(cold_credential, _anchor) => {
+            PallasCertificate::ResignCommitteeCold(cold_credential, _anchor) => {
                 constr_v3!(10, [cold_credential])
             }
         }
@@ -630,7 +641,7 @@ mod tests {
     use super::super::test_vectors::{self, TestVector};
     use super::*;
     use amaru_kernel::network::NetworkName;
-    use amaru_kernel::{MintedTx, OriginalHash, normalize_redeemers, to_cbor};
+    use amaru_kernel::{MintedTx, OriginalHash, PROTOCOL_VERSION_10, normalize_redeemers, to_cbor};
     use test_case::test_case;
 
     macro_rules! fixture {
@@ -678,6 +689,7 @@ mod tests {
                     &0.into(),
                     network,
                     network.into(),
+                    PROTOCOL_VERSION_10,
                 )
                 .unwrap();
 
