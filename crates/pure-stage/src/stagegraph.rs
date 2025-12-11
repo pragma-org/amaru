@@ -17,7 +17,6 @@ use crate::{
     BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
     StageBuildRef, StageRef, types::MpscSender,
 };
-use std::time::Duration;
 use std::{
     fmt::Debug,
     future::Future,
@@ -104,13 +103,14 @@ impl<Resp: SendData> CallRef<Resp> {
         }
     }
 
-    pub fn channel() -> (Self, oneshot::Receiver<Box<dyn SendData>>) {
+    /// Create a dummy channel for testing purposes.
+    pub fn channel(deadline: Instant) -> (Self, oneshot::Receiver<Box<dyn SendData>>) {
         let (tx, rx) = oneshot::channel();
         (
             Self {
                 target: Name::from("dummy"),
                 id: CallId::new(),
-                deadline: Instant::now() + Duration::from_secs(1),
+                deadline,
                 response: tx,
                 _ph: PhantomData,
             },

@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use crate::{
-    bytes::DebugBytes,
+    bytes::NonEmptyBytes,
     effects::{Network, NetworkOps},
     protocol::{Erased, ProtocolId, Role},
     socket::ConnectionId,
 };
 use anyhow::Context;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
 use pure_stage::{CallRef, Effects, StageRef, TryInStage};
 #[expect(clippy::disallowed_types)]
@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::{
     cell::RefCell,
     collections::{VecDeque, hash_map::Entry},
+    num::{NonZeroU16, NonZeroUsize},
     time::SystemTime,
 };
 use tracing::{Level, instrument};
@@ -52,8 +53,8 @@ impl Timestamp {
         buffer.put_u32(self.0);
     }
 
-    fn decode(buffer: &mut Bytes) -> Self {
-        Self(buffer.get_u32())
+    fn decode(buffer: &mut Bytes) -> Result<Self, TryGetError> {
+        Ok(Self(buffer.try_get_u32()?))
     }
 }
 
@@ -106,9 +107,9 @@ pub enum MuxMessage {
     /// and without tearing down the connection.
     Buffer(ProtocolId<Erased>, usize),
     /// Send the given message on the protocol ID and notify when enqueued in TCP buffer
-    Send(ProtocolId<Erased>, DebugBytes, CallRef<Sent>),
+    Send(ProtocolId<Erased>, NonEmptyBytes, CallRef<Sent>),
     /// internal message coming from the TCP stream reader
-    FromNetwork(Timestamp, ProtocolId<Erased>, DebugBytes),
+    FromNetwork(Timestamp, ProtocolId<Erased>, NonEmptyBytes),
     /// Notify that the segment has been written to the TCP stream
     Written,
     /// Permit the next invocation of the Protocol with data from the network.
@@ -125,7 +126,7 @@ pub struct State {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Connection {
     Unint(ConnectionId),
-    Init(StageRef<DebugBytes>, StageRef<Read>),
+    Init(StageRef<NonEmptyBytes>, StageRef<Read>),
 }
 
 impl State {
@@ -152,7 +153,7 @@ impl State {
     ) -> (
         &mut Muxer,
         &mut bool,
-        &StageRef<DebugBytes>,
+        &StageRef<NonEmptyBytes>,
         &StageRef<Read>,
     ) {
         match &mut self.conn {
@@ -160,7 +161,7 @@ impl State {
                 let writer = eff
                     .stage(
                         format!("writer-{}", conn),
-                        |(conn, muxer), data: DebugBytes, eff| async move {
+                        |(conn, muxer), data: NonEmptyBytes, eff| async move {
                             Network::new(&eff)
                             .send(conn, data)
                             .await
@@ -205,7 +206,7 @@ async fn handle_msg(
     eff: &Effects<MuxMessage>,
     muxer: &mut Muxer,
     sending: &mut bool,
-    writer: &StageRef<DebugBytes>,
+    writer: &StageRef<NonEmptyBytes>,
     reader: &StageRef<Read>,
 ) -> anyhow::Result<()> {
     match msg {
@@ -221,17 +222,11 @@ async fn handle_msg(
         }
         MuxMessage::Buffer(proto_id, limit) => muxer.buffer(proto_id, limit),
         MuxMessage::Send(proto_id, bytes, sent) => {
-            debug_assert!(
-                !bytes.is_empty(),
-                "sending empty message for protocol {} is forbidden",
-                proto_id
-            );
             tracing::trace!(%proto_id, bytes = bytes.len(), "send");
             muxer.outgoing(proto_id, bytes.into(), sent);
             if !*sending && let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
                 *sending = true;
-                eff.send(writer, Header::encode(proto_id, &bytes).into())
-                    .await;
+                eff.send(writer, Header::encode(proto_id, &bytes)).await;
             }
             Ok(())
         }
@@ -252,8 +247,7 @@ async fn handle_msg(
             *sending = false;
             if let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
                 *sending = true;
-                eff.send(writer, Header::encode(proto_id, &bytes).into())
-                    .await;
+                eff.send(writer, Header::encode(proto_id, &bytes)).await;
             }
             Ok(())
         }
@@ -265,20 +259,28 @@ async fn read_segment(
     _token: Read,
     eff: Effects<Read>,
 ) -> (ConnectionId, StageRef<MuxMessage>) {
-    let mut data = Network::new(&eff)
-        .recv(conn, HEADER_LEN)
-        .await
-        .or_terminate(
-            &eff,
-            async |err| tracing::error!(%err, "failed to receive segment header from network"),
-        )
-        .await;
-    let header = Header::decode(&mut data);
-
-    if header.length == 0 {
-        tracing::warn!("received empty segment");
-        return eff.terminate().await;
-    }
+    let header = loop {
+        let data = Network::new(&eff)
+            .recv(conn, HEADER_LEN)
+            .await
+            .or_terminate(
+                &eff,
+                async |err| tracing::error!(%err, "failed to receive segment header from network"),
+            )
+            .await;
+        let Some(header) = Header::decode(&mut data.into_inner())
+            .or_terminate(
+                &eff,
+                async |err| tracing::error!(%err, "failed to decode segment header"),
+            )
+            .await
+        else {
+            // sending frames without payload data is not explicitly forbidden, so we just ignore them
+            tracing::info!("received empty segment header");
+            continue;
+        };
+        break header;
+    };
 
     let data = Network::new(&eff)
         .recv(conn, header.length.into())
@@ -297,17 +299,21 @@ async fn read_segment(
     (conn, muxer)
 }
 
+/// A header for a segment of data.
+///
+/// While the network spec doesn't explicitly forbid sending frames without payload data,
+/// we never do that and our code will just ignore such frames.
 struct Header {
     timestamp: Timestamp,
     proto_id: ProtocolId<Erased>,
-    length: u16,
+    length: NonZeroU16,
 }
-const HEADER_LEN: usize = 8;
+const HEADER_LEN: NonZeroUsize = NonZeroUsize::new(8).expect("8 is a valid non-zero size");
 
 impl Header {
-    pub fn encode<R: Role>(proto_id: ProtocolId<R>, bytes: impl AsRef<[u8]>) -> Bytes {
+    pub fn encode<R: Role>(proto_id: ProtocolId<R>, bytes: impl AsRef<[u8]>) -> NonEmptyBytes {
         thread_local! {
-            static BUFFER: RefCell<BytesMut> = RefCell::new(BytesMut::with_capacity(HEADER_LEN+MAX_SEGMENT_SIZE));
+            static BUFFER: RefCell<BytesMut> = RefCell::new(BytesMut::with_capacity(HEADER_LEN.get() + MAX_SEGMENT_SIZE));
         }
         let bytes = bytes.as_ref();
         BUFFER.with_borrow_mut(move |buffer| {
@@ -316,16 +322,23 @@ impl Header {
             proto_id.encode(buffer);
             buffer.put_u16(bytes.len() as u16);
             buffer.extend_from_slice(bytes);
-            buffer.copy_to_bytes(buffer.remaining())
+            #[expect(clippy::expect_used)]
+            buffer
+                .copy_to_bytes(buffer.remaining())
+                .try_into()
+                .expect("guaranteed by writing to the buffer")
         })
     }
 
-    pub fn decode(buffer: &mut Bytes) -> Self {
-        Self {
-            timestamp: Timestamp::decode(buffer),
-            proto_id: ProtocolId::decode(buffer),
-            length: buffer.get_u16(),
-        }
+    pub fn decode(buffer: &mut Bytes) -> Result<Option<Self>, TryGetError> {
+        let timestamp = Timestamp::decode(buffer)?;
+        let proto_id = ProtocolId::decode(buffer)?;
+        let length = buffer.try_get_u16()?;
+        Ok(NonZeroU16::new(length).map(|length| Self {
+            timestamp,
+            proto_id,
+            length,
+        }))
     }
 }
 
@@ -625,7 +638,7 @@ mod tests {
     #[tokio::test]
     async fn test_tcp() {
         let _guard = pure_stage::register_data_deserializer::<MuxMessage>();
-        let _guard = pure_stage::register_data_deserializer::<DebugBytes>();
+        let _guard = pure_stage::register_data_deserializer::<NonEmptyBytes>();
         let _guard = pure_stage::register_effect_deserializer::<SendEffect>();
         let _guard = pure_stage::register_effect_deserializer::<RecvEffect>();
         let _guard = pure_stage::register_data_deserializer::<State>();
@@ -675,11 +688,11 @@ mod tests {
             }
         });
 
-        let (cr, cr_rx) = CallRef::channel();
+        let (cr, cr_rx) = CallRef::channel(Instant::at_offset(Duration::from_secs(1)));
         input
             .send(MuxMessage::Send(
                 PROTO_N2C_CHAIN_SYNC.erase(),
-                Bytes::copy_from_slice(&[1, 24, 33]).into(),
+                Bytes::copy_from_slice(&[1, 24, 33]).try_into().unwrap(),
                 cr,
             ))
             .await
@@ -725,7 +738,7 @@ mod tests {
     #[test]
     fn test_muxing() {
         let _guard = pure_stage::register_data_deserializer::<MuxMessage>();
-        let _guard = pure_stage::register_data_deserializer::<DebugBytes>();
+        let _guard = pure_stage::register_data_deserializer::<NonEmptyBytes>();
         let _guard = pure_stage::register_effect_deserializer::<SendEffect>();
         let _guard = pure_stage::register_effect_deserializer::<RecvEffect>();
         let _guard = pure_stage::register_data_deserializer::<State>();
@@ -802,7 +815,7 @@ mod tests {
                 &reader,
                 &RecvEffect {
                     conn: conn_id,
-                    bytes: 8,
+                    bytes: HEADER_LEN,
                 },
             );
         running.run_until_blocked().assert_busy([&reader]);
@@ -819,7 +832,7 @@ mod tests {
                 &mux,
                 [MuxMessage::Send(
                     proto_id.erase(),
-                    Bytes::copy_from_slice(&bytes).into(),
+                    Bytes::copy_from_slice(&bytes).try_into().unwrap(),
                     cr.dummy(),
                 )],
             );
@@ -881,16 +894,20 @@ mod tests {
 
         let recv_header = RecvEffect {
             conn: conn_id,
-            bytes: 8,
+            bytes: HEADER_LEN,
         };
         let recv_msg = |running: &mut SimulationRunning,
                         proto_id: ProtocolId<Initiator>,
                         bytes: &[u8],
                         recv: &[&[u8]]| {
-            let mut msg = Header::encode(proto_id, bytes);
+            let mut msg = Header::encode(proto_id, bytes).into_inner();
             running
-                .resume_external::<RecvEffect>(&reader, Ok(msg.split_to(HEADER_LEN).into()))
+                .resume_external::<RecvEffect>(
+                    &reader,
+                    Ok(msg.split_to(HEADER_LEN.get()).try_into().unwrap()),
+                )
                 .unwrap();
+            let msg = NonEmptyBytes::new(msg).unwrap();
             running
                 .run_until_blocked()
                 .assert_breakpoint("recv")
@@ -902,7 +919,7 @@ mod tests {
                     },
                 );
             running
-                .resume_external::<RecvEffect>(&reader, Ok(msg.into()))
+                .resume_external::<RecvEffect>(&reader, Ok(msg))
                 .unwrap();
             for recv in recv {
                 if recv.is_empty() {
@@ -955,14 +972,14 @@ mod tests {
             data: &[(usize, u8)],
         ) {
             assert_eq!(self.conn, conn);
-            let mut header = self.data.slice(..HEADER_LEN);
-            let header = Header::decode(&mut header);
+            let mut header = self.data.slice(..HEADER_LEN.get());
+            let header = Header::decode(&mut header).unwrap().unwrap();
             assert_eq!(header.proto_id, proto_id);
             assert_eq!(
-                header.length as usize,
+                header.length.get() as usize,
                 data.iter().map(|(len, _)| len).sum::<usize>()
             );
-            let mut bytes = self.data.slice(HEADER_LEN..);
+            let mut bytes = self.data.slice(HEADER_LEN.get()..);
             for &(len, msg) in data {
                 assert_eq!(&bytes.split_to(len), &vec![msg; len]);
             }

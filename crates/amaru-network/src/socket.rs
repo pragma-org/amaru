@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::bytes::NonEmptyBytes;
 use bytes::{Buf, Bytes, BytesMut};
 use parking_lot::Mutex;
-use pure_stage::BoxFuture;
 #[expect(clippy::disallowed_types)]
 use std::collections::HashMap;
 use std::{
     fmt,
     net::SocketAddr,
+    num::NonZeroUsize,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -78,10 +79,10 @@ impl ConnectionResource {
     pub fn connect(
         &self,
         addr: Vec<SocketAddr>,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+    ) -> impl Future<Output = std::io::Result<ConnectionId>> + Send + 'static {
         let resource = self.connections.clone();
         let read_buf_size = self.read_buf_size;
-        Box::pin(async move {
+        async move {
             let (reader, writer) = TcpStream::connect(&*addr).await?.into_split();
             let id = ConnectionId::new();
             resource.lock().insert(
@@ -95,12 +96,16 @@ impl ConnectionResource {
                 },
             );
             Ok(id)
-        })
+        }
     }
 
-    pub fn send(&self, conn: ConnectionId, data: Bytes) -> BoxFuture<'static, std::io::Result<()>> {
+    pub fn send(
+        &self,
+        conn: ConnectionId,
+        data: Bytes,
+    ) -> impl Future<Output = std::io::Result<()>> + Send + 'static {
         let resource = self.connections.clone();
-        Box::pin(async move {
+        async move {
             let connection = resource
                 .lock()
                 .get(&conn)
@@ -111,16 +116,16 @@ impl ConnectionResource {
                 .clone();
             connection.lock().await.write_all(&data).await?;
             Ok(())
-        })
+        }
     }
 
     pub fn recv(
         &self,
         conn: ConnectionId,
-        bytes: usize,
-    ) -> BoxFuture<'static, std::io::Result<Bytes>> {
+        bytes: NonZeroUsize,
+    ) -> impl Future<Output = std::io::Result<NonEmptyBytes>> + Send + 'static {
         let resource = self.connections.clone();
-        Box::pin(async move {
+        async move {
             let connection = resource
                 .lock()
                 .get(&conn)
@@ -131,24 +136,31 @@ impl ConnectionResource {
                 .clone();
             let mut guard = connection.lock().await;
             let (reader, buf) = &mut *guard;
-            buf.reserve(bytes - buf.remaining().min(bytes));
-            while buf.remaining() < bytes {
+            buf.reserve(bytes.get() - buf.remaining().min(bytes.get()));
+            while buf.remaining() < bytes.get() {
                 if reader.read_buf(buf).await? == 0 {
                     return Err(std::io::ErrorKind::UnexpectedEof.into());
                 };
             }
-            Ok(buf.copy_to_bytes(bytes))
-        })
+            #[expect(clippy::expect_used)]
+            Ok(buf
+                .copy_to_bytes(bytes.get())
+                .try_into()
+                .expect("guaranteed by NonZeroUsize"))
+        }
     }
 
-    pub fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>> {
+    pub fn close(
+        &self,
+        conn: ConnectionId,
+    ) -> impl Future<Output = std::io::Result<()>> + Send + 'static {
         let resource = self.connections.clone();
-        Box::pin(async move {
+        async move {
             let connection = resource.lock().remove(&conn).ok_or_else(|| {
                 std::io::Error::other(format!("connection {conn} not found for close"))
             })?;
             connection.writer.lock().await.shutdown().await?;
             Ok(())
-        })
+        }
     }
 }

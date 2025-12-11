@@ -436,13 +436,11 @@ impl Drop for DropGuard {
             return;
         }
         eprintln!("Dropping trace buffer");
-        #[expect(clippy::expect_used)]
         for entry in self.buffer.lock().iter() {
-            eprintln!(
-                "{:?}",
-                from_slice::<TraceEntry>(entry)
-                    .expect("trace buffer is not supposed to contain invalid CBOR")
-            );
+            match from_slice::<TraceEntry>(entry) {
+                Ok(entry) => eprintln!("{entry:?}"),
+                Err(error) => eprintln!("error deserializing trace entry: {error:?}"),
+            };
         }
         eprintln!("Dropped trace buffer");
     }

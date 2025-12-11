@@ -13,20 +13,25 @@
 // limitations under the License.
 
 use crate::{
-    bytes::DebugBytes,
+    bytes::NonEmptyBytes,
     socket::{ConnectionId, ConnectionResource},
     socket_addr::ToSocketAddrs,
 };
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use std::num::NonZeroUsize;
 
 pub trait NetworkOps {
     fn connect(&self, addr: ToSocketAddrs) -> BoxFuture<'static, Result<ConnectionId, String>>;
-    fn send(&self, conn: ConnectionId, data: DebugBytes) -> BoxFuture<'static, Result<(), String>>;
+    fn send(
+        &self,
+        conn: ConnectionId,
+        data: NonEmptyBytes,
+    ) -> BoxFuture<'static, Result<(), String>>;
     fn recv(
         &self,
         conn: ConnectionId,
-        bytes: usize,
-    ) -> BoxFuture<'static, Result<DebugBytes, String>>;
+        bytes: NonZeroUsize,
+    ) -> BoxFuture<'static, Result<NonEmptyBytes, String>>;
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, Result<(), String>>;
 }
 
@@ -43,15 +48,19 @@ impl<T> NetworkOps for Network<'_, T> {
         self.0.external(ConnectEffect { addr })
     }
 
-    fn send(&self, conn: ConnectionId, data: DebugBytes) -> BoxFuture<'static, Result<(), String>> {
+    fn send(
+        &self,
+        conn: ConnectionId,
+        data: NonEmptyBytes,
+    ) -> BoxFuture<'static, Result<(), String>> {
         self.0.external(SendEffect { conn, data })
     }
 
     fn recv(
         &self,
         conn: ConnectionId,
-        bytes: usize,
-    ) -> BoxFuture<'static, Result<DebugBytes, String>> {
+        bytes: NonZeroUsize,
+    ) -> BoxFuture<'static, Result<NonEmptyBytes, String>> {
         self.0.external(RecvEffect { conn, bytes })
     }
 
@@ -93,7 +102,7 @@ impl ExternalEffectAPI for ConnectEffect {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SendEffect {
     pub conn: ConnectionId,
-    pub data: DebugBytes,
+    pub data: NonEmptyBytes,
 }
 
 impl ExternalEffect for SendEffect {
@@ -119,7 +128,7 @@ impl ExternalEffectAPI for SendEffect {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecvEffect {
     pub conn: ConnectionId,
-    pub bytes: usize,
+    pub bytes: NonZeroUsize,
 }
 
 impl ExternalEffect for RecvEffect {
@@ -133,14 +142,13 @@ impl ExternalEffect for RecvEffect {
             resource
                 .recv(self.conn, self.bytes)
                 .await
-                .map(|data| data.into())
                 .map_err(|e| format!("failed to recv data on connection {}: {:#}", self.conn, e))
         })
     }
 }
 
 impl ExternalEffectAPI for RecvEffect {
-    type Response = Result<DebugBytes, String>;
+    type Response = Result<NonEmptyBytes, String>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

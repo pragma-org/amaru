@@ -14,52 +14,70 @@
 
 use bytes::Bytes;
 use std::fmt;
-use std::ops::{Deref, DerefMut};
+use std::num::NonZeroUsize;
+use std::ops::Deref;
 
 // Newtype wrapper for custom Debug.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Default, serde::Serialize, serde::Deserialize)]
 #[repr(transparent)]
-pub struct DebugBytes(Bytes);
+pub struct NonEmptyBytes(Bytes);
 
-impl DebugBytes {
-    pub fn new(bytes: Bytes) -> Self {
-        Self(bytes)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, thiserror::Error)]
+#[error("empty bytes are not allowed")]
+pub struct EmptyBytesError;
+
+impl NonEmptyBytes {
+    pub fn new(bytes: Bytes) -> Result<Self, EmptyBytesError> {
+        if bytes.is_empty() {
+            Err(EmptyBytesError)
+        } else {
+            Ok(Self(bytes))
+        }
+    }
+
+    pub fn into_inner(self) -> Bytes {
+        self.0
+    }
+
+    pub fn len(&self) -> NonZeroUsize {
+        #[expect(clippy::expect_used)]
+        NonZeroUsize::new(self.0.len()).expect("guaranteed by constructor")
     }
 }
 
-impl Deref for DebugBytes {
+impl Deref for NonEmptyBytes {
     type Target = Bytes;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl DerefMut for DebugBytes {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl TryFrom<Bytes> for NonEmptyBytes {
+    type Error = EmptyBytesError;
+
+    fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
+        if bytes.is_empty() {
+            Err(EmptyBytesError)
+        } else {
+            Ok(Self(bytes))
+        }
     }
 }
 
-impl From<Bytes> for DebugBytes {
-    fn from(bytes: Bytes) -> Self {
-        Self(bytes)
-    }
-}
-
-impl From<DebugBytes> for Bytes {
-    fn from(debug_bytes: DebugBytes) -> Self {
+impl From<NonEmptyBytes> for Bytes {
+    fn from(debug_bytes: NonEmptyBytes) -> Self {
         debug_bytes.0
     }
 }
 
-impl fmt::Debug for DebugBytes {
+impl fmt::Debug for NonEmptyBytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let bytes = &self.0;
         let total_len = bytes.len();
         let preview_len = 32.min(total_len);
         let preview = &bytes[0..preview_len];
 
-        let mut preview_hex = String::with_capacity(2 * preview_len * 3);
+        let mut preview_hex = String::with_capacity(2 * preview_len + 3);
         for &b in preview {
             const HEX_CHARS: [u8; 16] = *b"0123456789abcdef";
             preview_hex.push(HEX_CHARS[(b >> 4) as usize] as char);

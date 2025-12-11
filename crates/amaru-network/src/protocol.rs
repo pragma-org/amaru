@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use std::marker::PhantomData;
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -23,8 +23,8 @@ impl<T: Role> ProtocolId<T> {
         buffer.put_u16(self.0);
     }
 
-    pub fn decode(buffer: &mut Bytes) -> Self {
-        Self(buffer.get_u16(), PhantomData)
+    pub fn decode(buffer: &mut Bytes) -> Result<Self, TryGetError> {
+        Ok(Self(buffer.try_get_u16()?, PhantomData))
     }
 }
 

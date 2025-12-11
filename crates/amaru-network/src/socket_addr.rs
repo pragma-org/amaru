@@ -35,7 +35,7 @@ impl ToSocketAddrs {
             Self::IpAddr(addr, port) => Ok(vec![(*addr, *port).into()]),
             Self::IpAddrV4(addr, port) => Ok(vec![(*addr, *port).into()]),
             Self::IpAddrV6(addr, port) => Ok(vec![(*addr, *port).into()]),
-            Self::String(addr) => Ok(lookup_host(&addr).await?.collect()),
+            Self::String(addr) => Ok(lookup_host(&addr).await?.take(100).collect()),
         }
     }
 }

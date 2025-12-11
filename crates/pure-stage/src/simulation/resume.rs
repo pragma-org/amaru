@@ -253,13 +253,13 @@ pub fn resume_add_stage_internal(
 
     if !matches!(waiting_for, StageEffect::AddStage(_)) {
         anyhow::bail!(
-            "stage `{}` was not waiting for a add stage effect, but {:?}",
+            "stage `{}` was not waiting for an add stage effect, but {:?}",
             data.name,
             waiting_for
         )
     }
 
-    // it is important that all validations (i.e. `?``) happen before this point
+    // it is important that all validations (i.e. `?`) happen before this point
     data.waiting = None;
 
     run(data.name.clone(), StageResponse::AddStageResponse(name));
