@@ -160,7 +160,7 @@ impl From<MaxExtraLedgerSnapshots> for u64 {
     }
 }
 
-pub async fn bootstrap(
+pub async fn build_and_run_network(
     config: Config,
     meter_provider: Option<SdkMeterProvider>,
 ) -> anyhow::Result<TokioRunning> {
