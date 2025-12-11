@@ -99,7 +99,6 @@ vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c24
 kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46f6a18925543d785850059569d7e78" }
 
 # dev-dependencies
-criterion = "0.7.0"
 ctor = "0.5.0"
 insta = "1.43.2"
 once_cell = "1.21.3"
