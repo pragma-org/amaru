@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::bootstrap::{ImportError, import_all, import_all_from_directory};
+use amaru::bootstrap::{ImportError, import_snapshots, import_snapshots_from_directory};
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
 use std::path::PathBuf;
@@ -67,9 +67,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     if !args.snapshot.is_empty() {
-        import_all(args.network, &args.snapshot, &ledger_dir).await
+        import_snapshots(args.network, &args.snapshot, &ledger_dir).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
-        import_all_from_directory(args.network, &ledger_dir, &snapshot_dir).await
+        import_snapshots_from_directory(args.network, &ledger_dir, &snapshot_dir).await
     } else {
         Err(ImportError::IncorrectUsage.into())
     }

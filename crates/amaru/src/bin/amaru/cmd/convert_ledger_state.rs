@@ -335,7 +335,7 @@ async fn write_ledger_snapshot(
 #[cfg(test)]
 mod test {
     use super::*;
-    use amaru::bootstrap::import_all;
+    use amaru::bootstrap::import_snapshots;
     use amaru_kernel::network::NetworkName;
     use std::path::PathBuf;
     use tokio::fs;
@@ -398,7 +398,7 @@ mod test {
         ledger_dir: &PathBuf,
         network: NetworkName,
     ) {
-        import_all(network, expected_paths, ledger_dir)
+        import_snapshots(network, expected_paths, ledger_dir)
             .await
             .unwrap_or_else(|e| panic!("fail to import snapshots: {e}\n{expected_paths:?}"));
     }

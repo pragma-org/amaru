@@ -161,7 +161,7 @@ pub async fn bootstrap(
     let snapshots_file: PathBuf = network_dir.join("snapshots.json");
     let snapshots_dir = PathBuf::from(snapshots_dir(network));
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
-    import_all_from_directory(network, &ledger_dir, &snapshots_dir).await?;
+    import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
     import_nonces_for_network(network, &network_dir, &chain_dir).await?;
     import_headers_for_network(&network_dir, &chain_dir).await?;
     Ok(())
@@ -286,7 +286,7 @@ pub async fn import_headers_for_network(
     Ok(())
 }
 
-pub async fn import_all_from_directory(
+pub async fn import_snapshots_from_directory(
     network: NetworkName,
     ledger_dir: &PathBuf,
     snapshot_dir: &PathBuf,
@@ -298,7 +298,7 @@ pub async fn import_all_from_directory(
 
     sort_snapshots_by_slot(&mut snapshots);
 
-    import_all(network, &snapshots, ledger_dir).await
+    import_snapshots(network, &snapshots, ledger_dir).await
 }
 
 fn sort_snapshots_by_slot(snapshots: &mut [PathBuf]) {
@@ -312,14 +312,14 @@ fn sort_snapshots_by_slot(snapshots: &mut [PathBuf]) {
     });
 }
 
-pub async fn import_all(
+pub async fn import_snapshots(
     network: NetworkName,
     snapshots: &Vec<PathBuf>,
     ledger_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing {} snapshots", snapshots.len());
     for snapshot in snapshots {
-        import_one(network, snapshot, ledger_dir).await?;
+        import_snapshot(network, snapshot, ledger_dir).await?;
     }
     Ok(())
 }
@@ -337,7 +337,7 @@ pub enum ImportError {
 }
 
 #[expect(clippy::unwrap_used)]
-pub async fn import_one(
+pub async fn import_snapshot(
     network: NetworkName,
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
