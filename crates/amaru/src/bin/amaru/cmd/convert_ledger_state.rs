@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::bootstrap::InitialNonces;
 use amaru_kernel::{
     Bound, EraHistory, EraParams, Hash, HeaderHash, Nonce, Point, Summary, cbor,
     network::NetworkName,
@@ -20,8 +21,6 @@ use clap::Parser;
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};
 use tracing::{debug, info};
-
-use crate::cmd::import_nonces::InitialNonces;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -336,7 +335,7 @@ async fn write_ledger_snapshot(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::cmd::import_ledger_state::import_all;
+    use amaru::bootstrap::import_all;
     use amaru_kernel::network::NetworkName;
     use std::path::PathBuf;
     use tokio::fs;

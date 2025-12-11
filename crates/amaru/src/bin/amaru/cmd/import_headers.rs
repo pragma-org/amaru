@@ -12,17 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::{WorkerError, default_chain_dir};
-use amaru_kernel::{BlockHeader, IsHeader, from_cbor, network::NetworkName};
-use amaru_ouroboros_traits::ChainStore;
-use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
+use crate::cmd::default_chain_dir;
+use amaru::bootstrap::import_headers_for_network;
+use amaru_kernel::network::NetworkName;
 use clap::Parser;
-use std::{
-    error::Error,
-    path::{Path, PathBuf},
-};
-use tokio::{fs::File, io::AsyncReadExt};
-use tracing::{Level, error, info, instrument, warn};
+use std::path::PathBuf;
+use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -79,47 +74,4 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     import_headers_for_network(&network_dir, &chain_dir).await
-}
-
-#[allow(clippy::unwrap_used)]
-#[instrument(level = Level::INFO, name = "import_headers")]
-pub(crate) async fn import_headers_for_network(
-    config_dir: &Path,
-    chain_dir: &PathBuf,
-) -> Result<(), Box<dyn Error>> {
-    let db = RocksDBStore::open_and_migrate(RocksDbConfig::new(chain_dir.into()))?;
-
-    for entry in std::fs::read_dir(config_dir.join("headers"))? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file()
-            && let Some(filename) = path.file_name().and_then(|f| f.to_str())
-            && filename.starts_with("header.")
-            && filename.ends_with(".cbor")
-        {
-            let mut file = File::open(&path).await
-                .inspect_err(|reason| error!(file = %path.display(), reason = %reason, "Failed to open header file"))
-                .map_err(|_| WorkerError::Panic)?;
-
-            let mut cbor_data = Vec::new();
-            file.read_to_end(&mut cbor_data).await
-                .inspect_err(|reason| error!(file = %path.display(), reason = %reason, "Failed to read header file"))
-                .map_err(|_| WorkerError::Panic)?;
-
-            let header_from_file: BlockHeader = from_cbor(&cbor_data).unwrap();
-            let hash = header_from_file.hash();
-
-            info!(
-                hash = hash.to_string().chars().take(8).collect::<String>(),
-                "inserting header"
-            );
-
-            db.store_header(&header_from_file)
-                .map_err(|_| WorkerError::Panic)?;
-        } else {
-            warn!(file = %path.display(), "not a header file; ignoring");
-        }
-    }
-
-    Ok(())
 }

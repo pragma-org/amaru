@@ -14,18 +14,11 @@
 
 use amaru_kernel::network::NetworkName;
 
-pub mod point;
-
-/// Sync pipeline
-///
-/// The sync pipeline is responsible for fetching blocks from the upstream node and
-/// applying them to the local chain.
-pub mod stages;
-
-pub mod observability;
-
-/// Generic exit handler
+pub mod bootstrap;
 pub mod exit;
+pub mod observability;
+pub mod point;
+pub mod stages;
 
 pub const SNAPSHOTS_DIR: &str = "snapshots";
 
