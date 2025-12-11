@@ -16,7 +16,6 @@ rust-version.workspace = true
 acto.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
-binrw.workspace = true
 bytes = { workspace = true, features = ["serde"] }
 cbor-data.workspace = true
 futures-util.workspace = true
@@ -28,7 +27,6 @@ serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-trait-variant.workspace = true
 
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true

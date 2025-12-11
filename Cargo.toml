@@ -22,7 +22,6 @@ async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 async-trait = "0.1.83"
 assert-json-diff = "2.0.2"
 bech32 = "0.11.0"
-binrw = "0.15.0"
 bytes = "1.10.1"
 cbor-data = "0.8.19"
 cbor4ii = { version = "1.1.1", features = ["serde1", "use_std"] }
@@ -74,7 +73,6 @@ tracing-subscriber = { version = "0.3.20", features = [
   "std",
   "json",
 ] }
-trait-variant = "0.1.2"
 typetag = "0.2.21"
 
 # Internal dependencies
