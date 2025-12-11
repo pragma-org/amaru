@@ -15,7 +15,7 @@ use uplc_turbo::{
     constant::Constant,
     data::PlutusData,
     flat,
-    machine::{MachineInfo, PlutusVersion},
+    machine::{ExBudget, MachineInfo, PlutusVersion},
     term::Term,
 };
 
@@ -138,10 +138,14 @@ where
                 program = program.apply(&arena, term);
             }
 
-            // let budget = script_context.budget();
+            let budget = script_context.budget();
 
-            // There is no API in UPLC to provide a budget to the program
-            let result = program.eval_version_with_model(&arena, plutus_version, &cost_model);
+            let uplc_budget = ExBudget {
+                mem: budget.mem as i64,
+                cpu: budget.steps as i64,
+            };
+
+            let result = program.eval_with_params(&arena, plutus_version, &cost_model, uplc_budget);
 
             match result.term {
                 Ok(term) => match term {
@@ -152,28 +156,15 @@ where
                     })),
                     _ => Ok(()),
                 },
-                Err(e) => {
-                    eprintln!("Redeemer: {:?}", script_context.redeemer);
-                    eprintln!("Script Context: {:?}", hex::encode(to_cbor(&args[0])));
-                    eprintln!("=======");
-                    Err(PhaseTwoError::UplcMachineError(UplcMachineError {
-                        plutus_version,
-                        info: result.info,
-                        err: e.to_string(),
-                    }))
-                }
+                Err(e) => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+                    plutus_version,
+                    info: result.info,
+                    err: e.to_string(),
+                })),
             }
         })
         .collect::<Result<Vec<_>, _>>()
         .map(|_| ());
-
-    // eprintln!(
-    //     "Script Result! Tx {} | is_valid {} | is_ok {} | protocol version {:?}",
-    //     hex::encode(transaction_body.original_hash()),
-    //     is_valid,
-    //     script_results.is_ok(),
-    //     protocol_parameters.protocol_version,
-    // );
 
     if is_valid {
         script_results
