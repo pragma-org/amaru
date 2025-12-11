@@ -3306,7 +3306,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.52.0",
  "windows-sys 0.59.0",
 ]
 
@@ -3852,7 +3851,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 [[package]]
 name = "uplc-turbo"
 version = "0.1.0"
-source = "git+https://github.com/pragma-org/uplc#65470b9626c3aed6d5e7d8c8b58f2a7eb5358582"
+source = "git+https://github.com/pragma-org/uplc#8eba50589afce4b1d50fc5cb5483eec3b9a647b8"
 dependencies = [
  "blst",
  "bumpalo",
