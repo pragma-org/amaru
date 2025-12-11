@@ -13,16 +13,16 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AddrKeyhash, Address, AddressError, AlonzoValue, AssetName, Bytes, CborWrap, Certificate,
-    ComputeHash, DatumHash, EraHistory, ExUnits, HasIndex, HasOwnership, HasScriptHash, Hash,
-    KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
-    MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-    MintedWitnessSet, NativeScript, Network, NonEmptyKeyValuePairs, NonEmptySet, Nullable,
-    PlutusData, PlutusScript, PolicyId, Proposal, ProposalIdAdapter, PseudoScript, Redeemer,
-    RedeemerAdapter, RewardAccount, ScriptPurpose as RedeemerTag, Slot, StakeCredential,
-    StakePayload, TransactionId, TransactionInput, TransactionInputAdapter, Vote, Voter,
-    VotingProcedures, network::NetworkName, normalize_redeemers,
-    protocol_parameters::GlobalParameters,
+    AddrKeyhash, Address, AddressError, AlonzoValue, AssetName, Bytes, CborWrap,
+    Certificate as PallasCertificate, ComputeHash, DatumHash, EraHistory, ExUnits, HasIndex,
+    HasOwnership, HasScriptHash, Hash, KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum,
+    MemoizedScript, MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef,
+    MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, NativeScript, Network,
+    NonEmptyKeyValuePairs, NonEmptySet, Nullable, PlutusData, PlutusScript, PolicyId, Proposal,
+    ProposalIdAdapter, ProtocolVersion, PseudoScript, Redeemer, RedeemerAdapter, RewardAccount,
+    ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload, TransactionId,
+    TransactionInput, TransactionInputAdapter, Vote, Voter, VotingProcedures, network::NetworkName,
+    normalize_redeemers, protocol_parameters::GlobalParameters,
 };
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 use itertools::Itertools;
@@ -165,7 +165,7 @@ pub struct TxInfo<'a> {
     outputs: Vec<TransactionOutput<'a>>,
     fee: Lovelace,
     mint: Mint<'a>,
-    certificates: Vec<&'a Certificate>,
+    certificates: Vec<Certificate<'a>>,
     withdrawals: Withdrawals,
     valid_range: TimeRange,
     signatories: RequiredSigners,
@@ -222,6 +222,7 @@ impl<'a> TxInfo<'a> {
         slot: &Slot,
         network: NetworkName,
         era_history: &EraHistory,
+        protocol_version: ProtocolVersion,
     ) -> Result<Self, TxInfoTranslationError> {
         let mut scripts: BTreeMap<Hash<28>, Script<'_>> = BTreeMap::new();
         let inputs = Self::translate_inputs(&tx.inputs, utxos, &mut scripts)?;
@@ -240,10 +241,17 @@ impl<'a> TxInfo<'a> {
 
         let mint = tx.mint.as_ref().map(Mint::from).unwrap_or_default();
 
-        let certificates: Vec<&'a Certificate> = tx
+        let certificates: Vec<Certificate<'a>> = tx
             .certificates
             .as_ref()
-            .map(|set| set.iter().collect())
+            .map(|set| {
+                set.iter()
+                    .map(|certificate| Certificate {
+                        protocol_verison: protocol_version.clone(),
+                        certificate,
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
         let withdrawals = tx
@@ -405,7 +413,7 @@ pub enum ScriptInfo<'a, T: Clone> {
     Minting(PolicyId),
     Spending(&'a TransactionInput, T),
     Rewarding(StakeCredential),
-    Certifying(usize, &'a Certificate),
+    Certifying(usize, Certificate<'a>),
     Voting(&'a Voter),
     Proposing(usize, &'a Proposal),
 }
@@ -417,7 +425,7 @@ impl<'a> ScriptPurpose<'a> {
         inputs: &[OutputRef<'a>],
         mint: &Mint<'a>,
         withdrawals: &Withdrawals,
-        certs: &[&'a Certificate],
+        certs: &[Certificate<'a>],
         proposal_procedures: &[&'a Proposal],
         votes: &Votes<'a>,
         scripts: &BTreeMap<Hash<28>, Script<'a>>,
@@ -466,7 +474,7 @@ impl<'a> ScriptPurpose<'a> {
                     let script = scripts.get(&hash);
                     script.map(|script| {
                         script_table.insert(redeemer.clone().into(), script.clone());
-                        ScriptPurpose::Certifying(index, certificate)
+                        ScriptPurpose::Certifying(index, certificate.clone())
                     })
                 } else {
                     None
@@ -524,7 +532,7 @@ impl<'a> ScriptPurpose<'a> {
             ScriptInfo::Spending(input, _) => ScriptInfo::Spending(input, data),
             ScriptInfo::Minting(p) => ScriptInfo::Minting(*p),
             ScriptInfo::Rewarding(s) => ScriptInfo::Rewarding(s.clone()),
-            ScriptInfo::Certifying(i, c) => ScriptInfo::Certifying(*i, c),
+            ScriptInfo::Certifying(i, c) => ScriptInfo::Certifying(*i, c.clone()),
             ScriptInfo::Voting(v) => ScriptInfo::Voting(v),
             ScriptInfo::Proposing(i, p) => ScriptInfo::Proposing(*i, p),
         }
@@ -969,6 +977,22 @@ impl<'a> From<&'a amaru_kernel::RequiredSigners> for RequiredSigners {
 #[doc(hidden)]
 #[derive(Default)]
 pub struct Withdrawals(pub BTreeMap<StakeAddress, Lovelace>);
+
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct Certificate<'a> {
+    // There is a bug in conway protocol 9 that means we have to change our serialization logic depending on the protocol version
+    protocol_verison: ProtocolVersion,
+    certificate: &'a PallasCertificate,
+}
+
+impl<'a> Deref for Certificate<'a> {
+    type Target = PallasCertificate;
+
+    fn deref(&self) -> &Self::Target {
+        self.certificate
+    }
+}
 
 #[doc(hidden)]
 #[derive(Clone, Debug)]
