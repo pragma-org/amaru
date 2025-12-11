@@ -47,7 +47,7 @@ pub struct Args {
     /// needed for bootstrapping. Given a source directory `data`, and a
     /// a network name of `preview`, the expected layout for configuration files would be:
     ///
-    /// * `data/preview/snapshots.json`: a list of `Snapshot` vaalues,
+    /// * `data/preview/snapshots.json`: a list of `Snapshot` values,
     /// * `data/preview/nonces.json`: a list of `InitialNonces` values,
     /// * `data/preview/headers.json`: a list of `Point`s.
     #[arg(
