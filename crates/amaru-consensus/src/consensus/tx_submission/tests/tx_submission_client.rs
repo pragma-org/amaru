@@ -50,8 +50,8 @@ impl TxSubmissionClient<Tx> {
     }
 
     /// Core state machine, parameterized over a transport for testability.
-    pub async fn start_client_with_transport<T: TxClientTransport>(
-        &mut self,
+    pub async fn start_client_with_transport<T: TxClientTransport + Send + 'static>(
+        mut self,
         mut transport: T,
     ) -> anyhow::Result<()> {
         transport.send_init().await?;
@@ -294,7 +294,7 @@ mod tests {
         Receiver<Message<EraTxId, EraTxBody>>,
         JoinHandle<anyhow::Result<()>>,
     )> {
-        let mut client = TxSubmissionClient::new(mempool.clone(), &Peer::new("peer-1"));
+        let client = TxSubmissionClient::new(mempool.clone(), &Peer::new("peer-1"));
 
         let (tx_req, rx_req) = mpsc::channel(10);
         let (tx_messages, rx_messages) = mpsc::channel(10);
@@ -302,8 +302,7 @@ mod tests {
 
         let transport = MockClientTransport::new(rx_req, tx_observe_messages, tx_messages);
 
-        let client_handle =
-            tokio::spawn(async move { client.start_client_with_transport(transport).await });
+        let client_handle = tokio::spawn(client.start_client_with_transport(transport));
         Ok((tx_req, rx_messages, rx_observe_messages, client_handle))
     }
 }

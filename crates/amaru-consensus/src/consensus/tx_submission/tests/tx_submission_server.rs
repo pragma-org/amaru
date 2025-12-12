@@ -49,8 +49,8 @@ impl TxSubmissionServer<Tx> {
     }
 
     /// Core server state machine, parameterized over a transport for testability.
-    pub async fn start_server_with_transport<T: TxServerTransport>(
-        &mut self,
+    pub async fn start_server_with_transport<T: TxServerTransport + Send + 'static>(
+        mut self,
         mut transport: T,
     ) -> anyhow::Result<()> {
         info!(peer = %self.state.peer(),
@@ -186,25 +186,25 @@ mod tests {
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
         )
-        .await?;
+            .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
         )
-        .await?;
+            .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[4].clone(), era_tx_ids[5].clone()]),
         )
-        .await?;
+            .await?;
         Ok(())
     }
 
     #[tokio::test]
     async fn in_blocking_mode_the_returned_tx_ids_should_respect_the_batch_size()
-    -> anyhow::Result<()> {
+        -> anyhow::Result<()> {
         let txs = create_transactions(4);
         let mut tx_ids = vec![];
         for tx in &txs {
@@ -241,7 +241,7 @@ mod tests {
         Receiver<Message<EraTxId, EraTxBody>>,
         JoinHandle<anyhow::Result<()>>,
     )> {
-        let mut server = TxSubmissionServer::new(
+        let server = TxSubmissionServer::new(
             ServerParams::new(10, 2),
             mempool.clone(),
             Peer::new("peer-1"),
@@ -252,8 +252,7 @@ mod tests {
 
         let transport = MockServerTransport::new(rx_reply, tx_message);
 
-        let server_handle =
-            tokio::spawn(async move { server.start_server_with_transport(transport).await });
+        let server_handle = tokio::spawn(server.start_server_with_transport(transport));
         Ok((tx_reply, rx_message, server_handle))
     }
 }

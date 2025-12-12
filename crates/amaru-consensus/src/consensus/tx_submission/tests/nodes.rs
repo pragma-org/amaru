@@ -42,8 +42,8 @@ impl ClientServerNodes {
         let ClientServerNodes {
             client_mempool,
             server_mempool,
-            mut client,
-            mut server,
+            client,
+            server,
             transport,
         } = self;
         let MockTransport {
@@ -51,11 +51,9 @@ impl ClientServerNodes {
             server_transport,
             rx_observe_messages,
         } = transport;
-        let server_handle =
-            tokio::spawn(async move { server.start_server_with_transport(server_transport).await });
+        let server_handle = tokio::spawn(server.start_server_with_transport(server_transport));
 
-        let client_handle =
-            tokio::spawn(async move { client.start_client_with_transport(client_transport).await });
+        let client_handle = tokio::spawn(client.start_client_with_transport(client_transport));
 
         NodeHandle {
             client_mempool,
