@@ -32,21 +32,16 @@ use tokio::sync::Notify;
 ///
 /// The validation of the transactions are delegated to a `CanValidateTransactions` implementation.
 ///
+#[derive(Clone)]
 pub struct InMemoryMempool<Tx> {
     config: MempoolConfig,
-    inner: parking_lot::RwLock<MempoolInner<Tx>>,
-    notify: Notify,
+    inner: Arc<parking_lot::RwLock<MempoolInner<Tx>>>,
     tx_validator: Arc<dyn CanValidateTransactions<Tx>>,
 }
 
 impl<Tx> Default for InMemoryMempool<Tx> {
     fn default() -> Self {
-        InMemoryMempool {
-            config: MempoolConfig::default(),
-            inner: parking_lot::RwLock::new(MempoolInner::default()),
-            notify: Notify::new(),
-            tx_validator: Arc::new(DefaultCanValidateTransactions),
-        }
+        Self::from_config(MempoolConfig::default())
     }
 }
 
@@ -54,8 +49,7 @@ impl<Tx> InMemoryMempool<Tx> {
     pub fn new(config: MempoolConfig, tx_validator: Arc<dyn CanValidateTransactions<Tx>>) -> Self {
         InMemoryMempool {
             config,
-            inner: parking_lot::RwLock::new(MempoolInner::default()),
-            notify: Notify::new(),
+            inner: Arc::new(parking_lot::RwLock::new(MempoolInner::default())),
             tx_validator,
         }
     }
@@ -80,6 +74,7 @@ struct MempoolInner<Tx> {
     next_seq: u64,
     entries_by_id: BTreeMap<TxId, MempoolEntry<Tx>>,
     entries_by_seq: BTreeMap<MempoolSeqNo, TxId>,
+    notify: Arc<Notify>,
 }
 
 impl<Tx> Default for MempoolInner<Tx> {
@@ -88,6 +83,7 @@ impl<Tx> Default for MempoolInner<Tx> {
             next_seq: 1,
             entries_by_id: Default::default(),
             entries_by_seq: Default::default(),
+            notify: Arc::new(Notify::new()),
         }
     }
 }
@@ -200,9 +196,10 @@ impl<Tx: Send + Sync + 'static + Encode<()> + Clone> TxSubmissionMempool<Tx>
     for InMemoryMempool<Tx>
 {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
-        let res = self.inner.write().insert(&self.config, tx, tx_origin);
+        let mut inner = self.inner.write();
+        let res = inner.insert(&self.config, tx, tx_origin);
         if res.is_ok() {
-            self.notify.notify_waiters();
+            inner.notify.notify_waiters();
         }
         res
     }
@@ -221,15 +218,21 @@ impl<Tx: Send + Sync + 'static + Encode<()> + Clone> TxSubmissionMempool<Tx>
     ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         Box::pin(async move {
             loop {
-                // TODO: make sure that transactions are valid before returning
-                // So we can make sure to send enough valid transactions upstream
-                let notified = self.notify.notified();
-                let current_seq = { self.inner.read().next_seq };
-                if current_seq >= seq_no.0 {
+                // Prepare a notification future first to avoid races where we miss a notify
+                // between the check and awaiting.
+                let (current_next_seq, notify) = {
+                    let inner = self.inner.read();
+                    (inner.next_seq, inner.notify.clone())
+                };
+                let notified = notify.notified();
+
+                // Check if we already reached the requested sequence number.
+                // (No lock guard is held across the await.)
+                if current_next_seq >= seq_no.0 {
                     return true;
                 }
 
-                // Wait until someone inserts a new transaction and notifies us
+                // Wait until someone inserts a new transaction and notifies us.
                 notified.await;
             }
         })

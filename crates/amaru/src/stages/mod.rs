@@ -254,7 +254,7 @@ pub async fn bootstrap(
         .put::<ResourceHeaderStore>(chain_store.clone());
     network
         .resources()
-        .put::<ResourceMempool>(Arc::new(InMemoryMempool::default()));
+        .put::<ResourceMempool>(InMemoryMempool::default());
     network
         .resources()
         .put::<ResourceParameters>(global_parameters.clone());
