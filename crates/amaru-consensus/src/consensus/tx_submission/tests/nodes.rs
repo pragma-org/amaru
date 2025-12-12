@@ -38,7 +38,7 @@ pub struct ClientServerNodes {
 
 impl ClientServerNodes {
     /// Starts the client and server asynchronously.
-    pub fn start(self) -> NodeHandle {
+    pub fn start(self) -> NodesHandle {
         let ClientServerNodes {
             client_mempool,
             server_mempool,
@@ -55,7 +55,7 @@ impl ClientServerNodes {
 
         let client_handle = tokio::spawn(client.start_client_with_transport(client_transport));
 
-        NodeHandle {
+        NodesHandle {
             client_mempool,
             server_mempool,
             rx_observe_messages,
@@ -108,7 +108,7 @@ pub fn create_node_with(server_options: ServerOptions) -> ClientServerNodes {
 
 /// A handle to a running test node, allowing access to its mempools and transport.
 /// It can be aborted to stop the client and server tasks.
-pub struct NodeHandle {
+pub struct NodesHandle {
     pub server_mempool: Arc<dyn Mempool<Tx>>,
     pub client_mempool: Arc<dyn Mempool<Tx>>,
     pub rx_observe_messages: Receiver<Message<EraTxId, EraTxBody>>,
@@ -116,13 +116,13 @@ pub struct NodeHandle {
     _server_handle: JoinHandle<anyhow::Result<()>>,
 }
 
-impl Drop for NodeHandle {
+impl Drop for NodesHandle {
     fn drop(&mut self) {
         self.abort()
     }
 }
 
-impl NodeHandle {
+impl NodesHandle {
     pub fn abort(&self) {
         self._client_handle.abort();
         self._server_handle.abort();

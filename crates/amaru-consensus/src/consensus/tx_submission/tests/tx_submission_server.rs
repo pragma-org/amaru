@@ -186,25 +186,25 @@ mod tests {
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
         )
-            .await?;
+        .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
         )
-            .await?;
+        .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[4].clone(), era_tx_ids[5].clone()]),
         )
-            .await?;
+        .await?;
         Ok(())
     }
 
     #[tokio::test]
     async fn in_blocking_mode_the_returned_tx_ids_should_respect_the_batch_size()
-        -> anyhow::Result<()> {
+    -> anyhow::Result<()> {
         let txs = create_transactions(4);
         let mut tx_ids = vec![];
         for tx in &txs {

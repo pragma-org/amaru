@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::tx_submission::tests::NodeHandle;
+use crate::consensus::tx_submission::tests::NodesHandle;
 use amaru_network::{era_tx_body, era_tx_ids};
 use amaru_ouroboros_traits::{Mempool, TxId};
 use pallas_network::miniprotocols::txsubmission::Message::{ReplyTxIds, ReplyTxs};
@@ -25,7 +25,7 @@ use tokio::time::{sleep, timeout};
 
 /// Check that all the given transactions are eventually present in the server mempool.
 #[track_caller]
-pub async fn expect_server_transactions(txs: Vec<Tx>, node_handle: &NodeHandle) {
+pub async fn expect_server_transactions(txs: Vec<Tx>, node_handle: &NodesHandle) {
     let server_mempool: Arc<dyn Mempool<Tx>> = node_handle.server_mempool.clone();
     let tx_ids: Vec<_> = txs.iter().map(TxId::from).collect();
     let mut actual = vec![];
