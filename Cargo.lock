@@ -2252,7 +2252,7 @@ checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
 [[package]]
 name = "pallas-addresses"
 version = "0.33.0"
-source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#0f3d3dc98cca60749384118946e2b825b411c7ce"
+source = "git+https://github.com/txpipe/pallas.git?branch=lts%2Fv0#59350de9c1d401fa972cae1e184b35a49ec60dfe"
 dependencies = [
  "base58",
  "bech32 0.9.1",
@@ -2267,7 +2267,7 @@ dependencies = [
 [[package]]
 name = "pallas-codec"
 version = "0.33.0"
-source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#0f3d3dc98cca60749384118946e2b825b411c7ce"
+source = "git+https://github.com/txpipe/pallas.git?branch=lts%2Fv0#59350de9c1d401fa972cae1e184b35a49ec60dfe"
 dependencies = [
  "hex",
  "minicbor",
@@ -2278,7 +2278,7 @@ dependencies = [
 [[package]]
 name = "pallas-crypto"
 version = "0.33.0"
-source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#0f3d3dc98cca60749384118946e2b825b411c7ce"
+source = "git+https://github.com/txpipe/pallas.git?branch=lts%2Fv0#59350de9c1d401fa972cae1e184b35a49ec60dfe"
 dependencies = [
  "cryptoxide",
  "hex",
@@ -2292,7 +2292,7 @@ dependencies = [
 [[package]]
 name = "pallas-math"
 version = "0.33.0"
-source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#0f3d3dc98cca60749384118946e2b825b411c7ce"
+source = "git+https://github.com/txpipe/pallas.git?branch=lts%2Fv0#59350de9c1d401fa972cae1e184b35a49ec60dfe"
 dependencies = [
  "dashu-base",
  "dashu-int",
@@ -2303,7 +2303,7 @@ dependencies = [
 [[package]]
 name = "pallas-network"
 version = "0.33.0"
-source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#0f3d3dc98cca60749384118946e2b825b411c7ce"
+source = "git+https://github.com/txpipe/pallas.git?branch=lts%2Fv0#59350de9c1d401fa972cae1e184b35a49ec60dfe"
 dependencies = [
  "byteorder",
  "hex",
@@ -2321,7 +2321,7 @@ dependencies = [
 [[package]]
 name = "pallas-primitives"
 version = "0.33.0"
-source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#0f3d3dc98cca60749384118946e2b825b411c7ce"
+source = "git+https://github.com/txpipe/pallas.git?branch=lts%2Fv0#59350de9c1d401fa972cae1e184b35a49ec60dfe"
 dependencies = [
  "base58",
  "bech32 0.9.1",
@@ -2336,7 +2336,7 @@ dependencies = [
 [[package]]
 name = "pallas-traverse"
 version = "0.33.0"
-source = "git+https://github.com/etorreborre/pallas.git?branch=etorreborre%2Ffeat%2Fadd-instances-lts#0f3d3dc98cca60749384118946e2b825b411c7ce"
+source = "git+https://github.com/txpipe/pallas.git?branch=lts%2Fv0#59350de9c1d401fa972cae1e184b35a49ec60dfe"
 dependencies = [
  "hex",
  "itertools 0.13.0",
