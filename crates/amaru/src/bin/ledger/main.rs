@@ -13,10 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::{observability::setup_observability, panic::panic_handler};
 use clap::{Parser, Subcommand};
-
-use amaru::observability::{self, OpenTelemetryConfig};
-use amaru::panic::panic_handler;
+use tracing::info;
 
 mod cmd;
 
@@ -68,39 +67,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Cli::parse();
 
-    let mut subscriber = observability::TracingSubscriber::new();
+    info!(
+        with_open_telemetry = args.with_open_telemetry,
+        with_json_traces = args.with_json_traces,
+        service_name = args.service_name,
+        otlp_span_url = args.otlp_span_url,
+        otlp_metric_url = args.otlp_metric_url,
+        "Started with global arguments"
+    );
 
-    let (
-        observability::OpenTelemetryHandle {
-            metrics: _metrics,
-            teardown,
-        },
-        warning_otlp,
-    ) = if args.with_open_telemetry {
-        observability::setup_open_telemetry(
-            &OpenTelemetryConfig {
-                service_name: args.service_name,
-                span_url: args.otlp_span_url,
-                metric_url: args.otlp_metric_url,
-            },
-            &mut subscriber,
-        )
-    } else {
-        (observability::OpenTelemetryHandle::default(), None)
-    };
-
-    let warning_json = if args.with_json_traces {
-        observability::setup_json_traces(&mut subscriber)
-    } else {
-        None
-    };
-
-    subscriber.init();
-
-    // NOTE: Both warnings are bound to the same ENV var, so `.or` prevents from logging it twice.
-    if let Some(notify) = warning_otlp.or(warning_json) {
-        notify();
-    }
+    let (_metrics, teardown) = setup_observability(
+        args.with_open_telemetry,
+        args.with_json_traces,
+        args.service_name,
+        args.otlp_span_url,
+        args.otlp_metric_url,
+    );
 
     let result = match args.command {
         Command::Sync(args) => cmd::sync::run(args).await,

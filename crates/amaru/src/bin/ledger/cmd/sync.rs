@@ -92,7 +92,7 @@ fn list_archive_names(network: NetworkName) -> Result<Vec<String>, Box<dyn std::
         })
         .collect();
 
-    fn extract_slot(s: &String) -> Option<u32> {
+    fn extract_slot(s: &str) -> Option<u32> {
         s.split_once(".")
             .and_then(|(prefix, _)| prefix.parse::<u32>().ok())
     }

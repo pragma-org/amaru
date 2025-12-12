@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use amaru::observability::{
-    self, DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL,
-    OpenTelemetryConfig,
+    DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL, setup_observability,
 };
 use amaru::panic::panic_handler;
 
@@ -136,35 +135,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get_matches();
     let args = <Cli as FromArgMatches>::from_arg_matches(&matches)?;
 
-    let mut subscriber = observability::TracingSubscriber::new();
-
-    let (observability::OpenTelemetryHandle { metrics, teardown }, warning_otlp) =
-        if args.with_open_telemetry {
-            observability::setup_open_telemetry(
-                &OpenTelemetryConfig {
-                    service_name: args.otlp_service_name.clone(),
-                    span_url: args.otlp_span_url.clone(),
-                    metric_url: args.otlp_metric_url.clone(),
-                },
-                &mut subscriber,
-            )
-        } else {
-            (observability::OpenTelemetryHandle::default(), None)
-        };
-
-    let warning_json = if args.with_json_traces {
-        observability::setup_json_traces(&mut subscriber)
-    } else {
-        None
-    };
-
-    subscriber.init();
-
-    // NOTE: Both warnings are bound to the same ENV var, so `.or` prevents from logging it twice.
-    if let Some(notify) = warning_otlp.or(warning_json) {
-        notify();
-    }
-
     info!(
         with_open_telemetry = args.with_open_telemetry,
         with_json_traces = args.with_json_traces,
@@ -172,6 +142,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         otlp_span_url = args.otlp_span_url,
         otlp_metric_url = args.otlp_metric_url,
         "Started with global arguments"
+    );
+
+    let (metrics, teardown) = setup_observability(
+        args.with_open_telemetry,
+        args.with_json_traces,
+        args.otlp_service_name,
+        args.otlp_span_url,
+        args.otlp_metric_url,
     );
 
     let result = match args.command {
