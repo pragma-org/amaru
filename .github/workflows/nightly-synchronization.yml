@@ -16,7 +16,7 @@ jobs:
     strategy:
       matrix:
         network: [ preprod, preview ]
-        ogmios_version: [ v6.11.2 ]
+        ogmios_version: [ v6.13.0 ]
         cardano_node_version: [ 10.1.4 ]
 
     runs-on: ubuntu-latest
@@ -50,12 +50,4 @@ jobs:
       shell: bash
       working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
       run: |
-        if [ "$AMARU_NETWORK" == "preprod" ]; then
-          rm -f immutable/00*.chunk immutable/01*.chunk immutable/02*.chunk immutable/030*.chunk
-        fi
-
-        if [ "$AMARU_NETWORK" == "preview" ]; then
-          rm -f immutable/0*.chunk immutable/10*.chunk immutable/11*.chunk
-        fi
-      env:
-        AMARU_NETWORK: ${{ matrix.network }}
+        ls immutable/*.chunk | sort | head -n -100 | xargs -r rm -f --
