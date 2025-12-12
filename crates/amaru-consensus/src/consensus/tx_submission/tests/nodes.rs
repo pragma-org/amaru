@@ -26,9 +26,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 
-/// A test node consisting of a TxSubmissionClient and TxSubmissionServer,
-/// their respective mempools, connected via a MockTransport.
-pub struct Node {
+/// A set of two nodes where one supports a TxSubmissionClient and the other one the TxSubmissionServer.
+/// They have their own mempools, and are connected via a MockTransport.
+pub struct ClientServerNodes {
     pub client_mempool: Arc<dyn Mempool<Tx>>,
     pub server_mempool: Arc<dyn Mempool<Tx>>,
     pub client: TxSubmissionClient<Tx>,
@@ -36,10 +36,10 @@ pub struct Node {
     pub transport: MockTransport,
 }
 
-impl Node {
+impl ClientServerNodes {
     /// Starts the client and server asynchronously.
     pub fn start(self) -> NodeHandle {
-        let Node {
+        let ClientServerNodes {
             client_mempool,
             server_mempool,
             mut client,
@@ -79,12 +79,12 @@ impl Node {
 }
 
 /// Creates a test node with default server options.
-pub fn create_node() -> Node {
+pub fn create_node() -> ClientServerNodes {
     create_node_with(ServerOptions::default())
 }
 
 /// Creates a test node with the specified server options.
-pub fn create_node_with(server_options: ServerOptions) -> Node {
+pub fn create_node_with(server_options: ServerOptions) -> ClientServerNodes {
     let client_mempool = Arc::new(SizedMempool::with_tx_validator(
         server_options.mempool_capacity,
         server_options.tx_validator,
@@ -99,7 +99,7 @@ pub fn create_node_with(server_options: ServerOptions) -> Node {
 
     let transport = MockTransport::with_channel_size(10);
 
-    Node {
+    ClientServerNodes {
         client_mempool,
         server_mempool,
         client,
