@@ -15,7 +15,7 @@
 use crate::consensus::effects::ConsensusOps;
 use crate::consensus::effects::NetworkOps;
 use crate::consensus::errors::ProcessingFailed;
-use crate::consensus::tx_submission::{Blocking, ServerParams, TxSubmissionServerState};
+use crate::consensus::tx_submission::{ServerParams, TxSubmissionServerState};
 use amaru_kernel::connection::ClientConnectionError;
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros_traits::TxClientReply;
@@ -34,7 +34,7 @@ pub fn stage(
     (mut servers, errors): State,
     msg: TxClientReply,
     eff: impl ConsensusOps,
-) -> impl Future<Output=State> {
+) -> impl Future<Output = State> {
     let span = tracing::trace_span!(parent: msg.span(), "tx_submission.receive_tx_client_reply");
     async move {
         let peer = msg.peer().clone();
@@ -50,13 +50,14 @@ pub fn stage(
             TxClientReply::TxIds { tx_ids, .. } => {
                 if let Some(server) = servers.by_peer.get_mut(&peer) {
                     let result = match server.process_tx_ids_reply(eff.mempool().as_ref(), tx_ids) {
-                        Ok(None) => {
-                            // Client indicated it is done; remove the peer.
-                            servers.remove_peer(&peer);
-                            Ok(())
-                        }
-                        Ok(Some(requested_txs)) => {
-                            eff.network().request_txs(peer.clone(), requested_txs).await
+                        Ok(txs) => {
+                            // If there are no txs to request, we send a new request for tx ids.
+                            if txs.is_empty() {
+                                let (ack, req, blocking) = server.request_tx_ids(eff.mempool().as_ref());
+                                eff.network().request_tx_ids(peer.clone(), ack, req, blocking).await
+                            } else {
+                                eff.network().request_txs(peer.clone(), txs).await
+                            }
                         }
                         Err(e) => Err(e.into()),
                     };

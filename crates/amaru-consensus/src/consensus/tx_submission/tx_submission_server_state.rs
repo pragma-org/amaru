@@ -62,7 +62,7 @@ impl TxSubmissionServerState {
         &mut self,
         mempool: &dyn TxSubmissionMempool<Tx>,
         tx_ids: Vec<(TxId, u32)>,
-    ) -> anyhow::Result<Option<Vec<TxId>>> {
+    ) -> anyhow::Result<Vec<TxId>> {
         self.received_tx_ids(mempool, tx_ids)?;
         Ok(self.txs_to_request())
     }
@@ -73,13 +73,14 @@ impl TxSubmissionServerState {
         txs: Vec<Tx>,
     ) -> anyhow::Result<(u16, u16, Blocking)> {
         self.received_txs(mempool, txs)?;
-        self.request_tx_ids(mempool)
+        Ok(self.request_tx_ids(mempool))
     }
 
+    #[allow(clippy::expect_used)]
     pub fn request_tx_ids(
         &mut self,
         mempool: &dyn TxSubmissionMempool<Tx>,
-    ) -> anyhow::Result<(u16, u16, Blocking)> {
+    ) -> (u16, u16, Blocking) {
         // Acknowledge everything we’ve already processed.
         let mut ack = 0_u16;
 
@@ -94,7 +95,9 @@ impl TxSubmissionServerState {
                     if already_rejected {
                         self.rejected.remove(&front_id);
                     }
-                    ack = ack.saturating_add(1);
+                    ack = ack
+                        .checked_add(1)
+                        .expect("ack overflow: protocol invariant violated");
                 }
             } else {
                 break;
@@ -102,12 +105,11 @@ impl TxSubmissionServerState {
         }
 
         // Request as many as we can fit in the window.
-        // Note: we cap at u16::MAX because the protocol uses u16 for counts.
         let req = self
             .params
             .max_window
-            .saturating_sub(self.window.len())
-            .min(u16::MAX as usize) as u16;
+            .checked_sub(self.window.len() as u16)
+            .expect("req underflow: protocol invariant violated");
 
         // We need to block if there are no more outstanding tx ids.
         let blocking = if self.window.is_empty() {
@@ -115,7 +117,7 @@ impl TxSubmissionServerState {
         } else {
             Blocking::No
         };
-        Ok((ack, req, blocking))
+        (ack, req, blocking)
     }
 
     pub fn received_tx_ids<Tx: Send + Sync + 'static>(
@@ -123,7 +125,7 @@ impl TxSubmissionServerState {
         mempool: &dyn TxSubmissionMempool<Tx>,
         tx_ids: Vec<(TxId, u32)>,
     ) -> anyhow::Result<()> {
-        if tx_ids.len() > self.params.max_window {
+        if tx_ids.len() > self.params.max_window.into() {
             return Err(anyhow::anyhow!("Too many transactions ids received"));
         }
 
@@ -141,20 +143,20 @@ impl TxSubmissionServerState {
         Ok(())
     }
 
-    pub fn txs_to_request(&mut self) -> Option<Vec<TxId>> {
-        let mut ids = Vec::new();
+    pub fn txs_to_request(&mut self) -> Vec<TxId> {
+        let mut tx_ids = Vec::new();
 
-        while ids.len() < self.params.fetch_batch {
+        while tx_ids.len() < self.params.fetch_batch.into() {
             if let Some(id) = self.pending_fetch.pop_front() {
                 self.inflight_fetch_queue.push_back(id);
                 self.inflight_fetch_set.insert(id);
-                ids.push(id);
+                tx_ids.push(id);
             } else {
                 break;
             }
         }
 
-        if ids.is_empty() { None } else { Some(ids) }
+        tx_ids
     }
 
     pub fn received_txs(
@@ -162,7 +164,7 @@ impl TxSubmissionServerState {
         mempool: &dyn TxSubmissionMempool<Tx>,
         txs: Vec<Tx>,
     ) -> anyhow::Result<()> {
-        if txs.len() > self.params.fetch_batch {
+        if txs.len() > self.params.fetch_batch.into() {
             return Err(anyhow::anyhow!(
                 "Too many transactions received in one batch"
             ));
@@ -175,8 +177,8 @@ impl TxSubmissionServerState {
 
                 let inserted = mempool.validate_transaction(tx.clone()).is_ok()
                     && mempool
-                    .insert(tx, TxOrigin::Remote(self.peer.clone()))
-                    .is_ok();
+                        .insert(tx, TxOrigin::Remote(self.peer.clone()))
+                        .is_ok();
                 if !inserted {
                     self.rejected.insert(requested_id);
                 }

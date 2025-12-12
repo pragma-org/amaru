@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::consensus::tx_submission::tests::TxServerTransport;
-use crate::consensus::tx_submission::{Blocking, ServerParams, TxSubmissionServerState};
+use crate::consensus::tx_submission::{ServerParams, TxSubmissionServerState};
 use amaru_kernel::peer::Peer;
 use amaru_network::{era_tx_id, from_pallas_reply};
 use amaru_ouroboros_traits::{TxClientReply, TxSubmissionMempool};
@@ -58,7 +58,7 @@ impl TxSubmissionServer<Tx> {
             self.state.peer()
         );
         transport.wait_for_init().await?;
-        let (ack, req, blocking) = self.state.request_tx_ids(self.mempool.as_ref())?;
+        let (ack, req, blocking) = self.state.request_tx_ids(self.mempool.as_ref());
         transport
             .acknowledge_and_request_tx_ids(ack, req, blocking)
             .await?;
@@ -71,20 +71,16 @@ impl TxSubmissionServer<Tx> {
                 TxClientReply::Done { .. } => {}
                 TxClientReply::Init { .. } => {}
                 TxClientReply::TxIds { tx_ids, .. } => {
-                    if let Some(txs_to_request) = self
+                    let txs_to_request = self
                         .state
-                        .process_tx_ids_reply(self.mempool.as_ref(), tx_ids)?
-                    {
-                        transport
-                            .request_txs(txs_to_request.into_iter().map(era_tx_id).collect())
-                            .await?;
-                    }
+                        .process_tx_ids_reply(self.mempool.as_ref(), tx_ids)?;
+                    transport
+                        .request_txs(txs_to_request.into_iter().map(era_tx_id).collect())
+                        .await?;
                 }
                 TxClientReply::Txs { txs, .. } => {
-                    let (ack, req, blocking) = self
-                        .state
-                        .process_txs_reply(self.mempool.as_ref(), txs)
-                        .await?;
+                    let (ack, req, blocking) =
+                        self.state.process_txs_reply(self.mempool.as_ref(), txs)?;
                     transport
                         .acknowledge_and_request_tx_ids(ack, req, blocking)
                         .await?;
@@ -185,25 +181,25 @@ mod tests {
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[0].clone(), era_tx_ids[1].clone()]),
         )
-            .await?;
+        .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[2].clone(), era_tx_ids[3].clone()]),
         )
-            .await?;
+        .await?;
         assert_next_message(&mut messages, Message::RequestTxIds(true, 2, 10)).await?;
         assert_next_message(
             &mut messages,
             Message::RequestTxs(vec![era_tx_ids[4].clone(), era_tx_ids[5].clone()]),
         )
-            .await?;
+        .await?;
         Ok(())
     }
 
     #[tokio::test]
     async fn in_blocking_mode_the_returned_tx_ids_should_respect_the_batch_size()
-        -> anyhow::Result<()> {
+    -> anyhow::Result<()> {
         let txs = create_transactions(4);
         let mut tx_ids = vec![];
         for tx in &txs {
