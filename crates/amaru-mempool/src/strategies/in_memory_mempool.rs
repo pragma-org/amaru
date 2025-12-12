@@ -111,10 +111,12 @@ impl<Tx: Encode<()> + Clone> MempoolInner<Tx> {
         let seq_no = MempoolSeqNo(self.next_seq);
         self.next_seq += 1;
 
+        let tx_size = to_cbor(&tx).len() as u32;
         let entry = MempoolEntry {
             seq_no,
             tx_id,
             tx,
+            tx_size,
             origin: tx_origin,
         };
 
@@ -141,8 +143,7 @@ impl<Tx: Encode<()> + Clone> MempoolInner<Tx> {
                         tx_id
                     )
                 };
-                let tx_size = to_cbor(&entry.tx).len() as u32;
-                (*tx_id, tx_size, *seq)
+                (*tx_id, entry.tx_size, *seq)
             })
             .collect();
         result.sort_by_key(|(_, _, seq_no)| *seq_no);
@@ -170,6 +171,7 @@ pub struct MempoolEntry<Tx> {
     seq_no: MempoolSeqNo,
     tx_id: TxId,
     tx: Tx,
+    tx_size: u32,
     origin: TxOrigin,
 }
 
