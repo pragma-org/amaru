@@ -43,7 +43,7 @@ pub async fn expect_server_transactions(txs: Vec<Tx>, node_handle: &NodeHandle) 
             sleep(Duration::from_millis(10)).await;
         }
     })
-        .await;
+    .await;
     if actual.len() != txs.len() {
         panic!(
             "actual transactions\n{}\nexpected transactions\n{}\n",
@@ -102,7 +102,7 @@ pub async fn assert_next_message(
     let actual = rx_messages
         .recv()
         .await
-        .ok_or_else(|| anyhow::anyhow!("no message received"))?;
+        .ok_or_else(|| anyhow::anyhow!("channel closed"))?;
     assert_eq!(
         actual, expected,
         "actual = {actual:?}\nexpected = {expected:?}"
