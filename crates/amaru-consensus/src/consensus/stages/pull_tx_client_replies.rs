@@ -33,12 +33,9 @@ pub async fn stage(
     {
         let span = tracing::trace_span!("tx_submission.tx_client_reply");
         span.set_parent(msg.span().context()).ok();
-        let entered = span.enter();
-
-        msg.set_span(span.clone());
-
-        drop(entered);
+        let span_clone = span.clone();
         async {
+            msg.set_span(span_clone);
             eff.send(&downstream, msg).await;
             eff.send(eff.me_ref(), NextTxReply).await;
         }
