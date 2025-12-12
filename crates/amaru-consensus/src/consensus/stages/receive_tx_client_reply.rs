@@ -34,7 +34,7 @@ pub fn stage(
     (mut servers, errors): State,
     msg: TxClientReply,
     eff: impl ConsensusOps,
-) -> impl Future<Output = State> {
+) -> impl Future<Output=State> {
     let span = tracing::trace_span!(parent: msg.span(), "tx_submission.receive_tx_client_reply");
     async move {
         let peer = msg.peer().clone();
@@ -69,7 +69,7 @@ pub fn stage(
             }
             TxClientReply::Txs { txs, .. } => {
                 if let Some(server) = servers.by_peer.get_mut(&peer) {
-                    let result = match server.process_txs_reply(eff.mempool().as_ref(), txs).await {
+                    let result = match server.process_txs_reply(eff.mempool().as_ref(), txs) {
                         Ok((ack, req, blocking)) => {
                             eff.network().request_tx_ids(peer.clone(), ack, req, blocking).await
                         }

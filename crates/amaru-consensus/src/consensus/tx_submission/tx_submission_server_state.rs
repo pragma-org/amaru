@@ -67,12 +67,12 @@ impl TxSubmissionServerState {
         Ok(self.txs_to_request())
     }
 
-    pub async fn process_txs_reply(
+    pub fn process_txs_reply(
         &mut self,
         mempool: &dyn TxSubmissionMempool<Tx>,
         txs: Vec<Tx>,
     ) -> anyhow::Result<(u16, u16, Blocking)> {
-        self.received_txs(mempool, txs).await?;
+        self.received_txs(mempool, txs)?;
         self.request_tx_ids(mempool)
     }
 
@@ -157,7 +157,7 @@ impl TxSubmissionServerState {
         if ids.is_empty() { None } else { Some(ids) }
     }
 
-    pub async fn received_txs(
+    pub fn received_txs(
         &mut self,
         mempool: &dyn TxSubmissionMempool<Tx>,
         txs: Vec<Tx>,
