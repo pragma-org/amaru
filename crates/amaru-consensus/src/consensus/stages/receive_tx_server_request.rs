@@ -39,7 +39,10 @@ pub fn stage(
     async move {
         let peer = msg.peer().clone();
         let client = clients.get_client(&peer);
-        let result = match client.process_tx_server_request(eff.mempool(), msg).await {
+        let result = match client
+            .process_tx_server_request(eff.mempool().as_ref(), msg)
+            .await
+        {
             Ok(TxClientResponse::Done) => {
                 debug!(peer = %peer, "cannot serve any more transactions to this peer");
                 clients.by_peer.remove(&peer);

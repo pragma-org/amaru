@@ -49,7 +49,7 @@ pub fn stage(
             }
             TxClientReply::TxIds { tx_ids, .. } => {
                 if let Some(server) = servers.by_peer.get_mut(&peer) {
-                    let result = match server.process_tx_ids_reply(eff.mempool(), tx_ids) {
+                    let result = match server.process_tx_ids_reply(eff.mempool().as_ref(), tx_ids) {
                         Ok(None) => {
                             // Client indicated it is done; remove the peer.
                             servers.remove_peer(&peer);
@@ -69,7 +69,7 @@ pub fn stage(
             }
             TxClientReply::Txs { txs, .. } => {
                 if let Some(server) = servers.by_peer.get_mut(&peer) {
-                    let result = match server.process_txs_reply(eff.mempool(), txs).await {
+                    let result = match server.process_txs_reply(eff.mempool().as_ref(), txs).await {
                         Ok((ack, req, blocking)) => {
                             eff.network().request_tx_ids(peer.clone(), ack, req, blocking).await
                         }
@@ -125,7 +125,7 @@ impl Servers {
     ) -> Result<(), ClientConnectionError> {
         let mut state = TxSubmissionServerState::new(peer, self.server_params.clone());
         // The first request is always blocking.
-        let (ack, req, _blocking) = state.request_tx_ids(eff.mempool()).await?;
+        let (ack, req, _blocking) = state.request_tx_ids(eff.mempool().as_ref()).await?;
         eff.network()
             .request_tx_ids(peer.clone(), ack, req, Blocking::Yes)
             .await?;

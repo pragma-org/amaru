@@ -18,7 +18,6 @@ use amaru_ouroboros_traits::{TxId, TxOrigin, TxSubmissionMempool};
 use pallas_primitives::conway::Tx;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
-use std::sync::Arc;
 
 /// State of a transaction submission server for a given peer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,7 +60,7 @@ impl TxSubmissionServerState {
 
     pub fn process_tx_ids_reply(
         &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: &dyn TxSubmissionMempool<Tx>,
         tx_ids: Vec<(TxId, u32)>,
     ) -> anyhow::Result<Option<Vec<TxId>>> {
         self.received_tx_ids(mempool, tx_ids)?;
@@ -70,16 +69,16 @@ impl TxSubmissionServerState {
 
     pub async fn process_txs_reply(
         &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: &dyn TxSubmissionMempool<Tx>,
         txs: Vec<Tx>,
     ) -> anyhow::Result<(u16, u16, Blocking)> {
-        self.received_txs(mempool.clone(), txs).await?;
-        self.request_tx_ids(mempool.clone()).await
+        self.received_txs(mempool, txs).await?;
+        self.request_tx_ids(mempool).await
     }
 
     pub async fn request_tx_ids(
         &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: &dyn TxSubmissionMempool<Tx>,
     ) -> anyhow::Result<(u16, u16, Blocking)> {
         // Acknowledge everything we’ve already processed.
         let mut ack = 0_u16;
@@ -121,7 +120,7 @@ impl TxSubmissionServerState {
 
     pub fn received_tx_ids<Tx: Send + Sync + 'static>(
         &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: &dyn TxSubmissionMempool<Tx>,
         tx_ids: Vec<(TxId, u32)>,
     ) -> anyhow::Result<()> {
         if tx_ids.len() > self.params.max_window {
@@ -161,7 +160,7 @@ impl TxSubmissionServerState {
 
     pub async fn received_txs(
         &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: &dyn TxSubmissionMempool<Tx>,
         txs: Vec<Tx>,
     ) -> anyhow::Result<()> {
         if txs.len() > self.params.fetch_batch {

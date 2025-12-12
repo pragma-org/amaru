@@ -15,10 +15,10 @@
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros_traits::{MempoolSeqNo, TxId, TxServerRequest, TxSubmissionMempool};
 use anyhow::anyhow;
+use pallas_primitives::conway::Tx;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::sync::Arc;
 use tracing::debug;
 
 /// State of a transaction submission client for a given peer.
@@ -53,9 +53,9 @@ impl TxSubmissionClientState {
     }
 
     /// Process a request from the tx submission server
-    pub async fn process_tx_server_request<Tx: Send + Debug + Sync + 'static>(
+    pub async fn process_tx_server_request(
         &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: &dyn TxSubmissionMempool<Tx>,
         request: TxServerRequest,
     ) -> anyhow::Result<TxClientResponse<Tx>> {
         match request {
@@ -125,7 +125,7 @@ impl TxSubmissionClientState {
     /// Take notice of the acknowledged transactions, and send the next batch of tx ids.
     async fn get_next_tx_ids<Tx: Send + Debug + Sync + 'static>(
         &mut self,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: &dyn TxSubmissionMempool<Tx>,
         required_next: u16,
     ) -> anyhow::Result<Vec<(TxId, u32)>> {
         let tx_ids = mempool.tx_ids_since(self.next_seq(), required_next);

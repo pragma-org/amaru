@@ -58,7 +58,7 @@ impl TxSubmissionServer<Tx> {
             self.state.peer()
         );
         transport.wait_for_init().await?;
-        let (ack, req, _blocking) = self.state.request_tx_ids(self.mempool.clone()).await?;
+        let (ack, req, _blocking) = self.state.request_tx_ids(self.mempool.as_ref()).await?;
         // The first request is always blocking
         transport
             .acknowledge_and_request_tx_ids(ack, req, Blocking::Yes)
@@ -74,7 +74,7 @@ impl TxSubmissionServer<Tx> {
                 TxClientReply::TxIds { tx_ids, .. } => {
                     if let Some(txs_to_request) = self
                         .state
-                        .process_tx_ids_reply(self.mempool.clone(), tx_ids)?
+                        .process_tx_ids_reply(self.mempool.as_ref(), tx_ids)?
                     {
                         transport
                             .request_txs(txs_to_request.into_iter().map(era_tx_id).collect())
@@ -84,7 +84,7 @@ impl TxSubmissionServer<Tx> {
                 TxClientReply::Txs { txs, .. } => {
                     let (ack, req, blocking) = self
                         .state
-                        .process_txs_reply(self.mempool.clone(), txs)
+                        .process_txs_reply(self.mempool.as_ref(), txs)
                         .await?;
                     transport
                         .acknowledge_and_request_tx_ids(ack, req, blocking)

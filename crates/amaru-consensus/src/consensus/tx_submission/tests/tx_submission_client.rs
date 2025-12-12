@@ -71,7 +71,7 @@ impl TxSubmissionClient<Tx> {
             match self
                 .state
                 .process_tx_server_request(
-                    self.mempool.clone(),
+                    self.mempool.as_ref(),
                     to_pallas_request(self.state.peer(), request),
                 )
                 .await?
