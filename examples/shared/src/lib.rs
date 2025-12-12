@@ -110,7 +110,7 @@ pub fn forward_ledger(raw_block: &str) {
     if let BlockValidation::Invalid(_slot, _id, _err) = rules::validate_block(
         &mut context,
         &arena_pool,
-        &Network::from(network),
+        &network,
         state.protocol_parameters(),
         &era_history,
         &GovernanceActivity {
