@@ -28,10 +28,7 @@ use tokio::time::{sleep, timeout};
 pub async fn expect_server_transactions(txs: Vec<Tx>, node_handle: &NodeHandle) {
     let server_mempool: Arc<dyn Mempool<Tx>> = node_handle.server_mempool.clone();
     let tx_ids: Vec<_> = txs.iter().map(TxId::from).collect();
-    let mut actual: Vec<_> = tx_ids
-        .iter()
-        .filter(|tx_id| server_mempool.contains(tx_id))
-        .collect();
+    let mut actual = vec![];
 
     let _ = timeout(Duration::from_secs(10), async {
         loop {
@@ -46,7 +43,7 @@ pub async fn expect_server_transactions(txs: Vec<Tx>, node_handle: &NodeHandle) 
             sleep(Duration::from_millis(10)).await;
         }
     })
-    .await;
+        .await;
     if actual.len() != txs.len() {
         panic!(
             "actual transactions\n{}\nexpected transactions\n{}\n",
