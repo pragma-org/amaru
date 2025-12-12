@@ -15,10 +15,8 @@ amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
 minicbor.workspace = true
 parking_lot.workspace = true
-tokio.workspace = true
+tokio = { "workspace" = true, features = ["time", "macros", "rt"] }
 
 [dev-dependencies]
 anyhow.workspace = true
 assertables.workspace = true
-minicbor.workspace = true
-tokio = { "workspace" = true, features = ["time", "macros", "rt"] }
