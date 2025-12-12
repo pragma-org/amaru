@@ -22,7 +22,7 @@ pub struct FaultyTxValidator {
 }
 
 impl<Tx> CanValidateTransactions<Tx> for FaultyTxValidator {
-    fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+    fn validate_transaction(&self, _tx: Tx) -> Result<(), TransactionValidationError> {
         // Reject every second transaction
         let mut count = self.count.lock().unwrap();
         let is_valid = (*count).is_multiple_of(2);

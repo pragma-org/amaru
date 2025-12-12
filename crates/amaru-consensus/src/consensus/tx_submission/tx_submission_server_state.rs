@@ -175,7 +175,7 @@ impl TxSubmissionServerState {
             if let Some(requested_id) = self.inflight_fetch_queue.pop_front() {
                 self.inflight_fetch_set.remove(&requested_id);
 
-                let inserted = mempool.validate_transaction(&tx).is_ok()
+                let inserted = mempool.validate_transaction(tx.clone()).is_ok()
                     && mempool
                         .insert(tx, TxOrigin::Remote(self.peer.clone()))
                         .is_ok();

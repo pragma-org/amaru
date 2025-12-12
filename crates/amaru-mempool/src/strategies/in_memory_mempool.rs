@@ -70,7 +70,7 @@ impl<Tx> InMemoryMempool<Tx> {
 pub struct DefaultCanValidateTransactions;
 
 impl<Tx> CanValidateTransactions<Tx> for DefaultCanValidateTransactions {
-    fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+    fn validate_transaction(&self, _tx: Tx) -> Result<(), TransactionValidationError> {
         Ok(())
     }
 }
@@ -191,7 +191,7 @@ impl MempoolConfig {
 }
 
 impl<Tx: Send + Sync + 'static> CanValidateTransactions<Tx> for InMemoryMempool<Tx> {
-    fn validate_transaction(&self, tx: &Tx) -> Result<(), TransactionValidationError> {
+    fn validate_transaction(&self, tx: Tx) -> Result<(), TransactionValidationError> {
         self.tx_validator.validate_transaction(tx)
     }
 }

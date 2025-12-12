@@ -40,7 +40,7 @@ pub struct DummyMempoolInner<T> {
 }
 
 impl<Tx: Encode<()> + Send + Sync + 'static> CanValidateTransactions<Tx> for DummyMempool<Tx> {
-    fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+    fn validate_transaction(&self, _tx: Tx) -> Result<(), TransactionValidationError> {
         Ok(())
     }
 }

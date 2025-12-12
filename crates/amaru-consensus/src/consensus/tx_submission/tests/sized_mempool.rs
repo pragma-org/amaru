@@ -58,7 +58,7 @@ impl SizedMempool {
 }
 
 impl CanValidateTransactions<Tx> for SizedMempool {
-    fn validate_transaction(&self, tx: &Tx) -> Result<(), TransactionValidationError> {
+    fn validate_transaction(&self, tx: Tx) -> Result<(), TransactionValidationError> {
         self.inner_mempool.validate_transaction(tx)
     }
 }

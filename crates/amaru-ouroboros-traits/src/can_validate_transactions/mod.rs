@@ -18,7 +18,7 @@ use std::fmt::{Debug, Display, Formatter};
 pub mod mock;
 
 pub trait CanValidateTransactions<Tx>: Send + Sync {
-    fn validate_transaction(&self, tx: &Tx) -> Result<(), TransactionValidationError>;
+    fn validate_transaction(&self, tx: Tx) -> Result<(), TransactionValidationError>;
 }
 
 #[derive(Debug)]

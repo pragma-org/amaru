@@ -56,8 +56,8 @@ impl<T> MemoryPool<T> {
 
 impl<T: SendData + Sync> CanValidateTransactions<Tx> for MemoryPool<T> {
     /// This effect uses the ledger to validate a transaction before adding it to the mempool.
-    fn validate_transaction(&self, tx: &Tx) -> Result<(), TransactionValidationError> {
-        self.effects.external_sync(ValidateTransaction(tx.clone()))
+    fn validate_transaction(&self, tx: Tx) -> Result<(), TransactionValidationError> {
+        self.effects.external_sync(ValidateTransaction(tx))
     }
 }
 
@@ -145,7 +145,7 @@ impl ExternalEffect for ValidateTransaction {
                 .get::<ResourceMempool>()
                 .expect("ResourceMempool requires a mempool")
                 .clone();
-            mempool.validate_transaction(&self.0)
+            mempool.validate_transaction(self.0)
         })
     }
 }
@@ -401,7 +401,7 @@ mod tests {
     }
 
     impl CanValidateTransactions<Tx> for ConstantMempool {
-        fn validate_transaction(&self, _tx: &Tx) -> Result<(), TransactionValidationError> {
+        fn validate_transaction(&self, _tx: Tx) -> Result<(), TransactionValidationError> {
             Ok(())
         }
     }
