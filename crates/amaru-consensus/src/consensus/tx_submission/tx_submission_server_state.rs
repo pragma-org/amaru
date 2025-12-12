@@ -131,7 +131,7 @@ impl TxSubmissionServerState {
         for tx_id_and_size in tx_ids {
             let (tx_id, size) = (tx_id_and_size.0, tx_id_and_size.1);
             // We add the tx id to the window to acknowledge it on the next round.
-            self.window.push_back((tx_id.clone(), size));
+            self.window.push_back((tx_id, size));
 
             // We only add to pending fetch if we haven't received it yet in the mempool.
             // and the tx id is not already rejected.
@@ -148,8 +148,8 @@ impl TxSubmissionServerState {
 
         while ids.len() < self.params.fetch_batch {
             if let Some(id) = self.pending_fetch.pop_front() {
-                self.inflight_fetch_queue.push_back(id.clone());
-                self.inflight_fetch_set.insert(id.clone());
+                self.inflight_fetch_queue.push_back(id);
+                self.inflight_fetch_set.insert(id);
                 ids.push(id);
             } else {
                 break;

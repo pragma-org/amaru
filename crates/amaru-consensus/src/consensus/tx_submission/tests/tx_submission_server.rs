@@ -122,7 +122,7 @@ mod tests {
             "the tx id is the hash of the encoded body"
         );
 
-        let era_tx_id = era_tx_id(tx_id.clone());
+        let era_tx_id = era_tx_id(tx_id);
         let era_tx_body = era_tx_body_from_vec(tx_body.clone());
         assert_eq!(
             tx_id_from_era_tx_id(&era_tx_id),

@@ -117,13 +117,13 @@ impl<Tx: Encode<()> + Clone> MempoolInner<Tx> {
 
         let entry = MempoolEntry {
             seq_no,
-            tx_id: tx_id.clone(),
+            tx_id,
             tx,
             origin: tx_origin,
         };
 
-        self.entries_by_id.insert(tx_id.clone(), entry);
-        self.entries_by_seq.insert(seq_no, tx_id.clone());
+        self.entries_by_id.insert(tx_id, entry);
+        self.entries_by_seq.insert(seq_no, tx_id);
         Ok((tx_id, seq_no))
     }
 
@@ -141,7 +141,7 @@ impl<Tx: Encode<()> + Clone> MempoolInner<Tx> {
             .map(|(seq, tx_id)| {
                 if let Some(entry) = self.entries_by_id.get(tx_id) {
                     let tx_size = to_cbor(&entry.tx).len() as u32;
-                    (tx_id.clone(), tx_size, *seq)
+                    (*tx_id, tx_size, *seq)
                 } else {
                     panic!(
                         "Inconsistent mempool state: entry missing for tx_id {:?}",

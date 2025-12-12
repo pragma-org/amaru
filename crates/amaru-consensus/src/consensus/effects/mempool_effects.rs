@@ -72,7 +72,7 @@ impl<T: SendData + Sync> TxSubmissionMempool<Tx> for MemoryPool<T> {
     /// This effect retrieves a transaction by its id.
     /// It returns None if the transaction is not found.
     fn get_tx(&self, tx_id: &TxId) -> Option<Tx> {
-        self.external_sync(GetTx::new(tx_id.clone()))
+        self.external_sync(GetTx::new(*tx_id))
     }
 
     /// This effect retrieves a list of transaction ids from a given sequence number (inclusive), up to a given limit.

@@ -293,7 +293,7 @@ impl fmt::Debug for TxClientReply {
 /// Identifier for a transaction in the mempool.
 /// It is derived from the hash of the encoding of the transaction as CBOR.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct TxId(Hash<32>);
 

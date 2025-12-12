@@ -87,10 +87,8 @@ impl TxSubmissionClient<Tx> {
                     transport
                         .reply_tx_ids(
                             tx_ids
-                                .iter()
-                                .map(|(tx_id, tx_size)| {
-                                    TxIdAndSize(era_tx_id(tx_id.clone()), *tx_size)
-                                })
+                                .into_iter()
+                                .map(|(tx_id, tx_size)| TxIdAndSize(era_tx_id(tx_id), tx_size))
                                 .collect(),
                         )
                         .await?

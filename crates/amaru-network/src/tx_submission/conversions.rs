@@ -63,7 +63,7 @@ pub fn era_tx_body_to_string(era_tx_body: &EraTxBody) -> String {
 pub fn era_tx_ids(tx_ids: &[TxId]) -> Vec<EraTxId> {
     let mut era_tx_ids: Vec<EraTxId> = Vec::new();
     for tx_id in tx_ids {
-        era_tx_ids.push(era_tx_id(tx_id.clone()));
+        era_tx_ids.push(era_tx_id(*tx_id));
     }
     era_tx_ids
 }
