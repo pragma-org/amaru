@@ -162,12 +162,12 @@ impl ServerOptions {
         self
     }
 
-    pub fn with_max_window(mut self, size: usize) -> Self {
+    pub fn with_max_window(mut self, size: u16) -> Self {
         self.params.max_window = size;
         self
     }
 
-    pub fn with_fetch_batch(mut self, size: usize) -> Self {
+    pub fn with_fetch_batch(mut self, size: u16) -> Self {
         self.params.fetch_batch = size;
         self
     }

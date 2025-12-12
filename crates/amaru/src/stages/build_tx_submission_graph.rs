@@ -60,7 +60,7 @@ pub fn build_tx_submission_graph(
     let receive_tx_reply_stage = network.wire_up(
         receive_tx_client_reply_stage,
         (
-            Servers::new(ServerParams::new(100, 100)),
+            Servers::new(ServerParams::default()),
             processing_errors_stage.without_state(),
         ),
     );

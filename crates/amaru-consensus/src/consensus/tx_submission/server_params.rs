@@ -17,12 +17,24 @@ use serde::{Deserialize, Serialize};
 /// Parameters used to control the behavior of the transaction submission server.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerParams {
-    pub max_window: usize,  // how many tx ids we keep in “window”
-    pub fetch_batch: usize, // how many txs we request per round
+    pub max_window: u16,  // how many tx ids we keep in “window”
+    pub fetch_batch: u16, // how many txs we request per round
+}
+
+const MAX_OUTSTANDING_TX_IDS: u16 = 1024;
+const MAX_OUTSTANDING_TXS: u16 = 32;
+
+impl Default for ServerParams {
+    fn default() -> Self {
+        Self {
+            max_window: MAX_OUTSTANDING_TX_IDS,
+            fetch_batch: MAX_OUTSTANDING_TXS,
+        }
+    }
 }
 
 impl ServerParams {
-    pub fn new(max_window: usize, fetch_batch: usize) -> Self {
+    pub fn new(max_window: u16, fetch_batch: u16) -> Self {
         Self {
             max_window,
             fetch_batch,
