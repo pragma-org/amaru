@@ -57,7 +57,7 @@ pub fn era_tx_id_to_string(era_tx_id: &EraTxId) -> String {
 }
 
 pub fn era_tx_body_to_string(era_tx_body: &EraTxBody) -> String {
-    String::from_utf8_lossy(&era_tx_body.1).to_string()
+    hex::encode(&era_tx_body.1)
 }
 
 pub fn era_tx_ids(tx_ids: &[TxId]) -> Vec<EraTxId> {
