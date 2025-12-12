@@ -329,7 +329,6 @@ async fn tx_submission(
     peer: Peer,
     tx_client_reply_sender: Sender<TxClientReply>,
 ) -> anyhow::Result<()> {
-    server.wait_for_init().await?;
     loop {
         select! {
             reply = server.receive_next_reply() => {
@@ -353,31 +352,32 @@ async fn tx_submission(
                 tx_client_reply_sender.send(tx_client_reply).await.ok();
             },
             message = cell.recv() => {
+                let ActoInput::Message(message) = message else {
+                    tracing::debug!("parent terminated");
+                    break;
+                };
+
                 match message {
-                    ActoInput::Message(TxSubmissionMsg::Op(TxServerRequest::TxIds { ack, req, .. })) => {
+                   TxSubmissionMsg::Op(TxServerRequest::TxIds { ack, req, .. }) => {
                         server
                             .acknowledge_and_request_tx_ids(true, ack, req)
                             .await?
                     },
-                    ActoInput::Message(TxSubmissionMsg::Op(TxServerRequest::TxIdsNonBlocking { ack, req, .. })) => {
+                    TxSubmissionMsg::Op(TxServerRequest::TxIdsNonBlocking { ack, req, .. }) => {
                         server
                             .acknowledge_and_request_tx_ids(false, ack, req)
                             .await?
                     },
-                    ActoInput::Message(TxSubmissionMsg::Op(TxServerRequest::Txs { tx_ids, .. })) => {
+                    TxSubmissionMsg::Op(TxServerRequest::Txs { tx_ids, .. }) => {
                         server
                             .request_txs(tx_ids.into_iter().map(era_tx_id).collect())
                             .await?
                     },
-                    ActoInput::NoMoreSenders | ActoInput::Supervision { .. }  => {
-                        tracing::debug!("parent terminated");
-                        break;
-
-                   }
                 }
             }
         }
     }
+    server.wait_for_init().await?;
     Ok(())
 }
 
