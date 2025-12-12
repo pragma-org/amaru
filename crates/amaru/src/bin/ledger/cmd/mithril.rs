@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::cmd::new_block_validator;
-use amaru::{default_ledger_dir, point::to_network_point};
+use amaru::{default_data_dir, default_ledger_dir, point::to_network_point};
 use amaru_kernel::{Hasher, network::NetworkName};
 use async_trait::async_trait;
 use clap::Parser;
@@ -196,7 +196,7 @@ fn package_blocks(
     let encoder = tar.into_inner()?;
     let compressed = encoder.finish()?;
 
-    let dir = format!("data/{}/blocks", network);
+    let dir = format!("{}/blocks", default_data_dir(*network));
     fs::create_dir_all(&dir)?;
     let first_block = blocks
         .first_key_value()

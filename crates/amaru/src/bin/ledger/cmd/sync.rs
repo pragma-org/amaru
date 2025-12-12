@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::cmd::new_block_validator;
-use amaru::{DEFAULT_NETWORK, default_chain_dir, default_ledger_dir};
+use amaru::{DEFAULT_NETWORK, default_chain_dir, default_data_dir, default_ledger_dir};
 use amaru_consensus::consensus::store::PraosChainStore;
 use amaru_kernel::{
     BlockHeader, EraHistory, Header, Point, RawBlock,
@@ -75,7 +75,7 @@ pub struct Args {
 /// Load archives containing blocks and sort them based on file name (filesystem access doesn't guarantee any ordering)
 #[expect(clippy::panic)]
 fn list_archive_names(network: NetworkName) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let mut archives: Vec<_> = fs::read_dir(format!("data/{}/blocks", network))?
+    let mut archives: Vec<_> = fs::read_dir(format!("{}/blocks", default_data_dir(network)))?
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let path = entry.path();
@@ -109,7 +109,7 @@ fn load_archive(
     network: NetworkName,
     archive_path: &str,
 ) -> Result<Archive<GzDecoder<File>>, Box<dyn std::error::Error>> {
-    let file = fs::File::open(format!("data/{}/blocks/{}", network, archive_path))?;
+    let file = fs::File::open(format!("{}/blocks/{}", default_data_dir(network), archive_path))?;
     let gz = GzDecoder::new(file);
     Ok(Archive::new(gz))
 }
