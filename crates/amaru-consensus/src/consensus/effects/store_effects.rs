@@ -33,10 +33,7 @@ impl<T> Store<T> {
     }
 
     /// This function runs an external effect synchronously.
-    pub fn external_sync<E: ExternalEffectSync + serde::Serialize + 'static>(
-        &self,
-        effect: E,
-    ) -> E::Response
+    pub fn external_sync<E: ExternalEffectSync + serde::Serialize>(&self, effect: E) -> E::Response
     where
         T: SendData + Sync,
     {
