@@ -29,7 +29,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::time::Duration;
-use std::{collections::BTreeMap, ops::Deref, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 use tracing::warn;
 
@@ -37,14 +37,6 @@ use tracing::warn;
 pub struct NetworkResource {
     upstream_client: Arc<UpstreamClient>,
     downstream_server: Arc<DownstreamServer>,
-}
-
-impl Deref for NetworkResource {
-    type Target = UpstreamClient;
-
-    fn deref(&self) -> &Self::Target {
-        &self.upstream_client
-    }
 }
 
 impl NetworkResource {
