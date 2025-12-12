@@ -130,7 +130,7 @@ impl NodeHandle {
         self._server_handle.abort();
     }
 
-    pub async fn observe_messages(&mut self) -> Vec<Message<EraTxId, EraTxBody>> {
+    pub fn observe_messages(&mut self) -> Vec<Message<EraTxId, EraTxBody>> {
         let mut messages = Vec::new();
         while let Ok(message) = self.rx_observe_messages.try_recv() {
             messages.push(message);

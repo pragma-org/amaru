@@ -90,7 +90,7 @@ async fn test_invalid_transactions() -> anyhow::Result<()> {
     expect_server_transactions(expected, &node_handle).await;
 
     // Check the requests sent by the server do not ask again for the invalid transactions.
-    let actual: Vec<Message<EraTxId, EraTxBody>> = node_handle.observe_messages().await;
+    let actual: Vec<Message<EraTxId, EraTxBody>> = node_handle.observe_messages();
 
     let expected = [
         RequestTxIds(true, 0, 6),
