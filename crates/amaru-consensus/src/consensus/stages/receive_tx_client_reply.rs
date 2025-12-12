@@ -125,9 +125,9 @@ impl Servers {
     ) -> Result<(), ClientConnectionError> {
         let mut state = TxSubmissionServerState::new(peer, self.server_params.clone());
         // The first request is always blocking.
-        let (ack, req, _blocking) = state.request_tx_ids(eff.mempool().as_ref())?;
+        let (ack, req, blocking) = state.request_tx_ids(eff.mempool().as_ref());
         eff.network()
-            .request_tx_ids(peer.clone(), ack, req, Blocking::Yes)
+            .request_tx_ids(peer.clone(), ack, req, blocking)
             .await?;
         let _ = self.by_peer.insert(peer.clone(), state);
         Ok(())
