@@ -214,6 +214,7 @@ impl<'a> TxInfo<'a> {
     ///
     ///
     /// Version-specific errors will arise during serialization.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tx: &'a MintedTransactionBody<'_>,
         witness_set: &'a MintedWitnessSet<'_>,
@@ -247,7 +248,7 @@ impl<'a> TxInfo<'a> {
             .map(|set| {
                 set.iter()
                     .map(|certificate| Certificate {
-                        protocol_verison: protocol_version.clone(),
+                        protocol_verison: protocol_version,
                         certificate,
                     })
                     .collect()
@@ -798,7 +799,7 @@ pub enum Script<'a> {
 }
 
 impl Script<'_> {
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, minicbor::decode::Error> {
         fn decode_cbor_bytes(cbor: &[u8]) -> Result<Vec<u8>, minicbor::decode::Error> {
             minicbor::decode::Decoder::new(cbor)
                 .bytes()
@@ -811,7 +812,6 @@ impl Script<'_> {
             Script::PlutusV3(s) => decode_cbor_bytes(s.0.as_ref()),
             Script::Native(_) => unreachable!("a redeemer should never point to a native_script"),
         }
-        .unwrap()
     }
 }
 
@@ -1105,7 +1105,7 @@ impl<'a, T> Redeemers<'a, T> {
         )
     }
 
-    fn sort_redeemers(a: &Cow<'_, Redeemer>, b: &Cow<'_, Redeemer>) -> Ordering {
+    fn sort_redeemers(a: &Redeemer, b: &Redeemer) -> Ordering {
         match a.tag.as_index().cmp(&b.tag.as_index()) {
             by_tag @ Ordering::Less | by_tag @ Ordering::Greater => by_tag,
             Ordering::Equal => a.index.cmp(&b.index),
