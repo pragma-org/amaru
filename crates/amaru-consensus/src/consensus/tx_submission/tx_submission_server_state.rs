@@ -127,8 +127,7 @@ impl TxSubmissionServerState {
             return Err(anyhow::anyhow!("Too many transactions ids received"));
         }
 
-        for tx_id_and_size in tx_ids {
-            let (tx_id, size) = (tx_id_and_size.0, tx_id_and_size.1);
+        for (tx_id, size) in tx_ids {
             // We add the tx id to the window to acknowledge it on the next round.
             self.window.push_back((tx_id, size));
 
@@ -176,8 +175,8 @@ impl TxSubmissionServerState {
 
                 let inserted = mempool.validate_transaction(tx.clone()).is_ok()
                     && mempool
-                        .insert(tx, TxOrigin::Remote(self.peer.clone()))
-                        .is_ok();
+                    .insert(tx, TxOrigin::Remote(self.peer.clone()))
+                    .is_ok();
                 if !inserted {
                     self.rejected.insert(requested_id);
                 }
