@@ -27,6 +27,7 @@ COPY crates/amaru-iter-borrow/Cargo.toml /usr/src/amaru/crates/amaru-iter-borrow
 COPY crates/amaru-kernel/Cargo.toml /usr/src/amaru/crates/amaru-kernel/Cargo.toml
 COPY crates/amaru-ledger/Cargo.toml /usr/src/amaru/crates/amaru-ledger/Cargo.toml
 COPY crates/amaru-mempool/Cargo.toml /usr/src/amaru/crates/amaru-mempool/Cargo.toml
+COPY crates/amaru-metrics/Cargo.toml /usr/src/amaru/crates/amaru-metrics/Cargo.toml
 COPY crates/amaru-minicbor-extra/Cargo.toml /usr/src/amaru/crates/amaru-minicbor-extra/Cargo.toml
 COPY crates/amaru-network/Cargo.toml /usr/src/amaru/crates/amaru-network/Cargo.toml
 COPY crates/amaru-ouroboros/Cargo.toml /usr/src/amaru/crates/amaru-ouroboros/Cargo.toml
