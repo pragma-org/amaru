@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     ArenaPool, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash,
-    TransactionPointer, network::NetworkName, protocol_parameters::ProtocolParameters, to_cbor,
+    TransactionInputAdapter, TransactionPointer, cbor, network::NetworkName,
+    protocol_parameters::ProtocolParameters, to_cbor,
 };
 use amaru_plutus::{
     script_context::{Script, TxInfo, TxInfoTranslationError, Utxos},
@@ -14,7 +15,7 @@ use uplc_turbo::{
     binder::DeBruijn,
     constant::Constant,
     data::PlutusData,
-    flat,
+    flat::{self, FlatDecodeError},
     machine::{ExBudget, MachineInfo, PlutusVersion},
     term::Term,
 };
@@ -23,11 +24,18 @@ use crate::context::UtxoSlice;
 
 #[derive(Debug, Error)]
 pub enum PhaseTwoError {
+    #[error("missing input: {0}")]
+    MissingInput(TransactionInputAdapter),
     #[error("failed to translate transaction to TxInfo: {0}")]
     TransactionTranslationError(#[from] TxInfoTranslationError),
     #[error("illegal state in ScriptContext: {0}")]
     ScriptContextStateError(#[from] PlutusDataError),
-    // TODO: convert from MachineError to PhaseTwoError
+    #[error("failed to deserialize script: {0}")]
+    ScriptDeserializationError(cbor::decode::Error),
+    #[error("failed to flat decode script: {0}")]
+    FlatDecodingError(#[from] FlatDecodeError),
+    #[error("missing cost models for version: {0:?}")]
+    MissingCostModel(PlutusVersion),
     #[error("script evaluation failure: {0:?}")]
     UplcMachineError(UplcMachineError),
     #[error("expected scripts to fail but didn't")]
@@ -64,8 +72,16 @@ where
     let mut resolved_inputs = transaction_body
         .inputs
         .into_iter()
-        .map(|input| (input.clone(), context.lookup(input).unwrap().clone()))
-        .collect::<BTreeMap<_, _>>();
+        .map(|input| {
+            Ok((
+                input.clone(),
+                context
+                    .lookup(input)
+                    .ok_or(PhaseTwoError::MissingInput(input.clone().into()))?
+                    .clone(),
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()?;
 
     let mut resolved_reference_inptus = transaction_body
         .reference_inputs
@@ -73,9 +89,18 @@ where
         .map(|reference_inputs| {
             reference_inputs
                 .into_iter()
-                .map(|input| (input.clone(), context.lookup(input).unwrap().clone()))
-                .collect::<BTreeMap<_, _>>()
+                .map(|input| {
+                    Ok((
+                        input.clone(),
+                        context
+                            .lookup(input)
+                            .ok_or(PhaseTwoError::MissingInput(input.clone().into()))?
+                            .clone(),
+                    ))
+                })
+                .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()
         })
+        .transpose()?
         .unwrap_or_default();
 
     resolved_inputs.append(&mut resolved_reference_inptus);
@@ -104,31 +129,50 @@ where
                 }
                 Script::PlutusV1(_) => (
                     script_context.to_script_args(PLUTUS_V1)?,
-                    protocol_parameters.cost_models.plutus_v1.clone().unwrap(),
-                    uplc_turbo::machine::PlutusVersion::V1,
+                    protocol_parameters
+                        .cost_models
+                        .plutus_v1
+                        .as_deref()
+                        .ok_or(PhaseTwoError::MissingCostModel(PlutusVersion::V1))?,
+                    PlutusVersion::V1,
                 ),
                 Script::PlutusV2(_) => (
                     script_context.to_script_args(PLUTUS_V2)?,
-                    protocol_parameters.cost_models.plutus_v2.clone().unwrap(),
+                    protocol_parameters
+                        .cost_models
+                        .plutus_v2
+                        .as_deref()
+                        .ok_or(PhaseTwoError::MissingCostModel(PlutusVersion::V2))?,
                     uplc_turbo::machine::PlutusVersion::V2,
                 ),
                 Script::PlutusV3(_) => (
                     script_context.to_script_args(PLUTUS_V3)?,
-                    protocol_parameters.cost_models.plutus_v3.clone().unwrap(),
+                    protocol_parameters
+                        .cost_models
+                        .plutus_v3
+                        .as_deref()
+                        .ok_or(PhaseTwoError::MissingCostModel(PlutusVersion::V3))?,
                     uplc_turbo::machine::PlutusVersion::V3,
                 ),
             };
 
-            let mut program =
-                flat::decode::<DeBruijn>(&arena, &script.to_bytes()).expect("Failed to decode");
+            let script_bytes = script
+                .to_bytes()
+                .map_err(PhaseTwoError::ScriptDeserializationError)?;
 
+            let mut program =
+                flat::decode::<DeBruijn>(&arena, &script_bytes).map_err(PhaseTwoError::from)?;
+
+            // TODO: we should stop using Pallas' PlutusData
             // We are using Pallas' PlutusData in `amaru-plutus` and not the `PlutusData` from `uplc`
-            // so we have to do this really bad conversion (uplc uses references in plutus data, so we have ot make sure everything lives long enough)
+            // so we have to do this really bad conversion (uplc uses references in plutus data, so we have to make sure everything lives long enough)
             let constants = args
                 .iter()
                 .map(|arg| {
                     let bytes = to_cbor(&arg);
-                    let data = PlutusData::from_cbor(&arena, &bytes).unwrap();
+                    #[allow(clippy::expect_used)]
+                    let data = PlutusData::from_cbor(&arena, &bytes)
+                        .expect("unable to decode PlutusData cbor");
                     Constant::Data(data)
                 })
                 .collect::<Vec<_>>();
@@ -145,7 +189,7 @@ where
                 cpu: budget.steps as i64,
             };
 
-            let result = program.eval_with_params(&arena, plutus_version, &cost_model, uplc_budget);
+            let result = program.eval_with_params(&arena, plutus_version, cost_model, uplc_budget);
 
             match result.term {
                 Ok(term) => match term {
@@ -154,7 +198,15 @@ where
                         info: result.info,
                         err: "Error term evaluated".into(),
                     })),
-                    _ => Ok(()),
+                    Term::Var(_)
+                    | Term::Lambda { .. }
+                    | Term::Apply { .. }
+                    | Term::Delay(_)
+                    | Term::Force(_)
+                    | Term::Case { .. }
+                    | Term::Constr { .. }
+                    | Term::Constant(_)
+                    | Term::Builtin(_) => Ok(()),
                 },
                 Err(e) => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
                     plutus_version,
