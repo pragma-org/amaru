@@ -99,9 +99,8 @@ pub async fn assert_next_message(
     rx_messages: &mut Receiver<Message<EraTxId, EraTxBody>>,
     expected: Message<EraTxId, EraTxBody>,
 ) -> anyhow::Result<()> {
-    let actual = rx_messages
-        .recv()
-        .await
+    let actual = timeout(Duration::from_secs(1), rx_messages.recv())
+        .await?
         .ok_or_else(|| anyhow::anyhow!("channel closed"))?;
     assert_eq!(
         actual, expected,
