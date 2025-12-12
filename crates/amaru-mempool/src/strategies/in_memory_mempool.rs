@@ -135,15 +135,14 @@ impl<Tx: Encode<()> + Clone> MempoolInner<Tx> {
             .range(from_seq..)
             .take(limit as usize)
             .map(|(seq, tx_id)| {
-                if let Some(entry) = self.entries_by_id.get(tx_id) {
-                    let tx_size = to_cbor(&entry.tx).len() as u32;
-                    (*tx_id, tx_size, *seq)
-                } else {
+                let Some(entry) = self.entries_by_id.get(tx_id) else {
                     panic!(
                         "Inconsistent mempool state: entry missing for tx_id {:?}",
                         tx_id
-                    );
-                }
+                    )
+                };
+                let tx_size = to_cbor(&entry.tx).len() as u32;
+                (*tx_id, tx_size, *seq)
             })
             .collect();
         result.sort_by_key(|(_, _, seq_no)| *seq_no);
