@@ -21,7 +21,9 @@ fn main() {
 #[allow(clippy::unwrap_used)]
 fn get_conformance_test_vectors() {
     let test_dir = Path::new("tests/data/rules-conformance");
-    println!("cargo:rerun-if-changed={}", test_dir.to_str().unwrap());
+    if test_dir.exists() {
+        println!("cargo:rerun-if-changed={}", test_dir.to_str().unwrap());
+    }
 
     let mut files = Vec::new();
     visit_dirs(test_dir, &mut files);

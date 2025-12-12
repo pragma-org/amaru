@@ -28,10 +28,10 @@ The topology of the testnet is currently fixed:
 
 ### Build
 
-Build the _Generator_ image which contains Tools in Haskell to work with the ChainDB (takes a while):
+Build the _Loader_ image which contains Tools in Haskell to work with the ChainDB (takes a while):
 
 ```
-docker build -t ghcr.io/pragma-org/amaru/generator:latest -f Dockerfile.generator .
+docker build -t ghcr.io/pragma-org/amaru/loader:latest -f Dockerfile.loader .
 ```
 
 Build an up-to-date version of Amaru (might take a while):
@@ -80,3 +80,49 @@ In a nutshell, the process to spin-up such a testnet involves the following step
 5. Start amaru nodes: amaru nodes cannot start without an upstream peer, so they will wait for their peer to become available and then start synchronising their local chains.
 
 This process is encapsulated in the [cardano-loader.sh](./cardano-loader.sh) and [amaru-loader.sh](./amaru-loader.sh) scripts.
+
+### Data generation flow
+
+The following diagram details how data is generated and flows to the various containers of the cluster.
+
+* losanges are docker volumes
+* rounded rectangles are configuration services
+* rectangles are nodes (both amaru and cardano-node BPs)
+* dotted lines are runtime network connections between nodes
+
+```mermaid
+flowchart LR
+    loader --> |generate| DB[(ChainDB)]
+
+    DB -->  gene{initial-data}
+
+    DB -->|copy| p1-state{p1-state}
+    DB -->|copy| p2-state{p2-state}
+    DB -->|copy| p3-state{p3-state}
+    DB -->|copy| p4-state{p4-state}
+    DB -->|copy| p5-state{p5-state}
+
+    p1-state -->|/state| p1[cardano-node]
+    p2-state -->|/state| p2[cardano-node]
+    p3-state -->|/state| p3[cardano-node]
+    p4-state -->|/state| p4[cardano-node]
+    p5-state -->|/state| p5[cardano-node]
+
+    p1 -.-> p2 -.-> p3 -.-> p4 -.-> p5 -.-> p1
+    p1-state -->|/cardano/state| aloader(amaru-loader)
+    gene -->|/data/generated| aloader
+
+    aloader --> acdb[(amaru-chain-db)]
+    aloader --> aldb[(amaru-ledger-db)]
+    aldb & acdb -->|copy| a1-state{a1-state} & a2-state{a2-state}
+
+    a1-state -->|/srv/amaru| amaru-1
+    a2-state -->|/srv/amaru| amaru-2
+
+    amaru-1 -.-> p1
+    amaru-2 -.-> amaru-1
+```
+
+> [!WARNING]
+> If you get validation or boostrap errors while trying to run the cluster, make sure no stale volumes are kept around.
+> By default `docker-compose down` won't remove the named volumes and one needs to explicitly delete them.

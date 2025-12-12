@@ -7,7 +7,7 @@ authors = ["Amaru Maintainers <amaru@pragma.builders>"]
 repository = "https://github.com/pragma-org/amaru"
 homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
-rust-version = "1.91"                                    # ⚠️ Also change in .cargo/rust-toolchain.toml
+rust-version = "1.93"                                    # ⚠️ Also change in rust-toolchain.toml
 
 [workspace]
 members = ["crates/*", "simulation/*"]
@@ -103,7 +103,6 @@ vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c24
 kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46f6a18925543d785850059569d7e78" }
 
 # dev-dependencies
-criterion = "0.7.0"
 ctor = "0.6.1"
 insta = "1.43.2"
 once_cell = "1.21.3"
