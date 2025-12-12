@@ -37,8 +37,6 @@ pub struct TxSubmissionServerState {
     /// This is kept in sync with `inflight_fetch_queue`. When we receive a tx body,
     /// we pop it from the front of the queue and remove it from the set.
     inflight_fetch_set: BTreeSet<TxId>,
-    /// Tx ids we processed but didn't insert (invalid, policy failure, etc.).
-    rejected: BTreeSet<TxId>,
 }
 
 impl TxSubmissionServerState {
@@ -50,7 +48,6 @@ impl TxSubmissionServerState {
             pending_fetch: VecDeque::new(),
             inflight_fetch_queue: VecDeque::new(),
             inflight_fetch_set: BTreeSet::new(),
-            rejected: BTreeSet::new(),
         }
     }
 
@@ -86,15 +83,9 @@ impl TxSubmissionServerState {
 
         while let Some((tx_id, _size)) = self.window.front() {
             let already_in_mempool = mempool.contains(tx_id);
-            let already_rejected = self.rejected.contains(tx_id);
-
-            if already_in_mempool || already_rejected {
+            if already_in_mempool {
                 // pop from window and ack it
-                if let Some((front_id, _)) = self.window.pop_front() {
-                    // keep rejected set from growing forever
-                    if already_rejected {
-                        self.rejected.remove(&front_id);
-                    }
+                if self.window.pop_front().is_some() {
                     ack = ack
                         .checked_add(1)
                         .expect("ack overflow: protocol invariant violated");
@@ -134,8 +125,7 @@ impl TxSubmissionServerState {
             self.window.push_back((tx_id, size));
 
             // We only add to pending fetch if we haven't received it yet in the mempool.
-            // and the tx id is not already rejected.
-            if !mempool.contains(&tx_id) && !self.rejected.contains(&tx_id) {
+            if !mempool.contains(&tx_id) {
                 self.pending_fetch.push_back(tx_id);
             }
         }
@@ -175,13 +165,10 @@ impl TxSubmissionServerState {
             if let Some(requested_id) = self.inflight_fetch_queue.pop_front() {
                 self.inflight_fetch_set.remove(&requested_id);
 
-                let inserted = mempool.validate_transaction(tx.clone()).is_ok()
-                    && mempool
-                        .insert(tx, TxOrigin::Remote(self.peer.clone()))
-                        .is_ok();
-                if !inserted {
-                    self.rejected.insert(requested_id);
-                }
+                mempool
+                    .validate_transaction(tx.clone())
+                    .map_err(|e| anyhow::anyhow!(e))?;
+                mempool.insert(tx, TxOrigin::Remote(self.peer.clone()))?;
             }
         }
         Ok(())
