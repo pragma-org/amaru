@@ -91,15 +91,15 @@ fn list_archive_names(network: NetworkName) -> Result<Vec<String>, Box<dyn std::
             }
         })
         .collect();
+
+    fn extract_slot(s: &String) -> Option<u32> {
+        s.split_once(".")
+            .and_then(|(prefix, _)| prefix.parse::<u32>().ok())
+    }
+
     archives.sort_by(|a, b| {
-        let a_num = a
-            .split_once(".")
-            .and_then(|(prefix, _)| prefix.parse::<u32>().ok())
-            .unwrap_or_else(|| panic!("Invalid archive name format: {}", a));
-        let b_num = b
-            .split_once(".")
-            .and_then(|(prefix, _)| prefix.parse::<u32>().ok())
-            .unwrap_or_else(|| panic!("Invalid archive name format: {}", b));
+        let a_num = extract_slot(a).unwrap_or_else(|| panic!("Invalid archive name format: {}", a));
+        let b_num = extract_slot(b).unwrap_or_else(|| panic!("Invalid archive name format: {}", b));
         a_num.cmp(&b_num)
     });
     Ok(archives)
@@ -109,7 +109,11 @@ fn load_archive(
     network: NetworkName,
     archive_path: &str,
 ) -> Result<Archive<GzDecoder<File>>, Box<dyn std::error::Error>> {
-    let file = fs::File::open(format!("{}/blocks/{}", default_data_dir(network), archive_path))?;
+    let file = fs::File::open(format!(
+        "{}/blocks/{}",
+        default_data_dir(network),
+        archive_path
+    ))?;
     let gz = GzDecoder::new(file);
     Ok(Archive::new(gz))
 }
@@ -246,11 +250,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let duration = Instant::now().saturating_duration_since(before);
+    let processed_per_seconds = processed as u64 / duration.as_secs().max(1);
     info!(
-        "Processed {} blocks in {} seconds ({} blocks/s)",
+        processed_per_seconds,
         processed,
-        duration.as_secs(),
-        processed as u64 / duration.as_secs().max(1)
+        duration = duration.as_secs(),
+        "Finished processing blocks"
     );
 
     Ok(())

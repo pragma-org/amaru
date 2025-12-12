@@ -282,8 +282,8 @@ async fn download_from_mithril(
     let snapshot_list_item = snapshots.first().ok_or("no snapshot found")?;
 
     info!(
-        "Downloading and verifying mithril snapshot {}",
-        snapshot_list_item.hash
+        hash = snapshot_list_item.hash,
+        "Downloading and verifying mithril snapshot"
     );
 
     let snapshot = database_client
@@ -392,8 +392,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         latest_chunk.unwrap_or(infer_chunk_from_slot(tip.slot_or_default().into()) - 1);
 
     info!(
-        "Downloading mithril immutable starting chunk {} (tip {})",
-        from_chunk, tip
+        tip=%tip, from_chunk=%from_chunk,
+        "Downloading mithril immutable chunks"
     );
 
     download_from_mithril(network, target_dir, from_chunk).await?;

@@ -56,7 +56,7 @@ struct Cli {
     otlp_metric_url: String,
 }
 
-const DEFAULT_SERVICE_NAME: &str = "amaru";
+const DEFAULT_SERVICE_NAME: &str = "amaru-ledger";
 
 const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
 
