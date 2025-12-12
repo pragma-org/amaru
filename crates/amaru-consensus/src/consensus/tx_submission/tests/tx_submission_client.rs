@@ -68,12 +68,10 @@ impl TxSubmissionClient<Tx> {
                     break;
                 }
             };
+            let pallas_request = to_pallas_request(self.state.peer(), request);
             match self
                 .state
-                .process_tx_server_request(
-                    self.mempool.as_ref(),
-                    to_pallas_request(self.state.peer(), request),
-                )
+                .process_tx_server_request(self.mempool.as_ref(), pallas_request)
                 .await?
             {
                 TxClientResponse::Done => {
@@ -84,14 +82,11 @@ impl TxSubmissionClient<Tx> {
                     break;
                 }
                 TxClientResponse::NextIds(tx_ids) => {
-                    transport
-                        .reply_tx_ids(
-                            tx_ids
-                                .into_iter()
-                                .map(|(tx_id, tx_size)| TxIdAndSize(era_tx_id(tx_id), tx_size))
-                                .collect(),
-                        )
-                        .await?
+                    let tx_ids_and_sizes = tx_ids
+                        .into_iter()
+                        .map(|(tx_id, tx_size)| TxIdAndSize(era_tx_id(tx_id), tx_size))
+                        .collect();
+                    transport.reply_tx_ids(tx_ids_and_sizes).await?
                 }
                 TxClientResponse::NextTxs(txs) => {
                     transport.reply_txs(era_tx_bodies(&txs)).await?;
