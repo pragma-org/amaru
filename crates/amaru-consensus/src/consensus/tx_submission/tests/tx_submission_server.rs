@@ -58,7 +58,7 @@ impl TxSubmissionServer<Tx> {
             self.state.peer()
         );
         transport.wait_for_init().await?;
-        let (ack, req, _blocking) = self.state.request_tx_ids(self.mempool.as_ref()).await?;
+        let (ack, req, _blocking) = self.state.request_tx_ids(self.mempool.as_ref())?;
         // The first request is always blocking
         transport
             .acknowledge_and_request_tx_ids(ack, req, Blocking::Yes)

@@ -73,10 +73,10 @@ impl TxSubmissionServerState {
         txs: Vec<Tx>,
     ) -> anyhow::Result<(u16, u16, Blocking)> {
         self.received_txs(mempool, txs).await?;
-        self.request_tx_ids(mempool).await
+        self.request_tx_ids(mempool)
     }
 
-    pub async fn request_tx_ids(
+    pub fn request_tx_ids(
         &mut self,
         mempool: &dyn TxSubmissionMempool<Tx>,
     ) -> anyhow::Result<(u16, u16, Blocking)> {

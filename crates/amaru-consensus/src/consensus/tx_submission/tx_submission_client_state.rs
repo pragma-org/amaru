@@ -77,7 +77,7 @@ impl TxSubmissionClientState {
                 {
                     return Ok(TxClientResponse::<Tx>::Done);
                 }
-                let tx_ids = self.get_next_tx_ids(mempool, req).await?;
+                let tx_ids = self.get_next_tx_ids(mempool, req)?;
                 Ok(TxClientResponse::NextIds(tx_ids))
             }
             TxServerRequest::TxIdsNonBlocking { ack, req, .. } => {
@@ -85,7 +85,7 @@ impl TxSubmissionClientState {
                 // and update the last_seq
                 self.discard(ack);
                 Ok(TxClientResponse::NextIds(
-                    self.get_next_tx_ids(mempool, req).await?,
+                    self.get_next_tx_ids(mempool, req)?,
                 ))
             }
             TxServerRequest::Txs { tx_ids, .. } => {
@@ -123,7 +123,7 @@ impl TxSubmissionClientState {
     }
 
     /// Take notice of the acknowledged transactions, and send the next batch of tx ids.
-    async fn get_next_tx_ids<Tx: Send + Debug + Sync + 'static>(
+    fn get_next_tx_ids<Tx: Send + Debug + Sync + 'static>(
         &mut self,
         mempool: &dyn TxSubmissionMempool<Tx>,
         required_next: u16,
