@@ -50,4 +50,4 @@ jobs:
       shell: bash
       working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
       run: |
-        ls immutable/*.chunk | sort | head -n -100 | xargs -r rm -f --
+        ls immutable/*.chunk | sort | head -n -500 | xargs -r rm -f --
