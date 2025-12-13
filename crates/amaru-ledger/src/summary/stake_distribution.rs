@@ -341,8 +341,7 @@ pub mod tests {
     use amaru_kernel::{
         Epoch, Lovelace, expect_stake_credential,
         tests::{
-            any_anchor, any_certificate_pointer, any_drep, any_pool_id, any_pool_params,
-            any_stake_credential,
+            any_certificate_pointer, any_drep, any_pool_id, any_pool_params, any_stake_credential,
         },
     };
     use proptest::{collection, option, prelude::*, prop_compose};
@@ -467,7 +466,6 @@ pub mod tests {
             max_epoch: u64,
         )(
             valid_until in min_epoch..=max_epoch,
-            metadata in option::of(any_anchor()),
             stake in 0_u64..1_000_000_000_000,
             registered_at in any_certificate_pointer(u64::MAX),
             previous_deregistration in option::of(any_certificate_pointer(u64::MAX)),
@@ -486,7 +484,6 @@ pub mod tests {
 
             DRepState {
                 valid_until: Some(Epoch::from(valid_until)),
-                metadata,
                 stake,
                 registered_at,
                 previous_deregistration

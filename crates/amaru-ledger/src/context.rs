@@ -17,7 +17,7 @@ mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    AddrKeyhash, Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Hash, Lovelace,
+    AddrKeyhash, CertificatePointer, DRep, DRepRegistration, DatumHash, Hash, Lovelace,
     MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId,
     PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential,
     TransactionInput, Vote, Voter,
@@ -204,14 +204,7 @@ pub trait DRepsSlice {
         &mut self,
         drep: StakeCredential,
         registration: DRepRegistration,
-        anchor: Option<Anchor>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>>;
-
-    fn update(
-        &mut self,
-        drep: StakeCredential,
-        anchor: Option<Anchor>,
-    ) -> Result<(), UpdateError<StakeCredential>>;
 
     fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer);
 }
@@ -238,7 +231,6 @@ pub trait CommitteeSlice {
     fn resign(
         &mut self,
         cc_member: StakeCredential,
-        anchor: Option<Anchor>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>>;
 }
 
@@ -248,7 +240,7 @@ pub trait CommitteeSlice {
 pub trait ProposalsSlice {
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal);
 
-    fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>);
+    fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote);
 }
 
 // Witnesses

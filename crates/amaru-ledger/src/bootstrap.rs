@@ -627,13 +627,7 @@ fn import_dreps<S: Store>(
                     )
                 }));
 
-                (
-                    credential,
-                    (
-                        Resettable::from(Option::from(state.anchor)),
-                        Some(registration),
-                    ),
-                )
+                (credential, Some(registration))
             }),
             cc_members: iter::empty(),
             proposals: iter::empty(),
@@ -942,7 +936,6 @@ fn import_constitution(
     let transaction = db.create_transaction();
 
     info!(
-        anchor = constitution.anchor.url,
         guardrails = Option::from(constitution.guardrail_script.clone())
             .map(|s: ScriptHash| s.to_string().chars().take(8).collect())
             .unwrap_or_else(|| "none".to_string()),
@@ -1053,7 +1046,7 @@ fn import_votes(
                     StakeCredential::ScriptHash(hash) => Voter::ConstitutionalCommitteeScript(hash),
                 };
 
-                let ballot = Ballot { vote, anchor: None };
+                let ballot = Ballot { vote };
 
                 votes.push((new_ballot_id(voter), ballot));
             }
@@ -1064,7 +1057,7 @@ fn import_votes(
                     StakeCredential::ScriptHash(hash) => Voter::DRepScript(hash),
                 };
 
-                let ballot = Ballot { vote, anchor: None };
+                let ballot = Ballot { vote };
 
                 votes.push((new_ballot_id(voter), ballot));
             }
@@ -1072,7 +1065,7 @@ fn import_votes(
             for (pool_id, vote) in st.pools_votes.into_iter() {
                 let voter = Voter::StakePoolKey(pool_id);
 
-                let ballot = Ballot { vote, anchor: None };
+                let ballot = Ballot { vote };
 
                 votes.push((new_ballot_id(voter), ballot));
             }
@@ -1143,7 +1136,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for GovActionState {
 #[derive(Debug)]
 enum ConstitutionalCommitteeAuthorization {
     DelegatedToHotCredential(StakeCredential),
-    Resigned(#[expect(dead_code)] StrictMaybe<Anchor>),
+    Resigned(),
 }
 
 impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization {
@@ -1155,7 +1148,8 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization
             }
             1 => {
                 assert_len(2)?;
-                Ok(Self::Resigned(d.decode_with(ctx)?))
+                let _: StrictMaybe<Anchor> = d.decode_with(ctx)?;
+                Ok(Self::Resigned())
             }
             t => Err(cbor::decode::Error::message(format!(
                 "unexpected ConstitutionalCommitteeAuthorization kind: {t}; expected 0 or 1."

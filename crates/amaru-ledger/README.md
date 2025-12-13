@@ -11,7 +11,7 @@ Ledger State
  ├─ UTxO (TxIn |-> TxOut)
  ├─ Stake distribution (StakeCredential |-> Lovelace)
  ├─ Certificates
- │   ├─ DReps (DRepID |-> Epoch, Anchor, Lovelace, Set StakeCredential)
+ │   ├─ DReps (DRepID |-> Epoch, Lovelace, Set StakeCredential)
  │   ├─ Committee (CCID |-> Committee State)
  │   ├─ SPOs
  │   │   ├─ Current Parameters (PoolID |-> PoolParams)

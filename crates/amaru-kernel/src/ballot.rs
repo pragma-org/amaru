@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Anchor, Vote, cbor, heterogeneous_array};
+use crate::{Vote, cbor, heterogeneous_array};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ballot {
     pub vote: Vote,
-    pub anchor: Option<Anchor>,
 }
 
 impl<C> cbor::encode::Encode<C> for Ballot {
@@ -28,7 +27,6 @@ impl<C> cbor::encode::Encode<C> for Ballot {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
         e.encode_with(&self.vote, ctx)?;
-        e.encode_with(&self.anchor, ctx)?;
         Ok(())
     }
 }
@@ -39,7 +37,6 @@ impl<'d, C> cbor::decode::Decode<'d, C> for Ballot {
             assert_len(2)?;
             Ok(Self {
                 vote: d.decode_with(ctx)?,
-                anchor: d.decode_with(ctx)?,
             })
         })
     }
@@ -48,20 +45,15 @@ impl<'d, C> cbor::decode::Decode<'d, C> for Ballot {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::Ballot;
-    use crate::{
-        prop_cbor_roundtrip,
-        tests::{any_anchor, any_vote},
-    };
-    use proptest::{option, prelude::*};
+    use crate::{prop_cbor_roundtrip, tests::any_vote};
+    use proptest::prelude::*;
 
     prop_compose! {
         pub fn any_ballot()(
             vote in any_vote(),
-            anchor in option::of(any_anchor()),
         ) -> Ballot  {
             Ballot {
                 vote,
-                anchor,
             }
         }
     }

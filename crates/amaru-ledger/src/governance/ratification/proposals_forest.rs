@@ -674,8 +674,7 @@ impl fmt::Display for ProposalsForest {
             }),
             Rc::new(|constitution, _| {
                 Ok(format!(
-                    "{} with {}",
-                    constitution.anchor.url,
+                    "with {}",
                     match constitution.guardrail_script {
                         Nullable::Some(hash) => format!(
                             "guardrails={}",

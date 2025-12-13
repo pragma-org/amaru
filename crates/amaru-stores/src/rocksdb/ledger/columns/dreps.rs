@@ -53,7 +53,7 @@ pub fn add<DB>(
     valid_until_on_update: Epoch,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (credential, (anchor, registration)) in rows {
+    for (credential, registration) in rows {
         let key = as_key(&PREFIX, &credential);
 
         // Registration already exists. Which can represents one of two cases:
@@ -97,7 +97,6 @@ pub fn add<DB>(
                 deposit,
                 registered_at,
                 valid_until,
-                anchor: None,
                 previous_deregistration: None,
             })
         } else {
@@ -106,9 +105,7 @@ pub fn add<DB>(
         };
 
         match row {
-            Some(mut row) => {
-                anchor.set_or_reset(&mut row.anchor);
-
+            Some(row) => {
                 db.put(key, as_value(row))
                     .map_err(|err| StoreError::Internal(err.into()))?;
             }

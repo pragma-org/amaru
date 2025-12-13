@@ -103,7 +103,6 @@ const DIR_LIVE_DB: &str = "live";
 // * 'acct:'StakeCredential      * (Option<PoolId>, Lovelace, Lovelace)           *
 // * 'drep:'StakeCredential      * (                                              *
 // *                             *   Lovelace,                                    *
-// *                             *   Option<Anchor>,                              *
 // *                             *   CertificatePointer,                          *
 // *                             *   Option<Epoch>,                               *
 // *                             *   Option<CertificatePointer>,                  *

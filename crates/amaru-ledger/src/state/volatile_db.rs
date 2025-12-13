@@ -22,8 +22,8 @@ use crate::{
     store::{self, columns::*},
 };
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration,
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalPointer,
+    Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Lovelace,
+    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalPointer,
     StakeCredential, TransactionInput, protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Epoch;
@@ -148,7 +148,7 @@ pub struct VolatileState {
         (DRep, CertificatePointer),
         Lovelace,
     >,
-    pub dreps: DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>,
+    pub dreps: DiffBind<StakeCredential, Empty, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
@@ -305,17 +305,17 @@ fn add_accounts(
 // --------------------------------------------------------------------------
 
 fn add_dreps(
-    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, DRepRegistration>)>,
+    iterator: impl Iterator<Item = (StakeCredential, Bind<Empty, Empty, DRepRegistration>)>,
 ) -> impl Iterator<Item = (dreps::Key, dreps::Value)> {
     iterator.map(
         move |(
             credential,
             Bind {
-                left: anchor,
+                left: _,
                 right: _,
                 value: registration,
             },
-        ): (_, Bind<_, Empty, _>)| { (credential, (anchor, registration)) },
+        ): (_, Bind<_, Empty, _>)| { (credential, registration) },
     )
 }
 

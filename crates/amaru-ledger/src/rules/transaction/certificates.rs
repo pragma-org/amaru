@@ -204,7 +204,7 @@ where
             Ok(())
         }
 
-        Certificate::RegDRepCert(drep, deposit, anchor) => {
+        Certificate::RegDRepCert(drep, deposit, _anchor) => {
             match drep {
                 StakeCredential::ScriptHash(hash) => {
                     context.require_script_witness(into_required_script(hash))
@@ -229,7 +229,6 @@ where
                     registered_at: pointer,
                     valid_until,
                 },
-                Option::from(anchor),
             )?;
             Ok(())
         }
@@ -245,14 +244,13 @@ where
             Ok(())
         }
 
-        Certificate::UpdateDRepCert(drep, anchor) => {
+        Certificate::UpdateDRepCert(drep, _anchor) => {
             match drep {
                 StakeCredential::ScriptHash(hash) => {
                     context.require_script_witness(into_required_script(hash))
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            DRepsSlice::update(context, drep, Option::from(anchor))?;
             Ok(())
         }
 
@@ -278,14 +276,14 @@ where
             Ok(())
         }
 
-        Certificate::ResignCommitteeCold(cold_credential, anchor) => {
+        Certificate::ResignCommitteeCold(cold_credential, _anchor) => {
             match cold_credential {
                 StakeCredential::ScriptHash(hash) => {
                     context.require_script_witness(into_required_script(hash))
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            CommitteeSlice::resign(context, cold_credential, Option::from(anchor))?;
+            CommitteeSlice::resign(context, cold_credential)?;
             Ok(())
         }
 

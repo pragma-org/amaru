@@ -26,7 +26,7 @@ pub fn add(
 ) -> Result<(), StoreError> {
     let mut dreps = store.dreps.borrow_mut();
 
-    for (credential, (anchor, registration)) in rows {
+    for (credential, registration) in rows {
         if let Some(row) = dreps.get_mut(&credential) {
             // Re-registration or update
             if let Some(DRepRegistration {
@@ -40,8 +40,6 @@ pub fn add(
                 row.registered_at = registered_at;
                 row.valid_until = valid_until;
             }
-
-            anchor.set_or_reset(&mut row.anchor);
         } else if let Some(DRepRegistration {
             deposit,
             registered_at,
@@ -50,14 +48,12 @@ pub fn add(
         }) = registration
         {
             // New registration
-            let mut row = Row {
+            let row = Row {
                 deposit,
                 registered_at,
                 valid_until,
-                anchor: None,
                 previous_deregistration: None,
             };
-            anchor.set_or_reset(&mut row.anchor);
             dreps.insert(credential, row);
         } else {
             error!(

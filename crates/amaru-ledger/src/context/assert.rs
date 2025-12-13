@@ -15,12 +15,11 @@
 use crate::context::{
     AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, Hash,
     PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
-    PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
-    UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
-    blanket_known_scripts,
+    PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UtxoSlice,
+    ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
 };
 use amaru_kernel::{
-    AddrKeyhash, Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Lovelace,
+    AddrKeyhash, CertificatePointer, DRep, DRepRegistration, DatumHash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
     ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, StakeCredentialType,
     TransactionInput, Vote, Voter, VoterType, serde_utils, stake_credential_hash,
@@ -209,16 +208,7 @@ impl DRepsSlice for AssertValidationContext {
         &mut self,
         _drep: StakeCredential,
         _registration: DRepRegistration,
-        _anchor: Option<Anchor>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>> {
-        unimplemented!()
-    }
-
-    fn update(
-        &mut self,
-        _drep: StakeCredential,
-        _anchor: Option<Anchor>,
-    ) -> Result<(), UpdateError<StakeCredential>> {
         unimplemented!()
     }
 
@@ -244,7 +234,6 @@ impl CommitteeSlice for AssertValidationContext {
     fn resign(
         &mut self,
         _cc_member: StakeCredential,
-        _anchor: Option<Anchor>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
         unimplemented!()
     }
@@ -263,8 +252,7 @@ impl ProposalsSlice for AssertValidationContext {
         skip_all,
         name = "vote"
     )]
-    fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {
-    }
+    fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote) {}
 }
 
 impl WitnessSlice for AssertValidationContext {

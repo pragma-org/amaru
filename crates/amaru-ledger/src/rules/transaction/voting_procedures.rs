@@ -45,12 +45,7 @@ pub(crate) fn execute<C>(
                 }
 
                 votes.into_iter().for_each(|(proposal_id, ballot)| {
-                    context.vote(
-                        proposal_id,
-                        voter.clone(),
-                        ballot.vote,
-                        Option::from(ballot.anchor),
-                    );
+                    context.vote(proposal_id, voter.clone(), ballot.vote);
                 })
             });
     }

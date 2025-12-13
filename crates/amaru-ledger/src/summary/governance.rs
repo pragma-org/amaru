@@ -14,7 +14,7 @@
 
 use crate::store::{GovernanceActivity, Snapshot, StoreError, columns::dreps};
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Lovelace, Slot, StakeCredential, TransactionPointer,
+    CertificatePointer, DRep, Lovelace, Slot, StakeCredential, TransactionPointer,
     expect_stake_credential, network::EraHistory,
 };
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
@@ -31,7 +31,6 @@ pub struct GovernanceSummary {
 pub struct DRepState {
     #[serde(rename(serialize = "mandate"))]
     pub valid_until: Option<Epoch>,
-    pub metadata: Option<Anchor>,
     pub stake: Lovelace,
     #[serde(skip)]
     pub registered_at: CertificatePointer,
@@ -115,7 +114,6 @@ impl GovernanceSummary {
                         registered_at,
                         previous_deregistration,
                         valid_until,
-                        anchor,
                         ..
                     },
                 )| {
@@ -129,7 +127,6 @@ impl GovernanceSummary {
                         DRepState {
                             registered_at,
                             previous_deregistration,
-                            metadata: anchor,
                             valid_until: Some(valid_until + consecutive_dormant_epochs as u64),
                             // The actual stake is filled later when computing the stake distribution.
                             stake: 0,
@@ -141,7 +138,6 @@ impl GovernanceSummary {
 
         let default_protocol_drep = || DRepState {
             valid_until: None,
-            metadata: None,
             stake: 0,
             registered_at: CertificatePointer {
                 transaction: TransactionPointer {

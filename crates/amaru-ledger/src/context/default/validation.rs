@@ -15,16 +15,16 @@
 use crate::{
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
-        PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
-        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
+        PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UtxoSlice,
+        ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration,
-    DatumHash, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
-    PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash,
-    StakeCredential, TransactionInput, Vote, Voter,
+    Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, DatumHash,
+    Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId,
+    PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential,
+    TransactionInput, Vote, Voter,
 };
 use amaru_slot_arithmetic::Epoch;
 use core::mem;
@@ -167,22 +167,9 @@ impl DRepsSlice for DefaultValidationContext {
         &mut self,
         drep: StakeCredential,
         registration: DRepRegistration,
-        anchor: Option<Anchor>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>> {
         trace!(?drep, deposit = %registration.deposit, "certificate.drep.registration");
-        self.state
-            .dreps
-            .register(drep, registration, anchor, None)?;
-        Ok(())
-    }
-
-    fn update(
-        &mut self,
-        drep: StakeCredential,
-        anchor: Option<Anchor>,
-    ) -> Result<(), UpdateError<StakeCredential>> {
-        trace!(?drep, ?anchor, "certificate.drep.update");
-        self.state.dreps.bind_left(drep, anchor)?;
+        self.state.dreps.register(drep, registration, None, None)?;
         Ok(())
     }
 
@@ -209,9 +196,8 @@ impl CommitteeSlice for DefaultValidationContext {
     fn resign(
         &mut self,
         cc_member: StakeCredential,
-        anchor: Option<Anchor>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
-        trace!(name: "certificate.committee.resign", ?cc_member, ?anchor);
+        trace!(name: "certificate.committee.resign", ?cc_member);
         self.state.committee.unregister(cc_member);
         Ok(())
     }
@@ -225,13 +211,13 @@ impl ProposalsSlice for DefaultValidationContext {
             .unwrap_or_default(); // Can't happen as by construction key is unique
     }
 
-    fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {
+    fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote) {
         self.state.votes.produce(
             BallotId {
                 proposal: ComparableProposalId::from(proposal),
                 voter,
             },
-            Ballot { vote, anchor },
+            Ballot { vote },
         )
     }
 }

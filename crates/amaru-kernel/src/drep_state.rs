@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Anchor, Epoch, Lovelace, Set, StakeCredential, StrictMaybe, cbor};
+use crate::{Epoch, Lovelace, Set, StakeCredential, cbor};
 
 #[derive(Debug)]
 pub struct DRepState {
     pub expiry: Epoch,
-    pub anchor: StrictMaybe<Anchor>,
     pub deposit: Lovelace,
     pub delegators: Set<StakeCredential>,
 }
@@ -27,7 +26,6 @@ impl<'b, C> cbor::decode::Decode<'b, C> for DRepState {
         d.array()?;
         Ok(DRepState {
             expiry: d.decode_with(ctx)?,
-            anchor: d.decode_with(ctx)?,
             deposit: d.decode_with(ctx)?,
             delegators: d.decode_with(ctx)?,
         })

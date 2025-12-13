@@ -20,9 +20,8 @@ pub mod rocksdb;
 #[cfg(test)]
 pub mod tests {
     use amaru_kernel::{
-        Anchor, ComparableProposalId, DRepRegistration, EraHistory, Hash,
-        MemoizedTransactionOutput, Point, PoolId, PoolParams, Slot, StakeCredential,
-        TransactionInput,
+        ComparableProposalId, DRepRegistration, EraHistory, Hash, MemoizedTransactionOutput, Point,
+        PoolId, PoolParams, Slot, StakeCredential, TransactionInput,
         network::NetworkName,
         protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
         tests::{
@@ -139,28 +138,18 @@ pub mod tests {
             .unwrap()
             .current();
 
-        if drep_row.anchor.is_none() {
-            drep_row.anchor = Some(Anchor {
-                url: "https://example.com".to_string(),
-                content_hash: Hash::from([0u8; 32]),
-            });
-        }
         drep_row.previous_deregistration = None;
 
-        let anchor = drep_row.anchor.clone().expect("Expected anchor to be Some");
         let deposit = drep_row.deposit;
         let registered_at = drep_row.registered_at;
 
         let drep_iter = std::iter::once((
             drep_key.clone(),
-            (
-                Resettable::Set(anchor),
-                Some(DRepRegistration {
-                    deposit,
-                    registered_at,
-                    valid_until: drep_row.valid_until,
-                }),
-            ),
+            Some(DRepRegistration {
+                deposit,
+                registered_at,
+                valid_until: drep_row.valid_until,
+            }),
         ));
 
         // proposals (Does not generate proposal row on Windows due to stack overflow)
@@ -345,11 +334,6 @@ pub mod tests {
             .find(|(key, _)| key == &fixture.drep_key)
             .map(|(_, row)| row)
             .expect("drep not found in store");
-
-        assert_eq!(
-            stored_drep.anchor, fixture.drep_row.anchor,
-            "drep anchor mismatch"
-        );
 
         assert_eq!(
             stored_drep.deposit, fixture.drep_row.deposit,

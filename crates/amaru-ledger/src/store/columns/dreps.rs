@@ -12,25 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::state::diff_bind::Resettable;
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{
-    Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential, cbor,
-};
+use amaru_kernel::{CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential, cbor};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
 
 /// Iterator used to browse rows from the DRep column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (Resettable<Anchor>, Option<DRepRegistration>);
+pub type Value = Option<DRepRegistration>;
 
 pub type Key = StakeCredential;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Row {
     pub deposit: Lovelace,
-    pub anchor: Option<Anchor>,
     pub registered_at: CertificatePointer,
     pub valid_until: Epoch,
 
@@ -50,7 +46,6 @@ impl<C> cbor::encode::Encode<C> for Row {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(5)?;
         e.encode_with(self.deposit, ctx)?;
-        e.encode_with(self.anchor.clone(), ctx)?;
         e.encode_with(self.registered_at, ctx)?;
         e.encode_with(self.valid_until, ctx)?;
         e.encode_with(self.previous_deregistration, ctx)?;
@@ -63,7 +58,6 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         d.array()?;
         Ok(Row {
             deposit: d.decode_with(ctx)?,
-            anchor: d.decode_with(ctx)?,
             registered_at: d.decode_with(ctx)?,
             valid_until: d.decode_with(ctx)?,
             previous_deregistration: d.decode_with(ctx)?,
@@ -74,10 +68,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use amaru_kernel::{
-        prop_cbor_roundtrip,
-        tests::{any_anchor, any_certificate_pointer},
-    };
+    use amaru_kernel::{prop_cbor_roundtrip, tests::any_certificate_pointer};
     use proptest::{option, prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(Row, any_row(u64::MAX));
@@ -85,14 +76,12 @@ pub mod tests {
     prop_compose! {
         pub fn any_row(max_slot: u64)(
             deposit in any::<Lovelace>(),
-            anchor in option::of(any_anchor()),
             registered_at in any_certificate_pointer(max_slot),
             valid_until in any::<Epoch>(),
             previous_deregistration in option::of(any_certificate_pointer(max_slot)),
         ) -> Row {
             Row {
                 deposit,
-                anchor,
                 registered_at,
                 valid_until,
                 previous_deregistration,
