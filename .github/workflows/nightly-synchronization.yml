@@ -37,7 +37,7 @@ jobs:
         restore-keys: |
           cardano-node-ogmios-${{ matrix.network }}
 
-    - uses: CardanoSolutions/gh-action-cardano-node-ogmios-docker-sync@v1.2.2
+    - uses: CardanoSolutions/gh-action-cardano-node-ogmios-docker-sync@671d58cc73fe1edf9eab19c21dc3ae92e4176c37
       with:
         db-dir: ${{ runner.temp }}/db-${{ matrix.network }}
         network: ${{ matrix.network }}
@@ -50,4 +50,4 @@ jobs:
       shell: bash
       working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
       run: |
-        ls immutable/*.chunk | sort | head -n -100 | xargs -r rm -f --
+        ls immutable/*.chunk | sort | head -n -500 | xargs -r rm -f --
