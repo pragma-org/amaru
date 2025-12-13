@@ -7,7 +7,6 @@ env:
   AMARU_TEST_DATA_DIR: simulation/amaru-sim/test-data
   RUST_BACKTRACE: full
   RUST_MIN_STACK: 16777216
-
   RUST_CACHE_PATH: |
     ~/.cargo/bin/
     ~/.cargo/registry/index/
@@ -92,16 +91,20 @@ jobs:
         if: ${{ inputs.test-seed != '' }}
         run: echo "AMARU_TEST_SEED=${{ inputs.test-seed }}" >> $GITHUB_ENV
 
+      - id: timestamp
+        run: echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
       - uses: actions/checkout@v4
         with:
           submodules: true
-      # restore the cache
-      - uses: actions/cache@v4
+
+      - uses: actions/cache/restore@v4
         with:
           path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-${{ matrix.environments.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-${{ matrix.environments.target }}-${{ steps.timestamp.outputs.value }}
           restore-keys: |
-            cargo-${{ matrix.environments.target }}-
+            cargo-${{ matrix.environments.target }}
+
       - name: Run tests
         shell: bash
         run: |
@@ -109,7 +112,7 @@ jobs:
           LOG_DIR=simulation/amaru-sim/test-data
           LOG_FILE="$LOG_DIR/simulation.log"
           mkdir -p "$LOG_DIR"
-          
+
           # Print stderr only, save both streams
           cargo run -p amaru-sim --locked --target ${{ matrix.environments.target }} \
           1>>"$LOG_FILE" \
