@@ -897,9 +897,7 @@ impl<const VERSION: usize> HasScriptHash for PlutusScript<VERSION> {
 }
 
 fn tagged_script_hash(tag: u8, bytes: &[u8]) -> ScriptHash {
-    let mut buffer: Vec<u8> = vec![tag];
-    buffer.extend_from_slice(bytes);
-    Hasher::<224>::hash(&buffer)
+    Hasher::<224>::hash_tagged(bytes, tag)
 }
 
 /// Construct the bootstrap root from a bootstrap witness
