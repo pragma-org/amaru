@@ -18,14 +18,14 @@ use amaru_ledger::store::{
     StoreError,
     columns::utxo::{Key, Value},
 };
-use rocksdb::Transaction;
+use rocksdb::{DBPinnableSlice, Transaction};
 
 /// Name prefixed used for storing UTxO entries. UTF-8 encoding for "utxo"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x75, 0x74, 0x78, 0x6f];
 
 #[expect(clippy::panic)]
-pub fn get(
-    db_get: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, rocksdb::Error>,
+pub fn get<'a>(
+    db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     key: &Key,
 ) -> Result<Option<Value>, StoreError> {
     let key = as_key(&PREFIX, key);

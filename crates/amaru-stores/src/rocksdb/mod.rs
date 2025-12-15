@@ -30,7 +30,7 @@ use amaru_ledger::{
 };
 use amaru_slot_arithmetic::Epoch;
 use rocksdb::{
-    DB, DBAccess, DBIteratorWithThreadMode, Direction, Env, IteratorMode, ReadOptions, Transaction,
+    DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -424,49 +424,49 @@ macro_rules! impl_ReadStore_body {
     ($($header:tt)*) => {
         $($header)* {
             fn tip(&self) -> Result<Point, StoreError> {
-                get_or_bail(|key| self.db.get(key), KEY_TIP)
+                get_or_bail(|key| self.db.get_pinned(key), KEY_TIP)
             }
 
             fn protocol_parameters(
                 &self,
             ) -> Result<ProtocolParameters, StoreError> {
-                get_or_bail(|key| self.db.get(key), &KEY_PROTOCOL_PARAMETERS)
+                get_or_bail(|key| self.db.get_pinned(key), &KEY_PROTOCOL_PARAMETERS)
             }
 
             fn constitutional_committee(&self) -> Result<ConstitutionalCommitteeStatus, StoreError> {
-                get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTIONAL_COMMITTEE)
+                get_or_bail(|key| self.db.get_pinned(key), &KEY_CONSTITUTIONAL_COMMITTEE)
             }
 
             fn constitution(&self) -> Result<Constitution, StoreError> {
-                get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTION)
+                get_or_bail(|key| self.db.get_pinned(key), &KEY_CONSTITUTION)
             }
 
             fn governance_activity(&self) -> Result<GovernanceActivity, StoreError> {
-                Ok(get(|key| self.db.get(key), &KEY_GOVERNANCE_ACTIVITY)?
+                Ok(get(|key| self.db.get_pinned(key), &KEY_GOVERNANCE_ACTIVITY)?
                     .unwrap_or_else(|| GovernanceActivity { consecutive_dormant_epochs: 0 })
                 )
             }
 
             fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
-                get_or_bail(|key| self.db.get(key), &KEY_PROPOSALS_ROOTS)
+                get_or_bail(|key| self.db.get_pinned(key), &KEY_PROPOSALS_ROOTS)
             }
 
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
-                pools::get(|key| self.db.get(key), pool)
+                pools::get(|key| self.db.get_pinned(key), pool)
             }
 
             fn account(
                 &self,
                 credential: &StakeCredential,
             ) -> Result<Option<scolumns::accounts::Row>, StoreError> {
-                accounts::get(|key| self.db.get(key), credential)
+                accounts::get(|key| self.db.get_pinned(key), credential)
             }
 
             fn utxo(
                 &self,
                 input: &TransactionInput,
             ) -> Result<Option<MemoizedTransactionOutput>, StoreError> {
-                utxo::get(|key| self.db.get(key), input)
+                utxo::get(|key| self.db.get_pinned(key), input)
             }
 
             fn iter_utxos(
@@ -480,7 +480,7 @@ macro_rules! impl_ReadStore_body {
             }
 
             fn pots(&self) -> Result<Pots, StoreError> {
-                pots::get(|key| self.db.get(key)).map(|row| Pots::from(&row))
+                pots::get(|key| self.db.get_pinned(key)).map(|row| Pots::from(&row))
             }
 
             fn iter_accounts(
@@ -603,7 +603,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     ) -> Result<bool, StoreError> {
         let previous_progress = self
             .db
-            .get(KEY_PROGRESS)
+            .get_pinned(KEY_PROGRESS)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(|bytes| cbor::decode(&bytes))
             .transpose()
@@ -828,7 +828,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     ) -> Result<(), StoreError> {
         let mut err = None;
         let proxy = Box::new(BorrowableProxy::new(
-            pots::get(|key| self.db.get(key))?,
+            pots::get(|key| self.db.get_pinned(key))?,
             |pots| {
                 let put = pots::put(&self.db, pots);
                 if let Err(e) = put {
@@ -943,8 +943,8 @@ fn set_default_opts(mut opts: Options) -> Options {
     opts
 }
 
-fn get_or_bail<T>(
-    db_get: impl Fn(&str) -> Result<Option<Vec<u8>>, rocksdb::Error>,
+fn get_or_bail<'a, T>(
+    db_get: impl Fn(&str) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     key: &str,
 ) -> Result<T, StoreError>
 where
@@ -953,8 +953,8 @@ where
     get(db_get, key)?.ok_or(StoreError::missing::<T>(key))
 }
 
-fn get<T>(
-    db_get: impl Fn(&str) -> Result<Option<Vec<u8>>, rocksdb::Error>,
+fn get<'a, T>(
+    db_get: impl Fn(&str) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     key: &str,
 ) -> Result<Option<T>, StoreError>
 where
