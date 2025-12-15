@@ -146,13 +146,15 @@ pub fn decode_chunk<A: 'static>(
 
 /// Yield a `PartialDecoder` that fails with a comprehensible error message when an expected field
 /// is missing from the map.
-pub fn missing_field<C: ?Sized, A>(field_tag: impl Display) -> PartialDecoder<A> {
-    let msg = format!(
-        "missing <{}> at field .{field_tag} in <{}> CBOR map",
-        std::any::type_name::<A>(),
-        std::any::type_name::<C>(),
-    );
-    Box::new(move || Err(cbor::decode::Error::message(msg)))
+pub fn missing_field<C: ?Sized, A>(field_tag: u8) -> PartialDecoder<A> {
+    Box::new(move || {
+        let msg = format!(
+            "missing <{}> at field .{field_tag} in <{}> CBOR map",
+            std::any::type_name::<A>(),
+            std::any::type_name::<C>(),
+        );
+        Err(cbor::decode::Error::message(msg))
+    })
 }
 
 /// Yield a `PartialDecoder` that always succeeds with the given default value.

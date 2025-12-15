@@ -99,6 +99,7 @@ fn decode_modern_output<C>(
     d: &mut cbor::Decoder<'_>,
     ctx: &mut C,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
+    // TODO: stat can be a builder insted of callbacks.
     let (address, value, datum, script) = heterogeneous_map(
         d,
         (
