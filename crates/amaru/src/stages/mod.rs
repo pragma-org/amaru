@@ -94,7 +94,7 @@ pub struct Config {
     pub max_downstream_peers: usize,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
     pub migrate_chain_db: bool,
-    pub max_arenas: usize,
+    pub arena_count: usize,
     pub arena_size: usize,
 }
 
@@ -110,7 +110,7 @@ impl Default for Config {
             max_downstream_peers: 10,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
             migrate_chain_db: false,
-            max_arenas: 10,
+            arena_count: 10,
             arena_size: 1_024_000,
         }
     }
@@ -172,7 +172,7 @@ pub async fn bootstrap(
 
     let global_parameters: &GlobalParameters = config.network.into();
 
-    let arena_pool = ArenaPool::new(config.max_arenas, config.arena_size);
+    let arena_pool = ArenaPool::new(config.arena_count, config.arena_size);
 
     let ledger = make_ledger(
         &config,
