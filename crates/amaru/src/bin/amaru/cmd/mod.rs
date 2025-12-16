@@ -33,7 +33,7 @@ pub(crate) const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:3001";
 /// Default address to listen on for incoming connections.
 pub(crate) const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
 
-pub(crate) const DEFAULT_CONFIG_DIR: &str = "data";
+const DEFAULT_CONFIG_DIR: &str = "data";
 
 pub fn default_ledger_dir(network: NetworkName) -> String {
     format!("./ledger.{}.db", network.to_string().to_lowercase())

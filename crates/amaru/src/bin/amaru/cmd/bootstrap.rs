@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::{default_chain_dir, default_ledger_dir};
+use crate::cmd::{default_chain_dir, default_data_dir, default_ledger_dir};
 use amaru::{bootstrap::bootstrap, default_snapshots_dir};
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
@@ -53,11 +53,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = "DIR",
-        default_value = super::DEFAULT_CONFIG_DIR,
         verbatim_doc_comment,
         env = "AMARU_CONFIG_DIR"
     )]
-    config_dir: PathBuf,
+    config_dir: Option<PathBuf>,
 
     #[arg(
         long,
@@ -79,11 +78,15 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(network).into());
 
-    info!(config=%args.config_dir.to_string_lossy(), ledger_dir=%ledger_dir.to_string_lossy(), chain_dir=%chain_dir.to_string_lossy(), network=%network,
+    let config_dir = args
+        .config_dir
+        .unwrap_or_else(|| default_data_dir(network).into());
+
+    info!(config=%config_dir.to_string_lossy(), ledger_dir=%ledger_dir.to_string_lossy(), chain_dir=%chain_dir.to_string_lossy(), network=%network,
           "Running command bootstrap",
     );
 
-    let network_dir = args.config_dir.join(&*network.to_string());
+    let network_dir = config_dir.join(&*network.to_string());
     let snapshots_dir = args
         .snapshots_dir
         .unwrap_or_else(|| default_snapshots_dir(network).into());

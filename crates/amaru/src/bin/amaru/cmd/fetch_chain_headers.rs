@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::{WorkerError, connect_to_peer};
+use crate::cmd::{WorkerError, connect_to_peer, default_data_dir};
 use amaru_kernel::{BlockHeader, IsHeader, Point, from_cbor, network::NetworkName, peer::Peer};
 use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
@@ -57,11 +57,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = "DIR",
-        default_value = super::DEFAULT_CONFIG_DIR,
         verbatim_doc_comment,
         env = "AMARU_CONFIG_DIR"
     )]
-    config_dir: PathBuf,
+    config_dir: Option<PathBuf>,
 
     /// Address of the node to connect to for retrieving chain data.
     /// The node should be accessible via the node-2-node protocol, which
@@ -80,11 +79,16 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    info!(config=%args.config_dir.to_string_lossy(), peer=%args.peer_address, network=%args.network,
+    let network = args.network;
+    let config_dir = args
+        .config_dir
+        .unwrap_or_else(|| default_data_dir(network).into());
+
+    info!(config=%config_dir.to_string_lossy(), peer=%args.peer_address, network=%args.network,
           "Running command fetch-chain-headers",
     );
-    let network = args.network;
-    let network_dir = args.config_dir.join(&*network.to_string());
+
+    let network_dir = config_dir.join(&*network.to_string());
 
     fetch_headers_for_network(network, &args.peer_address, &network_dir).await?;
 
