@@ -303,8 +303,10 @@ jobs:
           make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} test-e2e
 
       - name: Teardown haskell node
+        if: ${{ always() }}
         shell: bash
         run: |
+          docker logs --tail 200 cardano-node || true
           docker stop cardano-node
           docker rm cardano-node
 
