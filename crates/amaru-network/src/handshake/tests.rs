@@ -123,7 +123,7 @@ fn test_against_node() {
     );
 
     let output = running
-        .run_until_blocked_incl_effects(&rt.handle())
+        .run_until_blocked_incl_effects(rt.handle())
         .assert_breakpoint("output");
     running.handle_effect(output);
     rt.block_on(running.await_external_effect()).unwrap();
