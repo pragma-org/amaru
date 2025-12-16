@@ -38,7 +38,7 @@ pub mod header_size;
 
 #[derive(Debug, Error)]
 pub enum TransactionInvalid {
-    #[error("tranasction failed phase one validation: {0}")]
+    #[error("transaction failed phase one validation: {0}")]
     PhaseOneError(#[from] PhaseOneError),
     #[error("transaction failed phase two validation: {0}")]
     PhaseTwoError(#[from] PhaseTwoError),
