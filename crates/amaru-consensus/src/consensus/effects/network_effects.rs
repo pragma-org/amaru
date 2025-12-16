@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
-    errors::{ConsensusError, ProcessingFailed},
-    tip::HeaderTip,
-};
+use crate::consensus::errors::{ConsensusError, ProcessingFailed};
 use amaru_kernel::{
-    BlockHeader, IsHeader, Point,
+    BlockHeader, HeaderTip, IsHeader, Point,
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
 };

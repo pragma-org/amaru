@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,11 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod effects;
-pub mod errors;
-pub mod headers_tree;
-pub mod span;
-pub mod stages;
-pub mod store;
+pub mod initiator_state;
+pub use initiator_state::*;
 
-pub const EVENT_TARGET: &str = "amaru::consensus";
+pub mod responder_state;
+pub use responder_state::*;
+
+pub mod responder_params;
+pub use responder_params::*;
+
+pub mod messages;
+pub use messages::*;
+
+pub mod outcome;
+pub use outcome::*;
+
+pub mod stage;
+pub use stage::*;
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+pub use tests::*;

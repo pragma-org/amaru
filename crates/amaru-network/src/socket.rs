@@ -164,3 +164,21 @@ impl ConnectionResource {
         }
     }
 }
+
+/// Create a connection to an upstream node, either specified in the PEER environment variable,
+/// or to 127.0.0.1:3000
+#[cfg(test)]
+pub async fn create_connection(conn: &ConnectionResource) -> anyhow::Result<ConnectionId> {
+    Ok(
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let addr = crate::socket_addr::ToSocketAddrs::String(
+                std::env::var("PEER").unwrap_or_else(|_| "127.0.0.1:3000".to_string()),
+            )
+            .resolve()
+            .await
+            .unwrap();
+            conn.connect(addr).await.unwrap()
+        })
+        .await?,
+    )
+}

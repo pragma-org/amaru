@@ -19,6 +19,7 @@ pub mod connection;
 pub mod effects;
 pub mod handshake;
 pub mod keepalive;
+pub mod mempool_effects;
 pub mod mux;
 pub mod network_resource;
 pub mod point;
@@ -26,5 +27,6 @@ pub mod protocol;
 pub mod session;
 pub mod socket;
 pub mod socket_addr;
+pub mod tx_submission;
 
 pub use network_resource::NetworkResource;

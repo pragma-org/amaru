@@ -25,6 +25,9 @@ use std::{
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests;
 
+mod tip;
+pub use tip::*;
+
 /// Interface to a header for the purpose of chain selection.
 pub trait IsHeader: cbor::Encode<()> + Sized {
     /// Hash of the header

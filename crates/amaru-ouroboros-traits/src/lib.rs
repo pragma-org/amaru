@@ -18,6 +18,12 @@ pub use has_stake_distribution::{HasStakeDistribution, PoolSummary};
 pub mod can_validate_blocks;
 pub use can_validate_blocks::{BlockValidationError, CanValidateBlocks};
 
+pub mod can_validate_transactions;
+pub use can_validate_transactions::{CanValidateTransactions, TransactionValidationError};
+
+pub mod mempool;
+pub use mempool::*;
+
 pub mod stores;
 pub use stores::*;
 

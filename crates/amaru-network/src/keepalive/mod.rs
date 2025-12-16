@@ -14,7 +14,9 @@
 
 use crate::{
     bytes::NonEmptyBytes,
+    keepalive,
     keepalive::messages::Message,
+    mux,
     mux::{HandlerMessage, MuxMessage},
     protocol::{NETWORK_SEND_TIMEOUT, PROTO_N2N_KEEP_ALIVE},
 };
@@ -25,6 +27,8 @@ mod messages;
 #[cfg(test)]
 mod tests;
 
+use crate::connection::ConnectionMessage;
+use crate::protocol::Role;
 pub use messages::Cookie;
 
 #[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
@@ -112,4 +116,31 @@ pub async fn responder(
         }
     }
     state
+}
+
+pub async fn register_keepalive(
+    role: Role,
+    muxer: StageRef<MuxMessage>,
+    eff: &Effects<ConnectionMessage>,
+) -> StageRef<HandlerMessage> {
+    let keepalive = if role == Role::Initiator {
+        eff.stage("keepalive", keepalive::initiator).await
+    } else {
+        eff.stage("keepalive", keepalive::responder).await
+    };
+    let keepalive = eff
+        .wire_up(keepalive, KeepAlive::new(muxer.clone(), Cookie::new()))
+        .await;
+    eff.send(
+        &muxer,
+        MuxMessage::Register {
+            protocol: PROTO_N2N_KEEP_ALIVE.erase(),
+            frame: mux::Frame::OneCborItem,
+            handler: keepalive.clone(),
+            max_buffer: 65535,
+        },
+    )
+    .await;
+
+    keepalive
 }
