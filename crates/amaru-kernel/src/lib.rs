@@ -114,7 +114,7 @@ pub mod ignore_eq;
 pub use ignore_eq::IgnoreEq;
 
 pub mod is_header;
-pub use is_header::{BlockHeader, IsHeader};
+pub use is_header::*;
 
 pub use memoized::*;
 pub mod memoized;

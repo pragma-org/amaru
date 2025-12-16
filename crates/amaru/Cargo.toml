@@ -49,6 +49,7 @@ tracing.workspace = true
 amaru-consensus = { workspace = true, features = [] }
 amaru-kernel = { workspace = true, features = ["tracing"] }
 amaru-ledger.workspace = true
+amaru-mempool.workspace = true
 amaru-network.workspace = true
 amaru-stores.workspace = true
 amaru-ouroboros-traits.workspace = true

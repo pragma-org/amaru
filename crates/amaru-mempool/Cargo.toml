@@ -11,4 +11,12 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-amaru-kernel = { path = "../amaru-kernel" }
+amaru-kernel.workspace = true
+amaru-ouroboros-traits.workspace = true
+minicbor.workspace = true
+parking_lot.workspace = true
+tokio = { "workspace" = true, features = ["time", "macros", "rt"] }
+
+[dev-dependencies]
+anyhow.workspace = true
+assertables.workspace = true
