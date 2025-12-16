@@ -213,10 +213,12 @@ where
     for (i, transaction) in (0u32..).zip(transactions.into_iter()) {
         let transaction_hash = transaction.original_hash();
 
-        let is_valid = !block
-            .invalid_transactions
-            .as_ref()
-            .is_some_and(|invalid_txs| invalid_txs.contains(&i));
+        // TODO: we need to check the Haskell logic here to confirm this is what we want (The field is optional in Pallas, what is the right behavior when it's not provided?)
+        // Obviously, we need a test here
+        let is_valid = match block.invalid_transactions.as_ref() {
+            Some(invalid_txs) => !invalid_txs.contains(&i),
+            None => true,
+        };
 
         let witness_set = match block.transaction_witness_sets.get(i as usize) {
             Some(witness_set) => witness_set,
