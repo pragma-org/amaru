@@ -444,7 +444,7 @@ mod test {
         assert!(sim.is_terminated());
 
         pretty_assertions::assert_eq!(
-            trace.lock().hydrate(),
+            trace.lock().hydrate_without_timestamps(),
             vec![
                 TraceEntry::state("stage-1", SendDataValue::boxed(&0u32)),
                 TraceEntry::input("stage-1", SendDataValue::boxed(&Some(1u32))),
@@ -482,7 +482,7 @@ mod test {
 
         let two_sec = Instant::at_offset(Duration::from_secs(2));
         pretty_assertions::assert_eq!(
-            trace.lock().hydrate(),
+            trace.lock().hydrate_without_timestamps(),
             vec![
                 TraceEntry::state("stage-1", SendDataValue::boxed(&0u32)),
                 TraceEntry::input("stage-1", SendDataValue::boxed(&Ok::<_, u32>(1u32))),

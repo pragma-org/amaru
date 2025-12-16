@@ -104,7 +104,7 @@ fn automatic() {
         .assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 4, 7]);
 
-    let trace = trace_buffer.lock().hydrate();
+    let trace = trace_buffer.lock().hydrate_without_timestamps();
 
     const EXPECTED: &[&str] = &[
         "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(1), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
@@ -277,11 +277,17 @@ fn backpressure() {
 
     let mut running = network.run();
 
-    running.enqueue_msg(&sender, [1, 2, 3]);
+    running.enqueue_msg(&sender, [1]);
     running.breakpoint("pressure", {
         let pressure = pressure.clone();
         move |eff| matches!(eff, Effect::Clock { at_stage: a } if a == pressure.name())
     });
+
+    let sender_name = sender.name().clone();
+    running.breakpoint(
+        "send",
+        move |eff| matches!(eff, Effect::Receive { at_stage } if *at_stage == sender_name),
+    );
 
     let broken = running.run_until_blocked().assert_breakpoint("pressure");
     assert_eq!(
@@ -291,11 +297,23 @@ fn backpressure() {
         }
     );
 
-    running.run_until_blocked().assert_busy([pressure.name()]);
+    running.run_until_blocked().assert_breakpoint("send");
+    running.enqueue_msg(&sender, [2]);
+    running.resume_receive(&sender).unwrap();
 
+    running.run_until_blocked().assert_breakpoint("send");
+    running.enqueue_msg(&sender, [3]);
+    running.resume_receive(&sender).unwrap();
+
+    // backpressure is here: "send" breakpoint is not yet hit because waiting to send to `pressure`
+    running.run_until_blocked().assert_busy([pressure.name()]);
     running.handle_effect(broken);
+
     running.clear_breakpoint("pressure");
+
+    running.run_until_blocked().assert_breakpoint("send");
     running.run_until_blocked().assert_idle();
+
     assert_eq!(*running.get_state(&pressure).unwrap(), 7);
 }
 
@@ -620,7 +638,7 @@ fn create_stage_within_stage() {
 
     // verify trace buffer
     pretty_assertions::assert_eq!(
-        trace_buffer.lock().hydrate(),
+        trace_buffer.lock().hydrate_without_timestamps(),
         vec![
             TraceEntry::state(
                 "output-2",

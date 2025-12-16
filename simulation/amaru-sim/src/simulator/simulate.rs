@@ -344,7 +344,7 @@ fn persist_traces_as_json(
     let traces = trace_buffer.lock().hydrate();
     let traces = traces
         .iter()
-        .map(|trace| trace.to_json())
+        .map(|trace| trace.1.to_json())
         .collect::<Vec<_>>();
     file.write_all(serde_json::to_string_pretty(&serde_json::json!(traces))?.as_bytes())?;
     Ok(())

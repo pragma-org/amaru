@@ -75,6 +75,7 @@ pub fn run(args: Args) {
     let spawn = |node_id: String, rng: RandStdRng| {
         let mut network = SimulationBuilder::default()
             .with_trace_buffer(trace_buffer.clone())
+            .with_mailbox_size(1000)
             .with_eval_strategy(rng);
         let (input, init_messages, output) =
             spawn_node(node_id, node_config.clone(), &mut network, &rt);

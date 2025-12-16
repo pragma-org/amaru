@@ -201,6 +201,13 @@ pub trait StageGraph {
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
 
+    fn contramap<Original: SendData, Mapped: SendData>(
+        &mut self,
+        stage_ref: impl AsRef<StageRef<Original>>,
+        new_name: impl AsRef<str>,
+        transform: impl Fn(Mapped) -> Original + 'static + Send,
+    ) -> StageRef<Mapped>;
+
     /// Preload the given stage’s mailbox with the given messages.
     ///
     /// Since the stage is not running yet, this will return false and drop messages
@@ -211,7 +218,7 @@ pub trait StageGraph {
         &mut self,
         stage: impl AsRef<StageRef<Msg>>,
         messages: impl IntoIterator<Item = Msg>,
-    ) -> bool;
+    ) -> Result<(), Box<dyn SendData>>;
 
     /// Obtain a handle for sending messages to the given stage from outside the network.
     fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg>;

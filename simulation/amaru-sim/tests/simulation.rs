@@ -16,6 +16,7 @@ use amaru_sim::simulator::TEST_DATA_DIR;
 use amaru_sim::simulator::run::{replay, run};
 use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
 use anyhow::anyhow;
+use pure_stage::Instant;
 use pure_stage::serde::from_cbor;
 use pure_stage::trace_buffer::TraceEntry;
 use std::fmt::{Display, Formatter};
@@ -187,8 +188,8 @@ fn load_trace_entries(path: &Path) -> anyhow::Result<Vec<TraceEntry>> {
     let raw_entries: Vec<Vec<u8>> = from_cbor(&data)?;
     let mut entries = Vec::with_capacity(raw_entries.len());
     for raw in raw_entries {
-        let entry: TraceEntry = from_cbor(&raw)?;
-        entries.push(entry);
+        let entry: (Instant, TraceEntry) = from_cbor(&raw)?;
+        entries.push(entry.1);
     }
     Ok(entries)
 }

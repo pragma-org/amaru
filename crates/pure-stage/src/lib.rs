@@ -14,6 +14,7 @@
 
 #![deny(clippy::future_not_send)]
 
+mod adapter;
 mod effect;
 mod effect_box;
 mod logging;

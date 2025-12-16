@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use bytes::Bytes;
-use std::fmt;
-use std::num::NonZeroUsize;
-use std::ops::Deref;
+use std::{cell::RefCell, fmt, num::NonZeroUsize, ops::Deref};
 
 // Newtype wrapper for custom Debug.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Default, serde::Serialize, serde::Deserialize)]
@@ -33,6 +31,27 @@ impl NonEmptyBytes {
         } else {
             Ok(Self(bytes))
         }
+    }
+
+    pub fn from_slice(slice: &[u8]) -> Result<Self, EmptyBytesError> {
+        if slice.is_empty() {
+            Err(EmptyBytesError)
+        } else {
+            Ok(Self(Bytes::copy_from_slice(slice)))
+        }
+    }
+
+    pub fn encode<T: minicbor::Encode<()>>(value: &T) -> Self {
+        thread_local! {
+            static BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+        }
+        BUFFER.with_borrow_mut(|buffer| {
+            #[expect(clippy::expect_used)]
+            minicbor::encode(value, &mut *buffer).expect("serialization should not fail");
+            let ret = Self(Bytes::copy_from_slice(buffer.as_slice()));
+            buffer.clear();
+            ret
+        })
     }
 
     pub fn into_inner(self) -> Bytes {

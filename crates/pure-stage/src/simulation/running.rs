@@ -24,6 +24,7 @@ use crate::simulation::SimulationBuilder;
 use crate::{
     BoxFuture, CallId, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources,
     SendData, StageRef, StageResponse,
+    adapter::{StageOrAdapter, find_recipient},
     effect::StageEffect,
     effect_box::EffectBox,
     simulation::{
@@ -31,7 +32,7 @@ use crate::{
         inputs::Inputs,
         random::EvalStrategy,
         resume::{
-            post_message, resume_add_stage_internal, resume_call_internal, resume_clock_internal,
+            resume_add_stage_internal, resume_call_internal, resume_clock_internal,
             resume_external_internal, resume_receive_internal, resume_respond_internal,
             resume_send_internal, resume_wait_internal, resume_wire_stage_internal,
         },
@@ -71,7 +72,7 @@ use tokio::{
 /// so you need to use [`resume_receive`](Self::resume_receive) to get them running.
 /// See also [`run_until_blocked`](Self::run_until_blocked) for how to achieve this.
 pub struct SimulationRunning {
-    stages: BTreeMap<Name, StageData>,
+    stages: BTreeMap<Name, StageOrAdapter<StageData>>,
     stage_count: usize,
     inputs: Inputs,
     effect: EffectBox,
@@ -93,7 +94,7 @@ pub struct SimulationRunning {
 impl SimulationRunning {
     #[expect(clippy::too_many_arguments)]
     pub(super) fn new(
-        stages: BTreeMap<Name, StageData>,
+        stages: BTreeMap<Name, StageOrAdapter<StageData>>,
         inputs: Inputs,
         effect: EffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
@@ -249,22 +250,30 @@ impl SimulationRunning {
     /// Place messages in the given stage’s mailbox, but don’t resume it.
     /// The next message will be consumed when resuming an [`Effect::Receive`]
     /// for this stage.
-    ///
-    /// Note that this method does not check if there is enough space in the
-    /// mailbox, it will grow the mailbox beyond the `mailbox_size` limit.
     pub fn enqueue_msg<Msg: SendData>(
         &mut self,
         sr: impl AsRef<StageRef<Msg>>,
         msg: impl IntoIterator<Item = Msg>,
     ) {
-        let data = self.stages.get_mut(sr.as_ref().name()).unwrap();
-        data.mailbox
-            .extend(msg.into_iter().map(|m| Box::new(m) as Box<dyn SendData>));
+        for msg in msg.into_iter() {
+            let ok = deliver_message(
+                &mut self.stages,
+                self.mailbox_size,
+                sr.as_ref().name().clone(),
+                Box::new(msg) as Box<dyn SendData>,
+            );
+            if matches!(ok, DeliverMessageResult::Full(..)) {
+                panic!("stage `{}` mailbox is full", sr.as_ref().name());
+            }
+        }
     }
 
     /// Retrieve the number of messages currently in the given stage’s mailbox.
     pub fn mailbox_len<Msg>(&self, sr: impl AsRef<StageRef<Msg>>) -> usize {
-        let data = self.stages.get(sr.as_ref().name()).unwrap();
+        let data = self
+            .stages
+            .get(sr.as_ref().name())
+            .assert_stage("which has no mailbox");
         data.mailbox.len()
     }
 
@@ -276,7 +285,10 @@ impl SimulationRunning {
     /// Returns `None` if the stage is not suspended on [`Effect::Receive`], panics if the
     /// state type is incorrect.
     pub fn get_state<Msg, St: SendData>(&self, sr: &StageStateRef<Msg, St>) -> Option<&St> {
-        let data = self.stages.get(sr.name()).unwrap();
+        let data = self
+            .stages
+            .get(sr.name())
+            .assert_stage("which has no state");
         match &data.state {
             StageState::Idle(state) => {
                 Some(state.cast_ref::<St>().expect("internal state type error"))
@@ -309,7 +321,7 @@ impl SimulationRunning {
         let data = self
             .stages
             .get_mut(&name)
-            .expect("stage was runnable, so it must exist");
+            .assert_stage("which is not runnable");
 
         let effect = poll_stage(
             &self.trace_buffer,
@@ -333,9 +345,14 @@ impl SimulationRunning {
             });
         }
         for (name, id) in names {
-            let Some(data) = self.stages.get_mut(&name) else {
+            let Some((recip, _)) = find_recipient(&mut self.stages, name, None) else {
                 continue; // responding to CallRef::channel()
             };
+            let name = recip.name.clone();
+            let data = self
+                .stages
+                .get_mut(&name)
+                .assert_stage("which does not receive call responses");
             // just trying to resume as far as possible, so failure to resume is okay
             resume_call_internal(data, run, id).ok();
         }
@@ -352,21 +369,33 @@ impl SimulationRunning {
     /// stage's mailbox is full.
     pub fn try_inputs(&mut self) -> InputsResult {
         let mut delivered = Vec::new();
-        while let Some(name) = self.inputs.peek_name().cloned() {
-            let data = self.stages.get_mut(&name).unwrap();
-            let mut envelope = self.inputs.try_next().expect("peeked, so must exist");
+        while let Some(mut envelope) = self.inputs.try_next() {
             let msg = replace(&mut envelope.msg, Box::new(()));
-            if let Err(msg) = post_message(data, self.mailbox_size, msg) {
-                envelope.msg = msg;
-                self.inputs.put_back(envelope);
-                if delivered.is_empty() {
-                    return InputsResult::Blocked(name);
-                } else {
-                    break;
+            match deliver_message(
+                &mut self.stages,
+                self.mailbox_size,
+                envelope.name.clone(),
+                msg,
+            ) {
+                DeliverMessageResult::Delivered(_) => {
+                    delivered.push(envelope.name);
+                    envelope.tx.send(()).ok();
                 }
-            } else {
-                delivered.push(name);
-                envelope.tx.send(()).ok();
+                DeliverMessageResult::NotFound => {
+                    tracing::warn!(name = %envelope.name, msg = ?envelope.msg, "stage was terminated, skipping input delivery");
+                    envelope.tx.send(()).ok();
+                    continue; // stage was terminated
+                }
+                DeliverMessageResult::Full(_, msg) => {
+                    envelope.msg = msg;
+                    let name = envelope.name.clone();
+                    self.inputs.put_back(envelope);
+                    if delivered.is_empty() {
+                        return InputsResult::Blocked(name);
+                    } else {
+                        break;
+                    }
+                }
             }
         }
         InputsResult::Delivered(delivered)
@@ -391,7 +420,10 @@ impl SimulationRunning {
             runnable.push_back((name, response));
         };
 
-        let data = self.stages.get_mut(&at_stage).unwrap();
+        let data = self
+            .stages
+            .get_mut(&at_stage)
+            .assert_stage("which cannot receive external effects");
         resume_external_internal(data, result, run).expect("external effect is always runnable");
         Some(at_stage)
     }
@@ -497,6 +529,9 @@ impl SimulationRunning {
                 runnable.push_back((name, response));
             };
             for data in self.stages.values_mut() {
+                let StageOrAdapter::Stage(data) = data else {
+                    continue;
+                };
                 let Some(StageEffect::Receive) = &data.waiting else {
                     continue;
                 };
@@ -536,12 +571,18 @@ impl SimulationRunning {
 
         match effect {
             Effect::Receive { at_stage: to } => {
-                let data_to = self.stages.get_mut(&to).unwrap();
+                let data_to = self
+                    .stages
+                    .get_mut(&to)
+                    .assert_stage("which cannot emit receive effects");
                 resume_receive_internal(&mut self.trace_buffer.lock(), data_to, run).ok()?;
                 // resuming receive has removed one message from the mailbox, so check for blocked senders
                 let (from, msg) = data_to.senders.pop_front()?;
-                post_message(data_to, self.mailbox_size, msg).expect("mailbox is not full");
-                let data_from = self.stages.get_mut(&from).unwrap();
+                post_message(data_to, self.mailbox_size, msg);
+                let data_from = self
+                    .stages
+                    .get_mut(&from)
+                    .assert_stage("which cannot receive send effects");
                 let call = resume_send_internal(data_from, run, to.clone())
                     .expect("call is always runnable");
                 self.handle_call_continuation(from, to, call);
@@ -554,26 +595,48 @@ impl SimulationRunning {
             } => {
                 if to.as_str().is_empty() {
                     tracing::warn!(stage = %from, "message send to blackhole dropped");
-                    let data_from = self.stages.get_mut(&from).unwrap();
+                    let data_from = self
+                        .stages
+                        .get_mut(&from)
+                        .assert_stage("which cannot emit send effects");
                     let call = resume_send_internal(data_from, run, to.clone())
                         .expect("call is always runnable");
                     self.handle_call_continuation(from, to, call);
                     return None;
                 }
-                let data_to = self.stages.get_mut(&to).unwrap();
-                if let Err(msg) = post_message(data_to, self.mailbox_size, msg) {
-                    data_to.senders.push_back((from, msg));
-                } else {
-                    // `to` may not be suspended on receive, so failure to resume is okay
-                    resume_receive_internal(&mut self.trace_buffer.lock(), data_to, run).ok();
-                    let data_from = self.stages.get_mut(&from).unwrap();
+
+                let resume =
+                    match deliver_message(&mut self.stages, self.mailbox_size, to.clone(), msg) {
+                        DeliverMessageResult::Delivered(data_to) => {
+                            // `to` may not be suspended on receive, so failure to resume is okay
+                            resume_receive_internal(&mut self.trace_buffer.lock(), data_to, run)
+                                .ok();
+                            Some(from)
+                        }
+                        DeliverMessageResult::Full(data_to, send_data) => {
+                            data_to.senders.push_back((from, send_data));
+                            None
+                        }
+                        DeliverMessageResult::NotFound => {
+                            tracing::warn!(stage = %to, "message send to terminatedstage dropped");
+                            Some(from)
+                        }
+                    };
+                if let Some(from) = resume {
+                    let data_from = self
+                        .stages
+                        .get_mut(&from)
+                        .assert_stage("which cannot have sent");
                     let call = resume_send_internal(data_from, run, to.clone())
                         .expect("call is always runnable");
                     self.handle_call_continuation(from, to, call);
                 }
             }
             Effect::Clock { at_stage } => {
-                let data = self.stages.get_mut(&at_stage).unwrap();
+                let data = self
+                    .stages
+                    .get_mut(&at_stage)
+                    .assert_stage("which cannot ask for the clock");
                 Self::resume_clock_internal(data, run, self.clock.now())
                     .expect("clock effect is always runnable");
             }
@@ -582,7 +645,7 @@ impl SimulationRunning {
                     let data = sim
                         .stages
                         .get_mut(&at_stage)
-                        .expect("stage ref exists, so stage must exist");
+                        .assert_stage("which cannot wait");
                     resume_wait_internal(
                         data,
                         &mut |name, response| {
@@ -599,7 +662,10 @@ impl SimulationRunning {
                 id,
                 msg,
             } => {
-                let data = self.stages.get_mut(&at_stage).unwrap();
+                let data = self
+                    .stages
+                    .get_mut(&at_stage)
+                    .assert_stage("which cannot respond");
                 let res = resume_respond_internal(data, run, target, id)
                     .expect("respond effect is always runnable");
                 self.handle_send_response(msg, res);
@@ -636,7 +702,10 @@ impl SimulationRunning {
                     }
                 }
                 if let Some(result) = result {
-                    let data = self.stages.get_mut(&at_stage).unwrap();
+                    let data = self
+                        .stages
+                        .get_mut(&at_stage)
+                        .assert_stage("which cannot receive external effects");
                     resume_external_internal(data, result, run)
                         .expect("external effect is always runnable");
                     return None;
@@ -653,7 +722,10 @@ impl SimulationRunning {
             }
             Effect::AddStage { at_stage, name } => {
                 let name = stage_name(&mut self.stage_count, name.as_str());
-                let data = self.stages.get_mut(&at_stage).unwrap();
+                let data = self
+                    .stages
+                    .get_mut(&at_stage)
+                    .assert_stage("which cannot add a stage");
                 resume_add_stage_internal(data, run, name)
                     .expect("add stage effect is always runnable");
             }
@@ -662,19 +734,22 @@ impl SimulationRunning {
                 name,
                 initial_state,
             } => {
-                let data = self.stages.get_mut(&at_stage).unwrap();
+                let data = self
+                    .stages
+                    .get_mut(&at_stage)
+                    .assert_stage("which cannot wire a stage");
                 let transition = resume_wire_stage_internal(data, run)
                     .expect("wire stage effect is always runnable");
                 self.stages.insert(
                     name.clone(),
-                    StageData {
+                    StageOrAdapter::Stage(StageData {
                         name,
                         mailbox: VecDeque::new(),
                         state: StageState::Idle(initial_state),
                         transition: (transition)(self.effect.clone()),
                         waiting: Some(StageEffect::Receive),
                         senders: VecDeque::new(),
-                    },
+                    }),
                 );
             }
         }
@@ -688,6 +763,12 @@ impl SimulationRunning {
     #[cfg(test)]
     fn invariants(&self) {
         for (name, data) in &self.stages {
+            let StageOrAdapter::Stage(data) = data else {
+                if self.runnable.iter().any(|(n, _)| n == name) {
+                    panic!("stage `{name}` is runnable but is an adapter");
+                }
+                continue;
+            };
             let waiting = &data.waiting;
             match &data.state {
                 StageState::Idle(_) => {
@@ -726,7 +807,7 @@ impl SimulationRunning {
         let data = self
             .stages
             .get_mut(at_stage.as_ref().name())
-            .expect("stage ref exists, so stage must exist");
+            .assert_stage("which cannot receive");
         resume_receive_internal(
             &mut self.trace_buffer.lock(),
             data,
@@ -743,33 +824,32 @@ impl SimulationRunning {
         to: impl AsRef<StageRef<Msg2>>,
         msg: Option<Msg2>,
     ) -> anyhow::Result<()> {
-        if let Some(msg) = msg {
-            let data = self
-                .stages
-                .get_mut(to.as_ref().name())
-                .expect("stage ref exists, so stage must exist");
-            if post_message(data, self.mailbox_size, Box::new(msg)).is_err() {
-                anyhow::bail!("mailbox is full while resuming send");
-            }
+        let to = to.as_ref();
+        if let Some(msg) = msg
+            && deliver_message(
+                &mut self.stages,
+                self.mailbox_size,
+                to.name().clone(),
+                Box::new(msg),
+            )
+            .is_full()
+        {
+            anyhow::bail!("mailbox is full while resuming send");
         }
 
         let data = self
             .stages
             .get_mut(from.as_ref().name())
-            .expect("stage ref exists, so stage must exist");
+            .assert_stage("which cannot send");
         let call = resume_send_internal(
             data,
             &mut |name, response| {
                 self.runnable.push_back((name, response));
             },
-            to.as_ref().name().clone(),
+            to.name().clone(),
         )?;
 
-        self.handle_call_continuation(
-            from.as_ref().name().clone(),
-            to.as_ref().name().clone(),
-            call,
-        );
+        self.handle_call_continuation(from.as_ref().name().clone(), to.name().clone(), call);
         Ok(())
     }
 
@@ -787,13 +867,13 @@ impl SimulationRunning {
             let deadline = self.clock.now() + timeout;
             self.stages
                 .get_mut(&from)
-                .expect("stage ref exists, so stage must exist")
+                .assert_stage("which cannot make a call")
                 .waiting = Some(StageEffect::Call(to, deadline, (), recv, id));
             self.schedule_wakeup(timeout, Some(id), move |sim| {
                 let data = sim
                     .stages
                     .get_mut(&from)
-                    .expect("stage ref exists, so stage must exist");
+                    .assert_stage("which cannot make a call");
                 resume_call_internal(
                     data,
                     &mut |name, response| {
@@ -815,7 +895,7 @@ impl SimulationRunning {
         let data = self
             .stages
             .get_mut(at_stage.as_ref().name())
-            .expect("stage ref exists, so stage must exist");
+            .assert_stage("which cannot ask for the clock");
         resume_clock_internal(
             data,
             &mut |name, response| {
@@ -860,7 +940,7 @@ impl SimulationRunning {
         let data = self
             .stages
             .get_mut(at_stage.as_ref().name())
-            .expect("stage ref exists, so stage must exist");
+            .assert_stage("which cannot wait");
         resume_wait_internal(
             data,
             &mut |name, response| {
@@ -881,7 +961,7 @@ impl SimulationRunning {
         let data = self
             .stages
             .get_mut(at_stage.as_ref().name())
-            .expect("stage ref exists, so stage must exist");
+            .assert_stage("which cannot make a call");
         resume_call_internal(
             data,
             &mut |name, response| {
@@ -901,7 +981,7 @@ impl SimulationRunning {
         let data = self
             .stages
             .get_mut(at_stage.as_ref().name())
-            .expect("stage ref exists, so stage must exist");
+            .assert_stage("which cannot respond");
         let res = resume_respond_internal(
             data,
             &mut |name, response| {
@@ -941,7 +1021,7 @@ impl SimulationRunning {
         let data = self
             .stages
             .get_mut(at_stage.as_ref())
-            .expect("stage ref exists, so stage must exist");
+            .assert_stage("which cannot receive external effects");
         resume_external_internal(data, result, &mut |name, response| {
             self.runnable.push_back((name, response));
         })
@@ -956,7 +1036,7 @@ impl SimulationRunning {
         let data = self
             .stages
             .get_mut(at_stage.as_ref())
-            .expect("stage ref exists, so stage must exist");
+            .assert_stage("which cannot receive external effects");
         resume_external_internal(data, Box::new(result), &mut |name, response| {
             self.runnable.push_back((name, response));
         })
@@ -971,7 +1051,7 @@ impl SimulationRunning {
         let data = self
             .stages
             .get_mut(at_stage.as_ref().name())
-            .expect("stage ref exists, so stage must exist");
+            .assert_stage("which cannot add a stage");
         resume_add_stage_internal(
             data,
             &mut |name, response| {
@@ -991,23 +1071,60 @@ impl SimulationRunning {
         let data = self
             .stages
             .get_mut(at_stage.as_ref().name())
-            .expect("stage ref exists, so stage must exist");
+            .assert_stage("which cannot wire a stage");
         let transition = resume_wire_stage_internal(data, &mut |name, response| {
             self.runnable.push_back((name, response));
         })?;
 
         self.stages.insert(
             name.clone(),
-            StageData {
+            StageOrAdapter::Stage(StageData {
                 name,
                 mailbox: VecDeque::new(),
                 state: StageState::Idle(initial_state),
                 transition: (transition)(self.effect.clone()),
                 waiting: Some(StageEffect::Receive),
                 senders: VecDeque::new(),
-            },
+            }),
         );
         Ok(())
+    }
+}
+
+trait AssertStage<'a> {
+    type Output: 'a;
+    fn assert_stage(self, hint: &'static str) -> Self::Output
+    where
+        Self: 'a;
+}
+impl<'a> AssertStage<'a> for Option<&'a mut StageOrAdapter<StageData>> {
+    type Output = &'a mut StageData;
+    fn assert_stage(self, hint: &'static str) -> Self::Output {
+        let this = match self {
+            Some(this) => this,
+            None => panic!("stage not found"),
+        };
+        match this {
+            StageOrAdapter::Stage(stage) => stage,
+            StageOrAdapter::Adapter(_) => {
+                panic!("stage is an adapter, {hint}")
+            }
+        }
+    }
+}
+impl<'a> AssertStage<'a> for Option<&'a StageOrAdapter<StageData>> {
+    type Output = &'a StageData;
+    fn assert_stage(self, hint: &'static str) -> Self::Output {
+        let this = match self {
+            Some(this) => this,
+            None => panic!("stage not found"),
+        };
+        match this {
+            StageOrAdapter::Stage(stage) => stage,
+            StageOrAdapter::Adapter(_) => {
+                panic!("stage is an adapter, {hint}")
+            }
+        }
     }
 }
 
@@ -1100,7 +1217,7 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
     if sim
         .stages
         .values()
-        .filter_map(|d| d.waiting.as_ref())
+        .filter_map(|d| d.as_stage().and_then(|d| d.waiting.as_ref()))
         .all(|v| matches!(v, StageEffect::Receive))
     {
         if let Some(next_wakeup) = sim.next_wakeup() {
@@ -1112,11 +1229,11 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
     let mut send = Vec::new();
     let mut busy = Vec::new();
     let mut sleep = Vec::new();
-    for (k, v) in sim
-        .stages
-        .iter()
-        .filter_map(|(k, d)| d.waiting.as_ref().map(|w| (k, w)))
-    {
+    for (k, v) in sim.stages.iter().filter_map(|(k, d)| {
+        d.as_stage()
+            .and_then(|d| d.waiting.as_ref())
+            .map(|w| (k, w))
+    }) {
         match v {
             StageEffect::Send(name, _msg, call) => send.push(SendBlock {
                 from: k.clone(),
@@ -1189,6 +1306,47 @@ pub(crate) fn poll_stage(
         }
         effect
     }
+}
+
+enum DeliverMessageResult<'a> {
+    Delivered(&'a mut StageData),
+    Full(&'a mut StageData, Box<dyn SendData>),
+    NotFound,
+}
+
+impl<'a> DeliverMessageResult<'a> {
+    pub fn is_full(&self) -> bool {
+        matches!(self, DeliverMessageResult::Full(..))
+    }
+}
+
+/// Deliver a message to a stage or adapter.
+///
+/// Returns `true` if the message was delivered, `false` if the target mailbox
+/// does not exist, or `Err` if the mailbox is full.
+fn deliver_message(
+    stages: &mut BTreeMap<Name, StageOrAdapter<StageData>>,
+    mailbox_size: usize,
+    name: Name,
+    msg: Box<dyn SendData>,
+) -> DeliverMessageResult<'_> {
+    let Some((data, msg)) = find_recipient(stages, name, Some(msg)) else {
+        return DeliverMessageResult::NotFound;
+    };
+
+    post_message(data, mailbox_size, msg)
+}
+
+fn post_message(
+    data: &mut StageData,
+    mailbox_size: usize,
+    msg: Box<dyn SendData>,
+) -> DeliverMessageResult<'_> {
+    if data.mailbox.len() >= mailbox_size {
+        return DeliverMessageResult::Full(data, msg);
+    }
+    data.mailbox.push_back(msg);
+    DeliverMessageResult::Delivered(data)
 }
 
 #[test]
@@ -1271,7 +1429,10 @@ fn simulation_invariants() {
             }),
             // resume_call works because resume_send from the second item has already been called
             Box::new(|sim, stage, id| {
-                let data = sim.stages.get_mut(stage.name()).unwrap();
+                let data = sim
+                    .stages
+                    .get_mut(stage.name())
+                    .assert_stage("which cannot make a call");
                 resume_call_internal(
                     data,
                     &mut |name, response| {
