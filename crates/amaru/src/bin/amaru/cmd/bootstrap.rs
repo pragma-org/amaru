@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::cmd::{default_chain_dir, default_ledger_dir};
-use amaru::bootstrap::bootstrap;
+use amaru::{bootstrap::bootstrap, default_snapshots_dir};
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
 use std::{error::Error, path::PathBuf};
@@ -58,6 +58,14 @@ pub struct Args {
         env = "AMARU_CONFIG_DIR"
     )]
     config_dir: PathBuf,
+
+    #[arg(
+        long,
+        value_name = "DIR",
+        verbatim_doc_comment,
+        env = "AMARU_SNAPSHOT_DIR"
+    )]
+    snapshots_dir: Option<PathBuf>,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
@@ -76,8 +84,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     );
 
     let network_dir = args.config_dir.join(&*network.to_string());
+    let snapshots_dir = args
+        .snapshots_dir
+        .unwrap_or_else(|| default_snapshots_dir(network).into());
 
-    if !bootstrap(network, ledger_dir, chain_dir, network_dir).await? {
+    if !bootstrap(network, ledger_dir, chain_dir, network_dir, snapshots_dir).await? {
         debug!("Already bootstrapped; skipping");
     }
 

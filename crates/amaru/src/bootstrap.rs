@@ -38,8 +38,6 @@ use tokio::{
 use tokio_util::io::StreamReader;
 use tracing::{Level, error, info, instrument, warn};
 
-use crate::snapshots_dir;
-
 /// Configuration for a single ledger state's snapshot to be imported.
 #[derive(Debug, Deserialize)]
 struct Snapshot {
@@ -57,6 +55,9 @@ struct Snapshot {
 
 #[derive(Debug, thiserror::Error)]
 pub enum BootstrapError {
+    #[error("Missing Snapshot configuration file {0}")]
+    MissingSnapshotsFile(PathBuf),
+
     #[error("Can not read Snapshot configuration file {0}: {1}")]
     ReadSnapshotsFile(PathBuf, io::Error),
 
@@ -161,9 +162,12 @@ pub async fn bootstrap(
     ledger_dir: PathBuf,
     chain_dir: PathBuf,
     network_dir: PathBuf,
+    snapshots_dir: PathBuf,
 ) -> Result<bool, Box<dyn Error>> {
     let snapshots_file: PathBuf = network_dir.join("snapshots.json");
-    let snapshots_dir = PathBuf::from(snapshots_dir(network));
+    if !snapshots_file.exists() {
+        return Err(BootstrapError::MissingSnapshotsFile(snapshots_file.clone()).into());
+    };
     let config = RocksDbConfig::new(ledger_dir.clone());
     if !config.exists() {
         download_snapshots(&snapshots_file, &snapshots_dir).await?;

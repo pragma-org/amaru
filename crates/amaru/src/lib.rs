@@ -22,6 +22,6 @@ pub mod stages;
 
 pub const SNAPSHOTS_DIR: &str = "snapshots";
 
-pub fn snapshots_dir(network: NetworkName) -> String {
+pub fn default_snapshots_dir(network: NetworkName) -> String {
     format!("{}/{}", SNAPSHOTS_DIR, network)
 }
