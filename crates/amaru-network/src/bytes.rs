@@ -16,7 +16,7 @@ use bytes::Bytes;
 use std::{cell::RefCell, fmt, num::NonZeroUsize, ops::Deref};
 
 // Newtype wrapper for custom Debug.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 #[repr(transparent)]
 pub struct NonEmptyBytes(Bytes);
 
