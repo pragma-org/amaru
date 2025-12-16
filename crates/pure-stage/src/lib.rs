@@ -33,8 +33,8 @@ mod types;
 pub mod simulation;
 
 pub use effect::{
-    Effect, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, StageResponse,
-    UnknownExternalEffect,
+    CanSupervise, Effect, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync,
+    StageResponse, UnknownExternalEffect,
 };
 pub use output::OutputEffect;
 pub use receiver::Receiver;
@@ -47,5 +47,5 @@ pub use serde::{
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning, stage_name};
 pub use time::{Clock, EPOCH, Instant};
-pub use types::{BoxFuture, Name, SendData, TryInStage};
+pub use types::{BLACKHOLE_NAME, BoxFuture, Name, SendData, TryInStage};
 pub use typetag;

@@ -52,7 +52,7 @@ impl fmt::Debug for InitStageData {
 pub enum StageState {
     Idle(Box<dyn SendData>),
     Running(BoxFuture<'static, Box<dyn SendData>>),
-    Failed(String),
+    Terminating,
 }
 
 impl fmt::Debug for StageState {
@@ -60,7 +60,7 @@ impl fmt::Debug for StageState {
         match self {
             Self::Idle(arg0) => f.debug_tuple("Idle").field(arg0).finish(),
             Self::Running(_) => f.debug_tuple("Running").finish(),
-            Self::Failed(error) => f.debug_tuple("Failed").field(error).finish(),
+            Self::Terminating => f.debug_tuple("Terminating").finish(),
         }
     }
 }
@@ -68,8 +68,11 @@ impl fmt::Debug for StageState {
 pub(crate) struct StageData {
     pub name: Name,
     pub mailbox: VecDeque<Box<dyn SendData>>,
+    pub tombstones: VecDeque<Result<Box<dyn SendData>, Name>>,
     pub state: StageState,
     pub waiting: Option<StageEffect<()>>,
     pub transition: Transition,
     pub senders: VecDeque<(Name, Box<dyn SendData>)>,
+    pub supervised_by: Name,
+    pub tombstone: Option<Box<dyn SendData>>,
 }

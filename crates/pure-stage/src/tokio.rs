@@ -419,7 +419,7 @@ fn interpreter<St>(
                     let name = stage_name(&mut inner.stage_counter.lock(), name.as_str());
                     StageResponse::AddStageResponse(name)
                 }
-                StageEffect::WireStage(name, transition, initial_state) => {
+                StageEffect::WireStage(name, transition, initial_state, _tombstone) => {
                     tracing::debug!("stage `{name}` wired");
                     let (tx, rx) = mpsc::channel(inner.mailbox_size);
                     inner

@@ -18,7 +18,6 @@ use crate::{
 };
 use anyhow::Context;
 use cbor4ii::serde::from_slice;
-use std::fmt::{Display, Formatter};
 use std::{
     any::{Any, type_name},
     borrow::Borrow,
@@ -27,6 +26,10 @@ use std::{
     ops::{Deref, DerefMut},
     pin::Pin,
     sync::Arc,
+};
+use std::{
+    fmt::{Display, Formatter},
+    sync::LazyLock,
 };
 use tokio::sync::mpsc;
 
@@ -97,7 +100,7 @@ impl dyn SendData {
         })
     }
 
-    fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
+    pub fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
         if (&*self as &dyn Any).is::<T>() {
             #[expect(clippy::expect_used)]
             Ok(Box::new(
@@ -185,6 +188,8 @@ impl PartialEq for dyn SendData {
     Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct Name(Arc<str>);
+
+pub static BLACKHOLE_NAME: LazyLock<Name> = LazyLock::new(|| Name(Arc::from("")));
 
 impl Name {
     pub fn as_str(&self) -> &str {

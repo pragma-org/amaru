@@ -36,7 +36,7 @@
 //!
 
 use crate::{
-    Clock, Name, Resources, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BLACKHOLE_NAME, Clock, Name, Resources, SendData, Sender, StageBuildRef, StageGraph, StageRef,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     effect::{Effects, StageEffect},
     effect_box::EffectBox,
@@ -152,10 +152,13 @@ impl SimulationBuilder {
                     StageData {
                         name,
                         mailbox: data.mailbox,
+                        tombstones: VecDeque::new(),
                         state,
                         transition: data.transition,
                         waiting: Some(StageEffect::Receive),
                         senders: VecDeque::new(),
+                        supervised_by: BLACKHOLE_NAME.clone(),
+                        tombstone: None,
                     },
                 ))
             })
@@ -203,10 +206,13 @@ impl SimulationBuilder {
             let data = StageOrAdapter::Stage(StageData {
                 name: name.clone(),
                 mailbox,
+                tombstones: VecDeque::new(),
                 state,
                 transition,
                 waiting: Some(StageEffect::Receive),
                 senders: VecDeque::new(),
+                supervised_by: BLACKHOLE_NAME.clone(),
+                tombstone: None,
             });
             stages.insert(name, data);
         }

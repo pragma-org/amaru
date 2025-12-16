@@ -283,7 +283,7 @@ impl<M> Effects<M> {
         &self,
         name: impl AsRef<str>,
         mut f: F,
-    ) -> crate::StageBuildRef<Msg, St, TransitionFactory>
+    ) -> crate::StageBuildRef<Msg, St, (TransitionFactory, CanSupervise)>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
@@ -317,15 +317,32 @@ impl<M> Effects<M> {
         };
         crate::StageBuildRef {
             name,
-            network: Box::new(transition),
+            network: (Box::new(transition), CanSupervise(())),
+            _ph: PhantomData,
+        }
+    }
+
+    /// Supervise the given stage by sending the tombstone when it terminates.
+    ///
+    /// When an unsupervised child stage terminates, this stage will terminate as well.
+    pub fn supervise<Msg: SendData, St>(
+        &self,
+        stage: crate::StageBuildRef<Msg, St, (TransitionFactory, CanSupervise)>,
+        tombstone: Msg,
+    ) -> crate::StageBuildRef<Msg, St, (TransitionFactory, Msg)> {
+        let StageBuildRef { name, network, .. } = stage;
+
+        crate::StageBuildRef {
+            name,
+            network: (network.0, tombstone),
             _ph: PhantomData,
         }
     }
 
     #[allow(clippy::future_not_send)]
-    pub async fn wire_up<Msg, St>(
+    pub async fn wire_up<Msg, St, T: SendData>(
         &self,
-        stage: crate::StageBuildRef<Msg, St, TransitionFactory>,
+        stage: crate::StageBuildRef<Msg, St, (TransitionFactory, T)>,
         state: St,
     ) -> StageRef<Msg>
     where
@@ -333,10 +350,16 @@ impl<M> Effects<M> {
         St: SendData,
     {
         let StageBuildRef { name, network, _ph } = stage;
+        let (factory, tombstone) = network;
 
         airlock_effect(
             &self.effect,
-            StageEffect::WireStage(name.clone(), NoDebug::new(network), Box::new(state)),
+            StageEffect::WireStage(
+                name.clone(),
+                NoDebug::new(factory),
+                Box::new(state),
+                Box::new(tombstone),
+            ),
             |eff| match eff {
                 Some(StageResponse::Unit) => Some(()),
                 _ => None,
@@ -537,12 +560,19 @@ pub enum StageEffect<T> {
     External(Box<dyn ExternalEffect>),
     Terminate,
     AddStage(Name),
-    // the transition function is supplied separately because it cannot be SendData;
-    // response is StageResponse::Unit
-    WireStage(Name, NoDebug<TransitionFactory>, T),
+    WireStage(Name, NoDebug<TransitionFactory>, T, T),
 }
 
 pub type TransitionFactory = Box<dyn FnOnce(EffectBox) -> Transition + Send + 'static>;
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CanSupervise(()); // private field to prevent instantiation
+
+impl CanSupervise {
+    pub fn for_test() -> Self {
+        Self(())
+    }
+}
 
 /// The response a stage receives from the execution of an effect.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -663,12 +693,13 @@ impl StageEffect<Box<dyn SendData>> {
                     name,
                 },
             ),
-            StageEffect::WireStage(name, transition, initial_state) => (
-                StageEffect::WireStage(name.clone(), transition, ()),
+            StageEffect::WireStage(name, transition, initial_state, tombstone) => (
+                StageEffect::WireStage(name.clone(), transition, (), ()),
                 Effect::WireStage {
                     at_stage: at_name,
                     name,
                     initial_state,
+                    tombstone,
                 },
             ),
         }
@@ -719,6 +750,8 @@ pub enum Effect {
         name: Name,
         #[serde(with = "crate::serde::serialize_send_data")]
         initial_state: Box<dyn SendData>,
+        #[serde(with = "crate::serde::serialize_send_data")]
+        tombstone: Box<dyn SendData>,
     },
 }
 
@@ -799,11 +832,13 @@ impl Effect {
                 at_stage,
                 name,
                 initial_state,
+                tombstone,
             } => serde_json::json!({
                 "type": "wire_stage",
                 "at_stage": at_stage,
                 "name": name,
                 "initial_state": format!("{initial_state}"),
+                "tombstone": format!("{tombstone}"),
             }),
         }
     }
@@ -844,7 +879,11 @@ impl Display for Effect {
                 at_stage,
                 name,
                 initial_state,
-            } => write!(f, "wire_stage {at_stage} {name} {initial_state}"),
+                tombstone,
+            } => write!(
+                f,
+                "wire_stage {at_stage} {name} {initial_state} {tombstone}"
+            ),
         }
     }
 }
@@ -1125,6 +1164,7 @@ impl Effect {
                 at_stage: a,
                 name: n,
                 initial_state: i,
+                tombstone: _,
             } if a == at_stage.name()
                 && n.as_str() == name.as_ref()
                 && i.cast_ref::<St>().expect("type error") == &initial_state => {}
@@ -1147,6 +1187,7 @@ impl Effect {
                 at_stage: a,
                 name: n,
                 initial_state: i,
+                tombstone: _,
             } if a == at_stage.name()
                 && i.cast_ref::<St>().expect("type error") == &initial_state =>
             {
@@ -1243,15 +1284,18 @@ impl PartialEq for Effect {
                 at_stage,
                 name,
                 initial_state,
+                tombstone,
             } => match other {
                 Effect::WireStage {
                     at_stage: other_at_stage,
                     name: other_name,
                     initial_state: other_initial_state,
+                    tombstone: other_tombstone,
                 } => {
                     at_stage == other_at_stage
                         && name == other_name
                         && initial_state == other_initial_state
+                        && tombstone == other_tombstone
                 }
                 _ => false,
             },

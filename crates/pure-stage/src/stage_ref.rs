@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Name;
+use crate::{Name, types::BLACKHOLE_NAME};
 use std::{fmt, marker::PhantomData, ops::Deref};
 
 /// A handle to a stage during the building phase of a [`StageGraph`](crate::StageGraph).
@@ -88,7 +88,7 @@ impl<Msg> StageRef<Msg> {
     }
 
     pub fn blackhole() -> StageRef<Msg> {
-        StageRef::new(Name::from(""))
+        StageRef::new(BLACKHOLE_NAME.clone())
     }
 
     pub fn name(&self) -> &Name {

@@ -14,18 +14,27 @@
 
 use crate::{
     CallId, Instant, Name, SendData, StageResponse,
+    adapter::StageOrAdapter,
     effect::{StageEffect, TransitionFactory},
-    simulation::state::{StageData, StageState},
-    trace_buffer::TraceBuffer,
+    simulation::{
+        SimulationRunning,
+        state::{StageData, StageState},
+    },
 };
 use std::{mem::replace, time::Duration};
 use tokio::sync::oneshot::{Receiver, Sender};
 
 pub fn resume_receive_internal(
-    trace_buffer: &mut TraceBuffer,
-    data: &mut StageData,
-    run: &mut dyn FnMut(Name, StageResponse),
+    simulation: &mut SimulationRunning,
+    at_stage: &Name,
 ) -> anyhow::Result<()> {
+    let data = simulation
+        .stages
+        .get_mut(at_stage)
+        .ok_or_else(|| anyhow::anyhow!("stage `{}` was already terminated", at_stage))?;
+    let StageOrAdapter::Stage(data) = data else {
+        panic!("stage is an adapter, which cannot receive");
+    };
     let waiting_for = data
         .waiting
         .as_ref()
@@ -39,26 +48,46 @@ pub fn resume_receive_internal(
         )
     }
 
-    let msg = data
-        .mailbox
-        .pop_front()
-        .ok_or_else(|| anyhow::anyhow!("mailbox is empty while resuming receive"))?;
+    let msg = match data.tombstones.pop_front() {
+        Some(Ok(msg)) => msg,
+        Some(Err(name)) => {
+            tracing::info!(parent = %data.name, child = %name, "terminated by unsupervised child termination");
+            let (supervised_by, msg) = simulation
+                .terminate_stage(at_stage.clone())
+                .ok_or_else(|| anyhow::anyhow!("stage was already terminated"))?;
+            let Some(StageOrAdapter::Stage(supervisor)) = simulation.stages.get_mut(&supervised_by)
+            else {
+                panic!("supervisor can neither be an adapter nor terminated");
+            };
+            supervisor.tombstones.push_back(msg);
+            resume_receive_internal(simulation, &supervised_by).ok();
+            anyhow::bail!("stage terminated by unsupervised child termination")
+        }
+        None => data
+            .mailbox
+            .pop_front()
+            .ok_or_else(|| anyhow::anyhow!("mailbox is empty while resuming receive"))?,
+    };
 
     // it is important that all validations (i.e. `?``) happen before this point
     data.waiting = None;
 
-    let StageState::Idle(state) = replace(&mut data.state, StageState::Failed(String::new()))
-    else {
+    let StageState::Idle(state) = replace(&mut data.state, StageState::Idle(Box::new(()))) else {
         panic!(
             "stage {} must have been Idle, was {:?}",
             data.name, data.state
         );
     };
 
-    trace_buffer.push_receive(&data.name, &msg);
+    simulation
+        .trace_buffer
+        .lock()
+        .push_receive(&data.name, &msg);
     data.state = StageState::Running((data.transition)(state, msg));
 
-    run(data.name.clone(), StageResponse::Unit);
+    simulation
+        .runnable
+        .push_back((data.name.clone(), StageResponse::Unit));
     Ok(())
 }
 
@@ -263,7 +292,7 @@ pub fn resume_wire_stage_internal(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
-    if !matches!(waiting_for, StageEffect::WireStage(_, _, _)) {
+    if !matches!(waiting_for, StageEffect::WireStage(..)) {
         anyhow::bail!(
             "stage `{}` was not waiting for a wire stage effect, but {:?}",
             data.name,
@@ -272,7 +301,7 @@ pub fn resume_wire_stage_internal(
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
-    let Some(StageEffect::WireStage(_, transition, _)) = data.waiting.take() else {
+    let Some(StageEffect::WireStage(_, transition, _, _)) = data.waiting.take() else {
         panic!("checked above");
     };
 

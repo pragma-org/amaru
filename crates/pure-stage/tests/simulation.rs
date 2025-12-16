@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use pure_stage::CanSupervise;
 use pure_stage::simulation::running::OverrideResult;
 use pure_stage::simulation::{RandStdRng, SimulationBuilder};
 use pure_stage::{
@@ -172,10 +173,7 @@ fn automatic() {
     );
     assert_eq!(replay.is_running(in_ref.name()), false);
     assert_eq!(replay.is_idle(in_ref.name()), true);
-    assert_eq!(replay.is_failed(output.name()), false);
     assert_eq!(replay.is_idle(output.name()), true);
-    assert_eq!(replay.get_failure(in_ref.name()), None);
-    assert_eq!(replay.get_failure(output.name()), None);
     assert_eq!(replay.clock(), Instant::at_offset(Duration::from_secs(30)));
 }
 
@@ -670,7 +668,8 @@ fn create_stage_within_stage() {
                 initial_state: SendDataValue::boxed(&ChildState {
                     value: 0u32,
                     output: output.clone()
-                })
+                }),
+                tombstone: SendDataValue::boxed(&CanSupervise::for_test()),
             }),
             TraceEntry::resume(parent.name(), StageResponse::Unit),
             TraceEntry::suspend(Effect::Send {
@@ -733,4 +732,12 @@ fn create_stage_within_stage() {
             }),
         ]
     );
+}
+
+#[test]
+fn wire_up_with_tombstone() {
+    let trace_buffer = TraceBuffer::new_shared(1, 1000000);
+    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
+
+    let parent = network.stage("parent", async |state, msg: u32, eff| state);
 }
