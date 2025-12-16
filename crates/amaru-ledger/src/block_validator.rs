@@ -33,13 +33,13 @@ where
     HS: HistoricalStores + Send,
 {
     pub state: Arc<Mutex<state::State<S, HS>>>,
-    pub arena_pool: ArenaPool,
+    pub vm_eval_pool: ArenaPool,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
     pub fn new(
         store: S,
-        arena_pool: ArenaPool,
+        vm_eval_pool: ArenaPool,
         snapshots: HS,
         network: NetworkName,
         era_history: EraHistory,
@@ -48,7 +48,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
         let state = state::State::new(store, snapshots, network, era_history, global_parameters)?;
         Ok(Self {
             state: Arc::new(Mutex::new(state)),
-            arena_pool,
+            vm_eval_pool,
         })
     }
 
@@ -72,7 +72,7 @@ where
         raw_block: &RawBlock,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         let mut state = self.state.lock().unwrap();
-        match state.roll_forward(point, raw_block, &self.arena_pool) {
+        match state.roll_forward(point, raw_block, &self.vm_eval_pool) {
             BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
             BlockValidation::Invalid(_, _, details) => Ok(Err(BlockValidationError::new(anyhow!(
                 "Invalid block: {details}"
