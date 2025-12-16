@@ -213,12 +213,7 @@ where
     for (i, transaction) in (0u32..).zip(transactions.into_iter()) {
         let transaction_hash = transaction.original_hash();
 
-        // TODO: we need to check the Haskell logic here to confirm this is what we want (The field is optional in Pallas, what is the right behavior when it's not provided?)
-        // Obviously, we need a test here
-        let is_valid = match block.invalid_transactions.as_ref() {
-            Some(invalid_txs) => !invalid_txs.contains(&i),
-            None => true,
-        };
+        let is_valid = !failed_transactions.has(i);
 
         let witness_set = match block.transaction_witness_sets.get(i as usize) {
             Some(witness_set) => witness_set,
@@ -259,7 +254,7 @@ where
             era_history,
             governance_activity,
             pointer,
-            !failed_transactions.has(i),
+            is_valid,
             transaction.clone(),
             &witness_set.clone(),
             auxiliary_data,
