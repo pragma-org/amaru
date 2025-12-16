@@ -17,7 +17,7 @@ use amaru::bootstrap::bootstrap;
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
 use std::{error::Error, path::PathBuf};
-use tracing::info;
+use tracing::{debug, info};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -65,11 +65,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     let ledger_dir = args
         .ledger_dir
-        .unwrap_or_else(|| default_ledger_dir(args.network).into());
+        .unwrap_or_else(|| default_ledger_dir(network).into());
 
     let chain_dir = args
         .chain_dir
-        .unwrap_or_else(|| default_chain_dir(args.network).into());
+        .unwrap_or_else(|| default_chain_dir(network).into());
 
     info!(config=%args.config_dir.to_string_lossy(), ledger_dir=%ledger_dir.to_string_lossy(), chain_dir=%chain_dir.to_string_lossy(), network=%network,
           "Running command bootstrap",
@@ -77,7 +77,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     let network_dir = args.config_dir.join(&*network.to_string());
 
-    bootstrap(network, ledger_dir, chain_dir, network_dir).await?;
+    if !bootstrap(network, ledger_dir, chain_dir, network_dir).await? {
+        debug!("Already bootstrapped; skipping");
+    }
 
     Ok(())
 }

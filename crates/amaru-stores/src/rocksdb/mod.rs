@@ -151,6 +151,11 @@ impl RocksDbConfig {
             env: Some(ROCKSDB_SHARED_ENV.clone()),
         }
     }
+
+    pub fn exists(&self) -> bool {
+        let path = self.dir.join(DIR_LIVE_DB);
+        path.exists()
+    }
 }
 
 impl From<RocksDbConfig> for Options {
@@ -219,7 +224,7 @@ impl RocksDB {
         assert_sufficient_snapshots(&dir)?;
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
-        OptimisticTransactionDB::open(&opts, dir.join("live"))
+        OptimisticTransactionDB::open(&opts, dir.join(DIR_LIVE_DB))
             .map(|db| Self {
                 dir,
                 incremental_save: false,
@@ -233,7 +238,7 @@ impl RocksDB {
         let dir = config.dir.clone();
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
-        OptimisticTransactionDB::open(&opts, dir.join("live"))
+        OptimisticTransactionDB::open(&opts, dir.join(DIR_LIVE_DB))
             .map(|db| Self {
                 dir,
                 incremental_save: true,
@@ -262,7 +267,7 @@ impl ReadOnlyRocksDB {
         let dir = config.dir.clone();
         assert_sufficient_snapshots(&dir)?;
         let opts = set_default_opts(config.into());
-        rocksdb::DB::open_for_read_only(&opts, dir.join("live"), false)
+        rocksdb::DB::open_for_read_only(&opts, dir.join(DIR_LIVE_DB), false)
             .map(|db| ReadOnlyRocksDB { db })
             .map_err(|err| StoreError::Internal(err.into()))
     }

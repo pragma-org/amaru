@@ -152,19 +152,28 @@ async fn uncompress_to_temp_file(
     Ok((tmp_path, file))
 }
 
+/// Set the internal dbs in such a state that amaru can run
+///
+/// Idempotent; will do nothing if the dbs have already been boostrapped
+/// Returns `true` if bootsrap was actually done
 pub async fn bootstrap(
     network: NetworkName,
     ledger_dir: PathBuf,
     chain_dir: PathBuf,
     network_dir: PathBuf,
-) -> Result<(), Box<dyn Error + 'static>> {
+) -> Result<bool, Box<dyn Error>> {
     let snapshots_file: PathBuf = network_dir.join("snapshots.json");
     let snapshots_dir = PathBuf::from(snapshots_dir(network));
-    download_snapshots(&snapshots_file, &snapshots_dir).await?;
-    import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
-    import_nonces_for_network(network, &network_dir, &chain_dir).await?;
-    import_headers_for_network(&network_dir, &chain_dir).await?;
-    Ok(())
+    let config = RocksDbConfig::new(ledger_dir.clone());
+    if !config.exists() {
+        download_snapshots(&snapshots_file, &snapshots_dir).await?;
+        import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
+        import_nonces_for_network(network, &network_dir, &chain_dir).await?;
+        import_headers_for_network(&network_dir, &chain_dir).await?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 async fn import_nonces_for_network(
