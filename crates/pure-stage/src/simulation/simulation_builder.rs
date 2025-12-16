@@ -37,6 +37,7 @@
 
 use crate::{
     Clock, Name, Resources, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    adapter::{Adapter, StageOrAdapter, find_recipient},
     effect::{Effects, StageEffect},
     effect_box::EffectBox,
     simulation::{
@@ -107,7 +108,7 @@ use std::{
 /// assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 /// ```
 pub struct SimulationBuilder {
-    stages: BTreeMap<Name, InitStageData>,
+    stages: BTreeMap<Name, StageOrAdapter<InitStageData>>,
     stage_counter: usize,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
@@ -138,12 +139,15 @@ impl SimulationBuilder {
         let stages = self
             .stages
             .into_iter()
-            .map(|(name, data)| {
+            .filter_map(|(name, data)| {
+                let StageOrAdapter::Stage(data) = data else {
+                    return None;
+                };
                 let state = match data.state {
                     InitStageState::Uninitialized => panic!("forgot to wire up stage `{name}`"),
                     InitStageState::Idle(state) => StageState::Idle(state),
                 };
-                (
+                Some((
                     name.clone(),
                     StageData {
                         name,
@@ -153,7 +157,7 @@ impl SimulationBuilder {
                         waiting: Some(StageEffect::Receive),
                         senders: VecDeque::new(),
                     },
-                )
+                ))
             })
             .collect();
         Replay::new(stages, self.effect, self.trace_buffer)
@@ -175,15 +179,20 @@ impl SimulationBuilder {
         debug_assert_eq!(stage_counter, s.len());
 
         let mut stages = BTreeMap::new();
-        for (
-            name,
-            InitStageData {
+        for (name, data) in s {
+            let data = match data {
+                StageOrAdapter::Stage(data) => data,
+                StageOrAdapter::Adapter(adapter) => {
+                    stages.insert(adapter.name.clone(), StageOrAdapter::Adapter(adapter));
+                    continue;
+                }
+            };
+            let InitStageData {
                 mailbox,
                 state,
                 transition,
-            },
-        ) in s
-        {
+            } = data;
+
             let state = match state {
                 InitStageState::Uninitialized => panic!("forgot to wire up stage `{name}`"),
                 InitStageState::Idle(state) => {
@@ -191,14 +200,14 @@ impl SimulationBuilder {
                     StageState::Idle(state)
                 }
             };
-            let data = StageData {
+            let data = StageOrAdapter::Stage(StageData {
                 name: name.clone(),
                 mailbox,
                 state,
                 transition,
                 waiting: Some(StageEffect::Receive),
                 senders: VecDeque::new(),
-            };
+            });
             stages.insert(name, data);
         }
         SimulationRunning::new(
@@ -269,16 +278,16 @@ impl StageGraph for SimulationBuilder {
 
         if let Some(old) = self.stages.insert(
             name.clone(),
-            InitStageData {
+            StageOrAdapter::Stage(InitStageData {
                 state: InitStageState::Uninitialized,
                 mailbox: VecDeque::new(),
                 transition,
-            },
+            }),
         ) {
             #[expect(clippy::panic)]
             {
                 // names are unique by construction
-                panic!("stage {name} already exists with state {:?}", old.state);
+                panic!("stage {name} already exists with state {:?}", old);
             }
         }
 
@@ -300,25 +309,42 @@ impl StageGraph for SimulationBuilder {
             _ph,
         } = stage;
 
-        let data = self.stages.get_mut(&name).unwrap();
+        let StageOrAdapter::Stage(data) = self.stages.get_mut(&name).unwrap() else {
+            panic!("stage {name} is an adapter");
+        };
         data.state = InitStageState::Idle(Box::new(state));
 
         StageStateRef::new(name)
+    }
+
+    fn contramap<Original: SendData, Mapped: SendData>(
+        &mut self,
+        stage_ref: impl AsRef<StageRef<Original>>,
+        new_name: impl AsRef<str>,
+        transform: impl Fn(Mapped) -> Original + 'static + Send,
+    ) -> StageRef<Mapped> {
+        let target = stage_ref.as_ref().name().clone();
+        let new_name = stage_name(&mut self.stage_counter, new_name.as_ref());
+        let adapter = Adapter::new(new_name.clone(), target, transform);
+        self.stages
+            .insert(adapter.name.clone(), StageOrAdapter::Adapter(adapter));
+        StageRef::new(new_name)
     }
 
     fn preload<Msg: SendData>(
         &mut self,
         stage: impl AsRef<StageRef<Msg>>,
         messages: impl IntoIterator<Item = Msg>,
-    ) -> bool {
-        let data = self.stages.get_mut(stage.as_ref().name()).unwrap();
+    ) -> Result<(), Box<dyn SendData>> {
         for msg in messages {
-            if data.mailbox.len() >= self.mailbox_size {
-                return false;
-            }
-            data.mailbox.push_back(Box::new(msg) as Box<dyn SendData>);
+            deliver_message(
+                &mut self.stages,
+                self.mailbox_size,
+                stage.as_ref().name().clone(),
+                Box::new(msg) as Box<dyn SendData>,
+            )?;
         }
-        true
+        Ok(())
     }
 
     fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg> {
@@ -328,4 +354,20 @@ impl StageGraph for SimulationBuilder {
     fn resources(&self) -> &Resources {
         &self.resources
     }
+}
+
+fn deliver_message(
+    stages: &mut BTreeMap<Name, StageOrAdapter<InitStageData>>,
+    mailbox_size: usize,
+    name: Name,
+    msg: Box<dyn SendData>,
+) -> Result<(), Box<dyn SendData>> {
+    let Some((data, msg)) = find_recipient(stages, name.clone(), Some(msg)) else {
+        return Err(Box::new(format!("stage {name} does not exist")));
+    };
+    if data.mailbox.len() >= mailbox_size {
+        return Err(msg);
+    }
+    data.mailbox.push_back(msg);
+    Ok(())
 }

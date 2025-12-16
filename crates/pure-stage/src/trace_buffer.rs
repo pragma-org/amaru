@@ -28,6 +28,8 @@ use std::{collections::VecDeque, sync::Arc};
 /// The buffer has a bounded size and will drop the oldest entries when it is full.
 /// Attempting to push an entry that would exceed the size will try to free up space, but it will
 /// retain at least `min_entries`; if this does not suffice, the new entry will be dropped.
+///
+/// Each message in the buffer is a CBOR-encoded tuple of `(Instant, TraceEntry)`.
 #[derive(Default)]
 pub struct TraceBuffer {
     messages: VecDeque<Vec<u8>>,
@@ -279,36 +281,36 @@ impl TraceBuffer {
 
     /// Push an effect to the trace buffer.
     pub fn push_suspend(&mut self, effect: &Effect) {
-        self.push(to_cbor(&TraceEntryRef::Suspend(effect)));
+        self.push(TraceEntryRef::Suspend(effect));
     }
 
     pub fn push_suspend_external(&mut self, at_stage: &Name, effect: &dyn crate::ExternalEffect) {
-        self.push(to_cbor(&TraceEntryRefRef::Suspend(EffectRef::External {
+        self.push(TraceEntryRefRef::Suspend(EffectRef::External {
             at_stage,
             effect,
-        })));
+        }));
     }
 
     /// Push a resume event to the trace buffer.
     pub fn push_resume(&mut self, stage: &Name, response: &StageResponse) {
-        self.push(to_cbor(&TraceEntryRef::Resume { stage, response }));
+        self.push(TraceEntryRef::Resume { stage, response });
     }
 
     pub fn push_resume_external(&mut self, stage: &Name, response: &dyn SendData) {
-        self.push(to_cbor(&TraceEntryRefRef::Resume {
+        self.push(TraceEntryRefRef::Resume {
             stage,
             response: StageResponseRef::ExternalResponse(response),
-        }));
+        });
     }
 
     /// Push a clock update to the trace buffer.
     pub fn push_clock(&mut self, instant: Instant) {
-        self.push(to_cbor(&TraceEntryRef::Clock(instant)));
+        self.push(TraceEntryRef::Clock(instant));
     }
 
     /// Push a receive event to the trace buffer.
     pub fn push_receive(&mut self, stage: &Name, input: &Box<dyn SendData>) {
-        self.push(to_cbor(&TraceEntryRef::Input { stage, input }));
+        self.push(TraceEntryRef::Input { stage, input });
     }
 
     /// Push a state update to the trace buffer.
@@ -316,10 +318,12 @@ impl TraceBuffer {
     /// This happens every time polling a stage yields a `Poll::Ready(Ok(...))`, i.e. as soon as the next
     /// stage state has been computed.
     pub fn push_state(&mut self, stage: &Name, state: &Box<dyn SendData>) {
-        self.push(to_cbor(&TraceEntryRef::State { stage, state }));
+        self.push(TraceEntryRef::State { stage, state });
     }
 
-    fn push(&mut self, msg: Vec<u8>) {
+    fn push<T: serde::Serialize>(&mut self, msg: T) {
+        let msg = to_cbor(&(Instant::now(), msg));
+
         if self.max_size == 0 {
             return;
         }
@@ -365,10 +369,23 @@ impl TraceBuffer {
 
     /// Hydrate the trace buffer (stored in CBOR format) into a vector of entries.
     #[expect(clippy::expect_used)]
-    pub fn hydrate(&self) -> Vec<TraceEntry> {
+    pub fn hydrate(&self) -> Vec<(Instant, TraceEntry)> {
         self.messages
             .iter()
             .map(|m| from_slice(m).expect("trace buffer is not supposed to contain invalid CBOR"))
+            .collect()
+    }
+
+    /// Hydrate the trace buffer (stored in CBOR format) into a vector of entries.
+    #[expect(clippy::expect_used)]
+    pub fn hydrate_without_timestamps(&self) -> Vec<TraceEntry> {
+        self.messages
+            .iter()
+            .map(|m| {
+                from_slice::<(Instant, TraceEntry)>(m)
+                    .expect("trace buffer is not supposed to contain invalid CBOR")
+                    .1
+            })
             .collect()
     }
 
@@ -437,8 +454,8 @@ impl Drop for DropGuard {
         }
         eprintln!("Dropping trace buffer");
         for entry in self.buffer.lock().iter() {
-            match from_slice::<TraceEntry>(entry) {
-                Ok(entry) => eprintln!("{entry:?}"),
+            match from_slice::<(Instant, TraceEntry)>(entry) {
+                Ok((instant, entry)) => eprintln!("{instant} {entry:?}"),
                 Err(error) => eprintln!("error deserializing trace entry: {error:?}"),
             };
         }

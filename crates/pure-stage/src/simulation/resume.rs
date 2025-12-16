@@ -62,18 +62,6 @@ pub fn resume_receive_internal(
     Ok(())
 }
 
-pub fn post_message(
-    data: &mut StageData,
-    mailbox_size: usize,
-    msg: Box<dyn SendData>,
-) -> Result<(), Box<dyn SendData>> {
-    if data.mailbox.len() >= mailbox_size {
-        return Err(msg);
-    }
-    data.mailbox.push_back(msg);
-    Ok(())
-}
-
 pub fn resume_send_internal(
     data: &mut StageData,
     run: &mut dyn FnMut(Name, StageResponse),

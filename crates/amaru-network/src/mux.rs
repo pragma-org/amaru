@@ -15,7 +15,7 @@
 use crate::{
     bytes::NonEmptyBytes,
     effects::{Network, NetworkOps},
-    protocol::{Erased, ProtocolId, Role},
+    protocol::{Erased, ProtocolId, RoleT},
     socket::ConnectionId,
 };
 use anyhow::Context;
@@ -67,12 +67,13 @@ pub enum Frame {
 }
 
 impl Frame {
-    pub fn try_consume(&self, data: &mut BytesMut) -> Result<Option<Bytes>, ParseError> {
+    pub fn try_consume(&self, data: &mut BytesMut) -> Result<Option<NonEmptyBytes>, ParseError> {
         match self {
             Frame::OneCborItem => match Cbor::checked_prefix(data) {
                 Ok((item, _rest)) => {
                     let item = data.copy_to_bytes(item.as_slice().len());
-                    Ok(Some(item))
+                    #[expect(clippy::expect_used)]
+                    Ok(Some(item.try_into().expect("guaranteed by CBOR standard")))
                 }
                 Err(e) if matches!(e.kind(), ErrorKind::UnexpectedEof(_)) => Ok(None),
                 Err(e) => Err(e),
@@ -80,6 +81,12 @@ impl Frame {
             Frame::Buffer => Ok(None),
         }
     }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum HandlerMessage {
+    Registered(ProtocolId<Erased>),
+    FromNetwork(NonEmptyBytes),
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -97,7 +104,7 @@ pub enum MuxMessage {
     Register {
         protocol: ProtocolId<Erased>,
         frame: Frame,
-        handler: StageRef<Bytes>,
+        handler: StageRef<HandlerMessage>,
         max_buffer: usize,
     },
     /// Buffer incoming data for this protocol ID up to the given limit
@@ -195,7 +202,17 @@ pub async fn stage(mut state: State, msg: MuxMessage, mut eff: Effects<MuxMessag
 
     handle_msg(msg, &eff, muxer, sending, writer, reader)
         .await
-        .or_terminate(&eff, async |err| tracing::error!(%err, "muxing error"))
+        .or_terminate(&eff, async |error| {
+            use std::fmt::Write;
+            let mut err = String::new();
+            for error in error.chain() {
+                if !err.is_empty() {
+                    err.push_str(" <- ");
+                }
+                write!(&mut err, "{}", error).ok();
+            }
+            tracing::error!(%err, "muxing error")
+        })
         .await;
 
     state
@@ -233,7 +250,7 @@ async fn handle_msg(
         MuxMessage::FromNetwork(timestamp, proto_id, bytes) => {
             tracing::trace!(%proto_id, bytes = bytes.len(), "received");
             muxer
-                .received(timestamp, proto_id, bytes.into(), eff)
+                .received(timestamp, proto_id.opposite(), bytes.into(), eff)
                 .await
                 .with_context(|| format!("reading message for protocol {}", proto_id))?;
             eff.send(reader, Read).await;
@@ -311,7 +328,7 @@ struct Header {
 const HEADER_LEN: NonZeroUsize = NonZeroUsize::new(8).expect("8 is a valid non-zero size");
 
 impl Header {
-    pub fn encode<R: Role>(proto_id: ProtocolId<R>, bytes: impl AsRef<[u8]>) -> NonEmptyBytes {
+    pub fn encode<R: RoleT>(proto_id: ProtocolId<R>, bytes: impl AsRef<[u8]>) -> NonEmptyBytes {
         thread_local! {
             static BUFFER: RefCell<BytesMut> = RefCell::new(BytesMut::with_capacity(HEADER_LEN.get() + MAX_SEGMENT_SIZE));
         }
@@ -363,9 +380,11 @@ impl Muxer {
         proto_id: ProtocolId<Erased>,
         frame: Frame,
         max_buffer: usize,
-        handler: StageRef<Bytes>,
+        handler: StageRef<HandlerMessage>,
         eff: &Effects<M>,
     ) -> anyhow::Result<()> {
+        eff.send(&handler, HandlerMessage::Registered(proto_id))
+            .await;
         let pp = self.do_register(proto_id, frame, max_buffer, handler);
         pp.want_next(eff).await?;
         Ok(())
@@ -397,7 +416,7 @@ impl Muxer {
         proto_id: ProtocolId<Erased>,
         frame: Frame,
         max_buffer: usize,
-        handler: StageRef<Bytes>,
+        handler: StageRef<HandlerMessage>,
     ) -> &mut PerProto {
         if !self.outgoing.contains(&proto_id) {
             self.outgoing.push(proto_id);
@@ -488,7 +507,7 @@ struct PerProto {
     outgoing: BytesMut,
     sent_bytes: usize,
     notifiers: VecDeque<(CallRef<Sent>, usize)>,
-    handler: StageRef<Bytes>,
+    handler: StageRef<HandlerMessage>,
     wanted: usize,
     frame: Frame,
     max_buffer: usize,
@@ -510,7 +529,7 @@ impl std::fmt::Debug for PerProto {
 }
 
 impl PerProto {
-    pub fn new(handler: StageRef<Bytes>, frame: Frame, max_buffer: usize) -> Self {
+    pub fn new(handler: StageRef<HandlerMessage>, frame: Frame, max_buffer: usize) -> Self {
         Self {
             incoming: BytesMut::with_capacity(max_buffer),
             outgoing: BytesMut::with_capacity(max_buffer),
@@ -552,7 +571,8 @@ impl PerProto {
             && let Some(bytes) = self.frame.try_consume(&mut self.incoming)?
         {
             tracing::trace!(len = bytes.len(), "extracted message");
-            eff.send(&self.handler, bytes).await;
+            eff.send(&self.handler, HandlerMessage::FromNetwork(bytes))
+                .await;
             self.wanted -= 1;
         }
         Ok(())
@@ -564,7 +584,8 @@ impl PerProto {
             && let Some(bytes) = self.frame.try_consume(&mut self.incoming)?
         {
             tracing::trace!(len = bytes.len(), "extracted message");
-            eff.send(&self.handler, bytes).await;
+            eff.send(&self.handler, HandlerMessage::FromNetwork(bytes))
+                .await;
         } else {
             tracing::trace!("next delivery deferred");
             self.wanted += 1;
@@ -602,7 +623,9 @@ mod tests {
     use super::*;
     use crate::{
         effects::{RecvEffect, SendEffect},
-        protocol::{Initiator, PROTO_HANDSHAKE, PROTO_N2C_CHAIN_SYNC, PROTO_N2N_BLOCK_FETCH},
+        protocol::{
+            Initiator, PROTO_HANDSHAKE, PROTO_N2C_CHAIN_SYNC, PROTO_N2N_BLOCK_FETCH, Responder,
+        },
         socket::ConnectionResource,
     };
     use futures_util::StreamExt;
@@ -617,6 +640,7 @@ mod tests {
         net::TcpListener,
         time::timeout,
     };
+    use tracing_subscriber::EnvFilter;
 
     /// Tests with real async behaviour unfortunately need real wall clock sleep time to allow
     /// things to propagate or assert that something doesn’t get propagated. If tests below are
@@ -662,7 +686,7 @@ mod tests {
             State::new(conn_id, &[(PROTO_N2C_CHAIN_SYNC.erase(), 0)]),
         );
 
-        let (output, mut rx) = graph.output::<Bytes>("output", 10);
+        let (output, mut rx) = graph.output::<HandlerMessage>("output", 10);
         let input = graph.input(&mux);
 
         graph.resources().put(network);
@@ -712,10 +736,20 @@ mod tests {
             })
             .await
             .unwrap();
+        assert_eq!(
+            t(rx.next()).await.unwrap(),
+            HandlerMessage::Registered(PROTO_N2C_CHAIN_SYNC.erase())
+        );
+
+        // need to flip role bit before sending as responses
+        buf[4] = 0x80;
 
         t(tcp.write_all(&buf)).await.unwrap();
         t(tcp.flush()).await.unwrap();
-        assert_eq!(t(rx.next()).await.unwrap(), Bytes::copy_from_slice(&[1]));
+        assert_eq!(
+            t(rx.next()).await.unwrap(),
+            HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(&[1]).unwrap())
+        );
         s(rx.next()).await;
         input
             .send(MuxMessage::WantNext(PROTO_N2C_CHAIN_SYNC.erase()))
@@ -723,7 +757,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             t(rx.next()).await.unwrap(),
-            Bytes::copy_from_slice(&[24, 33])
+            HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(&[24, 33]).unwrap())
         );
 
         // wrong protocol ID
@@ -737,6 +771,11 @@ mod tests {
 
     #[test]
     fn test_muxing() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .with_test_writer()
+            .try_init();
+
         let _guard = pure_stage::register_data_deserializer::<MuxMessage>();
         let _guard = pure_stage::register_data_deserializer::<NonEmptyBytes>();
         let _guard = pure_stage::register_effect_deserializer::<SendEffect>();
@@ -818,6 +857,13 @@ mod tests {
                     bytes: HEADER_LEN,
                 },
             );
+        let registered = running.run_until_blocked().assert_breakpoint("mux");
+        registered.assert_send(
+            &mux,
+            &chain_sync,
+            HandlerMessage::Registered(PROTO_N2C_CHAIN_SYNC.erase()),
+        );
+        running.handle_effect(registered);
         running.run_until_blocked().assert_busy([&reader]);
 
         // send a message towards the network
@@ -897,7 +943,7 @@ mod tests {
             bytes: HEADER_LEN,
         };
         let recv_msg = |running: &mut SimulationRunning,
-                        proto_id: ProtocolId<Initiator>,
+                        proto_id: ProtocolId<Responder>,
                         bytes: &[u8],
                         recv: &[&[u8]]| {
             let mut msg = Header::encode(proto_id, bytes).into_inner();
@@ -932,25 +978,34 @@ mod tests {
                 running
                     .run_until_blocked()
                     .assert_breakpoint("mux")
-                    .assert_send(&mux, &chain_sync, Bytes::copy_from_slice(recv));
+                    .assert_send(
+                        &mux,
+                        &chain_sync,
+                        HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(recv).unwrap()),
+                    );
                 running.resume_send(&mux, &chain_sync, None).unwrap();
-                running.enqueue_msg(&mux, [MuxMessage::WantNext(proto_id.erase())]);
+                running.enqueue_msg(&mux, [MuxMessage::WantNext(proto_id.initiator().erase())]);
             }
             // running.run_until_blocked().assert_busy([&reader]);
         };
 
         // send CBOR 1 followed by incomplete CBOR; "recv" effect always happens second
-        recv_msg(running, PROTO_N2C_CHAIN_SYNC, &[1, 24], &[&[1], &[]]);
+        recv_msg(
+            running,
+            PROTO_N2C_CHAIN_SYNC.responder(),
+            &[1, 24],
+            &[&[1], &[]],
+        );
         // send CBOR 25 continuation followed by CBOR 3
         recv_msg(
             running,
-            PROTO_N2C_CHAIN_SYNC,
+            PROTO_N2C_CHAIN_SYNC.responder(),
             &[25, 3],
             &[&[24, 25], &[], &[3]],
         );
 
         // test buffer size violation
-        recv_msg(running, PROTO_HANDSHAKE, &[1, 2, 3], &[]);
+        recv_msg(running, PROTO_HANDSHAKE.responder(), &[1, 2, 3], &[]);
         running.run_until_blocked().assert_terminated(mux.name());
 
         drop_guard.defuse();

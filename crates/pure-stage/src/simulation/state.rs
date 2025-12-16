@@ -40,6 +40,15 @@ pub struct InitStageData {
     pub transition: Transition,
 }
 
+impl fmt::Debug for InitStageData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InitStageData")
+            .field("mailbox", &self.mailbox)
+            .field("state", &self.state)
+            .finish()
+    }
+}
+
 pub enum StageState {
     Idle(Box<dyn SendData>),
     Running(BoxFuture<'static, Box<dyn SendData>>),

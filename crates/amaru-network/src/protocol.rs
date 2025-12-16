@@ -13,12 +13,22 @@
 // limitations under the License.
 
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
-use std::marker::PhantomData;
+use std::{marker::PhantomData, time::Duration};
+
+/// Outcome of a protocol step
+pub enum Outcome<S, D> {
+    Send(S),
+    Done(D),
+    Idle,
+}
+
+// FIXME find right value
+pub const NETWORK_SEND_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct ProtocolId<T: Role>(u16, PhantomData<T>);
+pub struct ProtocolId<T: RoleT>(u16, PhantomData<T>);
 
-impl<T: Role> ProtocolId<T> {
+impl<T: RoleT> ProtocolId<T> {
     pub fn encode(self, buffer: &mut BytesMut) {
         buffer.put_u16(self.0);
     }
@@ -28,47 +38,47 @@ impl<T: Role> ProtocolId<T> {
     }
 }
 
-impl<T: Role> std::fmt::Display for ProtocolId<T> {
+impl<T: RoleT> std::fmt::Display for ProtocolId<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl<T: Role> std::hash::Hash for ProtocolId<T> {
+impl<T: RoleT> std::hash::Hash for ProtocolId<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);
     }
 }
 
-impl<T: Role> Ord for ProtocolId<T> {
+impl<T: RoleT> Ord for ProtocolId<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.0.cmp(&other.0)
     }
 }
 
-impl<T: Role> PartialOrd for ProtocolId<T> {
+impl<T: RoleT> PartialOrd for ProtocolId<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<T: Role> Eq for ProtocolId<T> {}
+impl<T: RoleT> Eq for ProtocolId<T> {}
 
-impl<T: Role> PartialEq for ProtocolId<T> {
+impl<T: RoleT> PartialEq for ProtocolId<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0 && self.1 == other.1
     }
 }
 
-impl<T: Role> std::fmt::Debug for ProtocolId<T> {
+impl<T: RoleT> std::fmt::Debug for ProtocolId<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("ProtocolId").field(&self.0).finish()
     }
 }
 
-impl<T: Role> Copy for ProtocolId<T> {}
+impl<T: RoleT> Copy for ProtocolId<T> {}
 
-impl<R: Role> Clone for ProtocolId<R> {
+impl<R: RoleT> Clone for ProtocolId<R> {
     fn clone(&self) -> Self {
         *self
     }
@@ -76,29 +86,43 @@ impl<R: Role> Clone for ProtocolId<R> {
 
 const RESPONDER: u16 = 0x8000;
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub enum Role {
+    Initiator,
+    Responder,
+}
+
 mod sealed {
     pub trait Sealed {}
 }
-pub trait Role: sealed::Sealed {
-    type Opposite: Role;
+pub trait RoleT: sealed::Sealed {
+    type Opposite: RoleT;
+
+    const ROLE: Option<Role>;
 }
 
 pub struct Initiator;
 impl sealed::Sealed for Initiator {}
-impl Role for Initiator {
+impl RoleT for Initiator {
     type Opposite = Responder;
+
+    const ROLE: Option<Role> = Some(Role::Initiator);
 }
 
 pub struct Responder;
 impl sealed::Sealed for Responder {}
-impl Role for Responder {
+impl RoleT for Responder {
     type Opposite = Initiator;
+
+    const ROLE: Option<Role> = Some(Role::Responder);
 }
 
 pub struct Erased;
 impl sealed::Sealed for Erased {}
-impl Role for Erased {
+impl RoleT for Erased {
     type Opposite = Erased;
+
+    const ROLE: Option<Role> = None;
 }
 
 pub const PROTO_HANDSHAKE: ProtocolId<Initiator> = ProtocolId::<Initiator>(0, PhantomData);
@@ -114,7 +138,7 @@ pub const PROTO_N2C_TX_SUB: ProtocolId<Initiator> = ProtocolId::<Initiator>(6, P
 pub const PROTO_N2C_STATE_QUERY: ProtocolId<Initiator> = ProtocolId::<Initiator>(7, PhantomData);
 pub const PROTO_N2C_TX_MON: ProtocolId<Initiator> = ProtocolId::<Initiator>(9, PhantomData);
 
-impl<R: Role> ProtocolId<R> {
+impl<R: RoleT> ProtocolId<R> {
     pub const fn is_initiator(self) -> bool {
         self.0 & RESPONDER == 0
     }
@@ -129,6 +153,25 @@ impl<R: Role> ProtocolId<R> {
 
     pub const fn erase(self) -> ProtocolId<Erased> {
         ProtocolId(self.0, PhantomData)
+    }
+
+    pub const fn for_role(self, role: Role) -> ProtocolId<Erased> {
+        match (role, self.role()) {
+            (Role::Initiator, Role::Initiator) | (Role::Responder, Role::Responder) => self.erase(),
+            (Role::Initiator, Role::Responder) | (Role::Responder, Role::Initiator) => {
+                self.opposite().erase()
+            }
+        }
+    }
+
+    pub const fn role(self) -> Role {
+        if let Some(role) = R::ROLE {
+            role
+        } else if self.is_initiator() {
+            Role::Initiator
+        } else {
+            Role::Responder
+        }
     }
 }
 

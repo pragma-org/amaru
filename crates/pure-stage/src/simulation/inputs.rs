@@ -66,13 +66,6 @@ impl Inputs {
         }))
     }
 
-    pub fn peek_name(&mut self) -> Option<&Name> {
-        if self.peeked.is_none() {
-            self.peeked = self.rx.try_recv().ok();
-        }
-        self.peeked.as_ref().map(|envelope| &envelope.name)
-    }
-
     pub fn try_next(&mut self) -> Option<Envelope> {
         if self.peeked.is_none() {
             self.peeked = self.rx.try_recv().ok();

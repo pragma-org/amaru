@@ -17,6 +17,7 @@
 //! It is good practice to perform the stage contruction and wiring in a function that takes an
 //! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
 
+use crate::adapter::{Adapter, StageOrAdapter, find_recipient};
 use crate::simulation::Transition;
 use crate::stage_name;
 use crate::stage_ref::StageStateRef;
@@ -54,7 +55,7 @@ pub struct SendError {
 }
 
 struct TokioInner {
-    senders: Mutex<BTreeMap<Name, mpsc::Sender<Box<dyn SendData>>>>,
+    senders: Mutex<BTreeMap<Name, StageOrAdapter<mpsc::Sender<Box<dyn SendData>>>>>,
     handles: Mutex<Vec<JoinHandle<()>>>,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
@@ -155,7 +156,10 @@ impl StageGraph for TokioBuilder {
         // THIS MUST MATCH THE SIMULATION BUILDER
         let name = stage_name(&mut self.inner.stage_counter.lock(), name.as_ref());
         let (tx, rx) = mpsc::channel(self.inner.mailbox_size);
-        self.inner.senders.lock().insert(name.clone(), tx);
+        self.inner
+            .senders
+            .lock()
+            .insert(name.clone(), StageOrAdapter::Stage(tx));
         StageBuildRef {
             name,
             network: (
@@ -183,22 +187,39 @@ impl StageGraph for TokioBuilder {
         StageStateRef::new(name)
     }
 
-    #[expect(clippy::expect_used)]
+    fn contramap<Original: SendData, Mapped: SendData>(
+        &mut self,
+        stage_ref: impl AsRef<StageRef<Original>>,
+        new_name: impl AsRef<str>,
+        transform: impl Fn(Mapped) -> Original + 'static + Send,
+    ) -> StageRef<Mapped> {
+        let target = stage_ref.as_ref();
+        let new_name = stage_name(&mut self.inner.stage_counter.lock(), new_name.as_ref());
+        let adapter = Adapter::new(new_name.clone(), target.name().clone(), transform);
+        self.inner
+            .senders
+            .lock()
+            .insert(new_name.clone(), StageOrAdapter::Adapter(adapter));
+        StageRef::new(new_name)
+    }
+
     fn preload<Msg: SendData>(
         &mut self,
         stage: impl AsRef<StageRef<Msg>>,
         messages: impl IntoIterator<Item = Msg>,
-    ) -> bool {
-        let senders = self.inner.senders.lock();
-        let tx = senders
-            .get(stage.as_ref().name())
-            .expect("stage ref contained unknown name");
+    ) -> Result<(), Box<dyn SendData>> {
+        let stage = stage.as_ref();
+        let mut senders = self.inner.senders.lock();
         for msg in messages {
-            let Ok(_) = tx.try_send(Box::new(msg)) else {
-                return false;
-            };
+            if let Some((tx, msg)) =
+                find_recipient(&mut senders, stage.name().clone(), Some(Box::new(msg)))
+                && let Err(err) = tx.try_send(msg)
+            {
+                tracing::warn!("message preload failed to stage `{}`", stage.name());
+                return Err(err.into_inner());
+            }
         }
-        true
+        Ok(())
     }
 
     fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg> {
@@ -278,14 +299,16 @@ async fn run_stage_boxed(
     }
 }
 
-#[expect(clippy::expect_used)]
+#[expect(clippy::expect_used, clippy::panic)]
 fn mk_sender<Msg: SendData>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg> {
-    let tx = inner
-        .senders
-        .lock()
+    let senders = inner.senders.lock();
+    let StageOrAdapter::Stage(tx) = senders
         .get(stage_name)
         .expect("stage ref contained unknown name")
-        .clone();
+    else {
+        panic!("cannot obtain input for adapter");
+    };
+    let tx = tx.clone();
     Sender::new(Arc::new(move |msg: Msg| {
         let tx = tx.clone();
         Box::pin(async move {
@@ -336,13 +359,13 @@ fn interpreter<St>(
                             StageResponse::Unit
                         }
                     } else {
-                        #[expect(clippy::expect_used)]
-                        let tx = inner
-                            .senders
-                            .lock()
-                            .get(&target)
-                            .expect("stage ref contained unknown name")
-                            .clone();
+                        let (tx, msg) = {
+                            let mut senders = inner.senders.lock();
+                            #[expect(clippy::expect_used)]
+                            let (tx, msg) = find_recipient(&mut senders, target.clone(), Some(msg))
+                                .expect("stage ref contained unknown name");
+                            (tx.clone(), msg)
+                        };
                         let Ok(_) = tx.send(msg).await else {
                             tracing::warn!(
                                 "message send failed from stage `{name}` to stage `{target}`"
@@ -399,7 +422,10 @@ fn interpreter<St>(
                 StageEffect::WireStage(name, transition, initial_state) => {
                     tracing::debug!("stage `{name}` wired");
                     let (tx, rx) = mpsc::channel(inner.mailbox_size);
-                    inner.senders.lock().insert(name.clone(), tx);
+                    inner
+                        .senders
+                        .lock()
+                        .insert(name.clone(), StageOrAdapter::Stage(tx));
                     let effect = Arc::new(Mutex::new(None));
                     inner.handles.lock().push(tokio::spawn(run_stage_boxed(
                         initial_state,
