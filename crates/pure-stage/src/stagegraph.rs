@@ -23,10 +23,7 @@ use std::{
     marker::PhantomData,
     sync::atomic::{AtomicU64, Ordering},
 };
-use tokio::{
-    runtime::Handle,
-    sync::{mpsc, oneshot},
-};
+use tokio::sync::{mpsc, oneshot};
 
 /// A unique identifier for a call effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -38,7 +35,7 @@ impl CallId {
         Self(COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 
-    #[cfg(all(feature = "simulation", test))]
+    #[cfg(test)]
     pub(crate) fn from_u64(u: u64) -> Self {
         Self(u)
     }
@@ -94,6 +91,32 @@ impl<Resp: SendData> CallRef<Resp> {
             _ph: PhantomData,
         }
     }
+
+    /// Test facility for creating a fake call reference.
+    pub fn fake(target: impl AsRef<str>, id: u64, deadline: Instant) -> Self {
+        Self {
+            target: target.as_ref().into(),
+            id: CallId(id),
+            deadline,
+            response: oneshot::channel().0,
+            _ph: PhantomData,
+        }
+    }
+
+    /// Create a dummy channel for testing purposes.
+    pub fn channel(deadline: Instant) -> (Self, oneshot::Receiver<Box<dyn SendData>>) {
+        let (tx, rx) = oneshot::channel();
+        (
+            Self {
+                target: Name::from("dummy"),
+                id: CallId::new(),
+                deadline,
+                response: tx,
+                _ph: PhantomData,
+            },
+            rx,
+        )
+    }
 }
 
 /// A factory for processing network stages and their wiring.
@@ -132,7 +155,6 @@ impl<Resp: SendData> CallRef<Resp> {
 /// let mut running = network.run(rt.handle().clone());
 /// ```
 pub trait StageGraph {
-    type Running: StageGraphRunning;
     type RefAux<Msg, State>;
 
     /// Create a stage from an asynchronous transition function (state × message → state) and
@@ -179,6 +201,13 @@ pub trait StageGraph {
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
 
+    fn contramap<Original: SendData, Mapped: SendData>(
+        &mut self,
+        stage_ref: impl AsRef<StageRef<Original>>,
+        new_name: impl AsRef<str>,
+        transform: impl Fn(Mapped) -> Original + 'static + Send,
+    ) -> StageRef<Mapped>;
+
     /// Preload the given stage’s mailbox with the given messages.
     ///
     /// Since the stage is not running yet, this will return false and drop messages
@@ -189,15 +218,7 @@ pub trait StageGraph {
         &mut self,
         stage: impl AsRef<StageRef<Msg>>,
         messages: impl IntoIterator<Item = Msg>,
-    ) -> bool;
-
-    /// Consume this network builder and start the network — the precise meaning of this
-    /// depends on the `StageGraph` implementation used.
-    ///
-    /// For example [`TokioBuilder`](crate::tokio::TokioBuilder) will spawn each stage as
-    /// a task while [`SimulationBuilder`](crate::effect_box::SimulationBuilder) won’t
-    /// run anything unless explicitly requested by a test procedure.
-    fn run(self, rt: Handle) -> Self::Running;
+    ) -> Result<(), Box<dyn SendData>>;
 
     /// Obtain a handle for sending messages to the given stage from outside the network.
     fn input<Msg: SendData>(&mut self, stage: impl AsRef<StageRef<Msg>>) -> Sender<Msg>;
@@ -243,4 +264,13 @@ pub trait StageGraphRunning {
 
     /// A future that resolves once the stage graph has terminated.
     fn termination(&self) -> BoxFuture<'static, ()>;
+}
+
+/// Generate a unique name for a stage.
+///
+/// This naming convention must be used by all StageGraph implementations to make them compatible
+/// in terms of TraceBuffer replay.
+pub fn stage_name(counter: &mut usize, prefix: &str) -> Name {
+    *counter += 1;
+    Name::from(&*format!("{}-{}", prefix, counter))
 }

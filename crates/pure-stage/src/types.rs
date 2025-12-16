@@ -18,7 +18,7 @@ use crate::{
 };
 use anyhow::Context;
 use cbor4ii::serde::from_slice;
-use std::fmt::{Display, Error, Formatter};
+use std::fmt::{Display, Formatter};
 use std::{
     any::{Any, type_name},
     borrow::Borrow,
@@ -76,14 +76,25 @@ where
 
 impl Display for dyn SendData {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(&as_send_data_value(self).map_err(|_| Error)?.to_string())
+        write!(f, "{}", self.as_send_data_value().borrow())
     }
 }
 
 impl dyn SendData {
+    pub fn is<T: SendData>(&self) -> bool {
+        (self as &dyn Any).is::<T>()
+    }
+
     /// Cast a message to a given concrete type.
-    pub fn cast_ref<T: SendData>(&self) -> Option<&T> {
-        (self as &dyn Any).downcast_ref::<T>()
+    pub fn cast_ref<T: SendData>(&self) -> anyhow::Result<&T> {
+        (self as &dyn Any).downcast_ref::<T>().ok_or_else(|| {
+            anyhow::anyhow!(
+                "message type error: expected {}, got {:?} ({})",
+                type_name::<T>(),
+                self,
+                self.typetag_name()
+            )
+        })
     }
 
     fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
@@ -121,35 +132,37 @@ impl dyn SendData {
         };
         deserialize_value::<T>(&*this)
     }
-}
 
-/// Cast the SendData to a SendDataValue to be able to access its inner value.
-pub fn as_send_data_value(this: &dyn SendData) -> anyhow::Result<&SendDataValue> {
-    let Some(this) = this.cast_ref::<SendDataValue>() else {
-        let Some(this) = this.cast_ref::<UnknownExternalEffect>() else {
-            anyhow::bail!(
-                "message type error: expected SendDataValue, got {:?} ({})",
-                this,
-                this.typetag_name()
-            )
-        };
-        return Ok(this.send_data_value());
-    };
-    Ok(this)
+    /// Cast the SendData to a SendDataValue to be able to access its inner value.
+    pub fn as_send_data_value(&self) -> impl Borrow<SendDataValue> {
+        enum B<'a> {
+            Borrowed(&'a SendDataValue),
+            Owned(SendDataValue),
+        }
+        impl<'a> Borrow<SendDataValue> for B<'a> {
+            fn borrow(&self) -> &SendDataValue {
+                match self {
+                    B::Borrowed(value) => value,
+                    B::Owned(value) => value,
+                }
+            }
+        }
+
+        if let Ok(this) = self.cast_ref::<SendDataValue>() {
+            return B::Borrowed(this);
+        }
+        if let Ok(this) = self.cast_ref::<UnknownExternalEffect>() {
+            return B::Borrowed(this.send_data_value());
+        }
+        B::Owned(SendDataValue::from(self))
+    }
 }
 
 pub fn deserialize_value<T>(this: &dyn SendData) -> anyhow::Result<T>
 where
     T: SendData + serde::de::DeserializeOwned,
 {
-    let Some(this) = this.cast_ref::<SendDataValue>() else {
-        anyhow::bail!(
-            "message type error: expected {}, got {:?} ({})",
-            type_name::<T>(),
-            this,
-            this.typetag_name()
-        )
-    };
+    let this = this.cast_ref::<SendDataValue>()?;
     let bytes = to_cbor(&this.value);
     from_slice::<T>(&bytes).context(format!(
         "deserializing `{}` from {:?}",
@@ -189,6 +202,12 @@ impl Name {
 impl AsRef<str> for Name {
     fn as_ref(&self) -> &str {
         self.as_str()
+    }
+}
+
+impl AsRef<Name> for Name {
+    fn as_ref(&self) -> &Name {
+        self
     }
 }
 
@@ -322,6 +341,7 @@ impl<T> TryInStage for Option<T> {
     type Result = T;
     type Error = ();
 
+    #[expect(clippy::future_not_send)]
     async fn or_terminate<M>(
         self,
         eff: &Effects<M>,
@@ -342,6 +362,7 @@ impl<T, E> TryInStage for Result<T, E> {
 
     type Error = E;
 
+    #[expect(clippy::future_not_send)]
     async fn or_terminate<M>(
         self,
         eff: &Effects<M>,
@@ -357,7 +378,6 @@ impl<T, E> TryInStage for Result<T, E> {
     }
 }
 
-#[cfg(feature = "simulation")]
 #[cfg(test)]
 mod test {
     use crate::simulation::SimulationBuilder;
@@ -413,8 +433,7 @@ mod test {
         });
         let stage = network.wire_up(stage, 0);
 
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let mut sim = network.run(rt.handle().clone());
+        let mut sim = network.run();
 
         sim.enqueue_msg(&stage, [Some(1)]);
         sim.run_until_blocked();
@@ -425,16 +444,16 @@ mod test {
         assert!(sim.is_terminated());
 
         pretty_assertions::assert_eq!(
-            trace.lock().hydrate(),
+            trace.lock().hydrate_without_timestamps(),
             vec![
-                TraceEntry::state("stage-0", SendDataValue::boxed(0u32)),
-                TraceEntry::input("stage-0", SendDataValue::boxed(Some(1u32))),
-                TraceEntry::resume("stage-0", StageResponse::Unit),
-                TraceEntry::state("stage-0", SendDataValue::boxed(1u32)),
-                TraceEntry::suspend(Effect::receive("stage-0")),
-                TraceEntry::input("stage-0", SendDataValue::boxed(None::<u32>)),
-                TraceEntry::resume("stage-0", StageResponse::Unit),
-                TraceEntry::suspend(Effect::terminate("stage-0"))
+                TraceEntry::state("stage-1", SendDataValue::boxed(&0u32)),
+                TraceEntry::input("stage-1", SendDataValue::boxed(&Some(1u32))),
+                TraceEntry::resume("stage-1", StageResponse::Unit),
+                TraceEntry::state("stage-1", SendDataValue::boxed(&1u32)),
+                TraceEntry::suspend(Effect::receive("stage-1")),
+                TraceEntry::input("stage-1", SendDataValue::boxed(&None::<u32>)),
+                TraceEntry::resume("stage-1", StageResponse::Unit),
+                TraceEntry::suspend(Effect::terminate("stage-1"))
             ]
         );
     }
@@ -451,8 +470,7 @@ mod test {
         });
         let stage = network.wire_up(stage, 0);
 
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let mut sim = network.run(rt.handle().clone());
+        let mut sim = network.run();
 
         sim.enqueue_msg(&stage, [Ok(1)]);
         sim.run_until_blocked();
@@ -464,19 +482,19 @@ mod test {
 
         let two_sec = Instant::at_offset(Duration::from_secs(2));
         pretty_assertions::assert_eq!(
-            trace.lock().hydrate(),
+            trace.lock().hydrate_without_timestamps(),
             vec![
-                TraceEntry::state("stage-0", SendDataValue::boxed(0u32)),
-                TraceEntry::input("stage-0", SendDataValue::boxed(Ok::<_, u32>(1u32))),
-                TraceEntry::resume("stage-0", StageResponse::Unit),
-                TraceEntry::state("stage-0", SendDataValue::boxed(1u32)),
-                TraceEntry::suspend(Effect::receive("stage-0")),
-                TraceEntry::input("stage-0", SendDataValue::boxed(Err::<u32, _>(2u32))),
-                TraceEntry::resume("stage-0", StageResponse::Unit),
-                TraceEntry::suspend(Effect::wait("stage-0", Duration::from_secs(2))),
+                TraceEntry::state("stage-1", SendDataValue::boxed(&0u32)),
+                TraceEntry::input("stage-1", SendDataValue::boxed(&Ok::<_, u32>(1u32))),
+                TraceEntry::resume("stage-1", StageResponse::Unit),
+                TraceEntry::state("stage-1", SendDataValue::boxed(&1u32)),
+                TraceEntry::suspend(Effect::receive("stage-1")),
+                TraceEntry::input("stage-1", SendDataValue::boxed(&Err::<u32, _>(2u32))),
+                TraceEntry::resume("stage-1", StageResponse::Unit),
+                TraceEntry::suspend(Effect::wait("stage-1", Duration::from_secs(2))),
                 TraceEntry::clock(two_sec),
-                TraceEntry::resume("stage-0", StageResponse::WaitResponse(two_sec)),
-                TraceEntry::suspend(Effect::terminate("stage-0"))
+                TraceEntry::resume("stage-1", StageResponse::WaitResponse(two_sec)),
+                TraceEntry::suspend(Effect::terminate("stage-1"))
             ]
         );
     }

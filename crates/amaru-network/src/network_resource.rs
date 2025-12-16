@@ -22,7 +22,6 @@ use amaru_kernel::{
 };
 use amaru_ouroboros::ChainStore;
 use amaru_ouroboros_traits::NetworkOperations;
-use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
@@ -74,7 +73,7 @@ pub struct NetworkInner {
     hd_rx: tokio::sync::Mutex<mpsc::Receiver<Tracked<ChainSyncEvent>>>,
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl NetworkOperations for NetworkResource {
     async fn next_sync(&self) -> Tracked<ChainSyncEvent> {
         #[expect(clippy::expect_used)]
