@@ -325,7 +325,7 @@ impl<M> Effects<M> {
     #[expect(clippy::future_not_send)]
     pub async fn contramap<Original: SendData, Mapped: SendData>(
         &self,
-        stage: StageRef<Original>,
+        stage: impl AsRef<StageRef<Original>>,
         new_name: impl AsRef<str>,
         transform: impl Fn(Mapped) -> Original + Send + 'static,
     ) -> StageRef<Mapped> {
@@ -340,7 +340,7 @@ impl<M> Effects<M> {
         let name = airlock_effect(
             &self.effect,
             StageEffect::Contramap {
-                original: stage.name().clone(),
+                original: stage.as_ref().name().clone(),
                 new_name,
                 transform: NoDebug::new(transform),
             },

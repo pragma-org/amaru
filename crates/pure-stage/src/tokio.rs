@@ -245,6 +245,7 @@ async fn run_stage<Msg: SendData, St: SendData>(
     stage_name: Name,
     inner: Arc<TokioInner>,
 ) {
+    tracing::debug!("running stage `{stage_name}`");
     let me = StageRef::new(stage_name.clone());
     let effect = Arc::new(Mutex::new(None));
     let effects = Effects::new(
@@ -286,6 +287,7 @@ async fn run_stage_boxed(
     stage_name: Name,
     inner: Arc<TokioInner>,
 ) {
+    tracing::debug!("running stage `{stage_name}`");
     while let Some(msg) = rx.recv().await {
         let result = interpreter(&inner, &effect, &stage_name, (transition)(state, msg)).await;
         match result {
