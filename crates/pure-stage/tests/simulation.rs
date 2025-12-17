@@ -737,7 +737,9 @@ fn create_stage_within_stage() {
 #[test]
 fn wire_up_with_tombstone() {
     let trace_buffer = TraceBuffer::new_shared(1, 1000000);
-    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
-
-    let parent = network.stage("parent", async |state, msg: u32, eff| state);
+    let _guard = TraceBuffer::drop_guard(&trace_buffer);
+    let _guard = TraceBuffer::drop_guard(&trace_buffer);
+    let _guard = TraceBuffer::drop_guard(&trace_buffer);
+    let _guard = TraceBuffer::drop_guard(&trace_buffer);
+    println!("buh");
 }

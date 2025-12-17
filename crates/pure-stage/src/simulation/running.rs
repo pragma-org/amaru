@@ -385,7 +385,7 @@ impl SimulationRunning {
                 envelope.name.clone(),
                 msg,
             ) {
-                DeliverMessageResult::Delivered(_) => {
+                DeliverMessageResult::Delivered => {
                     delivered.push(envelope.name);
                     envelope.tx.send(()).ok();
                 }
@@ -624,7 +624,7 @@ impl SimulationRunning {
 
                 let resume =
                     match deliver_message(&mut self.stages, self.mailbox_size, to.clone(), msg) {
-                        DeliverMessageResult::Delivered(_) => {
+                        DeliverMessageResult::Delivered => {
                             // `to` may not be suspended on receive, so failure to resume is okay
                             resume_receive_internal(self, &to).ok();
                             Some(from)
@@ -1491,7 +1491,7 @@ pub(crate) fn poll_stage(
 }
 
 enum DeliverMessageResult<'a> {
-    Delivered(&'a mut StageData),
+    Delivered,
     Full(&'a mut StageData, Box<dyn SendData>),
     NotFound,
 }
@@ -1528,7 +1528,7 @@ fn post_message(
         return DeliverMessageResult::Full(data, msg);
     }
     data.mailbox.push_back(msg);
-    DeliverMessageResult::Delivered(data)
+    DeliverMessageResult::Delivered
 }
 
 #[test]
