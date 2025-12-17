@@ -17,7 +17,6 @@ use amaru_kernel::network::NetworkName;
 pub mod metrics;
 pub mod observability;
 pub mod panic;
-pub mod point;
 
 /// Sync pipeline
 ///

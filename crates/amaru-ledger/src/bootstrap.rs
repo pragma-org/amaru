@@ -21,10 +21,10 @@ use crate::{
 };
 use amaru_kernel::{
     Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution,
-    DRep, DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
-    Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, Reward,
-    ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
-    UnitInterval, Vote, Voter, cbor, heterogeneous_array,
+    DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace,
+    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    ProposalState, Reward, ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput,
+    TransactionPointer, UnitInterval, Vote, Voter, cbor, heterogeneous_array,
     lazy::LazyDecoder,
     network::NetworkName,
     protocol_parameters::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters},
@@ -420,7 +420,7 @@ fn import_block_issuers(
                 // TODO: Unused when storing block issuers; require API change.
                 &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
                 &mut default_governance_activity(),
-                &Point::Specific(fake_slot, vec![]),
+                &Point::Specific(fake_slot, Hash::new([0; 32])),
                 Some(&pool),
                 store::Columns {
                     utxo: iter::empty(),

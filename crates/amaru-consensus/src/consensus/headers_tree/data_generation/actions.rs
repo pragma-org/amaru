@@ -297,7 +297,7 @@ pub fn random_walk<R: Rng>(
     {
         let rollback = Action::RollBack {
             peer: peer.clone(),
-            rollback_point: Point::Specific(tree.value.slot(), parent.to_vec()),
+            rollback_point: Point::Specific(tree.value.slot(), parent),
         };
         if actions.last().map(|h| h.hash()) != Some(rollback.hash()) {
             actions.push(rollback)

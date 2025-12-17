@@ -16,7 +16,7 @@ use crate::cmd::new_block_validator;
 use amaru::{DEFAULT_NETWORK, default_chain_dir, default_data_dir, default_ledger_dir};
 use amaru_consensus::consensus::store::PraosChainStore;
 use amaru_kernel::{
-    BlockHeader, EraHistory, Header, Point, RawBlock,
+    BlockHeader, EraHistory, Hash, Header, Point, RawBlock,
     network::NetworkName,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
@@ -32,6 +32,7 @@ use std::{
     fs::{self, File},
     io::Read,
     path::PathBuf,
+    str::FromStr,
     sync::Arc,
     time::Instant,
 };
@@ -155,7 +156,7 @@ async fn load_blocks(
             let slot = slot_str
                 .parse::<u64>()
                 .map_err(|e| anyhow!("Failed to parse slot from '{}': {}", slot_str, e))?;
-            let hash = hex::decode(hash_str)
+            let hash = Hash::from_str(hash_str)
                 .map_err(|e| anyhow!("Failed to decode hash from '{}': {}", hash_str, e))?;
             let point = Point::Specific(slot, hash);
             let mut block_data = Vec::new();

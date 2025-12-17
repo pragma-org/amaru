@@ -50,6 +50,7 @@ amaru-minicbor-extra.workspace = true
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 proptest.workspace = true
+rand.workspace = true
 test-case.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐

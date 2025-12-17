@@ -39,7 +39,7 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
 
     /// Point to this header
     fn point(&self) -> Point {
-        Point::Specific(self.slot(), self.hash().to_vec())
+        Point::Specific(self.slot(), self.hash())
     }
 
     /// Parent hash of the header

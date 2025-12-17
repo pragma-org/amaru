@@ -187,7 +187,7 @@ async fn roll_forward(
     hd_tx
         .send(Tracked::Wrapped(ChainSyncEvent::RollForward {
             peer: peer.clone(),
-            point: Point::Specific(hd.slot(), hd.hash().to_vec()),
+            point: Point::Specific(hd.slot(), hd.hash()),
             raw_header: hd.cbor().to_vec(),
             span: Span::current(),
         }))

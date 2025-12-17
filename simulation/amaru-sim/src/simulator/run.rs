@@ -154,7 +154,7 @@ pub fn spawn_node(
                         &downstream,
                         Tracked::Wrapped(ChainSyncEvent::RollForward {
                             peer: Peer::new(&msg.src),
-                            point: Point::Specific(slot.into(), hash.into()),
+                            point: Point::Specific(slot.into(), (*hash.bytes).into()),
                             raw_header: header.into(),
                             span: Span::current(),
                         }),
@@ -166,7 +166,7 @@ pub fn spawn_node(
                         &downstream,
                         Tracked::Wrapped(ChainSyncEvent::Rollback {
                             peer: Peer::new(&msg.src),
-                            rollback_point: Point::Specific(slot.into(), hash.into()),
+                            rollback_point: Point::Specific(slot.into(), (*hash.bytes).into()),
                             span: Span::current(),
                         }),
                     )

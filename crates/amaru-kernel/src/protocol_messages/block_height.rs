@@ -1,0 +1,64 @@
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct BlockHeight(u64);
+
+impl From<u64> for BlockHeight {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<BlockHeight> for u64 {
+    fn from(value: BlockHeight) -> Self {
+        value.0
+    }
+}
+
+impl AsRef<BlockHeight> for BlockHeight {
+    fn as_ref(&self) -> &BlockHeight {
+        self
+    }
+}
+
+impl BlockHeight {
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    pub const fn as_u64(self) -> u64 {
+        self.0
+    }
+}
+
+impl<C> Encode<C> for BlockHeight {
+    fn encode<W: encode::Write>(
+        &self,
+        e: &mut Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), encode::Error<W::Error>> {
+        self.0.encode(e, ctx)
+    }
+}
+
+impl<'b, C> Decode<'b, C> for BlockHeight {
+    fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, decode::Error> {
+        u64::decode(d, ctx).map(BlockHeight)
+    }
+}

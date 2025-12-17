@@ -260,7 +260,7 @@ macro_rules! impl_ReadOnlyChainStore {
                     let slot = u64::from_be_bytes(slot_bytes.try_into().unwrap());
                     if v.len() == HEADER_HASH_SIZE {
                         let hash = HeaderHash::from(v.as_ref());
-                        Some(Point::Specific(slot, hash.to_vec()))
+                        Some(Point::Specific(slot, hash))
                     } else {
                         None
                     }
@@ -795,7 +795,7 @@ pub mod test {
     fn next_best_chain_returns_none_given_point_is_not_on_chain() {
         with_db(|store| {
             let _chain = populate_db(store.clone());
-            let invalid_point = Point::Specific(100, random_hash().to_vec());
+            let invalid_point = Point::Specific(100, random_hash());
 
             assert!(store.next_best_chain(&invalid_point).is_none());
         });
@@ -925,6 +925,8 @@ pub mod test {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn can_convert_v1_sample_db_to_v2() {
+        use std::str::FromStr;
+
         let tempdir = tempfile::tempdir().unwrap();
         let target = tempdir.path();
         let config = RocksDbConfig::new(target.to_path_buf());
@@ -940,7 +942,7 @@ pub mod test {
         let header: Option<HeaderHash> =
             <RocksDBStore as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(
                 &db,
-                &Point::Specific(5, hex::decode(SAMPLE_HASH).unwrap()),
+                &Point::Specific(5, Hash::from_str(SAMPLE_HASH).unwrap()),
             );
         assert!(header.is_some(), "Sample data should be preserved");
     }

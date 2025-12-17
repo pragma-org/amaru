@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use crate::cmd::new_block_validator;
-use amaru::{default_data_dir, default_ledger_dir, point::to_network_point};
+use amaru::{default_data_dir, default_ledger_dir};
 use amaru_kernel::{Hasher, network::NetworkName};
+use amaru_network::point::to_network_point;
 use async_trait::async_trait;
 use clap::Parser;
 use flate2::{Compression, write::GzEncoder};

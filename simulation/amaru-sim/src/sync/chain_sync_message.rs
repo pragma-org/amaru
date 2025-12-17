@@ -201,7 +201,7 @@ impl Envelope<ChainSyncMessage> {
                 header,
             } => ChainSyncEvent::RollForward {
                 peer,
-                point: Point::Specific((slot).into(), hash.into()),
+                point: Point::Specific((slot).into(), (*hash.bytes).into()),
                 raw_header: header.into(),
                 span,
             },
@@ -211,7 +211,7 @@ impl Envelope<ChainSyncMessage> {
                 hash,
             } => ChainSyncEvent::Rollback {
                 peer,
-                rollback_point: Point::Specific(slot.into(), hash.into()),
+                rollback_point: Point::Specific(slot.into(), (*hash.bytes).into()),
                 span,
             },
             _ => panic!("unsupported message type for ChainSyncEvent conversion"),

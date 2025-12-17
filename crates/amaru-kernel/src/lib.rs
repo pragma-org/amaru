@@ -123,8 +123,7 @@ pub mod network;
 
 pub mod peer;
 
-pub use point::*;
-pub mod point;
+pub use protocol_messages::point::*;
 
 pub use pool_params::*;
 pub mod pool_params;
@@ -184,10 +183,10 @@ pub mod tests {
     pub use crate::{
         anchor::tests::*, ballot::tests::*, ballot_id::tests::*, certificate_pointer::tests::*,
         constitution::tests::*, constitutional_committee::tests::*, drep::tests::*,
-        network::tests::*, point::tests::*, pool_params::tests::*, proposal::tests::*,
-        proposal_id::tests::*, proposal_pointer::tests::*, protocol_parameters::tests::*,
-        reward_account::tests::*, stake_credential::tests::*, transaction_pointer::tests::*,
-        vote::tests::*,
+        network::tests::*, pool_params::tests::*, proposal::tests::*, proposal_id::tests::*,
+        proposal_pointer::tests::*, protocol_messages::point::tests::*,
+        protocol_parameters::tests::*, reward_account::tests::*, stake_credential::tests::*,
+        transaction_pointer::tests::*, vote::tests::*,
     };
     use proptest::prelude::*;
     use rand::{SeedableRng, prelude::StdRng};
