@@ -27,10 +27,10 @@ use tracing_subscriber::EnvFilter;
 #[test]
 #[ignore]
 fn test_keepalive_with_node() {
-    let _x = tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_test_writer()
-        .init();
+        .try_init();
 
     tracing::trace!("test");
 
