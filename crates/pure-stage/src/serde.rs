@@ -1,4 +1,4 @@
-#![expect(dead_code, clippy::borrowed_box)]
+#![expect(clippy::borrowed_box)]
 // Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,16 +16,17 @@
 //! This module contains some serialization and deserialization code for the Pure Stage library.
 
 use crate::SendData;
-use cbor4ii::core::Value;
-use cbor4ii::{core::utils::BufWriter, serde::to_writer};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::cell::RefCell;
-use std::fmt::Display;
+use cbor4ii::{
+    core::{Value, utils::BufWriter},
+    serde::{from_slice, to_writer},
+};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+use std::{cell::RefCell, fmt};
 
 /// Helper type to wrap futures/functions/etc. and thus avoid having to handroll
 /// a `Debug` implementation for a type containing the wrapped value.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct NoDebug<T>(T);
+pub struct NoDebug<T>(T);
 impl<T> NoDebug<T> {
     pub fn new(t: T) -> Self {
         Self(t)
@@ -81,10 +82,64 @@ pub mod serialize_error {
     }
 }
 
+enum Field {
+    Typetag,
+    Value,
+    Ignored,
+}
+impl<'de> serde::de::Visitor<'de> for Field {
+    type Value = Self;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "field identifier for SendDataValue")
+    }
+    fn visit_u64<E>(self, v: u64) -> Result<Self, E>
+    where
+        E: Error,
+    {
+        match v {
+            0 => Ok(Field::Typetag),
+            1 => Ok(Field::Value),
+            _ => Ok(Field::Ignored),
+        }
+    }
+    fn visit_str<E>(self, v: &str) -> Result<Self, E>
+    where
+        E: Error,
+    {
+        match v {
+            "typetag" => Ok(Field::Typetag),
+            "value" => Ok(Field::Value),
+            _ => Ok(Field::Ignored),
+        }
+    }
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self, E>
+    where
+        E: Error,
+    {
+        match v {
+            b"typetag" => Ok(Field::Typetag),
+            b"value" => Ok(Field::Value),
+            _ => Ok(Field::Ignored),
+        }
+    }
+}
+impl<'de> serde::de::Deserialize<'de> for Field {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(Field::Ignored)
+    }
+}
+
 /// `#[serde(with = "pure_stage::serde::serialize_send_data")]` for serializing [`Box<dyn SendData>`](crate::SendData).
+#[allow(clippy::disallowed_types)]
 pub mod serialize_send_data {
     use super::*;
     use crate::SendData;
+    use serde::de::Error;
+    use std::{any::type_name, collections::HashMap, fmt, sync::Arc};
 
     pub fn serialize<S: Serializer>(
         data: &Box<dyn SendData>,
@@ -96,20 +151,143 @@ pub mod serialize_send_data {
     pub fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Box<dyn SendData>, D::Error> {
-        let s = SendDataValue::deserialize(deserializer)?;
-        Ok(Box::new(s) as Box<dyn SendData>)
+        deserializer.deserialize_struct("SendData", &["typetag", "value"], Visitor)
+    }
+
+    pub fn register_data_deserializer<T: SendData + serde::de::DeserializeOwned>() -> DropGuard {
+        let name = type_name::<T>();
+        TYPES.with_borrow_mut(|types| {
+            types.insert(
+                name.to_string(),
+                Arc::new(|deserializer| {
+                    let value = T::deserialize(deserializer)?;
+                    Ok(Box::new(value))
+                }),
+            );
+        });
+        DropGuard(name)
+    }
+
+    pub struct DropGuard(&'static str);
+
+    impl Drop for DropGuard {
+        fn drop(&mut self) {
+            TYPES.with_borrow_mut(|types| {
+                types.remove(self.0);
+            });
+        }
+    }
+
+    type Deser = Arc<
+        dyn for<'de> Fn(
+            &mut dyn erased_serde::Deserializer<'de>,
+        ) -> Result<Box<dyn SendData>, erased_serde::Error>,
+    >;
+    thread_local! {
+        static TYPES: RefCell<HashMap<String, Deser>> = RefCell::new(HashMap::new());
+        static DESER: RefCell<Option<Deser>> = const { RefCell::new(None) };
+    }
+
+    struct Dessert(Box<dyn SendData>);
+    impl<'de> serde::de::Deserialize<'de> for Dessert {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            #[allow(clippy::expect_used)]
+            let deser = DESER
+                .with(|deser| deser.borrow_mut().take())
+                .expect("deser is set");
+            let mut deserializer = <dyn erased_serde::Deserializer<'de>>::erase(deserializer);
+            let value = deser(&mut deserializer).map_err(D::Error::custom)?;
+            Ok(Dessert(value))
+        }
+    }
+
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Box<dyn SendData>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(formatter, "a SendData value")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let typetag = seq
+                .next_element::<String>()?
+                .ok_or_else(|| serde::de::Error::invalid_length(0, &"typetag & value"))?;
+            if let Some(value) = TYPES.with(|types| {
+                if let Some(factory) = types.borrow().get(&typetag) {
+                    DESER.with_borrow_mut(|deser| deser.replace(factory.clone()));
+                    let value = seq
+                        .next_element::<Dessert>()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?;
+                    Ok(Some(value.0))
+                } else {
+                    Ok(None)
+                }
+            })? {
+                return Ok(value);
+            }
+            let value = seq
+                .next_element::<cbor4ii::core::Value>()?
+                .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?;
+            Ok(Box::new(SendDataValue { typetag, value }))
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            let (Field::Typetag, typetag) = map
+                .next_entry::<Field, String>()?
+                .ok_or_else(|| serde::de::Error::missing_field("typetag"))?
+            else {
+                return Err(serde::de::Error::custom("typetag must be encoded first"));
+            };
+            if let Some(value) = TYPES.with(|types| {
+                if let Some(factory) = types.borrow().get(&typetag) {
+                    DESER.with_borrow_mut(|deser| deser.replace(factory.clone()));
+                    let (Field::Value, value) = map
+                        .next_entry::<Field, Dessert>()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?
+                    else {
+                        return Err(serde::de::Error::custom(
+                            "value must be encoded after typetag",
+                        ));
+                    };
+                    Ok(Some(value.0))
+                } else {
+                    Ok(None)
+                }
+            })? {
+                return Ok(value);
+            }
+            let (Field::Value, value) = map
+                .next_entry::<Field, cbor4ii::core::Value>()?
+                .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?
+            else {
+                return Err(serde::de::Error::custom(
+                    "value must be encoded after typetag",
+                ));
+            };
+            Ok(Box::new(SendDataValue { typetag, value }))
+        }
     }
 }
 
-/// This is the wrapper representation of a [`SendData`](crate::SendData) value when serialized and deserialized.
+/// This is the wrapper representation of a [`SendData`](crate::SendData) value after being deserialized.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SendDataValue {
     pub typetag: String,
     pub value: Value,
 }
 
-impl Display for SendDataValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for SendDataValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         SendDataValue::format_cbor_value(&self.value, f)
     }
 }
@@ -184,21 +362,38 @@ impl SendDataValue {
 }
 
 impl SendDataValue {
+    pub fn new<T: SendData>(value: &T) -> Self {
+        Self::from(value as &dyn SendData)
+    }
+
     /// Construct a boxed [`SendData`](crate::SendData) value from a concrete type.
     ///
     /// This is a convenience function that serializes the value to a vector of bytes and then
     /// deserializes it back into a boxed [`SendData`](crate::SendData) value. It is mostly
     /// useful in tests.
+    pub fn boxed<T: SendData>(value: &T) -> Box<dyn SendData> {
+        Box::new(Self::new(value))
+    }
+
+    pub fn from_json(tag: impl AsRef<str>, value: impl Serialize) -> Box<dyn SendData> {
+        #[expect(clippy::expect_used)]
+        Box::new(Self {
+            typetag: tag.as_ref().to_string(),
+            value: from_slice(&to_cbor(&value)).expect("round-trip serialization should not fail"),
+        })
+    }
+}
+
+impl From<&dyn SendData> for SendDataValue {
     #[expect(clippy::expect_used)]
-    pub fn boxed<T: SendData>(value: T) -> Box<dyn SendData> {
+    fn from(value: &dyn SendData) -> Self {
         let mut buf = cbor4ii::serde::Serializer::new(BufWriter::new(Vec::new()));
-        serialize_send_data::serialize(&(Box::new(value) as Box<dyn SendData>), &mut buf)
+        value
+            .serialize(&mut buf)
             .expect("serialization should not fail");
         let bytes = buf.into_inner().into_inner();
-        Box::new(
-            cbor4ii::serde::from_slice::<SendDataValue>(&bytes)
-                .expect("deserialization of serialized SendDataValue should not fail"),
-        )
+        cbor4ii::serde::from_slice::<SendDataValue>(&bytes)
+            .expect("deserialization of serialized SendDataValue should not fail")
     }
 }
 
@@ -289,9 +484,11 @@ mod test_send_data {
 }
 
 /// `#[serde(with = "pure_stage::serde::serialize_external_effect")]` for serializing [`Box<dyn ExternalEffect>`](crate::ExternalEffect).
+#[allow(clippy::disallowed_types)]
 pub mod serialize_external_effect {
     use super::*;
     use crate::{ExternalEffect, effect::UnknownExternalEffect};
+    use std::{collections::HashMap, sync::Arc};
 
     pub fn serialize<S: Serializer>(
         data: &Box<dyn ExternalEffect>,
@@ -303,8 +500,138 @@ pub mod serialize_external_effect {
     pub fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Box<dyn ExternalEffect>, D::Error> {
-        let s = SendDataValue::deserialize(deserializer)?;
-        Ok(Box::new(UnknownExternalEffect::new(s)))
+        deserializer.deserialize_struct("SendData", &["typetag", "value"], Visitor)
+    }
+
+    pub fn register_effect_deserializer<T: ExternalEffect + serde::de::DeserializeOwned>()
+    -> DropGuard {
+        let name = std::any::type_name::<T>();
+        TYPES.with_borrow_mut(|types| {
+            types.insert(
+                name.to_string(),
+                Arc::new(|deserializer| {
+                    let value = T::deserialize(deserializer)?;
+                    Ok(Box::new(value))
+                }),
+            );
+        });
+        DropGuard(name)
+    }
+
+    pub struct DropGuard(&'static str);
+
+    impl Drop for DropGuard {
+        fn drop(&mut self) {
+            TYPES.with_borrow_mut(|types| {
+                types.remove(self.0);
+            });
+        }
+    }
+
+    type Deser = Arc<
+        dyn for<'de> Fn(
+            &mut dyn erased_serde::Deserializer<'de>,
+        ) -> Result<Box<dyn ExternalEffect>, erased_serde::Error>,
+    >;
+    thread_local! {
+        static TYPES: RefCell<HashMap<String, Deser>> = RefCell::new(HashMap::new());
+        static DESER: RefCell<Option<Deser>> = const { RefCell::new(None) };
+    }
+
+    struct Dessert(Box<dyn ExternalEffect>);
+    impl<'de> serde::de::Deserialize<'de> for Dessert {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            #[expect(clippy::expect_used)]
+            let deser = DESER
+                .with(|deser| deser.borrow_mut().take())
+                .expect("deser is set");
+            let mut deserializer = <dyn erased_serde::Deserializer<'de>>::erase(deserializer);
+            let value = deser(&mut deserializer).map_err(D::Error::custom)?;
+            Ok(Dessert(value))
+        }
+    }
+
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Box<dyn ExternalEffect>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(formatter, "a ExternalEffect value")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let typetag = seq
+                .next_element::<String>()?
+                .ok_or_else(|| serde::de::Error::invalid_length(0, &"typetag & value"))?;
+            if let Some(value) = TYPES.with(|types| {
+                if let Some(factory) = types.borrow().get(&typetag) {
+                    DESER.with_borrow_mut(|deser| deser.replace(factory.clone()));
+                    let value = seq
+                        .next_element::<Dessert>()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?;
+                    Ok(Some(value.0))
+                } else {
+                    Ok(None)
+                }
+            })? {
+                return Ok(value);
+            }
+            let value = seq
+                .next_element::<cbor4ii::core::Value>()?
+                .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?;
+            Ok(Box::new(UnknownExternalEffect::new(SendDataValue {
+                typetag,
+                value,
+            })))
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            let (Field::Typetag, typetag) = map
+                .next_entry::<Field, String>()?
+                .ok_or_else(|| serde::de::Error::missing_field("typetag"))?
+            else {
+                return Err(serde::de::Error::custom("typetag must be encoded first"));
+            };
+            if let Some(value) = TYPES.with(|types| {
+                if let Some(factory) = types.borrow().get(&typetag) {
+                    DESER.with_borrow_mut(|deser| deser.replace(factory.clone()));
+                    let (Field::Value, value) = map
+                        .next_entry::<Field, Dessert>()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?
+                    else {
+                        return Err(serde::de::Error::custom(
+                            "value must be encoded after typetag",
+                        ));
+                    };
+                    Ok(Some(value.0))
+                } else {
+                    Ok(None)
+                }
+            })? {
+                return Ok(value);
+            }
+            let (Field::Value, value) = map
+                .next_entry::<Field, cbor4ii::core::Value>()?
+                .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?
+            else {
+                return Err(serde::de::Error::custom(
+                    "value must be encoded after typetag",
+                ));
+            };
+            Ok(Box::new(UnknownExternalEffect::new(SendDataValue {
+                typetag,
+                value,
+            })))
+        }
     }
 }
 

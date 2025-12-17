@@ -228,7 +228,9 @@ pub async fn bootstrap(
 
     let pull_stage = network.stage("pull", pull::stage);
     let pull_stage = network.wire_up(pull_stage, receive_header_stage);
-    assert!(network.preload(pull_stage, vec![pull::NextSync]));
+    network
+        .preload(pull_stage, vec![pull::NextSync])
+        .map_err(|_| anyhow::anyhow!("failed to preload pull stage"))?;
 
     network
         .resources()

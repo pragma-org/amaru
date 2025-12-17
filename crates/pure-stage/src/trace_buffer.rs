@@ -16,11 +16,11 @@
 //! This module contains the [`TraceBuffer`] type, which is used to record the trace of a simulation.
 
 use crate::ExternalEffect;
-use crate::types::as_send_data_value;
 use crate::{Effect, Instant, Name, SendData, effect::StageResponse, serde::to_cbor};
 use cbor4ii::serde::from_slice;
 use parking_lot::Mutex;
-use std::fmt::{Debug, Display, Error, Formatter};
+use std::borrow::Borrow;
+use std::fmt::{Debug, Display, Formatter};
 use std::{collections::VecDeque, sync::Arc};
 
 /// A buffer for recording the trace of a simulation.
@@ -28,6 +28,8 @@ use std::{collections::VecDeque, sync::Arc};
 /// The buffer has a bounded size and will drop the oldest entries when it is full.
 /// Attempting to push an entry that would exceed the size will try to free up space, but it will
 /// retain at least `min_entries`; if this does not suffice, the new entry will be dropped.
+///
+/// Each message in the buffer is a CBOR-encoded tuple of `(Instant, TraceEntry)`.
 #[derive(Default)]
 pub struct TraceBuffer {
     messages: VecDeque<Vec<u8>>,
@@ -136,7 +138,8 @@ impl Display for TraceEntry {
                         | other @ StageResponse::WaitResponse(_)
                         | other @ StageResponse::CallResponse(_)
                         | other @ StageResponse::CallTimeout
-                        | other @ StageResponse::ExternalResponse(_) => format!(" -> {other}"),
+                        | other @ StageResponse::ExternalResponse(_)
+                        | other @ StageResponse::AddStageResponse(_) => format!(" -> {other}"),
                     },
                 )
             }
@@ -146,7 +149,7 @@ impl Display for TraceEntry {
                     f,
                     "input {stage} -> {input}",
                     stage = stage.as_str(),
-                    input = as_send_data_value(input.as_ref()).map_err(|_| Error)?
+                    input = input.as_send_data_value().borrow()
                 )
             }
             TraceEntry::State { stage, state } => {
@@ -154,7 +157,7 @@ impl Display for TraceEntry {
                     f,
                     "state {stage} -> {state}",
                     stage = stage.as_str(),
-                    state = as_send_data_value(state.as_ref()).map_err(|_| Error)?
+                    state = state.as_send_data_value().borrow()
                 )
             }
         }
@@ -278,36 +281,36 @@ impl TraceBuffer {
 
     /// Push an effect to the trace buffer.
     pub fn push_suspend(&mut self, effect: &Effect) {
-        self.push(to_cbor(&TraceEntryRef::Suspend(effect)));
+        self.push(TraceEntryRef::Suspend(effect));
     }
 
     pub fn push_suspend_external(&mut self, at_stage: &Name, effect: &dyn crate::ExternalEffect) {
-        self.push(to_cbor(&TraceEntryRefRef::Suspend(EffectRef::External {
+        self.push(TraceEntryRefRef::Suspend(EffectRef::External {
             at_stage,
             effect,
-        })));
+        }));
     }
 
     /// Push a resume event to the trace buffer.
     pub fn push_resume(&mut self, stage: &Name, response: &StageResponse) {
-        self.push(to_cbor(&TraceEntryRef::Resume { stage, response }));
+        self.push(TraceEntryRef::Resume { stage, response });
     }
 
     pub fn push_resume_external(&mut self, stage: &Name, response: &dyn SendData) {
-        self.push(to_cbor(&TraceEntryRefRef::Resume {
+        self.push(TraceEntryRefRef::Resume {
             stage,
             response: StageResponseRef::ExternalResponse(response),
-        }));
+        });
     }
 
     /// Push a clock update to the trace buffer.
     pub fn push_clock(&mut self, instant: Instant) {
-        self.push(to_cbor(&TraceEntryRef::Clock(instant)));
+        self.push(TraceEntryRef::Clock(instant));
     }
 
     /// Push a receive event to the trace buffer.
     pub fn push_receive(&mut self, stage: &Name, input: &Box<dyn SendData>) {
-        self.push(to_cbor(&TraceEntryRef::Input { stage, input }));
+        self.push(TraceEntryRef::Input { stage, input });
     }
 
     /// Push a state update to the trace buffer.
@@ -315,10 +318,12 @@ impl TraceBuffer {
     /// This happens every time polling a stage yields a `Poll::Ready(Ok(...))`, i.e. as soon as the next
     /// stage state has been computed.
     pub fn push_state(&mut self, stage: &Name, state: &Box<dyn SendData>) {
-        self.push(to_cbor(&TraceEntryRef::State { stage, state }));
+        self.push(TraceEntryRef::State { stage, state });
     }
 
-    fn push(&mut self, msg: Vec<u8>) {
+    fn push<T: serde::Serialize>(&mut self, msg: T) {
+        let msg = to_cbor(&(Instant::now(), msg));
+
         if self.max_size == 0 {
             return;
         }
@@ -364,10 +369,23 @@ impl TraceBuffer {
 
     /// Hydrate the trace buffer (stored in CBOR format) into a vector of entries.
     #[expect(clippy::expect_used)]
-    pub fn hydrate(&self) -> Vec<TraceEntry> {
+    pub fn hydrate(&self) -> Vec<(Instant, TraceEntry)> {
         self.messages
             .iter()
             .map(|m| from_slice(m).expect("trace buffer is not supposed to contain invalid CBOR"))
+            .collect()
+    }
+
+    /// Hydrate the trace buffer (stored in CBOR format) into a vector of entries.
+    #[expect(clippy::expect_used)]
+    pub fn hydrate_without_timestamps(&self) -> Vec<TraceEntry> {
+        self.messages
+            .iter()
+            .map(|m| {
+                from_slice::<(Instant, TraceEntry)>(m)
+                    .expect("trace buffer is not supposed to contain invalid CBOR")
+                    .1
+            })
             .collect()
     }
 
@@ -408,6 +426,40 @@ impl TraceBuffer {
 
     pub fn fetch_replay_mut(&mut self) -> Option<&mut std::vec::IntoIter<TraceEntry>> {
         self.fetch_replay.as_mut()
+    }
+
+    pub fn drop_guard(this: &Arc<Mutex<Self>>) -> DropGuard {
+        DropGuard {
+            buffer: this.clone(),
+            active: true,
+        }
+    }
+}
+
+pub struct DropGuard {
+    buffer: Arc<Mutex<TraceBuffer>>,
+    active: bool,
+}
+
+impl DropGuard {
+    pub fn defuse(mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for DropGuard {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        eprintln!("Dropping trace buffer");
+        for entry in self.buffer.lock().iter() {
+            match from_slice::<(Instant, TraceEntry)>(entry) {
+                Ok((instant, entry)) => eprintln!("{instant} {entry:?}"),
+                Err(error) => eprintln!("error deserializing trace entry: {error:?}"),
+            };
+        }
+        eprintln!("Dropped trace buffer");
     }
 }
 
