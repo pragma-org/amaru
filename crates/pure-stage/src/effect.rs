@@ -146,7 +146,7 @@ impl<M> Effects<M> {
         &self,
         target: &StageRef<Req>,
         timeout: Duration,
-        msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
+        msg: impl FnOnce(CallRef<Resp>) -> Req + Send,
     ) -> BoxFuture<'static, Option<Resp>> {
         let (response, recv) = oneshot::channel();
         let now = self.clock.now();
@@ -278,7 +278,7 @@ impl<M> Effects<M> {
         airlock_effect(&self.effect, StageEffect::Terminate, |_eff| never())
     }
 
-    #[allow(clippy::future_not_send)]
+    #[expect(clippy::future_not_send)]
     pub async fn stage<Msg, St, F, Fut>(
         &self,
         name: impl AsRef<str>,
@@ -322,7 +322,38 @@ impl<M> Effects<M> {
         }
     }
 
-    #[allow(clippy::future_not_send)]
+    #[expect(clippy::future_not_send)]
+    pub async fn contramap<Original: SendData, Mapped: SendData>(
+        &self,
+        stage: StageRef<Original>,
+        new_name: impl AsRef<str>,
+        transform: impl Fn(Mapped) -> Original + Send + 'static,
+    ) -> StageRef<Mapped> {
+        let new_name = Name::from(new_name.as_ref());
+        let transform = Box::new(move |mapped: Box<dyn SendData>| {
+            let mapped = mapped
+                .cast::<Mapped>()
+                .expect("internal message type error");
+            let original = transform(*mapped);
+            Box::new(original) as Box<dyn SendData>
+        });
+        let name = airlock_effect(
+            &self.effect,
+            StageEffect::Contramap {
+                original: stage.name().clone(),
+                new_name,
+                transform: NoDebug::new(transform),
+            },
+            |eff| match eff {
+                Some(StageResponse::ContramapResponse(name)) => Some(name),
+                _ => None,
+            },
+        )
+        .await;
+        StageRef::new(name)
+    }
+
+    #[expect(clippy::future_not_send)]
     pub async fn wire_up<Msg, St>(
         &self,
         stage: crate::StageBuildRef<Msg, St, TransitionFactory>,
@@ -537,9 +568,12 @@ pub enum StageEffect<T> {
     External(Box<dyn ExternalEffect>),
     Terminate,
     AddStage(Name),
-    // the transition function is supplied separately because it cannot be SendData;
-    // response is StageResponse::Unit
     WireStage(Name, NoDebug<TransitionFactory>, T),
+    Contramap {
+        original: Name,
+        new_name: Name,
+        transform: NoDebug<Box<dyn Fn(Box<dyn SendData>) -> Box<dyn SendData> + Send + 'static>>,
+    },
 }
 
 pub type TransitionFactory = Box<dyn FnOnce(EffectBox) -> Transition + Send + 'static>;
@@ -554,6 +588,7 @@ pub enum StageResponse {
     CallTimeout,
     ExternalResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
     AddStageResponse(Name),
+    ContramapResponse(Name),
 }
 
 impl StageResponse {
@@ -581,6 +616,10 @@ impl StageResponse {
                 "type": "add_stage",
                 "name": name,
             }),
+            StageResponse::ContramapResponse(name) => serde_json::json!({
+                "type": "contramap",
+                "name": name,
+            }),
         }
     }
 }
@@ -599,6 +638,7 @@ impl Display for StageResponse {
                 write!(f, "{}", msg.as_send_data_value().borrow())
             }
             StageResponse::AddStageResponse(name) => write!(f, "add_stage {name}"),
+            StageResponse::ContramapResponse(name) => write!(f, "contramap {name}"),
         }
     }
 }
@@ -671,6 +711,22 @@ impl StageEffect<Box<dyn SendData>> {
                     initial_state,
                 },
             ),
+            StageEffect::Contramap {
+                original,
+                new_name,
+                transform,
+            } => (
+                StageEffect::Contramap {
+                    original: original.clone(),
+                    new_name: new_name.clone(),
+                    transform,
+                },
+                Effect::Contramap {
+                    at_stage: at_name,
+                    original,
+                    new_name,
+                },
+            ),
         }
     }
 }
@@ -719,6 +775,11 @@ pub enum Effect {
         name: Name,
         #[serde(with = "crate::serde::serialize_send_data")]
         initial_state: Box<dyn SendData>,
+    },
+    Contramap {
+        at_stage: Name,
+        original: Name,
+        new_name: Name,
     },
 }
 
@@ -805,6 +866,16 @@ impl Effect {
                 "name": name,
                 "initial_state": format!("{initial_state}"),
             }),
+            Effect::Contramap {
+                at_stage,
+                original,
+                new_name,
+            } => serde_json::json!({
+                "type": "contramap",
+                "at_stage": at_stage,
+                "original": original,
+                "new_name": new_name,
+            }),
         }
     }
 }
@@ -845,6 +916,13 @@ impl Display for Effect {
                 name,
                 initial_state,
             } => write!(f, "wire_stage {at_stage} {name} {initial_state}"),
+            Effect::Contramap {
+                at_stage,
+                original,
+                new_name,
+            } => {
+                write!(f, "contramap {at_stage} {original} -> {new_name}")
+            }
         }
     }
 }
@@ -930,6 +1008,7 @@ impl Effect {
             Effect::Terminate { at_stage, .. } => at_stage,
             Effect::AddStage { at_stage, .. } => at_stage,
             Effect::WireStage { at_stage, .. } => at_stage,
+            Effect::Contramap { at_stage, .. } => at_stage,
         }
     }
 
@@ -1252,6 +1331,22 @@ impl PartialEq for Effect {
                     at_stage == other_at_stage
                         && name == other_name
                         && initial_state == other_initial_state
+                }
+                _ => false,
+            },
+            Effect::Contramap {
+                at_stage,
+                original,
+                new_name,
+            } => match other {
+                Effect::Contramap {
+                    at_stage: other_at_stage,
+                    original: other_original,
+                    new_name: other_new_name,
+                } => {
+                    at_stage == other_at_stage
+                        && original == other_original
+                        && new_name == other_new_name
                 }
                 _ => false,
             },
