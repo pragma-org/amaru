@@ -17,13 +17,19 @@ use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 #[derive(Debug, PartialEq, Eq, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct Cookie(u16);
 
+impl Default for Cookie {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Cookie {
     pub fn new() -> Self {
         Self(0)
     }
 
     pub fn next(self) -> Self {
-        Self(self.0 + 1)
+        Self(self.0.wrapping_add(1))
     }
 }
 
