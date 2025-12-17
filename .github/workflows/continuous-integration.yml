@@ -149,17 +149,32 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
 
+
+  snapshots-instance-choice:
+    name: End-to-end snapshot preparation
+    runs-on: ubuntu-latest
+    outputs:
+      runner: ${{ steps.alt-runner.outputs.runner || 'ubuntu-latest' }}
+    steps:
+      - id: alt-runner
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        run: echo "runner=buildjet-4vcpu-ubuntu-2204" >> $GITHUB_OUTPUT
+
   snapshots:
     name: End-to-end snapshot tests
-    runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }}
+    needs: snapshots-instance-choice
+    runs-on: ${{ needs.snapshots-instance-choice.outputs.runner }}
     strategy:
       matrix:
         network:
           - name: preprod
             magic: 1
         cardano_node_version: [10.1.4]
+
+    if: ${{ !github.event.pull_request.draft }}
+
     continue-on-error: true
+
     steps:
       - uses: actions/checkout@v4
 
@@ -177,7 +192,7 @@ jobs:
 
       - name: Restore cardano-node DB
         id: cache-cardano-node-db
-        uses: actions/cache/restore@v4
+        uses: buildjet/cache/restore@v4
         with:
           # The path should match the one used for the 'Nightly Sync' workflow.
           path: ${{ runner.temp }}/db-${{ matrix.network.name }}
