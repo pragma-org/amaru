@@ -1,0 +1,74 @@
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::{
+    connection::{self, ConnectionMessage},
+    protocol::Role,
+    socket::ConnectionResource,
+    socket_addr::ToSocketAddrs,
+};
+use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
+use pure_stage::{StageGraph, tokio::TokioBuilder};
+use std::{env, time::Duration};
+use tokio::{runtime::Runtime, time::timeout};
+use tracing_subscriber::EnvFilter;
+
+#[test]
+#[ignore]
+fn test_keepalive_with_node() {
+    let _x = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_test_writer()
+        .init();
+
+    tracing::trace!("test");
+
+    let rt = Runtime::new().unwrap();
+
+    let conn = ConnectionResource::new(65535);
+    let conn_id = rt
+        .block_on(async {
+            timeout(Duration::from_secs(5), async {
+                let addr = ToSocketAddrs::String(
+                    env::var("PEER").unwrap_or_else(|_| "127.0.0.1:3000".to_string()),
+                )
+                .resolve()
+                .await
+                .unwrap();
+                tracing::trace!("connecting to {:?}", addr);
+                let conn = conn.connect(addr.clone()).await.unwrap();
+                tracing::trace!("connected to {:?}", addr);
+                conn
+            })
+            .await
+        })
+        .unwrap();
+
+    let mut network = TokioBuilder::default();
+
+    network.resources().put(conn);
+
+    let connection = network.stage("connection", connection::stage);
+    let connection = network.wire_up(
+        connection,
+        connection::Connection::new(conn_id, Role::Initiator, NetworkMagic::MAINNET),
+    );
+    network
+        .preload(connection, [ConnectionMessage::Initialize])
+        .unwrap();
+
+    let running = network.run(rt.handle().clone());
+    rt.block_on(async { timeout(Duration::from_secs(10), running.join()).await })
+        .unwrap();
+}

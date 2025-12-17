@@ -15,8 +15,10 @@
 pub mod acto_connection;
 pub mod bytes;
 pub mod chain_sync_client;
+pub mod connection;
 pub mod effects;
 pub mod handshake;
+pub mod keepalive;
 pub mod mux;
 pub mod network_resource;
 pub mod point;

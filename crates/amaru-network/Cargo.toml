@@ -34,5 +34,5 @@ amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
 tracing-subscriber.workspace = true
