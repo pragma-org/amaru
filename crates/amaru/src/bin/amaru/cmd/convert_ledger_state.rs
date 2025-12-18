@@ -233,7 +233,7 @@ async fn convert_snapshot_to(
     d.skip()?;
 
     let nonces = InitialNonces {
-        at: Point::Specific(tip_slot, tip_hash),
+        at: Point::Specific(tip_slot.into(), tip_hash),
         active,
         evolving,
         candidate,

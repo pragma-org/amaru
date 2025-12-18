@@ -15,7 +15,9 @@
 use crate::{
     HEADER_HASH_SIZE, Hasher, Header, HeaderBody, HeaderHash, MintedHeader, Point,
     cbor::{self, Decode, Decoder, Encode, Encoder, encode::Write},
+    protocol_messages::{block_height::BlockHeight, tip::Tip},
 };
+use amaru_slot_arithmetic::Slot;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     cmp::Ordering,
@@ -24,9 +26,6 @@ use std::{
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests;
-
-mod tip;
-pub use tip::*;
 
 /// Interface to a header for the purpose of chain selection.
 pub trait IsHeader: cbor::Encode<()> + Sized {
@@ -47,10 +46,10 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
     fn parent(&self) -> Option<HeaderHash>;
 
     /// Block height of the header w.r.t genesis block
-    fn block_height(&self) -> u64;
+    fn block_height(&self) -> BlockHeight;
 
     /// Slot number of the header
-    fn slot(&self) -> u64;
+    fn slot(&self) -> Slot;
 
     /// The range-extended tagged nonce vrf output
     // TODO: Return type here should be a Hash<32>, but we cannot make this happen without either:
@@ -118,7 +117,7 @@ impl Debug for BlockHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("BlockHeader")
             .field("hash", &hex::encode(self.hash()))
-            .field("slot", &self.slot())
+            .field("slot", &self.slot().as_u64())
             .field("parent", &self.parent().map(hex::encode))
             .finish()
     }
@@ -165,6 +164,10 @@ impl BlockHeader {
     fn recompute_hash(&mut self) {
         self.hash = Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&self.header);
     }
+
+    pub fn tip(&self) -> Tip {
+        Tip::new(self.point(), self.block_height())
+    }
 }
 
 impl<C> Encode<C> for BlockHeader {
@@ -207,12 +210,12 @@ impl IsHeader for BlockHeader {
         self.header.header_body.prev_hash
     }
 
-    fn block_height(&self) -> u64 {
-        self.header.header_body.block_number
+    fn block_height(&self) -> BlockHeight {
+        self.header.header_body.block_number.into()
     }
 
-    fn slot(&self) -> u64 {
-        self.header.header_body.slot
+    fn slot(&self) -> Slot {
+        self.header.header_body.slot.into()
     }
 
     fn extended_vrf_nonce_output(&self) -> Vec<u8> {
@@ -229,12 +232,12 @@ impl IsHeader for MintedHeader<'_> {
         self.header_body.prev_hash
     }
 
-    fn block_height(&self) -> u64 {
-        self.header_body.block_number
+    fn block_height(&self) -> BlockHeight {
+        self.header_body.block_number.into()
     }
 
-    fn slot(&self) -> u64 {
-        self.header_body.slot
+    fn slot(&self) -> Slot {
+        self.header_body.slot.into()
     }
 
     fn extended_vrf_nonce_output(&self) -> Vec<u8> {

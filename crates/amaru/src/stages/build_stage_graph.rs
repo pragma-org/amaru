@@ -23,8 +23,8 @@ use amaru_consensus::consensus::{
     },
 };
 use amaru_kernel::{
-    HeaderTip,
     consensus_events::{ChainSyncEvent, Tracked},
+    protocol_messages::tip::Tip,
 };
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
@@ -34,7 +34,7 @@ use pure_stage::{Effects, SendData, StageGraph, StageRef};
 pub fn build_stage_graph(
     chain_selector: SelectChain,
     sync_tracker: SyncTracker,
-    our_tip: HeaderTip,
+    our_tip: Tip,
     network: &mut impl StageGraph,
 ) -> StageRef<Tracked<ChainSyncEvent>> {
     let receive_header_stage = network.stage(

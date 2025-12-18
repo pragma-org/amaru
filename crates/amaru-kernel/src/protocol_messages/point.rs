@@ -27,14 +27,14 @@ pub type HeaderHash = Hash<HEADER_HASH_SIZE>;
 pub enum Point {
     #[default]
     Origin,
-    Specific(u64, HeaderHash),
+    Specific(Slot, HeaderHash),
 }
 
 impl Point {
     pub fn slot_or_default(&self) -> Slot {
         match self {
             Point::Origin => Slot::from(0),
-            Point::Specific(slot, _) => Slot::from(*slot),
+            Point::Specific(slot, _) => *slot,
         }
     }
 
@@ -96,7 +96,7 @@ impl TryFrom<&str> for Point {
                     .map_err(|e| format!("failed to parse block header hash: {}", e))
             })?;
 
-        Ok(Point::Specific(slot, block_header_hash))
+        Ok(Point::Specific(Slot::from(slot), block_header_hash))
     }
 }
 
@@ -108,7 +108,7 @@ impl cbor::encode::Encode<()> for Point {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
             Point::Origin => e.array(0)?,
-            Point::Specific(slot, hash) => e.array(2)?.u64(*slot)?.encode(hash)?,
+            Point::Specific(slot, hash) => e.array(2)?.encode(slot)?.encode(hash)?,
         };
 
         Ok(())
@@ -125,7 +125,7 @@ impl<'b> cbor::decode::Decode<'b, ()> for Point {
         match size {
             Some(0) => Ok(Point::Origin),
             Some(2) => {
-                let slot = d.u64()?;
+                let slot = d.decode()?;
                 let hash = d.bytes()?;
                 if hash.len() != HEADER_HASH_SIZE {
                     return Err(cbor::decode::Error::message("header hash must be 32 bytes"));
@@ -144,6 +144,7 @@ pub mod tests {
     use super::Point;
     use crate::tests::random_bytes;
     use crate::{HEADER_HASH_SIZE, HeaderHash};
+    use amaru_slot_arithmetic::Slot;
     use pallas_crypto::hash::Hash;
     use proptest::prelude::*;
 
@@ -157,7 +158,7 @@ pub mod tests {
             slot in any::<u64>(),
             bytes in proptest::array::uniform32(any::<u8>()),
         ) -> Point {
-            Point::Specific(slot, Hash::new(bytes))
+            Point::Specific(Slot::from(slot), Hash::new(bytes))
         }
     }
 
@@ -169,7 +170,7 @@ pub mod tests {
         #[test_case(Point::Origin => "Origin")]
         #[test_case(
             Point::Specific(
-                42,
+                Slot::from(42),
                 Hash::new([
                   254, 252, 156,   3, 124,  63, 156, 139,
                    79, 183, 138, 155,  15,  19, 123,  94,
@@ -189,7 +190,7 @@ pub mod tests {
         )]
         #[test_case(
             Point::Specific(
-                42,
+                Slot::from(42),
                 Hash::new([
                   254, 252, 156,   3, 124,  63, 156, 139,
                    79, 183, 138, 155,  15,  19, 123,  94,
@@ -220,7 +221,7 @@ pub mod tests {
             .unwrap();
             match point {
                 Point::Specific(slot, _hash) => {
-                    assert_eq!(70070379, slot);
+                    assert_eq!(70070379, slot.as_u64());
                 }
                 _ => panic!("expected a specific point"),
             }

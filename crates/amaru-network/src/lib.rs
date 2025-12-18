@@ -28,6 +28,7 @@ pub mod protocol;
 pub mod session;
 pub mod socket;
 pub mod socket_addr;
+pub mod store_effects;
 pub mod tx_submission;
 
 pub use network_resource::NetworkResource;

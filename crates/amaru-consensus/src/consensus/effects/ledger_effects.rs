@@ -109,7 +109,7 @@ impl ValidateBlockEffect {
     pub fn new(peer: &Peer, point: &Point, block: RawBlock, ctx: opentelemetry::Context) -> Self {
         Self {
             peer: peer.clone(),
-            point: point.clone(),
+            point: *point,
             block,
             ctx: ctx.into(),
         }
@@ -190,7 +190,7 @@ impl RollbackBlockEffect {
     pub fn new(peer: &Peer, point: &Point, ctx: opentelemetry::Context) -> Self {
         Self {
             peer: peer.clone(),
-            point: point.clone(),
+            point: *point,
             ctx: ctx.into(),
         }
     }

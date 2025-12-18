@@ -14,7 +14,7 @@
 
 use crate::stages::{
     build_stage_graph::build_stage_graph,
-    consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
+    consensus::forward_chain::{tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip},
 };
 use acto::AcTokio;
 use amaru_consensus::{
@@ -34,9 +34,10 @@ use amaru_consensus::{
 };
 use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
 use amaru_kernel::{
-    AsHeaderTip, BlockHeader, EraHistory, HeaderHash, HeaderTip, IsHeader, ORIGIN_HASH, Point,
+    BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
     network::NetworkName,
     peer::Peer,
+    protocol_messages::tip::Tip,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
@@ -44,7 +45,6 @@ use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::ConnectionMessage;
 use amaru_network::mempool_effects::ResourceMempool;
-use amaru_network::point::to_network_point;
 use amaru_network::protocol::Role;
 use amaru_network::socket::{ConnectionId, ConnectionResource};
 use amaru_network::socket_addr::ToSocketAddrs;
@@ -60,7 +60,6 @@ use amaru_stores::{
 use anyhow::{Context, anyhow};
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pallas_network::miniprotocols::chainsync::Tip;
 use pure_stage::{StageGraph, tokio::TokioBuilder};
 use std::time::Duration;
 use std::{
@@ -196,8 +195,8 @@ pub async fn bootstrap(
     let chain_store = make_chain_store(&config, &tip.hash())?;
     let our_tip = chain_store
         .load_header(&tip.hash())
-        .map(|h| h.as_header_tip())
-        .unwrap_or(HeaderTip::new(Point::Origin, 0));
+        .map(|h| h.tip())
+        .unwrap_or(Tip::new(Point::Origin, 0.into()));
 
     let chain_selector = make_chain_selector(
         chain_store.clone(),
@@ -224,7 +223,7 @@ pub async fn bootstrap(
             config.listen_address.clone(),
             config.network_magic as u64,
             config.max_downstream_peers,
-            our_tip.clone(),
+            to_pallas_tip(our_tip),
         )
         .await?,
     );
@@ -440,7 +439,7 @@ pub trait AsTip {
 
 impl<H: IsHeader> AsTip for H {
     fn as_tip(&self) -> Tip {
-        Tip(to_network_point(self.point()), self.block_height())
+        Tip(self.point(), self.block_height())
     }
 }
 

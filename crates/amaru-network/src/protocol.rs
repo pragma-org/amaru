@@ -24,23 +24,23 @@ pub enum Input<L, R> {
 
 /// Outcome of a protocol step
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Outcome<S, D> {
+pub struct Outcome<S, R> {
     pub send: Option<S>,
-    pub done: Option<D>,
+    pub result: Option<R>,
 }
 
 impl<S, D> Outcome<S, D> {
     pub fn send(self, send: S) -> Self {
         Self {
             send: Some(send),
-            done: self.done,
+            result: self.result,
         }
     }
 
     pub fn result(self, done: D) -> Self {
         Self {
             send: self.send,
-            done: Some(done),
+            result: Some(done),
         }
     }
 }
@@ -48,7 +48,7 @@ impl<S, D> Outcome<S, D> {
 pub fn outcome<S, D>() -> Outcome<S, D> {
     Outcome {
         send: None,
-        done: None,
+        result: None,
     }
 }
 

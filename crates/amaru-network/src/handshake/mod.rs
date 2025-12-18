@@ -103,7 +103,7 @@ pub async fn stage(
         })
         .await;
     }
-    if let Some(result) = outcome.done {
+    if let Some(result) = outcome.result {
         eff.send(&handshake.connection, result).await;
     }
     handshake.state = state;

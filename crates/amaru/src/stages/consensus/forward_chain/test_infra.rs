@@ -15,9 +15,10 @@
 
 use crate::stages::consensus::forward_chain::client_protocol::PrettyPoint;
 use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
+use crate::stages::consensus::forward_chain::to_pallas_tip;
 use amaru_consensus::ReadOnlyChainStore;
 use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
-use amaru_kernel::{AsHeaderTip, BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor};
+use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor};
 use amaru_network::point::to_network_point;
 use amaru_ouroboros_traits::ChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
@@ -88,7 +89,7 @@ pub fn point(slot: u64, hash: &str) -> Point {
 }
 
 pub fn amaru_point(slot: u64, hash: &str) -> amaru_kernel::Point {
-    amaru_kernel::Point::Specific(slot, FromStr::from_str(hash).unwrap())
+    amaru_kernel::Point::Specific(slot.into(), FromStr::from_str(hash).unwrap())
 }
 
 pub struct TestChainForwarder {
@@ -115,7 +116,7 @@ impl TestChainForwarder {
             tcp_listener,
             42,
             1,
-            header.as_header_tip(),
+            to_pallas_tip(header.tip()),
         )?;
 
         Ok(TestChainForwarder {
@@ -138,7 +139,7 @@ impl TestChainForwarder {
         let rollback_header = self.store.load_header(&hash(s)).unwrap();
         tracing::info!("sending rollback event");
         self.listener
-            .send(ForwardEvent::Backward(rollback_header.as_header_tip()))
+            .send(ForwardEvent::Backward(rollback_header.tip()))
             .await
             .unwrap();
     }

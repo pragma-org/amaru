@@ -107,8 +107,8 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
 pub mod tests {
     use super::*;
     use crate::consensus::errors::{ConsensusError, ProcessingFailed};
-    use amaru_kernel::is_header::HeaderTip;
     use amaru_kernel::peer::Peer;
+    use amaru_kernel::protocol_messages::tip::Tip;
     use amaru_kernel::{Point, PoolId, RawBlock};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_metrics::MetricsEvent;
@@ -211,7 +211,7 @@ pub mod tests {
         fn send_backward_event(
             &self,
             _peer: Peer,
-            _header_tip: HeaderTip,
+            _header_tip: Tip,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
             Box::pin(ready(Ok(())))
         }

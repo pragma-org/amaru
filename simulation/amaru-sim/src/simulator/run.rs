@@ -34,8 +34,9 @@ use amaru_consensus::consensus::{
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
 };
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
+use amaru_kernel::protocol_messages::tip::Tip;
 use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
-use amaru_kernel::{BlockHeader, HeaderTip, IsHeader};
+use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
     Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
@@ -177,7 +178,7 @@ pub fn spawn_node(
         },
     );
 
-    let our_tip = HeaderTip::new(Point::Origin, 0);
+    let our_tip = Tip::new(Point::Origin, 0.into());
     let receive_header_ref = build_stage_graph(select_chain, sync_tracker, our_tip, network);
 
     let (output, rx1) = network.output("output", 10);

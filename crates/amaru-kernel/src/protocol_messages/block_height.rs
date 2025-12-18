@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
+use std::{fmt, ops::Add};
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -37,6 +38,14 @@ impl AsRef<BlockHeight> for BlockHeight {
     }
 }
 
+impl Add<u64> for BlockHeight {
+    type Output = Self;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
+
 impl BlockHeight {
     pub const fn new(value: u64) -> Self {
         Self(value)
@@ -44,6 +53,12 @@ impl BlockHeight {
 
     pub const fn as_u64(self) -> u64 {
         self.0
+    }
+}
+
+impl fmt::Display for BlockHeight {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

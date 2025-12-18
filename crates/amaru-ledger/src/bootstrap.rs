@@ -420,7 +420,7 @@ fn import_block_issuers(
                 // TODO: Unused when storing block issuers; require API change.
                 &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
                 &mut default_governance_activity(),
-                &Point::Specific(fake_slot, Hash::new([0; 32])),
+                &Point::Specific(fake_slot.into(), Hash::new([0; 32])),
                 Some(&pool),
                 store::Columns {
                     utxo: iter::empty(),

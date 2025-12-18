@@ -97,7 +97,10 @@ impl<H: IsHeader> ClientOp<H> {
     pub fn tip(&self) -> Tip {
         match self {
             ClientOp::Backward(tip) => tip.clone(),
-            ClientOp::Forward(header) => header.as_tip(),
+            ClientOp::Forward(header) => Tip(
+                to_network_point(header.as_tip().0),
+                header.as_tip().1.as_u64(),
+            ),
         }
     }
 }
@@ -189,8 +192,14 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
         "request interception",
     );
 
-    let Some(mut chain_follower) = ChainFollower::new(store.clone(), &our_tip.0, &requested_points)
-    else {
+    let Some(mut chain_follower) = ChainFollower::new(
+        store.clone(),
+        &from_network_point(&our_tip.0),
+        &requested_points
+            .into_iter()
+            .map(|p| from_network_point(&p))
+            .collect::<Vec<_>>(),
+    ) else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
         return Err(ClientError::NoIntersection.into());
@@ -201,7 +210,7 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
     tracing::debug!(intersection = ?intersection, "intersection found");
 
     server
-        .send_intersect_found(intersection, our_tip.clone())
+        .send_intersect_found(to_network_point(intersection), our_tip.clone())
         .await?;
 
     let parent = cell.me();

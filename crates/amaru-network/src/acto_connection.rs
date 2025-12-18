@@ -187,7 +187,7 @@ async fn roll_forward(
     hd_tx
         .send(Tracked::Wrapped(ChainSyncEvent::RollForward {
             peer: peer.clone(),
-            point: Point::Specific(hd.slot(), hd.hash()),
+            point: Point::Specific(hd.slot().into(), hd.hash()),
             raw_header: hd.cbor().to_vec(),
             span: Span::current(),
         }))
@@ -218,7 +218,7 @@ fn do_fetch(
 ) -> BoxFuture<'static, blockfetch::Client> {
     Box::pin(async move {
         let body = blockfetch
-            .fetch_single(to_network_point(point.clone()))
+            .fetch_single(to_network_point(point))
             .await
             .inspect_err(|err| {
                 tracing::error!(%peer, %point, %err, "fetch_block.failed");

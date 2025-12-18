@@ -18,9 +18,14 @@ use crate::{
     mux::{HandlerMessage, MuxMessage},
     protocol::{Input, NETWORK_SEND_TIMEOUT, Outcome, PROTO_N2N_CHAIN_SYNC, outcome},
     socket::ConnectionId,
+    store_effects::Store,
 };
-use amaru_kernel::{Point, peer::Peer, protocol_messages::tip::Tip};
+use amaru_kernel::{
+    BlockHeader, IsHeader, Point, peer::Peer, protocol_messages::tip::Tip, to_cbor,
+};
+use amaru_ouroboros::ReadOnlyChainStore;
 use pure_stage::{Effects, StageRef, TryInStage};
+use std::cmp::Reverse;
 
 mod messages;
 
@@ -35,7 +40,7 @@ pub struct ChainSyncInitiatorMsg {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Initiator {
     upstream: Option<Tip>,
-    state: State,
+    state: InitiatorState,
     peer: Peer,
     conn_id: ConnectionId,
     muxer: StageRef<MuxMessage>,
@@ -51,7 +56,7 @@ impl Initiator {
     ) -> Self {
         Self {
             upstream: None,
-            state: State::default(),
+            state: InitiatorState::Idle,
             peer,
             conn_id,
             muxer,
@@ -75,20 +80,18 @@ pub async fn initiator(
     let (outcome, state) = match msg {
         InitiatorMessage::RequestNext => initiator
             .state
-            .initiator_step(Input::Local(InitiatorAction::RequestNext)),
-        InitiatorMessage::Done => initiator
-            .state
-            .initiator_step(Input::Local(InitiatorAction::Done)),
+            .step(Input::Local(InitiatorAction::RequestNext)),
+        InitiatorMessage::Done => initiator.state.step(Input::Local(InitiatorAction::Done)),
         InitiatorMessage::FromNetwork(HandlerMessage::Registered(_)) => initiator
             .state
-            .initiator_step(Input::Local(InitiatorAction::Intersect(vec![]))),
+            .step(Input::Local(InitiatorAction::Intersect(vec![/* FIXME */]))),
         InitiatorMessage::FromNetwork(HandlerMessage::FromNetwork(msg)) => {
             let msg: Message = minicbor::decode(&msg.into_inner())
                 .or_terminate(&eff, async |err| {
                     tracing::error!(%err, "failed to decode message from network");
                 })
                 .await;
-            initiator.state.initiator_step(Input::Remote(msg))
+            initiator.state.step(Input::Remote(msg))
         }
     }
     .or_terminate(&eff, async |err| {
@@ -105,7 +108,7 @@ pub async fn initiator(
         })
         .await;
     }
-    if let Some(result) = outcome.done {
+    if let Some(result) = outcome.result {
         match &result {
             InitiatorResult::IntersectFound(_point, tip) => initiator.upstream = Some(*tip),
             InitiatorResult::IntersectNotFound(tip) => initiator.upstream = Some(*tip),
@@ -142,8 +145,9 @@ pub enum InitiatorResult {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Responder {
     upstream: Tip,
-    state: State,
+    state: ResponderState,
     peer: Peer,
+    pointer: Point,
     conn_id: ConnectionId,
     muxer: StageRef<MuxMessage>,
 }
@@ -157,8 +161,11 @@ impl Responder {
     ) -> Self {
         Self {
             upstream,
-            state: State::default(),
+            state: ResponderState::Idle {
+                send_rollback: false,
+            },
             peer,
+            pointer: Point::Origin,
             conn_id,
             muxer,
         }
@@ -176,50 +183,159 @@ pub async fn responder(
     msg: ResponderMessage,
     eff: Effects<ResponderMessage>,
 ) -> Responder {
-    let (outcome, state) = match msg {
-        // FIXME send RollForward if the tip advances
-        ResponderMessage::NewTip(tip) => {
-            responder.upstream = tip;
-            Ok((
-                outcome().result(ResponderResult::GotNewTip),
-                responder.state,
-            ))
-        }
-        ResponderMessage::FromNetwork(HandlerMessage::Registered(_)) => {
-            Ok((outcome(), responder.state))
-        }
-        ResponderMessage::FromNetwork(HandlerMessage::FromNetwork(msg)) => {
-            let msg: Message = minicbor::decode(&msg.into_inner())
-                .or_terminate(&eff, async |err| {
-                    tracing::error!(%err, "failed to decode message from network");
-                })
-                .await;
-            responder.state.responder_step(Input::Remote(msg))
+    enum Msg {
+        NewTip(Tip),
+        Registered,
+        Bytes(NonEmptyBytes),
+        Action(ResponderAction),
+    }
+    impl From<ResponderMessage> for Msg {
+        fn from(msg: ResponderMessage) -> Self {
+            match msg {
+                ResponderMessage::NewTip(tip) => Msg::NewTip(tip),
+                ResponderMessage::FromNetwork(HandlerMessage::Registered(_)) => Msg::Registered,
+                ResponderMessage::FromNetwork(HandlerMessage::FromNetwork(msg)) => Msg::Bytes(msg),
+            }
         }
     }
-    .or_terminate(&eff, async |err| {
-        tracing::error!(%err, "failed to step initiator");
-    })
-    .await;
 
-    responder.state = state;
+    let mut msg = Msg::from(msg);
 
-    if let Some(msg) = outcome.send {
-        let msg = NonEmptyBytes::encode(&msg);
-        eff.call(&responder.muxer, NETWORK_SEND_TIMEOUT, move |cr| {
-            MuxMessage::Send(PROTO_N2N_CHAIN_SYNC.erase(), msg, cr)
+    loop {
+        let (outcome, state) = match msg {
+            Msg::NewTip(tip) => {
+                responder.upstream = tip;
+                Ok((
+                    outcome().result(ResponderResult::GotNewTip),
+                    responder.state,
+                ))
+            }
+            Msg::Registered => Ok((outcome(), responder.state)),
+            Msg::Bytes(msg) => {
+                let msg: Message = minicbor::decode(&msg.into_inner())
+                    .or_terminate(&eff, async |err| {
+                        tracing::error!(%err, "failed to decode message from network");
+                    })
+                    .await;
+                responder.state.step(Input::Remote(msg))
+            }
+            Msg::Action(action) => responder.state.step(Input::Local(action)),
+        }
+        .or_terminate(&eff, async |err| {
+            tracing::error!(%err, "failed to step initiator");
         })
         .await;
-    }
-    if let Some(result) = outcome.done {
-        match &result {
-            ResponderResult::GotNewTip => todo!(),
-            ResponderResult::FindIntersect(points) => todo!(),
-            ResponderResult::RequestNext => todo!(),
+
+        responder.state = state;
+
+        if let Some(msg) = outcome.send {
+            let msg = NonEmptyBytes::encode(&msg);
+            eff.call(&responder.muxer, NETWORK_SEND_TIMEOUT, move |cr| {
+                MuxMessage::Send(PROTO_N2N_CHAIN_SYNC.erase(), msg, cr)
+            })
+            .await;
         }
+        if let Some(result) = outcome.result {
+            let action = match result {
+                ResponderResult::FindIntersect(points) => Some(
+                    intersect(points, &Store::new(eff.clone()), responder.upstream)
+                        .or_terminate(&eff, async |err| {
+                            tracing::error!(%err, "failed to find intersect");
+                        })
+                        .await,
+                ),
+                ResponderResult::GotNewTip | ResponderResult::RequestNext => {
+                    next_header(
+                        responder.state,
+                        responder.pointer,
+                        &Store::new(eff.clone()),
+                        responder.upstream,
+                    )
+                    .or_terminate(&eff, async |err| {
+                        tracing::error!(%err, "failed to get next header");
+                    })
+                    .await
+                }
+            };
+            if let Some(action) = action {
+                msg = Msg::Action(action);
+                continue;
+            }
+        }
+        break;
     }
 
     responder
+}
+
+fn next_header(
+    state: ResponderState,
+    pointer: Point,
+    store: &dyn ReadOnlyChainStore<BlockHeader>,
+    tip: Tip,
+) -> anyhow::Result<Option<ResponderAction>> {
+    let (ResponderState::CanAwait { send_rollback } | ResponderState::MustReply { send_rollback }) =
+        state
+    else {
+        return Ok(None);
+    };
+    if send_rollback {
+        return Ok(Some(ResponderAction::RollBackward(pointer, tip)));
+    }
+    if pointer == tip.point() {
+        return Ok((matches!(state, ResponderState::CanAwait { .. }))
+            .then_some(ResponderAction::AwaitReply));
+    }
+    if store.load_from_best_chain(&pointer).is_none() {
+        // client is on a different fork, we need to roll backward
+        let header = store
+            .load_header(&pointer.hash())
+            .ok_or_else(|| anyhow::anyhow!("tip not found"))?;
+        for header in store.ancestors(header) {
+            if store.load_from_best_chain(&header.point()).is_some() {
+                return Ok(Some(ResponderAction::RollBackward(header.point(), tip)));
+            }
+        }
+        anyhow::bail!("no overlap found between client pointer chain and stored best chain");
+    }
+    // pointer is on the best chain, we need to roll forward
+    Ok(store
+        .next_best_chain(&pointer)
+        .and_then(|point| store.load_header(&point.hash()))
+        .map(|header| {
+            ResponderAction::RollForward(
+                HeaderContent {
+                    variant: 6,
+                    byron_prefix: None,
+                    cbor: to_cbor(&header),
+                },
+                tip,
+            )
+        }))
+}
+
+fn intersect(
+    mut points: Vec<Point>,
+    store: &dyn ReadOnlyChainStore<BlockHeader>,
+    tip: Tip,
+) -> anyhow::Result<ResponderAction> {
+    if points.is_empty() {
+        return Ok(ResponderAction::IntersectNotFound(tip));
+    }
+    points.sort_by_key(|p| Reverse(*p));
+    let header = store
+        .load_header(&tip.hash())
+        .ok_or_else(|| anyhow::anyhow!("tip not found"))?;
+    for header in store.ancestors(header) {
+        let point = header.point();
+        if points.contains(&point) {
+            return Ok(ResponderAction::IntersectFound(point, tip));
+        }
+        if Some(&point) < points.last() {
+            break;
+        }
+    }
+    Ok(ResponderAction::IntersectNotFound(tip))
 }
 
 #[derive(Debug)]
@@ -238,9 +354,8 @@ pub enum ResponderResult {
     RequestNext,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum State {
-    #[default]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum InitiatorState {
     Idle,
     CanAwait,
     MustReply,
@@ -248,87 +363,105 @@ pub enum State {
     Done,
 }
 
-impl State {
-    fn initiator_step(
+impl InitiatorState {
+    fn step(
         self,
         input: Input<InitiatorAction, Message>,
     ) -> anyhow::Result<(Outcome<Message, InitiatorResult>, Self)> {
+        use InitiatorState::*;
+
         Ok(match (self, input) {
-            (State::Idle, Input::Local(InitiatorAction::Intersect(points))) => (
-                outcome().send(Message::FindIntersect(points)),
-                State::Intersect,
-            ),
-            (State::Intersect, Input::Remote(Message::IntersectFound(point, tip))) => (
+            (Idle, Input::Local(InitiatorAction::Intersect(points))) => {
+                (outcome().send(Message::FindIntersect(points)), Intersect)
+            }
+            (Intersect, Input::Remote(Message::IntersectFound(point, tip))) => (
                 outcome()
                     .send(Message::RequestNext)
                     .result(InitiatorResult::IntersectFound(point, tip)),
-                State::CanAwait,
+                CanAwait,
             ),
-            (State::Intersect, Input::Remote(Message::IntersectNotFound(tip))) => (
+            (Intersect, Input::Remote(Message::IntersectNotFound(tip))) => (
                 outcome().result(InitiatorResult::IntersectNotFound(tip)),
-                State::Idle,
+                Idle,
             ),
-            (State::Idle, Input::Local(InitiatorAction::RequestNext)) => {
-                (outcome().send(Message::RequestNext), State::CanAwait)
+            (Idle, Input::Local(InitiatorAction::RequestNext)) => {
+                (outcome().send(Message::RequestNext), CanAwait)
             }
-            (State::CanAwait, Input::Remote(Message::AwaitReply)) => (outcome(), State::MustReply),
-            (
-                State::CanAwait | State::MustReply,
-                Input::Remote(Message::RollForward(content, tip)),
-            ) => (
+            (CanAwait, Input::Remote(Message::AwaitReply)) => (outcome(), MustReply),
+            (CanAwait | MustReply, Input::Remote(Message::RollForward(content, tip))) => (
                 outcome().result(InitiatorResult::RollForward(content, tip)),
-                State::Idle,
+                Idle,
             ),
-            (
-                State::CanAwait | State::MustReply,
-                Input::Remote(Message::RollBackward(point, tip)),
-            ) => (
+            (CanAwait | MustReply, Input::Remote(Message::RollBackward(point, tip))) => (
                 outcome().result(InitiatorResult::RollBackward(point, tip)),
-                State::Idle,
+                Idle,
             ),
-            (State::Intersect, Input::Local(InitiatorAction::Done)) => {
-                (outcome().send(Message::Done), State::Done)
+            (Intersect, Input::Local(InitiatorAction::Done)) => {
+                (outcome().send(Message::Done), Done)
             }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
+}
 
-    fn responder_step(
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ResponderState {
+    Idle { send_rollback: bool },
+    CanAwait { send_rollback: bool },
+    MustReply { send_rollback: bool },
+    Intersect,
+    Done,
+}
+
+impl ResponderState {
+    fn step(
         self,
         input: Input<ResponderAction, Message>,
     ) -> anyhow::Result<(Outcome<Message, ResponderResult>, Self)> {
+        use ResponderState::*;
+
         Ok(match (self, input) {
-            (State::Idle, Input::Remote(Message::FindIntersect(points))) => (
+            (Idle { .. }, Input::Remote(Message::FindIntersect(points))) => (
                 outcome().result(ResponderResult::FindIntersect(points)),
-                State::Intersect,
+                Intersect,
             ),
-            (State::Intersect, Input::Local(ResponderAction::IntersectFound(point, tip))) => (
+            (Intersect, Input::Local(ResponderAction::IntersectFound(point, tip))) => (
                 outcome().send(Message::IntersectFound(point, tip)),
-                State::Idle,
+                Idle {
+                    send_rollback: true,
+                },
             ),
-            (State::Intersect, Input::Local(ResponderAction::IntersectNotFound(tip))) => {
-                (outcome().send(Message::IntersectNotFound(tip)), State::Idle)
-            }
-            (State::Idle, Input::Remote(Message::RequestNext)) => (
+            (Intersect, Input::Local(ResponderAction::IntersectNotFound(tip))) => (
+                outcome().send(Message::IntersectNotFound(tip)),
+                Idle {
+                    send_rollback: false,
+                },
+            ),
+            (Idle { send_rollback }, Input::Remote(Message::RequestNext)) => (
                 outcome().result(ResponderResult::RequestNext),
-                State::CanAwait,
+                CanAwait { send_rollback },
             ),
-            (State::CanAwait, Input::Local(ResponderAction::AwaitReply)) => {
-                (outcome().send(Message::AwaitReply), State::MustReply)
-            }
+            (CanAwait { send_rollback }, Input::Local(ResponderAction::AwaitReply)) => (
+                outcome().send(Message::AwaitReply),
+                MustReply { send_rollback },
+            ),
             (
-                State::CanAwait | State::MustReply,
+                CanAwait { .. } | MustReply { .. },
                 Input::Local(ResponderAction::RollForward(content, tip)),
             ) => (
                 outcome().send(Message::RollForward(content, tip)),
-                State::Idle,
+                Idle {
+                    send_rollback: false,
+                },
             ),
             (
-                State::CanAwait | State::MustReply,
+                CanAwait { .. } | MustReply { .. },
                 Input::Local(ResponderAction::RollBackward(point, tip)),
             ) => (
                 outcome().send(Message::RollBackward(point, tip)),
-                State::Idle,
+                Idle {
+                    send_rollback: false,
+                },
             ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })

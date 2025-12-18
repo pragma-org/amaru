@@ -260,7 +260,7 @@ macro_rules! impl_ReadOnlyChainStore {
                     let slot = u64::from_be_bytes(slot_bytes.try_into().unwrap());
                     if v.len() == HEADER_HASH_SIZE {
                         let hash = HeaderHash::from(v.as_ref());
-                        Some(Point::Specific(slot, hash))
+                        Some(Point::Specific(slot.into(), hash))
                     } else {
                         None
                     }
@@ -795,7 +795,7 @@ pub mod test {
     fn next_best_chain_returns_none_given_point_is_not_on_chain() {
         with_db(|store| {
             let _chain = populate_db(store.clone());
-            let invalid_point = Point::Specific(100, random_hash());
+            let invalid_point = Point::Specific(100.into(), random_hash());
 
             assert!(store.next_best_chain(&invalid_point).is_none());
         });
@@ -942,7 +942,7 @@ pub mod test {
         let header: Option<HeaderHash> =
             <RocksDBStore as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(
                 &db,
-                &Point::Specific(5, Hash::from_str(SAMPLE_HASH).unwrap()),
+                &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
             );
         assert!(header.is_some(), "Sample data should be preserved");
     }
