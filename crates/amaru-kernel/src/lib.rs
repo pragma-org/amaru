@@ -819,35 +819,23 @@ impl HasOwnership for Voter {
 impl HasOwnership for Certificate {
     fn credential(&self) -> Option<StakeCredential> {
         match self {
-            Certificate::StakeRegistration(stake_credential) => Some(stake_credential.clone()),
-            Certificate::StakeDeregistration(stake_credential) => Some(stake_credential.clone()),
-            Certificate::StakeDelegation(stake_credential, _) => Some(stake_credential.clone()),
-            Certificate::PoolRegistration {
-                operator: id,
-                vrf_keyhash: _vrf_keyhash,
-                pledge: _pledge,
-                cost: _cost,
-                margin: _margin,
-                reward_account: _reward_account,
-                pool_owners: _pool_owners,
-                relays: _relays,
-                pool_metadata: _pool_metadata,
-            } => Some(StakeCredential::AddrKeyhash(*id)),
-            Certificate::PoolRetirement(id, _) => Some(StakeCredential::AddrKeyhash(*id)),
-            Certificate::Reg(stake_credential, _) => Some(stake_credential.clone()),
-            Certificate::UnReg(stake_credential, _) => Some(stake_credential.clone()),
-            Certificate::VoteDeleg(stake_credential, _) => Some(stake_credential.clone()),
-            Certificate::StakeVoteDeleg(stake_credential, _, _) => Some(stake_credential.clone()),
-            Certificate::StakeRegDeleg(stake_credential, _, _) => Some(stake_credential.clone()),
-            Certificate::VoteRegDeleg(stake_credential, _, _) => Some(stake_credential.clone()),
-            Certificate::StakeVoteRegDeleg(stake_credential, _, _, _) => {
-                Some(stake_credential.clone())
-            }
-            Certificate::AuthCommitteeHot(stake_credential, _) => Some(stake_credential.clone()),
-            Certificate::ResignCommitteeCold(stake_credential, _) => Some(stake_credential.clone()),
-            Certificate::RegDRepCert(stake_credential, _, _) => Some(stake_credential.clone()),
-            Certificate::UnRegDRepCert(stake_credential, _) => Some(stake_credential.clone()),
-            Certificate::UpdateDRepCert(stake_credential, _) => Some(stake_credential.clone()),
+            Certificate::StakeRegistration(stake_credential)
+            | Certificate::StakeDeregistration(stake_credential)
+            | Certificate::StakeDelegation(stake_credential, _)
+            | Certificate::Reg(stake_credential, _)
+            | Certificate::UnReg(stake_credential, _)
+            | Certificate::VoteDeleg(stake_credential, _)
+            | Certificate::StakeVoteDeleg(stake_credential, _, _)
+            | Certificate::StakeRegDeleg(stake_credential, _, _)
+            | Certificate::VoteRegDeleg(stake_credential, _, _)
+            | Certificate::StakeVoteRegDeleg(stake_credential, _, _, _)
+            | Certificate::AuthCommitteeHot(stake_credential, _)
+            | Certificate::ResignCommitteeCold(stake_credential, _)
+            | Certificate::RegDRepCert(stake_credential, _, _)
+            | Certificate::UnRegDRepCert(stake_credential, _)
+            | Certificate::UpdateDRepCert(stake_credential, _) => Some(stake_credential.clone()),
+            Certificate::PoolRegistration { operator: id, .. }
+            | Certificate::PoolRetirement(id, _) => Some(StakeCredential::AddrKeyhash(*id)),
         }
     }
 }
