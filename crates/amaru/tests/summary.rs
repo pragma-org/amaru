@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::snapshots_dir;
+use amaru::default_snapshots_dir;
 use amaru_kernel::{EraHistory, network::NetworkName, protocol_parameters::GlobalParameters};
 use amaru_ledger::{
     store::{ReadStore, Snapshot},
@@ -53,7 +53,7 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
         .or_insert_with(|| {
             Arc::new(
                 RocksDBHistoricalStores::for_epoch_with(
-                    RocksDbConfig::new(PathBuf::from(format!(
+                    &RocksDbConfig::new(PathBuf::from(format!(
                         "../../{}",
                         default_ledger_dir(network)
                     ))),
@@ -123,7 +123,7 @@ fn compare_snapshot(epoch: Epoch) {
     .unwrap();
 
     insta::with_settings!({
-        snapshot_path => snapshots_dir(network)
+        snapshot_path => default_snapshots_dir(network)
     }, {
         insta::assert_json_snapshot!(
         format!("rewards_summary_{}", epoch),

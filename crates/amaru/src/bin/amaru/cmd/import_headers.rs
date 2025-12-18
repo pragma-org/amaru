@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::{WorkerError, default_chain_dir};
+use crate::cmd::WorkerError;
+use amaru::{DEFAULT_CONFIG_DIR, DEFAULT_NETWORK, default_chain_dir};
 use amaru_kernel::{BlockHeader, IsHeader, from_cbor, network::NetworkName};
 use amaru_ouroboros_traits::ChainStore;
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
@@ -34,7 +35,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -60,7 +61,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "DIR",
-        default_value = super::DEFAULT_CONFIG_DIR,
+        default_value = DEFAULT_CONFIG_DIR,
         env = "AMARU_CONFIG_DIR",
         verbatim_doc_comment
     )]
@@ -87,7 +88,7 @@ pub(crate) async fn import_headers_for_network(
     config_dir: &Path,
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
-    let db = RocksDBStore::open_and_migrate(RocksDbConfig::new(chain_dir.into()))?;
+    let db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.into()))?;
 
     for entry in std::fs::read_dir(config_dir.join("headers"))? {
         let entry = entry?;

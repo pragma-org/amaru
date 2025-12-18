@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::{DEFAULT_NETWORK, default_ledger_dir};
 use amaru_kernel::{EraHistory, Point, network::NetworkName};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
@@ -25,8 +26,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::info;
-
-use crate::cmd::default_ledger_dir;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -60,7 +59,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }
@@ -155,7 +154,7 @@ pub async fn import_one(
         fs::remove_dir_all(ledger_dir.join("live"))?;
     }
 
-    let db = RocksDB::empty(RocksDbConfig::new(ledger_dir.into()))?;
+    let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.into()))?;
     let mut file = fs::File::open(snapshot)?;
     let dir = snapshot
         .parent()

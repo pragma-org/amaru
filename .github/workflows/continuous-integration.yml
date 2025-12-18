@@ -86,6 +86,7 @@ jobs:
           restore-keys: |
             cargo-${{ matrix.environments.target }}
       - name: Run build
+        shell: bash
         run: |
           set -e
           EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
@@ -108,7 +109,13 @@ jobs:
             # Run doc tests separately as --doc can't be used with --all-targets
             cargo test --doc
           fi
-        shell: bash
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-simulation-data
+          path: simulation/amaru-sim/test-data
 
       - name: Upload test artifacts on failure
         if: failure()
@@ -136,6 +143,7 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
+        shell: bash 
         run: make coverage-lconv
       - name: Upload test artifacts on failure
         if: failure()
@@ -203,6 +211,7 @@ jobs:
 
       - name: Check if cardano-node-db is available
         if: steps.cache-cardano-node-db.outputs.cache-hit == ''
+        shell: bash
         run: |
           echo "Haskell node db not available, aborting job."
           exit 1
@@ -233,6 +242,7 @@ jobs:
             cargo-x86_64-unknown-linux-gnu
 
       - name: Build Amaru
+        shell: bash
         run: |
           cargo test --no-run -p amaru
 
@@ -251,11 +261,13 @@ jobs:
 
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''
+        shell: bash
         run: |
           make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} bootstrap
 
       - name: Light bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit != ''
+        shell: bash
         run: |
           make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} import-headers
           make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} import-nonces
@@ -274,6 +286,7 @@ jobs:
 
       - name: Install Cardano CLI
         if: github.event_name != 'pull_request'
+        shell: bash
         run: |
           set -eux
 
@@ -300,6 +313,7 @@ jobs:
 
       - name: Run tests
         if: github.event_name == 'pull_request'
+        shell: bash
         run: |
           make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} test-e2e
 
@@ -338,6 +352,7 @@ jobs:
           restore-keys: |
             cargo-wasm32-unknown-unknown
       - name: Run make
+        shell: bash
         run: make
 
   benches:
@@ -352,6 +367,7 @@ jobs:
           restore-keys: |
             cargo-x86_64-unknown-linux-gnu
       - name: Run amaru-consensus benches
+        shell: bash
         run: cargo bench --bench headers_tree --features="test-utils profiling"
 
   cli:
@@ -366,10 +382,13 @@ jobs:
           restore-keys: |
             cargo-x86_64-unknown-linux-gnu
       - name: Install bash_unit
+        shell: bash
         run: curl -s https://raw.githubusercontent.com/bash-unit/bash_unit/master/install.sh | bash
       - name: Install expect
+        shell: bash
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y expect
       - name: Run bash_unit
+        shell: bash
         run: FORCE_COLOR=true ./bash_unit cli-tests/test_*

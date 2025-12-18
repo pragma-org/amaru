@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::cmd::{WorkerError, connect_to_peer};
+use amaru::{DEFAULT_CONFIG_DIR, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS};
 use amaru_kernel::{BlockHeader, IsHeader, Point, from_cbor, network::NetworkName, peer::Peer};
 use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
@@ -39,7 +40,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -57,7 +58,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "DIR",
-        default_value = super::DEFAULT_CONFIG_DIR,
+        default_value = DEFAULT_CONFIG_DIR,
         verbatim_doc_comment,
         env = "AMARU_CONFIG_DIR"
     )]
@@ -72,7 +73,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK_ADDRESS",
-        default_value = super::DEFAULT_PEER_ADDRESS,
+        default_value = DEFAULT_PEER_ADDRESS,
         verbatim_doc_comment,
         env = "AMARU_PEER_ADDRESS"
     )]
