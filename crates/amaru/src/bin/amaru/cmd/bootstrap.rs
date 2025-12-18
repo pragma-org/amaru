@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::{default_chain_dir, default_data_dir, default_ledger_dir};
-use amaru::{bootstrap::bootstrap, default_snapshots_dir};
+use amaru::{bootstrap::bootstrap, default_chain_dir, default_ledger_dir, default_snapshots_dir};
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
 use std::{error::Error, path::PathBuf};
@@ -41,28 +40,11 @@ pub struct Args {
     )]
     network: NetworkName,
 
-    /// Path to directory containing per-network bootstrap configuration files.
-    ///
-    /// This path will be used as a prefix to resolve per-network configuration files
-    /// needed for bootstrapping. Given a source directory `data`, and a
-    /// a network name of `preview`, the expected layout for configuration files would be:
-    ///
-    /// * `data/preview/snapshots.json`: a list of `Snapshot` values,
-    /// * `data/preview/nonces.json`: a list of `InitialNonces` values,
-    /// * `data/preview/headers.json`: a list of `Point`s.
     #[arg(
         long,
         value_name = "DIR",
         verbatim_doc_comment,
-        env = "AMARU_CONFIG_DIR"
-    )]
-    config_dir: Option<PathBuf>,
-
-    #[arg(
-        long,
-        value_name = "DIR",
-        verbatim_doc_comment,
-        env = "AMARU_SNAPSHOT_DIR"
+        env = "AMARU_SNAPSHOTS_DIR"
     )]
     snapshots_dir: Option<PathBuf>,
 }
@@ -78,20 +60,15 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(network).into());
 
-    let config_dir = args
-        .config_dir
-        .unwrap_or_else(|| default_data_dir(network).into());
-
-    info!(config=%config_dir.to_string_lossy(), ledger_dir=%ledger_dir.to_string_lossy(), chain_dir=%chain_dir.to_string_lossy(), network=%network,
+    info!(network=%network, ledger_dir=%ledger_dir.to_string_lossy(), chain_dir=%chain_dir.to_string_lossy(),
           "Running command bootstrap",
     );
 
-    let network_dir = config_dir.join(&*network.to_string());
     let snapshots_dir = args
         .snapshots_dir
         .unwrap_or_else(|| default_snapshots_dir(network).into());
 
-    if !bootstrap(network, ledger_dir, chain_dir, network_dir, snapshots_dir).await? {
+    if !bootstrap(network, ledger_dir, chain_dir, snapshots_dir).await? {
         debug!("Already bootstrapped; skipping");
     }
 

@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::bootstrap::{ImportError, import_snapshots, import_snapshots_from_directory};
+use amaru::{
+    bootstrap::{ImportError, import_snapshots, import_snapshots_from_directory},
+    default_ledger_dir,
+};
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
 use std::path::PathBuf;
 use tracing::info;
-
-use crate::cmd::default_ledger_dir;
 
 #[derive(Debug, Parser)]
 pub struct Args {

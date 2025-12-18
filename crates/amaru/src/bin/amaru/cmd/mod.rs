@@ -33,24 +33,6 @@ pub(crate) const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:3001";
 /// Default address to listen on for incoming connections.
 pub(crate) const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
 
-const DEFAULT_CONFIG_DIR: &str = "data";
-
-pub fn default_ledger_dir(network: NetworkName) -> String {
-    format!("./ledger.{}.db", network.to_string().to_lowercase())
-}
-
-pub fn default_chain_dir(network: NetworkName) -> String {
-    format!("./chain.{}.db", network.to_string().to_lowercase())
-}
-
-pub fn default_data_dir(network: NetworkName) -> String {
-    format!(
-        "{}/{}",
-        DEFAULT_CONFIG_DIR,
-        network.to_string().to_lowercase()
-    )
-}
-
 /// Establish a connection to another peer. The connection are discriminated by network types.
 pub(crate) async fn connect_to_peer(
     peer_address: &str,

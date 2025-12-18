@@ -30,6 +30,7 @@ either = "1.15"
 futures-util = "0.3.31"
 hex = "0.4.3"
 indicatif = "0.18.0"
+include_dir = "0.7.4"
 indoc = "2.0"
 itertools = "0.14.0"
 minicbor = { version = "0.25.1", features = ["std", "half", "derive"] } # Must match the version used by pallas

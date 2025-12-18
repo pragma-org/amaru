@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::default_chain_dir;
 use amaru_consensus::{DiagnosticChainStore, ReadOnlyChainStore};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::string_utils::ListToString;
@@ -23,8 +24,6 @@ use clap::Parser;
 use std::fmt::Display;
 use std::{error::Error, path::PathBuf};
 use tracing::info;
-
-use crate::cmd::default_chain_dir;
 
 #[derive(Debug, Parser)]
 pub struct Args {

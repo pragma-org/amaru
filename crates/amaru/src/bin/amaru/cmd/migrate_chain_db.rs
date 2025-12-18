@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::default_chain_dir;
 use amaru_consensus::StoreError;
 use amaru_kernel::network::NetworkName;
 use amaru_stores::rocksdb::{
@@ -21,8 +22,6 @@ use amaru_stores::rocksdb::{
 use clap::Parser;
 use std::{error::Error, path::PathBuf};
 use tracing::{error, info, info_span};
-
-use crate::cmd::default_chain_dir;
 
 #[derive(Debug, Parser)]
 pub struct Args {

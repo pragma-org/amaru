@@ -92,4 +92,4 @@ From the repository root, run:
 cargo run -- fetch-chain-headers
 ```
 
-This will add `header.<slot>.<hash>.cbor` files to `data/<network>/headers`, which the bootstrap command consumes to initialize the Amaru node.
+This will add `header.<slot>.<hash>.cbor` files to `crates/amaru/config/bootstrap/<network>/headers`, which the bootstrap command consumes to initialize the Amaru node.

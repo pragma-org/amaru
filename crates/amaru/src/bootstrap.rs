@@ -33,10 +33,12 @@ use std::{
 };
 use tokio::{
     fs::{self, File},
-    io::{AsyncReadExt, BufReader},
+    io::BufReader,
 };
 use tokio_util::io::StreamReader;
-use tracing::{Level, error, info, instrument, warn};
+use tracing::{Level, info, instrument};
+
+use crate::{get_bootstrap_file, get_bootstrap_headers};
 
 /// Configuration for a single ledger state's snapshot to be imported.
 #[derive(Debug, Deserialize)]
@@ -55,8 +57,8 @@ struct Snapshot {
 
 #[derive(Debug, thiserror::Error)]
 pub enum BootstrapError {
-    #[error("Missing Snapshot configuration file {0}")]
-    MissingSnapshotsFile(PathBuf),
+    #[error("Missing configuration file {0}")]
+    MissingConfigFile(PathBuf),
 
     #[error("Can not read Snapshot configuration file {0}: {1}")]
     ReadSnapshotsFile(PathBuf, io::Error),
@@ -64,8 +66,8 @@ pub enum BootstrapError {
     #[error("Can not create snapshots directory {0}: {1}")]
     CreateSnapshotsDir(PathBuf, io::Error),
 
-    #[error("Failed to parse snapshots JSON file {0}: {1}")]
-    MalformedSnapshotsFile(PathBuf, serde_json::Error),
+    #[error("Failed to parse snapshots JSON file {0}")]
+    MalformedSnapshotsFile(serde_json::Error),
 
     #[error("Unable to store snapshots on disk: {0}")]
     Io(#[from] std::io::Error),
@@ -78,7 +80,7 @@ pub enum BootstrapError {
 }
 
 async fn download_snapshots(
-    snapshots_file: &PathBuf,
+    snapshots_content: Vec<u8>,
     snapshots_dir: &PathBuf,
 ) -> Result<(), BootstrapError> {
     // Create the target directory if it doesn't exist
@@ -86,12 +88,8 @@ async fn download_snapshots(
         .await
         .map_err(|e| BootstrapError::CreateSnapshotsDir(snapshots_dir.clone(), e))?;
 
-    // Read the snapshots JSON file
-    let snapshots_content = fs::read_to_string(snapshots_file)
-        .await
-        .map_err(|e| BootstrapError::ReadSnapshotsFile(snapshots_file.clone(), e))?;
-    let snapshots: Vec<Snapshot> = serde_json::from_str(&snapshots_content)
-        .map_err(|e| BootstrapError::MalformedSnapshotsFile(snapshots_file.clone(), e))?;
+    let snapshots: Vec<Snapshot> = serde_json::from_slice(&snapshots_content)
+        .map_err(BootstrapError::MalformedSnapshotsFile)?;
 
     // Create a reqwest client
     let client = reqwest::Client::new();
@@ -161,33 +159,28 @@ pub async fn bootstrap(
     network: NetworkName,
     ledger_dir: PathBuf,
     chain_dir: PathBuf,
-    network_dir: PathBuf,
     snapshots_dir: PathBuf,
 ) -> Result<bool, Box<dyn Error>> {
-    let snapshots_file: PathBuf = network_dir.join("snapshots.json");
-    if !snapshots_file.exists() {
-        return Err(BootstrapError::MissingSnapshotsFile(snapshots_file.clone()).into());
-    };
     let config = RocksDbConfig::new(ledger_dir.clone());
     if !config.exists() {
-        download_snapshots(&snapshots_file, &snapshots_dir).await?;
+        let snapshot_file_name = "snapshots.json";
+        let snapshots_file = get_bootstrap_file(network, snapshot_file_name)?
+            .ok_or(BootstrapError::MissingConfigFile(snapshot_file_name.into()))?;
+        download_snapshots(snapshots_file, &snapshots_dir).await?;
         import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
-        import_nonces_for_network(network, &network_dir, &chain_dir).await?;
-        import_headers_for_network(&network_dir, &chain_dir).await?;
+        let nonces_file_name = "nonces.json";
+        let nonces_file = get_bootstrap_file(network, nonces_file_name)?
+            .ok_or(BootstrapError::MissingConfigFile(nonces_file_name.into()))?;
+        import_nonces_from_file(network.into(), &chain_dir, &nonces_file).await?;
+        import_headers_for_network(
+            &chain_dir,
+            get_bootstrap_headers(network)?.collect::<Vec<_>>(),
+        )
+        .await?;
         Ok(true)
     } else {
         Ok(false)
     }
-}
-
-async fn import_nonces_for_network(
-    network: NetworkName,
-    config_dir: &Path,
-    chain_dir: &PathBuf,
-) -> Result<(), Box<dyn Error>> {
-    let nonces_file: PathBuf = config_dir.join("nonces.json");
-    import_nonces_from_file(network.into(), &nonces_file, chain_dir).await?;
-    Ok(())
 }
 
 fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
@@ -250,50 +243,32 @@ pub(crate) async fn import_nonces(
 
 pub async fn import_nonces_from_file(
     era_history: &EraHistory,
-    nonces_file: &PathBuf,
     chain_dir: &PathBuf,
+    nonces_file: &[u8],
 ) -> Result<(), Box<dyn Error>> {
-    let content = tokio::fs::read_to_string(nonces_file).await?;
-    let initial_nonces: InitialNonces = serde_json::from_str(&content)?;
+    let initial_nonces: InitialNonces = serde_json::from_slice(nonces_file)?;
     import_nonces(era_history, chain_dir, initial_nonces).await?;
     Ok(())
 }
 
 #[allow(clippy::unwrap_used)]
-#[instrument(level = Level::INFO, name = "import_headers")]
+#[instrument(level = Level::INFO, name = "import_headers", skip_all)]
 pub async fn import_headers_for_network(
-    config_dir: &Path,
     chain_dir: &PathBuf,
+    headers: Vec<Vec<u8>>,
 ) -> Result<(), Box<dyn Error>> {
     let db = RocksDBStore::open_and_migrate(RocksDbConfig::new(chain_dir.into()))?;
 
-    for entry in std::fs::read_dir(config_dir.join("headers"))? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file()
-            && let Some(filename) = path.file_name().and_then(|f| f.to_str())
-            && filename.starts_with("header.")
-            && filename.ends_with(".cbor")
-        {
-            let mut file = File::open(&path).await
-                .inspect_err(|reason| error!(file = %path.display(), reason = %reason, "Failed to open header file"))?;
+    for header in headers {
+        let block_header: BlockHeader = from_cbor(&header).unwrap();
+        let hash = block_header.hash();
 
-            let mut cbor_data = Vec::new();
-            file.read_to_end(&mut cbor_data).await
-                .inspect_err(|reason| error!(file = %path.display(), reason = %reason, "Failed to read header file"))?;
+        info!(
+            hash = hash.to_string().chars().take(8).collect::<String>(),
+            "inserting header"
+        );
 
-            let header_from_file: BlockHeader = from_cbor(&cbor_data).unwrap();
-            let hash = header_from_file.hash();
-
-            info!(
-                hash = hash.to_string().chars().take(8).collect::<String>(),
-                "inserting header"
-            );
-
-            db.store_header(&header_from_file)?;
-        } else {
-            warn!(file = %path.display(), "not a header file; ignoring");
-        }
+        db.store_header(&block_header)?;
     }
 
     Ok(())

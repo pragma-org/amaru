@@ -12,23 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::bootstrap::import_nonces_from_file;
+use amaru::{
+    bootstrap::{BootstrapError, import_nonces_from_file},
+    default_chain_dir, get_bootstrap_file,
+};
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
 use std::path::PathBuf;
 use tracing::info;
-
-use crate::cmd::{default_chain_dir, default_data_dir};
 
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path of the consensus on-disk storage.
     #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
     chain_dir: Option<PathBuf>,
-
-    /// JSON-formatted file with nonces details.
-    #[arg(long, value_name = "FILE", env = "AMARU_NONCES_FILE")]
-    nonces_file: Option<PathBuf>,
 
     /// Network the nonces are imported for
     ///
@@ -44,21 +41,22 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let nonces_file = args
-        .nonces_file
-        .unwrap_or_else(|| PathBuf::from(default_data_dir(args.network)).join("nonces.json"));
-
+    let network = args.network;
     let chain_dir = args
         .chain_dir
-        .unwrap_or_else(|| default_chain_dir(args.network).into());
+        .unwrap_or_else(|| default_chain_dir(network).into());
 
-    info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(), nonces_file=%nonces_file.to_string_lossy(),
+    info!(network = %network, chain_dir=%chain_dir.to_string_lossy(),
           "Running command import-nonces",
     );
+
+    let nonces_file_name = "nonces.json";
+    let nonces_file = get_bootstrap_file(network, nonces_file_name)?
+        .ok_or(BootstrapError::MissingConfigFile(nonces_file_name.into()))?;
 
     // FIXME: import nonces function takes an EraHistory which we
     // construct from NetworkName. In the case of testnets this can be
     // problematic hence why we have started writing and reading such
     // files in import_ledger_state.
-    import_nonces_from_file(args.network.into(), &nonces_file, &chain_dir).await
+    import_nonces_from_file(args.network.into(), &chain_dir, &nonces_file).await
 }

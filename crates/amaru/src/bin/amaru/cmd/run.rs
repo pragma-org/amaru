@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::default_chain_dir;
+use crate::metrics::track_system_metrics;
 use crate::pid::with_optional_pid_file;
-use crate::{cmd::default_ledger_dir, metrics::track_system_metrics};
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, build_and_run_network};
+use amaru::{default_chain_dir, default_ledger_dir};
 use amaru_kernel::network::NetworkName;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};

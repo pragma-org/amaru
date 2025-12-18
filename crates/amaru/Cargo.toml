@@ -12,6 +12,7 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 build = "build.rs"
+include = ["src/**/*", "config/**", "Cargo.toml"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -56,7 +57,7 @@ amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-slot-arithmetic.workspace = true
 amaru-metrics.workspace = true
 pure-stage.workspace = true
-include_dir = "0.7.4"
+include_dir = { workspace = true, features = ["glob"] }
 
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.10.2"
