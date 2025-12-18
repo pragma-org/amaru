@@ -18,8 +18,8 @@ use amaru_kernel::{
     HasOwnership, HasScriptHash, Hash, KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum,
     MemoizedScript, MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef,
     MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, NativeScript, Network,
-    NonEmptyKeyValuePairs, NonEmptySet, Nullable, PlutusData, PlutusScript, PolicyId, Proposal,
-    ProposalIdAdapter, ProtocolVersion, PseudoScript, Redeemer, RedeemerAdapter, RewardAccount,
+    NonEmptyKeyValuePairs, NonEmptySet, Nullable, OrderedRedeemer, PlutusData, PlutusScript,
+    PolicyId, Proposal, ProposalIdAdapter, ProtocolVersion, PseudoScript, Redeemer, RewardAccount,
     ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload, TransactionId,
     TransactionInput, TransactionInputAdapter, Vote, Voter, VotingProcedures, network::NetworkName,
     normalize_redeemers, protocol_parameters::GlobalParameters,
@@ -176,7 +176,7 @@ pub struct TxInfo<'a> {
     proposal_procedures: Vec<&'a Proposal>,
     current_treasury_amount: Option<Lovelace>,
     treasury_donation: Option<Lovelace>,
-    script_table: BTreeMap<RedeemerAdapter, Script<'a>>,
+    script_table: BTreeMap<OrderedRedeemer<'a>, Script<'a>>,
 }
 
 #[derive(Debug, Error)]
@@ -309,7 +309,7 @@ impl<'a> TxInfo<'a> {
             });
         }
 
-        let mut script_table: BTreeMap<RedeemerAdapter, Script<'a>> = BTreeMap::new();
+        let mut script_table: BTreeMap<OrderedRedeemer<'a>, Script<'a>> = BTreeMap::new();
 
         let normalized_redeemers = witness_set
             .redeemer
@@ -430,7 +430,7 @@ impl<'a> ScriptPurpose<'a> {
         proposal_procedures: &[&'a Proposal],
         votes: &Votes<'a>,
         scripts: &BTreeMap<Hash<28>, Script<'a>>,
-        script_table: &mut BTreeMap<RedeemerAdapter, Script<'a>>,
+        script_table: &mut BTreeMap<OrderedRedeemer<'a>, Script<'a>>,
     ) -> Option<Self> {
         let index = redeemer.index as usize;
         match redeemer.tag {
@@ -1355,8 +1355,10 @@ pub mod test_vectors {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{ShelleyAddress, ShelleyDelegationPart};
-    use proptest::prelude::{Just, Strategy, any, prop};
-    use proptest::{prop_assert, prop_oneof, proptest};
+    use proptest::{
+        prelude::{Just, Strategy, any, prop},
+        prop_assert, prop_oneof, proptest,
+    };
 
     use crate::ToPlutusData;
 

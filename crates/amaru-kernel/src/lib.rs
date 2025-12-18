@@ -121,6 +121,9 @@ pub mod memoized;
 
 pub mod network;
 
+pub mod ordered_redeemer;
+pub use ordered_redeemer::*;
+
 pub mod peer;
 
 pub use point::*;
@@ -957,31 +960,6 @@ pub fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
 // Redeemers
 // ----------------------------------------------------------------------------
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RedeemerAdapter(Redeemer);
-
-impl Deref for RedeemerAdapter {
-    type Target = Redeemer;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<Cow<'_, Redeemer>> for RedeemerAdapter {
-    fn from(value: Cow<'_, Redeemer>) -> Self {
-        match value {
-            Cow::Borrowed(redeemer) => Self(redeemer.clone()),
-            Cow::Owned(redeemer) => Self(redeemer),
-        }
-    }
-}
-
-impl From<Redeemer> for RedeemerAdapter {
-    fn from(value: Redeemer) -> Self {
-        Self(value)
-    }
-}
 pub trait HasExUnits {
     fn ex_units(&self) -> Vec<&ExUnits>;
 }
@@ -1055,21 +1033,6 @@ pub fn normalize_redeemers(redeemers: &Redeemers) -> Vec<Cow<'_, Redeemer>> {
                 })
             })
             .collect(),
-    }
-}
-
-impl Ord for RedeemerAdapter {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.0.tag.as_index().cmp(&other.0.tag.as_index()) {
-            by_tag @ Ordering::Less | by_tag @ Ordering::Greater => by_tag,
-            Ordering::Equal => self.index.cmp(&other.index),
-        }
-    }
-}
-
-impl PartialOrd for RedeemerAdapter {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
     }
 }
 
