@@ -248,7 +248,7 @@ impl<'a> TxInfo<'a> {
             .map(|set| {
                 set.iter()
                     .map(|certificate| Certificate {
-                        protocol_verison: protocol_version,
+                        protocol_version: protocol_version,
                         certificate,
                     })
                     .collect()
@@ -982,7 +982,7 @@ pub struct Withdrawals(pub BTreeMap<StakeAddress, Lovelace>);
 #[derive(Clone)]
 pub struct Certificate<'a> {
     // There is a bug in conway protocol 9 that means we have to change our serialization logic depending on the protocol version
-    protocol_verison: ProtocolVersion,
+    protocol_version: ProtocolVersion,
     certificate: &'a PallasCertificate,
 }
 
