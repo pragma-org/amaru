@@ -35,12 +35,7 @@ pub fn default_chain_dir(network: NetworkName) -> String {
 }
 
 pub fn bootstrap_config_dir(network: NetworkName) -> PathBuf {
-    format!(
-        "{}/{}",
-        BOOTSTRAP_PATH,
-        network.to_string().to_lowercase()
-    )
-    .into()
+    format!("{}/{}", BOOTSTRAP_PATH, network.to_string().to_lowercase()).into()
 }
 
 pub fn default_snapshots_dir(network: NetworkName) -> String {

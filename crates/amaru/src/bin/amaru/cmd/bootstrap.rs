@@ -15,8 +15,8 @@
 use amaru::{bootstrap::bootstrap, default_chain_dir, default_ledger_dir, default_snapshots_dir};
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
-use std::{error::Error, path::PathBuf};
-use tracing::{debug, info};
+use std::{error::Error, fs::remove_dir_all, path::PathBuf};
+use tracing::{error, info};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -47,6 +47,16 @@ pub struct Args {
         env = "AMARU_SNAPSHOTS_DIR"
     )]
     snapshots_dir: Option<PathBuf>,
+
+    #[arg(
+        short,
+        long,
+        value_name = "BOOL",
+        verbatim_doc_comment,
+        env = "AMARU_FORCE",
+        default_value_t = false
+    )]
+    force: bool,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
@@ -68,8 +78,15 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .snapshots_dir
         .unwrap_or_else(|| default_snapshots_dir(network).into());
 
-    if !bootstrap(network, ledger_dir, chain_dir, snapshots_dir).await? {
-        debug!("Already bootstrapped; skipping");
+    let ledger_exists = ledger_dir.exists();
+    if ledger_exists && !args.force {
+        error!(ledger_dir=%ledger_dir.to_string_lossy(),  "Ledger directory already exists");
+    } else {
+        if args.force && ledger_exists {
+            info!(ledger_dir=%ledger_dir.to_string_lossy(), "Forcing bootstrap, removing existing ledger directory");
+            remove_dir_all(&ledger_dir)?;
+        }
+        bootstrap(network, ledger_dir, chain_dir, snapshots_dir).await?
     }
 
     Ok(())

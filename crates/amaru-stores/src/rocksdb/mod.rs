@@ -151,11 +151,6 @@ impl RocksDbConfig {
             env: Some(ROCKSDB_SHARED_ENV.clone()),
         }
     }
-
-    pub fn exists(&self) -> bool {
-        let path = self.dir.join(DIR_LIVE_DB);
-        path.exists()
-    }
 }
 
 impl From<RocksDbConfig> for Options {

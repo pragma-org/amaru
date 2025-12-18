@@ -160,27 +160,23 @@ pub async fn bootstrap(
     ledger_dir: PathBuf,
     chain_dir: PathBuf,
     snapshots_dir: PathBuf,
-) -> Result<bool, Box<dyn Error>> {
-    let config = RocksDbConfig::new(ledger_dir.clone());
-    if !config.exists() {
-        let snapshot_file_name = "snapshots.json";
-        let snapshots_file = get_bootstrap_file(network, snapshot_file_name)?
-            .ok_or(BootstrapError::MissingConfigFile(snapshot_file_name.into()))?;
-        download_snapshots(snapshots_file, &snapshots_dir).await?;
-        import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
-        let nonces_file_name = "nonces.json";
-        let nonces_file = get_bootstrap_file(network, nonces_file_name)?
-            .ok_or(BootstrapError::MissingConfigFile(nonces_file_name.into()))?;
-        import_nonces_from_file(network.into(), &chain_dir, &nonces_file).await?;
-        import_headers_for_network(
-            &chain_dir,
-            get_bootstrap_headers(network)?.collect::<Vec<_>>(),
-        )
-        .await?;
-        Ok(true)
-    } else {
-        Ok(false)
-    }
+) -> Result<(), Box<dyn Error>> {
+    let snapshot_file_name = "snapshots.json";
+    let snapshots_file = get_bootstrap_file(network, snapshot_file_name)?
+        .ok_or(BootstrapError::MissingConfigFile(snapshot_file_name.into()))?;
+    download_snapshots(snapshots_file, &snapshots_dir).await?;
+    import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
+    let nonces_file_name = "nonces.json";
+    let nonces_file = get_bootstrap_file(network, nonces_file_name)?
+        .ok_or(BootstrapError::MissingConfigFile(nonces_file_name.into()))?;
+    import_nonces_from_file(network.into(), &chain_dir, &nonces_file).await?;
+    import_headers_for_network(
+        &chain_dir,
+        get_bootstrap_headers(network)?.collect::<Vec<_>>(),
+    )
+    .await?;
+
+    Ok(())
 }
 
 fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
