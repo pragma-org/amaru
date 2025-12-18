@@ -54,3 +54,9 @@ impl From<Redeemer> for OrderedRedeemer<'static> {
         Self(Cow::Owned(value))
     }
 }
+
+impl<'a> From<&'a Redeemer> for OrderedRedeemer<'a> {
+    fn from(value: &'a Redeemer) -> Self {
+        Self(Cow::Borrowed(value))
+    }
+}
