@@ -15,11 +15,41 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use std::{marker::PhantomData, time::Duration};
 
+/// Input to a protocol step
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Input<L, R> {
+    Local(L),
+    Remote(R),
+}
+
 /// Outcome of a protocol step
-pub enum Outcome<S, D> {
-    Send(S),
-    Done(D),
-    Idle,
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Outcome<S, D> {
+    pub send: Option<S>,
+    pub done: Option<D>,
+}
+
+impl<S, D> Outcome<S, D> {
+    pub fn send(self, send: S) -> Self {
+        Self {
+            send: Some(send),
+            done: self.done,
+        }
+    }
+
+    pub fn result(self, done: D) -> Self {
+        Self {
+            send: self.send,
+            done: Some(done),
+        }
+    }
+}
+
+pub fn outcome<S, D>() -> Outcome<S, D> {
+    Outcome {
+        send: None,
+        done: None,
+    }
 }
 
 // FIXME find right value

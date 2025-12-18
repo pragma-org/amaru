@@ -15,6 +15,7 @@
 use amaru_kernel::{Point, protocol_messages::tip::Tip};
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Message {
     RequestNext,
     AwaitReply,
@@ -26,6 +27,7 @@ pub enum Message {
     Done,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HeaderContent {
     pub variant: u8,
     pub byron_prefix: Option<(u8, u64)>,

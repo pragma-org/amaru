@@ -16,7 +16,7 @@ use crate::{
     bytes::NonEmptyBytes,
     handshake::messages::Message,
     mux::{HandlerMessage, MuxMessage},
-    protocol::{NETWORK_SEND_TIMEOUT, Outcome, PROTO_HANDSHAKE, Role},
+    protocol::{NETWORK_SEND_TIMEOUT, Outcome, PROTO_HANDSHAKE, Role, outcome},
 };
 use amaru_kernel::protocol_messages::{
     handshake::{HandshakeResult, RefuseReason},
@@ -76,7 +76,7 @@ pub async fn stage(
                     })
                     .await
             } else {
-                (handshake.state, Outcome::Idle)
+                (handshake.state, outcome())
             }
         }
         HandshakeMessage::FromNetwork(non_empty_bytes) => {
@@ -95,19 +95,16 @@ pub async fn stage(
             .await
         }
     };
-    match outcome {
-        Outcome::Send(msg) => {
-            let proto_id = PROTO_HANDSHAKE.for_role(handshake.role);
-            let msg = NonEmptyBytes::encode(&msg);
-            eff.call(&handshake.muxer, NETWORK_SEND_TIMEOUT, move |cr| {
-                MuxMessage::Send(proto_id, msg, cr)
-            })
-            .await;
-        }
-        Outcome::Done(result) => {
-            eff.send(&handshake.connection, result).await;
-        }
-        Outcome::Idle => {}
+    if let Some(msg) = outcome.send {
+        let proto_id = PROTO_HANDSHAKE.for_role(handshake.role);
+        let msg = NonEmptyBytes::encode(&msg);
+        eff.call(&handshake.muxer, NETWORK_SEND_TIMEOUT, move |cr| {
+            MuxMessage::Send(proto_id, msg, cr)
+        })
+        .await;
+    }
+    if let Some(result) = outcome.done {
+        eff.send(&handshake.connection, result).await;
     }
     handshake.state = state;
     handshake
@@ -128,18 +125,19 @@ impl HandshakeState {
         Ok(match (self, input) {
             (Self::Propose(version_table), Message::Propose(_)) => (
                 Self::Confirm(version_table.clone()),
-                Outcome::Send(Message::Propose(version_table)),
+                outcome().send(Message::Propose(version_table)),
             ),
             (Self::Confirm(_), Message::Accept(version_number, version_data)) => (
                 Self::Done,
-                Outcome::Done(HandshakeResult::Accepted(version_number, version_data)),
+                outcome().result(HandshakeResult::Accepted(version_number, version_data)),
             ),
-            (Self::Confirm(_), Message::Refuse(reason)) => {
-                (Self::Done, Outcome::Done(HandshakeResult::Refused(reason)))
-            }
+            (Self::Confirm(_), Message::Refuse(reason)) => (
+                Self::Done,
+                outcome().result(HandshakeResult::Refused(reason)),
+            ),
             (Self::Confirm(vt), Message::Propose(version_table)) => (
                 Self::Done,
-                Outcome::Done(compute_negotiation_result(vt, version_table)),
+                outcome().result(compute_negotiation_result(vt, version_table)),
             ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
@@ -152,7 +150,7 @@ impl HandshakeState {
         Ok(match (self, input) {
             (Self::Propose(vt), Message::Propose(version_table)) => (
                 Self::Done,
-                Outcome::Send(compute_negotiation_result(vt, version_table).into()),
+                outcome().send(compute_negotiation_result(vt, version_table).into()),
             ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
