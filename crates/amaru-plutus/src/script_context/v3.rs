@@ -206,7 +206,7 @@ impl ToPlutusData<3> for Certificate<'_> {
                 constr_v3!(0, [stake_credential, None::<PlutusData>])
             }
             PallasCertificate::Reg(stake_credential, coin) => {
-                if self.protocol_verison.0 > 9 {
+                if self.protocol_version.0 > 9 {
                     constr_v3!(0, [stake_credential, Some(coin)])
                 } else {
                     constr_v3!(0, [stake_credential, None::<PlutusData>])
@@ -216,7 +216,7 @@ impl ToPlutusData<3> for Certificate<'_> {
                 constr_v3!(1, [stake_credential, None::<PlutusData>])
             }
             PallasCertificate::UnReg(stake_credential, coin) => {
-                if self.protocol_verison.0 > 9 {
+                if self.protocol_version.0 > 9 {
                     constr_v3!(1, [stake_credential, Some(coin)])
                 } else {
                     constr_v3!(1, [stake_credential, None::<PlutusData>])
@@ -654,10 +654,14 @@ impl ToPlutusData<3> for StakeAddress {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_vectors::{self, TestVector};
-    use super::*;
-    use amaru_kernel::network::NetworkName;
-    use amaru_kernel::{MintedTx, OriginalHash, PROTOCOL_VERSION_10, normalize_redeemers, to_cbor};
+    use super::{
+        super::test_vectors::{self, TestVector},
+        *,
+    };
+    use amaru_kernel::{
+        MintedTx, OriginalHash, PROTOCOL_VERSION_10, network::NetworkName, normalize_redeemers,
+        to_cbor,
+    };
     use test_case::test_case;
 
     macro_rules! fixture {
