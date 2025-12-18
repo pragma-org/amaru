@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rules::block::BlockValidation;
-use crate::state;
-use crate::store::{HistoricalStores, Store};
-use amaru_kernel::ArenaPool;
+use crate::{
+    rules::block::BlockValidation,
+    state,
+    store::{HistoricalStores, Store},
+};
 use amaru_kernel::{
-    EraHistory, Point, RawBlock, network::NetworkName, protocol_parameters::GlobalParameters,
+    ArenaPool, EraHistory, Point, RawBlock, network::NetworkName,
+    protocol_parameters::GlobalParameters,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::CanValidateBlocks;
-use amaru_ouroboros_traits::can_validate_blocks::BlockValidationError;
+use amaru_ouroboros_traits::{CanValidateBlocks, can_validate_blocks::BlockValidationError};
 use anyhow::anyhow;
 use std::sync::{Arc, Mutex};
 
@@ -39,8 +40,8 @@ where
 impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
     pub fn new(
         store: S,
-        vm_eval_pool: ArenaPool,
         snapshots: HS,
+        vm_eval_pool: ArenaPool,
         network: NetworkName,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
