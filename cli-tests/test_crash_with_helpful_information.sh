@@ -25,7 +25,6 @@ given_snapshots_file_is_missing() {
 
 bootstrap_amaru() {
 	cargo run --profile ${BUILD_PROFILE} -- bootstrap \
-		--config-dir ${CONFIG_FOLDER} \
 		--ledger-dir ${LEDGER_DIR} \
 		--chain-dir ${CHAIN_DIR} \
 		2>&1
