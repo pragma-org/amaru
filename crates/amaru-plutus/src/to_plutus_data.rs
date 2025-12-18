@@ -21,9 +21,8 @@ use amaru_kernel::{
     NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ShelleyDelegationPart,
     ShelleyPaymentPart, StakeCredential,
 };
-use thiserror::Error;
-
 use std::{borrow::Cow, collections::BTreeMap};
+use thiserror::Error;
 
 /// Represents an error that occured during serialization to `PlutusData`.
 #[derive(Debug, Error)]

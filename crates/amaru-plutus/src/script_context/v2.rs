@@ -12,17 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap};
-
-use amaru_kernel::{Address, KeyValuePairs, StakePayload};
-
 use crate::{
     PlutusDataError, ToPlutusData, constr_v2,
     script_context::{
-        Datums, OutputRef, PlutusData, Redeemers, ScriptContext, ScriptPurpose, StakeAddress,
-        TransactionOutput, TxInfo, Value, Withdrawals,
+        Datums, OutputRef, PlutusData, ScriptContext, StakeAddress, TransactionOutput, TxInfo,
+        Value, Withdrawals,
     },
 };
+use amaru_kernel::{Address, StakePayload};
+use std::collections::BTreeMap;
 
 impl ToPlutusData<2> for ScriptContext<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
@@ -86,23 +84,6 @@ impl ToPlutusData<2> for Withdrawals {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         let map = self.0.iter().collect::<BTreeMap<_, _>>();
         <BTreeMap<_, _> as ToPlutusData<2>>::to_plutus_data(&map)
-    }
-}
-
-impl ToPlutusData<2> for Redeemers<'_, ScriptPurpose<'_>> {
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let converted: Result<Vec<_>, _> = self
-            .0
-            .iter()
-            .map(|(purpose, data)| {
-                Ok((
-                    <ScriptPurpose<'_> as ToPlutusData<2>>::to_plutus_data(purpose)?,
-                    <Cow<'_, _> as ToPlutusData<2>>::to_plutus_data(data)?,
-                ))
-            })
-            .collect();
-
-        Ok(PlutusData::Map(KeyValuePairs::Def(converted?)))
     }
 }
 

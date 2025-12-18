@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
-
+use crate::{
+    PlutusDataError, ToPlutusData, constr, constr_v3,
+    script_context::{
+        Certificate, CurrencySymbol, Datums, KeyValuePairs, Mint, OutputRef, PlutusData,
+        ScriptContext, ScriptInfo, ScriptPurpose, StakeAddress, TransactionInput,
+        TransactionOutput, TxInfo, Value, Voter, Votes, Withdrawals,
+    },
+};
 use amaru_kernel::{
     Address, AssetName, Bytes, Certificate as PallasCertificate, Constitution, CostModels, DRep,
     DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, PolicyId, PoolVotingThresholds,
@@ -21,15 +27,7 @@ use amaru_kernel::{
     StakePayload, Vote,
 };
 use num::Integer;
-
-use crate::{
-    PlutusDataError, ToPlutusData, constr, constr_v3,
-    script_context::{
-        Certificate, CurrencySymbol, Datums, KeyValuePairs, Mint, OutputRef, PlutusData, Redeemers,
-        ScriptContext, ScriptInfo, ScriptPurpose, StakeAddress, TransactionInput,
-        TransactionOutput, TxInfo, Value, Voter, Votes, Withdrawals,
-    },
-};
+use std::{collections::BTreeMap, ops::Deref};
 
 impl ToPlutusData<3> for OutputRef<'_> {
     /// Serialize an `OutputRef` as PlutusData for PlutusV3.
@@ -608,23 +606,6 @@ impl ToPlutusData<3> for Withdrawals {
     }
 }
 
-impl ToPlutusData<3> for Redeemers<'_, ScriptPurpose<'_>> {
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let converted: Result<Vec<_>, _> = self
-            .0
-            .iter()
-            .map(|(purpose, data)| {
-                Ok((
-                    <ScriptPurpose<'_> as ToPlutusData<3>>::to_plutus_data(purpose)?,
-                    <Cow<'_, _> as ToPlutusData<3>>::to_plutus_data(data)?,
-                ))
-            })
-            .collect();
-
-        Ok(PlutusData::Map(KeyValuePairs::Def(converted?)))
-    }
-}
-
 impl ToPlutusData<3> for Datums<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&self.0)
@@ -658,9 +639,9 @@ mod tests {
         super::test_vectors::{self, TestVector},
         *,
     };
+    use crate::script_context::Redeemers;
     use amaru_kernel::{
-        MintedTx, OriginalHash, PROTOCOL_VERSION_10, network::NetworkName, normalize_redeemers,
-        to_cbor,
+        MintedTx, OriginalHash, PROTOCOL_VERSION_10, network::NetworkName, to_cbor,
     };
     use test_case::test_case;
 
@@ -688,7 +669,7 @@ mod tests {
         let transaction: MintedTx<'_> =
             minicbor::decode(&test_vector.input.transaction_bytes).unwrap();
 
-        let redeemers = normalize_redeemers(
+        let redeemers = Redeemers::iter_from(
             transaction
                 .transaction_witness_set
                 .redeemer
@@ -698,7 +679,6 @@ mod tests {
         );
 
         let produced_contexts = redeemers
-            .iter()
             .map(|redeemer| {
                 let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
@@ -713,7 +693,7 @@ mod tests {
                 )
                 .unwrap();
 
-                let script_context = ScriptContext::new(&tx_info, redeemer).unwrap();
+                let script_context = ScriptContext::new(&tx_info, redeemer.deref()).unwrap();
                 let plutus_data = to_cbor(
                     &<ScriptContext<'_> as ToPlutusData<3>>::to_plutus_data(&script_context)
                         .expect("failed to encode as PlutusData"),
