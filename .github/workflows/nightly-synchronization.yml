@@ -49,4 +49,5 @@ jobs:
       shell: bash
       working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
       run: |
+        sudo chown -R $(whoami):$(whoami) immutable
         ls immutable/*.chunk | sort | head -n -2500 | xargs -r rm -f --
