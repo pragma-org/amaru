@@ -1017,23 +1017,6 @@ impl HasRedeemers for Redeemers {
     }
 }
 
-pub fn normalize_redeemers(redeemers: &Redeemers) -> Vec<Cow<'_, Redeemer>> {
-    match redeemers {
-        Redeemers::List(list) => list.iter().map(Cow::Borrowed).collect(),
-        Redeemers::Map(map) => map
-            .iter()
-            .map(|(tag, value)| {
-                Cow::Owned(Redeemer {
-                    tag: tag.tag,
-                    index: tag.index,
-                    data: value.data.clone(),
-                    ex_units: value.ex_units,
-                })
-            })
-            .collect(),
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;

@@ -12,12 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
-
-use amaru_kernel::{
-    Address, AssetName, Certificate as PallasCertificate, Hash, StakePayload, TransactionInput,
-};
-
 use crate::{
     IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData, constr, constr_v1,
     script_context::{
@@ -26,6 +20,10 @@ use crate::{
         Withdrawals,
     },
 };
+use amaru_kernel::{
+    Address, AssetName, Certificate as PallasCertificate, Hash, StakePayload, TransactionInput,
+};
+use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
 impl ToPlutusData<1> for OutputRef<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
@@ -278,12 +276,15 @@ impl ToPlutusData<1> for Datums<'_> {
 // This test logic is basically 100% duplicated with v3. Should be able to simplify.
 #[cfg(test)]
 mod tests {
+    use super::{
+        super::test_vectors::{self, TestVector},
+        *,
+    };
+    use crate::script_context::Redeemers;
+    use amaru_kernel::{
+        MintedTx, OriginalHash, PROTOCOL_VERSION_10, network::NetworkName, to_cbor,
+    };
     use std::ops::Deref;
-
-    use super::super::test_vectors::{self, TestVector};
-    use super::*;
-    use amaru_kernel::network::NetworkName;
-    use amaru_kernel::{MintedTx, OriginalHash, PROTOCOL_VERSION_10, normalize_redeemers, to_cbor};
     use test_case::test_case;
 
     const PLUTUS_VERSION: u8 = 1;
@@ -307,7 +308,7 @@ mod tests {
         let transaction: MintedTx<'_> =
             minicbor::decode(&test_vector.input.transaction_bytes).unwrap();
 
-        let redeemers = normalize_redeemers(
+        let redeemers = Redeemers::iter_from(
             transaction
                 .transaction_witness_set
                 .redeemer
@@ -317,7 +318,6 @@ mod tests {
         );
 
         let produced_contexts = redeemers
-            .iter()
             .map(|redeemer| {
                 let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
@@ -332,7 +332,7 @@ mod tests {
                 )
                 .unwrap();
 
-                let script_context = ScriptContext::new(&tx_info, redeemer).unwrap();
+                let script_context = ScriptContext::new(&tx_info, redeemer.deref()).unwrap();
                 let plutus_data = to_cbor(
                     &<ScriptContext<'_> as ToPlutusData<1>>::to_plutus_data(&script_context)
                         .expect("failed to ScriptContext convert to PlutusData"),
