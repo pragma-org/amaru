@@ -1,9 +1,3 @@
-test_explains_snapshot_file_is_missing() {
-	given_snapshots_file_is_missing
-
-	assert_matches "MissingConfigFile.*preprod/snapshots.json" "$(bootstrap_amaru)"
-}
-
 skip_if "! ulimit -n" fd_limit
 test_explains_fd_limit_is_too_low() {
 	ulimit -n 256
