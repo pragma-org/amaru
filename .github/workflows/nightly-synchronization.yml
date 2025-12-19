@@ -3,6 +3,7 @@ name: Nightly Sync
 on:
   schedule:
     - cron: '00 08,22 * * *'
+
   workflow_dispatch:
     inputs:
       synchronization-level:
@@ -16,37 +17,37 @@ jobs:
     strategy:
       matrix:
         network: [ preprod, preview ]
-        ogmios_version: [ v6.13.0 ]
-        cardano_node_version: [ 10.1.4 ]
 
     runs-on: ubuntu-latest
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+      OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network }}.tar.zstd"
+      OGMIOS_VERSION: v6.14.0
+      CARDANO_NODE_VERSION: 10.5.3
+
     steps:
+      - name: 📥 Download R2 Object
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/db"
+          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | tar --zstd -xf - -C "${{ runner.temp }}/db"
+          touch ${{ runner.temp }}/db/clean
 
-    - uses: actions/checkout@v4
+      - name: ⚙️ Synchronize with ${{ matrix.network }}
+        uses: CardanoSolutions/gh-action-cardano-node-ogmios-docker-sync@bdcd9c18c0e6bad2f43f38adaa409fae077ddae4
+        with:
+          db-dir: ${{ runner.temp }}/db
+          network: ${{ matrix.network }}
+          version: ${{ env.OGMIOS_VERSION }}_${{ env.CARDANO_NODE_VERSION }}
+          synchronization-level: ${{ inputs.synchronization-level || 1 }}
 
-    - uses: buildjet/cache/restore@v4
-      with:
-        path: ${{ runner.temp }}/db-${{ matrix.network }}
-        key: cardano-node-ogmios-${{ matrix.network }}
-        restore-keys: |
-          cardano-node-ogmios-${{ matrix.network }}
-
-    - uses: CardanoSolutions/gh-action-cardano-node-ogmios-docker-sync@6b83f3dbb55f22fd586c9003f7d5fe9e21edc906
-      with:
-        db-dir: ${{ runner.temp }}/db-${{ matrix.network }}
-        network: ${{ matrix.network }}
-        version: ${{ matrix.ogmios_version }}_${{ matrix.cardano_node_version }}
-        synchronization-level: ${{ inputs.synchronization-level || 1 }}
-
-    # Remove old immutable chunks from the database, we don't need them and they make cache & on-disk system larger.
-    - name: prune node db
-      shell: bash
-      working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
-      run: |
-        sudo chown -R $(whoami):$(whoami) immutable
-        ls immutable/*.chunk | sort | head -n -2500 | xargs -r rm -f --
-
-    - uses: buildjet/cache/save@v4
-      with:
-        path: ${{ runner.temp }}/db-${{ matrix.network }}
-        key: cardano-node-ogmios-${{ matrix.network }}
+      - name: 📥 Upload R2 Object
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --zstd -cf - -C "${{ runner.temp }}/db" . | aws s3 cp - "$OBJECT" --endpoint-url "$ENDPOINT"
