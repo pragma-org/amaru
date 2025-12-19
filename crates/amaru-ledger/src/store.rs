@@ -19,6 +19,7 @@ use crate::{
     summary::Pots,
 };
 use amaru_kernel::{
+    Ballot,
     CertificatePointer,
     EraHistory,
     Lovelace,
@@ -26,6 +27,7 @@ use amaru_kernel::{
     PoolId,
     StakeCredential,
     TransactionInput,
+    Voter,
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
@@ -36,7 +38,9 @@ use amaru_kernel::{
     ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch,
     MemoizedTransactionOutput,
 };
+use async_trait::async_trait;
 use columns::*;
+use futures::{Stream, future::LocalBoxFuture};
 use std::{
     borrow::BorrowMut,
     collections::{BTreeMap, BTreeSet},
@@ -252,10 +256,16 @@ pub trait HistoricalStores {
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot>;
 }
 
+pub type ProposalRowMut<'a> = Box<dyn BorrowMut<Option<proposals::Row>> + 'a>;
+
+pub type ProposalsStream<'a> =
+    Box<dyn Stream<Item = (proposals::Key, ProposalRowMut<'a>)> + Unpin + 'a>;
+
 // TransactionalContext
 // ----------------------------------------------------------------------------
 
 /// A trait that provides a handle to perform atomic updates on the store.
+#[async_trait]
 pub trait TransactionalContext<'a>: ReadStore {
     /// Commit the transaction. This will persist all changes to the store.
     fn commit(self) -> Result<()>;
@@ -368,6 +378,19 @@ pub trait TransactionalContext<'a>: ReadStore {
 
     /// Provide an access to iterate over dreps, similar to 'with_pools'.
     fn with_proposals(&self, with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<()>;
+
+    fn get_votes_for<'s>(
+        &'s self,
+        proposal: &'s ComparableProposalId,
+    ) -> LocalBoxFuture<'s, Result<BTreeMap<Voter, Ballot>>>;
+
+    /// Provides an async stream of borrowable rows.
+    ///
+    /// The `action` closure receives the proposals stream and returns a Future.
+    fn modify_proposals<'b, F, T>(&'b self, action: F) -> LocalBoxFuture<'b, Result<T>>
+    where
+        F: for<'s> FnOnce(&'s Self, ProposalsStream<'s>) -> LocalBoxFuture<'s, Result<T>> + 'b,
+        T: 'b;
 
     /// Provide an access to iterate over cc members, similar to 'with_pools'.
     fn with_cc_members(&self, with: impl FnMut(cc_members::Iter<'_, '_>)) -> Result<()>;

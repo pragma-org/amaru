@@ -49,7 +49,9 @@ pub type SharedVec<T> = Rc<RefCell<Vec<(Vec<u8>, T)>>>;
 impl<const PREFIX: usize, K: Clone, V: Clone> KeyValueIterator<'_, PREFIX, K, V> {
     /// Obtain an iterator on the updates to be done. This takes ownership of the original
     /// iterator to ensure that it is correctly de-allocated as we now process updates.
-    pub fn into_iter_updates(self) -> impl Iterator<Item = (Vec<u8>, Option<V>)> {
+    pub fn into_iter_updates(
+        self,
+    ) -> impl Iterator<Item = (Vec<u8>, Option<V>)> + use<PREFIX, K, V> {
         // NOTE: In principle, 'into_iter_updates' is only called once all callbacks on the inner
         // iterator have resolved; so the absolute count of strong references should be 1 and no
         // cloning should occur here. We can prove that with the next assertion.
