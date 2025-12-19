@@ -71,7 +71,7 @@ mod tests {
 
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
     use amaru_kernel::{
-        KeepRaw, MintedTransactionBody, OriginalHash, Slot, TransactionPointer, include_cbor,
+        KeepRaw, MintedTransactionBody, Slot, TransactionPointer, get_original_hash, include_cbor,
         include_json, json,
     };
     use amaru_tracing_json::assert_trace;
@@ -125,7 +125,7 @@ mod tests {
             || {
                 super::execute(
                     &mut ctx,
-                    (tx.original_hash(), tx_pointer),
+                    (get_original_hash(&tx), tx_pointer),
                     mem::take(&mut tx.unwrap().proposal_procedures).map(|xs| xs.to_vec()),
                 )
             },

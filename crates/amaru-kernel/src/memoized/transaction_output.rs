@@ -212,7 +212,7 @@ impl<'a> TryFrom<MintedTransactionOutput<'a>> for MemoizedTransactionOutput {
 
 fn from_legacy_value(value: AlonzoValue) -> Result<Value, String> {
     let from_tokens = |tokens: KeyValuePairs<AssetName, Lovelace>| {
-        NonEmptyKeyValuePairs::try_from(
+        pallas_primitives::NonEmptyKeyValuePairs::try_from(
             tokens
                 .to_vec()
                 .into_iter()
@@ -235,7 +235,7 @@ fn from_legacy_value(value: AlonzoValue) -> Result<Value, String> {
         AlonzoValue::Multiasset(coin, assets) => {
             let from_assets =
                 |assets: KeyValuePairs<ScriptHash, KeyValuePairs<AssetName, Lovelace>>| {
-                    NonEmptyKeyValuePairs::try_from(
+                    pallas_primitives::NonEmptyKeyValuePairs::try_from(
                         assets
                             .to_vec()
                             .into_iter()
@@ -245,7 +245,8 @@ fn from_legacy_value(value: AlonzoValue) -> Result<Value, String> {
                     .map_err(|_| "assets cannot be empty due to pattern-guard".to_string())
                 };
 
-            Ok(Value::Multiasset(coin, from_assets(assets)?))
+            let pairs: pallas_primitives::NonEmptyKeyValuePairs<_, _> = from_assets(assets)?;
+            Ok(Value::Multiasset(coin, pairs))
         }
     }
 }
@@ -312,12 +313,13 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(
 
                 let policy_id: PolicyId = Hash::from(policy_id.as_slice());
 
-                converted_multiasset.push((
-                    policy_id,
-                    NonEmptyKeyValuePairs::from_vec(converted_assets).ok_or(
-                        serde::de::Error::custom(format!("empty asset bundle: {policy_id}")),
-                    )?,
-                ));
+                let pairs = NonEmptyKeyValuePairs::from_vec(converted_assets)
+                    .ok_or(serde::de::Error::custom(format!(
+                        "empty asset bundle: {policy_id}"
+                    )))?
+                    .to_pallas();
+
+                converted_multiasset.push((policy_id, pairs));
             }
 
             let multiasset: Multiasset<PositiveCoin> =
