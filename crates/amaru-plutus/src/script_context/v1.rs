@@ -282,7 +282,7 @@ mod tests {
     };
     use crate::script_context::Redeemers;
     use amaru_kernel::{
-        MintedTx, OriginalHash, PROTOCOL_VERSION_10, network::NetworkName, to_cbor,
+        MintedTx, PROTOCOL_VERSION_10, get_original_hash, network::NetworkName, to_cbor,
     };
     use std::ops::Deref;
     use test_case::test_case;
@@ -323,7 +323,7 @@ mod tests {
                 let tx_info = TxInfo::new(
                     &transaction.transaction_body,
                     &transaction.transaction_witness_set,
-                    &transaction.transaction_body.original_hash(),
+                    &get_original_hash(&transaction.transaction_body),
                     &utxos,
                     &0.into(),
                     network,

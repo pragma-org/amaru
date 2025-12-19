@@ -20,7 +20,7 @@ use crate::{
 };
 use amaru_kernel::{
     ArenaPool, AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hasher, HeaderHash, MintedBlock,
-    OriginalHash, TransactionId, TransactionPointer, network::NetworkName,
+    TransactionId, TransactionPointer, get_original_hash, network::NetworkName,
     protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Slot;
@@ -211,7 +211,7 @@ where
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
     for (i, transaction) in (0u32..).zip(transactions.into_iter()) {
-        let transaction_hash = transaction.original_hash();
+        let transaction_hash = get_original_hash(&transaction);
 
         let is_valid = !failed_transactions.has(i);
 

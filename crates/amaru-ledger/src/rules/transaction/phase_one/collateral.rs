@@ -328,11 +328,12 @@ mod tests {
         matches Err(InvalidCollateral::LockedAtScriptAddress(..));
         "locked at script"
     )]
-    #[test_case(
-        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "no-collateral") =>
-        matches Err(InvalidCollateral::NoCollateral);
-        "no collateral"
-    )]
+    // This tx now fails to decode because conway txes cannot have empty collateral
+    //#[test_case(
+    //    fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "no-collateral") =>
+    //    matches Err(InvalidCollateral::NoCollateral);
+    //    "no collateral"
+    //)]
     #[test_case(
         fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "insufficient-balance") =>
         matches Err(InvalidCollateral::InsufficientBalance { .. });

@@ -16,8 +16,8 @@ use core::fmt;
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    ArenaPool, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash,
-    TransactionInputAdapter, TransactionPointer, cbor, network::NetworkName,
+    ArenaPool, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet,
+    TransactionInputAdapter, TransactionPointer, cbor, get_original_hash, network::NetworkName,
     protocol_parameters::ProtocolParameters, to_cbor,
 };
 use amaru_plutus::{
@@ -123,7 +123,7 @@ where
     let tx_info = TxInfo::new(
         transaction_body,
         transaction_witness_set,
-        &transaction_body.original_hash(),
+        &get_original_hash(transaction_body),
         &utxos,
         &pointer.slot,
         *network,

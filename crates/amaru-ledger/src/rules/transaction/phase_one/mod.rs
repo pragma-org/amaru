@@ -14,8 +14,8 @@
 
 use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
-    AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash,
-    TransactionInput, TransactionPointer, network::NetworkName,
+    AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet,
+    TransactionInput, TransactionPointer, get_original_hash, network::NetworkName,
     protocol_parameters::ProtocolParameters,
 };
 use core::mem;
@@ -101,7 +101,7 @@ pub fn execute<C>(
 where
     C: ValidationContext + fmt::Debug,
 {
-    let transaction_id = transaction_body.original_hash();
+    let transaction_id = get_original_hash(&transaction_body);
 
     let mut transaction_body = transaction_body.unwrap();
 
