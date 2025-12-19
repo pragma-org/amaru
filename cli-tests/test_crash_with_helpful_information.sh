@@ -1,7 +1,7 @@
 test_explains_snapshot_file_is_missing() {
 	given_snapshots_file_is_missing
 
-	assert_matches "MissingSnapshotsFile.*data/preprod/snapshots.json" "$(bootstrap_amaru)"
+	assert_matches "MissingConfigFile.*preprod/snapshots.json" "$(bootstrap_amaru)"
 }
 
 skip_if "! ulimit -n" fd_limit
