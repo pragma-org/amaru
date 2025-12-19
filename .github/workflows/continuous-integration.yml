@@ -177,12 +177,15 @@ jobs:
         network:
           - name: preprod
             magic: 1
+            target_epoch: 182
           - name: preview
             magic: 2
+            target_epoch: 680
         cardano_node_version: [10.5.3]
     env:
       AMARU_NETWORK: ${{ matrix.network.name }}
       BUILD_PROFILE: test
+      DEMO_TARGET_EPOCH: ${{ matrix.network.target_epoch }}
     if: ${{ !github.event.pull_request.draft }}
 
     env:
