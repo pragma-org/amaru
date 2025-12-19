@@ -14,8 +14,8 @@
 
 use crate::{
     bytes::NonEmptyBytes,
-    handshake::messages::{Message, VersionTable},
-    mux::MuxMessage,
+    handshake::messages::Message,
+    mux::{HandlerMessage, MuxMessage},
     protocol::{NETWORK_SEND_TIMEOUT, Outcome, PROTO_HANDSHAKE, Role},
 };
 use amaru_kernel::protocol_messages::{
@@ -27,6 +27,8 @@ use pure_stage::{Effects, StageRef, TryInStage};
 mod messages;
 #[cfg(test)]
 mod tests;
+
+pub use messages::VersionTable;
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum HandshakeMessage {
@@ -183,5 +185,12 @@ impl From<HandshakeResult> for Message<VersionData> {
             }
             HandshakeResult::Refused(reason) => Message::Refuse(reason),
         }
+    }
+}
+
+pub fn handler_transform(msg: HandlerMessage) -> HandshakeMessage {
+    match msg {
+        HandlerMessage::FromNetwork(bytes) => HandshakeMessage::FromNetwork(bytes),
+        HandlerMessage::Registered(_) => HandshakeMessage::Registered,
     }
 }

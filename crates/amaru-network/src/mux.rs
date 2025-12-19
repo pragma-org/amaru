@@ -374,7 +374,7 @@ impl Muxer {
         Self::default()
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self, handler, eff))]
     pub async fn register<M>(
         &mut self,
         proto_id: ProtocolId<Erased>,
@@ -434,7 +434,7 @@ impl Muxer {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip_all, fields(proto_id))]
+    #[instrument(level = Level::DEBUG, skip_all, fields(proto_id, bytes = bytes.len()))]
     pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: CallRef<Sent>) {
         tracing::trace!(proto = %proto_id, bytes = bytes.len(), "enqueueing send");
         #[allow(clippy::expect_used)]
@@ -445,7 +445,7 @@ impl Muxer {
             .enqueue_send(bytes, sent);
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip_all)]
     pub async fn next_segment<M>(
         &mut self,
         eff: &Effects<M>,
@@ -469,7 +469,7 @@ impl Muxer {
         None
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, bytes), fields(bytes = bytes.len()))]
+    #[instrument(level = Level::DEBUG, skip(self, bytes, eff), fields(bytes = bytes.len()))]
     pub async fn received<M>(
         &mut self,
         timestamp: Timestamp,
@@ -484,7 +484,7 @@ impl Muxer {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self, eff))]
     pub async fn want_next<M>(
         &mut self,
         proto_id: ProtocolId<Erased>,

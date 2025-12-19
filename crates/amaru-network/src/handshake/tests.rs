@@ -195,16 +195,7 @@ fn test_against_node_with_tokio() {
     );
 
     let handshake_bytes =
-        network.contramap(
-            handshake,
-            "handshake_bytes",
-            |msg: HandlerMessage| match msg {
-                HandlerMessage::FromNetwork(bytes) => {
-                    handshake::HandshakeMessage::FromNetwork(bytes)
-                }
-                HandlerMessage::Registered(_) => handshake::HandshakeMessage::Registered,
-            },
-        );
+        network.contramap(handshake, "handshake_bytes", handshake::handler_transform);
 
     network
         .preload(

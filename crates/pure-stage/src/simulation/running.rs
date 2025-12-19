@@ -24,7 +24,7 @@ use crate::simulation::SimulationBuilder;
 use crate::{
     BoxFuture, CallId, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources,
     SendData, StageRef, StageResponse,
-    adapter::{StageOrAdapter, find_recipient},
+    adapter::{Adapter, StageOrAdapter, find_recipient},
     effect::StageEffect,
     effect_box::EffectBox,
     simulation::{
@@ -33,8 +33,9 @@ use crate::{
         random::EvalStrategy,
         resume::{
             resume_add_stage_internal, resume_call_internal, resume_clock_internal,
-            resume_external_internal, resume_receive_internal, resume_respond_internal,
-            resume_send_internal, resume_wait_internal, resume_wire_stage_internal,
+            resume_contramap_internal, resume_external_internal, resume_receive_internal,
+            resume_respond_internal, resume_send_internal, resume_wait_internal,
+            resume_wire_stage_internal,
         },
         state::{StageData, StageState},
     },
@@ -752,6 +753,28 @@ impl SimulationRunning {
                     }),
                 );
             }
+            Effect::Contramap {
+                at_stage,
+                original,
+                new_name,
+            } => {
+                let name = stage_name(&mut self.stage_count, new_name.as_str());
+                let data = self
+                    .stages
+                    .get_mut(&at_stage)
+                    .assert_stage("which cannot call contramap");
+                let transform =
+                    resume_contramap_internal(data, run, original.clone(), name.clone())
+                        .expect("contramap effect is always runnable");
+                self.stages.insert(
+                    name.clone(),
+                    StageOrAdapter::Adapter(Adapter {
+                        name,
+                        target: original,
+                        transform,
+                    }),
+                );
+            }
         }
         None
     }
@@ -1085,6 +1108,36 @@ impl SimulationRunning {
                 transition: (transition)(self.effect.clone()),
                 waiting: Some(StageEffect::Receive),
                 senders: VecDeque::new(),
+            }),
+        );
+        Ok(())
+    }
+
+    /// Resume an [`Effect::Contramap`].
+    pub fn resume_contramap<Msg>(
+        &mut self,
+        at_stage: impl AsRef<StageRef<Msg>>,
+        original: Name,
+        name: Name,
+    ) -> anyhow::Result<()> {
+        let data = self
+            .stages
+            .get_mut(at_stage.as_ref().name())
+            .assert_stage("which cannot contramap");
+        let transform = resume_contramap_internal(
+            data,
+            &mut |name, response| {
+                self.runnable.push_back((name, response));
+            },
+            original.clone(),
+            name.clone(),
+        )?;
+        self.stages.insert(
+            name.clone(),
+            StageOrAdapter::Adapter(Adapter {
+                name,
+                target: original,
+                transform,
             }),
         );
         Ok(())

@@ -279,3 +279,32 @@ pub fn resume_wire_stage_internal(
     run(data.name.clone(), StageResponse::Unit);
     Ok(transition.into_inner())
 }
+
+pub fn resume_contramap_internal(
+    data: &mut StageData,
+    run: &mut dyn FnMut(Name, StageResponse),
+    orig: Name,
+    name: Name,
+) -> anyhow::Result<Box<dyn Fn(Box<dyn SendData>) -> Box<dyn SendData> + Send + 'static>> {
+    let waiting_for = data
+        .waiting
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+
+    if !matches!(waiting_for, StageEffect::Contramap { original, new_name, .. } if original == &orig && new_name == &name)
+    {
+        anyhow::bail!(
+            "stage `{}` was not waiting for a contramap effect, but {:?}",
+            data.name,
+            waiting_for
+        )
+    }
+
+    // it is important that all validations (i.e. `?``) happen before this point
+    let Some(StageEffect::Contramap { transform, .. }) = data.waiting.take() else {
+        panic!("checked above");
+    };
+
+    run(data.name.clone(), StageResponse::ContramapResponse(name));
+    Ok(transform.into_inner())
+}
