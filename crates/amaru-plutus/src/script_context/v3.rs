@@ -196,7 +196,7 @@ impl ToPlutusData<3> for DRep {
 }
 
 impl ToPlutusData<3> for Certificate<'_> {
-    /// There is a bug in protocol version 9 that omitted the deposit valeus of new certificates.
+    /// There is a bug in protocol version 9 that omitted the deposit values of new certificates.
     /// This was fixed in protocol version 10, but we must make sure that, for protocol version 9, the bug is included
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self.certificate {
