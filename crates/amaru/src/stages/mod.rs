@@ -229,7 +229,9 @@ pub async fn build_and_run_network(
 
     let pull_stage = network.stage("pull", pull::stage);
     let pull_stage = network.wire_up(pull_stage, receive_header_stage);
-    assert!(network.preload(pull_stage, vec![pull::NextSync]));
+    network
+        .preload(pull_stage, vec![pull::NextSync])
+        .map_err(|_| anyhow::anyhow!("failed to preload pull stage"))?;
 
     network
         .resources()
@@ -271,11 +273,9 @@ fn make_chain_store(
     let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
         StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
-            Arc::new(RocksDBStore::open_and_migrate(rocks_db_config.clone())?)
+            Arc::new(RocksDBStore::open_and_migrate(rocks_db_config)?)
         }
-        StoreType::RocksDb(ref rocks_db_config) => {
-            Arc::new(RocksDBStore::open(rocks_db_config.clone())?)
-        }
+        StoreType::RocksDb(ref rocks_db_config) => Arc::new(RocksDBStore::open(rocks_db_config)?),
     };
 
     if *tip != ORIGIN_HASH && chain_store.load_header(tip).is_none() {
@@ -344,9 +344,9 @@ fn make_ledger(
         }
         StoreType::RocksDb(rocks_db_config) => {
             let ledger = BlockValidator::new(
-                RocksDB::new(rocks_db_config.clone())?,
+                RocksDB::new(rocks_db_config)?,
                 RocksDBHistoricalStores::new(
-                    rocks_db_config.clone(),
+                    rocks_db_config,
                     u64::from(config.max_extra_ledger_snapshots),
                 ),
                 network,

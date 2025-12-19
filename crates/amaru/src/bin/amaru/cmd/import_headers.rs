@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru::{
-    bootstrap::import_headers_for_network, bootstrap_config_dir, default_chain_dir,
-    get_bootstrap_headers,
+    DEFAULT_NETWORK, bootstrap::import_headers_for_network, bootstrap_config_dir,
+    default_chain_dir, get_bootstrap_headers,
 };
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
@@ -31,7 +31,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 

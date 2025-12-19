@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::DEFAULT_NETWORK;
 use amaru::bootstrap::InitialNonces;
 use amaru_kernel::{
     Bound, EraHistory, EraParams, Hash, HeaderHash, Nonce, Point, Summary, cbor,
@@ -45,7 +46,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
         verbatim_doc_comment
     )]
     network: NetworkName,

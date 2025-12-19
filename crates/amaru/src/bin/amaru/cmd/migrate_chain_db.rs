@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::default_chain_dir;
+use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_consensus::StoreError;
 use amaru_kernel::network::NetworkName;
 use amaru_stores::rocksdb::{
@@ -33,7 +33,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }

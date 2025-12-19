@@ -12,18 +12,19 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#![cfg(feature = "simulation")]
 
-use parking_lot::Mutex;
-use pure_stage::simulation::SimulationBuilder;
 use pure_stage::simulation::running::OverrideResult;
+use pure_stage::simulation::{RandStdRng, SimulationBuilder};
 use pure_stage::{
-    CallRef, Effect, ExternalEffect, Instant, OutputEffect, Receiver, Resources, SendData,
-    StageGraph, StageGraphRunning, StageRef, TryInStage, trace_buffer::TraceBuffer,
+    CallRef, Effect, ExternalEffect, Instant, Name, OutputEffect, Receiver, Resources, SendData,
+    StageGraph, StageGraphRunning, StageRef, StageResponse, TryInStage, UnknownExternalEffect,
+    serde::SendDataValue,
+    trace_buffer::{TraceBuffer, TraceEntry},
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::{
+    collections::BTreeMap,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -47,7 +48,7 @@ fn basic() {
     });
     let (output, mut rx) = network.output("output", 10);
     let basic = network.wire_up(basic, State(1u32, output.clone()));
-    let mut running = network.run(rt.handle().clone());
+    let mut running = network.run();
 
     // first check that the stages start out suspended on Receive
     running.try_effect().unwrap_err().assert_idle();
@@ -56,17 +57,18 @@ fn basic() {
     running.enqueue_msg(&basic, [1]);
     running.resume_receive(&basic).unwrap();
     running.effect().assert_send(&basic, &output, 2u32);
-    running.resume_send(&basic, &output, 2u32).unwrap();
+    running.resume_send(&basic, &output, Some(2u32)).unwrap();
     running.effect().assert_receive(&basic);
 
     running.resume_receive(&output).unwrap();
     let ext = running
         .effect()
-        .extract_external(&output, &OutputEffect::fake(output.name().clone(), 2u32).0);
+        .extract_external::<OutputEffect<u32>>(&output);
+    assert_eq!(&*ext, &OutputEffect::fake(output.name().clone(), 2u32).0);
     let result = rt.block_on(ext.run(Resources::default()));
     // this check is also done when resuming, just want to show how to do it here
     assert_eq!(&*result, &() as &dyn SendData);
-    running.resume_external(&output, result).unwrap();
+    running.resume_external_box(&output, result).unwrap();
     running.effect().assert_receive(&output);
 
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
@@ -74,13 +76,11 @@ fn basic() {
 
 #[test]
 fn automatic() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let std_rng = StdRng::from_seed([0; 32]);
-    let rng = Arc::new(Mutex::new(std_rng));
     let mut network = SimulationBuilder::default()
         .with_trace_buffer(trace_buffer.clone())
-        .with_rng(rng);
+        .with_eval_strategy(RandStdRng(std_rng));
 
     fn basic(network: &mut impl StageGraph) -> (StageRef<u32>, Receiver<u32>, StageRef<u32>) {
         let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
@@ -95,62 +95,65 @@ fn automatic() {
     }
 
     let (in_ref, mut rx, output) = basic(&mut network);
-    let mut running = network.run(rt.handle().clone());
+    let mut running = network.run();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     running.enqueue_msg(&in_ref, [1, 2, 3]);
-    running.run_until_blocked().assert_idle();
+    running
+        .run_until_blocked_incl_effects(rt.handle())
+        .assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 4, 7]);
 
-    let trace = trace_buffer.lock().hydrate();
+    let trace = trace_buffer.lock().hydrate_without_timestamps();
 
     const EXPECTED: &[&str] = &[
-        "State { stage: Name(\"basic-0\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(1), Map([(Text(\"name\"), Text(\"output-1\"))])]) } }",
-        "State { stage: Name(\"output-1\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
-        "Input { stage: Name(\"basic-0\"), input: SendDataValue { typetag: \"u32\", value: Integer(1) } }",
-        "Resume { stage: Name(\"basic-0\"), response: Unit }",
-        "Suspend(Wait { at_stage: Name(\"basic-0\"), duration: 10s })",
+        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(1), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
+        "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
+        "Input { stage: Name(\"basic-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(1) } }",
+        "Resume { stage: Name(\"basic-1\"), response: Unit }",
+        "Suspend(Wait { at_stage: Name(\"basic-1\"), duration: 10s })",
         "Clock(Instant(10s))",
-        "Resume { stage: Name(\"basic-0\"), response: WaitResponse(Instant(10s)) }",
-        "Suspend(Send { from: Name(\"basic-0\"), to: Name(\"output-1\"), msg: SendDataValue { typetag: \"u32\", value: Integer(2) }, call: None })",
-        "Input { stage: Name(\"output-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(2) } }",
-        "Resume { stage: Name(\"output-1\"), response: Unit }",
-        "Suspend(External { at_stage: Name(\"output-1\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-1\")), (Text(\"msg\"), Integer(2)), (Text(\"sender\"), Map([]))]) } } })",
-        "Resume { stage: Name(\"output-1\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
-        "State { stage: Name(\"output-1\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
-        "Suspend(Receive { at_stage: Name(\"output-1\") })",
-        "Resume { stage: Name(\"basic-0\"), response: Unit }",
-        "State { stage: Name(\"basic-0\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(2), Map([(Text(\"name\"), Text(\"output-1\"))])]) } }",
-        "Suspend(Receive { at_stage: Name(\"basic-0\") })",
-        "Input { stage: Name(\"basic-0\"), input: SendDataValue { typetag: \"u32\", value: Integer(2) } }",
-        "Resume { stage: Name(\"basic-0\"), response: Unit }",
-        "Suspend(Wait { at_stage: Name(\"basic-0\"), duration: 10s })",
+        "Resume { stage: Name(\"basic-1\"), response: WaitResponse(Instant(10s)) }",
+        "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), msg: SendDataValue { typetag: \"u32\", value: Integer(2) }, call: None })",
+        "Input { stage: Name(\"output-2\"), input: SendDataValue { typetag: \"u32\", value: Integer(2) } }",
+        "Resume { stage: Name(\"output-2\"), response: Unit }",
+        "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(2)), (Text(\"sender\"), Map([]))]) } } })",
+        "Resume { stage: Name(\"basic-1\"), response: Unit }",
+        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(2), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
+        "Suspend(Receive { at_stage: Name(\"basic-1\") })",
+        "Input { stage: Name(\"basic-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(2) } }",
+        "Resume { stage: Name(\"basic-1\"), response: Unit }",
+        "Suspend(Wait { at_stage: Name(\"basic-1\"), duration: 10s })",
+        "Resume { stage: Name(\"output-2\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
+        "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
+        "Suspend(Receive { at_stage: Name(\"output-2\") })",
         "Clock(Instant(20s))",
-        "Resume { stage: Name(\"basic-0\"), response: WaitResponse(Instant(20s)) }",
-        "Suspend(Send { from: Name(\"basic-0\"), to: Name(\"output-1\"), msg: SendDataValue { typetag: \"u32\", value: Integer(4) }, call: None })",
-        "Input { stage: Name(\"output-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(4) } }",
-        "Resume { stage: Name(\"output-1\"), response: Unit }",
-        "Suspend(External { at_stage: Name(\"output-1\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-1\")), (Text(\"msg\"), Integer(4)), (Text(\"sender\"), Map([]))]) } } })",
-        "Resume { stage: Name(\"basic-0\"), response: Unit }",
-        "State { stage: Name(\"basic-0\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(4), Map([(Text(\"name\"), Text(\"output-1\"))])]) } }",
-        "Suspend(Receive { at_stage: Name(\"basic-0\") })",
-        "Input { stage: Name(\"basic-0\"), input: SendDataValue { typetag: \"u32\", value: Integer(3) } }",
-        "Resume { stage: Name(\"basic-0\"), response: Unit }",
-        "Suspend(Wait { at_stage: Name(\"basic-0\"), duration: 10s })",
-        "Resume { stage: Name(\"output-1\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
-        "State { stage: Name(\"output-1\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
-        "Suspend(Receive { at_stage: Name(\"output-1\") })",
+        "Resume { stage: Name(\"basic-1\"), response: WaitResponse(Instant(20s)) }",
+        "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), msg: SendDataValue { typetag: \"u32\", value: Integer(4) }, call: None })",
+        "Input { stage: Name(\"output-2\"), input: SendDataValue { typetag: \"u32\", value: Integer(4) } }",
+        "Resume { stage: Name(\"output-2\"), response: Unit }",
+        "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(4)), (Text(\"sender\"), Map([]))]) } } })",
+        "Resume { stage: Name(\"basic-1\"), response: Unit }",
+        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(4), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
+        "Suspend(Receive { at_stage: Name(\"basic-1\") })",
+        "Input { stage: Name(\"basic-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(3) } }",
+        "Resume { stage: Name(\"basic-1\"), response: Unit }",
+        "Suspend(Wait { at_stage: Name(\"basic-1\"), duration: 10s })",
+        "Resume { stage: Name(\"output-2\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
+        "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
+        "Suspend(Receive { at_stage: Name(\"output-2\") })",
         "Clock(Instant(30s))",
-        "Resume { stage: Name(\"basic-0\"), response: WaitResponse(Instant(30s)) }",
-        "Suspend(Send { from: Name(\"basic-0\"), to: Name(\"output-1\"), msg: SendDataValue { typetag: \"u32\", value: Integer(7) }, call: None })",
-        "Input { stage: Name(\"output-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(7) } }",
-        "Resume { stage: Name(\"output-1\"), response: Unit }",
-        "Suspend(External { at_stage: Name(\"output-1\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-1\")), (Text(\"msg\"), Integer(7)), (Text(\"sender\"), Map([]))]) } } })",
-        "Resume { stage: Name(\"basic-0\"), response: Unit }",
-        "State { stage: Name(\"basic-0\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(7), Map([(Text(\"name\"), Text(\"output-1\"))])]) } }",
-        "Suspend(Receive { at_stage: Name(\"basic-0\") })",
-        "Resume { stage: Name(\"output-1\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
-        "State { stage: Name(\"output-1\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
-        "Suspend(Receive { at_stage: Name(\"output-1\") })",
+        "Resume { stage: Name(\"basic-1\"), response: WaitResponse(Instant(30s)) }",
+        "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), msg: SendDataValue { typetag: \"u32\", value: Integer(7) }, call: None })",
+        "Input { stage: Name(\"output-2\"), input: SendDataValue { typetag: \"u32\", value: Integer(7) } }",
+        "Resume { stage: Name(\"output-2\"), response: Unit }",
+        "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(7)), (Text(\"sender\"), Map([]))]) } } })",
+        "Resume { stage: Name(\"basic-1\"), response: Unit }",
+        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(7), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
+        "Suspend(Receive { at_stage: Name(\"basic-1\") })",
+        "Resume { stage: Name(\"output-2\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
+        "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
+        "Suspend(Receive { at_stage: Name(\"output-2\") })",
     ];
 
     pretty_assertions::assert_eq!(
@@ -178,10 +181,8 @@ fn automatic() {
 
 #[test]
 fn breakpoint() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
     let std_rng = StdRng::from_seed([0; 32]);
-    let rng = Arc::new(Mutex::new(std_rng));
-    let mut network = SimulationBuilder::default().with_rng(rng);
+    let mut network = SimulationBuilder::default().with_eval_strategy(RandStdRng(std_rng));
     let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
         state.0 += msg;
         eff.send(&state.1, state.0).await;
@@ -189,9 +190,11 @@ fn breakpoint() {
     });
     let (output, mut rx) = network.output("output", 10);
     let basic = network.wire_up(basic, State(1u32, output.clone()));
-    let mut running = network.run(rt.handle().clone());
+    let mut running = network.run();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     running.enqueue_msg(&basic, [1, 2, 3]);
+    let output2 = output.clone();
     running.breakpoint("send4", move |eff| {
         matches!(
             eff,
@@ -202,12 +205,21 @@ fn breakpoint() {
         )
     });
     running.run_until_blocked().assert_breakpoint("send4");
+    assert_eq!(
+        &rt.block_on(running.await_external_effect()).unwrap(),
+        output2.name()
+    );
+    assert_eq!(rt.block_on(running.await_external_effect()), None);
+    running.effect().assert_receive(&output2);
+    running
+        .try_effect()
+        .unwrap_err()
+        .assert_deadlock(["basic-1"]);
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 }
 
 #[test]
 fn overrides() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
     let mut network = SimulationBuilder::default();
     let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
         state.0 += msg;
@@ -216,7 +228,8 @@ fn overrides() {
     });
     let (output, mut rx) = network.output("output", 10);
     let basic = network.wire_up(basic, State(1u32, output.clone()));
-    let mut running = network.run(rt.handle().clone());
+    let mut running = network.run();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     let count = Arc::new(AtomicUsize::new(0));
     let count2 = count.clone();
@@ -229,7 +242,9 @@ fn overrides() {
             OverrideResult::NoMatch(eff)
         }
     });
-    running.run_until_blocked().assert_idle();
+    running
+        .run_until_blocked_incl_effects(rt.handle())
+        .assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 7]);
     assert_eq!(count.load(Ordering::Relaxed), 1);
 }
@@ -260,14 +275,19 @@ fn backpressure() {
     let sender = network.wire_up(sender, pressure.sender());
     let pressure = network.wire_up(pressure, 1u32);
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let mut running = network.run(rt.handle().clone());
+    let mut running = network.run();
 
-    running.enqueue_msg(&sender, [1, 2, 3]);
+    running.enqueue_msg(&sender, [1]);
     running.breakpoint("pressure", {
         let pressure = pressure.clone();
         move |eff| matches!(eff, Effect::Clock { at_stage: a } if a == pressure.name())
     });
+
+    let sender_name = sender.name().clone();
+    running.breakpoint(
+        "send",
+        move |eff| matches!(eff, Effect::Receive { at_stage } if *at_stage == sender_name),
+    );
 
     let broken = running.run_until_blocked().assert_breakpoint("pressure");
     assert_eq!(
@@ -277,11 +297,23 @@ fn backpressure() {
         }
     );
 
-    running.run_until_blocked().assert_busy([pressure.name()]);
+    running.run_until_blocked().assert_breakpoint("send");
+    running.enqueue_msg(&sender, [2]);
+    running.resume_receive(&sender).unwrap();
 
+    running.run_until_blocked().assert_breakpoint("send");
+    running.enqueue_msg(&sender, [3]);
+    running.resume_receive(&sender).unwrap();
+
+    // backpressure is here: "send" breakpoint is not yet hit because waiting to send to `pressure`
+    running.run_until_blocked().assert_busy([pressure.name()]);
     running.handle_effect(broken);
+
     running.clear_breakpoint("pressure");
+
+    running.run_until_blocked().assert_breakpoint("send");
     running.run_until_blocked().assert_idle();
+
     assert_eq!(*running.get_state(&pressure).unwrap(), 7);
 }
 
@@ -300,8 +332,7 @@ fn clock() {
         State2::Full(msg, now, later)
     });
     let basic = network.wire_up(basic, State2::Empty);
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let mut running = network.run(rt.handle().clone());
+    let mut running = network.run();
 
     running.enqueue_msg(&basic, [42]);
     let now = running.now();
@@ -329,8 +360,7 @@ fn clock_manual() {
         State2::Full(msg, now, later)
     });
     let stage = network.wire_up(stage, State2::Empty);
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let mut running = network.run(rt.handle().clone());
+    let mut running = network.run();
 
     running.enqueue_msg(&stage, [42]);
     let now = running.now();
@@ -373,7 +403,11 @@ fn call() {
         .try_init()
         .ok();
 
-    let mut network = SimulationBuilder::default();
+    let _guard = pure_stage::register_data_deserializer::<Msg3>();
+    let trace_buffer = TraceBuffer::new_shared(1, 1000000);
+    let guard = TraceBuffer::drop_guard(&trace_buffer);
+
+    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
     let caller = network.stage("caller", async |mut state: State3, msg: u32, eff| {
         state.0 = eff
             .call(&state.1, Duration::from_secs(2), move |cr| {
@@ -393,8 +427,7 @@ fn call() {
     let caller = network.wire_up(caller, State3(1u32, callee.sender()));
     let callee = network.wire_up(callee, ());
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let mut sim = network.run(rt.handle().clone());
+    let mut sim = network.run();
 
     sim.enqueue_msg(&caller, [1]);
     sim.run_until_blocked().assert_idle();
@@ -411,9 +444,12 @@ fn call() {
     );
 
     let cr2 = cr.dummy();
-    sim.resume_send(&caller, &callee, Msg3(msg, cr)).unwrap();
+    sim.resume_send(&caller, &callee, Some(Msg3(msg, cr)))
+        .unwrap();
     // still not runnable, now waiting for response
-    sim.try_effect().unwrap_err().assert_busy([caller.name()]);
+    sim.try_effect()
+        .unwrap_err()
+        .assert_sleeping_until(Instant::at_offset(Duration::from_secs(3)));
 
     sim.resume_receive(&callee).unwrap();
     sim.effect().assert_wait(&callee, Duration::from_secs(1));
@@ -424,11 +460,16 @@ fn call() {
     // the processing above has already dealt with sending the response, which has resumed the caller
     sim.effect().assert_receive(&caller);
     assert_eq!(sim.get_state(&caller).unwrap().0, 7);
+
+    guard.defuse();
 }
 
 #[test]
 fn call_timeout_terminates_graph() {
-    let mut network = SimulationBuilder::default();
+    let _guard = pure_stage::register_data_deserializer::<Msg3>();
+    let trace_buffer = TraceBuffer::new_shared(1, 1000000);
+    let guard = TraceBuffer::drop_guard(&trace_buffer);
+    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
 
     // caller times out quickly; callee sleeps longer -> triggers terminate
     let caller = network.stage("caller", async |state: State3, msg: u32, eff| {
@@ -451,8 +492,7 @@ fn call_timeout_terminates_graph() {
     let caller = network.wire_up(caller, State3(0u32, callee.sender()));
     network.wire_up(callee, ());
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let mut sim = network.run(rt.handle().clone());
+    let mut sim = network.run();
 
     sim.enqueue_msg(&caller, [1]);
     // Run until blocked, then assert termination flips true
@@ -462,11 +502,235 @@ fn call_timeout_terminates_graph() {
         Poll::Pending
     );
 
-    sim.run_until_blocked(); // drive effects
+    sim.run_until_blocked().assert_terminated(caller.name()); // drive effects
 
     assert!(sim.is_terminated(), "simulation should report terminated");
     assert_eq!(
         term.as_mut().poll(&mut Context::from_waker(Waker::noop())),
         Poll::Ready(())
+    );
+
+    guard.defuse();
+}
+
+#[test]
+fn create_stage_within_stage() {
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct ParentState {
+        child_ref: Option<StageRef<u32>>,
+        output: StageRef<u32>,
+    }
+
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct ChildState {
+        value: u32,
+        output: StageRef<u32>,
+    }
+
+    let trace_buffer = TraceBuffer::new_shared(1, 1000000);
+    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
+
+    // Parent stage that creates a child stage
+    let parent = network.stage("parent", async |mut state: ParentState, msg: u32, eff| {
+        if state.child_ref.is_none() {
+            // Create a child stage within the parent stage
+            let child = eff
+                .stage("child", async |mut state: ChildState, msg: u32, eff| {
+                    state.value += msg;
+                    eff.send(&state.output, state.value).await;
+                    state
+                })
+                .await;
+
+            // Wire up the child stage with initial state that includes the output reference
+            let child_ref = eff
+                .wire_up(
+                    child,
+                    ChildState {
+                        value: 0u32,
+                        output: state.output.clone(),
+                    },
+                )
+                .await;
+            state.child_ref = Some(child_ref);
+        }
+
+        // Send a message to the child stage
+        if let Some(ref child) = state.child_ref {
+            eff.send(child, msg).await;
+        }
+
+        state
+    });
+
+    let (output, mut rx) = network.output("output", 10);
+    let parent = network.wire_up(
+        parent,
+        ParentState {
+            child_ref: None,
+            output: output.clone(),
+        },
+    );
+    let mut running = network.run();
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    // Initially, parent is waiting for Receive
+    running.try_effect().unwrap_err().assert_idle();
+
+    // Send a message to the parent to trigger child stage creation
+    running.enqueue_msg(&parent, [42]);
+    running.resume_receive(&parent).unwrap();
+
+    // Assert that AddStage effect is emitted
+    let add_stage_effect = running.effect();
+    add_stage_effect.assert_add_stage(&parent, "child");
+    let child_ref = StageRef::named_for_tests("child-12");
+
+    running
+        .resume_add_stage(&parent, child_ref.name().clone())
+        .unwrap();
+
+    // Assert that WireStage effect is emitted
+    let wire_stage_effect = running.effect();
+    wire_stage_effect.assert_wire_stage(
+        &parent,
+        "child-12",
+        ChildState {
+            value: 0u32,
+            output: output.clone(),
+        },
+    );
+
+    // Resume the WireStage effect with the child's initial state
+    running.handle_effect(wire_stage_effect);
+
+    // Now the parent should send a message to the child
+    let send_effect = running.effect();
+    send_effect.assert_send(&parent, &child_ref, 42u32);
+    running.handle_effect(send_effect);
+
+    // The child should send a message to the output (as per its transition function)
+    let child_send_effect = running.effect();
+    child_send_effect.assert_send(&child_ref, &output, 42u32);
+    running.handle_effect(child_send_effect);
+
+    running.effect().assert_receive(&parent);
+
+    let external_effect = running.effect();
+    external_effect.assert_external(&output, &OutputEffect::fake(output.name().clone(), 42u32).0);
+    running.handle_effect(external_effect);
+
+    running.effect().assert_receive(&child_ref);
+    running
+        .try_effect()
+        .unwrap_err()
+        .assert_busy(["output-2"])
+        .assert_external_effects(1);
+    assert_eq!(
+        &rt.block_on(running.await_external_effect()).unwrap(),
+        output.name()
+    );
+    running.effect().assert_receive(&output);
+
+    // Verify output received the message from the child stage
+    assert_eq!(rx.drain().collect::<Vec<_>>(), vec![42]);
+
+    // verify trace buffer
+    pretty_assertions::assert_eq!(
+        trace_buffer.lock().hydrate_without_timestamps(),
+        vec![
+            TraceEntry::state(
+                "output-2",
+                SendDataValue::from_json(
+                    "pure_stage::types::MpscSender<u32>",
+                    BTreeMap::<u8, u8>::new()
+                )
+            ),
+            TraceEntry::state(
+                parent.name(),
+                SendDataValue::boxed(&ParentState {
+                    child_ref: None,
+                    output: output.clone()
+                })
+            ),
+            TraceEntry::input(parent.name(), SendDataValue::boxed(&42u32)),
+            TraceEntry::resume(parent.name(), StageResponse::Unit),
+            TraceEntry::suspend(Effect::AddStage {
+                at_stage: parent.name().clone(),
+                name: Name::from("child")
+            }),
+            TraceEntry::resume(
+                parent.name(),
+                StageResponse::AddStageResponse(child_ref.name().clone())
+            ),
+            TraceEntry::suspend(Effect::WireStage {
+                at_stage: parent.name().clone(),
+                name: child_ref.name().clone(),
+                initial_state: SendDataValue::boxed(&ChildState {
+                    value: 0u32,
+                    output: output.clone()
+                })
+            }),
+            TraceEntry::resume(parent.name(), StageResponse::Unit),
+            TraceEntry::suspend(Effect::Send {
+                from: parent.name().clone(),
+                to: child_ref.name().clone(),
+                msg: SendDataValue::boxed(&42u32),
+                call: None
+            }),
+            TraceEntry::input(child_ref.name(), SendDataValue::boxed(&42u32)),
+            TraceEntry::resume(child_ref.name(), StageResponse::Unit),
+            TraceEntry::suspend(Effect::Send {
+                from: child_ref.name().clone(),
+                to: output.name().clone(),
+                msg: SendDataValue::boxed(&42u32),
+                call: None
+            }),
+            TraceEntry::input(output.name(), SendDataValue::boxed(&42u32)),
+            TraceEntry::resume(parent.name(), StageResponse::Unit),
+            TraceEntry::state(
+                parent.name(),
+                SendDataValue::boxed(&ParentState {
+                    child_ref: Some(child_ref.clone()),
+                    output: output.clone()
+                })
+            ),
+            TraceEntry::suspend(Effect::Receive {
+                at_stage: parent.name().clone()
+            }),
+            TraceEntry::resume(output.name(), StageResponse::Unit),
+            TraceEntry::suspend(Effect::External {
+                at_stage: output.name().clone(),
+                effect: UnknownExternalEffect::boxed(
+                    &OutputEffect::fake(output.name().clone(), 42u32).0
+                )
+            }),
+            TraceEntry::resume(child_ref.name(), StageResponse::Unit),
+            TraceEntry::state(
+                child_ref.name(),
+                SendDataValue::boxed(&ChildState {
+                    value: 42u32,
+                    output: output.clone()
+                })
+            ),
+            TraceEntry::suspend(Effect::Receive {
+                at_stage: child_ref.name().clone()
+            }),
+            TraceEntry::resume(
+                output.name(),
+                StageResponse::ExternalResponse(SendDataValue::boxed(&()))
+            ),
+            TraceEntry::state(
+                output.name(),
+                SendDataValue::from_json(
+                    "pure_stage::types::MpscSender<u32>",
+                    BTreeMap::<u8, u8>::new()
+                )
+            ),
+            TraceEntry::suspend(Effect::Receive {
+                at_stage: output.name().clone()
+            }),
+        ]
     );
 }

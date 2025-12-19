@@ -21,7 +21,7 @@ use std::fmt::Debug;
 // try throwing away half of the input, but if that fails it will throw away smaller and smaller
 // parts until it finds the smallest counter example.
 pub fn shrink<A: Debug + Clone, B: Debug>(
-    test: impl Fn(&[A]) -> B,
+    test: &mut dyn FnMut(&[A]) -> B,
     mut input: Vec<A>,
     error_predicate: impl Fn(&B) -> bool,
 ) -> (Vec<A>, B, u32) {
@@ -80,7 +80,7 @@ mod test {
     fn test_shrink_failing() {
         let failing_input = vec![1, 2, 3, 42, 5, 6];
 
-        let test = |input: &[u8]| {
+        let mut test = |input: &[u8]| {
             // println!("input: {:?}", input);
             // input: [1, 2, 3, 42, 5, 6]
             // input: [42, 5, 6]
@@ -97,7 +97,7 @@ mod test {
         };
 
         assert_eq!(
-            shrink(test, failing_input, |err| *err
+            shrink(&mut test, failing_input, |err| *err
                 == Err("Found 42".to_string())),
             (vec![42], Err("Found 42".to_string()), 3)
         );
@@ -107,7 +107,7 @@ mod test {
     fn test_shrink_unresolved() {
         let failing_input = vec![1, 2, 3, 42, 5, 6];
 
-        let test = |input: &[u8]| {
+        let mut test = |input: &[u8]| {
             // println!("input: {:?}", input);
             // input: [1, 2, 3, 42, 5, 6]
             // input: [42, 5, 6]  <-- NOTE: This will return a different error message than the one
@@ -131,7 +131,7 @@ mod test {
         };
 
         assert_eq!(
-            shrink(test, failing_input, |err| *err
+            shrink(&mut test, failing_input, |err| *err
                 == Err("Found 42".to_string())),
             (vec![42], Err("Found 42".to_string()), 4)
         )
@@ -144,7 +144,7 @@ mod test {
     fn test_shrink_passing() {
         let failing_input = vec![1, 2, 3];
 
-        let test = |input: &[u8]| {
+        let mut test = |input: &[u8]| {
             if input.contains(&4) {
                 Err("Found 4".to_string())
             } else {
@@ -152,7 +152,7 @@ mod test {
             }
         };
         assert_eq!(
-            shrink(test, failing_input, |err| *err
+            shrink(&mut test, failing_input, |err| *err
                 == Err("Found 4".to_string())),
             (vec![4], Err("Found 4".to_string()), 0)
         )

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::default_chain_dir;
+use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_consensus::{DiagnosticChainStore, ReadOnlyChainStore};
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::string_utils::ListToString;
@@ -35,7 +35,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -53,7 +53,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
           "Running command dump-chain-db",
     );
 
-    let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(RocksDbConfig::new(chain_dir))?;
+    info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(),
+          "Running command dump-chain-db",
+    );
+
+    let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
 
     print_iterator(
         "headers",

@@ -210,7 +210,7 @@ pub(crate) async fn import_nonces(
     chain_db_path: &PathBuf,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
-    let db = Box::new(RocksDBStore::open_and_migrate(RocksDbConfig::new(
+    let db = Box::new(RocksDBStore::open_and_migrate(&RocksDbConfig::new(
         chain_db_path.into(),
     ))?) as Box<dyn ChainStore<BlockHeader>>;
 
@@ -253,7 +253,7 @@ pub async fn import_headers_for_network(
     chain_dir: &PathBuf,
     headers: Vec<Vec<u8>>,
 ) -> Result<(), Box<dyn Error>> {
-    let db = RocksDBStore::open_and_migrate(RocksDbConfig::new(chain_dir.into()))?;
+    let db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.into()))?;
 
     for header in headers {
         let block_header: BlockHeader = from_cbor(&header).unwrap();
@@ -342,7 +342,7 @@ pub async fn import_snapshot(
         std::fs::remove_dir_all(ledger_dir.join("live"))?;
     }
 
-    let db = RocksDB::empty(RocksDbConfig::new(ledger_dir.into()))?;
+    let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.into()))?;
     let mut file = std::fs::File::open(snapshot)?;
     let dir = snapshot
         .parent()

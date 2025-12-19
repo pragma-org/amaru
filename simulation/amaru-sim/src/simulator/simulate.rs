@@ -34,6 +34,7 @@ use amaru_consensus::consensus::headers_tree::data_generation::{Action, Generate
 use amaru_kernel::string_utils::ListToString;
 use anyhow::anyhow;
 use parking_lot::Mutex;
+use pure_stage::simulation::RandStdRng;
 use pure_stage::trace_buffer::TraceBuffer;
 use rand::{SeedableRng, rngs::StdRng};
 use serde::Serialize;
@@ -59,16 +60,16 @@ pub fn simulate<F>(
     simulate_config: &SimulateConfig,
     node_config: &NodeConfig,
     spawn: F,
-    generator: impl Fn(Arc<Mutex<StdRng>>) -> GeneratedEntries<ChainSyncMessage, GeneratedActions>,
+    generator: impl Fn(RandStdRng) -> GeneratedEntries<ChainSyncMessage, GeneratedActions>,
     property: impl Fn(&History<ChainSyncMessage>, &GeneratedActions) -> Result<(), String>,
     display_test_stats: impl Fn(&GeneratedActions),
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     persist_on_success: bool,
 ) -> anyhow::Result<()>
 where
-    F: Fn(String, Arc<Mutex<StdRng>>) -> NodeHandle<ChainSyncMessage>,
+    F: Fn(String, RandStdRng) -> NodeHandle<ChainSyncMessage>,
 {
-    let rng = Arc::new(Mutex::new(StdRng::seed_from_u64(simulate_config.seed)));
+    let mut rng = RandStdRng(StdRng::seed_from_u64(simulate_config.seed));
     info!(seed=%simulate_config.seed, "simulate.start");
     let tests_dir = simulate_config.persist_directory.as_path();
     if !tests_dir.exists() {
@@ -100,7 +101,7 @@ where
             test_number, total=%simulate_config.number_of_tests,
             "simulate.generate_test_data"
         );
-        let generated_entries = generator(rng.clone());
+        let generated_entries = generator(rng.derive());
         let generation_context = generated_entries.generation_context();
         display_test_stats(generation_context);
 
@@ -108,7 +109,7 @@ where
             simulate_config,
             &spawn,
             &property,
-            rng.clone(),
+            rng.derive(),
             test_number,
             &generated_entries,
         ) {
@@ -150,16 +151,16 @@ pub fn run_test<Msg, GenerationContext, F>(
     simulate_config: &SimulateConfig,
     spawn: &F,
     property: &impl Fn(&History<Msg>, &GenerationContext) -> Result<(), String>,
-    rng: Arc<Mutex<StdRng>>,
+    mut rng: RandStdRng,
     test_number: u32,
     generated_entries: &GeneratedEntries<Msg, GenerationContext>,
 ) -> Result<(), String>
 where
     Msg: Debug + PartialEq + Clone + Serialize + Display,
-    F: Fn(String, Arc<Mutex<StdRng>>) -> NodeHandle<Msg>,
+    F: Fn(String, RandStdRng) -> NodeHandle<Msg>,
 {
-    let test = test_nodes(
-        rng.clone(),
+    let mut test = test_nodes(
+        rng.derive(),
         simulate_config.number_of_nodes,
         &spawn,
         generated_entries.generation_context(),
@@ -181,7 +182,7 @@ where
                 )
             } else {
                 let (_shrunk_entries, (shrunk_history, result), number_of_shrinks) =
-                    shrink(test, entries.clone(), |result| {
+                    shrink(&mut test, entries.clone(), |result| {
                         result.1 == Err(reason.clone())
                     });
                 assert_eq!(Err(reason.clone()), result);
@@ -201,22 +202,22 @@ where
 
 /// Spawn a given number of nodes, run the simulation and check the property.
 fn test_nodes<Msg, GenerationContext, F>(
-    rng: Arc<Mutex<StdRng>>,
+    mut rng: RandStdRng,
     number_of_nodes: u8,
     spawn: F,
     generation_context: &GenerationContext,
     property: impl Fn(&History<Msg>, &GenerationContext) -> Result<(), String>,
-) -> impl Fn(&[Entry<Msg>]) -> (History<Msg>, Result<(), String>)
+) -> impl FnMut(&[Entry<Msg>]) -> (History<Msg>, Result<(), String>)
 where
     Msg: Debug + PartialEq + Clone + Display,
-    F: Fn(String, Arc<Mutex<StdRng>>) -> NodeHandle<Msg>,
+    F: Fn(String, RandStdRng) -> NodeHandle<Msg>,
 {
     move |entries| {
-        let rng_clone = rng.clone();
+        let mut rng_clone = rng.derive();
         let node_handles: Vec<_> = (1..=number_of_nodes)
             .map(|i| {
                 let node_id = format!("n{}", i);
-                (node_id.clone(), spawn(node_id, rng_clone.clone()))
+                (node_id.clone(), spawn(node_id, rng_clone.derive()))
             })
             .collect();
 
@@ -343,7 +344,7 @@ fn persist_traces_as_json(
     let traces = trace_buffer.lock().hydrate();
     let traces = traces
         .iter()
-        .map(|trace| trace.to_json())
+        .map(|trace| trace.1.to_json())
         .collect::<Vec<_>>();
     file.write_all(serde_json::to_string_pretty(&serde_json::json!(traces))?.as_bytes())?;
     Ok(())

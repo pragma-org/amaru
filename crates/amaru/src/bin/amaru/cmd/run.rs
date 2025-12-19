@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::metrics::track_system_metrics;
 use crate::pid::with_optional_pid_file;
+use amaru::metrics::track_system_metrics;
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, build_and_run_network};
-use amaru::{default_chain_dir, default_ledger_dir};
+use amaru::{
+    DEFAULT_LISTEN_ADDRESS, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, default_chain_dir,
+    default_ledger_dir,
+};
 use amaru_kernel::network::NetworkName;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
@@ -30,7 +33,7 @@ pub struct Args {
     ///
     /// This option can be specified multiple times to connect to multiple peers.
     /// At least one peer address must be specified.
-    #[arg(long, value_name = "NETWORK_ADDRESS", default_value = super::DEFAULT_PEER_ADDRESS, env = "AMARU_PEER_ADDRESS",
+    #[arg(long, value_name = "NETWORK_ADDRESS", default_value = DEFAULT_PEER_ADDRESS, env = "AMARU_PEER_ADDRESS",
         action = ArgAction::Append, required = true, value_delimiter = ',')]
     peer_address: Vec<String>,
 
@@ -42,7 +45,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -55,7 +58,7 @@ pub struct Args {
     chain_dir: Option<PathBuf>,
 
     /// The address to listen on for incoming connections.
-    #[arg(long, value_name = "NETWORK_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS
+    #[arg(long, value_name = "NETWORK_ADDRESS", env = "AMARU_LISTEN_ADDRESS", default_value = DEFAULT_LISTEN_ADDRESS
     )]
     listen_address: String,
 

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru::{
+    DEFAULT_NETWORK,
     bootstrap::{ImportError, import_snapshots, import_snapshots_from_directory},
     default_ledger_dir,
 };
@@ -53,7 +54,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }

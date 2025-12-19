@@ -134,9 +134,9 @@ mod tests {
     // HELPERS
 
     fn make_state() -> State {
-        let downstream: StageRef<ValidateBlockEvent> = StageRef::named("downstream");
-        let failures: StageRef<ValidationFailed> = StageRef::named("failures");
-        let errors: StageRef<ProcessingFailed> = StageRef::named("errors");
+        let downstream: StageRef<ValidateBlockEvent> = StageRef::named_for_tests("downstream");
+        let failures: StageRef<ValidationFailed> = StageRef::named_for_tests("failures");
+        let errors: StageRef<ProcessingFailed> = StageRef::named_for_tests("errors");
         (downstream, failures, errors)
     }
 }

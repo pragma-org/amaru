@@ -18,9 +18,22 @@ use std::{error::Error, path::PathBuf};
 
 pub mod bootstrap;
 pub mod exit;
+pub mod metrics;
 pub mod observability;
+pub mod panic;
 pub mod point;
 pub mod stages;
+
+pub const SNAPSHOTS_DIR: &str = "snapshots";
+
+pub const DEFAULT_NETWORK: NetworkName = NetworkName::Preprod;
+
+pub const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:3001";
+
+/// Default address to listen on for incoming connections.
+pub const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
+
+pub const DEFAULT_CONFIG_DIR: &str = "data";
 
 const SNAPSHOTS_PATH: &str = "snapshots";
 const BOOTSTRAP_PATH: &str = "crates/amaru/config/bootstrap";
@@ -40,6 +53,14 @@ pub fn bootstrap_config_dir(network: NetworkName) -> PathBuf {
 
 pub fn default_snapshots_dir(network: NetworkName) -> String {
     format!("{}/{}", SNAPSHOTS_PATH, network)
+}
+
+pub fn default_data_dir(network: NetworkName) -> String {
+    format!(
+        "{}/{}",
+        DEFAULT_CONFIG_DIR,
+        network.to_string().to_lowercase()
+    )
 }
 
 pub fn get_bootstrap_file(

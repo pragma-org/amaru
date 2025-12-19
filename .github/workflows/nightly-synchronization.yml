@@ -24,16 +24,10 @@ jobs:
 
     - uses: actions/checkout@v4
 
-    - id: timestamp
-      shell: bash
-      run: |
-        echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-
-    - id: cache
-      uses: actions/cache@v4
+    - uses: buildjet/cache/restore@v4
       with:
         path: ${{ runner.temp }}/db-${{ matrix.network }}
-        key: cardano-node-ogmios-${{ matrix.network }}-${{ steps.timestamp.outputs.value }}
+        key: cardano-node-ogmios-${{ matrix.network }}
         restore-keys: |
           cardano-node-ogmios-${{ matrix.network }}
 
@@ -46,8 +40,13 @@ jobs:
 
     # Remove old immutable chunks from the database, we don't need them and they make cache & on-disk system larger.
     - name: prune node db
-      if: steps.cache.outputs.cache-hit == 'false'
       shell: bash
       working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
       run: |
+        sudo chown -R $(whoami):$(whoami) immutable
         ls immutable/*.chunk | sort | head -n -2500 | xargs -r rm -f --
+
+    - uses: buildjet/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/db-${{ matrix.network }}
+        key: cardano-node-ogmios-${{ matrix.network }}

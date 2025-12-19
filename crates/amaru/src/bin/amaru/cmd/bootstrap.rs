@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::{bootstrap::bootstrap, default_chain_dir, default_ledger_dir, default_snapshots_dir};
+use amaru::{
+    DEFAULT_NETWORK, bootstrap::bootstrap, default_chain_dir, default_ledger_dir,
+    default_snapshots_dir,
+};
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
 use std::{error::Error, fs::remove_dir_all, path::PathBuf};
@@ -36,7 +39,7 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         env = "AMARU_NETWORK",
-        default_value_t = super::DEFAULT_NETWORK,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 

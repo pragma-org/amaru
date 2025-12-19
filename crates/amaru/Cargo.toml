@@ -13,6 +13,15 @@ documentation.workspace = true
 rust-version.workspace = true
 build = "build.rs"
 include = ["src/**/*", "config/**", "Cargo.toml"]
+default-run = "amaru"
+
+[[bin]]
+name = "amaru"
+path = "src/bin/amaru/main.rs"
+
+[[bin]]
+name = "amaru-ledger"
+path = "src/bin/ledger/main.rs"
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -21,18 +30,23 @@ anyhow.workspace = true
 async-compression.workspace = true
 async-trait.workspace = true
 clap.workspace = true
+flate2.workspace = true
 futures-util.workspace = true
 hex.workspace = true
+indicatif.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
+mithril-client.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
+pallas-hardano.workspace = true
 pallas-network.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sysinfo.workspace = true
+tar.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [
   "fs",

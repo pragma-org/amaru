@@ -21,10 +21,15 @@
 
 mod blocked;
 mod inputs;
+mod random;
 mod replay;
 mod resume;
 pub mod running;
 pub mod simulation_builder;
 mod state;
 
+pub use blocked::{Blocked, SendBlock};
+pub use random::{EvalStrategy, Fifo, RandStdRng};
+pub use running::SimulationRunning;
 pub use simulation_builder::SimulationBuilder;
+pub use state::Transition;

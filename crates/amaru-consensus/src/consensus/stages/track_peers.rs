@@ -172,7 +172,7 @@ mod tests {
         let bob = Peer::new("bob");
         let peers = vec![alice.clone(), bob.clone()];
         let tracker = SyncTracker::new(&peers);
-        let downstream: StageRef<DecodedChainSyncEvent> = StageRef::named("downstream");
+        let downstream: StageRef<DecodedChainSyncEvent> = StageRef::named_for_tests("downstream");
         (tracker, downstream)
     }
 }

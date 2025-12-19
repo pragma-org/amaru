@@ -140,6 +140,8 @@ pub mod proposal_pointer;
 pub use proposal_state::*;
 pub mod proposal_state;
 
+pub mod protocol_messages;
+
 pub mod protocol_parameters;
 
 pub use protocol_parameters_update::*;
