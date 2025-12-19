@@ -44,6 +44,7 @@ use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use anyhow::{Context, anyhow};
+use futures::{FutureExt, StreamExt};
 use std::{
     borrow::Cow,
     cmp::max,
@@ -972,6 +973,89 @@ pub fn tick_proposals<'store>(
             }
         }
     })?;
+
+    if still_active == 0 {
+        let mut governance_activity = db.governance_activity()?;
+        governance_activity.consecutive_dormant_epochs += 1;
+        db.set_governance_activity(&governance_activity)?;
+    }
+
+    refund_many(db, refunds.into_iter())?;
+
+    Ok(ctx.protocol_parameters)
+}
+
+/// An example re-implementation of `tick_proposals` which depends on the new `modify_proposals`
+/// instead of the usual `with_proposals`. This shows that we can
+/// 1. Allow async retrieval
+/// 2. Allow aggregation outside of the stream without Arc<Mutex> and
+/// 3. Allow async calls within the stream
+/// 4. Maintain implicit save / commit and rollback
+#[instrument(
+    level = Level::INFO,
+    name = "tick.proposals",
+    skip_all,
+    fields(
+        proposals.count = proposals.len(),
+    ),
+)]
+pub async fn tick_proposals2<'store>(
+    db: &impl TransactionalContext<'store>,
+    epoch: Epoch,
+    era_history: &EraHistory,
+    ctx: RatificationContext<'_>,
+    proposals: Vec<(ComparableProposalId, proposals::Row)>,
+    roots: ProposalsRoots,
+) -> Result<ProtocolParameters, StateError> {
+    let RatificationResult {
+        context: ctx,
+        store_updates,
+        pruned_proposals,
+    } = ctx
+        .ratify_proposals(era_history, proposals, ProposalsRootsRc::from(roots))
+        .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
+
+    store_updates
+        .into_iter()
+        .try_for_each(|apply_changes| apply_changes(db, &ctx))?;
+
+    // The closure returns the calculations
+    let (refunds, still_active) = db
+        .modify_proposals(move |db_ref, mut stream| {
+            async move {
+                // No Arc or Mutex or clone for aggregation across awaits
+                let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
+                let mut still_active = 0;
+
+                // The caller drives the iteration and gets flexibility to short-circuit / break early
+                // and we keep the implicit atomic buffer write
+                while let Some((key, mut item_proxy)) = stream.next().await {
+                    // This is not a real call, it's for illustraion purposes only
+                    // that we can make async calls within the stream
+                    let _ = db_ref.get_votes_for(&key).await?;
+
+                    let item = item_proxy.borrow_mut();
+
+                    if let Some(row) = item {
+                        if epoch == row.valid_until + 2 || pruned_proposals.contains(&key) {
+                            let stake_key = expect_stake_credential(&row.proposal.reward_account);
+                            refunds
+                                .entry(stake_key)
+                                .and_modify(|entry| *entry += row.proposal.deposit)
+                                .or_insert_with(|| row.proposal.deposit);
+
+                            *item = None;
+                        } else if epoch <= row.valid_until {
+                            still_active += 1;
+                        }
+                    }
+                }
+
+                Ok((refunds, still_active))
+            }
+            .boxed_local()
+        })
+        .await?;
 
     if still_active == 0 {
         let mut governance_activity = db.governance_activity()?;
