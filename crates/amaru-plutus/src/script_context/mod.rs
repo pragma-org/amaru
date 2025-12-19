@@ -441,24 +441,17 @@ impl<'a> ScriptPurpose<'a> {
                     ScriptPurpose::Minting(policy_id)
                 })
             }),
-            RedeemerTag::Reward => {
-                withdrawals
-                    .0
-                    .keys()
-                    .nth(index)
-                    .and_then(|stake| match stake.0.payload() {
-                        StakePayload::Stake(hash) => Some(ScriptPurpose::Rewarding(
-                            StakeCredential::AddrKeyhash(*hash),
-                        )),
-                        StakePayload::Script(hash) => {
-                            let script = scripts.get(hash);
-                            script.map(|script| {
-                                script_table.insert(redeemer.clone(), script.clone());
-                                ScriptPurpose::Rewarding(StakeCredential::ScriptHash(*hash))
-                            })
-                        }
+            RedeemerTag::Reward => withdrawals.0.keys().nth(index).and_then(|stake| {
+                if let StakePayload::Script(hash) = stake.0.payload() {
+                    let script = scripts.get(hash);
+                    script.map(|script| {
+                        script_table.insert(redeemer.clone(), script.clone());
+                        ScriptPurpose::Rewarding(StakeCredential::ScriptHash(*hash))
                     })
-            }
+                } else {
+                    None
+                }
+            }),
             RedeemerTag::Cert => certs.get(index).and_then(|certificate| {
                 if let Some(StakeCredential::ScriptHash(hash)) = certificate.credential() {
                     let script = scripts.get(&hash);
