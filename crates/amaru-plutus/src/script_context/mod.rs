@@ -238,7 +238,7 @@ impl<'a> TxInfo<'a> {
             .map(|set| {
                 set.iter()
                     .map(|certificate| Certificate {
-                        protocol_version: protocol_version,
+                        protocol_version,
                         certificate,
                     })
                     .collect()
@@ -427,7 +427,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let Some(StakeCredential::ScriptHash(hash)) = output.address.credential() {
                     let script = scripts.get(&hash);
                     script.map(|script| {
-                        script_table.insert(redeemer.clone().into(), script.clone());
+                        script_table.insert(redeemer.clone(), script.clone());
                         ScriptPurpose::Spending(input, ())
                     })
                 } else {
@@ -437,7 +437,7 @@ impl<'a> ScriptPurpose<'a> {
             RedeemerTag::Mint => mint.0.keys().nth(index).copied().and_then(|policy_id| {
                 let script = scripts.get(&policy_id);
                 script.map(|script| {
-                    script_table.insert(redeemer.clone().into(), script.clone());
+                    script_table.insert(redeemer.clone(), script.clone());
                     ScriptPurpose::Minting(policy_id)
                 })
             }),
@@ -453,7 +453,7 @@ impl<'a> ScriptPurpose<'a> {
                         StakePayload::Script(hash) => {
                             let script = scripts.get(hash);
                             script.map(|script| {
-                                script_table.insert(redeemer.clone().into(), script.clone());
+                                script_table.insert(redeemer.clone(), script.clone());
                                 ScriptPurpose::Rewarding(StakeCredential::ScriptHash(*hash))
                             })
                         }
@@ -463,7 +463,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let Some(StakeCredential::ScriptHash(hash)) = certificate.credential() {
                     let script = scripts.get(&hash);
                     script.map(|script| {
-                        script_table.insert(redeemer.clone().into(), script.clone());
+                        script_table.insert(redeemer.clone(), script.clone());
                         ScriptPurpose::Certifying(index, certificate.clone())
                     })
                 } else {
@@ -474,7 +474,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let Some(StakeCredential::ScriptHash(hash)) = voter.credential() {
                     let script = scripts.get(&hash);
                     script.map(|script| {
-                        script_table.insert(redeemer.clone().into(), script.clone());
+                        script_table.insert(redeemer.clone(), script.clone());
                         ScriptPurpose::Voting(voter)
                     })
                 } else {
@@ -504,7 +504,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let Some(hash) = script_hash {
                     let script = scripts.get(&hash);
                     script.map(|script| {
-                        script_table.insert(redeemer.clone().into(), script.clone());
+                        script_table.insert(redeemer.clone(), script.clone());
                         ScriptPurpose::Proposing(index, proposal)
                     })
                 } else {
