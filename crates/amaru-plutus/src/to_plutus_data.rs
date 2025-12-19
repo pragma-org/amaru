@@ -115,6 +115,7 @@ where
 impl<const V: u8> ToPlutusData<V> for Address
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
+    amaru_kernel::StakeAddress: ToPlutusData<V>,
 {
     /// In all Plutus v1 and v2 and v3 encodings, Byron addresses are not possible encodings.
     ///
@@ -155,22 +156,10 @@ where
 
                 constr!(0, [payment_part_plutus_data, stake_part_plutus_data])
             }
-            // This is horrible, but it works for now. Need to figure out a cleaner solution
-            Address::Stake(stake_address) => match V {
-                1 => {
-                    <amaru_kernel::StakeAddress as ToPlutusData<1>>::to_plutus_data(stake_address)?
-                        .to_plutus_data()
-                }
-                2 => {
-                    <amaru_kernel::StakeAddress as ToPlutusData<2>>::to_plutus_data(stake_address)?
-                        .to_plutus_data()
-                }
-                3 => {
-                    <amaru_kernel::StakeAddress as ToPlutusData<3>>::to_plutus_data(stake_address)?
-                        .to_plutus_data()
-                }
-                _ => unreachable!(),
-            },
+            Address::Stake(stake_address) => {
+                <amaru_kernel::StakeAddress as ToPlutusData<V>>::to_plutus_data(stake_address)?
+                    .to_plutus_data()
+            }
             Address::Byron(_) => unreachable!("unable to encode Byron address in PlutusData"),
         }
     }
