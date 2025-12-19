@@ -52,7 +52,7 @@ pub fn bootstrap_config_dir(network: NetworkName) -> PathBuf {
 }
 
 pub fn default_snapshots_dir(network: NetworkName) -> String {
-    format!("{}/{}", SNAPSHOTS_PATH, network)
+    format!("{}/{}", SNAPSHOTS_PATH, network.to_string().to_lowercase())
 }
 
 pub fn default_data_dir(network: NetworkName) -> String {

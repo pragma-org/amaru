@@ -38,8 +38,11 @@ pub struct Args {
     /// Can be repeated multiple times for multiple snapshots.
     #[arg(long, value_name = "FILE", env = "AMARU_SNAPSHOT", verbatim_doc_comment, num_args(0..))]
     snapshot: Vec<PathBuf>,
+
     /// Path to a directory containing multiple CBOR snapshots to import.
-    #[arg(long, value_name = "DIR", env = "AMARU_SNAPSHOT_DIR")]
+    ///
+    /// If not provided, defaults to a per-network snapshots directory based on the network name.
+    #[arg(long, value_name = "DIR", env = "AMARU_SNAPSHOTS_DIR")]
     snapshot_dir: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.

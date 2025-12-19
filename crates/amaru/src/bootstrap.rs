@@ -153,8 +153,7 @@ async fn uncompress_to_temp_file(
 
 /// Set the internal dbs in such a state that amaru can run
 ///
-/// Idempotent; will do nothing if the dbs have already been boostrapped
-/// Returns `true` if bootsrap was actually done
+/// Idempotent; will do nothing if the dbs have already been bootstrapped
 pub async fn bootstrap(
     network: NetworkName,
     ledger_dir: PathBuf,
@@ -185,7 +184,7 @@ where
 {
     let buf = <&str>::deserialize(deserializer)?;
     Point::try_from(buf)
-        .map_err(|e| serde::de::Error::custom(format!("cannot convert vector to nonce: {:?}", e)))
+        .map_err(|e| serde::de::Error::custom(format!("cannot convert vector to point: {:?}", e)))
 }
 
 fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {

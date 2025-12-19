@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru::{
-    DEFAULT_NETWORK, bootstrap::import_headers_for_network, bootstrap_config_dir,
-    default_chain_dir, get_bootstrap_headers,
+    DEFAULT_NETWORK, bootstrap::import_headers_for_network, default_chain_dir,
+    get_bootstrap_headers,
 };
 use amaru_kernel::network::NetworkName;
 use clap::Parser;
@@ -46,33 +46,15 @@ pub struct Args {
         verbatim_doc_comment
     )]
     chain_dir: Option<PathBuf>,
-
-    /// Path to directory containing per-network configuration files.
-    ///
-    /// This path will be used as a prefix to resolve per-network configuration files
-    /// needed for importing headers. Given a source directory `data`, and a
-    /// a network name of `preview`, the expected layout for header files would be:
-    ///
-    /// `data/preview/headers/header.*.*.cbor`
-    #[arg(
-        long,
-        value_name = "DIR",
-        env = "AMARU_CONFIG_DIR",
-        verbatim_doc_comment
-    )]
-    config_dir: Option<PathBuf>,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
-    let config_dir = args
-        .config_dir
-        .unwrap_or_else(|| bootstrap_config_dir(network));
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
 
-    info!(%network, chain_dir=%chain_dir.to_string_lossy(), config_dir=%config_dir.to_string_lossy(),
+    info!(%network, chain_dir=%chain_dir.to_string_lossy(),
           "Running command import-headers",
     );
 

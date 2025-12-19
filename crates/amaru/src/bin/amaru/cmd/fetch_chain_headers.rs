@@ -20,7 +20,7 @@ use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
 use clap::Parser;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse};
-use std::{error::Error, fs::File, io::Write, path::PathBuf, time::Duration};
+use std::{error::Error, fs::File, io::Write, time::Duration};
 use tokio::time::timeout;
 
 use tracing::info;
@@ -38,25 +38,6 @@ pub struct Args {
         default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
-
-    /// Path to directory containing per-network bootstrap configuration files.
-    ///
-    /// This path will be used as a prefix to resolve per-network configuration files
-    /// needed for bootstrapping and to store fetched chain headers. Given a source
-    /// directory `data`, and a network name of `preview`, the expected layout for
-    /// configuration files would be:
-    ///
-    /// * `data/preview/snapshots.json`: a list of `Snapshot` values,
-    /// * `data/preview/nonces.json`: a list of `InitialNonces` values,
-    /// * `data/preview/headers.json`: a list of `Point`s,
-    /// * `data/preview/headers`: a directory where the fetched chain headers will be stored.
-    #[arg(
-        long,
-        value_name = "DIR",
-        verbatim_doc_comment,
-        env = "AMARU_CONFIG_DIR"
-    )]
-    config_dir: Option<PathBuf>,
 
     /// Address of the node to connect to for retrieving chain data.
     /// The node should be accessible via the node-2-node protocol, which
@@ -81,7 +62,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
           "Running command fetch-chain-headers",
     );
 
-    //let headers_file: PathBuf = config_dir.join("headers.json");
     let headers_file_name = "headers.json";
     let content = get_bootstrap_file(network, headers_file_name)?
         .ok_or(BootstrapError::MissingConfigFile(headers_file_name.into()))?;
