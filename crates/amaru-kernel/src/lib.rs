@@ -45,7 +45,7 @@ pub use pallas_addresses::{
 };
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{AnyCbor, Bytes, CborWrap, Int, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{AnyCbor, Bytes, CborWrap, Int, KeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
@@ -61,14 +61,13 @@ pub use pallas_primitives::{
         DatumOption, DnsName, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId,
         HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, Mint, MintedBlock,
         MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, Multiasset, NativeScript, NonEmptySet, NonZeroInt, PlutusData,
+        MintedTx, MintedWitnessSet, Multiasset, NativeScript, NetworkId, NonZeroInt, PlutusData,
         PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
         ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners, RewardAccount, ScriptHash,
-        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
-        UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures,
-        VrfKeyhash, WitnessSet,
+        Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount, ScriptHash, ScriptRef,
+        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
+        VKeyWitness, Value, Vote, Voter, VotingProcedure, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -121,6 +120,12 @@ pub mod memoized;
 
 pub mod network;
 
+pub mod non_empty_key_value_pairs;
+pub use non_empty_key_value_pairs::NonEmptyKeyValuePairs;
+
+pub mod non_empty_set;
+pub use non_empty_set::NonEmptySet;
+
 pub mod peer;
 
 pub use point::*;
@@ -166,6 +171,8 @@ pub mod stake_credential;
 
 pub use strict_maybe::*;
 pub mod strict_maybe;
+
+pub mod transaction_body;
 
 use crate::string_utils::ListToString;
 pub use transaction_pointer::*;
@@ -628,19 +635,31 @@ pub fn get_provided_scripts(
 
     collect_plutus_scripts(
         &mut provided_scripts,
-        witness_set.plutus_v1_script.as_ref(),
+        witness_set
+            .plutus_v1_script
+            .clone()
+            .map(|x| NonEmptySet::from_pallas(x))
+            .as_ref(),
         ScriptKind::PlutusV1,
     );
 
     collect_plutus_scripts(
         &mut provided_scripts,
-        witness_set.plutus_v2_script.as_ref(),
+        witness_set
+            .plutus_v2_script
+            .clone()
+            .map(|x| NonEmptySet::from_pallas(x))
+            .as_ref(),
         ScriptKind::PlutusV2,
     );
 
     collect_plutus_scripts(
         &mut provided_scripts,
-        witness_set.plutus_v3_script.as_ref(),
+        witness_set
+            .plutus_v3_script
+            .clone()
+            .map(|x| NonEmptySet::from_pallas(x))
+            .as_ref(),
         ScriptKind::PlutusV3,
     );
 
@@ -1005,6 +1024,11 @@ pub fn normalize_redeemers(redeemers: &Redeemers) -> Vec<Cow<'_, Redeemer>> {
             .collect(),
     }
 }
+
+pub type RequiredSigners = NonEmptySet<AddrKeyhash>;
+
+pub type VotingProcedures =
+    NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>;
 
 #[cfg(test)]
 mod test {
