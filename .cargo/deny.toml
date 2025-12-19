@@ -100,7 +100,9 @@ allow = [
     "MPL-2.0",
     "CDLA-Permissive-2.0",
     "Zlib",
-    "LGPL-3.0"
+    "LGPL-3.0",
+    # This license is not officially OSI approved, and can reasonable be removed if our policy determines it should not be allowed
+    "CC0-1.0"
 ]
 # The confidence threshold for detecting a license from license text.
 # The higher the value, the more closely the license text must be to the
