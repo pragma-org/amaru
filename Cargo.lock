@@ -124,9 +124,9 @@ dependencies = [
  "amaru-kernel",
  "amaru-mempool",
  "amaru-metrics",
- "amaru-network",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
+ "amaru-protocols",
  "amaru-slot-arithmetic",
  "amaru-stores",
  "anyhow",
@@ -164,6 +164,7 @@ dependencies = [
  "amaru-slot-arithmetic",
  "anyhow",
  "bech32 0.11.0",
+ "bytes",
  "getrandom 0.3.4",
  "hex",
  "itertools 0.14.0",
@@ -276,6 +277,7 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
  "ctor",
+ "getrandom 0.3.4",
  "hex",
  "insta",
  "kes-summed-ed25519 0.2.1 (git+https://github.com/txpipe/kes?rev=f69fb357d46f6a18925543d785850059569d7e78)",
@@ -332,6 +334,32 @@ name = "amaru-progress-bar"
 version = "0.1.0"
 dependencies = [
  "indicatif",
+]
+
+[[package]]
+name = "amaru-protocols"
+version = "0.1.0"
+dependencies = [
+ "amaru-kernel",
+ "amaru-mempool",
+ "amaru-network",
+ "amaru-ouroboros",
+ "amaru-ouroboros-traits",
+ "anyhow",
+ "bytes",
+ "cbor-data",
+ "futures-util",
+ "hex",
+ "minicbor",
+ "pallas-primitives",
+ "parking_lot",
+ "proptest",
+ "pure-stage",
+ "serde",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

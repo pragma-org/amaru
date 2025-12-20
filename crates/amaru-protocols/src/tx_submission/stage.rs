@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::bytes::NonEmptyBytes;
 use crate::connection::ConnectionMessage;
 use crate::mempool_effects::MemoryPool;
 use crate::mux;
@@ -23,6 +22,7 @@ use crate::tx_submission::{
     Outcome, ResponderParams, TxSubmissionInitiatorState, TxSubmissionMessage,
     TxSubmissionResponderState,
 };
+use amaru_kernel::bytes::NonEmptyBytes;
 use amaru_ouroboros::TxOrigin;
 use pure_stage::{Effects, StageRef, TryInStage};
 use std::time::Duration;

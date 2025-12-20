@@ -90,6 +90,8 @@ pub mod ballot;
 pub use ballot_id::*;
 pub mod ballot_id;
 
+pub mod bytes;
+
 pub use certificate_pointer::*;
 pub mod certificate_pointer;
 

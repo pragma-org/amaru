@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::Tx;
+use amaru_ouroboros::ResourceMempool;
 use amaru_ouroboros_traits::{
     CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
     TxRejectReason, TxSubmissionMempool,
@@ -23,7 +24,6 @@ use pure_stage::{
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::pin::Pin;
-use std::sync::Arc;
 
 /// Implementation of Mempool effects using pure_stage::Effects.
 ///
@@ -101,8 +101,6 @@ impl<T: SendData + Sync> TxSubmissionMempool<Tx> for MemoryPool<T> {
 
 // EXTERNAL EFFECTS DEFINITIONS
 
-pub type ResourceMempool = Arc<dyn TxSubmissionMempool<Tx>>;
-
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Insert {
     tx: Tx,
@@ -120,7 +118,7 @@ impl ExternalEffect for Insert {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool>()
+                .get::<ResourceMempool<Tx>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.insert(self.tx, self.tx_origin)
         })
@@ -141,7 +139,7 @@ impl ExternalEffect for ValidateTransaction {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool>()
+                .get::<ResourceMempool<Tx>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.validate_transaction(self.0)
         })
@@ -170,7 +168,7 @@ impl ExternalEffect for GetTx {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool>()
+                .get::<ResourceMempool<Tx>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.get_tx(&self.tx_id)
         })
@@ -203,7 +201,7 @@ impl ExternalEffect for TxIdsSince {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool>()
+                .get::<ResourceMempool<Tx>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.tx_ids_since(self.mempool_seqno, self.limit)
         })
@@ -232,7 +230,7 @@ impl ExternalEffect for WaitForAtLeast {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             let mempool = resources
-                .get::<ResourceMempool>()
+                .get::<ResourceMempool<Tx>>()
                 .expect("ResourceMempool requires a mempool")
                 .clone();
             mempool.wait_for_at_least(self.seq_no).await
@@ -262,7 +260,7 @@ impl ExternalEffect for GetTxsForIds {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool>()
+                .get::<ResourceMempool<Tx>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.get_txs_for_ids(&self.tx_ids)
         })
@@ -283,7 +281,7 @@ impl ExternalEffect for LastSeqNo {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool>()
+                .get::<ResourceMempool<Tx>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.last_seq_no()
         })

@@ -13,14 +13,16 @@
 // limitations under the License.
 
 use crate::{
-    bytes::NonEmptyBytes,
     handshake::messages::Message,
     mux::{HandlerMessage, MuxMessage},
     protocol::{NETWORK_SEND_TIMEOUT, Outcome, PROTO_HANDSHAKE, Role, outcome},
 };
-use amaru_kernel::protocol_messages::{
-    handshake::{HandshakeResult, RefuseReason},
-    version_data::VersionData,
+use amaru_kernel::{
+    bytes::NonEmptyBytes,
+    protocol_messages::{
+        handshake::{HandshakeResult, RefuseReason},
+        version_data::VersionData,
+    },
 };
 use pure_stage::{Effects, StageRef, TryInStage};
 

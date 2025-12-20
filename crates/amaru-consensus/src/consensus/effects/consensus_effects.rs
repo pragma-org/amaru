@@ -17,8 +17,8 @@ use crate::consensus::effects::{
     metrics_effects::{Metrics, MetricsOps},
 };
 use amaru_kernel::{BlockHeader, Tx};
-use amaru_network::mempool_effects::MemoryPool;
 use amaru_ouroboros_traits::{ChainStore, TxSubmissionMempool};
+use amaru_protocols::mempool_effects::MemoryPool;
 use pure_stage::{Effects, SendData};
 use std::sync::Arc;
 

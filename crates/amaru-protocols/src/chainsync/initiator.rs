@@ -13,15 +13,15 @@
 // limitations under the License.
 
 use crate::{
-    bytes::NonEmptyBytes,
     chainsync::messages::{HeaderContent, Message},
     mux::{HandlerMessage, MuxMessage},
     protocol::{Input, NETWORK_SEND_TIMEOUT, Outcome, PROTO_N2N_CHAIN_SYNC, outcome},
-    socket::ConnectionId,
     store_effects::Store,
 };
-use amaru_kernel::{BlockHeader, Point, peer::Peer, protocol_messages::tip::Tip};
-use amaru_ouroboros::ReadOnlyChainStore;
+use amaru_kernel::{
+    BlockHeader, Point, bytes::NonEmptyBytes, peer::Peer, protocol_messages::tip::Tip,
+};
+use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use pure_stage::{Effects, StageRef, TryInStage};
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

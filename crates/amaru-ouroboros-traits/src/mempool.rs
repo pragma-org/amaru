@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::pin::Pin;
+use std::sync::Arc;
 
 /// An simple mempool interface to:
 ///
@@ -42,6 +43,8 @@ pub trait Mempool<Tx: Send + Sync + 'static>: TxSubmissionMempool<Tx> + Send + S
         I: IntoIterator<Item = TxKey>,
         Self: Sized;
 }
+
+pub type ResourceMempool<Tx> = Arc<dyn TxSubmissionMempool<Tx>>;
 
 pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>:
     Send + Sync + CanValidateTransactions<Tx>

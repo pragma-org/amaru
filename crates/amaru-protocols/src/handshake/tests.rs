@@ -12,19 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::socket::create_connection;
 use crate::{
-    bytes::NonEmptyBytes,
+    effects::create_connection,
     handshake::{self, Role, messages::VersionTable},
     mux::{self, MuxMessage},
     protocol::PROTO_HANDSHAKE,
-    socket::ConnectionResource,
 };
-use amaru_kernel::protocol_messages::{
-    network_magic::NetworkMagic,
-    version_data::{PEER_SHARING_DISABLED, VersionData},
-    version_number::VersionNumber,
+use amaru_kernel::{
+    bytes::NonEmptyBytes,
+    protocol_messages::{
+        network_magic::NetworkMagic,
+        version_data::{PEER_SHARING_DISABLED, VersionData},
+        version_number::VersionNumber,
+    },
 };
+use amaru_network::connection::TokioConnections;
 use futures_util::StreamExt;
 use pure_stage::{
     Effect, StageGraph, simulation::SimulationBuilder, tokio::TokioBuilder,
@@ -53,7 +55,7 @@ fn test_against_node() {
 
     let rt = Runtime::new().unwrap();
 
-    let conn = ConnectionResource::new(65535);
+    let conn = TokioConnections::new(65535);
     let conn_id = rt
         .block_on(async { create_connection(&conn).await })
         .unwrap();
@@ -136,7 +138,7 @@ fn test_against_node_with_tokio() {
 
     let rt = Runtime::new().unwrap();
 
-    let conn = ConnectionResource::new(65535);
+    let conn = TokioConnections::new(65535);
     let conn_id = rt.block_on(create_connection(&conn)).unwrap();
 
     let trace_buffer = TraceBuffer::new_shared(1000, 1000000);

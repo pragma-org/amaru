@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::bytes::NonEmptyBytes;
 use crate::tx_submission::Blocking;
-use amaru_kernel::Tx;
+use amaru_kernel::{Tx, bytes::NonEmptyBytes};
 use amaru_ouroboros_traits::TxId;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use serde::{Deserialize, Serialize};

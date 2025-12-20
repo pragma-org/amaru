@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use crate::{
-    bytes::NonEmptyBytes,
     keepalive,
     keepalive::messages::Message,
     mux,
     mux::{HandlerMessage, MuxMessage},
     protocol::{NETWORK_SEND_TIMEOUT, PROTO_N2N_KEEP_ALIVE},
 };
+use amaru_kernel::bytes::NonEmptyBytes;
 use pure_stage::{Effects, StageRef, TryInStage};
 use std::time::Duration;
 

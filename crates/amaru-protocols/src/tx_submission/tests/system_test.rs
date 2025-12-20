@@ -12,36 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::socket::create_connection;
-use crate::{
-    connection::{self, ConnectionMessage},
-    protocol::Role,
-    socket::ConnectionResource,
-};
+use crate::connection;
+use crate::connection::ConnectionMessage;
+use crate::effects::create_connection;
+use crate::protocol::Role;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
-use pure_stage::{StageGraph, tokio::TokioBuilder};
+use amaru_network::connection::TokioConnections;
+use pure_stage::StageGraph;
+use pure_stage::tokio::TokioBuilder;
 use std::time::Duration;
-use tokio::{runtime::Runtime, time::timeout};
+use tokio::runtime::Handle;
+use tokio::time::timeout;
 use tracing_subscriber::EnvFilter;
 
-#[test]
+/// You can run this test against a real upstream node (don't forget to include `-- --ignored` in `cargo test`).
+/// The upstream node must be either running at 127.0.0.1:3000 or at the address specified in the `PEER`
+/// environment variable.
+#[tokio::test]
 #[ignore]
-fn test_keepalive_with_node() {
-    let _ = tracing_subscriber::fmt()
+async fn test_tx_submission_with_node() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_test_writer()
-        .try_init();
+        .init();
 
-    tracing::trace!("test");
-
-    let rt = Runtime::new().unwrap();
-
-    let conn = ConnectionResource::new(65535);
-    let conn_id = rt.block_on(create_connection(&conn)).unwrap();
+    let conn = TokioConnections::new(65535);
+    let conn_id = create_connection(&conn).await?;
 
     let mut network = TokioBuilder::default();
-
     network.resources().put(conn);
 
     let connection = network.stage("connection", connection::stage);
@@ -58,11 +57,12 @@ fn test_keepalive_with_node() {
         .preload(connection, [ConnectionMessage::Initialize])
         .unwrap();
 
-    let running = network.run(rt.handle().clone());
-    match rt.block_on(async { timeout(Duration::from_secs(10), running.join()).await }) {
-        Ok(_) => (),
+    let running = network.run(Handle::current());
+    match timeout(Duration::from_secs(20), running.join()).await {
+        Ok(_) => Ok(()),
         Err(_) => {
             tracing::info!("test timed out as expected");
+            Ok(())
         }
     }
 }

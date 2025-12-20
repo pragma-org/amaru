@@ -20,8 +20,8 @@ use crate::tx_submission::ProtocolError::{
 };
 use crate::tx_submission::{Blocking, Message, Outcome, ProtocolError, TxSubmissionState};
 use TxSubmissionState::*;
+use amaru_kernel::Tx;
 use amaru_ouroboros_traits::{MempoolSeqNo, TxId, TxSubmissionMempool};
-use pallas_primitives::conway::Tx;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt::Debug;

@@ -1,0 +1,39 @@
+lints.workspace = true
+
+[package]
+name = "amaru-protocols"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytes = { workspace = true, features = ["serde"] }
+cbor-data.workspace = true
+futures-util.workspace = true
+minicbor.workspace = true
+parking_lot.workspace = true
+pure-stage.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+amaru-kernel.workspace = true
+amaru-ouroboros.workspace = true
+amaru-ouroboros-traits.workspace = true
+
+[dev-dependencies]
+amaru-mempool.workspace = true
+amaru-network.workspace = true
+hex.workspace = true
+pallas-primitives.workspace = true
+proptest.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber.workspace = true

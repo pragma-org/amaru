@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    bytes::NonEmptyBytes,
-    socket::{ConnectionId, ConnectionResource},
-    socket_addr::ToSocketAddrs,
-};
+use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_ouroboros::{ConnectionId, ConnectionResource, ToSocketAddrs};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::num::NonZeroUsize;
 
@@ -82,13 +79,8 @@ impl ExternalEffect for ConnectEffect {
                 .get::<ConnectionResource>()
                 .expect("ConnectEffect requires a ConnectionResource")
                 .clone();
-            let addr = self
-                .addr
-                .resolve()
-                .await
-                .map_err(|e| format!("failed to resolve address {:?}: {:#}", self.addr, e))?;
             resource
-                .connect(addr)
+                .connect_addrs(self.addr.clone())
                 .await
                 .map_err(|e| format!("failed to connect to {:?}: {:#}", self.addr, e))
         })
@@ -174,4 +166,22 @@ impl ExternalEffect for CloseEffect {
 
 impl ExternalEffectAPI for CloseEffect {
     type Response = Result<(), String>;
+}
+
+/// Create a connection to an upstream node, either specified in the PEER environment variable,
+/// or to 127.0.0.1:3000
+#[cfg(test)]
+pub async fn create_connection(
+    conn: &dyn amaru_ouroboros::ConnectionProvider,
+) -> anyhow::Result<ConnectionId> {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        use amaru_network::socket_addr::resolve;
+
+        let addr = amaru_ouroboros_traits::connection::ToSocketAddrs::String(
+            std::env::var("PEER").unwrap_or_else(|_| "127.0.0.1:3000".to_string()),
+        );
+        let addr = resolve(addr).await?;
+        Ok(conn.connect(addr).await?)
+    })
+    .await?
 }

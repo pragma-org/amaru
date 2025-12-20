@@ -30,6 +30,7 @@ either = "1.15"
 erased-serde = "0.4.9"
 flate2 = "1.1.2"
 futures-util = "0.3.31"
+getrandom = { version = "0.3", features = ["wasm_js"] }
 hex = "0.4.3"
 indicatif = "0.18.0"
 indoc = "2.0"
@@ -93,6 +94,7 @@ amaru-ouroboros = { path = "crates/amaru-ouroboros" }
 amaru-ouroboros-traits = { path = "crates/amaru-ouroboros-traits" }
 amaru-plutus = { path = "crates/amaru-plutus" }
 amaru-progress-bar = { path = "crates/amaru-progress-bar" }
+amaru-protocols = { path = "crates/amaru-protocols" }
 amaru-sim = { path = "crates/amaru-sim" }
 amaru-slot-arithmetic = { path = "crates/amaru-slot-arithmetic" }
 amaru-stores = { path = "crates/amaru-stores" }

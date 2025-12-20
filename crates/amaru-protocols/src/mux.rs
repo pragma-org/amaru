@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use crate::{
-    bytes::NonEmptyBytes,
     effects::{Network, NetworkOps},
     protocol::{Erased, ProtocolId, RoleT},
-    socket::ConnectionId,
 };
+use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
@@ -626,15 +626,17 @@ mod tests {
         protocol::{
             Initiator, PROTO_HANDSHAKE, PROTO_N2C_CHAIN_SYNC, PROTO_N2N_BLOCK_FETCH, Responder,
         },
-        socket::ConnectionResource,
     };
+    use amaru_network::connection::TokioConnections;
+    use amaru_ouroboros::ConnectionResource;
+    use amaru_ouroboros_traits::ConnectionProvider;
     use futures_util::StreamExt;
     use pure_stage::{
         Effect, Instant, StageGraph,
         simulation::{Blocked, SimulationBuilder, SimulationRunning},
         trace_buffer::TraceBuffer,
     };
-    use std::{fmt, time::Duration};
+    use std::{fmt, sync::Arc, time::Duration};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
@@ -671,7 +673,7 @@ mod tests {
         let server_addr = listener.local_addr().unwrap();
         let server_task = tokio::spawn(async move { listener.accept().await.unwrap().0 });
 
-        let network = ConnectionResource::new(65536);
+        let network = TokioConnections::new(65536);
         let conn_id = t(network.connect(vec![server_addr])).await.unwrap();
         let mut tcp = t(server_task).await.unwrap();
 
@@ -689,7 +691,9 @@ mod tests {
         let (output, mut rx) = graph.output::<HandlerMessage>("output", 10);
         let input = graph.input(&mux);
 
-        graph.resources().put(network);
+        graph
+            .resources()
+            .put::<ConnectionResource>(Arc::new(network));
 
         let mut running = graph.run();
         let join_handle = tokio::spawn(async move {

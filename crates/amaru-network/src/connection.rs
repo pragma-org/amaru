@@ -12,167 +12,149 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::keepalive::register_keepalive;
-use crate::mux::HandlerMessage;
-use crate::tx_submission::{TxSubmissionMessage, register_tx_submission};
-use crate::{
-    handshake::{self, HandshakeMessage, VersionTable},
-    mux::{self, MuxMessage},
-    protocol::{PROTO_HANDSHAKE, Role},
-    socket::ConnectionId,
+use crate::socket_addr::resolve;
+use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
+use bytes::{Buf, BytesMut};
+use parking_lot::Mutex;
+use pure_stage::BoxFuture;
+use std::{collections::HashMap, net::SocketAddr, num::NonZeroUsize, sync::Arc};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{
+        TcpStream,
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
+    },
+    sync::Mutex as AsyncMutex,
 };
-use amaru_kernel::peer::Peer;
-use amaru_kernel::protocol_messages::{
-    handshake::HandshakeResult, network_magic::NetworkMagic, version_data::VersionData,
-    version_number::VersionNumber,
-};
-use amaru_ouroboros::TxOrigin;
-use pure_stage::{Effects, StageRef};
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Connection {
-    params: Params,
-    state: State,
+    reader: Arc<AsyncMutex<(OwnedReadHalf, BytesMut)>>,
+    writer: Arc<AsyncMutex<OwnedWriteHalf>>,
 }
 
-impl Connection {
-    pub fn new(peer: Peer, conn_id: ConnectionId, role: Role, magic: NetworkMagic) -> Self {
+#[expect(clippy::disallowed_types)]
+type Connections = HashMap<ConnectionId, Connection>;
+
+#[derive(Clone)]
+pub struct TokioConnections {
+    connections: Arc<Mutex<Connections>>,
+    read_buf_size: usize,
+}
+
+impl TokioConnections {
+    pub fn new(read_buf_size: usize) -> Self {
         Self {
-            params: Params {
-                peer,
-                conn_id,
-                role,
-                magic,
-            },
-            state: State::Initial,
+            connections: Arc::new(Mutex::new(Connections::new())),
+            read_buf_size,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-struct Params {
-    peer: Peer,
-    conn_id: ConnectionId,
-    role: Role,
-    magic: NetworkMagic,
-}
+impl ConnectionProvider for TokioConnections {
+    fn connect(&self, addr: Vec<SocketAddr>) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+        let resource = self.connections.clone();
+        let read_buf_size = self.read_buf_size;
+        Box::pin(async move {
+            let (reader, writer) = TcpStream::connect(&*addr).await?.into_split();
+            let id = ConnectionId::new();
+            resource.lock().insert(
+                id,
+                Connection {
+                    reader: Arc::new(AsyncMutex::new((
+                        reader,
+                        BytesMut::with_capacity(read_buf_size),
+                    ))),
+                    writer: Arc::new(AsyncMutex::new(writer)),
+                },
+            );
+            Ok(id)
+        })
+    }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-enum State {
-    Initial,
-    Handshake {
-        muxer: StageRef<MuxMessage>,
-        handshake: StageRef<HandshakeMessage>,
-    },
-    Initiator {
-        version_number: VersionNumber,
-        version_data: VersionData,
-        muxer: StageRef<MuxMessage>,
-        handshake: StageRef<HandshakeMessage>,
-        keepalive: StageRef<HandlerMessage>,
-        tx_submission: StageRef<TxSubmissionMessage>,
-    },
-}
+    fn connect_addrs(
+        &self,
+        addr: ToSocketAddrs,
+    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+        let resource = self.connections.clone();
+        let read_buf_size = self.read_buf_size;
+        Box::pin(async move {
+            let addr = resolve(addr).await?;
+            let (reader, writer) = TcpStream::connect(&*addr).await?.into_split();
+            let id = ConnectionId::new();
+            resource.lock().insert(
+                id,
+                Connection {
+                    reader: Arc::new(AsyncMutex::new((
+                        reader,
+                        BytesMut::with_capacity(read_buf_size),
+                    ))),
+                    writer: Arc::new(AsyncMutex::new(writer)),
+                },
+            );
+            Ok(id)
+        })
+    }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
-pub enum ConnectionMessage {
-    Initialize,
-    Handshake(HandshakeResult),
-    // LATER: make full duplex, etc.
-}
+    fn send(
+        &self,
+        conn: ConnectionId,
+        data: NonEmptyBytes,
+    ) -> BoxFuture<'static, std::io::Result<()>> {
+        let resource = self.connections.clone();
+        Box::pin(async move {
+            let connection = resource
+                .lock()
+                .get(&conn)
+                .ok_or_else(|| {
+                    std::io::Error::other(format!("connection {conn} not found for send"))
+                })?
+                .writer
+                .clone();
+            connection.lock().await.write_all(&data).await?;
+            Ok(())
+        })
+    }
 
-pub async fn stage(
-    Connection { params, state }: Connection,
-    msg: ConnectionMessage,
-    eff: Effects<ConnectionMessage>,
-) -> Connection {
-    let state = match (state, msg) {
-        (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
-        (State::Handshake { muxer, handshake }, ConnectionMessage::Handshake(handshake_result)) => {
-            do_handshake(&params, muxer, handshake, handshake_result, eff).await
-        }
-        x => unimplemented!("{x:?}"),
-    };
-    Connection { params, state }
-}
+    fn recv(
+        &self,
+        conn: ConnectionId,
+        bytes: NonZeroUsize,
+    ) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>> {
+        let resource = self.connections.clone();
+        Box::pin(async move {
+            let connection = resource
+                .lock()
+                .get(&conn)
+                .ok_or_else(|| {
+                    std::io::Error::other(format!("connection {conn} not found for recv"))
+                })?
+                .reader
+                .clone();
+            let mut guard = connection.lock().await;
+            let (reader, buf) = &mut *guard;
+            buf.reserve(bytes.get() - buf.remaining().min(bytes.get()));
+            while buf.remaining() < bytes.get() {
+                if reader.read_buf(buf).await? == 0 {
+                    return Err(std::io::ErrorKind::UnexpectedEof.into());
+                };
+            }
+            #[expect(clippy::expect_used)]
+            Ok(buf
+                .copy_to_bytes(bytes.get())
+                .try_into()
+                .expect("guaranteed by NonZeroUsize"))
+        })
+    }
 
-async fn do_initialize(
-    Params {
-        conn_id,
-        role,
-        magic,
-        ..
-    }: &Params,
-    eff: Effects<ConnectionMessage>,
-) -> State {
-    let muxer = eff.stage("mux", mux::stage).await;
-    let muxer = eff
-        .wire_up(
-            muxer,
-            mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)]),
-        )
-        .await;
-
-    let handshake_result = eff
-        .contramap(eff.me(), "handshake_result", ConnectionMessage::Handshake)
-        .await;
-
-    let handshake = eff.stage("handshake", handshake::stage).await;
-    let handshake = eff
-        .wire_up(
-            handshake,
-            handshake::Handshake::new(
-                muxer.clone(),
-                handshake_result,
-                *role,
-                VersionTable::v11_and_above(*magic, true),
-            ),
-        )
-        .await;
-
-    let handler = eff
-        .contramap(&handshake, "handshake_bytes", handshake::handler_transform)
-        .await;
-
-    eff.send(
-        &muxer,
-        MuxMessage::Register {
-            protocol: PROTO_HANDSHAKE.erase(),
-            frame: mux::Frame::OneCborItem,
-            handler,
-            max_buffer: 5760,
-        },
-    )
-    .await;
-
-    State::Handshake { muxer, handshake }
-}
-
-async fn do_handshake(
-    Params { role, peer, .. }: &Params,
-    muxer: StageRef<MuxMessage>,
-    handshake: StageRef<HandshakeMessage>,
-    handshake_result: HandshakeResult,
-    eff: Effects<ConnectionMessage>,
-) -> State {
-    let (version_number, version_data) = match handshake_result {
-        HandshakeResult::Accepted(version_number, version_data) => (version_number, version_data),
-        HandshakeResult::Refused(refuse_reason) => {
-            tracing::error!(?refuse_reason, "handshake refused");
-            return eff.terminate().await;
-        }
-    };
-
-    let keepalive = register_keepalive(*role, muxer.clone(), &eff).await;
-    let tx_submission =
-        register_tx_submission(*role, muxer.clone(), &eff, TxOrigin::Remote(peer.clone())).await;
-
-    State::Initiator {
-        version_number,
-        version_data,
-        muxer,
-        handshake,
-        keepalive,
-        tx_submission,
+    fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>> {
+        let resource = self.connections.clone();
+        Box::pin(async move {
+            let connection = resource.lock().remove(&conn).ok_or_else(|| {
+                std::io::Error::other(format!("connection {conn} not found for close"))
+            })?;
+            connection.writer.lock().await.shutdown().await?;
+            Ok(())
+        })
     }
 }

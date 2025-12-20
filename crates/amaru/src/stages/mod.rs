@@ -40,14 +40,8 @@ use amaru_kernel::{
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
-use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
-use amaru_network::{
-    NetworkResource,
-    mempool_effects::ResourceMempool,
-    socket::{ConnectionId, ConnectionResource},
-    socket_addr::ToSocketAddrs,
-};
+use amaru_network::NetworkResource;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
@@ -60,14 +54,12 @@ use anyhow::Context;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pure_stage::{StageGraph, tokio::TokioBuilder};
-use std::time::Duration;
 use std::{
-    env,
     fmt::{Debug, Display},
     path::PathBuf,
     sync::Arc,
 };
-use tokio::{runtime::Handle, time::timeout};
+use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -255,12 +247,11 @@ pub async fn bootstrap(
     //     .map_err(|e| anyhow!("{e}"))?;
     //
     // network.resources().put(conn);
+    // network
+    //     .resources()
+    //     .put::<ResourceMempool<Tx>>(Arc::new(InMemoryMempool::default()));
 
     // Register resources
-
-    network
-        .resources()
-        .put::<ResourceMempool>(Arc::new(InMemoryMempool::default()));
     network
         .resources()
         .put::<ResourceHeaderStore>(chain_store.clone());
@@ -299,31 +290,31 @@ pub async fn bootstrap(
 
 /// Temporary function to create a connection to an upstream peer.
 /// This will be replaced by some proper peer management.
-pub async fn create_upstream_connection(
-    peers: &[Peer],
-    conn: &ConnectionResource,
-) -> anyhow::Result<ConnectionId> {
-    if let Some(peer) = peers.first() {
-        timeout(Duration::from_secs(5), async {
-            match ToSocketAddrs::String(env::var("PEER").unwrap_or(peer.to_string()))
-                .resolve()
-                .await
-            {
-                Ok(addr) => conn.connect(addr).await.map_err(anyhow::Error::from),
-                Err(e) => Err(anyhow::anyhow!(
-                    "Failed to resolve address for upstream peer {}: {}",
-                    peer,
-                    e
-                )),
-            }
-        })
-        .await?
-    } else {
-        Err(anyhow::anyhow!(
-            "No upstream peers configured to connect to"
-        ))
-    }
-}
+// pub async fn create_upstream_connection(
+//     peers: &[Peer],
+//     conn: &ConnectionResource,
+// ) -> anyhow::Result<ConnectionId> {
+//     if let Some(peer) = peers.first() {
+//         timeout(Duration::from_secs(5), async {
+//             match ToSocketAddrs::String(env::var("PEER").unwrap_or(peer.to_string()))
+//                 .resolve()
+//                 .await
+//             {
+//                 Ok(addr) => conn.connect(addr).await.map_err(anyhow::Error::from),
+//                 Err(e) => Err(anyhow::anyhow!(
+//                     "Failed to resolve address for upstream peer {}: {}",
+//                     peer,
+//                     e
+//                 )),
+//             }
+//         })
+//         .await?
+//     } else {
+//         Err(anyhow::anyhow!(
+//             "No upstream peers configured to connect to"
+//         ))
+//     }
+// }
 
 #[expect(clippy::panic)]
 fn make_chain_store(

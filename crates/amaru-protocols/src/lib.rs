@@ -12,26 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod has_stake_distribution;
-pub use has_stake_distribution::{HasStakeDistribution, PoolSummary};
-
-pub mod can_validate_blocks;
-pub use can_validate_blocks::{BlockValidationError, CanValidateBlocks};
-
-pub mod can_validate_transactions;
-pub use can_validate_transactions::{CanValidateTransactions, TransactionValidationError};
-
+pub mod chainsync;
 pub mod connection;
-pub use connection::*;
-
-pub mod mempool;
-pub use mempool::*;
-
-pub mod stores;
-pub use stores::*;
-
-pub mod praos;
-pub use praos::*;
-
-pub mod network_operations;
-pub use network_operations::NetworkOperations;
+pub mod effects;
+pub mod handshake;
+pub mod keepalive;
+pub mod mempool_effects;
+pub mod mux;
+pub mod protocol;
+pub mod store_effects;
+pub mod tx_submission;
