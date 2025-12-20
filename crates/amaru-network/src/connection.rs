@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::keepalive::register_keepalive;
+use crate::mux::HandlerMessage;
+use crate::tx_submission::{TxSubmissionMessage, register_tx_submission};
 use crate::{
     handshake::{self, HandshakeMessage, VersionTable},
-    keepalive::{self, Cookie},
-    mux::{self, HandlerMessage, MuxMessage},
-    protocol::{PROTO_HANDSHAKE, PROTO_N2N_KEEP_ALIVE, Role},
+    mux::{self, MuxMessage},
+    protocol::{PROTO_HANDSHAKE, Role},
     socket::ConnectionId,
 };
 use amaru_kernel::protocol_messages::{
@@ -64,6 +66,7 @@ enum State {
         muxer: StageRef<MuxMessage>,
         handshake: StageRef<HandshakeMessage>,
         keepalive: StageRef<HandlerMessage>,
+        tx_submission: StageRef<TxSubmissionMessage>,
     },
 }
 
@@ -155,27 +158,8 @@ async fn do_handshake(
         }
     };
 
-    let keepalive = if role == Role::Initiator {
-        eff.stage("keepalive", keepalive::initiator).await
-    } else {
-        eff.stage("keepalive", keepalive::responder).await
-    };
-    let keepalive = eff
-        .wire_up(
-            keepalive,
-            keepalive::KeepAlive::new(muxer.clone(), Cookie::new()),
-        )
-        .await;
-    eff.send(
-        &muxer,
-        MuxMessage::Register {
-            protocol: PROTO_N2N_KEEP_ALIVE.erase(),
-            frame: mux::Frame::OneCborItem,
-            handler: keepalive.clone(),
-            max_buffer: 65535,
-        },
-    )
-    .await;
+    let keepalive = register_keepalive(role, muxer.clone(), &eff).await;
+    let tx_submission = register_tx_submission(role, muxer.clone(), &eff).await;
 
     State::Initiator {
         version_number,
@@ -183,5 +167,6 @@ async fn do_handshake(
         muxer,
         handshake,
         keepalive,
+        tx_submission,
     }
 }

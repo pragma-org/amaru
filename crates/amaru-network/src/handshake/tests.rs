@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::socket::create_connection;
 use crate::{
     bytes::NonEmptyBytes,
     handshake::{self, Role, messages::VersionTable},
     mux::{self, HandlerMessage, MuxMessage},
     protocol::PROTO_HANDSHAKE,
     socket::ConnectionResource,
-    socket_addr::ToSocketAddrs,
 };
 use amaru_kernel::protocol_messages::{
     network_magic::NetworkMagic,
@@ -30,8 +30,7 @@ use pure_stage::{
     Effect, StageGraph, simulation::SimulationBuilder, tokio::TokioBuilder,
     trace_buffer::TraceBuffer,
 };
-use std::{env, time::Duration};
-use tokio::{runtime::Runtime, time::timeout};
+use tokio::runtime::Runtime;
 use tracing_subscriber::EnvFilter;
 
 #[test]
@@ -45,6 +44,7 @@ fn test_against_node() {
     let _guard = pure_stage::register_data_deserializer::<mux::MuxMessage>();
     let _guard = pure_stage::register_effect_deserializer::<crate::effects::RecvEffect>();
     let _guard = pure_stage::register_effect_deserializer::<crate::effects::SendEffect>();
+    let network_magic = NetworkMagic::MAINNET;
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -55,18 +55,7 @@ fn test_against_node() {
 
     let conn = ConnectionResource::new(65535);
     let conn_id = rt
-        .block_on(async {
-            timeout(Duration::from_secs(5), async {
-                let addr = ToSocketAddrs::String(
-                    env::var("PEER").unwrap_or_else(|_| "127.0.0.1:3000".to_string()),
-                )
-                .resolve()
-                .await
-                .unwrap();
-                conn.connect(addr).await.unwrap()
-            })
-            .await
-        })
+        .block_on(async { create_connection(&conn).await })
         .unwrap();
 
     let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
@@ -87,7 +76,7 @@ fn test_against_node() {
             mux.clone().without_state(),
             output.clone(),
             Role::Initiator,
-            VersionTable::v11_and_above(NetworkMagic::MAINNET, true),
+            VersionTable::v11_and_above(network_magic, true),
         ),
     );
 
@@ -132,7 +121,7 @@ fn test_against_node() {
         result,
         handshake::HandshakeResult::Accepted(
             VersionNumber::V14,
-            VersionData::new(NetworkMagic::MAINNET, true, PEER_SHARING_DISABLED, false),
+            VersionData::new(network_magic, true, PEER_SHARING_DISABLED, false),
         )
     );
 }
@@ -157,20 +146,7 @@ fn test_against_node_with_tokio() {
     let rt = Runtime::new().unwrap();
 
     let conn = ConnectionResource::new(65535);
-    let conn_id = rt
-        .block_on(async {
-            timeout(Duration::from_secs(5), async {
-                let addr = ToSocketAddrs::String(
-                    env::var("PEER").unwrap_or_else(|_| "127.0.0.1:3000".to_string()),
-                )
-                .resolve()
-                .await
-                .unwrap();
-                conn.connect(addr).await.unwrap()
-            })
-            .await
-        })
-        .unwrap();
+    let conn_id = rt.block_on(create_connection(&conn)).unwrap();
 
     let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
     let _guard = TraceBuffer::drop_guard(&trace_buffer);

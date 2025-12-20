@@ -18,8 +18,7 @@ use crate::stages::consensus::forward_chain::client_protocol::{
 };
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
 use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
-use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
-use amaru_kernel::{BlockHeader, IsHeader};
+use amaru_kernel::{AsHeaderTip, BlockHeader, HeaderTip, IsHeader};
 use amaru_ouroboros_traits::ChainStore;
 use async_trait::async_trait;
 use pallas_network::{facades::PeerServer, miniprotocols::chainsync::Tip};

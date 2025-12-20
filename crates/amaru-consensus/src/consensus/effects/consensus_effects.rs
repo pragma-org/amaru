@@ -16,8 +16,9 @@ use crate::consensus::effects::{
     Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps, Store,
     metrics_effects::{Metrics, MetricsOps},
 };
-use amaru_kernel::BlockHeader;
-use amaru_ouroboros_traits::ChainStore;
+use amaru_kernel::{BlockHeader, Tx};
+use amaru_network::mempool_effects::MemoryPool;
+use amaru_ouroboros_traits::{ChainStore, TxSubmissionMempool};
 use pure_stage::{Effects, SendData};
 use std::sync::Arc;
 
@@ -27,6 +28,9 @@ pub trait ConsensusOps: Send + Sync + Clone {
     fn store(&self) -> Arc<dyn ChainStore<BlockHeader>>;
     /// Return a NetworkOps implementation to access network operations, like fetch_block
     fn network(&self) -> impl NetworkOps;
+    /// Return a TxSubmissionMempool implementation to access mempool operations, like get_tx to retrieve a transaction
+    /// from the mempool.
+    fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Tx>>;
     /// Return a LedgerOps implementation to access ledger operations, considering that it is a sub-system
     /// external to consensus.
     fn ledger(&self) -> Arc<dyn LedgerOps>;
@@ -51,6 +55,10 @@ impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
         Arc::new(Store::new(self.effects.clone()))
     }
 
+    pub fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Tx>> {
+        Arc::new(MemoryPool::new(self.effects.clone()))
+    }
+
     pub fn network(&self) -> impl NetworkOps {
         Network::new(&self.effects)
     }
@@ -71,6 +79,10 @@ impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
 impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
     fn store(&self) -> Arc<dyn ChainStore<BlockHeader>> {
         self.store()
+    }
+
+    fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Tx>> {
+        self.mempool()
     }
 
     fn network(&self) -> impl NetworkOps {
@@ -95,16 +107,20 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
 pub mod tests {
     use super::*;
     use crate::consensus::errors::{ConsensusError, ProcessingFailed};
-    use crate::consensus::tip::HeaderTip;
+    use amaru_kernel::is_header::HeaderTip;
     use amaru_kernel::peer::Peer;
     use amaru_kernel::{Point, PoolId, RawBlock};
+    use amaru_mempool::strategies::InMemoryMempool;
     use amaru_metrics::MetricsEvent;
     use amaru_metrics::ledger::LedgerMetrics;
     use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{BlockValidationError, HasStakeDistribution, PoolSummary};
+    use amaru_ouroboros_traits::{
+        BlockValidationError, HasStakeDistribution, PoolSummary, TxSubmissionMempool,
+    };
     use amaru_slot_arithmetic::Slot;
-    use pure_stage::{BoxFuture, Instant, StageRef};
+    use pure_stage::{BoxFuture, CallRef, Instant, StageRef};
+    use serde::de::DeserializeOwned;
     use std::collections::BTreeMap;
     use std::future::ready;
     use std::sync::{Arc, Mutex};
@@ -113,6 +129,7 @@ pub mod tests {
     #[derive(Clone)]
     pub struct MockConsensusOps {
         pub mock_store: InMemConsensusStore<BlockHeader>,
+        pub mock_mempool: Arc<dyn TxSubmissionMempool<Tx>>,
         pub mock_network: MockNetworkOps,
         pub mock_ledger: MockLedgerOps,
         pub mock_base: MockBaseOps,
@@ -127,6 +144,10 @@ pub mod tests {
 
         fn network(&self) -> impl NetworkOps {
             self.mock_network.clone()
+        }
+
+        fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Tx>> {
+            self.mock_mempool.clone()
         }
 
         fn ledger(&self) -> Arc<dyn LedgerOps> {
@@ -264,6 +285,15 @@ pub mod tests {
             Box::pin(async move {})
         }
 
+        fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
+            &self,
+            _target: &StageRef<Req>,
+            _timeout: Duration,
+            _msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
+        ) -> BoxFuture<'static, Option<Resp>> {
+            Box::pin(async { None })
+        }
+
         fn clock(&self) -> BoxFuture<'static, Instant> {
             Box::pin(async { Instant::at_offset(Duration::from_millis(0)) })
         }
@@ -289,6 +319,15 @@ pub mod tests {
                 .or_default()
                 .push(format!("{msg:?}"));
             Box::pin(async move {})
+        }
+
+        fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
+            &self,
+            _target: &StageRef<Req>,
+            _timeout: Duration,
+            _msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
+        ) -> BoxFuture<'static, Option<Resp>> {
+            Box::pin(async { None })
         }
 
         fn clock(&self) -> BoxFuture<'static, Instant> {
@@ -322,6 +361,7 @@ pub mod tests {
     pub fn mock_consensus_ops() -> MockConsensusOps {
         MockConsensusOps {
             mock_store: InMemConsensusStore::new(),
+            mock_mempool: Arc::new(InMemoryMempool::default()),
             mock_network: MockNetworkOps::default(),
             mock_ledger: MockLedgerOps,
             mock_base: MockBaseOps::default(),

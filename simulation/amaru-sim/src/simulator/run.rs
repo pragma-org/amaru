@@ -32,11 +32,10 @@ use amaru_consensus::consensus::{
     },
     headers_tree::HeadersTreeState,
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
-    tip::HeaderTip,
 };
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
 use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
-use amaru_kernel::{BlockHeader, IsHeader};
+use amaru_kernel::{BlockHeader, HeaderTip, IsHeader};
 use amaru_kernel::{
     Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };

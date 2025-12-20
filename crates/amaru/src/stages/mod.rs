@@ -29,20 +29,26 @@ use amaru_consensus::{
             pull, select_chain::SelectChain, track_peers::SyncTracker,
             validate_header::ValidateHeader,
         },
-        tip::{AsHeaderTip, HeaderTip},
     },
     network_operations::ResourceNetworkOperations,
 };
+use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
 use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
+    AsHeaderTip, BlockHeader, EraHistory, HeaderHash, HeaderTip, IsHeader, ORIGIN_HASH, Point,
     network::NetworkName,
     peer::Peer,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
+use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
-use amaru_network::NetworkResource;
+use amaru_network::connection::ConnectionMessage;
+use amaru_network::mempool_effects::ResourceMempool;
 use amaru_network::point::to_network_point;
+use amaru_network::protocol::Role;
+use amaru_network::socket::{ConnectionId, ConnectionResource};
+use amaru_network::socket_addr::ToSocketAddrs;
+use amaru_network::{NetworkResource, connection};
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
@@ -51,17 +57,20 @@ use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore},
 };
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::miniprotocols::chainsync::Tip;
 use pure_stage::{StageGraph, tokio::TokioBuilder};
+use std::time::Duration;
 use std::{
+    env,
     fmt::{Debug, Display},
     path::PathBuf,
     sync::Arc,
 };
 use tokio::runtime::Handle;
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -232,6 +241,27 @@ pub async fn bootstrap(
         .preload(pull_stage, vec![pull::NextSync])
         .map_err(|_| anyhow::anyhow!("failed to preload pull stage"))?;
 
+    // Create the stages for the new network protocols stack
+    let conn = ConnectionResource::new(65535);
+    let conn_id = create_upstream_connection(&peers, &conn).await?;
+    let connection = network.stage("connection", connection::stage);
+    let connection = network.wire_up(
+        connection,
+        connection::Connection::new(
+            conn_id,
+            Role::Initiator,
+            NetworkMagic::new(config.network_magic as u64),
+        ),
+    );
+    network
+        .preload(connection, [ConnectionMessage::Initialize])
+        .map_err(|e| anyhow!("{e}"))?;
+
+    // Register resources
+    network.resources().put(conn);
+    network
+        .resources()
+        .put::<ResourceMempool>(Arc::new(InMemoryMempool::default()));
     network
         .resources()
         .put::<ResourceHeaderStore>(chain_store.clone());
@@ -266,6 +296,34 @@ pub async fn bootstrap(
     exit.cancelled().await;
 
     Ok(())
+}
+
+/// Temporary function to create a connection to an upstream peer.
+/// This will be replaced by some proper peer management.
+pub async fn create_upstream_connection(
+    peers: &[Peer],
+    conn: &ConnectionResource,
+) -> anyhow::Result<ConnectionId> {
+    if let Some(peer) = peers.first() {
+        timeout(Duration::from_secs(5), async {
+            match ToSocketAddrs::String(env::var("PEER").unwrap_or(peer.to_string()))
+                .resolve()
+                .await
+            {
+                Ok(addr) => conn.connect(addr).await.map_err(anyhow::Error::from),
+                Err(e) => Err(anyhow::anyhow!(
+                    "Failed to resolve address for upstream peer {}: {}",
+                    peer,
+                    e
+                )),
+            }
+        })
+        .await?
+    } else {
+        Err(anyhow::anyhow!(
+            "No upstream peers configured to connect to"
+        ))
+    }
 }
 
 #[expect(clippy::panic)]
