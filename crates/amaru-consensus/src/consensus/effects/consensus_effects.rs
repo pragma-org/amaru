@@ -190,12 +190,11 @@ pub mod tests {
             _peer: Peer,
             point: Point,
         ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>> {
-            let point_clone = point.clone();
             Box::pin(async move {
                 let self_block_to_return = self.block_to_return.lock().unwrap();
                 match *self_block_to_return {
                     Ok(ref block) => Ok(block.clone()),
-                    Err(_) => Err(ConsensusError::FetchBlockFailed(point_clone)),
+                    Err(_) => Err(ConsensusError::FetchBlockFailed(point)),
                 }
             })
         }

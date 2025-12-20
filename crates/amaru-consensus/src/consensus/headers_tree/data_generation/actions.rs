@@ -163,7 +163,7 @@ impl Serialize for Action {
                 rollback_point,
             } => ActionHelper::RollBack {
                 peer: peer.to_string(),
-                rollback_point: rollback_point.clone(),
+                rollback_point: *rollback_point,
             }
             .serialize(serializer),
         }

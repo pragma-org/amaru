@@ -201,7 +201,7 @@ mod tests {
         let point = run(any_header()).point();
         let message = Tracked::Wrapped(ChainSyncEvent::RollForward {
             peer: peer.clone(),
-            point: point.clone(),
+            point,
             span: Span::current(),
             raw_header: cbor::to_vec(header.clone())?,
         });
@@ -213,7 +213,7 @@ mod tests {
             &peer,
             ConsensusError::HeaderPointMismatch {
                 actual_point: header.point(),
-                expected_point: point.clone(),
+                expected_point: point,
             },
         );
         assert_eq!(

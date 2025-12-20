@@ -166,7 +166,7 @@ async fn load_blocks(
     }
 
     // Sort by numeric key
-    entries_with_keys.sort_by_key(|(num, _)| num.clone());
+    entries_with_keys.sort_by_key(|(num, _)| *num);
     Ok(entries_with_keys)
 }
 
