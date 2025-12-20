@@ -158,7 +158,7 @@ async fn load_blocks(
                 .map_err(|e| anyhow!("Failed to parse slot from '{}': {}", slot_str, e))?;
             let hash = Hash::from_str(hash_str)
                 .map_err(|e| anyhow!("Failed to decode hash from '{}': {}", hash_str, e))?;
-            let point = Point::Specific(slot, hash);
+            let point = Point::Specific(slot.into(), hash);
             let mut block_data = Vec::new();
             entry.read_to_end(&mut block_data)?;
             entries_with_keys.push((point, RawBlock::from(&*block_data)));

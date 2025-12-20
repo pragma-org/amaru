@@ -76,7 +76,7 @@ impl Encode<()> for Message {
                 Ok(())
             }
             Message::IntersectNotFound(tip) => {
-                e.array(1)?.u16(6)?;
+                e.array(2)?.u16(6)?;
                 e.encode(tip)?;
                 Ok(())
             }

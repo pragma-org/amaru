@@ -77,12 +77,13 @@ pub async fn initiator(
         }
     }
     eff.wait(Duration::from_secs(1)).await;
+    tracing::debug!(?state.cookie, "sending KeepAlive message");
     eff.call(&state.muxer, NETWORK_SEND_TIMEOUT, |cr| {
         let msg = NonEmptyBytes::encode(&Message::KeepAlive(state.cookie));
         MuxMessage::Send(PROTO_N2N_KEEP_ALIVE.erase(), msg, cr)
     })
     .await;
-    tracing::debug!(?state.cookie, "sending KeepAlive message");
+    tracing::debug!(?state.cookie, "KeepAlive message sent");
     state
 }
 

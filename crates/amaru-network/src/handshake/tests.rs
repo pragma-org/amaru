@@ -16,7 +16,7 @@ use crate::socket::create_connection;
 use crate::{
     bytes::NonEmptyBytes,
     handshake::{self, Role, messages::VersionTable},
-    mux::{self, HandlerMessage, MuxMessage},
+    mux::{self, MuxMessage},
     protocol::PROTO_HANDSHAKE,
     socket::ConnectionResource,
 };
@@ -81,16 +81,7 @@ fn test_against_node() {
     );
 
     let handshake_bytes =
-        network.contramap(
-            handshake,
-            "handshake_bytes",
-            |msg: HandlerMessage| match msg {
-                HandlerMessage::FromNetwork(bytes) => {
-                    handshake::HandshakeMessage::FromNetwork(bytes)
-                }
-                HandlerMessage::Registered(_) => handshake::HandshakeMessage::Registered,
-            },
-        );
+        network.contramap(handshake, "handshake_bytes", handshake::handler_transform);
 
     network
         .preload(

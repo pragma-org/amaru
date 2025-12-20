@@ -291,7 +291,7 @@ pub fn resume_contramap_internal(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
-    if !matches!(waiting_for, StageEffect::Contramap { original, new_name, .. } if original == &orig && new_name == &name)
+    if !matches!(waiting_for, StageEffect::Contramap { original, new_name, .. } if original == &orig && name.as_str().starts_with(new_name.as_str()))
     {
         anyhow::bail!(
             "stage `{}` was not waiting for a contramap effect, but {:?}",

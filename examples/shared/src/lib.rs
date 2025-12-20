@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    cbor, from_cbor,
+    Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock, Network, Point,
+    PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value, cbor, from_cbor,
     network::NetworkName,
     protocol_parameters::{self, GlobalParameters},
-    to_cbor, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock, Network,
-    Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+    to_cbor,
 };
 use amaru_ledger::{
     context,
@@ -63,8 +63,8 @@ pub fn forward_ledger(raw_block: &str) {
     .unwrap();
 
     let point = Point::Specific(
-        block.header.header_body.slot,
-        Hasher::<256>::hash(block.header.raw_cbor()).to_vec(),
+        block.header.header_body.slot.into(),
+        Hasher::<256>::hash(&block.header.raw_cbor()),
     );
 
     let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
