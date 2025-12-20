@@ -426,7 +426,7 @@ mod tests {
     async fn non_blocking_requested_nb_must_be_less_than_protocol_limit() -> anyhow::Result<()> {
         let mempool = Arc::new(SizedMempool::with_capacity(6));
 
-        let messages = vec![Init, RequestTxIds(0, 12, Blocking::Yes)];
+        let messages = vec![Init, RequestTxIds(0, 12, Blocking::No)];
         let outcomes = run_messages(mempool, messages).await?;
         assert_outcomes_eq(
             &outcomes,

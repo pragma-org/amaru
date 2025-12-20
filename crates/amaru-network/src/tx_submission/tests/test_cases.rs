@@ -24,8 +24,9 @@ use crate::tx_submission::tests::{
     Nodes, NodesOptions, SizedMempool, assert_outcomes_eq, expect_responder_transactions,
     expect_transactions,
 };
+use amaru_kernel::peer::Peer;
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros::TxSubmissionMempool;
+use amaru_ouroboros::{TxOrigin, TxSubmissionMempool};
 use amaru_ouroboros_traits::can_validate_transactions::mock::MockCanValidateTransactions;
 use std::sync::Arc;
 // These tests cover the interaction between an initiator and a responder, with
@@ -40,7 +41,7 @@ async fn test_initiator_responder_interaction() -> anyhow::Result<()> {
         .with_max_window(8)
         .with_fetch_batch(2);
     let mut nodes = Nodes::new(responder_options);
-    nodes.insert_client_transactions(&txs);
+    nodes.insert_client_transactions(&txs, TxOrigin::Local);
     nodes.start().await?;
 
     expect_responder_transactions(&nodes, txs);
@@ -98,7 +99,7 @@ async fn test_invalid_transactions() -> anyhow::Result<()> {
         .with_fetch_batch(2);
 
     let mut nodes = Nodes::new(responder_options);
-    nodes.insert_client_transactions(&txs);
+    nodes.insert_client_transactions(&txs, TxOrigin::Remote(Peer::new("mallory")));
     nodes.start().await?;
 
     // Only the valid transactions (even indexed) should be in the responder mempool

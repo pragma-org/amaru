@@ -33,6 +33,7 @@ use amaru_consensus::consensus::{
     headers_tree::HeadersTreeState,
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
 };
+use amaru_kernel::Hash;
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
 use amaru_kernel::protocol_messages::tip::Tip;
 use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
@@ -155,7 +156,7 @@ pub fn spawn_node(
                         &downstream,
                         Tracked::Wrapped(ChainSyncEvent::RollForward {
                             peer: Peer::new(&msg.src),
-                            point: Point::Specific(slot.into(), (*hash.bytes).into()),
+                            point: Point::Specific(slot.into(), Hash::from(&*hash.bytes)),
                             raw_header: header.into(),
                             span: Span::current(),
                         }),

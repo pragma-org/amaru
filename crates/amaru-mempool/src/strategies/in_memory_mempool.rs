@@ -213,6 +213,9 @@ impl<Tx: Send + Sync + 'static + Encode<()> + Clone> TxSubmissionMempool<Tx>
         self.inner.read().tx_ids_since(from_seq, limit)
     }
 
+    /// Waits until the mempool reaches at least the given sequence number.
+    ///
+    /// FIXME: this will potentially wait forever.
     fn wait_for_at_least(
         &self,
         seq_no: MempoolSeqNo,
@@ -289,6 +292,7 @@ impl<Tx: Send + Sync + 'static + Encode<()> + Clone> Mempool<Tx> for InMemoryMem
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amaru_kernel::peer::Peer;
     use assertables::assert_some_eq_x;
     use minicbor::Decode;
     use std::ops::Deref;
@@ -301,7 +305,9 @@ mod tests {
     async fn insert_a_transaction() -> anyhow::Result<()> {
         let mempool = InMemoryMempool::from_config(MempoolConfig::default().with_max_txs(5));
         let tx = Tx::from_str("tx1").unwrap();
-        let (tx_id, seq_nb) = mempool.insert(tx.clone(), TxOrigin::Remote).unwrap();
+        let (tx_id, seq_nb) = mempool
+            .insert(tx.clone(), TxOrigin::Remote(Peer::new("upstream")))
+            .unwrap();
 
         assert_some_eq_x!(mempool.get_tx(&tx_id), tx.clone());
         assert_eq!(

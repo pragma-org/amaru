@@ -32,7 +32,6 @@ use amaru_consensus::{
     },
     network_operations::ResourceNetworkOperations,
 };
-use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
 use amaru_kernel::{
     BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
     network::NetworkName,
@@ -43,12 +42,12 @@ use amaru_kernel::{
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
-use amaru_network::connection::ConnectionMessage;
-use amaru_network::mempool_effects::ResourceMempool;
-use amaru_network::protocol::Role;
-use amaru_network::socket::{ConnectionId, ConnectionResource};
-use amaru_network::socket_addr::ToSocketAddrs;
-use amaru_network::{NetworkResource, connection};
+use amaru_network::{
+    NetworkResource,
+    mempool_effects::ResourceMempool,
+    socket::{ConnectionId, ConnectionResource},
+    socket_addr::ToSocketAddrs,
+};
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
@@ -57,7 +56,7 @@ use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore},
 };
-use anyhow::{Context, anyhow};
+use anyhow::Context;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pure_stage::{StageGraph, tokio::TokioBuilder};
@@ -68,8 +67,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use tokio::runtime::Handle;
-use tokio::time::timeout;
+use tokio::{runtime::Handle, time::timeout};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -241,23 +239,25 @@ pub async fn bootstrap(
         .map_err(|_| anyhow::anyhow!("failed to preload pull stage"))?;
 
     // Create the stages for the new network protocols stack
-    let conn = ConnectionResource::new(65535);
-    let conn_id = create_upstream_connection(&peers, &conn).await?;
-    let connection = network.stage("connection", connection::stage);
-    let connection = network.wire_up(
-        connection,
-        connection::Connection::new(
-            conn_id,
-            Role::Initiator,
-            NetworkMagic::new(config.network_magic as u64),
-        ),
-    );
-    network
-        .preload(connection, [ConnectionMessage::Initialize])
-        .map_err(|e| anyhow!("{e}"))?;
+    // let conn = ConnectionResource::new(65535);
+    // let conn_id = create_upstream_connection(&peers, &conn).await?;
+    // let connection = network.stage("connection", connection::stage);
+    // let connection = network.wire_up(
+    //     connection,
+    //     connection::Connection::new(
+    //         conn_id,
+    //         Role::Initiator,
+    //         NetworkMagic::new(config.network_magic as u64),
+    //     ),
+    // );
+    // network
+    //     .preload(connection, [ConnectionMessage::Initialize])
+    //     .map_err(|e| anyhow!("{e}"))?;
+    //
+    // network.resources().put(conn);
 
     // Register resources
-    network.resources().put(conn);
+
     network
         .resources()
         .put::<ResourceMempool>(Arc::new(InMemoryMempool::default()));

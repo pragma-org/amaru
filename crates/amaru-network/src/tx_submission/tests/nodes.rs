@@ -17,6 +17,8 @@ use crate::tx_submission::tests::NodesOptions;
 use crate::tx_submission::{
     Message, Outcome, TxSubmissionInitiatorState, TxSubmissionResponderState, TxSubmissionState,
 };
+use amaru_kernel::peer::Peer;
+use amaru_ouroboros::TxOrigin;
 use amaru_ouroboros_traits::Mempool;
 use pallas_primitives::conway::Tx;
 use std::sync::Arc;
@@ -40,7 +42,10 @@ impl Nodes {
     pub fn new(nodes_options: NodesOptions) -> Nodes {
         let initiator_mempool = nodes_options.initiator_mempool;
         let initiator_state = TxSubmissionInitiatorState::new();
-        let responder_state = TxSubmissionResponderState::new(nodes_options.responder_params);
+        let responder_state = TxSubmissionResponderState::new(
+            nodes_options.responder_params,
+            TxOrigin::Remote(Peer::new("initiator")),
+        );
         let responder_mempool = nodes_options.responder_mempool;
         Nodes {
             agency: Agency::Initiator,
@@ -56,10 +61,10 @@ impl Nodes {
     }
 
     /// Inserts transactions into the initiator's mempool in order to serve them to the responder.
-    pub fn insert_client_transactions(&self, txs: &[Tx]) {
+    pub fn insert_client_transactions(&self, txs: &[Tx], origin: TxOrigin) {
         for tx in txs.iter() {
             self.initiator_mempool
-                .insert(tx.clone(), amaru_ouroboros_traits::TxOrigin::Remote)
+                .insert(tx.clone(), origin.clone())
                 .unwrap();
         }
     }

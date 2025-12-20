@@ -37,11 +37,7 @@ pub fn request_txs(txs: &[Tx], ids: &[usize]) -> Message {
 }
 
 pub fn create_transactions(number: u64) -> Vec<Tx> {
-    let mut txs = vec![];
-    for i in 0..number {
-        txs.push(create_transaction(i));
-    }
-    txs
+    (0..number).map(create_transaction).collect()
 }
 
 pub fn create_transactions_in_mempool(mempool: Arc<dyn Mempool<Tx>>, number: u64) -> Vec<Tx> {

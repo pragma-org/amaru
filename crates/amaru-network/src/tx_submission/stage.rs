@@ -23,6 +23,7 @@ use crate::tx_submission::{
     Outcome, ResponderParams, TxSubmissionInitiatorState, TxSubmissionMessage,
     TxSubmissionResponderState,
 };
+use amaru_ouroboros::TxOrigin;
 use pure_stage::{Effects, StageRef, TryInStage};
 use std::time::Duration;
 use tracing;
@@ -81,7 +82,7 @@ pub async fn initiator_stage(
     tx_submission
 }
 
-/// This stage handles the tx submission protocol for the initiator role.
+/// This stage handles the tx submission protocol for the responder role.
 pub async fn responder_stage(
     mut tx_submission: TxSubmission<TxSubmissionResponderState>,
     msg: TxSubmissionMessage,
@@ -159,6 +160,7 @@ pub async fn register_tx_submission(
     role: Role,
     mux: StageRef<MuxMessage>,
     eff: &Effects<ConnectionMessage>,
+    origin: TxOrigin,
 ) -> StageRef<TxSubmissionMessage> {
     let tx_submission = match role {
         Role::Initiator => {
@@ -175,7 +177,7 @@ pub async fn register_tx_submission(
                 tx_submission,
                 TxSubmission::new(
                     mux.clone(),
-                    TxSubmissionResponderState::new(ResponderParams::new(2, 3)),
+                    TxSubmissionResponderState::new(ResponderParams::new(2, 3), origin),
                 ),
             )
             .await

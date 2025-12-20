@@ -14,6 +14,7 @@
 
 use crate::CanValidateTransactions;
 use amaru_kernel::cbor::{Decode, Decoder, Encode, Encoder, decode, encode};
+use amaru_kernel::peer::Peer;
 use amaru_kernel::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -140,7 +141,7 @@ pub enum TxRejectReason {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum TxOrigin {
     Local,
-    Remote,
+    Remote(Peer),
 }
 
 /// Identifier for a transaction in the mempool.

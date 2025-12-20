@@ -18,6 +18,7 @@ use crate::{
     protocol::Role,
     socket::ConnectionResource,
 };
+use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
 use pure_stage::{StageGraph, tokio::TokioBuilder};
 use std::time::Duration;
@@ -46,7 +47,12 @@ fn test_keepalive_with_node() {
     let connection = network.stage("connection", connection::stage);
     let connection = network.wire_up(
         connection,
-        connection::Connection::new(conn_id, Role::Initiator, NetworkMagic::PREPROD),
+        connection::Connection::new(
+            Peer::new("upstream"),
+            conn_id,
+            Role::Initiator,
+            NetworkMagic::PREPROD,
+        ),
     );
     network
         .preload(connection, [ConnectionMessage::Initialize])

@@ -18,22 +18,20 @@ use amaru_ouroboros_traits::{TxId, TxSubmissionMempool};
 use pallas_primitives::conway::Tx;
 use std::sync::Arc;
 
-/// Check that all the given transactions are eventually present in the responder mempool.
+/// Check that all the given transactions are currently present in the responder mempool.
 #[track_caller]
 pub fn expect_responder_transactions(nodes: &Nodes, txs: Vec<Tx>) {
     expect_transactions(nodes.responder_mempool.clone(), txs)
 }
 
-/// Check that all the given transactions are eventually present in the given mempool.
+/// Check that all the given transactions are currently present in the given mempool.
 #[track_caller]
 pub fn expect_transactions(mempool: Arc<dyn TxSubmissionMempool<Tx>>, txs: Vec<Tx>) {
     let tx_ids: Vec<_> = txs.iter().map(TxId::from).collect();
-    let mut actual = vec![];
-
-    actual = tx_ids
+    let actual = tx_ids
         .iter()
         .filter(|tx_id| mempool.contains(tx_id))
-        .collect();
+        .collect::<Vec<_>>();
 
     if actual.len() != txs.len() {
         panic!(

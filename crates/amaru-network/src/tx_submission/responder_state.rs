@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 
 /// State of a transaction submission responder for a given peer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxSubmissionResponderState {
     /// Responder parameters: batch sizes, window sizes, etc.
     params: ResponderParams,
@@ -40,16 +40,19 @@ pub struct TxSubmissionResponderState {
     /// This is kept in sync with `inflight_fetch_queue`. When we receive a tx body,
     /// we pop it from the front of the queue and remove it from the set.
     inflight_fetch_set: BTreeSet<TxId>,
+    /// The origin of the transactions we are fetching.
+    origin: TxOrigin,
 }
 
 impl TxSubmissionResponderState {
-    pub fn new(params: ResponderParams) -> Self {
+    pub fn new(params: ResponderParams, origin: TxOrigin) -> Self {
         Self {
             params,
             window: VecDeque::new(),
             pending_fetch: VecDeque::new(),
             inflight_fetch_queue: VecDeque::new(),
             inflight_fetch_set: BTreeSet::new(),
+            origin,
         }
     }
 
@@ -70,7 +73,7 @@ impl TxSubmissionResponderState {
             }
             (Txs, Message::ReplyTxs(txs)) => {
                 tracing::trace!("received ReplyTxs");
-                self.process_txs_reply(mempool, txs)?
+                self.process_txs_reply(mempool, txs, self.origin.clone())?
             }
             (_, Message::Done) => {
                 tracing::trace!("done");
@@ -120,6 +123,7 @@ impl TxSubmissionResponderState {
         &mut self,
         mempool: &dyn TxSubmissionMempool<Tx>,
         txs: Vec<Tx>,
+        origin: TxOrigin,
     ) -> anyhow::Result<(TxSubmissionState, Outcome)> {
         if txs.len() > self.params.fetch_batch.into() {
             return Ok(protocol_error(ReceivedTxsExceedsBatchSize(
@@ -137,7 +141,7 @@ impl TxSubmissionResponderState {
             return Ok(protocol_error(SomeReceivedTxsNotInFlight(not_in_flight)));
         }
 
-        self.received_txs(mempool, txs)?;
+        self.received_txs(mempool, txs, origin)?;
         let (ack, req, blocking) = self.request_tx_ids(mempool);
         let new_state = if blocking == Blocking::Yes {
             TxIdsBlocking
@@ -227,6 +231,7 @@ impl TxSubmissionResponderState {
         &mut self,
         mempool: &dyn TxSubmissionMempool<Tx>,
         txs: Vec<Tx>,
+        origin: TxOrigin,
     ) -> anyhow::Result<()> {
         for tx in txs {
             // this is the exact id we requested for this body (FIFO)
@@ -235,7 +240,7 @@ impl TxSubmissionResponderState {
 
                 match mempool.validate_transaction(tx.clone()) {
                     Ok(_) => {
-                        mempool.insert(tx, TxOrigin::Remote)?;
+                        mempool.insert(tx, origin.clone())?;
                     }
                     Err(e) => {
                         tracing::warn!("received invalid transaction {}: {}", requested_id, e);
@@ -384,7 +389,7 @@ mod tests {
     ) -> anyhow::Result<(Vec<Outcome>, TxSubmissionState, TxSubmissionResponderState)> {
         run_messages_state_with(
             TxSubmissionState::Init,
-            TxSubmissionResponderState::new(ResponderParams::default()),
+            TxSubmissionResponderState::new(ResponderParams::default(), TxOrigin::Local),
             mempool,
             requests,
         )

@@ -16,6 +16,7 @@ use crate::connection;
 use crate::connection::ConnectionMessage;
 use crate::protocol::Role;
 use crate::socket::{ConnectionResource, create_connection};
+use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
 use pure_stage::StageGraph;
 use pure_stage::tokio::TokioBuilder;
@@ -44,7 +45,12 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
     let connection = network.stage("connection", connection::stage);
     let connection = network.wire_up(
         connection,
-        connection::Connection::new(conn_id, Role::Initiator, NetworkMagic::PREPROD),
+        connection::Connection::new(
+            Peer::new("upstream"),
+            conn_id,
+            Role::Initiator,
+            NetworkMagic::PREPROD,
+        ),
     );
     network
         .preload(connection, [ConnectionMessage::Initialize])

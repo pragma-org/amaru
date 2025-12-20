@@ -21,10 +21,12 @@ use crate::{
     protocol::{PROTO_HANDSHAKE, Role},
     socket::ConnectionId,
 };
+use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_messages::{
     handshake::HandshakeResult, network_magic::NetworkMagic, version_data::VersionData,
     version_number::VersionNumber,
 };
+use amaru_ouroboros::TxOrigin;
 use pure_stage::{Effects, StageRef};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -34,9 +36,10 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(conn_id: ConnectionId, role: Role, magic: NetworkMagic) -> Self {
+    pub fn new(peer: Peer, conn_id: ConnectionId, role: Role, magic: NetworkMagic) -> Self {
         Self {
             params: Params {
+                peer,
                 conn_id,
                 role,
                 magic,
@@ -46,8 +49,9 @@ impl Connection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Params {
+    peer: Peer,
     conn_id: ConnectionId,
     role: Role,
     magic: NetworkMagic,
@@ -83,9 +87,9 @@ pub async fn stage(
     eff: Effects<ConnectionMessage>,
 ) -> Connection {
     let state = match (state, msg) {
-        (State::Initial, ConnectionMessage::Initialize) => do_initialize(params, eff).await,
+        (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
         (State::Handshake { muxer, handshake }, ConnectionMessage::Handshake(handshake_result)) => {
-            do_handshake(params, muxer, handshake, handshake_result, eff).await
+            do_handshake(&params, muxer, handshake, handshake_result, eff).await
         }
         x => unimplemented!("{x:?}"),
     };
@@ -97,14 +101,15 @@ async fn do_initialize(
         conn_id,
         role,
         magic,
-    }: Params,
+        ..
+    }: &Params,
     eff: Effects<ConnectionMessage>,
 ) -> State {
     let muxer = eff.stage("mux", mux::stage).await;
     let muxer = eff
         .wire_up(
             muxer,
-            mux::State::new(conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)]),
+            mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)]),
         )
         .await;
 
@@ -119,8 +124,8 @@ async fn do_initialize(
             handshake::Handshake::new(
                 muxer.clone(),
                 handshake_result,
-                role,
-                VersionTable::v11_and_above(magic, true),
+                *role,
+                VersionTable::v11_and_above(*magic, true),
             ),
         )
         .await;
@@ -144,7 +149,7 @@ async fn do_initialize(
 }
 
 async fn do_handshake(
-    Params { role, .. }: Params,
+    Params { role, peer, .. }: &Params,
     muxer: StageRef<MuxMessage>,
     handshake: StageRef<HandshakeMessage>,
     handshake_result: HandshakeResult,
@@ -158,8 +163,9 @@ async fn do_handshake(
         }
     };
 
-    let keepalive = register_keepalive(role, muxer.clone(), &eff).await;
-    let tx_submission = register_tx_submission(role, muxer.clone(), &eff).await;
+    let keepalive = register_keepalive(*role, muxer.clone(), &eff).await;
+    let tx_submission =
+        register_tx_submission(*role, muxer.clone(), &eff, TxOrigin::Remote(peer.clone())).await;
 
     State::Initiator {
         version_number,
