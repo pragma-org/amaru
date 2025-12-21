@@ -189,7 +189,7 @@ fn next_header(
         .map(|header| {
             ResponderAction::RollForward(
                 HeaderContent {
-                    variant: 6,
+                    variant: 6, // FIXME
                     byron_prefix: None,
                     cbor: to_cbor(&header),
                 },

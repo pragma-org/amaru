@@ -137,7 +137,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         let best_tip = best_intersection
             .and_then(|(_, h)| store.load_header(&h))
             .map(|h| h.as_tip())
-            .unwrap_or(Tip(Point::Origin, 0.into()));
+            .unwrap_or(Tip::new(Point::Origin, 0.into()));
         Some(Self {
             initial: Some(best_tip),
             ops: headers.into(),
@@ -151,16 +151,16 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         // is this initial rollback?
         if let Some(ref init_tip) = self.initial {
             let result = Some(ClientOp::Backward(PallasTip(
-                to_network_point(init_tip.0),
-                init_tip.1.as_u64(),
+                to_network_point(init_tip.point()),
+                init_tip.block_height().as_u64(),
             )));
             self.initial = None;
             return result;
         }
 
         // is our tip behind anchor?
-        if self.intersection.1 < self.anchor.1 {
-            let next_point = store.next_best_chain(&self.intersection.0);
+        if self.intersection.block_height() < self.anchor.block_height() {
+            let next_point = store.next_best_chain(&self.intersection.point());
 
             match next_point {
                 Some(point) => {
@@ -185,7 +185,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         }
 
         if let Some(op) = self.ops.pop_front() {
-            self.intersection = Tip(from_network_point(&op.tip().0), op.tip().1.into());
+            self.intersection = Tip::new(from_network_point(&op.tip().0), op.tip().1.into());
             Some(op)
         } else {
             None
@@ -213,7 +213,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
     }
 
     pub(crate) fn intersection_found(&self) -> Point {
-        self.intersection.0
+        self.intersection.point()
     }
 }
 

@@ -18,7 +18,7 @@ use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use bytes::{Buf, BytesMut};
 use parking_lot::Mutex;
 use pure_stage::BoxFuture;
-use std::{collections::HashMap, net::SocketAddr, num::NonZeroUsize, sync::Arc};
+use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -33,8 +33,7 @@ pub struct Connection {
     writer: Arc<AsyncMutex<OwnedWriteHalf>>,
 }
 
-#[expect(clippy::disallowed_types)]
-type Connections = HashMap<ConnectionId, Connection>;
+type Connections = BTreeMap<ConnectionId, Connection>;
 
 #[derive(Clone)]
 pub struct TokioConnections {

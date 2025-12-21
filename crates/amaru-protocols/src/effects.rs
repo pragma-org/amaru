@@ -106,7 +106,7 @@ impl ExternalEffect for SendEffect {
                 .expect("SendEffect requires a ConnectionResource")
                 .clone();
             resource
-                .send(self.conn, self.data.into())
+                .send(self.conn, self.data)
                 .await
                 .map_err(|e| format!("failed to send data on connection {}: {:#}", self.conn, e))
         })

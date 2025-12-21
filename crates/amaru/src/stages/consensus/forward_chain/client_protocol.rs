@@ -84,7 +84,7 @@ impl<H: IsHeader> std::fmt::Debug for ClientOp<H> {
                 .field(
                     "tip",
                     &(
-                        header.as_tip().1,
+                        header.as_tip().block_height(),
                         PrettyPoint(&to_network_point(header.point())),
                     ),
                 )
@@ -98,8 +98,8 @@ impl<H: IsHeader> ClientOp<H> {
         match self {
             ClientOp::Backward(tip) => tip.clone(),
             ClientOp::Forward(header) => Tip(
-                to_network_point(header.as_tip().0),
-                header.as_tip().1.as_u64(),
+                to_network_point(header.as_tip().point()),
+                header.as_tip().block_height().as_u64(),
             ),
         }
     }

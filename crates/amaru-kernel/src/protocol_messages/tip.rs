@@ -20,7 +20,7 @@ use std::fmt;
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
-pub struct Tip(pub Point, pub BlockHeight);
+pub struct Tip(Point, BlockHeight);
 
 impl Tip {
     pub fn new(point: Point, block_height: BlockHeight) -> Self {

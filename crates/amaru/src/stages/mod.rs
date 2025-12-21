@@ -288,8 +288,8 @@ pub async fn bootstrap(
     Ok(())
 }
 
-/// Temporary function to create a connection to an upstream peer.
-/// This will be replaced by some proper peer management.
+// / Temporary function to create a connection to an upstream peer.
+// / This will be replaced by some proper peer management.
 // pub async fn create_upstream_connection(
 //     peers: &[Peer],
 //     conn: &ConnectionResource,
@@ -430,7 +430,7 @@ pub trait AsTip {
 
 impl<H: IsHeader> AsTip for H {
     fn as_tip(&self) -> Tip {
-        Tip(self.point(), self.block_height())
+        Tip::new(self.point(), self.block_height())
     }
 }
 
