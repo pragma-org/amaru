@@ -39,6 +39,7 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/config.json"
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/topology.json"
+	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/peer-snapshot.json"
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/byron-genesis.json"
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/shelley-genesis.json"
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/alonzo-genesis.json"

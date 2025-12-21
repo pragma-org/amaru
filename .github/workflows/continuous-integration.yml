@@ -143,7 +143,7 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
-        shell: bash 
+        shell: bash
         run: make coverage-lconv
       - name: Upload test artifacts on failure
         if: failure()
@@ -177,9 +177,16 @@ jobs:
         network:
           - name: preprod
             magic: 1
-        cardano_node_version: [10.1.4]
+        cardano_node_version: [10.5.3]
 
     if: ${{ !github.event.pull_request.draft }}
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+      OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
 
     continue-on-error: true
 
@@ -198,23 +205,13 @@ jobs:
         run: |
           echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
-      - name: Restore cardano-node DB
-        id: cache-cardano-node-db
-        uses: buildjet/cache/restore@v4
-        with:
-          # The path should match the one used for the 'Nightly Sync' workflow.
-          path: ${{ runner.temp }}/db-${{ matrix.network.name }}
-          # The key should also match
-          key: cardano-node-ogmios-${{ matrix.network.name }}
-          restore-keys: |
-            cardano-node-ogmios-${{ matrix.network.name }}
-
-      - name: Check if cardano-node-db is available
-        if: steps.cache-cardano-node-db.outputs.cache-hit == ''
+      - name: Download (Haskell) cardano-node's db
         shell: bash
         run: |
-          echo "Haskell node db not available, aborting job."
-          exit 1
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/db"
+          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | tar --zstd -xf - -C "${{ runner.temp }}/db"
+          touch ${{ runner.temp }}/db/clean
 
       - name: Spawn Haskell Node
         id: spawn-cardano-node
@@ -222,8 +219,10 @@ jobs:
         run: |
           docker pull ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}
           make HASKELL_NODE_CONFIG_DIR=cardano-node-config AMARU_NETWORK=${{ matrix.network.name }} download-haskell-config
+          jq 'del(.bootstrapPeers)' ./cardano-node-config/topology.json > cardano-node-config/topology.patched.json
+          mv cardano-node-config/topology.patched.json cardano-node-config/topology.json
           docker run -d --name cardano-node \
-            -v ${{ runner.temp }}/db-${{ matrix.network.name }}:/db \
+            -v ${{ runner.temp }}/db:/db \
             -v ${{ runner.temp }}/ipc:/ipc \
             -v ./cardano-node-config:/config \
             -v ./cardano-node-config:/genesis \
