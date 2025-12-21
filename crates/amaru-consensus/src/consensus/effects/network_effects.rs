@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
-    errors::{ConsensusError, ProcessingFailed},
-    tip::HeaderTip,
-};
+use crate::consensus::errors::{ConsensusError, ProcessingFailed};
 use amaru_kernel::{
     BlockHeader, IsHeader, Point,
     consensus_events::{ChainSyncEvent, Tracked},
     peer::Peer,
+    protocol_messages::tip::Tip,
 };
 use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use anyhow::anyhow;
@@ -46,7 +44,7 @@ pub trait NetworkOps {
     fn send_backward_event(
         &self,
         peer: Peer,
-        header_tip: HeaderTip,
+        header_tip: Tip,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 
     fn disconnect(&self, peer: Peer) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
@@ -82,7 +80,7 @@ impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
     fn send_backward_event(
         &self,
         peer: Peer,
-        header_tip: HeaderTip,
+        header_tip: Tip,
     ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
         self.0.external(ForwardEventEffect::new(
             peer,
@@ -111,7 +109,7 @@ pub trait ForwardEventListener {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ForwardEvent {
     Forward(BlockHeader),
-    Backward(HeaderTip),
+    Backward(Tip),
 }
 
 impl ForwardEvent {
@@ -217,7 +215,7 @@ impl ExternalEffect for FetchBlockEffect {
                 .get::<ResourceNetworkOperations>()
                 .expect("FetchBlockEffect requires a NetworkOperations")
                 .clone();
-            let point = self.point.clone();
+            let point = self.point;
             network
                 .fetch_block(&self.peer, self.point)
                 .await

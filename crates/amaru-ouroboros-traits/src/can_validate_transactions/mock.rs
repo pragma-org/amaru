@@ -12,19 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{TransactionInput, Tx};
+use crate::can_validate_transactions::{CanValidateTransactions, TransactionValidationError};
 
-/// An interface to obtain a set of keys for any given type, to be used as discriminants in a
-/// mempool strategy.
-pub trait IntoKeys {
-    type Key;
-    fn keys(&self) -> impl Iterator<Item = &Self::Key>;
-}
+/// A fake transactions validator.
+#[derive(Clone, Debug, Default)]
+pub struct MockCanValidateTransactions;
 
-impl IntoKeys for Tx {
-    type Key = TransactionInput;
-
-    fn keys(&self) -> impl Iterator<Item = &Self::Key> {
-        self.transaction_body.inputs.iter()
+impl<Tx: Send + Sync + 'static> CanValidateTransactions<Tx> for MockCanValidateTransactions {
+    fn validate_transaction(&self, _tx: Tx) -> Result<(), TransactionValidationError> {
+        Ok(())
     }
 }

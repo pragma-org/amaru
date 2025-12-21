@@ -16,9 +16,19 @@ use bytes::Bytes;
 use std::{cell::RefCell, fmt, num::NonZeroUsize, ops::Deref};
 
 // Newtype wrapper for custom Debug.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
 #[repr(transparent)]
 pub struct NonEmptyBytes(Bytes);
+
+impl<'de> serde::Deserialize<'de> for NonEmptyBytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let bytes = Bytes::deserialize(deserializer)?;
+        Self::new(bytes).map_err(serde::de::Error::custom)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, thiserror::Error)]
 #[error("empty bytes are not allowed")]
@@ -45,10 +55,11 @@ impl NonEmptyBytes {
         thread_local! {
             static BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
         }
+        #[expect(clippy::expect_used)]
         BUFFER.with_borrow_mut(|buffer| {
-            #[expect(clippy::expect_used)]
             minicbor::encode(value, &mut *buffer).expect("serialization should not fail");
-            let ret = Self(Bytes::copy_from_slice(buffer.as_slice()));
+            let ret = Self::new(Bytes::copy_from_slice(buffer.as_slice()))
+                .expect("CBOR item should not be empty");
             buffer.clear();
             ret
         })

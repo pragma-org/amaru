@@ -90,6 +90,8 @@ pub mod ballot;
 pub use ballot_id::*;
 pub mod ballot_id;
 
+pub mod bytes;
+
 pub use certificate_pointer::*;
 pub mod certificate_pointer;
 
@@ -114,7 +116,7 @@ pub mod ignore_eq;
 pub use ignore_eq::IgnoreEq;
 
 pub mod is_header;
-pub use is_header::{BlockHeader, IsHeader};
+pub use is_header::*;
 
 pub use memoized::*;
 pub mod memoized;
@@ -123,8 +125,7 @@ pub mod network;
 
 pub mod peer;
 
-pub use point::*;
-pub mod point;
+pub use protocol_messages::point::*;
 
 pub use pool_params::*;
 pub mod pool_params;
@@ -184,10 +185,10 @@ pub mod tests {
     pub use crate::{
         anchor::tests::*, ballot::tests::*, ballot_id::tests::*, certificate_pointer::tests::*,
         constitution::tests::*, constitutional_committee::tests::*, drep::tests::*,
-        network::tests::*, point::tests::*, pool_params::tests::*, proposal::tests::*,
-        proposal_id::tests::*, proposal_pointer::tests::*, protocol_parameters::tests::*,
-        reward_account::tests::*, stake_credential::tests::*, transaction_pointer::tests::*,
-        vote::tests::*,
+        network::tests::*, pool_params::tests::*, proposal::tests::*, proposal_id::tests::*,
+        proposal_pointer::tests::*, protocol_messages::point::tests::*,
+        protocol_parameters::tests::*, reward_account::tests::*, stake_credential::tests::*,
+        transaction_pointer::tests::*, vote::tests::*,
     };
     use proptest::prelude::*;
     use rand::{SeedableRng, prelude::StdRng};

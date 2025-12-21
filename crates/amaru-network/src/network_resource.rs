@@ -94,7 +94,7 @@ impl NetworkOperations for NetworkResource {
         let (tx, rx) = oneshot::channel();
         let tx = Arc::new(Mutex::new(Some(tx)));
         if let Some(peer) = self.inner.connections.get(peer) {
-            peer.send(ConnMsg::FetchBlock(point.clone(), tx.clone()));
+            peer.send(ConnMsg::FetchBlock(point, tx.clone()));
         }
         drop(tx);
         // if no sends were made then the drop above ensures that the below errors instead of deadlock

@@ -21,9 +21,11 @@ use amaru_consensus::consensus::{
         track_peers::{self, SyncTracker},
         validate_block, validate_header,
     },
-    tip::HeaderTip,
 };
-use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
+use amaru_kernel::{
+    consensus_events::{ChainSyncEvent, Tracked},
+    protocol_messages::tip::Tip,
+};
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the consensus protocol.
@@ -32,7 +34,7 @@ use pure_stage::{Effects, SendData, StageGraph, StageRef};
 pub fn build_stage_graph(
     chain_selector: SelectChain,
     sync_tracker: SyncTracker,
-    our_tip: HeaderTip,
+    our_tip: Tip,
     network: &mut impl StageGraph,
 ) -> StageRef<Tracked<ChainSyncEvent>> {
     let receive_header_stage = network.stage(
@@ -136,9 +138,6 @@ pub fn build_stage_graph(
 /// Wrap a function taking `ConsensusEffects` so that it can be used in a stage graph that provides
 /// the `Effects` type. The `ConsensusEffects` provide a higher-level API for executing external effects
 /// during the consensus stages.
-///
-/// Note: the EraHistory reference must be passed to be able to build a ChainStore that can reference
-/// the correct era history. That ChainStore is returned by the ConsensusEffects::store() function.
 fn with_consensus_effects<Msg, St, F1, Fut>(
     mut f: F1,
 ) -> impl FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send

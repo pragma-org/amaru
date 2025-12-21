@@ -59,7 +59,7 @@ pub fn stage(
                         &peer,
                         ConsensusError::HeaderPointMismatch {
                             actual_point: header.point(),
-                            expected_point: point.clone(),
+                            expected_point: point,
                         },
                     );
                     eff.base().send(&failures, msg).await;
@@ -115,7 +115,7 @@ pub fn stage(
 pub fn decode_header(point: &Point, raw_header: &[u8]) -> Result<BlockHeader, ConsensusError> {
     let minted_header: MintedHeader<'_> =
         cbor::decode(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
-            point: point.clone(),
+            point: *point,
             header: raw_header.into(),
             reason: reason.to_string(),
         })?;
@@ -201,7 +201,7 @@ mod tests {
         let point = run(any_header()).point();
         let message = Tracked::Wrapped(ChainSyncEvent::RollForward {
             peer: peer.clone(),
-            point: point.clone(),
+            point,
             span: Span::current(),
             raw_header: cbor::to_vec(header.clone())?,
         });
@@ -213,7 +213,7 @@ mod tests {
             &peer,
             ConsensusError::HeaderPointMismatch {
                 actual_point: header.point(),
-                expected_point: point.clone(),
+                expected_point: point,
             },
         );
         assert_eq!(

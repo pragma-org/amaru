@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use crate::{
-    bytes::NonEmptyBytes,
     effects::{Network, NetworkOps},
     protocol::{Erased, ProtocolId, RoleT},
-    socket::ConnectionId,
 };
+use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
@@ -374,7 +374,7 @@ impl Muxer {
         Self::default()
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self, handler, eff))]
     pub async fn register<M>(
         &mut self,
         proto_id: ProtocolId<Erased>,
@@ -434,7 +434,7 @@ impl Muxer {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip_all, fields(proto_id))]
+    #[instrument(level = Level::DEBUG, skip_all, fields(proto_id, bytes = bytes.len()))]
     pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: CallRef<Sent>) {
         tracing::trace!(proto = %proto_id, bytes = bytes.len(), "enqueueing send");
         #[allow(clippy::expect_used)]
@@ -445,7 +445,7 @@ impl Muxer {
             .enqueue_send(bytes, sent);
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip_all)]
     pub async fn next_segment<M>(
         &mut self,
         eff: &Effects<M>,
@@ -469,7 +469,7 @@ impl Muxer {
         None
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, bytes), fields(bytes = bytes.len()))]
+    #[instrument(level = Level::DEBUG, skip(self, bytes, eff), fields(bytes = bytes.len()))]
     pub async fn received<M>(
         &mut self,
         timestamp: Timestamp,
@@ -484,7 +484,7 @@ impl Muxer {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self, eff))]
     pub async fn want_next<M>(
         &mut self,
         proto_id: ProtocolId<Erased>,
@@ -626,15 +626,17 @@ mod tests {
         protocol::{
             Initiator, PROTO_HANDSHAKE, PROTO_N2C_CHAIN_SYNC, PROTO_N2N_BLOCK_FETCH, Responder,
         },
-        socket::ConnectionResource,
     };
+    use amaru_network::connection::TokioConnections;
+    use amaru_ouroboros::ConnectionResource;
+    use amaru_ouroboros_traits::ConnectionProvider;
     use futures_util::StreamExt;
     use pure_stage::{
         Effect, Instant, StageGraph,
         simulation::{Blocked, SimulationBuilder, SimulationRunning},
         trace_buffer::TraceBuffer,
     };
-    use std::{fmt, time::Duration};
+    use std::{fmt, sync::Arc, time::Duration};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
@@ -671,7 +673,7 @@ mod tests {
         let server_addr = listener.local_addr().unwrap();
         let server_task = tokio::spawn(async move { listener.accept().await.unwrap().0 });
 
-        let network = ConnectionResource::new(65536);
+        let network = TokioConnections::new(65536);
         let conn_id = t(network.connect(vec![server_addr])).await.unwrap();
         let mut tcp = t(server_task).await.unwrap();
 
@@ -689,7 +691,9 @@ mod tests {
         let (output, mut rx) = graph.output::<HandlerMessage>("output", 10);
         let input = graph.input(&mux);
 
-        graph.resources().put(network);
+        graph
+            .resources()
+            .put::<ConnectionResource>(Arc::new(network));
 
         let mut running = graph.run();
         let join_handle = tokio::spawn(async move {

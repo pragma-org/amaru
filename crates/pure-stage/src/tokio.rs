@@ -245,6 +245,7 @@ async fn run_stage<Msg: SendData, St: SendData>(
     stage_name: Name,
     inner: Arc<TokioInner>,
 ) {
+    tracing::debug!("running stage `{stage_name}`");
     let me = StageRef::new(stage_name.clone());
     let effect = Arc::new(Mutex::new(None));
     let effects = Effects::new(
@@ -286,6 +287,7 @@ async fn run_stage_boxed(
     stage_name: Name,
     inner: Arc<TokioInner>,
 ) {
+    tracing::debug!("running stage `{stage_name}`");
     while let Some(msg) = rx.recv().await {
         let result = interpreter(&inner, &effect, &stage_name, (transition)(state, msg)).await;
         match result {
@@ -436,6 +438,23 @@ fn interpreter<St>(
                         inner.clone(),
                     )));
                     StageResponse::Unit
+                }
+                StageEffect::Contramap {
+                    original,
+                    new_name,
+                    transform,
+                } => {
+                    tracing::debug!("contramap {original} -> {new_name}");
+                    let name = stage_name(&mut inner.stage_counter.lock(), new_name.as_str());
+                    inner.senders.lock().insert(
+                        name.clone(),
+                        StageOrAdapter::Adapter(Adapter {
+                            name: name.clone(),
+                            target: original,
+                            transform: transform.into_inner(),
+                        }),
+                    );
+                    StageResponse::ContramapResponse(name)
                 }
             };
             *effect.lock() = Some(Right(resp));

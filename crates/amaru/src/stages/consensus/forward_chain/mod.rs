@@ -20,3 +20,12 @@ pub mod tcp_forward_chain_server;
 mod test_infra;
 #[cfg(test)]
 mod tests;
+
+pub fn to_pallas_tip(
+    tip: amaru_kernel::protocol_messages::tip::Tip,
+) -> pallas_network::miniprotocols::chainsync::Tip {
+    pallas_network::miniprotocols::chainsync::Tip(
+        amaru_network::point::to_network_point(tip.point()),
+        tip.block_height().as_u64(),
+    )
+}

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{EraHistory, Hasher, IsHeader, Nonce};
-use amaru_slot_arithmetic::{Epoch, EraHistoryError, Slot};
+use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 
 /// Obtain the final nonce at an epoch boundary for the epoch from the stable candidate and the
 /// last block (header) of the previous epoch.
@@ -52,13 +52,13 @@ pub fn randomness_stability_window<H: IsHeader>(
     randomness_stabilization_window: u64,
 ) -> Result<(Epoch, bool), EraHistoryError> {
     let slot = header.slot();
-    let tip = Slot::from(slot);
+    let tip = slot;
     let epoch = era_history.slot_to_epoch(tip, tip)?;
 
     let next_epoch_first_slot = era_history.next_epoch_first_slot(epoch, &tip)?;
 
     let is_within_stability_window =
-        slot + randomness_stabilization_window < u64::from(next_epoch_first_slot);
+        slot.as_u64() + randomness_stabilization_window < next_epoch_first_slot.as_u64();
 
     Ok((epoch, is_within_stability_window))
 }

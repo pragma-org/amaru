@@ -128,7 +128,7 @@ impl DecodedChainSyncEvent {
     pub fn point(&self) -> Point {
         match self {
             DecodedChainSyncEvent::RollForward { header, .. } => header.point(),
-            DecodedChainSyncEvent::Rollback { rollback_point, .. } => rollback_point.clone(),
+            DecodedChainSyncEvent::Rollback { rollback_point, .. } => *rollback_point,
         }
     }
 }

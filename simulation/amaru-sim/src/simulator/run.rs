@@ -32,9 +32,10 @@ use amaru_consensus::consensus::{
     },
     headers_tree::HeadersTreeState,
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
-    tip::HeaderTip,
 };
+use amaru_kernel::Hash;
 use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
+use amaru_kernel::protocol_messages::tip::Tip;
 use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
 use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
@@ -155,7 +156,7 @@ pub fn spawn_node(
                         &downstream,
                         Tracked::Wrapped(ChainSyncEvent::RollForward {
                             peer: Peer::new(&msg.src),
-                            point: Point::Specific(slot.into(), hash.into()),
+                            point: Point::Specific(slot, Hash::from(&*hash.bytes)),
                             raw_header: header.into(),
                             span: Span::current(),
                         }),
@@ -167,7 +168,7 @@ pub fn spawn_node(
                         &downstream,
                         Tracked::Wrapped(ChainSyncEvent::Rollback {
                             peer: Peer::new(&msg.src),
-                            rollback_point: Point::Specific(slot.into(), hash.into()),
+                            rollback_point: Point::Specific(slot, Hash::from(&*hash.bytes)),
                             span: Span::current(),
                         }),
                     )
@@ -178,7 +179,7 @@ pub fn spawn_node(
         },
     );
 
-    let our_tip = HeaderTip::new(Point::Origin, 0);
+    let our_tip = Tip::new(Point::Origin, 0.into());
     let receive_header_ref = build_stage_graph(select_chain, sync_tracker, our_tip, network);
 
     let (output, rx1) = network.output("output", 10);

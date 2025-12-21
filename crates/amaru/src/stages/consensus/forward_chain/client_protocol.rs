@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::point::from_network_point;
-
 use super::chain_follower::ChainFollower;
 use crate::stages::AsTip;
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_consensus::ChainStore;
 use amaru_kernel::{Hash, HeaderHash, IsHeader, to_cbor};
-use amaru_network::point::to_network_point;
+use amaru_network::point::{from_network_point, to_network_point};
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{
@@ -86,7 +84,7 @@ impl<H: IsHeader> std::fmt::Debug for ClientOp<H> {
                 .field(
                     "tip",
                     &(
-                        header.as_tip().1,
+                        header.as_tip().block_height(),
                         PrettyPoint(&to_network_point(header.point())),
                     ),
                 )
@@ -99,7 +97,10 @@ impl<H: IsHeader> ClientOp<H> {
     pub fn tip(&self) -> Tip {
         match self {
             ClientOp::Backward(tip) => tip.clone(),
-            ClientOp::Forward(header) => header.as_tip(),
+            ClientOp::Forward(header) => Tip(
+                to_network_point(header.as_tip().point()),
+                header.as_tip().block_height().as_u64(),
+            ),
         }
     }
 }
@@ -191,8 +192,14 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
         "request interception",
     );
 
-    let Some(mut chain_follower) = ChainFollower::new(store.clone(), &our_tip.0, &requested_points)
-    else {
+    let Some(mut chain_follower) = ChainFollower::new(
+        store.clone(),
+        &from_network_point(&our_tip.0),
+        &requested_points
+            .into_iter()
+            .map(|p| from_network_point(&p))
+            .collect::<Vec<_>>(),
+    ) else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
         return Err(ClientError::NoIntersection.into());
@@ -203,7 +210,7 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
     tracing::debug!(intersection = ?intersection, "intersection found");
 
     server
-        .send_intersect_found(intersection, our_tip.clone())
+        .send_intersect_found(to_network_point(intersection), our_tip.clone())
         .await?;
 
     let parent = cell.me();

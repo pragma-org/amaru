@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pure_stage::{BoxFuture, Effects, Instant, SendData, StageRef};
+use pure_stage::{BoxFuture, CallRef, Effects, Instant, SendData, StageRef};
+use serde::de::DeserializeOwned;
 use std::time::Duration;
 
 /// Base operations available to a stage: send message, get current time, wait, terminate.
@@ -23,6 +24,14 @@ pub trait BaseOps: Clone + Send {
         target: &StageRef<Msg>,
         msg: Msg,
     ) -> BoxFuture<'static, ()>;
+
+    fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
+        &self,
+        target: &StageRef<Req>,
+        timeout: Duration,
+        msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
+    ) -> BoxFuture<'static, Option<Resp>>;
+
     fn clock(&self) -> BoxFuture<'static, Instant>;
     fn wait(&self, duration: Duration) -> BoxFuture<'static, Instant>;
     fn terminate(&self) -> BoxFuture<'static, ()>;
@@ -45,6 +54,15 @@ impl<T: Clone + SendData + Sync> BaseOps for Base<'_, T> {
         msg: Msg,
     ) -> BoxFuture<'static, ()> {
         self.0.send(target, msg)
+    }
+
+    fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
+        &self,
+        target: &StageRef<Req>,
+        timeout: Duration,
+        msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
+    ) -> BoxFuture<'static, Option<Resp>> {
+        self.0.call(target, timeout, msg)
     }
 
     fn clock(&self) -> BoxFuture<'static, Instant> {

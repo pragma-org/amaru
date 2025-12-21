@@ -46,6 +46,8 @@ impl<Msg> PartialEq for StageRef<Msg> {
     }
 }
 
+impl<Msg> Eq for StageRef<Msg> {}
+
 impl<Msg> Clone for StageRef<Msg> {
     fn clone(&self) -> Self {
         Self {

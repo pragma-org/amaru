@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::point::to_network_point;
 use crate::stages::consensus::forward_chain::client_protocol::{
     ClientMsg, ClientOp, ClientProtocolMsg, client_protocols,
 };
+use crate::stages::consensus::forward_chain::to_pallas_tip;
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
 use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
-use amaru_consensus::consensus::tip::{AsHeaderTip, HeaderTip};
 use amaru_kernel::{BlockHeader, IsHeader};
+use amaru_network::point::to_network_point;
 use amaru_ouroboros_traits::ChainStore;
 use async_trait::async_trait;
 use pallas_network::{facades::PeerServer, miniprotocols::chainsync::Tip};
@@ -36,7 +36,7 @@ pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 /// It also implements the ForwardEventListener trait to receive forward events
 /// and forward them to all connected peers.
 pub struct TcpForwardChainServer<H> {
-    our_tip: Arc<Mutex<HeaderTip>>,
+    our_tip: Arc<Mutex<Tip>>,
     clients: ActoRef<ClientMsg<H>>,
     _runtime: AcTokio,
 }
@@ -52,7 +52,7 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
         listen_address: String,
         network_magic: u64,
         max_peers: usize,
-        our_tip: HeaderTip,
+        our_tip: Tip,
     ) -> anyhow::Result<Self> {
         let tcp_listener = TcpListener::bind(&listen_address).await?;
         TcpForwardChainServer::create(store, tcp_listener, network_magic, max_peers, our_tip)
@@ -65,7 +65,7 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
         tcp_listener: TcpListener,
         network_magic: u64,
         max_peers: usize,
-        our_tip: HeaderTip,
+        our_tip: Tip,
     ) -> anyhow::Result<Self> {
         let runtime = AcTokio::from_handle("consensus.forward", Handle::current());
 
@@ -96,10 +96,7 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
                             .lock()
                             .expect("poisoned lock for our tip")
                             .clone();
-                        clients_clone.send(ClientMsg::Peer(
-                            peer,
-                            Tip(to_network_point(our_tip.point()), our_tip.block_height()),
-                        ));
+                        clients_clone.send(ClientMsg::Peer(peer, our_tip));
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -131,7 +128,7 @@ impl ForwardEventListener for TcpForwardChainServer<BlockHeader> {
                         .our_tip
                         .lock()
                         .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
-                    *our_tip = header.as_header_tip();
+                    *our_tip = to_pallas_tip(header.tip());
                 };
 
                 self.clients.send(ClientMsg::Op(ClientOp::Forward(header)));
@@ -142,10 +139,10 @@ impl ForwardEventListener for TcpForwardChainServer<BlockHeader> {
                     .our_tip
                     .lock()
                     .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
-                *our_tip = tip.clone();
+                *our_tip = to_pallas_tip(tip);
                 self.clients.send(ClientMsg::Op(ClientOp::Backward(Tip(
                     to_network_point(tip.point()),
-                    tip.block_height(),
+                    tip.block_height().as_u64(),
                 ))));
                 Ok(())
             }

@@ -14,7 +14,7 @@
 
 use crate::stages::{
     build_stage_graph::build_stage_graph,
-    consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
+    consensus::forward_chain::{tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip},
 };
 use acto::AcTokio;
 use amaru_consensus::{
@@ -29,7 +29,6 @@ use amaru_consensus::{
             pull, select_chain::SelectChain, track_peers::SyncTracker,
             validate_header::ValidateHeader,
         },
-        tip::{AsHeaderTip, HeaderTip},
     },
     network_operations::ResourceNetworkOperations,
 };
@@ -37,12 +36,12 @@ use amaru_kernel::{
     BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
     network::NetworkName,
     peer::Peer,
+    protocol_messages::tip::Tip,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::NetworkResource;
-use amaru_network::point::to_network_point;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
@@ -54,7 +53,6 @@ use amaru_stores::{
 use anyhow::Context;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pallas_network::miniprotocols::chainsync::Tip;
 use pure_stage::{StageGraph, tokio::TokioBuilder};
 use std::{
     fmt::{Debug, Display},
@@ -187,8 +185,8 @@ pub async fn bootstrap(
     let chain_store = make_chain_store(&config, &tip.hash())?;
     let our_tip = chain_store
         .load_header(&tip.hash())
-        .map(|h| h.as_header_tip())
-        .unwrap_or(HeaderTip::new(Point::Origin, 0));
+        .map(|h| h.tip())
+        .unwrap_or(Tip::new(Point::Origin, 0.into()));
 
     let chain_selector = make_chain_selector(
         chain_store.clone(),
@@ -215,7 +213,7 @@ pub async fn bootstrap(
             config.listen_address.clone(),
             config.network_magic as u64,
             config.max_downstream_peers,
-            our_tip.clone(),
+            to_pallas_tip(our_tip),
         )
         .await?,
     );
@@ -232,6 +230,28 @@ pub async fn bootstrap(
         .preload(pull_stage, vec![pull::NextSync])
         .map_err(|_| anyhow::anyhow!("failed to preload pull stage"))?;
 
+    // Create the stages for the new network protocols stack
+    // let conn = ConnectionResource::new(65535);
+    // let conn_id = create_upstream_connection(&peers, &conn).await?;
+    // let connection = network.stage("connection", connection::stage);
+    // let connection = network.wire_up(
+    //     connection,
+    //     connection::Connection::new(
+    //         conn_id,
+    //         Role::Initiator,
+    //         NetworkMagic::new(config.network_magic as u64),
+    //     ),
+    // );
+    // network
+    //     .preload(connection, [ConnectionMessage::Initialize])
+    //     .map_err(|e| anyhow!("{e}"))?;
+    //
+    // network.resources().put(conn);
+    // network
+    //     .resources()
+    //     .put::<ResourceMempool<Tx>>(Arc::new(InMemoryMempool::default()));
+
+    // Register resources
     network
         .resources()
         .put::<ResourceHeaderStore>(chain_store.clone());
@@ -267,6 +287,34 @@ pub async fn bootstrap(
 
     Ok(())
 }
+
+// / Temporary function to create a connection to an upstream peer.
+// / This will be replaced by some proper peer management.
+// pub async fn create_upstream_connection(
+//     peers: &[Peer],
+//     conn: &ConnectionResource,
+// ) -> anyhow::Result<ConnectionId> {
+//     if let Some(peer) = peers.first() {
+//         timeout(Duration::from_secs(5), async {
+//             match ToSocketAddrs::String(env::var("PEER").unwrap_or(peer.to_string()))
+//                 .resolve()
+//                 .await
+//             {
+//                 Ok(addr) => conn.connect(addr).await.map_err(anyhow::Error::from),
+//                 Err(e) => Err(anyhow::anyhow!(
+//                     "Failed to resolve address for upstream peer {}: {}",
+//                     peer,
+//                     e
+//                 )),
+//             }
+//         })
+//         .await?
+//     } else {
+//         Err(anyhow::anyhow!(
+//             "No upstream peers configured to connect to"
+//         ))
+//     }
+// }
 
 #[expect(clippy::panic)]
 fn make_chain_store(
@@ -382,7 +430,7 @@ pub trait AsTip {
 
 impl<H: IsHeader> AsTip for H {
     fn as_tip(&self) -> Tip {
-        Tip(to_network_point(self.point()), self.block_height())
+        Tip::new(self.point(), self.block_height())
     }
 }
 
