@@ -19,7 +19,9 @@ mod check;
 mod miniprotocol;
 
 pub use check::ProtoSpec;
-pub use miniprotocol::{Inputs, Outcome, ProtocolState, StageState, miniprotocol, outcome};
+pub use miniprotocol::{
+    Inputs, Miniprotocol, Outcome, ProtocolState, StageState, miniprotocol, outcome,
+};
 
 /// Input to a protocol step
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

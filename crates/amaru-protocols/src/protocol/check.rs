@@ -74,11 +74,19 @@ where
             .flat_map(|m| m.keys())
             .collect::<BTreeSet<_>>();
 
-        assert_eq!(
-            initial.init().unwrap().0.send.is_some(),
-            role == Role::Initiator,
-            "must send from initial state iff role is initiator"
-        );
+        let (out, init) = initial.init().unwrap();
+        match role {
+            Role::Initiator => {
+                assert!(out.send.is_some() || out.result.is_some());
+                if out.send.is_none() {
+                    assert_eq!(initial, init);
+                }
+            }
+            Role::Responder => {
+                assert!(out.send.is_none());
+                assert_eq!(initial, init);
+            }
+        }
 
         for state in states {
             for &message in &messages {
@@ -139,5 +147,25 @@ where
                 }
             }
         }
+    }
+
+    pub fn assert_refines<S>(&self, other: &ProtoSpec<S, Message>, surjection: impl Fn(&State) -> S)
+    where
+        S: Ord + std::fmt::Debug + Clone + ProtocolState<WireMsg = Message>,
+    {
+        let mut simplified = BTreeMap::<S, BTreeMap<Message, (Role, S)>>::new();
+
+        for (from, transitions) in &self.transitions {
+            let from = surjection(from);
+            for (message, (role, to)) in transitions {
+                let to = surjection(to);
+                simplified
+                    .entry(from.clone())
+                    .or_default()
+                    .insert(message.clone(), (*role, to.clone()));
+            }
+        }
+
+        assert_eq!(simplified, other.transitions);
     }
 }

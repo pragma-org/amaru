@@ -14,16 +14,29 @@
 
 use crate::{
     chainsync::messages::{HeaderContent, Message},
-    mux::{HandlerMessage, MuxMessage},
-    protocol::{Input, NETWORK_SEND_TIMEOUT, Outcome, PROTO_N2N_CHAIN_SYNC, outcome},
+    mux::MuxMessage,
+    protocol::{
+        Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, StageState,
+        miniprotocol, outcome,
+    },
     store_effects::Store,
 };
-use amaru_kernel::{
-    BlockHeader, Point, bytes::NonEmptyBytes, peer::Peer, protocol_messages::tip::Tip,
-};
+use amaru_kernel::{BlockHeader, Point, peer::Peer, protocol_messages::tip::Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
-use pure_stage::{Effects, StageRef, TryInStage};
+use pure_stage::{Effects, StageRef};
 
+pub fn initiator() -> Miniprotocol<InitiatorState, Initiator> {
+    miniprotocol(PROTO_N2N_CHAIN_SYNC.erase())
+}
+
+/// Message sent to the handler from the consensus pipeline
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum InitiatorMessage {
+    RequestNext,
+    Done,
+}
+
+/// Message sent from the handler to the consensus pipeline
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChainSyncInitiatorMsg {
     pub peer: Peer,
@@ -35,11 +48,11 @@ pub struct ChainSyncInitiatorMsg {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Initiator {
     upstream: Option<Tip>,
-    state: InitiatorState,
     peer: Peer,
     conn_id: ConnectionId,
     muxer: StageRef<MuxMessage>,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
+    me: StageRef<InitiatorMessage>,
 }
 
 impl Initiator {
@@ -48,82 +61,83 @@ impl Initiator {
         conn_id: ConnectionId,
         muxer: StageRef<MuxMessage>,
         pipeline: StageRef<ChainSyncInitiatorMsg>,
-    ) -> Self {
-        Self {
-            upstream: None,
-            state: InitiatorState::Idle,
-            peer,
-            conn_id,
-            muxer,
-            pipeline,
-        }
+    ) -> (InitiatorState, Self) {
+        (
+            InitiatorState::Idle,
+            Self {
+                upstream: None,
+                peer,
+                conn_id,
+                muxer,
+                pipeline,
+                me: StageRef::blackhole(),
+            },
+        )
     }
 }
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum InitiatorMessage {
-    RequestNext,
-    Done,
-    FromNetwork(HandlerMessage),
+impl AsRef<StageRef<MuxMessage>> for Initiator {
+    fn as_ref(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
+    }
 }
 
-pub async fn initiator(
-    mut initiator: Initiator,
-    msg: InitiatorMessage,
-    eff: Effects<InitiatorMessage>,
-) -> Initiator {
-    let (outcome, state) = match msg {
-        InitiatorMessage::RequestNext => initiator
-            .state
-            .step(Input::Local(InitiatorAction::RequestNext)),
-        InitiatorMessage::Done => initiator.state.step(Input::Local(InitiatorAction::Done)),
-        InitiatorMessage::FromNetwork(HandlerMessage::Registered(_)) => {
-            initiator
-                .state
-                .step(Input::Local(InitiatorAction::Intersect(intersect_points(
-                    &Store::new(eff.clone()),
-                ))))
-        }
-        InitiatorMessage::FromNetwork(HandlerMessage::FromNetwork(msg)) => {
-            let msg: Message = minicbor::decode(&msg.into_inner())
-                .or_terminate(&eff, async |err| {
-                    tracing::error!(%err, "failed to decode message from network");
-                })
-                .await;
-            initiator.state.step(Input::Remote(msg))
-        }
-    }
-    .or_terminate(&eff, async |err| {
-        tracing::error!(%err, "failed to step initiator");
-    })
-    .await;
+impl StageState<InitiatorState> for Initiator {
+    type LocalIn = InitiatorMessage;
 
-    initiator.state = state;
+    async fn local(
+        self,
+        proto: &InitiatorState,
+        input: Self::LocalIn,
+        _eff: &Effects<Inputs<Self::LocalIn>>,
+    ) -> anyhow::Result<(Self, Option<<InitiatorState as ProtocolState>::Action>)> {
+        use InitiatorState::*;
 
-    if let Some(msg) = outcome.send {
-        let msg = NonEmptyBytes::encode(&msg);
-        eff.call(&initiator.muxer, NETWORK_SEND_TIMEOUT, move |cr| {
-            MuxMessage::Send(PROTO_N2N_CHAIN_SYNC.erase(), msg, cr)
+        Ok(match (proto, input) {
+            (Idle, InitiatorMessage::RequestNext) => (self, Some(InitiatorAction::RequestNext)),
+            (Idle, InitiatorMessage::Done) => (self, Some(InitiatorAction::Done)),
+            (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
-        .await;
-    }
-    if let Some(result) = outcome.result {
-        match &result {
-            InitiatorResult::IntersectFound(_point, tip) => initiator.upstream = Some(*tip),
-            InitiatorResult::IntersectNotFound(tip) => initiator.upstream = Some(*tip),
-            InitiatorResult::RollForward(_header_content, tip) => initiator.upstream = Some(*tip),
-            InitiatorResult::RollBackward(_point, tip) => initiator.upstream = Some(*tip),
-        }
-        let msg = ChainSyncInitiatorMsg {
-            peer: initiator.peer.clone(),
-            conn_id: initiator.conn_id,
-            handler: eff.me(),
-            msg: result,
-        };
-        eff.send(&initiator.pipeline, msg).await;
     }
 
-    initiator
+    async fn network(
+        mut self,
+        _proto: &InitiatorState,
+        input: <InitiatorState as ProtocolState>::Out,
+        eff: &Effects<Inputs<Self::LocalIn>>,
+    ) -> anyhow::Result<(Self, Option<<InitiatorState as ProtocolState>::Action>)> {
+        use InitiatorAction::*;
+        let action = match &input {
+            InitiatorResult::Initialize => {
+                self.me = eff
+                    .contramap(
+                        eff.me(),
+                        format!("{}-handler", eff.me().name()),
+                        Inputs::Local,
+                    )
+                    .await;
+                Some(Intersect(intersect_points(&Store::new(eff.clone()))))
+            }
+            InitiatorResult::IntersectFound(_, tip)
+            | InitiatorResult::IntersectNotFound(tip)
+            | InitiatorResult::RollForward(_, tip)
+            | InitiatorResult::RollBackward(_, tip) => {
+                self.upstream = Some(*tip);
+                None
+            }
+        };
+        eff.send(
+            &self.pipeline,
+            ChainSyncInitiatorMsg {
+                peer: self.peer.clone(),
+                conn_id: self.conn_id,
+                handler: self.me.clone(),
+                msg: input,
+            },
+        )
+        .await;
+        Ok((self, action))
+    }
 }
 
 fn intersect_points(store: &dyn ReadOnlyChainStore<BlockHeader>) -> Vec<Point> {
@@ -145,7 +159,7 @@ fn intersect_points(store: &dyn ReadOnlyChainStore<BlockHeader>) -> Vec<Point> {
 }
 
 #[derive(Debug)]
-enum InitiatorAction {
+pub enum InitiatorAction {
     Intersect(Vec<Point>),
     RequestNext,
     Done,
@@ -153,12 +167,15 @@ enum InitiatorAction {
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorResult {
+    Initialize,
     IntersectFound(Point, Tip),
     IntersectNotFound(Tip),
     RollForward(HeaderContent, Tip),
     RollBackward(Point, Tip),
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum InitiatorState {
     Idle,
     CanAwait,
@@ -167,43 +184,113 @@ pub enum InitiatorState {
     Done,
 }
 
-impl InitiatorState {
-    fn step(
-        self,
-        input: Input<InitiatorAction, Message>,
-    ) -> anyhow::Result<(Outcome<Message, InitiatorResult>, Self)> {
+impl ProtocolState for InitiatorState {
+    type WireMsg = Message;
+    type Action = InitiatorAction;
+    type Out = InitiatorResult;
+
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+        Ok((outcome().result(InitiatorResult::Initialize), *self))
+    }
+
+    fn network(
+        &self,
+        input: Self::WireMsg,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
         use InitiatorState::*;
 
         Ok(match (self, input) {
-            (Idle, Input::Local(InitiatorAction::Intersect(points))) => {
-                (outcome().send(Message::FindIntersect(points)), Intersect)
-            }
-            (Intersect, Input::Remote(Message::IntersectFound(point, tip))) => (
+            (Intersect, Message::IntersectFound(point, tip)) => (
                 outcome()
                     .send(Message::RequestNext)
                     .result(InitiatorResult::IntersectFound(point, tip)),
                 CanAwait,
             ),
-            (Intersect, Input::Remote(Message::IntersectNotFound(tip))) => (
+            (Intersect, Message::IntersectNotFound(tip)) => (
                 outcome().result(InitiatorResult::IntersectNotFound(tip)),
                 Idle,
             ),
-            (Idle, Input::Local(InitiatorAction::RequestNext)) => {
-                (outcome().send(Message::RequestNext), CanAwait)
-            }
-            (CanAwait, Input::Remote(Message::AwaitReply)) => (outcome(), MustReply),
-            (CanAwait | MustReply, Input::Remote(Message::RollForward(content, tip))) => (
+            (CanAwait, Message::AwaitReply) => (outcome(), MustReply),
+            (CanAwait | MustReply, Message::RollForward(content, tip)) => (
                 outcome().result(InitiatorResult::RollForward(content, tip)),
                 Idle,
             ),
-            (CanAwait | MustReply, Input::Remote(Message::RollBackward(point, tip))) => (
+            (CanAwait | MustReply, Message::RollBackward(point, tip)) => (
                 outcome().result(InitiatorResult::RollBackward(point, tip)),
                 Idle,
             ),
-            (Intersect, Input::Local(InitiatorAction::Done)) => {
-                (outcome().send(Message::Done), Done)
-            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
+    }
+
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Option<Self::WireMsg>, Self)> {
+        use InitiatorState::*;
+
+        Ok(match (self, input) {
+            (Idle, InitiatorAction::Intersect(points)) => {
+                (Some(Message::FindIntersect(points)), Intersect)
+            }
+            (Idle, InitiatorAction::RequestNext) => (Some(Message::RequestNext), CanAwait),
+            (Idle, InitiatorAction::Done) => (Some(Message::Done), Done),
+            (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
+        })
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::protocol::{ProtoSpec, Role};
+    use InitiatorState::*;
+    use Message::*;
+    use amaru_kernel::protocol_messages::block_height::BlockHeight;
+
+    pub fn spec() -> ProtoSpec<InitiatorState, Message> {
+        // canonical states and messages
+        let find_intersect = || FindIntersect(vec![Point::Origin]);
+        let intersect_found =
+            || IntersectFound(Point::Origin, Tip::new(Point::Origin, BlockHeight::new(0)));
+        let intersect_not_found =
+            || IntersectNotFound(Tip::new(Point::Origin, BlockHeight::new(0)));
+        let roll_forward = || {
+            RollForward(
+                HeaderContent {
+                    variant: 6,
+                    byron_prefix: None,
+                    cbor: vec![],
+                },
+                Tip::new(Point::Origin, BlockHeight::new(0)),
+            )
+        };
+        let roll_backward =
+            || RollBackward(Point::Origin, Tip::new(Point::Origin, BlockHeight::new(0)));
+
+        let mut spec = ProtoSpec::default();
+        spec.i(Idle, find_intersect(), Intersect);
+        spec.i(Idle, Message::Done, InitiatorState::Done);
+        spec.i(Idle, Message::RequestNext, CanAwait);
+        spec.r(Intersect, intersect_found(), Idle);
+        spec.r(Intersect, intersect_not_found(), Idle);
+        spec.r(CanAwait, AwaitReply, MustReply);
+        spec.r(CanAwait, roll_forward(), Idle);
+        spec.r(CanAwait, roll_backward(), Idle);
+        spec.r(MustReply, roll_forward(), Idle);
+        spec.r(MustReply, roll_backward(), Idle);
+        spec
+    }
+
+    #[test]
+    fn test_initiator_protocol() {
+        spec().check(
+            Idle,
+            Role::Initiator,
+            |msg| match msg {
+                FindIntersect(points) => Some(InitiatorAction::Intersect(points.clone())),
+                RequestNext => Some(InitiatorAction::RequestNext),
+                Message::Done => Some(InitiatorAction::Done),
+                _ => None,
+            },
+            |msg| msg.clone(),
+        );
     }
 }

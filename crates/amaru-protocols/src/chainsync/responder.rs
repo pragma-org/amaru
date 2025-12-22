@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(dead_code)]
-
 use crate::{
     chainsync::messages::{HeaderContent, Message},
     mux::MuxMessage,
     protocol::{
-        Inputs, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, StageState, miniprotocol, outcome,
+        Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, StageState,
+        miniprotocol, outcome,
     },
     store_effects::Store,
 };
@@ -29,6 +28,15 @@ use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
 use pure_stage::{Effects, StageRef};
 use std::cmp::Reverse;
+
+pub fn responder() -> Miniprotocol<ResponderState, Responder> {
+    miniprotocol(PROTO_N2N_CHAIN_SYNC.responder().erase())
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ResponderMessage {
+    NewTip(Tip),
+}
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Responder {
@@ -70,11 +78,11 @@ impl AsRef<StageRef<MuxMessage>> for Responder {
 impl StageState<ResponderState> for Responder {
     type LocalIn = ResponderMessage;
 
-    async fn local<M>(
+    async fn local(
         mut self,
         proto: &ResponderState,
         input: Self::LocalIn,
-        eff: &Effects<M>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Self, Option<ResponderAction>)> {
         match input {
             ResponderMessage::NewTip(tip) => {
@@ -91,11 +99,11 @@ impl StageState<ResponderState> for Responder {
         }
     }
 
-    async fn network<M>(
+    async fn network(
         self,
         proto: &ResponderState,
         input: ResponderResult,
-        eff: &Effects<M>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Self, Option<ResponderAction>)> {
         match input {
             ResponderResult::FindIntersect(points) => {
@@ -119,21 +127,6 @@ impl StageState<ResponderState> for Responder {
             }
         }
     }
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum ResponderMessage {
-    NewTip(Tip),
-}
-
-pub fn responder() -> impl AsyncFn(
-    (ResponderState, Responder),
-    Inputs<ResponderMessage>,
-    Effects<Inputs<ResponderMessage>>,
-) -> (ResponderState, Responder)
-+ Send
-+ 'static {
-    miniprotocol::<ResponderState, Responder>(PROTO_N2N_CHAIN_SYNC.responder().erase())
 }
 
 fn next_header(
@@ -311,13 +304,19 @@ impl ProtocolState for ResponderState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{ProtoSpec, Role};
+    use crate::{
+        chainsync::initiator::InitiatorState,
+        protocol::{ProtoSpec, Role},
+    };
     use amaru_kernel::protocol_messages::block_height::BlockHeight;
 
     #[test]
     fn test_responder_protocol() {
-        use Message::*;
-        use ResponderState::*;
+        use Message::{
+            AwaitReply, FindIntersect, IntersectFound, IntersectNotFound, RequestNext,
+            RollBackward, RollForward,
+        };
+        use ResponderState::{CanAwait, Done, Idle, Intersect, MustReply};
 
         // canonical states and messages
         let idle = |send_rollback: bool| Idle { send_rollback };
@@ -343,8 +342,10 @@ mod tests {
         let mut spec = ProtoSpec::default();
         spec.i(idle(false), find_intersect(), Intersect);
         spec.i(idle(true), find_intersect(), Intersect);
-        spec.i(idle(false), Message::Done, ResponderState::Done);
-        spec.i(idle(true), Message::Done, ResponderState::Done);
+        spec.i(idle(false), RequestNext, can_await(false));
+        spec.i(idle(true), RequestNext, can_await(true));
+        spec.i(idle(false), Message::Done, Done);
+        spec.i(idle(true), Message::Done, Done);
         spec.r(Intersect, intersect_found(), idle(true));
         spec.r(Intersect, intersect_not_found(), idle(false));
         spec.r(can_await(false), AwaitReply, MustReply);
@@ -368,6 +369,17 @@ mod tests {
                 _ => None,
             },
             |msg| msg.clone(),
+        );
+
+        spec.assert_refines(
+            &super::super::initiator::tests::spec(),
+            |state| match state {
+                Idle { .. } => InitiatorState::Idle,
+                CanAwait { .. } => InitiatorState::CanAwait,
+                MustReply => InitiatorState::MustReply,
+                Intersect => InitiatorState::Intersect,
+                Done => InitiatorState::Done,
+            },
         );
     }
 }

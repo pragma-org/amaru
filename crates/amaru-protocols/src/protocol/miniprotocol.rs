@@ -79,19 +79,25 @@ pub trait ProtocolState: Sized + SendData {
 pub trait StageState<Proto: ProtocolState>: Sized + SendData {
     type LocalIn: SendData;
 
-    async fn local<M>(
+    async fn local(
         self,
         proto: &Proto,
         input: Self::LocalIn,
-        eff: &Effects<M>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Self, Option<Proto::Action>)>;
-    async fn network<M>(
+    async fn network(
         self,
         proto: &Proto,
         input: Proto::Out,
-        eff: &Effects<M>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Self, Option<Proto::Action>)>;
 }
+
+pub type Miniprotocol<A, B>
+where
+    A: ProtocolState,
+    B: StageState<A> + AsRef<StageRef<MuxMessage>>,
+= impl AsyncFn((A, B), Inputs<B::LocalIn>, Effects<Inputs<B::LocalIn>>) -> (A, B) + Send + 'static;
 
 /// A miniprotocol is described using two states:
 /// - `S`: the protocol state that tracks the network protocol state
@@ -99,15 +105,8 @@ pub trait StageState<Proto: ProtocolState>: Sized + SendData {
 ///
 /// It is important to clearly separate these two, with `S2` being
 /// responsible for decision making and `S` only following the protocol.
-pub fn miniprotocol<Proto, Stage>(
-    proto_id: ProtocolId<Erased>,
-) -> impl AsyncFn(
-    (Proto, Stage),
-    Inputs<Stage::LocalIn>,
-    Effects<Inputs<Stage::LocalIn>>,
-) -> (Proto, Stage)
-+ Send
-+ 'static
+#[define_opaque(Miniprotocol)]
+pub fn miniprotocol<Proto, Stage>(proto_id: ProtocolId<Erased>) -> Miniprotocol<Proto, Stage>
 where
     Proto: ProtocolState,
     Stage: AsRef<StageRef<MuxMessage>> + StageState<Proto>,

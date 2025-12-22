@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![feature(type_alias_impl_trait)]
+
 pub mod chainsync;
 pub mod connection;
 pub mod effects;
