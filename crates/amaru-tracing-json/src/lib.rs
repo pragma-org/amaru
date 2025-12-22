@@ -35,8 +35,12 @@ impl JsonTraceCollector {
     }
 
     pub fn flush(&self) -> Vec<json::Value> {
-        match self.0.read() {
-            Ok(traces) => traces.clone(),
+        match self.0.write() {
+            Ok(mut traces) => {
+                let lines = traces.clone();
+                traces.clear();
+                lines
+            }
             // The RwLock can only get poisoned should the thread panic while pushing a new line
             // onto the stack. In case this happen, we'll likely be missing traces which should be
             // caught by assertions down the line anyway. So it is fine here to simply return the
@@ -137,7 +141,7 @@ impl tracing::field::Visit for JsonVisitor {
     }
 }
 
-struct JsonLayer(JsonTraceCollector);
+pub struct JsonLayer(JsonTraceCollector);
 
 impl JsonLayer {
     pub fn new(collector: JsonTraceCollector) -> Self {
@@ -171,6 +175,7 @@ where
                 "id": Value::String(format!("{id:?}")),
                 "name": span.name().to_string(),
                 "type": "span".to_string(),
+                "level": format!("{}", span.metadata().level()),
             });
 
             if let Some(parent) = span.parent() {
@@ -204,6 +209,7 @@ where
         let mut event_json = json::json!({
             "name": name,
             "type": "event",
+            "level": format!("{}", event.metadata().level()),
         });
 
         for (key, value) in visitor.fields {
@@ -406,9 +412,9 @@ mod tests {
                     })
                 },
                 vec![
-                    json!({ "name": "foo", "type": "span" }),
-                    json!({ "name": "basic", "a": 1, "type": "event" }),
-                    json!({ "name": "nested_fields", "a": { "foo": 1, "bar": 2 }, "type": "event" }),
+                    json!({ "name": "foo", "type": "span", "level": "INFO" }),
+                    json!({ "name": "basic", "a": 1, "type": "event", "level": "INFO" }),
+                    json!({ "name": "nested_fields", "a": { "foo": 1, "bar": 2 }, "level": "INFO", "type": "event" }),
                 ],
             ),
             "result"

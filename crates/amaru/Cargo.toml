@@ -12,6 +12,7 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 build = "build.rs"
+include = ["src/**/*", "config/**", "Cargo.toml"]
 default-run = "amaru"
 
 [[bin]]
@@ -35,7 +36,8 @@ hex.workspace = true
 indicatif.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
-mithril-client.workspace = true
+
+mithril-client = { workspace = true, optional = true}
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
@@ -70,9 +72,14 @@ amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-slot-arithmetic.workspace = true
 amaru-metrics.workspace = true
 pure-stage.workspace = true
+include_dir = { workspace = true, features = ["glob"] }
 
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.10.2"
+
+[features]
+default = ["mithril"]
+mithril = ["dep:mithril-client"]
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

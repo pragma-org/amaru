@@ -13,20 +13,16 @@
 // limitations under the License.
 
 use amaru_kernel::network::NetworkName;
+use include_dir::{Dir, include_dir};
+use std::{error::Error, path::PathBuf};
 
+pub mod bootstrap;
+pub mod exit;
 pub mod metrics;
 pub mod observability;
 pub mod panic;
 pub mod point;
-
-/// Sync pipeline
-///
-/// The sync pipeline is responsible for fetching blocks from the upstream node and
-/// applying them to the local chain.
 pub mod stages;
-
-/// Generic exit handler
-pub mod exit;
 
 pub const SNAPSHOTS_DIR: &str = "snapshots";
 
@@ -39,12 +35,24 @@ pub const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
 
 pub const DEFAULT_CONFIG_DIR: &str = "data";
 
+const SNAPSHOTS_PATH: &str = "snapshots";
+const BOOTSTRAP_PATH: &str = "crates/amaru/config/bootstrap";
+static BOOTSTRAP_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/bootstrap");
+
 pub fn default_ledger_dir(network: NetworkName) -> String {
     format!("./ledger.{}.db", network.to_string().to_lowercase())
 }
 
 pub fn default_chain_dir(network: NetworkName) -> String {
     format!("./chain.{}.db", network.to_string().to_lowercase())
+}
+
+pub fn bootstrap_config_dir(network: NetworkName) -> PathBuf {
+    format!("{}/{}", BOOTSTRAP_PATH, network.to_string().to_lowercase()).into()
+}
+
+pub fn default_snapshots_dir(network: NetworkName) -> String {
+    format!("{}/{}", SNAPSHOTS_PATH, network.to_string().to_lowercase())
 }
 
 pub fn default_data_dir(network: NetworkName) -> String {
@@ -55,6 +63,20 @@ pub fn default_data_dir(network: NetworkName) -> String {
     )
 }
 
-pub fn default_snapshots_dir(network: NetworkName) -> String {
-    format!("{}/{}", SNAPSHOTS_DIR, network.to_string().to_lowercase())
+pub fn get_bootstrap_file(
+    network: NetworkName,
+    name: &str,
+) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
+    let path = format!("{}/{}", network.to_string().to_lowercase(), name);
+    Ok(BOOTSTRAP_DIR.get_file(path).map(|f| f.contents().into()))
+}
+
+pub fn get_bootstrap_headers(
+    network: NetworkName,
+) -> Result<impl Iterator<Item = Vec<u8>>, Box<dyn Error>> {
+    let path = format!("{}/headers/*", network.to_string().to_lowercase());
+    Ok(BOOTSTRAP_DIR
+        .find(&path)?
+        .filter_map(|f| f.as_file())
+        .map(|f| f.contents().into()))
 }

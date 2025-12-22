@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru::DEFAULT_NETWORK;
+use amaru::bootstrap::InitialNonces;
 use amaru_kernel::{
     Bound, EraHistory, EraParams, Hash, HeaderHash, Nonce, Point, Summary, cbor,
     network::NetworkName,
@@ -21,8 +22,6 @@ use clap::Parser;
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};
 use tracing::{debug, info};
-
-use crate::cmd::import_nonces::InitialNonces;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -337,7 +336,7 @@ async fn write_ledger_snapshot(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::cmd::import_ledger_state::import_all;
+    use amaru::bootstrap::import_snapshots;
     use amaru_kernel::network::NetworkName;
     use std::path::PathBuf;
     use tokio::fs;
@@ -400,7 +399,7 @@ mod test {
         ledger_dir: &PathBuf,
         network: NetworkName,
     ) {
-        import_all(network, expected_paths, ledger_dir)
+        import_snapshots(network, expected_paths, ledger_dir)
             .await
             .unwrap_or_else(|e| panic!("fail to import snapshots: {e}\n{expected_paths:?}"));
     }
