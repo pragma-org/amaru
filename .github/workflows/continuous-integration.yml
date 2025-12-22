@@ -187,15 +187,12 @@ jobs:
       AMARU_NETWORK: ${{ matrix.network.name }}
       BUILD_PROFILE: test
       DEMO_TARGET_EPOCH: ${{ matrix.network.target_epoch }}
-    if: ${{ !github.event.pull_request.draft }}
-
-    env:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: auto
       ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
-
+    if: ${{ !github.event.pull_request.draft }}
     continue-on-error: true
 
     steps:
