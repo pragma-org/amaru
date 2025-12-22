@@ -34,15 +34,14 @@ use amaru_consensus::{
     network_operations::ResourceNetworkOperations,
 };
 use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
+    ArenaPool, BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
     network::NetworkName,
     peer::Peer,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_metrics::METRICS_METER_NAME;
-use amaru_network::NetworkResource;
-use amaru_network::point::to_network_point;
+use amaru_network::{NetworkResource, point::to_network_point};
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
@@ -96,6 +95,15 @@ pub struct Config {
     pub max_downstream_peers: usize,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
     pub migrate_chain_db: bool,
+
+    // Number of allocation arenas to keep around for performing parallel evaluation of scripts in
+    // the ledger.
+    pub ledger_vm_alloc_arena_count: usize,
+
+    // Initial size (in bytes) of each allocation arena to use for script evaluation in the ledger
+    // virtual machine. Higher sizes means less re-allocations but more resident memory footprint
+    // since the arena is leaking memory on purpose.
+    pub ledger_vm_alloc_arena_size: usize,
 }
 
 impl Default for Config {
@@ -110,6 +118,8 @@ impl Default for Config {
             max_downstream_peers: 10,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
             migrate_chain_db: false,
+            ledger_vm_alloc_arena_count: 1,
+            ledger_vm_alloc_arena_size: 1_024_000,
         }
     }
 }
@@ -168,13 +178,8 @@ pub async fn build_and_run_network(
 
     let global_parameters: &GlobalParameters = config.network.into();
 
-    let ledger = make_ledger(
-        &config,
-        config.network,
-        era_history.clone(),
-        global_parameters.clone(),
-    )
-    .context("Failed to create ledger. Have you bootstrapped your node?")?;
+    let ledger = make_ledger(&config, era_history.clone(), global_parameters.clone())
+        .context("Failed to create ledger. Have you bootstrapped your node?")?;
 
     let tip = ledger.get_tip();
 
@@ -327,16 +332,21 @@ impl LedgerStage {
 
 fn make_ledger(
     config: &Config,
-    network: NetworkName,
     era_history: EraHistory,
     global_parameters: GlobalParameters,
 ) -> anyhow::Result<LedgerStage> {
+    let vm_eval_pool = ArenaPool::new(
+        config.ledger_vm_alloc_arena_count,
+        config.ledger_vm_alloc_arena_size,
+    );
+
     match &config.ledger_store {
         StoreType::InMem(store) => {
             let ledger = BlockValidator::new(
                 store.clone(),
                 store.clone(),
-                network,
+                vm_eval_pool,
+                config.network,
                 era_history,
                 global_parameters,
             )?;
@@ -349,7 +359,8 @@ fn make_ledger(
                     rocks_db_config,
                     u64::from(config.max_extra_ledger_snapshots),
                 ),
-                network,
+                vm_eval_pool,
+                config.network,
                 era_history,
                 global_parameters,
             )?;
