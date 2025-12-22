@@ -24,12 +24,10 @@ RUN groupadd --gid 10000 amaru \
     --no-create-home \
     amaru
 
-RUN mkdir -p /var/lib/amaru && chown amaru:amaru /var/lib/amaru \
- && mkdir -p /etc/amaru && chown amaru:amaru /etc/amaru
+RUN mkdir -p /var/lib/amaru && chown amaru:amaru /var/lib/amaru
 
 # Copy the pre-compiled binary
 COPY --chown=amaru:amaru ./dist/bin/amaru /usr/local/bin/amaru
-COPY --chown=amaru:amaru ./dist/etc/* /etc/amaru
 RUN chmod 0755 /usr/local/bin/amaru
 
 # Initialize entrypoint & default command
