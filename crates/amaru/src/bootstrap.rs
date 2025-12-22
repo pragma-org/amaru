@@ -106,7 +106,7 @@ async fn download_snapshots(
 
         // Skip if file already exists
         if target_path.exists() {
-            info!("Snapshot {} already exists, skipping", filename);
+            info!(filename=%filename, "Snapshot already exists, skipping");
             continue;
         }
 
@@ -128,13 +128,10 @@ async fn download_snapshots(
         file.sync_all().await?;
         tokio::fs::rename(&tmp_path, &target_path).await?;
 
-        info!("Downloaded snapshot to {}", target_path.display());
+        info!(target_path=%target_path.display(), "Downloaded snapshot");
     }
 
-    info!(
-        "All {} snapshots downloaded and decompressed successfully",
-        snapshots.len()
-    );
+    info!("All snapshots downloaded and decompressed successfully");
     Ok(())
 }
 
@@ -300,10 +297,11 @@ pub async fn import_snapshots(
     snapshots: &Vec<PathBuf>,
     ledger_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Importing {} snapshots", snapshots.len());
+    info!(count = snapshots.len(), "Importing snapshots");
     for snapshot in snapshots {
         import_snapshot(network, snapshot, ledger_dir).await?;
     }
+    info!("Imported snapshots");
     Ok(())
 }
 
@@ -325,7 +323,7 @@ pub async fn import_snapshot(
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Importing snapshot {}", snapshot.display());
+    info!(snapshot=%snapshot.display(), "Importing snapshot");
     let point = Point::try_from(
         snapshot
             .as_path()
@@ -376,7 +374,7 @@ pub async fn import_snapshot(
     transaction.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken))?;
     transaction.commit()?;
 
-    info!("Imported snapshot for epoch {}", epoch);
+    info!(epoch=%epoch, "Imported snapshot");
     Ok(())
 }
 
