@@ -47,5 +47,5 @@ pub use serde::{
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning, stage_name};
 pub use time::{Clock, EPOCH, Instant};
-pub use types::{BoxFuture, Name, SendData, TryInStage};
+pub use types::{BoxFuture, Name, SendData, TryInStage, err, warn};
 pub use typetag;

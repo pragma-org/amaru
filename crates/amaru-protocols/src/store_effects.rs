@@ -36,15 +36,12 @@ impl<T> Store<T> {
     pub fn external_sync<E: ExternalEffectSync + serde::Serialize + 'static>(
         &self,
         effect: E,
-    ) -> E::Response
-    where
-        T: SendData + Sync,
-    {
+    ) -> E::Response {
         self.effects.external_sync(effect)
     }
 }
 
-impl<T: SendData + Sync> ReadOnlyChainStore<BlockHeader> for Store<T> {
+impl<T> ReadOnlyChainStore<BlockHeader> for Store<T> {
     fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         self.external_sync(LoadHeaderEffect::new(*hash))
     }

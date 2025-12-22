@@ -378,6 +378,14 @@ impl<T, E> TryInStage for Result<T, E> {
     }
 }
 
+pub fn err<E: std::fmt::Display>(msg: &str) -> impl AsyncFnOnce(E) + '_ {
+    async move |err| tracing::error!(%err, "{}", msg)
+}
+
+pub fn warn<E: std::fmt::Display>(msg: &str) -> impl AsyncFnOnce(E) + '_ {
+    async move |err| tracing::warn!(%err, "{}", msg)
+}
+
 #[cfg(test)]
 mod test {
     use crate::simulation::SimulationBuilder;

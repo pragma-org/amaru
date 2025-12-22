@@ -15,41 +15,17 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use std::{marker::PhantomData, time::Duration};
 
+mod check;
+mod miniprotocol;
+
+pub use check::ProtoSpec;
+pub use miniprotocol::{Inputs, Outcome, ProtocolState, StageState, miniprotocol, outcome};
+
 /// Input to a protocol step
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Input<L, R> {
     Local(L),
     Remote(R),
-}
-
-/// Outcome of a protocol step
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Outcome<S, R> {
-    pub send: Option<S>,
-    pub result: Option<R>,
-}
-
-impl<S, D> Outcome<S, D> {
-    pub fn send(self, send: S) -> Self {
-        Self {
-            send: Some(send),
-            result: self.result,
-        }
-    }
-
-    pub fn result(self, done: D) -> Self {
-        Self {
-            send: self.send,
-            result: Some(done),
-        }
-    }
-}
-
-pub fn outcome<S, D>() -> Outcome<S, D> {
-    Outcome {
-        send: None,
-        result: None,
-    }
 }
 
 // FIXME find right value

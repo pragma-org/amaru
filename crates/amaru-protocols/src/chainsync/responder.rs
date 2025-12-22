@@ -12,24 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![allow(dead_code)]
+
 use crate::{
     chainsync::messages::{HeaderContent, Message},
-    mux::{HandlerMessage, MuxMessage},
-    protocol::{Input, NETWORK_SEND_TIMEOUT, Outcome, PROTO_N2N_CHAIN_SYNC, outcome},
+    mux::MuxMessage,
+    protocol::{
+        Inputs, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, StageState, miniprotocol, outcome,
+    },
     store_effects::Store,
 };
 use amaru_kernel::{
-    BlockHeader, IsHeader, Point, bytes::NonEmptyBytes, peer::Peer, protocol_messages::tip::Tip,
-    to_cbor,
+    BlockHeader, IsHeader, Point, peer::Peer, protocol_messages::tip::Tip, to_cbor,
 };
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
-use pure_stage::{Effects, StageRef, TryInStage};
+use anyhow::{Context, ensure};
+use pure_stage::{Effects, StageRef};
 use std::cmp::Reverse;
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Responder {
     upstream: Tip,
-    state: ResponderState,
     peer: Peer,
     pointer: Point,
     conn_id: ConnectionId,
@@ -42,16 +45,78 @@ impl Responder {
         peer: Peer,
         conn_id: ConnectionId,
         muxer: StageRef<MuxMessage>,
-    ) -> Self {
-        Self {
-            upstream,
-            state: ResponderState::Idle {
+    ) -> (ResponderState, Self) {
+        (
+            ResponderState::Idle {
                 send_rollback: false,
             },
-            peer,
-            pointer: Point::Origin,
-            conn_id,
-            muxer,
+            Self {
+                upstream,
+                peer,
+                pointer: Point::Origin,
+                conn_id,
+                muxer,
+            },
+        )
+    }
+}
+
+impl AsRef<StageRef<MuxMessage>> for Responder {
+    fn as_ref(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
+    }
+}
+
+impl StageState<ResponderState> for Responder {
+    type LocalIn = ResponderMessage;
+
+    async fn local<M>(
+        mut self,
+        proto: &ResponderState,
+        input: Self::LocalIn,
+        eff: &Effects<M>,
+    ) -> anyhow::Result<(Self, Option<ResponderAction>)> {
+        match input {
+            ResponderMessage::NewTip(tip) => {
+                self.upstream = tip;
+                let action = next_header(
+                    *proto,
+                    self.pointer,
+                    &Store::new(eff.clone()),
+                    self.upstream,
+                )
+                .context("failed to get next header")?;
+                Ok((self, action))
+            }
+        }
+    }
+
+    async fn network<M>(
+        self,
+        proto: &ResponderState,
+        input: ResponderResult,
+        eff: &Effects<M>,
+    ) -> anyhow::Result<(Self, Option<ResponderAction>)> {
+        match input {
+            ResponderResult::FindIntersect(points) => {
+                let action = intersect(points, &Store::new(eff.clone()), self.upstream)
+                    .context("failed to find intersection")?;
+                Ok((self, Some(action)))
+            }
+            ResponderResult::RequestNext => {
+                let action = next_header(
+                    *proto,
+                    self.pointer,
+                    &Store::new(eff.clone()),
+                    self.upstream,
+                )
+                .context("failed to get next header")?;
+                Ok((self, action))
+            }
+            ResponderResult::Done => {
+                tracing::info!("peer stopped chainsync");
+                Ok((self, None))
+            }
         }
     }
 }
@@ -59,97 +124,16 @@ impl Responder {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderMessage {
     NewTip(Tip),
-    FromNetwork(HandlerMessage),
 }
 
-pub async fn responder(
-    mut responder: Responder,
-    msg: ResponderMessage,
-    eff: Effects<ResponderMessage>,
-) -> Responder {
-    enum Msg {
-        NewTip(Tip),
-        Registered,
-        Bytes(NonEmptyBytes),
-        Action(ResponderAction),
-    }
-    impl From<ResponderMessage> for Msg {
-        fn from(msg: ResponderMessage) -> Self {
-            match msg {
-                ResponderMessage::NewTip(tip) => Msg::NewTip(tip),
-                ResponderMessage::FromNetwork(HandlerMessage::Registered(_)) => Msg::Registered,
-                ResponderMessage::FromNetwork(HandlerMessage::FromNetwork(msg)) => Msg::Bytes(msg),
-            }
-        }
-    }
-
-    let mut msg = Msg::from(msg);
-
-    loop {
-        let (outcome, state) = match msg {
-            Msg::NewTip(tip) => {
-                responder.upstream = tip;
-                Ok((
-                    outcome().result(ResponderResult::GotNewTip),
-                    responder.state,
-                ))
-            }
-            Msg::Registered => Ok((outcome(), responder.state)),
-            Msg::Bytes(msg) => {
-                let msg: Message = minicbor::decode(&msg.into_inner())
-                    .or_terminate(&eff, async |err| {
-                        tracing::error!(%err, "failed to decode message from network");
-                    })
-                    .await;
-                responder.state.step(Input::Remote(msg))
-            }
-            Msg::Action(action) => responder.state.step(Input::Local(action)),
-        }
-        .or_terminate(&eff, async |err| {
-            tracing::error!(%err, "failed to step responder");
-        })
-        .await;
-
-        responder.state = state;
-
-        if let Some(msg) = outcome.send {
-            let msg = NonEmptyBytes::encode(&msg);
-            eff.call(&responder.muxer, NETWORK_SEND_TIMEOUT, move |cr| {
-                MuxMessage::Send(PROTO_N2N_CHAIN_SYNC.erase(), msg, cr)
-            })
-            .await;
-        }
-        if let Some(result) = outcome.result {
-            let action = match result {
-                ResponderResult::FindIntersect(points) => Some(
-                    intersect(points, &Store::new(eff.clone()), responder.upstream)
-                        .or_terminate(&eff, async |err| {
-                            tracing::error!(%err, "failed to find intersect");
-                        })
-                        .await,
-                ),
-                ResponderResult::GotNewTip | ResponderResult::RequestNext => {
-                    next_header(
-                        responder.state,
-                        responder.pointer,
-                        &Store::new(eff.clone()),
-                        responder.upstream,
-                    )
-                    .or_terminate(&eff, async |err| {
-                        tracing::error!(%err, "failed to get next header");
-                    })
-                    .await
-                }
-            };
-            if let Some(action) = action {
-                msg = Msg::Action(action);
-                continue;
-            }
-        }
-        break;
-    }
-
-    responder
+pub fn responder() -> impl AsyncFn(
+    (ResponderState, Responder),
+    Inputs<ResponderMessage>,
+    Effects<Inputs<ResponderMessage>>,
+) -> (ResponderState, Responder)
++ Send
++ 'static {
+    miniprotocol::<ResponderState, Responder>(PROTO_N2N_CHAIN_SYNC.responder().erase())
 }
 
 fn next_header(
@@ -158,14 +142,13 @@ fn next_header(
     store: &dyn ReadOnlyChainStore<BlockHeader>,
     tip: Tip,
 ) -> anyhow::Result<Option<ResponderAction>> {
-    let (ResponderState::CanAwait { send_rollback } | ResponderState::MustReply { send_rollback }) =
-        state
-    else {
-        return Ok(None);
+    match state {
+        ResponderState::CanAwait {
+            send_rollback: true,
+        } => return Ok(Some(ResponderAction::RollBackward(pointer, tip))),
+        ResponderState::MustReply | ResponderState::CanAwait { .. } => {}
+        _ => return Ok(None),
     };
-    if send_rollback {
-        return Ok(Some(ResponderAction::RollBackward(pointer, tip)));
-    }
     if pointer == tip.point() {
         return Ok((matches!(state, ResponderState::CanAwait { .. }))
             .then_some(ResponderAction::AwaitReply));
@@ -223,7 +206,7 @@ fn intersect(
 }
 
 #[derive(Debug)]
-enum ResponderAction {
+pub enum ResponderAction {
     IntersectFound(Point, Tip),
     IntersectNotFound(Tip),
     AwaitReply,
@@ -233,70 +216,158 @@ enum ResponderAction {
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderResult {
-    GotNewTip,
     FindIntersect(Vec<Point>),
     RequestNext,
+    Done,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
+)]
 pub enum ResponderState {
     Idle { send_rollback: bool },
     CanAwait { send_rollback: bool },
-    MustReply { send_rollback: bool },
+    MustReply,
     Intersect,
     Done,
 }
 
-impl ResponderState {
-    fn step(
-        self,
-        input: Input<ResponderAction, Message>,
-    ) -> anyhow::Result<(Outcome<Message, ResponderResult>, Self)> {
+impl ProtocolState for ResponderState {
+    type WireMsg = Message;
+    type Action = ResponderAction;
+    type Out = ResponderResult;
+
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+        Ok((outcome(), *self))
+    }
+
+    fn network(
+        &self,
+        input: Self::WireMsg,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
         use ResponderState::*;
 
         Ok(match (self, input) {
-            (Idle { .. }, Input::Remote(Message::FindIntersect(points))) => (
+            (Idle { .. }, Message::FindIntersect(points)) => (
                 outcome().result(ResponderResult::FindIntersect(points)),
                 Intersect,
             ),
-            (Intersect, Input::Local(ResponderAction::IntersectFound(point, tip))) => (
-                outcome().send(Message::IntersectFound(point, tip)),
+            (Idle { send_rollback }, Message::RequestNext) => (
+                outcome().result(ResponderResult::RequestNext),
+                CanAwait {
+                    send_rollback: *send_rollback,
+                },
+            ),
+            (Idle { .. }, Message::Done) => (outcome().result(ResponderResult::Done), Done),
+            (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
+        })
+    }
+
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Option<Self::WireMsg>, Self)> {
+        use ResponderState::*;
+
+        Ok(match (self, input) {
+            (Intersect, ResponderAction::IntersectFound(point, tip)) => (
+                Some(Message::IntersectFound(point, tip)),
                 Idle {
                     send_rollback: true,
                 },
             ),
-            (Intersect, Input::Local(ResponderAction::IntersectNotFound(tip))) => (
-                outcome().send(Message::IntersectNotFound(tip)),
+            (Intersect, ResponderAction::IntersectNotFound(tip)) => (
+                Some(Message::IntersectNotFound(tip)),
                 Idle {
                     send_rollback: false,
                 },
             ),
-            (Idle { send_rollback }, Input::Remote(Message::RequestNext)) => (
-                outcome().result(ResponderResult::RequestNext),
-                CanAwait { send_rollback },
-            ),
-            (CanAwait { send_rollback }, Input::Local(ResponderAction::AwaitReply)) => (
-                outcome().send(Message::AwaitReply),
-                MustReply { send_rollback },
-            ),
-            (
-                CanAwait { .. } | MustReply { .. },
-                Input::Local(ResponderAction::RollForward(content, tip)),
-            ) => (
-                outcome().send(Message::RollForward(content, tip)),
+            (CanAwait { send_rollback }, ResponderAction::AwaitReply) => {
+                ensure!(!*send_rollback, "cannot AwaitReply after intersect");
+                (Some(Message::AwaitReply), MustReply)
+            }
+            (CanAwait { send_rollback }, ResponderAction::RollForward(content, tip)) => {
+                ensure!(!*send_rollback, "cannot RollForward after intersect");
+                (
+                    Some(Message::RollForward(content, tip)),
+                    Idle {
+                        send_rollback: false,
+                    },
+                )
+            }
+            (MustReply, ResponderAction::RollForward(content, tip)) => (
+                Some(Message::RollForward(content, tip)),
                 Idle {
                     send_rollback: false,
                 },
             ),
-            (
-                CanAwait { .. } | MustReply { .. },
-                Input::Local(ResponderAction::RollBackward(point, tip)),
-            ) => (
-                outcome().send(Message::RollBackward(point, tip)),
+            (CanAwait { .. } | MustReply, ResponderAction::RollBackward(point, tip)) => (
+                Some(Message::RollBackward(point, tip)),
                 Idle {
                     send_rollback: false,
                 },
             ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::{ProtoSpec, Role};
+    use amaru_kernel::protocol_messages::block_height::BlockHeight;
+
+    #[test]
+    fn test_responder_protocol() {
+        use Message::*;
+        use ResponderState::*;
+
+        // canonical states and messages
+        let idle = |send_rollback: bool| Idle { send_rollback };
+        let can_await = |send_rollback: bool| CanAwait { send_rollback };
+        let find_intersect = || FindIntersect(vec![Point::Origin]);
+        let intersect_found =
+            || IntersectFound(Point::Origin, Tip::new(Point::Origin, BlockHeight::new(0)));
+        let intersect_not_found =
+            || IntersectNotFound(Tip::new(Point::Origin, BlockHeight::new(0)));
+        let roll_forward = || {
+            RollForward(
+                HeaderContent {
+                    variant: 6,
+                    byron_prefix: None,
+                    cbor: vec![],
+                },
+                Tip::new(Point::Origin, BlockHeight::new(0)),
+            )
+        };
+        let roll_backward =
+            || RollBackward(Point::Origin, Tip::new(Point::Origin, BlockHeight::new(0)));
+
+        let mut spec = ProtoSpec::default();
+        spec.arrow(idle(false), find_intersect(), Intersect);
+        spec.arrow(idle(true), find_intersect(), Intersect);
+        spec.arrow(idle(false), Message::Done, ResponderState::Done);
+        spec.arrow(idle(true), Message::Done, ResponderState::Done);
+        spec.arrow(Intersect, intersect_found(), idle(true));
+        spec.arrow(Intersect, intersect_not_found(), idle(false));
+        spec.arrow(can_await(false), AwaitReply, MustReply);
+        spec.arrow(can_await(false), roll_forward(), idle(false));
+        spec.arrow(can_await(false), roll_backward(), idle(false));
+        spec.arrow(can_await(true), roll_backward(), idle(false));
+        spec.arrow(MustReply, roll_forward(), idle(false));
+        spec.arrow(MustReply, roll_backward(), idle(false));
+
+        spec.check(
+            idle(false),
+            Role::Responder,
+            |msg| match msg {
+                AwaitReply => Some(ResponderAction::AwaitReply),
+                RollForward(header_content, tip) => {
+                    Some(ResponderAction::RollForward(header_content.clone(), *tip))
+                }
+                RollBackward(point, tip) => Some(ResponderAction::RollBackward(*point, *tip)),
+                IntersectFound(point, tip) => Some(ResponderAction::IntersectFound(*point, *tip)),
+                IntersectNotFound(tip) => Some(ResponderAction::IntersectNotFound(*tip)),
+                _ => None,
+            },
+            |msg| msg.clone(),
+        );
     }
 }
