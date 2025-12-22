@@ -177,17 +177,22 @@ jobs:
         network:
           - name: preprod
             magic: 1
+            target_epoch: 182
+          - name: preview
+            magic: 2
+            target_epoch: 680
+            tests-may-fail: true
         cardano_node_version: [10.5.3]
-
-    if: ${{ !github.event.pull_request.draft }}
-
     env:
+      AMARU_NETWORK: ${{ matrix.network.name }}
+      BUILD_PROFILE: test
+      DEMO_TARGET_EPOCH: ${{ matrix.network.target_epoch }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: auto
       ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
-
+    if: ${{ !github.event.pull_request.draft }}
     continue-on-error: true
 
     steps:
@@ -262,14 +267,14 @@ jobs:
         if: steps.cache-ledger-db.outputs.cache-hit == ''
         shell: bash
         run: |
-          make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} bootstrap
+          make bootstrap
 
       - name: Light bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit != ''
         shell: bash
         run: |
-          make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} import-headers
-          make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} import-nonces
+          make import-headers
+          make import-nonces
 
       - uses: actions/cache/save@v4
         if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
@@ -281,7 +286,7 @@ jobs:
         if: github.event_name == 'pull_request'
         timeout-minutes: 10
         shell: bash
-        run: make BUILD_PROFILE=test AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
+        run: make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
 
       - name: Install Cardano CLI
         if: github.event_name != 'pull_request'
@@ -308,13 +313,14 @@ jobs:
           set -eux
 
           export DEMO_TARGET_EPOCH=$(sudo $PWD/cardano-cli-bin/cardano-cli query tip --socket-path ${{ runner.temp }}/ipc/node.socket --testnet-magic ${{ matrix.network.magic }} | jq '.epoch - 1')
-          make BUILD_PROFILE=test demo
+          make demo
 
       - name: Run tests
         if: github.event_name == 'pull_request'
+        continue-on-error: ${{ matrix.network.tests-may-fail || false }}
         shell: bash
         run: |
-          make BUILD_PROFILE=test AMARU_NETWORK=${{ matrix.network.name }} test-e2e
+          make test-e2e
 
       - name: Teardown haskell node
         if: ${{ always() }}
