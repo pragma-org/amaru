@@ -125,7 +125,7 @@ mod tests {
             || {
                 super::execute(
                     &mut ctx,
-                    (tx.original_hash(), tx_pointer),
+                    (todo!() /*tx.original_hash()*/, tx_pointer),
                     mem::take(&mut tx.unwrap().proposal_procedures).map(|xs| xs.to_vec()),
                 )
             },

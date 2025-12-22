@@ -17,11 +17,11 @@ use amaru_kernel::{
     ComputeHash, DatumHash, EraHistory, Hash, KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum,
     MemoizedScript, MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef,
     MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, NativeScript, Network,
-    NonEmptyKeyValuePairs, NonEmptySet, PlutusData, PlutusScript, PolicyId, Proposal,
-    ProposalIdAdapter, PseudoScript, Redeemer, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
-    StakeCredential, StakePayload, TransactionId, TransactionInput, TransactionInputAdapter, Vote,
-    Voter, VotingProcedures, network::NetworkName, normalize_redeemers,
-    protocol_parameters::GlobalParameters,
+    PallasNonEmptyKeyValuePairs, PallasNonEmptySet, PallasRequiredSigners, PallasVotingProcedures,
+    PlutusData, PlutusScript, PolicyId, Proposal, ProposalIdAdapter, PseudoScript, Redeemer,
+    RewardAccount, ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload,
+    TransactionId, TransactionInput, TransactionInputAdapter, Vote, Voter, network::NetworkName,
+    normalize_redeemers, protocol_parameters::GlobalParameters,
 };
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 use itertools::Itertools;
@@ -806,8 +806,8 @@ impl<'a> From<&'a amaru_kernel::Mint> for Mint<'a> {
 #[derive(Default)]
 pub struct RequiredSigners(pub BTreeSet<AddrKeyhash>);
 
-impl<'a> From<&'a amaru_kernel::RequiredSigners> for RequiredSigners {
-    fn from(value: &'a amaru_kernel::RequiredSigners) -> Self {
+impl<'a> From<&'a PallasRequiredSigners> for RequiredSigners {
+    fn from(value: &'a PallasRequiredSigners) -> Self {
         Self(value.iter().copied().collect())
     }
 }
@@ -874,11 +874,11 @@ pub enum WithdrawalError {
     InvalidAddressType(Address),
 }
 
-impl TryFrom<&NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdrawals {
+impl TryFrom<&PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdrawals {
     type Error = WithdrawalError;
 
     fn try_from(
-        value: &NonEmptyKeyValuePairs<RewardAccount, Lovelace>,
+        value: &PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>,
     ) -> Result<Self, Self::Error> {
         let withdrawals = value
             .iter()
@@ -901,8 +901,8 @@ impl TryFrom<&NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdrawals {
 #[derive(Default)]
 pub struct Datums<'a>(pub BTreeMap<DatumHash, &'a PlutusData>);
 
-impl<'a> From<&'a NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums<'a> {
-    fn from(plutus_data: &'a NonEmptySet<KeepRaw<'_, PlutusData>>) -> Self {
+impl<'a> From<&'a PallasNonEmptySet<KeepRaw<'_, PlutusData>>> for Datums<'a> {
+    fn from(plutus_data: &'a PallasNonEmptySet<KeepRaw<'_, PlutusData>>) -> Self {
         Self(
             plutus_data
                 .iter()
@@ -920,8 +920,8 @@ pub struct Redeemers<'a, T>(pub Vec<(T, Cow<'a, Redeemer>)>);
 #[derive(Default)]
 pub struct Votes<'a>(pub BTreeMap<&'a Voter, BTreeMap<ProposalIdAdapter<'a>, &'a Vote>>);
 
-impl<'a> From<&'a VotingProcedures> for Votes<'a> {
-    fn from(voting_procedures: &'a VotingProcedures) -> Self {
+impl<'a> From<&'a PallasVotingProcedures> for Votes<'a> {
+    fn from(voting_procedures: &'a PallasVotingProcedures) -> Self {
         Self(
             voting_procedures
                 .iter()

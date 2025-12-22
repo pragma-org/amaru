@@ -60,14 +60,16 @@ pub use pallas_primitives::{
         Constitution, Constr, CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash,
         DatumOption, DnsName, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId,
         HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, Mint, MintedBlock,
-        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, Multiasset, NativeScript, NetworkId, NonZeroInt, PlutusData,
-        PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
-        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount, ScriptHash, ScriptRef,
-        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
-        VKeyWitness, Value, Vote, Voter, VotingProcedure, VrfKeyhash, WitnessSet,
+        MintedDatumOption, MintedScriptRef, MintedTransactionOutput, MintedTx, MintedWitnessSet,
+        Multiasset, NativeScript, NetworkId, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs,
+        NonEmptySet as PallasNonEmptySet, NonZeroInt, PlutusData, PlutusScript, PolicyId,
+        PoolMetadata, PoolVotingThresholds, Port, PositiveCoin, PostAlonzoTransactionOutput,
+        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
+        PseudoTransactionOutput, RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey,
+        Relay, RequiredSigners as PallasRequiredSigners, RewardAccount, ScriptHash, ScriptRef,
+        StakeCredential, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Vote, Voter, VotingProcedure, VotingProcedures as PallasVotingProcedures, VrfKeyhash,
+        WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -173,6 +175,7 @@ pub use strict_maybe::*;
 pub mod strict_maybe;
 
 pub mod transaction_body;
+pub use transaction_body::*;
 
 use crate::string_utils::ListToString;
 pub use transaction_pointer::*;

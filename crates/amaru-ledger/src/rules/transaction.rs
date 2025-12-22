@@ -100,7 +100,8 @@ pub fn execute<C>(
 where
     C: ValidationContext + fmt::Debug,
 {
-    let transaction_id = transaction_body.original_hash();
+    //let transaction_id = transaction_body.original_hash();
+    let transaction_id = todo!();
 
     let mut transaction_body = transaction_body.unwrap();
 

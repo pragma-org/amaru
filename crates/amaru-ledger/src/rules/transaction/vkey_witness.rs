@@ -289,7 +289,7 @@ mod tests {
     ) -> Result<(), InvalidVKeyWitness> {
         assert_trace(
             || {
-                let transaction_id = tx.original_hash();
+                let transaction_id = todo!(); //tx.original_hash();
                 super::execute(
                     &mut ctx,
                     transaction_id,
