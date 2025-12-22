@@ -149,8 +149,6 @@ async fn uncompress_to_temp_file(
 }
 
 /// Set the internal dbs in such a state that amaru can run
-///
-/// Idempotent; will do nothing if the dbs have already been bootstrapped
 pub async fn bootstrap(
     network: NetworkName,
     ledger_dir: PathBuf,
