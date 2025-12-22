@@ -341,18 +341,18 @@ mod tests {
             || RollBackward(Point::Origin, Tip::new(Point::Origin, BlockHeight::new(0)));
 
         let mut spec = ProtoSpec::default();
-        spec.arrow(idle(false), find_intersect(), Intersect);
-        spec.arrow(idle(true), find_intersect(), Intersect);
-        spec.arrow(idle(false), Message::Done, ResponderState::Done);
-        spec.arrow(idle(true), Message::Done, ResponderState::Done);
-        spec.arrow(Intersect, intersect_found(), idle(true));
-        spec.arrow(Intersect, intersect_not_found(), idle(false));
-        spec.arrow(can_await(false), AwaitReply, MustReply);
-        spec.arrow(can_await(false), roll_forward(), idle(false));
-        spec.arrow(can_await(false), roll_backward(), idle(false));
-        spec.arrow(can_await(true), roll_backward(), idle(false));
-        spec.arrow(MustReply, roll_forward(), idle(false));
-        spec.arrow(MustReply, roll_backward(), idle(false));
+        spec.i(idle(false), find_intersect(), Intersect);
+        spec.i(idle(true), find_intersect(), Intersect);
+        spec.i(idle(false), Message::Done, ResponderState::Done);
+        spec.i(idle(true), Message::Done, ResponderState::Done);
+        spec.r(Intersect, intersect_found(), idle(true));
+        spec.r(Intersect, intersect_not_found(), idle(false));
+        spec.r(can_await(false), AwaitReply, MustReply);
+        spec.r(can_await(false), roll_forward(), idle(false));
+        spec.r(can_await(false), roll_backward(), idle(false));
+        spec.r(can_await(true), roll_backward(), idle(false));
+        spec.r(MustReply, roll_forward(), idle(false));
+        spec.r(MustReply, roll_backward(), idle(false));
 
         spec.check(
             idle(false),

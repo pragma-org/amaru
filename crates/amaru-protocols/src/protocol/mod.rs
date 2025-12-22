@@ -98,6 +98,15 @@ pub enum Role {
     Responder,
 }
 
+impl Role {
+    pub const fn opposite(self) -> Role {
+        match self {
+            Role::Initiator => Role::Responder,
+            Role::Responder => Role::Initiator,
+        }
+    }
+}
+
 mod sealed {
     pub trait Sealed {}
 }
