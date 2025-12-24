@@ -66,7 +66,7 @@ pub struct RatificationContext<'distr> {
     pub constitutional_committee: Option<ConstitutionalCommittee>,
 
     /// All latest votes indexed by proposals and voters.
-    pub votes: BTreeMap<ComparableProposalId, BTreeMap<Voter, Ballot>>,
+    pub votes: BTreeMap<ComparableProposalId, Vec<(Voter, Ballot)>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -394,9 +394,8 @@ impl<'distr> RatificationContext<'distr> {
     ) -> bool {
         let span = tracing::Span::current();
 
-        let empty = BTreeMap::new();
         let (dreps_votes, cc_votes, pool_votes) =
-            partition_votes(self.votes.get(id).unwrap_or(&empty));
+            partition_votes(self.votes.get(id).map(|v| v.as_slice()).unwrap_or(&[]));
 
         // NOTE: because ratification is an expensive operation, and something that we *may* have
         // to replay due to rollbacks, it's important to do the least amount of work possible.
@@ -519,7 +518,7 @@ impl<'distr> RatificationContext<'distr> {
 /// Split all the ballots into sub-maps that are specific to each voter types; so that we ease the
 /// processing of each category down the line.
 fn partition_votes(
-    votes: &BTreeMap<Voter, Ballot>,
+    votes: &[(Voter, Ballot)],
 ) -> (
     BTreeMap<DRep, &Vote>,
     BTreeMap<StakeCredential, &Vote>,

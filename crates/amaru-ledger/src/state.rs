@@ -47,7 +47,7 @@ use anyhow::{Context, anyhow};
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeMap, BTreeSet, VecDeque, btree_map},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
 };
@@ -1017,14 +1017,10 @@ fn new_ratification_context<'distr>(
     let votes = snapshot
         .iter_votes()?
         .fold(BTreeMap::new(), |mut votes, (k, v)| {
-            match votes.entry(k.proposal) {
-                btree_map::Entry::Vacant(entry) => {
-                    entry.insert(BTreeMap::from([(k.voter, v)]));
-                }
-                btree_map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().insert(k.voter, v);
-                }
-            }
+            votes
+                .entry(k.proposal)
+                .or_insert_with(Vec::new)
+                .push((k.voter, v));
 
             votes
         });
