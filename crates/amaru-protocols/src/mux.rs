@@ -32,6 +32,17 @@ use std::{
 };
 use tracing::{Level, instrument};
 
+pub fn register_deserializers() -> pure_stage::DeserializerGuards {
+    vec![
+        pure_stage::register_data_deserializer::<MuxMessage>().boxed(),
+        pure_stage::register_data_deserializer::<NonEmptyBytes>().boxed(),
+        pure_stage::register_data_deserializer::<State>().boxed(),
+        pure_stage::register_data_deserializer::<HandlerMessage>().boxed(),
+        pure_stage::register_data_deserializer::<Sent>().boxed(),
+        pure_stage::register_data_deserializer::<Read>().boxed(),
+    ]
+}
+
 const MAX_SEGMENT_SIZE: usize = 65535;
 
 /// microseconds part of the wall clock time

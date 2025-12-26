@@ -17,6 +17,15 @@ use amaru_ouroboros::{ConnectionId, ConnectionResource, ToSocketAddrs};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::num::NonZeroUsize;
 
+pub fn register_deserializers() -> pure_stage::DeserializerGuards {
+    vec![
+        pure_stage::register_data_deserializer::<ConnectEffect>().boxed(),
+        pure_stage::register_data_deserializer::<SendEffect>().boxed(),
+        pure_stage::register_data_deserializer::<RecvEffect>().boxed(),
+        pure_stage::register_data_deserializer::<CloseEffect>().boxed(),
+    ]
+}
+
 pub trait NetworkOps {
     fn connect(&self, addr: ToSocketAddrs) -> BoxFuture<'static, Result<ConnectionId, String>>;
     fn send(

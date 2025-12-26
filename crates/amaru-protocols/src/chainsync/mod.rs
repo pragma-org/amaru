@@ -16,5 +16,16 @@ mod initiator;
 mod messages;
 mod responder;
 
-pub use initiator::{Initiator, InitiatorMessage, initiator};
-pub use responder::{Responder, ResponderMessage, responder};
+pub use initiator::{ChainSyncInitiator, InitiatorMessage, initiator};
+pub use responder::{ChainSyncResponder, ResponderMessage, responder};
+
+pub fn register_deserializers() -> pure_stage::DeserializerGuards {
+    vec![
+        messages::register_deserializers(),
+        initiator::register_deserializers(),
+        responder::register_deserializers(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}

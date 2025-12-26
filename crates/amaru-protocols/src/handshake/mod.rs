@@ -14,153 +14,253 @@
 
 use crate::{
     handshake::messages::Message,
-    mux::{HandlerMessage, MuxMessage},
-    protocol::{NETWORK_SEND_TIMEOUT, Outcome, PROTO_HANDSHAKE, Role, outcome},
-};
-use amaru_kernel::{
-    bytes::NonEmptyBytes,
-    protocol_messages::{
-        handshake::{HandshakeResult, RefuseReason},
-        version_data::VersionData,
+    mux::MuxMessage,
+    protocol::{
+        Initiator, Miniprotocol, Outcome, PROTO_HANDSHAKE, ProtocolState, Responder, Role, RoleT,
+        StageState, miniprotocol, outcome,
     },
 };
-use pure_stage::{Effects, StageRef, TryInStage};
+use amaru_kernel::protocol_messages::{
+    handshake::{HandshakeResult, RefuseReason},
+    version_data::VersionData,
+    version_number::VersionNumber,
+    version_table::VersionTable,
+};
+use pure_stage::{Effects, StageRef};
+use std::marker::PhantomData;
 
 mod messages;
 #[cfg(test)]
 mod tests;
 
-pub use messages::VersionTable;
+pub fn register_deserializers() -> pure_stage::DeserializerGuards {
+    vec![
+        pure_stage::register_data_deserializer::<Handshake<Initiator>>().boxed(),
+        pure_stage::register_data_deserializer::<Handshake<Responder>>().boxed(),
+        pure_stage::register_data_deserializer::<HandshakeResult>().boxed(),
+    ]
+}
 
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-pub enum HandshakeMessage {
-    Registered,
-    FromNetwork(NonEmptyBytes),
+pub fn initiator() -> Miniprotocol<HandshakeState, Handshake<Initiator>, Initiator> {
+    miniprotocol(PROTO_HANDSHAKE)
+}
+
+pub fn responder() -> Miniprotocol<HandshakeState, Handshake<Responder>, Responder> {
+    miniprotocol(PROTO_HANDSHAKE.responder())
 }
 
 #[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Handshake {
+pub struct Handshake<R: RoleT> {
     muxer: StageRef<MuxMessage>,
     connection: StageRef<HandshakeResult>,
-    state: HandshakeState,
-    role: Role,
+    our_versions: VersionTable<VersionData>,
+    _phantom: PhantomData<R>,
 }
 
-impl Handshake {
+impl<R: RoleT> Handshake<R> {
     pub fn new(
         muxer: StageRef<MuxMessage>,
         connection: StageRef<HandshakeResult>,
-        role: Role,
         version_table: VersionTable<VersionData>,
-    ) -> Self {
-        Self {
-            muxer,
-            connection,
-            state: HandshakeState::Propose(version_table),
-            role,
-        }
+    ) -> (HandshakeState, Self) {
+        (
+            HandshakeState::StPropose,
+            Self {
+                muxer,
+                connection,
+                our_versions: version_table,
+                _phantom: PhantomData,
+            },
+        )
     }
 }
 
-pub async fn stage(
-    mut handshake: Handshake,
-    msg: HandshakeMessage,
-    eff: Effects<HandshakeMessage>,
-) -> Handshake {
-    let (state, outcome) = match msg {
-        HandshakeMessage::Registered => {
-            if handshake.role == Role::Initiator {
-                handshake
-                    .state
-                    .initiator_step(Message::Propose(VersionTable::empty()))
-                    .or_terminate(&eff, async |err| {
-                        tracing::error!(%err, "failed to propose version table");
-                    })
-                    .await
-            } else {
-                (handshake.state, outcome())
+impl<R: RoleT> AsRef<StageRef<MuxMessage>> for Handshake<R> {
+    fn as_ref(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
+    }
+}
+
+impl StageState<HandshakeState, Initiator> for Handshake<Initiator> {
+    type LocalIn = ();
+
+    async fn local(
+        self,
+        _proto: &HandshakeState,
+        _input: Self::LocalIn,
+        _eff: &Effects<crate::protocol::Inputs<Self::LocalIn>>,
+    ) -> anyhow::Result<(
+        Option<<HandshakeState as ProtocolState<Initiator>>::Action>,
+        Self,
+    )> {
+        anyhow::bail!("handshake initiator does not accept local input");
+    }
+
+    async fn network(
+        self,
+        _proto: &HandshakeState,
+        input: <HandshakeState as ProtocolState<Initiator>>::Out,
+        eff: &Effects<crate::protocol::Inputs<Self::LocalIn>>,
+    ) -> anyhow::Result<(
+        Option<<HandshakeState as ProtocolState<Initiator>>::Action>,
+        Self,
+    )> {
+        Ok(match input {
+            InitiatorResult::Propose => (Some(Proposal(self.our_versions.clone())), self),
+            InitiatorResult::Conclusion(handshake_result) => {
+                eff.send(&self.connection, handshake_result).await;
+                (None, self)
             }
-        }
-        HandshakeMessage::FromNetwork(non_empty_bytes) => {
-            let msg: Message<VersionData> = minicbor::decode(&non_empty_bytes)
-                .or_terminate(&eff, async |err| {
-                    tracing::error!(%err, "failed to decode message from network");
-                })
-                .await;
-            match handshake.role {
-                Role::Initiator => handshake.state.initiator_step(msg),
-                Role::Responder => handshake.state.responder_step(msg),
+            InitiatorResult::SimOpen(version_table) => {
+                let result = compute_negotiation_result(
+                    Role::Initiator,
+                    self.our_versions.clone(),
+                    version_table,
+                );
+                eff.send(&self.connection, result).await;
+                (None, self)
             }
-            .or_terminate(&eff, async |err| {
-                tracing::error!(%err, "failed to step handshake");
-            })
-            .await
-        }
-    };
-    if let Some(msg) = outcome.send {
-        let proto_id = PROTO_HANDSHAKE.for_role(handshake.role);
-        let msg = NonEmptyBytes::encode(&msg);
-        eff.call(&handshake.muxer, NETWORK_SEND_TIMEOUT, move |cr| {
-            MuxMessage::Send(proto_id, msg, cr)
         })
-        .await;
     }
-    if let Some(result) = outcome.result {
-        eff.send(&handshake.connection, result).await;
+}
+
+impl StageState<HandshakeState, Responder> for Handshake<Responder> {
+    type LocalIn = ();
+
+    async fn local(
+        self,
+        _proto: &HandshakeState,
+        _input: Self::LocalIn,
+        _eff: &Effects<crate::protocol::Inputs<Self::LocalIn>>,
+    ) -> anyhow::Result<(
+        Option<<HandshakeState as ProtocolState<Responder>>::Action>,
+        Self,
+    )> {
+        anyhow::bail!("handshake responder does not accept local input");
     }
-    handshake.state = state;
-    handshake
+
+    async fn network(
+        self,
+        _proto: &HandshakeState,
+        input: <HandshakeState as ProtocolState<Responder>>::Out,
+        eff: &Effects<crate::protocol::Inputs<Self::LocalIn>>,
+    ) -> anyhow::Result<(
+        Option<<HandshakeState as ProtocolState<Responder>>::Action>,
+        Self,
+    )> {
+        let result =
+            compute_negotiation_result(Role::Responder, self.our_versions.clone(), input.0);
+        eff.send(&self.connection, result.clone()).await;
+        Ok((Some(result.into()), self))
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-enum HandshakeState {
-    Propose(VersionTable<VersionData>),
-    Confirm(VersionTable<VersionData>),
-    Done,
+pub enum HandshakeState {
+    StPropose,
+    StConfirm,
+    StDone,
 }
 
-impl HandshakeState {
-    fn initiator_step(
-        self,
-        input: Message<VersionData>,
-    ) -> anyhow::Result<(Self, Outcome<Message<VersionData>, HandshakeResult>)> {
-        Ok(match (self, input) {
-            (Self::Propose(version_table), Message::Propose(_)) => (
-                Self::Confirm(version_table.clone()),
-                outcome().send(Message::Propose(version_table)),
+#[derive(Debug)]
+pub enum InitiatorResult {
+    Propose,
+    Conclusion(HandshakeResult),
+    SimOpen(VersionTable<VersionData>),
+}
+
+#[derive(Debug)]
+pub struct Proposal(VersionTable<VersionData>);
+
+impl ProtocolState<Initiator> for HandshakeState {
+    type WireMsg = Message<VersionData>;
+    type Action = Proposal;
+    type Out = InitiatorResult;
+
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+        Ok((outcome().result(InitiatorResult::Propose), Self::StPropose))
+    }
+
+    fn network(
+        &self,
+        input: Self::WireMsg,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+        Ok(match input {
+            Message::Propose(version_table) => {
+                // TCP simultaneous open
+                (
+                    outcome().result(InitiatorResult::SimOpen(version_table)),
+                    Self::StDone,
+                )
+            }
+            Message::Accept(version_number, version_data) => (
+                outcome().result(InitiatorResult::Conclusion(HandshakeResult::Accepted(
+                    version_number,
+                    version_data,
+                ))),
+                Self::StDone,
             ),
-            (Self::Confirm(_), Message::Accept(version_number, version_data)) => (
-                Self::Done,
-                outcome().result(HandshakeResult::Accepted(version_number, version_data)),
+            Message::Refuse(refuse_reason) => (
+                outcome().result(InitiatorResult::Conclusion(HandshakeResult::Refused(
+                    refuse_reason,
+                ))),
+                Self::StDone,
             ),
-            (Self::Confirm(_), Message::Refuse(reason)) => (
-                Self::Done,
-                outcome().result(HandshakeResult::Refused(reason)),
-            ),
-            (Self::Confirm(vt), Message::Propose(version_table)) => (
-                Self::Done,
-                outcome().result(compute_negotiation_result(vt, version_table)),
-            ),
-            (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
 
-    fn responder_step(
-        self,
-        input: Message<VersionData>,
-    ) -> anyhow::Result<(Self, Outcome<Message<VersionData>, HandshakeResult>)> {
-        Ok(match (self, input) {
-            (Self::Propose(vt), Message::Propose(version_table)) => (
-                Self::Done,
-                outcome().send(compute_negotiation_result(vt, version_table).into()),
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Option<Self::WireMsg>, Self)> {
+        Ok((Some(Message::Propose(input.0)), Self::StConfirm))
+    }
+}
+
+#[derive(Debug)]
+pub enum ResponderAction {
+    Accept(VersionNumber, VersionData),
+    Refuse(RefuseReason),
+    Query(VersionTable<VersionData>),
+}
+
+impl ProtocolState<Responder> for HandshakeState {
+    type WireMsg = Message<VersionData>;
+    type Action = ResponderAction;
+    type Out = Proposal;
+
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+        Ok((outcome(), Self::StPropose))
+    }
+
+    fn network(
+        &self,
+        input: Self::WireMsg,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+        match input {
+            Message::Propose(version_table) => {
+                Ok((outcome().result(Proposal(version_table)), Self::StConfirm))
+            }
+            input => anyhow::bail!("invalid message from initiator: {:?}", input),
+        }
+    }
+
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Option<Self::WireMsg>, Self)> {
+        Ok(match input {
+            ResponderAction::Accept(version_number, version_data) => (
+                Some(Message::Accept(version_number, version_data)),
+                Self::StDone,
             ),
-            (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
+            ResponderAction::Refuse(refuse_reason) => {
+                (Some(Message::Refuse(refuse_reason)), Self::StDone)
+            }
+            ResponderAction::Query(version_table) => {
+                (Some(Message::Propose(version_table)), Self::StDone)
+            }
         })
     }
 }
 
 // FIXME: proper implementation of network spec needed
 fn compute_negotiation_result(
+    _role: Role,
     ours: VersionTable<VersionData>,
     theirs: VersionTable<VersionData>,
 ) -> HandshakeResult {
@@ -177,20 +277,14 @@ fn compute_negotiation_result(
     ))
 }
 
-impl From<HandshakeResult> for Message<VersionData> {
+impl From<HandshakeResult> for ResponderAction {
     fn from(result: HandshakeResult) -> Self {
         match result {
             HandshakeResult::Accepted(version_number, version_data) => {
-                Message::Accept(version_number, version_data)
+                ResponderAction::Accept(version_number, version_data)
             }
-            HandshakeResult::Refused(reason) => Message::Refuse(reason),
+            HandshakeResult::Refused(reason) => ResponderAction::Refuse(reason),
+            HandshakeResult::Query(version_table) => ResponderAction::Query(version_table),
         }
-    }
-}
-
-pub fn handler_transform(msg: HandlerMessage) -> HandshakeMessage {
-    match msg {
-        HandlerMessage::FromNetwork(bytes) => HandshakeMessage::FromNetwork(bytes),
-        HandlerMessage::Registered(_) => HandshakeMessage::Registered,
     }
 }

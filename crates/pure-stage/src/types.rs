@@ -329,61 +329,79 @@ pub trait TryInStage {
     ///     tracing::info!("received message: {}", msg);
     /// });
     /// ```
-    #[allow(async_fn_in_trait)]
-    async fn or_terminate<M>(
+    fn or_terminate<'a, M: Send + 'static, F, Fut>(
         self,
-        eff: &Effects<M>,
-        alt: impl AsyncFnOnce(Self::Error),
-    ) -> Self::Result;
+        eff: &'a Effects<M>,
+        alt: F,
+    ) -> impl Future<Output = Self::Result> + Send + 'a
+    where
+        F: FnOnce(Self::Error) -> Fut + 'a + Send,
+        Fut: Future<Output = ()> + Send + 'a;
 }
 
-impl<T> TryInStage for Option<T> {
+impl<T: Send + 'static> TryInStage for Option<T> {
     type Result = T;
     type Error = ();
 
-    #[expect(clippy::future_not_send)]
-    async fn or_terminate<M>(
+    fn or_terminate<'a, M: Send + 'static, F, Fut>(
         self,
-        eff: &Effects<M>,
-        alt: impl AsyncFnOnce(Self::Error),
-    ) -> Self::Result {
-        match self {
-            Some(value) => value,
-            None => {
-                alt(()).await;
-                eff.terminate().await
+        eff: &'a Effects<M>,
+        alt: F,
+    ) -> impl Future<Output = Self::Result> + Send + 'a
+    where
+        F: FnOnce(Self::Error) -> Fut + 'a + Send,
+        Fut: Future<Output = ()> + Send + 'a,
+    {
+        let eff = eff.clone();
+        async move {
+            match self {
+                Some(value) => value,
+                None => {
+                    alt(()).await;
+                    eff.terminate().await
+                }
             }
         }
     }
 }
 
-impl<T, E> TryInStage for Result<T, E> {
+impl<T: Send + 'static, E: Send + 'static> TryInStage for Result<T, E> {
     type Result = T;
 
     type Error = E;
 
-    #[expect(clippy::future_not_send)]
-    async fn or_terminate<M>(
+    fn or_terminate<'a, M: Send + 'static, F, Fut>(
         self,
-        eff: &Effects<M>,
-        alt: impl AsyncFnOnce(Self::Error),
-    ) -> Self::Result {
-        match self {
-            Ok(value) => value,
-            Err(error) => {
-                alt(error).await;
-                eff.terminate().await
+        eff: &'a Effects<M>,
+        alt: F,
+    ) -> impl Future<Output = Self::Result> + Send + 'a
+    where
+        F: FnOnce(Self::Error) -> Fut + 'a + Send,
+        Fut: Future<Output = ()> + Send + 'a,
+    {
+        let eff = eff.clone();
+        async move {
+            match self {
+                Ok(value) => value,
+                Err(error) => {
+                    alt(error).await;
+                    eff.terminate().await
+                }
             }
         }
     }
 }
 
-pub fn err<E: std::fmt::Display>(msg: &str) -> impl AsyncFnOnce(E) + '_ {
-    async move |err| tracing::error!(%err, "{}", msg)
+pub fn err<'a, E: std::fmt::Display + Send + 'a>(
+    msg: &'a str,
+) -> impl FnOnce(E) -> BoxFuture<'a, ()> {
+    move |err| Box::pin(async move { tracing::error!(%err, "{}", msg) })
 }
 
-pub fn warn<E: std::fmt::Display>(msg: &str) -> impl AsyncFnOnce(E) + '_ {
-    async move |err| tracing::warn!(%err, "{}", msg)
+pub fn warn<'a, E: std::fmt::Display + Send + 'a>(
+    msg: &'a str,
+) -> impl FnOnce(E) -> BoxFuture<'a, ()> {
+    move |err| Box::pin(async move { tracing::warn!(%err, "{}", msg) })
 }
 
 #[cfg(test)]

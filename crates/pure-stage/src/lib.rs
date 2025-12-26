@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #![deny(clippy::future_not_send)]
+#![feature(async_fn_traits, unboxed_closures)]
 
 mod adapter;
 mod effect;
@@ -41,7 +42,7 @@ pub use receiver::Receiver;
 pub use resources::Resources;
 pub use sender::Sender;
 pub use serde::{
-    serialize_external_effect::register_effect_deserializer,
+    DeserializerGuard, DeserializerGuards, serialize_external_effect::register_effect_deserializer,
     serialize_send_data::register_data_deserializer,
 };
 pub use stage_ref::{StageBuildRef, StageRef};

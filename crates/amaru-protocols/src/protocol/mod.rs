@@ -112,12 +112,30 @@ impl Role {
 mod sealed {
     pub trait Sealed {}
 }
-pub trait RoleT: sealed::Sealed {
+pub trait RoleT:
+    Clone
+    + Copy
+    + std::fmt::Debug
+    + std::hash::Hash
+    + std::cmp::Ord
+    + std::cmp::PartialOrd
+    + std::cmp::Eq
+    + std::cmp::PartialEq
+    + serde::Serialize
+    + serde::de::DeserializeOwned
+    + Send
+    + Sync
+    + 'static
+    + sealed::Sealed
+{
     type Opposite: RoleT;
 
     const ROLE: Option<Role>;
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct Initiator;
 impl sealed::Sealed for Initiator {}
 impl RoleT for Initiator {
@@ -126,6 +144,9 @@ impl RoleT for Initiator {
     const ROLE: Option<Role> = Some(Role::Initiator);
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct Responder;
 impl sealed::Sealed for Responder {}
 impl RoleT for Responder {
@@ -134,6 +155,9 @@ impl RoleT for Responder {
     const ROLE: Option<Role> = Some(Role::Responder);
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct Erased;
 impl sealed::Sealed for Erased {}
 impl RoleT for Erased {

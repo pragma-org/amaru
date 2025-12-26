@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::protocol_messages::{version_data::VersionData, version_number::VersionNumber};
+use crate::protocol_messages::{
+    version_data::VersionData, version_number::VersionNumber, version_table::VersionTable,
+};
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum HandshakeResult {
     Accepted(VersionNumber, VersionData),
     Refused(RefuseReason),
+    Query(VersionTable<VersionData>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]

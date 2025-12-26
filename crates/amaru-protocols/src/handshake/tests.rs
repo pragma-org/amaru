@@ -14,17 +14,15 @@
 
 use crate::{
     effects::create_connection,
-    handshake::{self, Role, messages::VersionTable},
+    handshake,
     mux::{self, MuxMessage},
-    protocol::PROTO_HANDSHAKE,
+    protocol::{Inputs, PROTO_HANDSHAKE},
 };
-use amaru_kernel::{
-    bytes::NonEmptyBytes,
-    protocol_messages::{
-        network_magic::NetworkMagic,
-        version_data::{PEER_SHARING_DISABLED, VersionData},
-        version_number::VersionNumber,
-    },
+use amaru_kernel::protocol_messages::{
+    network_magic::NetworkMagic,
+    version_data::{PEER_SHARING_DISABLED, VersionData},
+    version_number::VersionNumber,
+    version_table::VersionTable,
 };
 use amaru_network::connection::TokioConnections;
 use futures_util::StreamExt;
@@ -38,14 +36,10 @@ use tracing_subscriber::EnvFilter;
 #[test]
 #[ignore]
 fn test_against_node() {
-    let _guard = pure_stage::register_data_deserializer::<NonEmptyBytes>();
-    let _guard = pure_stage::register_data_deserializer::<handshake::HandshakeMessage>();
-    let _guard = pure_stage::register_data_deserializer::<handshake::HandshakeResult>();
-    let _guard = pure_stage::register_data_deserializer::<handshake::Handshake>();
-    let _guard = pure_stage::register_data_deserializer::<mux::State>();
-    let _guard = pure_stage::register_data_deserializer::<mux::MuxMessage>();
-    let _guard = pure_stage::register_effect_deserializer::<crate::effects::RecvEffect>();
-    let _guard = pure_stage::register_effect_deserializer::<crate::effects::SendEffect>();
+    let _guard = crate::effects::register_deserializers();
+    let _guard = crate::mux::register_deserializers();
+    let _guard = crate::handshake::register_deserializers();
+
     let network_magic = NetworkMagic::MAINNET;
 
     let _ = tracing_subscriber::fmt()
@@ -71,19 +65,17 @@ fn test_against_node() {
 
     let (output, mut rx) = network.output::<handshake::HandshakeResult>("handshake_result", 10);
 
-    let handshake = network.stage("handshake", handshake::stage);
+    let handshake = network.stage("handshake", handshake::initiator());
     let handshake = network.wire_up(
         handshake,
         handshake::Handshake::new(
             mux.clone().without_state(),
             output.clone(),
-            Role::Initiator,
             VersionTable::v11_and_above(network_magic, true),
         ),
     );
 
-    let handshake_bytes =
-        network.contramap(handshake, "handshake_bytes", handshake::handler_transform);
+    let handshake_bytes = network.contramap(handshake, "handshake_bytes", Inputs::Network);
 
     network
         .preload(
@@ -122,14 +114,11 @@ fn test_against_node() {
 #[test]
 #[ignore]
 fn test_against_node_with_tokio() {
-    let _guard = pure_stage::register_data_deserializer::<NonEmptyBytes>();
-    let _guard = pure_stage::register_data_deserializer::<handshake::HandshakeMessage>();
-    let _guard = pure_stage::register_data_deserializer::<handshake::HandshakeResult>();
-    let _guard = pure_stage::register_data_deserializer::<handshake::Handshake>();
-    let _guard = pure_stage::register_data_deserializer::<mux::State>();
-    let _guard = pure_stage::register_data_deserializer::<mux::MuxMessage>();
-    let _guard = pure_stage::register_effect_deserializer::<crate::effects::RecvEffect>();
-    let _guard = pure_stage::register_effect_deserializer::<crate::effects::SendEffect>();
+    let _guard = crate::effects::register_deserializers();
+    let _guard = crate::mux::register_deserializers();
+    let _guard = crate::handshake::register_deserializers();
+
+    let network_magic = NetworkMagic::MAINNET;
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -152,19 +141,17 @@ fn test_against_node_with_tokio() {
 
     let (output, mut rx) = network.output::<handshake::HandshakeResult>("handshake_result", 10);
 
-    let handshake = network.stage("handshake", handshake::stage);
+    let handshake = network.stage("handshake", handshake::initiator());
     let handshake = network.wire_up(
         handshake,
         handshake::Handshake::new(
             mux.clone().without_state(),
-            output,
-            Role::Initiator,
-            VersionTable::v11_and_above(NetworkMagic::MAINNET, true),
+            output.clone(),
+            VersionTable::v11_and_above(network_magic, true),
         ),
     );
 
-    let handshake_bytes =
-        network.contramap(handshake, "handshake_bytes", handshake::handler_transform);
+    let handshake_bytes = network.contramap(handshake, "handshake_bytes", Inputs::Network);
 
     network
         .preload(

@@ -14,13 +14,15 @@
 
 use crate::keepalive::register_keepalive;
 use crate::mux::HandlerMessage;
+use crate::protocol::Inputs;
 use crate::tx_submission::{TxSubmissionMessage, register_tx_submission};
 use crate::{
-    handshake::{self, HandshakeMessage, VersionTable},
+    handshake,
     mux::{self, MuxMessage},
     protocol::{PROTO_HANDSHAKE, Role},
 };
 use amaru_kernel::peer::Peer;
+use amaru_kernel::protocol_messages::version_table::VersionTable;
 use amaru_kernel::protocol_messages::{
     handshake::HandshakeResult, network_magic::NetworkMagic, version_data::VersionData,
     version_number::VersionNumber,
@@ -61,13 +63,13 @@ enum State {
     Initial,
     Handshake {
         muxer: StageRef<MuxMessage>,
-        handshake: StageRef<HandshakeMessage>,
+        handshake: StageRef<Inputs<()>>,
     },
     Initiator {
         version_number: VersionNumber,
         version_data: VersionData,
         muxer: StageRef<MuxMessage>,
-        handshake: StageRef<HandshakeMessage>,
+        handshake: StageRef<Inputs<()>>,
         keepalive: StageRef<HandlerMessage>,
         tx_submission: StageRef<TxSubmissionMessage>,
     },
@@ -116,21 +118,20 @@ async fn do_initialize(
         .contramap(eff.me(), "handshake_result", ConnectionMessage::Handshake)
         .await;
 
-    let handshake = eff.stage("handshake", handshake::stage).await;
+    let handshake = eff.stage("handshake", handshake::initiator()).await;
     let handshake = eff
         .wire_up(
             handshake,
             handshake::Handshake::new(
                 muxer.clone(),
                 handshake_result,
-                *role,
                 VersionTable::v11_and_above(*magic, true),
             ),
         )
         .await;
 
     let handler = eff
-        .contramap(&handshake, "handshake_bytes", handshake::handler_transform)
+        .contramap(&handshake, "handshake_bytes", Inputs::Network)
         .await;
 
     eff.send(
@@ -150,7 +151,7 @@ async fn do_initialize(
 async fn do_handshake(
     Params { role, peer, .. }: &Params,
     muxer: StageRef<MuxMessage>,
-    handshake: StageRef<HandshakeMessage>,
+    handshake: StageRef<Inputs<()>>,
     handshake_result: HandshakeResult,
     eff: Effects<ConnectionMessage>,
 ) -> State {
@@ -160,6 +161,7 @@ async fn do_handshake(
             tracing::error!(?refuse_reason, "handshake refused");
             return eff.terminate().await;
         }
+        HandshakeResult::Query(version_table) => todo!(),
     };
 
     let keepalive = register_keepalive(*role, muxer.clone(), &eff).await;

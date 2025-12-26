@@ -16,7 +16,7 @@ use crate::{
     chainsync::messages::{HeaderContent, Message},
     mux::MuxMessage,
     protocol::{
-        Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, StageState,
+        Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, Responder, StageState,
         miniprotocol, outcome,
     },
     store_effects::Store,
@@ -26,11 +26,18 @@ use amaru_kernel::{
 };
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
-use pure_stage::{Effects, StageRef};
+use pure_stage::{DeserializerGuards, Effects, StageRef};
 use std::cmp::Reverse;
 
-pub fn responder() -> Miniprotocol<ResponderState, Responder> {
-    miniprotocol(PROTO_N2N_CHAIN_SYNC.responder().erase())
+pub fn register_deserializers() -> DeserializerGuards {
+    vec![
+        pure_stage::register_data_deserializer::<ResponderMessage>().boxed(),
+        pure_stage::register_data_deserializer::<ChainSyncResponder>().boxed(),
+    ]
+}
+
+pub fn responder() -> Miniprotocol<ResponderState, ChainSyncResponder, Responder> {
+    miniprotocol(PROTO_N2N_CHAIN_SYNC.responder())
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -39,7 +46,7 @@ pub enum ResponderMessage {
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Responder {
+pub struct ChainSyncResponder {
     upstream: Tip,
     peer: Peer,
     pointer: Point,
@@ -47,7 +54,7 @@ pub struct Responder {
     muxer: StageRef<MuxMessage>,
 }
 
-impl Responder {
+impl ChainSyncResponder {
     pub fn new(
         upstream: Tip,
         peer: Peer,
@@ -69,13 +76,13 @@ impl Responder {
     }
 }
 
-impl AsRef<StageRef<MuxMessage>> for Responder {
+impl AsRef<StageRef<MuxMessage>> for ChainSyncResponder {
     fn as_ref(&self) -> &StageRef<MuxMessage> {
         &self.muxer
     }
 }
 
-impl StageState<ResponderState> for Responder {
+impl StageState<ResponderState, Responder> for ChainSyncResponder {
     type LocalIn = ResponderMessage;
 
     async fn local(
@@ -83,7 +90,7 @@ impl StageState<ResponderState> for Responder {
         proto: &ResponderState,
         input: Self::LocalIn,
         eff: &Effects<Inputs<Self::LocalIn>>,
-    ) -> anyhow::Result<(Self, Option<ResponderAction>)> {
+    ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
             ResponderMessage::NewTip(tip) => {
                 self.upstream = tip;
@@ -94,7 +101,7 @@ impl StageState<ResponderState> for Responder {
                     self.upstream,
                 )
                 .context("failed to get next header")?;
-                Ok((self, action))
+                Ok((action, self))
             }
         }
     }
@@ -104,12 +111,12 @@ impl StageState<ResponderState> for Responder {
         proto: &ResponderState,
         input: ResponderResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
-    ) -> anyhow::Result<(Self, Option<ResponderAction>)> {
+    ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
             ResponderResult::FindIntersect(points) => {
                 let action = intersect(points, &Store::new(eff.clone()), self.upstream)
                     .context("failed to find intersection")?;
-                Ok((self, Some(action)))
+                Ok((Some(action), self))
             }
             ResponderResult::RequestNext => {
                 let action = next_header(
@@ -119,11 +126,11 @@ impl StageState<ResponderState> for Responder {
                     self.upstream,
                 )
                 .context("failed to get next header")?;
-                Ok((self, action))
+                Ok((action, self))
             }
             ResponderResult::Done => {
                 tracing::info!("peer stopped chainsync");
-                Ok((self, None))
+                Ok((None, self))
             }
         }
     }
@@ -224,7 +231,7 @@ pub enum ResponderState {
     Done,
 }
 
-impl ProtocolState for ResponderState {
+impl ProtocolState<Responder> for ResponderState {
     type WireMsg = Message;
     type Action = ResponderAction;
     type Out = ResponderResult;
@@ -374,7 +381,7 @@ mod tests {
         spec.assert_refines(
             &super::super::initiator::tests::spec(),
             |state| match state {
-                Idle { .. } => InitiatorState::Idle,
+                Idle { .. } => todo!(),
                 CanAwait { .. } => InitiatorState::CanAwait,
                 MustReply => InitiatorState::MustReply,
                 Intersect => InitiatorState::Intersect,

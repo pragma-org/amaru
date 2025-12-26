@@ -82,6 +82,10 @@ pub mod serialize_error {
     }
 }
 
+/// A trait to allow keeping collections of deserializer guards.
+pub trait DeserializerGuard {}
+pub type DeserializerGuards = Vec<Box<dyn DeserializerGuard>>;
+
 enum Field {
     Typetag,
     Value,
@@ -169,6 +173,12 @@ pub mod serialize_send_data {
     }
 
     pub struct DropGuard(&'static str);
+    impl DeserializerGuard for DropGuard {}
+    impl DropGuard {
+        pub fn boxed(self) -> Box<dyn DeserializerGuard> {
+            Box::new(self)
+        }
+    }
 
     impl Drop for DropGuard {
         fn drop(&mut self) {
@@ -519,6 +529,12 @@ pub mod serialize_external_effect {
     }
 
     pub struct DropGuard(&'static str);
+    impl DeserializerGuard for DropGuard {}
+    impl DropGuard {
+        pub fn boxed(self) -> Box<dyn DeserializerGuard> {
+            Box::new(self)
+        }
+    }
 
     impl Drop for DropGuard {
         fn drop(&mut self) {

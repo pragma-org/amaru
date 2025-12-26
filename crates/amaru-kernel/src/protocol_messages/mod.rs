@@ -19,3 +19,4 @@ pub mod point;
 pub mod tip;
 pub mod version_data;
 pub mod version_number;
+pub mod version_table;

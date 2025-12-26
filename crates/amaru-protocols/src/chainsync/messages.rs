@@ -14,6 +14,11 @@
 
 use amaru_kernel::{Point, protocol_messages::tip::Tip};
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
+use pure_stage::DeserializerGuards;
+
+pub fn register_deserializers() -> DeserializerGuards {
+    vec![pure_stage::register_data_deserializer::<Message>().boxed()]
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Ord, PartialOrd)]
 pub enum Message {

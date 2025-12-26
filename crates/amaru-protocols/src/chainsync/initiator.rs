@@ -16,17 +16,25 @@ use crate::{
     chainsync::messages::{HeaderContent, Message},
     mux::MuxMessage,
     protocol::{
-        Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, StageState,
+        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, StageState,
         miniprotocol, outcome,
     },
     store_effects::Store,
 };
 use amaru_kernel::{BlockHeader, Point, peer::Peer, protocol_messages::tip::Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
-use pure_stage::{Effects, StageRef};
+use pure_stage::{DeserializerGuards, Effects, StageRef};
 
-pub fn initiator() -> Miniprotocol<InitiatorState, Initiator> {
-    miniprotocol(PROTO_N2N_CHAIN_SYNC.erase())
+pub fn register_deserializers() -> DeserializerGuards {
+    vec![
+        pure_stage::register_data_deserializer::<InitiatorMessage>().boxed(),
+        pure_stage::register_data_deserializer::<ChainSyncInitiatorMsg>().boxed(),
+        pure_stage::register_data_deserializer::<ChainSyncInitiator>().boxed(),
+    ]
+}
+
+pub fn initiator() -> Miniprotocol<InitiatorState, ChainSyncInitiator, Initiator> {
+    miniprotocol(PROTO_N2N_CHAIN_SYNC)
 }
 
 /// Message sent to the handler from the consensus pipeline
@@ -46,7 +54,7 @@ pub struct ChainSyncInitiatorMsg {
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Initiator {
+pub struct ChainSyncInitiator {
     upstream: Option<Tip>,
     peer: Peer,
     conn_id: ConnectionId,
@@ -55,7 +63,7 @@ pub struct Initiator {
     me: StageRef<InitiatorMessage>,
 }
 
-impl Initiator {
+impl ChainSyncInitiator {
     pub fn new(
         peer: Peer,
         conn_id: ConnectionId,
@@ -76,13 +84,13 @@ impl Initiator {
     }
 }
 
-impl AsRef<StageRef<MuxMessage>> for Initiator {
+impl AsRef<StageRef<MuxMessage>> for ChainSyncInitiator {
     fn as_ref(&self) -> &StageRef<MuxMessage> {
         &self.muxer
     }
 }
 
-impl StageState<InitiatorState> for Initiator {
+impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
     type LocalIn = InitiatorMessage;
 
     async fn local(
@@ -90,12 +98,15 @@ impl StageState<InitiatorState> for Initiator {
         proto: &InitiatorState,
         input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
-    ) -> anyhow::Result<(Self, Option<<InitiatorState as ProtocolState>::Action>)> {
+    ) -> anyhow::Result<(
+        Option<<InitiatorState as ProtocolState<Initiator>>::Action>,
+        Self,
+    )> {
         use InitiatorState::*;
 
         Ok(match (proto, input) {
-            (Idle, InitiatorMessage::RequestNext) => (self, Some(InitiatorAction::RequestNext)),
-            (Idle, InitiatorMessage::Done) => (self, Some(InitiatorAction::Done)),
+            (Idle, InitiatorMessage::RequestNext) => (Some(InitiatorAction::RequestNext), self),
+            (Idle, InitiatorMessage::Done) => (Some(InitiatorAction::Done), self),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -103,9 +114,12 @@ impl StageState<InitiatorState> for Initiator {
     async fn network(
         mut self,
         _proto: &InitiatorState,
-        input: <InitiatorState as ProtocolState>::Out,
+        input: <InitiatorState as ProtocolState<Initiator>>::Out,
         eff: &Effects<Inputs<Self::LocalIn>>,
-    ) -> anyhow::Result<(Self, Option<<InitiatorState as ProtocolState>::Action>)> {
+    ) -> anyhow::Result<(
+        Option<<InitiatorState as ProtocolState<Initiator>>::Action>,
+        Self,
+    )> {
         use InitiatorAction::*;
         let action = match &input {
             InitiatorResult::Initialize => {
@@ -136,7 +150,7 @@ impl StageState<InitiatorState> for Initiator {
             },
         )
         .await;
-        Ok((self, action))
+        Ok((action, self))
     }
 }
 
@@ -184,7 +198,7 @@ pub enum InitiatorState {
     Done,
 }
 
-impl ProtocolState for InitiatorState {
+impl ProtocolState<Initiator> for InitiatorState {
     type WireMsg = Message;
     type Action = InitiatorAction;
     type Out = InitiatorResult;
@@ -245,7 +259,7 @@ pub mod tests {
     use Message::*;
     use amaru_kernel::protocol_messages::block_height::BlockHeight;
 
-    pub fn spec() -> ProtoSpec<InitiatorState, Message> {
+    pub fn spec() -> ProtoSpec<InitiatorState, Message, Initiator> {
         // canonical states and messages
         let find_intersect = || FindIntersect(vec![Point::Origin]);
         let intersect_found =

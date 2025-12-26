@@ -12,25 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::protocol::{ProtocolState, Role};
-use std::collections::{BTreeMap, BTreeSet};
+use crate::protocol::{ProtocolState, Role, RoleT};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
+};
 
-pub struct ProtoSpec<State, Message> {
+pub struct ProtoSpec<State, Message, R> {
     transitions: BTreeMap<State, BTreeMap<Message, (Role, State)>>,
+    _phantom: PhantomData<R>,
 }
 
-impl<State, Message> Default for ProtoSpec<State, Message> {
+impl<State, Message, R> Default for ProtoSpec<State, Message, R> {
     fn default() -> Self {
         Self {
             transitions: Default::default(),
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<State, Message> ProtoSpec<State, Message>
+impl<State, Message, R> ProtoSpec<State, Message, R>
 where
-    State: Ord + std::fmt::Debug + Clone + ProtocolState<WireMsg = Message>,
+    State: Ord + std::fmt::Debug + Clone + ProtocolState<R, WireMsg = Message>,
     Message: Ord + std::fmt::Debug + Clone,
+    R: RoleT,
 {
     pub fn i(&mut self, from: State, msg: Message, to: State) {
         let present = self
@@ -149,11 +155,15 @@ where
         }
     }
 
-    pub fn assert_refines<S>(&self, other: &ProtoSpec<S, Message>, surjection: impl Fn(&State) -> S)
-    where
-        S: Ord + std::fmt::Debug + Clone + ProtocolState<WireMsg = Message>,
+    pub fn assert_refines<S2, R2>(
+        &self,
+        other: &ProtoSpec<S2, Message, R2>,
+        surjection: impl Fn(&State) -> S2,
+    ) where
+        S2: Ord + std::fmt::Debug + Clone + ProtocolState<R2, WireMsg = Message>,
+        R2: RoleT,
     {
-        let mut simplified = BTreeMap::<S, BTreeMap<Message, (Role, S)>>::new();
+        let mut simplified = BTreeMap::<S2, BTreeMap<Message, (Role, S2)>>::new();
 
         for (from, transitions) in &self.transitions {
             let from = surjection(from);
