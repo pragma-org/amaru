@@ -60,11 +60,13 @@ fn dummy_response() -> oneshot::Sender<Box<dyn SendData>> {
     oneshot::channel().0
 }
 
-impl<Resp: SendData + PartialEq> PartialEq for CallRef<Resp> {
+impl<Resp: SendData> PartialEq for CallRef<Resp> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
+
+impl<Resp: SendData> Eq for CallRef<Resp> {}
 
 impl<Resp: SendData> Debug for CallRef<Resp> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

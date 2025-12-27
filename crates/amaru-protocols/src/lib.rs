@@ -14,6 +14,7 @@
 
 #![feature(type_alias_impl_trait)]
 
+pub mod blockfetch;
 pub mod chainsync;
 pub mod connection;
 pub mod handshake;
