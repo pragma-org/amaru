@@ -16,7 +16,9 @@ mod initiator;
 mod messages;
 mod responder;
 
-pub use initiator::{ChainSyncInitiator, InitiatorMessage, initiator};
+pub use initiator::{
+    ChainSyncInitiator, ChainSyncInitiatorMsg, InitiatorMessage, InitiatorResult, initiator,
+};
 pub use responder::{ChainSyncResponder, ResponderMessage, responder};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
@@ -28,4 +30,76 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
     .into_iter()
     .flatten()
     .collect()
+}
+
+pub use register::{register_chainsync_initiator, register_chainsync_responder};
+
+mod register {
+    use super::*;
+    use crate::{
+        connection::ConnectionMessage,
+        mux::{Frame, MuxMessage},
+        protocol::{Inputs, PROTO_N2N_CHAIN_SYNC},
+    };
+    use amaru_kernel::{peer::Peer, protocol_messages::tip::Tip};
+    use amaru_ouroboros::ConnectionId;
+    use pure_stage::{Effects, StageRef};
+
+    pub async fn register_chainsync_initiator(
+        muxer: &StageRef<MuxMessage>,
+        peer: Peer,
+        conn_id: ConnectionId,
+        pipeline: StageRef<ChainSyncInitiatorMsg>,
+        eff: &Effects<ConnectionMessage>,
+    ) -> StageRef<InitiatorMessage> {
+        let chainsync = eff
+            .wire_up(
+                eff.stage("chainsync", initiator()).await,
+                ChainSyncInitiator::new(peer, conn_id, muxer.clone(), pipeline),
+            )
+            .await;
+        eff.send(
+            muxer,
+            MuxMessage::Register {
+                protocol: PROTO_N2N_CHAIN_SYNC.erase(),
+                frame: Frame::OneCborItem,
+                handler: eff
+                    .contramap(&chainsync, "chainsync_bytes", Inputs::Network)
+                    .await,
+                max_buffer: 5760,
+            },
+        )
+        .await;
+        eff.contramap(&chainsync, "chainsync_bytes", Inputs::Local)
+            .await
+    }
+
+    pub async fn register_chainsync_responder(
+        muxer: &StageRef<MuxMessage>,
+        upstream: Tip,
+        peer: Peer,
+        conn_id: ConnectionId,
+        eff: &Effects<ConnectionMessage>,
+    ) -> StageRef<ResponderMessage> {
+        let chainsync = eff
+            .wire_up(
+                eff.stage("chainsync", responder()).await,
+                ChainSyncResponder::new(upstream, peer, conn_id, muxer.clone()),
+            )
+            .await;
+        eff.send(
+            muxer,
+            MuxMessage::Register {
+                protocol: PROTO_N2N_CHAIN_SYNC.responder().erase(),
+                frame: Frame::OneCborItem,
+                handler: eff
+                    .contramap(&chainsync, "chainsync_bytes", Inputs::Network)
+                    .await,
+                max_buffer: 5760,
+            },
+        )
+        .await;
+        eff.contramap(&chainsync, "chainsync_bytes", Inputs::Local)
+            .await
+    }
 }

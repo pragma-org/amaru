@@ -21,9 +21,9 @@ use crate::{
     },
     store_effects::Store,
 };
-use amaru_kernel::{BlockHeader, Point, peer::Peer, protocol_messages::tip::Tip};
+use amaru_kernel::{BlockHeader, ORIGIN_HASH, Point, peer::Peer, protocol_messages::tip::Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
-use pure_stage::{DeserializerGuards, Effects, StageRef};
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -158,6 +158,9 @@ fn intersect_points(store: &dyn ReadOnlyChainStore<BlockHeader>) -> Vec<Point> {
     let mut spacing = 1;
     let mut points = Vec::new();
     let best = store.get_best_chain_hash();
+    if best == ORIGIN_HASH {
+        return vec![Point::Origin];
+    }
     #[expect(clippy::expect_used)]
     let best = store.load_header(&best).expect("best chain hash is valid");
     let mut last = best.tip().point();
@@ -217,35 +220,44 @@ impl ProtocolState<Initiator> for InitiatorState {
             (Intersect, Message::IntersectFound(point, tip)) => (
                 outcome()
                     .send(Message::RequestNext)
+                    .want_next()
                     .result(InitiatorResult::IntersectFound(point, tip)),
                 CanAwait,
             ),
             (Intersect, Message::IntersectNotFound(tip)) => (
-                outcome().result(InitiatorResult::IntersectNotFound(tip)),
+                outcome()
+                    .want_next()
+                    .result(InitiatorResult::IntersectNotFound(tip)),
                 Idle,
             ),
             (CanAwait, Message::AwaitReply) => (outcome(), MustReply),
             (CanAwait | MustReply, Message::RollForward(content, tip)) => (
-                outcome().result(InitiatorResult::RollForward(content, tip)),
+                outcome()
+                    .want_next()
+                    .result(InitiatorResult::RollForward(content, tip)),
                 Idle,
             ),
             (CanAwait | MustReply, Message::RollBackward(point, tip)) => (
-                outcome().result(InitiatorResult::RollBackward(point, tip)),
+                outcome()
+                    .want_next()
+                    .result(InitiatorResult::RollBackward(point, tip)),
                 Idle,
             ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
 
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Option<Self::WireMsg>, Self)> {
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
         use InitiatorState::*;
 
         Ok(match (self, input) {
             (Idle, InitiatorAction::Intersect(points)) => {
-                (Some(Message::FindIntersect(points)), Intersect)
+                (outcome().send(Message::FindIntersect(points)), Intersect)
             }
-            (Idle, InitiatorAction::RequestNext) => (Some(Message::RequestNext), CanAwait),
-            (Idle, InitiatorAction::Done) => (Some(Message::Done), Done),
+            (Idle, InitiatorAction::RequestNext) => {
+                (outcome().send(Message::RequestNext), CanAwait)
+            }
+            (Idle, InitiatorAction::Done) => (outcome().send(Message::Done), Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

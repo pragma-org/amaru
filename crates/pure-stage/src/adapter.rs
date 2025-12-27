@@ -80,7 +80,6 @@ pub fn find_recipient<'a, T>(
             Some(StageOrAdapter::Adapter(adapter)) => {
                 msg = msg.map(|msg| (adapter.transform)(msg));
                 name = &adapter.target;
-                tracing::trace!(target = %name, "followed adapter");
             }
             None => {
                 if let Some(msg) = &msg {

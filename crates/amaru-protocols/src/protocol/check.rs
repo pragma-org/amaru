@@ -108,7 +108,7 @@ where
                         state
                             .network(message.clone())
                             .ok()
-                            .map(|(outcome, next)| (outcome.send, next)),
+                            .map(|(outcome, next)| (outcome.send.into(), next)),
                         false,
                     )
                 };
@@ -121,7 +121,7 @@ where
                 if is_local {
                     assert_eq!(*r, role, "sending {message:?} not allowed for {role:?}");
                     assert_eq!(
-                        send.as_ref(),
+                        send.send.as_ref(),
                         Some(message),
                         "sending message in state {state:?}"
                     );
@@ -135,7 +135,7 @@ where
                         role.opposite(),
                         "expecting {message:?} not allowed for {role:?}"
                     );
-                    if let Some(send) = send {
+                    if let Some(send) = send.send {
                         let send = basic_msg(&send);
                         let to2 = self.transitions.get(to).and_then(|m| m.get(&send));
                         if let Some((r2, to2)) = to2 {

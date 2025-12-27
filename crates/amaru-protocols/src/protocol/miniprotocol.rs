@@ -17,7 +17,7 @@ use crate::{
     protocol::{NETWORK_SEND_TIMEOUT, ProtocolId, RoleT},
 };
 use amaru_kernel::bytes::NonEmptyBytes;
-use pure_stage::{BoxFuture, Effects, SendData, StageRef, TryInStage, err};
+use pure_stage::{BoxFuture, Effects, SendData, StageRef, TryInStage, Void, err};
 use std::future::Future;
 
 /// An input to a miniprotocol handler stage.
@@ -32,6 +32,7 @@ pub enum Inputs<L> {
 pub struct Outcome<S, R> {
     pub send: Option<S>,
     pub result: Option<R>,
+    pub want_next: bool,
 }
 
 impl<S, D> Outcome<S, D> {
@@ -39,6 +40,7 @@ impl<S, D> Outcome<S, D> {
         Self {
             send: Some(send),
             result: self.result,
+            want_next: self.want_next,
         }
     }
 
@@ -46,6 +48,25 @@ impl<S, D> Outcome<S, D> {
         Self {
             send: self.send,
             result: Some(done),
+            want_next: self.want_next,
+        }
+    }
+
+    pub fn want_next(self) -> Self {
+        Self {
+            send: self.send,
+            result: self.result,
+            want_next: true,
+        }
+    }
+}
+
+impl<S, D> From<Option<S>> for Outcome<S, D> {
+    fn from(send: Option<S>) -> Self {
+        Self {
+            send,
+            result: None,
+            want_next: false,
         }
     }
 }
@@ -54,6 +75,7 @@ pub fn outcome<S, D>() -> Outcome<S, D> {
     Outcome {
         send: None,
         result: None,
+        want_next: false,
     }
 }
 
@@ -70,7 +92,7 @@ pub trait ProtocolState<R: RoleT>: Sized + SendData {
         &self,
         input: Self::WireMsg,
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)>;
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Option<Self::WireMsg>, Self)>;
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)>;
 }
 
 /// This tracks the stage state that is used to make decisions based on inputs
@@ -138,6 +160,10 @@ where
                     };
                     let (outcome, s) = result.or_terminate(&eff, err(msg)).await;
                     proto = s;
+                    if outcome.want_next {
+                        eff.send(stage.as_ref(), MuxMessage::WantNext(proto_id.erase()))
+                            .await;
+                    }
                     if let Some(msg) = outcome.send {
                         let msg = NonEmptyBytes::encode(&msg);
                         eff.call(stage.as_ref(), NETWORK_SEND_TIMEOUT, move |cr| {
@@ -183,7 +209,11 @@ where
                     .or_terminate(&eff, err("failed to step protocol state"))
                     .await;
                 proto = s;
-                if let Some(msg) = outcome {
+                if outcome.want_next {
+                    eff.send(stage.as_ref(), MuxMessage::WantNext(proto_id.erase()))
+                        .await;
+                }
+                if let Some(msg) = outcome.send {
                     let msg = NonEmptyBytes::encode(&msg);
                     eff.call(stage.as_ref(), NETWORK_SEND_TIMEOUT, move |cr| {
                         MuxMessage::Send(proto_id.erase(), msg.into(), cr)

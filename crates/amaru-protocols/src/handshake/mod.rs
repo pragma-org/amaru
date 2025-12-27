@@ -26,7 +26,7 @@ use amaru_kernel::protocol_messages::{
     version_number::VersionNumber,
     version_table::VersionTable,
 };
-use pure_stage::{Effects, StageRef};
+use pure_stage::{Effects, StageRef, Void};
 use std::marker::PhantomData;
 
 mod messages;
@@ -106,12 +106,17 @@ impl StageState<HandshakeState, Initiator> for Handshake<Initiator> {
         Self,
     )> {
         Ok(match input {
-            InitiatorResult::Propose => (Some(Proposal(self.our_versions.clone())), self),
+            InitiatorResult::Propose => {
+                tracing::debug!(?self.our_versions, "proposing versions");
+                (Some(Proposal(self.our_versions.clone())), self)
+            }
             InitiatorResult::Conclusion(handshake_result) => {
+                tracing::debug!(?handshake_result, "conclusion");
                 eff.send(&self.connection, handshake_result).await;
                 (None, self)
             }
             InitiatorResult::SimOpen(version_table) => {
+                tracing::debug!(?version_table, "simultaneous open");
                 let result = compute_negotiation_result(
                     Role::Initiator,
                     self.our_versions.clone(),
@@ -206,11 +211,17 @@ impl ProtocolState<Initiator> for HandshakeState {
                 ))),
                 Self::StDone,
             ),
+            Message::QueryReply(version_table) => (
+                outcome().result(InitiatorResult::Conclusion(HandshakeResult::Query(
+                    version_table,
+                ))),
+                Self::StDone,
+            ),
         })
     }
 
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Option<Self::WireMsg>, Self)> {
-        Ok((Some(Message::Propose(input.0)), Self::StConfirm))
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
+        Ok((outcome().send(Message::Propose(input.0)), Self::StConfirm))
     }
 }
 
@@ -242,18 +253,19 @@ impl ProtocolState<Responder> for HandshakeState {
         }
     }
 
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Option<Self::WireMsg>, Self)> {
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
         Ok(match input {
             ResponderAction::Accept(version_number, version_data) => (
-                Some(Message::Accept(version_number, version_data)),
+                outcome().send(Message::Accept(version_number, version_data)),
                 Self::StDone,
             ),
             ResponderAction::Refuse(refuse_reason) => {
-                (Some(Message::Refuse(refuse_reason)), Self::StDone)
+                (outcome().send(Message::Refuse(refuse_reason)), Self::StDone)
             }
-            ResponderAction::Query(version_table) => {
-                (Some(Message::Propose(version_table)), Self::StDone)
-            }
+            ResponderAction::Query(version_table) => (
+                outcome().send(Message::Propose(version_table)),
+                Self::StDone,
+            ),
         })
     }
 }

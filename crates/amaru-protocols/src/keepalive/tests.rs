@@ -14,14 +14,14 @@
 
 use crate::{
     connection::{self, ConnectionMessage},
-    effects::create_connection,
+    network_effects::create_connection,
     protocol::Role,
 };
-use amaru_kernel::peer::Peer;
-use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
+use amaru_kernel::{peer::Peer, protocol_messages::network_magic::NetworkMagic};
 use amaru_network::connection::TokioConnections;
-use pure_stage::{StageGraph, tokio::TokioBuilder};
-use std::time::Duration;
+use amaru_ouroboros::ConnectionResource;
+use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
+use std::{sync::Arc, time::Duration};
 use tokio::{runtime::Runtime, time::timeout};
 use tracing_subscriber::EnvFilter;
 
@@ -42,7 +42,9 @@ fn test_keepalive_with_node() {
 
     let mut network = TokioBuilder::default();
 
-    network.resources().put(conn);
+    network
+        .resources()
+        .put::<ConnectionResource>(Arc::new(conn));
 
     let connection = network.stage("connection", connection::stage);
     let connection = network.wire_up(
@@ -51,7 +53,8 @@ fn test_keepalive_with_node() {
             Peer::new("upstream"),
             conn_id,
             Role::Initiator,
-            NetworkMagic::PREPROD,
+            NetworkMagic::for_testing(),
+            StageRef::blackhole(),
         ),
     );
     network
@@ -60,7 +63,7 @@ fn test_keepalive_with_node() {
 
     let running = network.run(rt.handle().clone());
     match rt.block_on(async { timeout(Duration::from_secs(10), running.join()).await }) {
-        Ok(_) => (),
+        Ok(_) => panic!("test should have timed out"),
         Err(_) => {
             tracing::info!("test timed out as expected");
         }

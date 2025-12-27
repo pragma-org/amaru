@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::connection;
-use crate::connection::ConnectionMessage;
-use crate::effects::create_connection;
-use crate::protocol::Role;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
+use crate::{
+    chainsync::{self, ChainSyncInitiatorMsg},
+    connection::{self, ConnectionMessage},
+    network_effects::create_connection,
+    protocol::Role,
+    store_effects::ResourceHeaderStore,
+};
+use amaru_kernel::{peer::Peer, protocol_messages::network_magic::NetworkMagic};
 use amaru_network::connection::TokioConnections;
-use pure_stage::StageGraph;
-use pure_stage::tokio::TokioBuilder;
-use std::time::Duration;
-use tokio::runtime::Handle;
-use tokio::time::timeout;
+use amaru_ouroboros::{ConnectionResource, in_memory_consensus_store::InMemConsensusStore};
+use pure_stage::{StageGraph, tokio::TokioBuilder};
+use std::{sync::Arc, time::Duration};
+use tokio::{runtime::Handle, time::timeout};
 use tracing_subscriber::EnvFilter;
 
 /// You can run this test against a real upstream node (don't forget to include `-- --ignored` in `cargo test`).
@@ -41,7 +42,45 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
     let conn_id = create_connection(&conn).await?;
 
     let mut network = TokioBuilder::default();
-    network.resources().put(conn);
+
+    network
+        .resources()
+        .put::<ConnectionResource>(Arc::new(conn));
+    network
+        .resources()
+        .put::<ResourceHeaderStore>(Arc::new(InMemConsensusStore::new()));
+
+    let pipeline = network.stage(
+        "pipeline",
+        async |_st: (), msg: ChainSyncInitiatorMsg, eff| {
+            use chainsync::InitiatorResult::*;
+            match msg.msg {
+                Initialize => {
+                    tracing::info!(peer = %msg.peer,"initialize");
+                }
+                IntersectFound(point, tip) => {
+                    tracing::info!(peer = %msg.peer, ?point, ?tip, "intersect found");
+                }
+                IntersectNotFound(tip) => {
+                    tracing::info!(peer = %msg.peer, ?tip, "intersect not found");
+                    eff.send(&msg.handler, chainsync::InitiatorMessage::Done)
+                        .await;
+                    return eff.terminate().await;
+                }
+                RollForward(header_content, tip) => {
+                    tracing::info!(peer = %msg.peer, header_content.variant, ?header_content.byron_prefix, ?tip, "roll forward");
+                    eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
+                        .await;
+                }
+                RollBackward(point, tip) => {
+                    tracing::info!(peer = %msg.peer, ?point, ?tip, "roll backward");
+                    eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
+                        .await;
+                }
+            };
+        },
+    );
+    let pipeline = network.wire_up(pipeline, ());
 
     let connection = network.stage("connection", connection::stage);
     let connection = network.wire_up(
@@ -50,7 +89,8 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
             Peer::new("upstream"),
             conn_id,
             Role::Initiator,
-            NetworkMagic::PREPROD,
+            NetworkMagic::for_testing(),
+            pipeline.without_state(),
         ),
     );
     network
@@ -59,7 +99,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
 
     let running = network.run(Handle::current());
     match timeout(Duration::from_secs(20), running.join()).await {
-        Ok(_) => Ok(()),
+        Ok(_) => anyhow::bail!("test should have timed out"),
         Err(_) => {
             tracing::info!("test timed out as expected");
             Ok(())

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    effects::create_connection,
+    network_effects::create_connection,
     handshake,
     mux::{self, MuxMessage},
     protocol::{Inputs, PROTO_HANDSHAKE},
@@ -25,22 +25,24 @@ use amaru_kernel::protocol_messages::{
     version_table::VersionTable,
 };
 use amaru_network::connection::TokioConnections;
+use amaru_ouroboros::ConnectionResource;
 use futures_util::StreamExt;
 use pure_stage::{
     Effect, StageGraph, simulation::SimulationBuilder, tokio::TokioBuilder,
     trace_buffer::TraceBuffer,
 };
+use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tracing_subscriber::EnvFilter;
 
 #[test]
 #[ignore]
 fn test_against_node() {
-    let _guard = crate::effects::register_deserializers();
+    let _guard = crate::network_effects::register_deserializers();
     let _guard = crate::mux::register_deserializers();
     let _guard = crate::handshake::register_deserializers();
 
-    let network_magic = NetworkMagic::MAINNET;
+    let network_magic = NetworkMagic::for_testing();
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -58,7 +60,9 @@ fn test_against_node() {
     let _guard = TraceBuffer::drop_guard(&trace_buffer);
     let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
 
-    network.resources().put(conn);
+    network
+        .resources()
+        .put::<ConnectionResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
     let mux = network.wire_up(mux, mux::State::new(conn_id, &[]));
@@ -114,11 +118,11 @@ fn test_against_node() {
 #[test]
 #[ignore]
 fn test_against_node_with_tokio() {
-    let _guard = crate::effects::register_deserializers();
+    let _guard = crate::network_effects::register_deserializers();
     let _guard = crate::mux::register_deserializers();
     let _guard = crate::handshake::register_deserializers();
 
-    let network_magic = NetworkMagic::MAINNET;
+    let network_magic = NetworkMagic::for_testing();
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -134,7 +138,9 @@ fn test_against_node_with_tokio() {
     let _guard = TraceBuffer::drop_guard(&trace_buffer);
     let mut network = TokioBuilder::default();
 
-    network.resources().put(conn);
+    network
+        .resources()
+        .put::<ConnectionResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
     let mux = network.wire_up(mux, mux::State::new(conn_id, &[]));

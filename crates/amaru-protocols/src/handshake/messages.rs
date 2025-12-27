@@ -26,6 +26,7 @@ where
     Propose(VersionTable<D>),
     Accept(VersionNumber, D),
     Refuse(RefuseReason),
+    QueryReply(VersionTable<D>),
 }
 
 impl<D> Encode<()> for Message<D>
@@ -52,6 +53,10 @@ where
             Message::Refuse(reason) => {
                 e.array(2)?.u16(2)?;
                 e.encode(reason)?;
+            }
+            Message::QueryReply(version_table) => {
+                e.array(2)?.u16(3)?;
+                e.encode(version_table)?;
             }
         };
 
@@ -81,6 +86,10 @@ where
             2 => {
                 let reason: RefuseReason = d.decode()?;
                 Ok(Message::Refuse(reason))
+            }
+            3 => {
+                let version_table = d.decode()?;
+                Ok(Message::QueryReply(version_table))
             }
             n => Err(decode::Error::message(format!(
                 "unknown variant for handshake message: {}",

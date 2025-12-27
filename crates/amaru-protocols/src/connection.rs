@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::chainsync::{
+    self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder,
+};
 use crate::keepalive::register_keepalive;
 use crate::mux::HandlerMessage;
 use crate::protocol::Inputs;
+use crate::store_effects::Store;
 use crate::tx_submission::{TxSubmissionMessage, register_tx_submission};
 use crate::{
     handshake,
@@ -27,7 +31,7 @@ use amaru_kernel::protocol_messages::{
     handshake::HandshakeResult, network_magic::NetworkMagic, version_data::VersionData,
     version_number::VersionNumber,
 };
-use amaru_ouroboros::{ConnectionId, TxOrigin};
+use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
 use pure_stage::{Effects, StageRef};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -37,13 +41,20 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(peer: Peer, conn_id: ConnectionId, role: Role, magic: NetworkMagic) -> Self {
+    pub fn new(
+        peer: Peer,
+        conn_id: ConnectionId,
+        role: Role,
+        magic: NetworkMagic,
+        pipeline: StageRef<ChainSyncInitiatorMsg>,
+    ) -> Self {
         Self {
             params: Params {
                 peer,
                 conn_id,
                 role,
                 magic,
+                pipeline,
             },
             state: State::Initial,
         }
@@ -56,6 +67,7 @@ struct Params {
     conn_id: ConnectionId,
     role: Role,
     magic: NetworkMagic,
+    pipeline: StageRef<ChainSyncInitiatorMsg>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -66,6 +78,7 @@ enum State {
         handshake: StageRef<Inputs<()>>,
     },
     Initiator {
+        chainsync_initiator: StageRef<chainsync::InitiatorMessage>,
         version_number: VersionNumber,
         version_data: VersionData,
         muxer: StageRef<MuxMessage>,
@@ -90,7 +103,15 @@ pub async fn stage(
     let state = match (state, msg) {
         (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
         (State::Handshake { muxer, handshake }, ConnectionMessage::Handshake(handshake_result)) => {
-            do_handshake(&params, muxer, handshake, handshake_result, eff).await
+            do_handshake(
+                &params,
+                muxer,
+                params.pipeline.clone(),
+                handshake,
+                handshake_result,
+                eff,
+            )
+            .await
         }
         x => unimplemented!("{x:?}"),
     };
@@ -118,17 +139,30 @@ async fn do_initialize(
         .contramap(eff.me(), "handshake_result", ConnectionMessage::Handshake)
         .await;
 
-    let handshake = eff.stage("handshake", handshake::initiator()).await;
-    let handshake = eff
-        .wire_up(
-            handshake,
-            handshake::Handshake::new(
-                muxer.clone(),
-                handshake_result,
-                VersionTable::v11_and_above(*magic, true),
-            ),
-        )
-        .await;
+    let handshake = match role {
+        Role::Initiator => {
+            eff.wire_up(
+                eff.stage("handshake", handshake::initiator()).await,
+                handshake::Handshake::new(
+                    muxer.clone(),
+                    handshake_result,
+                    VersionTable::v11_and_above(*magic, true),
+                ),
+            )
+            .await
+        }
+        Role::Responder => {
+            eff.wire_up(
+                eff.stage("handshake", handshake::responder()).await,
+                handshake::Handshake::new(
+                    muxer.clone(),
+                    handshake_result,
+                    VersionTable::v11_and_above(*magic, true),
+                ),
+            )
+            .await
+        }
+    };
 
     let handler = eff
         .contramap(&handshake, "handshake_bytes", Inputs::Network)
@@ -149,8 +183,14 @@ async fn do_initialize(
 }
 
 async fn do_handshake(
-    Params { role, peer, .. }: &Params,
+    Params {
+        role,
+        peer,
+        conn_id,
+        ..
+    }: &Params,
     muxer: StageRef<MuxMessage>,
+    pipeline: StageRef<ChainSyncInitiatorMsg>,
     handshake: StageRef<Inputs<()>>,
     handshake_result: HandshakeResult,
     eff: Effects<ConnectionMessage>,
@@ -161,19 +201,38 @@ async fn do_handshake(
             tracing::error!(?refuse_reason, "handshake refused");
             return eff.terminate().await;
         }
-        HandshakeResult::Query(version_table) => todo!(),
+        HandshakeResult::Query(version_table) => {
+            tracing::info!(?version_table, "handshake query reply");
+            return eff.terminate().await;
+        }
     };
 
     let keepalive = register_keepalive(*role, muxer.clone(), &eff).await;
     let tx_submission =
         register_tx_submission(*role, muxer.clone(), &eff, TxOrigin::Remote(peer.clone())).await;
 
-    State::Initiator {
-        version_number,
-        version_data,
-        muxer,
-        handshake,
-        keepalive,
-        tx_submission,
+    if *role == Role::Initiator {
+        let chainsync_initiator =
+            register_chainsync_initiator(&muxer, peer.clone(), *conn_id, pipeline, &eff).await;
+        State::Initiator {
+            chainsync_initiator,
+            version_number,
+            version_data,
+            muxer,
+            handshake,
+            keepalive,
+            tx_submission,
+        }
+    } else {
+        let store = Store::new(eff.clone());
+        let upstream = store.get_best_chain_hash();
+        let header = store
+            .load_header(&upstream)
+            .expect("best chain hash not found");
+        let upstream = header.tip();
+        let _chainsync_responder =
+            register_chainsync_responder(&muxer, upstream, peer.clone(), *conn_id, &eff).await;
+
+        todo!()
     }
 }

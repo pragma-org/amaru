@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    effects::{Network, NetworkOps},
+    network_effects::{Network, NetworkOps},
     protocol::{Erased, ProtocolId, RoleT},
 };
 use amaru_kernel::bytes::NonEmptyBytes;
@@ -461,7 +461,6 @@ impl Muxer {
         &mut self,
         eff: &Effects<M>,
     ) -> Option<(ProtocolId<Erased>, Bytes)> {
-        tracing::trace!(next = self.next_out, "next segment");
         for idx in (self.next_out..self.outgoing.len()).chain(0..self.next_out) {
             let proto_id = self.outgoing[idx];
             #[allow(clippy::expect_used)]
@@ -470,7 +469,6 @@ impl Muxer {
                 .get_mut(&proto_id)
                 .expect("invariant violation");
             let Some(bytes) = proto.next_segment(eff).await else {
-                tracing::trace!(proto = %proto_id, idx, "no segment");
                 continue;
             };
             self.next_out = (idx + 1) % self.outgoing.len();
@@ -633,7 +631,7 @@ impl PerProto {
 mod tests {
     use super::*;
     use crate::{
-        effects::{RecvEffect, SendEffect},
+        network_effects::{RecvEffect, SendEffect},
         protocol::{
             Initiator, PROTO_HANDSHAKE, PROTO_N2C_CHAIN_SYNC, PROTO_N2N_BLOCK_FETCH, Responder,
         },

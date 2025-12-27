@@ -177,6 +177,23 @@ impl PartialEq for dyn SendData {
     }
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum Void {}
+
+impl SendData for Void {
+    fn test_eq(&self, _other: &dyn SendData) -> bool {
+        false
+    }
+
+    fn deserialize_value(&self, _other: &dyn SendData) -> anyhow::Result<Box<dyn SendData>> {
+        anyhow::bail!("void cannot be deserialized")
+    }
+
+    fn typetag_name(&self) -> &'static str {
+        type_name::<Void>()
+    }
+}
+
 /// A unique identifier for a stage in the simulation.
 ///
 /// This is used to identify stages in the simulation, and is used in messages sent to other stages.

@@ -26,7 +26,7 @@ use amaru_kernel::{
 };
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
-use pure_stage::{DeserializerGuards, Effects, StageRef};
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use std::cmp::Reverse;
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -262,43 +262,43 @@ impl ProtocolState<Responder> for ResponderState {
         })
     }
 
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Option<Self::WireMsg>, Self)> {
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
         use ResponderState::*;
 
         Ok(match (self, input) {
             (Intersect, ResponderAction::IntersectFound(point, tip)) => (
-                Some(Message::IntersectFound(point, tip)),
+                outcome().send(Message::IntersectFound(point, tip)),
                 Idle {
                     send_rollback: true,
                 },
             ),
             (Intersect, ResponderAction::IntersectNotFound(tip)) => (
-                Some(Message::IntersectNotFound(tip)),
+                outcome().send(Message::IntersectNotFound(tip)),
                 Idle {
                     send_rollback: false,
                 },
             ),
             (CanAwait { send_rollback }, ResponderAction::AwaitReply) => {
                 ensure!(!*send_rollback, "cannot AwaitReply after intersect");
-                (Some(Message::AwaitReply), MustReply)
+                (outcome().send(Message::AwaitReply), MustReply)
             }
             (CanAwait { send_rollback }, ResponderAction::RollForward(content, tip)) => {
                 ensure!(!*send_rollback, "cannot RollForward after intersect");
                 (
-                    Some(Message::RollForward(content, tip)),
+                    outcome().send(Message::RollForward(content, tip)),
                     Idle {
                         send_rollback: false,
                     },
                 )
             }
             (MustReply, ResponderAction::RollForward(content, tip)) => (
-                Some(Message::RollForward(content, tip)),
+                outcome().send(Message::RollForward(content, tip)),
                 Idle {
                     send_rollback: false,
                 },
             ),
             (CanAwait { .. } | MustReply, ResponderAction::RollBackward(point, tip)) => (
-                Some(Message::RollBackward(point, tip)),
+                outcome().send(Message::RollBackward(point, tip)),
                 Idle {
                     send_rollback: false,
                 },

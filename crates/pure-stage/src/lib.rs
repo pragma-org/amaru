@@ -13,7 +13,6 @@
 // limitations under the License.
 
 #![deny(clippy::future_not_send)]
-#![feature(async_fn_traits, unboxed_closures)]
 
 mod adapter;
 mod effect;
@@ -48,5 +47,5 @@ pub use serde::{
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning, stage_name};
 pub use time::{Clock, EPOCH, Instant};
-pub use types::{BoxFuture, Name, SendData, TryInStage, err, warn};
+pub use types::{BoxFuture, Name, SendData, TryInStage, Void, err, warn};
 pub use typetag;

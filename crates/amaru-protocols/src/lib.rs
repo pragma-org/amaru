@@ -16,11 +16,11 @@
 
 pub mod chainsync;
 pub mod connection;
-pub mod effects;
 pub mod handshake;
 pub mod keepalive;
 pub mod mempool_effects;
 pub mod mux;
+pub mod network_effects;
 pub mod protocol;
 pub mod store_effects;
 pub mod tx_submission;

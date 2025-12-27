@@ -35,6 +35,31 @@ impl VersionTable<VersionData> {
         }
     }
 
+    pub fn query(network_magic: NetworkMagic) -> VersionTable<VersionData> {
+        VersionTable {
+            values: vec![
+                (
+                    VersionNumber::V11,
+                    VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true),
+                ),
+                (
+                    VersionNumber::V12,
+                    VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true),
+                ),
+                (
+                    VersionNumber::V13,
+                    VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true),
+                ),
+                (
+                    VersionNumber::V14,
+                    VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true),
+                ),
+            ]
+            .into_iter()
+            .collect::<BTreeMap<VersionNumber, VersionData>>(),
+        }
+    }
+
     pub fn v11_and_above(
         network_magic: NetworkMagic,
         initiator_only_diffusion_mode: bool,
