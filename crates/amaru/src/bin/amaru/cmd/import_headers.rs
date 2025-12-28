@@ -12,18 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::WorkerError;
-use amaru::{DEFAULT_CONFIG_DIR, DEFAULT_NETWORK, default_chain_dir};
-use amaru_kernel::{BlockHeader, IsHeader, from_cbor, network::NetworkName};
-use amaru_ouroboros_traits::ChainStore;
-use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
-use clap::Parser;
-use std::{
-    error::Error,
-    path::{Path, PathBuf},
+use amaru::{
+    DEFAULT_NETWORK, bootstrap::import_headers_for_network, default_chain_dir,
+    get_bootstrap_headers,
 };
-use tokio::{fs::File, io::AsyncReadExt};
-use tracing::{Level, error, info, instrument, warn};
+use amaru_kernel::network::NetworkName;
+use clap::Parser;
+use std::path::PathBuf;
+use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -50,77 +46,18 @@ pub struct Args {
         verbatim_doc_comment
     )]
     chain_dir: Option<PathBuf>,
-
-    /// Path to directory containing per-network configuration files.
-    ///
-    /// This path will be used as a prefix to resolve per-network configuration files
-    /// needed for importing headers. Given a source directory `data`, and a
-    /// a network name of `preview`, the expected layout for header files would be:
-    ///
-    /// `data/preview/headers/header.*.*.cbor`
-    #[arg(
-        long,
-        value_name = "DIR",
-        default_value = DEFAULT_CONFIG_DIR,
-        env = "AMARU_CONFIG_DIR",
-        verbatim_doc_comment
-    )]
-    config_dir: PathBuf,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
-    let network_dir = args.config_dir.join(&*network.to_string());
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
 
-    info!(%network, chain_dir=%chain_dir.to_string_lossy(), config_dir=%args.config_dir.to_string_lossy(),
+    info!(%network, chain_dir=%chain_dir.to_string_lossy(),
           "Running command import-headers",
     );
 
-    import_headers_for_network(&network_dir, &chain_dir).await
-}
-
-#[allow(clippy::unwrap_used)]
-#[instrument(level = Level::INFO, name = "import_headers")]
-pub(crate) async fn import_headers_for_network(
-    config_dir: &Path,
-    chain_dir: &PathBuf,
-) -> Result<(), Box<dyn Error>> {
-    let db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.into()))?;
-
-    for entry in std::fs::read_dir(config_dir.join("headers"))? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file()
-            && let Some(filename) = path.file_name().and_then(|f| f.to_str())
-            && filename.starts_with("header.")
-            && filename.ends_with(".cbor")
-        {
-            let mut file = File::open(&path).await
-                .inspect_err(|reason| error!(file = %path.display(), reason = %reason, "Failed to open header file"))
-                .map_err(|_| WorkerError::Panic)?;
-
-            let mut cbor_data = Vec::new();
-            file.read_to_end(&mut cbor_data).await
-                .inspect_err(|reason| error!(file = %path.display(), reason = %reason, "Failed to read header file"))
-                .map_err(|_| WorkerError::Panic)?;
-
-            let header_from_file: BlockHeader = from_cbor(&cbor_data).unwrap();
-            let hash = header_from_file.hash();
-
-            info!(
-                hash = hash.to_string().chars().take(8).collect::<String>(),
-                "inserting header"
-            );
-
-            db.store_header(&header_from_file)
-                .map_err(|_| WorkerError::Panic)?;
-        } else {
-            warn!(file = %path.display(), "not a header file; ignoring");
-        }
-    }
-
-    Ok(())
+    let headers = get_bootstrap_headers(network)?.collect::<Vec<_>>();
+    import_headers_for_network(&chain_dir, headers).await
 }

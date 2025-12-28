@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use crate::pid::with_optional_pid_file;
+use amaru::metrics::track_system_metrics;
+use amaru::stages::{Config, MaxExtraLedgerSnapshots, StoreType, build_and_run_network};
 use amaru::{
     DEFAULT_LISTEN_ADDRESS, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, default_chain_dir,
     default_ledger_dir,
-    metrics::track_system_metrics,
-    stages::{Config, MaxExtraLedgerSnapshots, StoreType, bootstrap},
 };
-use amaru_kernel::{network::NetworkName, peer::Peer};
+use amaru_kernel::network::NetworkName;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -107,11 +107,11 @@ pub async fn run(
             .map(track_system_metrics)
             .transpose()?;
 
-        let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
-
         let exit = amaru::exit::hook_exit_token();
 
-        bootstrap(config, peers, exit, meter_provider).await?;
+        let _ = build_and_run_network(config, meter_provider).await?;
+
+        exit.cancelled().await;
 
         if let Some(handle) = metrics {
             handle.abort();

@@ -56,7 +56,7 @@ static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> =
 /// We rely on data present in these to bootstrap Amaru's initial state.
 #[allow(clippy::too_many_arguments)]
 pub fn import_initial_snapshot(
-    db: &(impl Store + 'static),
+    db: &impl Store,
     file: &mut std::fs::File,
     point: &Point,
     era_history: &EraHistory,
@@ -556,14 +556,14 @@ fn import_utxo(
     Ok(())
 }
 
-fn import_dreps<S: Store>(
-    db: &S,
+fn import_dreps(
+    db: &impl Store,
     point: &Point,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     epoch: Epoch,
     dreps: BTreeMap<StakeCredential, DRepState>,
-) -> Result<(), impl std::error::Error + use<S>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut known_dreps = BTreeMap::new();
 
     let era_first_epoch = era_history
@@ -647,7 +647,7 @@ fn import_dreps<S: Store>(
 
     transaction.add_drep_delegations(delegations.into_iter())?;
 
-    transaction.commit()
+    Ok(transaction.commit()?)
 }
 
 fn import_proposals(
@@ -709,15 +709,15 @@ fn import_proposals(
     Ok(())
 }
 
-fn import_stake_pools<S: Store>(
-    db: &S,
+fn import_stake_pools(
+    db: &impl Store,
     point: &Point,
     era_history: &EraHistory,
     epoch: Epoch,
     pools: BTreeMap<PoolId, PoolParams>,
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
-) -> Result<(), impl std::error::Error + use<S>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut state = DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
         state.register(pool, params);
@@ -780,7 +780,7 @@ fn import_stake_pools<S: Store>(
         },
         iter::empty(),
     )?;
-    transaction.commit()
+    Ok(transaction.commit()?)
 }
 
 fn import_pots(

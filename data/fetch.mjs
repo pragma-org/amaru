@@ -87,7 +87,7 @@ if (includeSnapshots) {
 let additionalStakeKeys = [];
 let additionalStakeScripts = [];
 
-const configFile = path.join(import.meta.dirname, network, `config.json`);
+const configFile = path.join(import.meta.dirname, `../crates/amaru/config/bootstrap/${network}`, `config.json`);
 
 tty.cursorTo(0, 0);
 tty.clearScreenDown();

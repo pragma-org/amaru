@@ -76,7 +76,7 @@ enum Command {
     /// * The`Nonces` from the `HeaderState` which are written to a `nonces.json` file.
     ConvertLedgerState(cmd::convert_ledger_state::Args),
 
-    /// Import block headers from `${config_dir}/${network name}/`
+    /// Import block headers
     #[clap(alias = "import-chain-db")]
     ImportHeaders(cmd::import_headers::Args),
 

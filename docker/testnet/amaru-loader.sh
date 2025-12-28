@@ -76,7 +76,7 @@ done
 amaru import-ledger-state --network ${NETWORK_NAME} --ledger-dir ${BASEDIR}/ledger.${NETWORK_NAME}.db --snapshot-dir ${BASEDIR}/${NETWORK_NAME}/snapshots/
 
 # import headers
-amaru import-headers --network ${NETWORK_NAME} --chain-dir ${BASEDIR}/chain.${NETWORK_NAME}.db --config-dir ${BASEDIR}/
+amaru import-headers --network ${NETWORK_NAME} --chain-dir ${BASEDIR}/chain.${NETWORK_NAME}.db
 
 # import nonces
 amaru import-nonces  --nonces-file ${BASEDIR}/${NETWORK_NAME}/nonces.json --network ${NETWORK_NAME} --chain-dir ${BASEDIR}/chain.${NETWORK_NAME}.db/

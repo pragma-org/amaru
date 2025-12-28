@@ -51,14 +51,16 @@ use amaru_stores::{
 use anyhow::Context;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pure_stage::{StageGraph, tokio::TokioBuilder};
+use pure_stage::{
+    StageGraph,
+    tokio::{TokioBuilder, TokioRunning},
+};
 use std::{
     fmt::{Debug, Display},
     path::PathBuf,
     sync::Arc,
 };
 use tokio::runtime::Handle;
-use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 pub mod build_stage_graph;
@@ -154,12 +156,10 @@ impl From<MaxExtraLedgerSnapshots> for u64 {
     }
 }
 
-pub async fn bootstrap(
+pub async fn build_and_run_network(
     config: Config,
-    peers: Vec<Peer>,
-    exit: CancellationToken,
     meter_provider: Option<SdkMeterProvider>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<TokioRunning> {
     let era_history: &EraHistory = config.network.into();
 
     let global_parameters: &GlobalParameters = config.network.into();
@@ -186,6 +186,7 @@ pub async fn bootstrap(
         .map(|h| h.tip())
         .unwrap_or(Tip::new(Point::Origin, 0.into()));
 
+    let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
     let chain_selector = make_chain_selector(
         chain_store.clone(),
         &peers,
@@ -283,11 +284,7 @@ pub async fn bootstrap(
         network.resources().put::<ResourceMeter>(Arc::new(meter));
     };
 
-    let _running = network.run(Handle::current().clone());
-
-    exit.cancelled().await;
-
-    Ok(())
+    Ok(network.run(Handle::current().clone()))
 }
 
 // / Temporary function to create a connection to an upstream peer.

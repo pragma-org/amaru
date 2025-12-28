@@ -17,6 +17,7 @@ use amaru_ledger::block_validator::BlockValidator;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
 use std::{error::Error, path::PathBuf};
 
+#[cfg(feature = "mithril")]
 pub(crate) mod mithril;
 pub(crate) mod sync;
 
