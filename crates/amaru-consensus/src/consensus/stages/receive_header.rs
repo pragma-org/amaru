@@ -15,37 +15,39 @@
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
 use crate::consensus::span::HasSpan;
-use amaru_kernel::consensus_events::{ChainSyncEvent, DecodedChainSyncEvent, Tracked};
+use amaru_kernel::consensus_events::{ChainSyncEvent, DecodedChainSyncEvent};
 use amaru_kernel::{BlockHeader, Hash, Header, IsHeader, MintedHeader, Point, cbor};
 use pure_stage::StageRef;
 use tracing::{Instrument, Level, instrument};
 
 type State = (
-    StageRef<Tracked<DecodedChainSyncEvent>>,
+    StageRef<DecodedChainSyncEvent>,
     StageRef<ValidationFailed>,
     StageRef<ProcessingFailed>,
 );
 
 pub fn stage(
     (downstream, failures, errors): State,
-    msg: Tracked<ChainSyncEvent>,
+    msg: ChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
     let span = tracing::trace_span!(parent: msg.span(), "chain_sync.receive_header");
     async move {
         match msg {
-            Tracked::Wrapped(ChainSyncEvent::RollForward {
-                                 peer,
-                                 point,
-                                 raw_header,
-                                 span,
-                             }) => {
+            ChainSyncEvent::RollForward {
+                peer,
+                point,
+                raw_header,
+                span,
+                ..
+            } => {
                 // TODO: check the point vs the deserialized header point and invalidate if they don't match
                 // then simplify and don't pass the point separately
                 let header = match decode_header(&point, raw_header.as_slice()) {
                     Ok(header) => header,
                     Err(error) => {
-                    tracing::error!(%error, %point, %peer, "chain_sync.receive_header.decode_failed");
+                        tracing::error!(%error, %point, %peer,
+                            "chain_sync.receive_header.decode_failed");
                         eff.base()
                             .send(&failures, ValidationFailed::new(&peer, error))
                             .await;
@@ -54,7 +56,8 @@ pub fn stage(
                 };
 
                 if header.point() != point {
-                tracing::error!(%point, %peer, header_point=%header.point(), "chain_sync.receive_header.point_mismatch");
+                    tracing::error!(%point, %peer, header_point=%header.point(),
+                        "chain_sync.receive_header.point_mismatch");
                     let msg = ValidationFailed::new(
                         &peer,
                         ConsensusError::HeaderPointMismatch {
@@ -77,30 +80,27 @@ pub fn stage(
                 eff.base()
                     .send(
                         &downstream,
-                        Tracked::Wrapped(DecodedChainSyncEvent::RollForward { peer, header, span }),
+                        DecodedChainSyncEvent::RollForward { peer, header, span },
                     )
                     .await;
             }
-            Tracked::Wrapped(ChainSyncEvent::Rollback {
-                                 peer,
-                                 rollback_point,
-                                 span,
-                             }) => {
-                let msg = Tracked::Wrapped(DecodedChainSyncEvent::Rollback {
+            ChainSyncEvent::Rollback {
+                peer,
+                rollback_point,
+                span,
+                ..
+            } => {
+                let msg = DecodedChainSyncEvent::Rollback {
                     peer,
                     rollback_point,
                     span,
-                });
+                };
                 eff.base().send(&downstream, msg).await
-            }
-            Tracked::CaughtUp { peer, span } => {
-                eff.base()
-                    .send(&downstream, Tracked::CaughtUp { peer, span })
-                    .await
             }
         }
         (downstream, failures, errors)
-    }.instrument(span)
+    }
+    .instrument(span)
 }
 
 #[instrument(
@@ -131,6 +131,7 @@ mod tests {
     use crate::consensus::errors::ValidationFailed;
     use amaru_kernel::is_header::tests::{any_header, run};
     use amaru_kernel::peer::Peer;
+    use amaru_kernel::protocol_messages::tip::Tip;
     use amaru_ouroboros::ChainStore;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
@@ -140,12 +141,13 @@ mod tests {
     async fn a_header_that_can_be_decoded_is_sent_downstream() -> anyhow::Result<()> {
         let peer = Peer::new("name");
         let header = run(any_header());
-        let message = Tracked::Wrapped(ChainSyncEvent::RollForward {
+        let message = ChainSyncEvent::RollForward {
             peer: peer.clone(),
             point: header.point(),
+            tip: header.tip(),
             span: Span::current(),
             raw_header: cbor::to_vec(header.clone())?,
-        });
+        };
         let consensus_ops = mock_consensus_ops();
 
         stage(make_state(), message, consensus_ops.clone()).await;
@@ -168,12 +170,13 @@ mod tests {
     #[tokio::test]
     async fn a_header_that_cannot_be_decoded_sends_an_error() -> anyhow::Result<()> {
         let peer = Peer::new("name");
-        let message = Tracked::Wrapped(ChainSyncEvent::RollForward {
+        let message = ChainSyncEvent::RollForward {
             peer: peer.clone(),
             point: Point::Origin,
+            tip: Tip::new(Point::Origin, 0.into()),
             span: Span::current(),
             raw_header: vec![1, 2, 3],
-        });
+        };
         let consensus_ops = mock_consensus_ops();
 
         stage(make_state(), message, consensus_ops.clone()).await;
@@ -199,12 +202,13 @@ mod tests {
         let peer = Peer::new("name");
         let header = run(any_header());
         let point = run(any_header()).point();
-        let message = Tracked::Wrapped(ChainSyncEvent::RollForward {
+        let message = ChainSyncEvent::RollForward {
             peer: peer.clone(),
             point,
+            tip: Tip::new(Point::Origin, 0.into()),
             span: Span::current(),
             raw_header: cbor::to_vec(header.clone())?,
-        });
+        };
         let consensus_ops = mock_consensus_ops();
 
         stage(make_state(), message, consensus_ops.clone()).await;
@@ -228,11 +232,12 @@ mod tests {
         let header = run(any_header());
         let peer = Peer::new("name");
         let span = Span::current();
-        let message = Tracked::Wrapped(ChainSyncEvent::Rollback {
+        let message = ChainSyncEvent::Rollback {
             peer: peer.clone(),
             rollback_point: header.point(),
+            tip: header.tip(),
             span: Span::current(),
-        });
+        };
         let consensus_ops = mock_consensus_ops();
         consensus_ops.mock_store.store_header(&header)?;
 
@@ -253,25 +258,6 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn caughtup_is_sent_to_downstream() -> anyhow::Result<()> {
-        let message = Tracked::CaughtUp {
-            peer: Peer::new("name"),
-            span: Span::current(),
-        };
-        let consensus_ops = mock_consensus_ops();
-
-        stage(make_state(), message.clone(), consensus_ops.clone()).await;
-        assert_eq!(
-            consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
-                vec![format!("{message:?}")]
-            )])
-        );
-        Ok(())
-    }
-
     #[test]
     fn decode_header_on_generated_header() {
         let header = run(any_header());
@@ -284,8 +270,7 @@ mod tests {
     // HELPERS
 
     fn make_state() -> State {
-        let downstream: StageRef<Tracked<DecodedChainSyncEvent>> =
-            StageRef::named_for_tests("downstream");
+        let downstream: StageRef<DecodedChainSyncEvent> = StageRef::named_for_tests("downstream");
         let failures: StageRef<ValidationFailed> = StageRef::named_for_tests("failures");
         let errors: StageRef<ProcessingFailed> = StageRef::named_for_tests("errors");
         (downstream, failures, errors)

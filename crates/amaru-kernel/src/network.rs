@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::protocol_parameters::{
-    GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
-    PREVIEW_GLOBAL_PARAMETERS, TESTNET_GLOBAL_PARAMETERS,
+use crate::{
+    protocol_messages::network_magic::NetworkMagic,
+    protocol_parameters::{
+        GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
+        PREVIEW_GLOBAL_PARAMETERS, TESTNET_GLOBAL_PARAMETERS,
+    },
 };
 use amaru_slot_arithmetic::TimeMs;
 use pallas_addresses::Network;
@@ -498,12 +501,12 @@ impl From<NetworkName> for Network {
 }
 
 impl NetworkName {
-    pub fn to_network_magic(self) -> u32 {
+    pub fn to_network_magic(self) -> NetworkMagic {
         match self {
-            Self::Mainnet => 764824073,
-            Self::Preprod => 1,
-            Self::Preview => 2,
-            Self::Testnet(magic) => magic,
+            Self::Mainnet => NetworkMagic::MAINNET,
+            Self::Preprod => NetworkMagic::PREPROD,
+            Self::Preview => NetworkMagic::PREVIEW,
+            Self::Testnet(magic) => NetworkMagic::new(magic as u64),
         }
     }
 

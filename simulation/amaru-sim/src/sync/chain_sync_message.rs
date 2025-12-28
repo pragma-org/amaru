@@ -16,6 +16,7 @@ use crate::simulator::Envelope;
 use crate::simulator::bytes::Bytes;
 use amaru_kernel::consensus_events::ChainSyncEvent;
 use amaru_kernel::peer::Peer;
+use amaru_kernel::protocol_messages::tip::Tip;
 use amaru_kernel::{BlockHeader, Hash, HeaderHash, Point, cbor};
 use amaru_slot_arithmetic::Slot;
 use pallas_primitives::babbage::{Header, MintedHeader};
@@ -199,21 +200,31 @@ impl Envelope<ChainSyncMessage> {
                 slot,
                 hash,
                 header,
-            } => ChainSyncEvent::RollForward {
-                peer,
-                point: Point::Specific(slot, Hash::from(&*hash.bytes)),
-                raw_header: header.into(),
-                span,
-            },
+            } => {
+                let point = Point::Specific(slot, Hash::from(&*hash.bytes));
+                let tip = Tip::new(point, 0.into());
+                ChainSyncEvent::RollForward {
+                    peer,
+                    point,
+                    tip,
+                    raw_header: header.into(),
+                    span,
+                }
+            }
             Bck {
                 msg_id: _,
                 slot,
                 hash,
-            } => ChainSyncEvent::Rollback {
-                peer,
-                rollback_point: Point::Specific(slot, Hash::from(&*hash.bytes)),
-                span,
-            },
+            } => {
+                let point = Point::Specific(slot, Hash::from(&*hash.bytes));
+                let tip = Tip::new(point, 0.into());
+                ChainSyncEvent::Rollback {
+                    peer,
+                    rollback_point: point,
+                    tip,
+                    span,
+                }
+            }
             _ => panic!("unsupported message type for ChainSyncEvent conversion"),
         }
     }

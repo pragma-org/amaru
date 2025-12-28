@@ -83,6 +83,7 @@ pub async fn stage(
                     ),
                 )
                 .await;
+            eff.send(&connection, ConnectionMessage::Initialize).await;
             manager.peers.insert(peer, (conn_id, connection));
         }
         ManagerMessage::FetchBlocks {

@@ -18,6 +18,7 @@ bytes = { workspace = true, features = ["serde"] }
 cbor-data.workspace = true
 futures-util.workspace = true
 minicbor.workspace = true
+pallas-traverse.workspace = true
 pure-stage.workspace = true
 serde.workspace = true
 tokio.workspace = true

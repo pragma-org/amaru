@@ -19,12 +19,9 @@ use crate::simulator::{
     simulate::simulate,
 };
 use crate::sync::ChainSyncMessage;
-use acto::AcTokio;
 use amaru::stages::build_stage_graph::build_stage_graph;
-use amaru_consensus::consensus::effects::FetchBlockEffect;
-use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_consensus::consensus::headers_tree::data_generation::{Chain, GeneratedActions};
-use amaru_consensus::consensus::stages::track_peers::SyncTracker;
+use amaru_consensus::consensus::stages::pull::SyncTracker;
 use amaru_consensus::consensus::{
     effects::{
         ForwardEvent, ForwardEventListener, ResourceBlockValidation, ResourceForwardEventListener,
@@ -34,16 +31,14 @@ use amaru_consensus::consensus::{
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
 };
 use amaru_kernel::Hash;
-use amaru_kernel::consensus_events::{ChainSyncEvent, Tracked};
+use amaru_kernel::consensus_events::ChainSyncEvent;
 use amaru_kernel::protocol_messages::tip::Tip;
 use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
 use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
     Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
-use amaru_network::NetworkResource;
 use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateHeaders;
-use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use amaru_ouroboros::{
     ChainStore, can_validate_blocks::mock::MockCanValidateBlocks,
     in_memory_consensus_store::InMemConsensusStore,
@@ -51,7 +46,6 @@ use amaru_ouroboros::{
 use async_trait::async_trait;
 use pure_stage::simulation::RandStdRng;
 use pure_stage::simulation::SimulationBuilder;
-use pure_stage::simulation::running::OverrideResult;
 use pure_stage::trace_buffer::TraceEntry;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef, trace_buffer::TraceBuffer};
 use std::{
@@ -78,12 +72,8 @@ pub fn run(args: Args) {
             .with_trace_buffer(trace_buffer.clone())
             .with_mailbox_size(10000)
             .with_eval_strategy(rng);
-        let (input, init_messages, output) =
-            spawn_node(node_id, node_config.clone(), &mut network, &rt);
-        let mut running = network.run();
-        running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
-            OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
-        });
+        let (input, init_messages, output) = spawn_node(node_id, node_config.clone(), &mut network);
+        let running = network.run();
         NodeHandle::from_pure_stage(input, init_messages, output, running, rt.handle().clone())
             .unwrap()
     };
@@ -117,14 +107,13 @@ pub fn spawn_node(
     node_id: String,
     node_config: NodeConfig,
     network: &mut SimulationBuilder,
-    rt: &Runtime,
 ) -> (
     StageRef<Envelope<ChainSyncMessage>>,
     Receiver<Envelope<ChainSyncMessage>>,
     Receiver<Envelope<ChainSyncMessage>>,
 ) {
     info!(node_id, "node.spawn");
-    let (network_name, select_chain, sync_tracker, resource_header_store, resource_validation) =
+    let (network_name, select_chain, _sync_tracker, resource_header_store, resource_validation) =
         init_node(&node_config);
     let global_parameters: &GlobalParameters = network_name.into();
 
@@ -152,25 +141,31 @@ pub fn spawn_node(
                 ChainSyncMessage::Fwd {
                     slot, hash, header, ..
                 } => {
+                    let point = Point::Specific(slot, Hash::from(&*hash.bytes));
+                    let tip = Tip::new(point, 0.into());
                     eff.send(
                         &downstream,
-                        Tracked::Wrapped(ChainSyncEvent::RollForward {
+                        ChainSyncEvent::RollForward {
                             peer: Peer::new(&msg.src),
-                            point: Point::Specific(slot, Hash::from(&*hash.bytes)),
+                            point,
+                            tip,
                             raw_header: header.into(),
                             span: Span::current(),
-                        }),
+                        },
                     )
                     .await
                 }
                 ChainSyncMessage::Bck { slot, hash, .. } => {
+                    let point = Point::Specific(slot, Hash::from(&*hash.bytes));
+                    let tip = Tip::new(point, 0.into());
                     eff.send(
                         &downstream,
-                        Tracked::Wrapped(ChainSyncEvent::Rollback {
+                        ChainSyncEvent::Rollback {
                             peer: Peer::new(&msg.src),
-                            rollback_point: Point::Specific(slot, Hash::from(&*hash.bytes)),
+                            rollback_point: point,
+                            tip,
                             span: Span::current(),
-                        }),
+                        },
                     )
                     .await
                 }
@@ -179,8 +174,11 @@ pub fn spawn_node(
         },
     );
 
+    // FIXME: switch simulation to tracking network bytes
+    let manager = StageRef::blackhole();
+
     let our_tip = Tip::new(Point::Origin, 0.into());
-    let receive_header_ref = build_stage_graph(select_chain, sync_tracker, our_tip, network);
+    let receive_header_ref = build_stage_graph(select_chain, our_tip, manager, network);
 
     let (output, rx1) = network.output("output", 10);
 
@@ -207,14 +205,6 @@ pub fn spawn_node(
     network
         .resources()
         .put::<ResourceForwardEventListener>(Arc::new(listener));
-    network
-        .resources()
-        .put::<ResourceNetworkOperations>(Arc::new(NetworkResource::new(
-            [],
-            &AcTokio::from_handle("upstream", rt.handle().clone()),
-            0,
-            resource_header_store,
-        )));
 
     (receiver.without_state(), rx1, Receiver::new(rx2))
 }
@@ -370,10 +360,9 @@ fn make_best_chain_from_downstream_messages(
 
 /// Replay a previous simulation run:
 pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
-    let rt = Runtime::new()?;
     let mut network = SimulationBuilder::default();
     let node_config = NodeConfig::from(args);
-    let _ = spawn_node("n1".to_string(), node_config, &mut network, &rt);
+    let _ = spawn_node("n1".to_string(), node_config, &mut network);
     let mut replay = network.replay();
     replay.run_trace(traces)
 }

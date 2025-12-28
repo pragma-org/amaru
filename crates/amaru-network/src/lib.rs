@@ -12,12 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod acto_connection;
 pub mod chain_sync_client;
 pub mod connection;
-pub mod network_resource;
 pub mod point;
 pub mod session;
 pub mod socket_addr;
-
-pub use network_resource::NetworkResource;

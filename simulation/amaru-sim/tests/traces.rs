@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::effects::FetchBlockEffect;
-use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_sim::simulator::TEST_DATA_DIR;
 use amaru_sim::simulator::{
     Args, GeneratedEntries, NodeConfig, SimulateConfig, generate_entries, run::spawn_node,
 };
 use amaru_tracing_json::assert_spans_trees;
 use pure_stage::Instant;
-use pure_stage::simulation::running::OverrideResult;
 use pure_stage::simulation::{RandStdRng, SimulationBuilder};
 use rand::SeedableRng;
 use rand::prelude::StdRng;
@@ -79,11 +76,8 @@ fn run_simulator_with_traces() {
 
     let execute = || {
         let mut network = SimulationBuilder::default();
-        let (input, _, _) = spawn_node("n1".to_string(), node_config.clone(), &mut network, &rt);
+        let (input, _, _) = spawn_node("n1".to_string(), node_config.clone(), &mut network);
         let mut running = network.run();
-        running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
-            OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
-        });
         info_span!("handle_msg").in_scope(|| {
             running.enqueue_msg(&input, [msg]);
             running

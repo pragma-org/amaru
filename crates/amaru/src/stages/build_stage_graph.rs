@@ -18,14 +18,11 @@ use amaru_consensus::consensus::{
     stages::{
         fetch_block, forward_chain, receive_header,
         select_chain::{self, SelectChain},
-        track_peers::{self, SyncTracker},
         validate_block, validate_header,
     },
 };
-use amaru_kernel::{
-    consensus_events::{ChainSyncEvent, Tracked},
-    protocol_messages::tip::Tip,
-};
+use amaru_kernel::{consensus_events::ChainSyncEvent, protocol_messages::tip::Tip};
+use amaru_protocols::manager::ManagerMessage;
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the consensus protocol.
@@ -33,16 +30,14 @@ use pure_stage::{Effects, SendData, StageGraph, StageRef};
 /// decide what to do with the results the graph processing.
 pub fn build_stage_graph(
     chain_selector: SelectChain,
-    sync_tracker: SyncTracker,
     our_tip: Tip,
+    manager: StageRef<ManagerMessage>,
     network: &mut impl StageGraph,
-) -> StageRef<Tracked<ChainSyncEvent>> {
+) -> StageRef<ChainSyncEvent> {
     let receive_header_stage = network.stage(
         "receive_header",
         with_consensus_effects(receive_header::stage),
     );
-    let track_peers_stage =
-        network.stage("track_peers", with_consensus_effects(track_peers::stage));
     let validate_header_stage = network.stage(
         "validate_header",
         with_consensus_effects(validate_header::stage),
@@ -110,6 +105,7 @@ pub fn build_stage_graph(
             validate_block_stage.clone().without_state(),
             validation_errors_stage.clone().without_state(),
             processing_errors_stage.clone().without_state(),
+            manager,
         ),
     );
     let validate_header_stage = network.wire_up(
@@ -119,14 +115,10 @@ pub fn build_stage_graph(
             validation_errors_stage.clone().without_state(),
         ),
     );
-    let track_peers_stage = network.wire_up(
-        track_peers_stage,
-        (sync_tracker, validate_header_stage.without_state()),
-    );
     let receive_header_stage = network.wire_up(
         receive_header_stage,
         (
-            track_peers_stage.without_state(),
+            validate_header_stage.without_state(),
             validation_errors_stage.without_state(),
             processing_errors_stage.without_state(),
         ),

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::protocol_messages::tip::Tip;
 use crate::{BlockHeader, IsHeader, Point, RawBlock, peer::Peer};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -46,6 +47,7 @@ pub enum ChainSyncEvent {
     RollForward {
         peer: Peer,
         point: Point,
+        tip: Tip,
         raw_header: Vec<u8>,
         #[serde(skip, default = "Span::none")]
         span: Span,
@@ -53,6 +55,7 @@ pub enum ChainSyncEvent {
     Rollback {
         peer: Peer,
         rollback_point: Point,
+        tip: Tip,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },

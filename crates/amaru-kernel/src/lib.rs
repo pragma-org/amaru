@@ -264,10 +264,29 @@ pub type ScriptPurpose = RedeemerTag;
 pub type AuxiliaryDataHash = Hash<32>;
 
 /// Cheaply cloneable block bytes
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct RawBlock(Arc<[u8]>);
+
+impl fmt::Debug for RawBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let bytes = &self.0;
+        let total_len = bytes.len();
+        let preview_len = 32.min(total_len);
+        let preview = &bytes[0..preview_len];
+
+        let mut preview_hex = String::with_capacity(2 * preview_len + 3);
+        for &b in preview {
+            const HEX_CHARS: [u8; 16] = *b"0123456789abcdef";
+            preview_hex.push(HEX_CHARS[(b >> 4) as usize] as char);
+            preview_hex.push(HEX_CHARS[(b & 0x0f) as usize] as char);
+        }
+        if preview_len < total_len {
+            preview_hex.push_str("...");
+        }
+
+        write!(f, "RawBlock({total_len}, {preview_hex})")
+    }
+}
 
 impl Deref for RawBlock {
     type Target = [u8];

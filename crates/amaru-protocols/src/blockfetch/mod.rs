@@ -67,9 +67,9 @@ pub fn initiator() -> Miniprotocol<State, BlockFetch, Initiator> {
     miniprotocol(PROTO_N2N_BLOCK_FETCH)
 }
 
-#[derive(PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Blocks {
-    blocks: Vec<Vec<u8>>,
+    pub blocks: Vec<Vec<u8>>,
 }
 
 impl std::fmt::Debug for Blocks {

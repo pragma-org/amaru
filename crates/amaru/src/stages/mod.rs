@@ -16,36 +16,34 @@ use crate::stages::{
     build_stage_graph::build_stage_graph,
     consensus::forward_chain::{tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip},
 };
-use acto::AcTokio;
-use amaru_consensus::{
-    consensus::{
-        effects::{
-            ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
-            ResourceHeaderValidation, ResourceMeter, ResourceParameters,
-        },
-        errors::ConsensusError,
-        headers_tree::HeadersTreeState,
-        stages::{
-            pull, select_chain::SelectChain, track_peers::SyncTracker,
-            validate_header::ValidateHeader,
-        },
+use amaru_consensus::consensus::{
+    effects::{
+        ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
+        ResourceHeaderValidation, ResourceMeter, ResourceParameters,
     },
-    network_operations::ResourceNetworkOperations,
+    errors::ConsensusError,
+    headers_tree::HeadersTreeState,
+    stages::{
+        pull::{self, SyncTracker},
+        select_chain::SelectChain,
+        validate_header::ValidateHeader,
+    },
 };
 use amaru_kernel::{
     BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
     network::NetworkName,
     peer::Peer,
-    protocol_messages::tip::Tip,
+    protocol_messages::{network_magic::NetworkMagic, tip::Tip},
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_metrics::METRICS_METER_NAME;
-use amaru_network::NetworkResource;
+use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, ChainStore, HasStakeDistribution,
+    CanValidateBlocks, ChainStore, ConnectionResource, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
 };
+use amaru_protocols::manager;
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore},
@@ -87,7 +85,7 @@ pub struct Config {
     pub chain_store: StoreType<()>,
     pub upstream_peers: Vec<String>,
     pub network: NetworkName,
-    pub network_magic: u32,
+    pub network_magic: NetworkMagic,
     pub listen_address: String,
     pub max_downstream_peers: usize,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
@@ -101,7 +99,7 @@ impl Default for Config {
             chain_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./chain.db"))),
             upstream_peers: vec![],
             network: NetworkName::Preprod,
-            network_magic: 1,
+            network_magic: NetworkMagic::PREPROD,
             listen_address: "0.0.0.0:3000".to_string(),
             max_downstream_peers: 10,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
@@ -211,7 +209,7 @@ pub async fn bootstrap(
         TcpForwardChainServer::new(
             chain_store.clone(),
             config.listen_address.clone(),
-            config.network_magic as u64,
+            config.network_magic.as_u64(),
             config.max_downstream_peers,
             to_pallas_tip(our_tip),
         )
@@ -219,16 +217,25 @@ pub async fn bootstrap(
     );
 
     let mut network = TokioBuilder::default();
-    let acto_runtime = AcTokio::from_handle("network", Handle::current().clone());
 
+    let manager = network.stage("manager", manager::stage);
     let receive_header_stage =
-        build_stage_graph(chain_selector, sync_tracker, our_tip, &mut network);
+        build_stage_graph(chain_selector, our_tip, manager.sender(), &mut network);
 
     let pull_stage = network.stage("pull", pull::stage);
-    let pull_stage = network.wire_up(pull_stage, receive_header_stage);
-    network
-        .preload(pull_stage, vec![pull::NextSync])
-        .map_err(|_| anyhow::anyhow!("failed to preload pull stage"))?;
+    let pull_stage = network.wire_up(pull_stage, (sync_tracker, receive_header_stage));
+
+    let manager = network.wire_up(
+        manager,
+        manager::Manager::new(config.network_magic, pull_stage.without_state()),
+    );
+    for peer in &peers {
+        let Ok(_) = network.preload(&manager, [manager::ManagerMessage::AddPeer(peer.clone())])
+        else {
+            tracing::warn!("supplied more peers than can be initially connected");
+            break;
+        };
+    }
 
     // Create the stages for the new network protocols stack
     // let conn = ConnectionResource::new(65535);
@@ -269,12 +276,7 @@ pub async fn bootstrap(
         .put::<ResourceForwardEventListener>(forward_event_listener);
     network
         .resources()
-        .put::<ResourceNetworkOperations>(Arc::new(NetworkResource::new(
-            peers,
-            &acto_runtime,
-            config.network_magic.into(),
-            chain_store,
-        )));
+        .put::<ConnectionResource>(Arc::new(TokioConnections::new(65535)));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);

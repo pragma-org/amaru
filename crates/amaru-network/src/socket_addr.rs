@@ -16,7 +16,6 @@ use amaru_ouroboros::ToSocketAddrs;
 use std::net::SocketAddr;
 use tokio::net::lookup_host;
 
-#[tracing::instrument(level = "info")]
 pub async fn resolve(addr: ToSocketAddrs) -> std::io::Result<Vec<SocketAddr>> {
     use ToSocketAddrs::*;
     let result = match addr {

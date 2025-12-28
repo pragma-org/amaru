@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use crate::{
-    network_effects::create_connection,
     handshake,
     mux::{self, MuxMessage},
+    network_effects::create_connection,
     protocol::{Inputs, PROTO_HANDSHAKE},
 };
 use amaru_kernel::protocol_messages::{

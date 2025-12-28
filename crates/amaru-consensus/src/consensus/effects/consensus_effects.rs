@@ -185,20 +185,6 @@ pub mod tests {
     }
 
     impl NetworkOps for MockNetworkOps {
-        fn fetch_block(
-            &self,
-            _peer: Peer,
-            point: Point,
-        ) -> BoxFuture<'_, Result<Vec<u8>, ConsensusError>> {
-            Box::pin(async move {
-                let self_block_to_return = self.block_to_return.lock().unwrap();
-                match *self_block_to_return {
-                    Ok(ref block) => Ok(block.clone()),
-                    Err(_) => Err(ConsensusError::FetchBlockFailed(point)),
-                }
-            })
-        }
-
         fn send_forward_event(
             &self,
             _peer: Peer,
@@ -212,10 +198,6 @@ pub mod tests {
             _peer: Peer,
             _header_tip: Tip,
         ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-            Box::pin(ready(Ok(())))
-        }
-
-        fn disconnect(&self, _peer: Peer) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
             Box::pin(ready(Ok(())))
         }
     }
