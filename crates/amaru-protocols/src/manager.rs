@@ -59,6 +59,11 @@ pub async fn stage(
 ) -> Manager {
     match msg {
         ManagerMessage::AddPeer(peer) => {
+            if manager.peers.contains_key(&peer) {
+                tracing::info!(%peer, "peer already added");
+                return manager;
+            }
+            tracing::info!(%peer, "adding peer");
             let addr = ToSocketAddrs::String(peer.to_string());
             let conn_id = match eff.external(ConnectEffect { addr }).await {
                 Ok(conn_id) => conn_id,

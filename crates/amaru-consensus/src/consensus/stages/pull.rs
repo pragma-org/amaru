@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Point, consensus_events::ChainSyncEvent, peer::Peer};
+use amaru_kernel::{consensus_events::ChainSyncEvent, peer::Peer};
 use amaru_protocols::chainsync::{self, ChainSyncInitiatorMsg};
 use pure_stage::{Effects, StageRef};
 use std::collections::BTreeSet;
@@ -42,18 +42,10 @@ pub async fn stage(
         RollForward(header_content, tip) => {
             tracing::info!(peer = %msg.peer, variant = header_content.variant,
                 byron_prefix = ?header_content.byron_prefix, ?tip, "roll forward");
-            let header = match chainsync::to_traverse(&header_content) {
-                Ok(header) => header,
-                Err(err) => {
-                    tracing::error!(peer = %msg.peer, %err, "failed to decode header");
-                    return (tracker, downstream);
-                }
-            };
             eff.send(
                 &downstream,
                 ChainSyncEvent::RollForward {
                     peer: msg.peer,
-                    point: Point::Specific(header.slot().into(), header.hash()),
                     tip,
                     raw_header: header_content.cbor,
                     span: Span::current(),

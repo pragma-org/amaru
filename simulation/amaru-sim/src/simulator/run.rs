@@ -147,7 +147,6 @@ pub fn spawn_node(
                         &downstream,
                         ChainSyncEvent::RollForward {
                             peer: Peer::new(&msg.src),
-                            point,
                             tip,
                             raw_header: header.into(),
                             span: Span::current(),

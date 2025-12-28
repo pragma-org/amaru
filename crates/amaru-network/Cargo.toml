@@ -13,11 +13,7 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-acto.workspace = true
-anyhow.workspace = true
-async-trait.workspace = true
 bytes = { workspace = true, features = ["serde"] }
-futures-util.workspace = true
 pallas-network.workspace = true
 pallas-traverse.workspace = true
 parking_lot.workspace = true
@@ -28,7 +24,6 @@ tracing.workspace = true
 
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
-amaru-ouroboros-traits.workspace = true
 
 [dev-dependencies]
 amaru-mempool.workspace = true

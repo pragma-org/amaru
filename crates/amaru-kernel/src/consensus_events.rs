@@ -46,7 +46,6 @@ impl<T: Debug> fmt::Debug for Tracked<T> {
 pub enum ChainSyncEvent {
     RollForward {
         peer: Peer,
-        point: Point,
         tip: Tip,
         raw_header: Vec<u8>,
         #[serde(skip, default = "Span::none")]
@@ -66,26 +65,28 @@ impl fmt::Debug for ChainSyncEvent {
         match self {
             ChainSyncEvent::RollForward {
                 peer,
-                point,
                 raw_header,
-                ..
+                tip,
+                span: _,
             } => f
                 .debug_struct("RollForward")
                 .field("peer", &peer.name)
-                .field("point", &point.to_string())
+                .field("tip", &tip)
                 .field(
                     "raw_header",
-                    &hex::encode(&raw_header[..raw_header.len().min(8)]),
+                    &hex::encode(&raw_header[..raw_header.len().min(32)]),
                 )
                 .finish(),
             ChainSyncEvent::Rollback {
                 peer,
                 rollback_point,
-                ..
+                tip,
+                span: _,
             } => f
                 .debug_struct("Rollback")
                 .field("peer", &peer.name)
-                .field("rollback_point", &rollback_point.to_string())
+                .field("rollback_point", &rollback_point)
+                .field("tip", &tip)
                 .finish(),
         }
     }

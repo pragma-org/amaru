@@ -205,7 +205,6 @@ impl Envelope<ChainSyncMessage> {
                 let tip = Tip::new(point, 0.into());
                 ChainSyncEvent::RollForward {
                     peer,
-                    point,
                     tip,
                     raw_header: header.into(),
                     span,
@@ -234,12 +233,11 @@ impl Envelope<ChainSyncMessage> {
 mod test {
     use super::*;
     use crate::sync::ChainSyncMessage::{Bck, Fwd};
-    use amaru_kernel::{HeaderHash, cbor};
-    use pallas_crypto::hash::{Hash, Hasher};
+    use amaru_kernel::cbor;
+    use pallas_crypto::hash::Hasher;
     use pallas_primitives::babbage;
     use proptest::prelude::BoxedStrategy;
     use proptest::proptest;
-    use std::str::FromStr;
 
     proptest! {
         #[test]
@@ -253,10 +251,6 @@ mod test {
     #[test]
     fn can_retrieve_forward_from_message() {
         let fwd = some_forward();
-        let expected_hash: HeaderHash = HeaderHash::from_str(
-            "746353a52e80b3ac2d6d51658df7988d4b7baa219f55584a4827bd00bc97617e",
-        )
-        .unwrap();
         let message = Envelope {
             src: "peer1".to_string(),
             dest: "me".to_string(),
@@ -267,14 +261,9 @@ mod test {
 
         match event {
             ChainSyncEvent::RollForward {
-                peer,
-                point,
-                raw_header,
-                ..
+                peer, raw_header, ..
             } => {
                 assert_eq!(peer.name, "peer1");
-                assert_eq!(point.slot_or_default(), Slot::from(1234));
-                assert_eq!(Hash::from(&point), expected_hash);
                 assert_eq!(raw_header, hex::decode(TEST_HEADER).unwrap());
             }
             _ => panic!("expected RollForward event"),
