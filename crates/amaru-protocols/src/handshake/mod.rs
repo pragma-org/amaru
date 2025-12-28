@@ -245,6 +245,7 @@ impl ProtocolState<Responder> for HandshakeState {
         &self,
         input: Self::WireMsg,
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+        #[expect(clippy::wildcard_enum_match_arm)]
         match input {
             Message::Propose(version_table) => {
                 Ok((outcome().result(Proposal(version_table)), Self::StConfirm))

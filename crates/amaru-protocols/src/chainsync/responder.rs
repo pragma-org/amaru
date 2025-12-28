@@ -147,7 +147,9 @@ fn next_header(
             send_rollback: true,
         } => return Ok(Some(ResponderAction::RollBackward(pointer, tip))),
         ResponderState::MustReply | ResponderState::CanAwait { .. } => {}
-        _ => return Ok(None),
+        ResponderState::Idle { .. } | ResponderState::Intersect | ResponderState::Done => {
+            return Ok(None);
+        }
     };
     if pointer == tip.point() {
         return Ok((matches!(state, ResponderState::CanAwait { .. }))

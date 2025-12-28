@@ -64,11 +64,11 @@ impl<T> StageOrAdapter<T> {
     }
 }
 
-pub fn find_recipient<'a, T>(
-    senders: &'a mut BTreeMap<Name, StageOrAdapter<T>>,
+pub fn find_recipient<T>(
+    senders: &mut BTreeMap<Name, StageOrAdapter<T>>,
     orig_name: Name,
     mut msg: Option<Box<dyn SendData>>,
-) -> Option<(&'a mut T, Box<dyn SendData>)> {
+) -> Option<(&mut T, Box<dyn SendData>)> {
     let mut name = &orig_name;
     loop {
         match senders.get(name) {

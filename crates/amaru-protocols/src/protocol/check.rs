@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![expect(clippy::panic, clippy::unwrap_used)]
+
 use crate::protocol::{ProtocolState, Role, RoleT};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -97,7 +99,7 @@ where
         for state in states {
             for &message in &messages {
                 let to = self.transitions.get(state).and_then(|m| m.get(message));
-                let (outcome, is_local) = if let Some(msg) = local_msg(&message) {
+                let (outcome, is_local) = if let Some(msg) = local_msg(message) {
                     assert!(
                         state.network(message.clone()).is_err(),
                         "state accepts network message {message:?} while that is a local message"

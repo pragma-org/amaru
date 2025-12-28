@@ -167,7 +167,7 @@ where
                     if let Some(msg) = outcome.send {
                         let msg = NonEmptyBytes::encode(&msg);
                         eff.call(stage.as_ref(), NETWORK_SEND_TIMEOUT, move |cr| {
-                            MuxMessage::Send(proto_id.erase(), msg.into(), cr)
+                            MuxMessage::Send(proto_id.erase(), msg, cr)
                         })
                         .await;
                     }
@@ -216,7 +216,7 @@ where
                 if let Some(msg) = outcome.send {
                     let msg = NonEmptyBytes::encode(&msg);
                     eff.call(stage.as_ref(), NETWORK_SEND_TIMEOUT, move |cr| {
-                        MuxMessage::Send(proto_id.erase(), msg.into(), cr)
+                        MuxMessage::Send(proto_id.erase(), msg, cr)
                     })
                     .await;
                 }

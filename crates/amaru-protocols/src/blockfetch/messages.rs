@@ -34,8 +34,8 @@ impl Encode<()> for Message {
         match self {
             Message::RequestRange { from, through } => {
                 e.array(3)?.u16(0)?;
-                e.encode(&from)?;
-                e.encode(&through)?;
+                e.encode(from)?;
+                e.encode(through)?;
                 Ok(())
             }
             Message::ClientDone => {

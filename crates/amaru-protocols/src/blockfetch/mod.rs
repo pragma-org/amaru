@@ -141,6 +141,7 @@ impl StageState<State, Initiator> for BlockFetch {
         }
     }
 
+    #[expect(clippy::expect_used)]
     async fn network(
         mut self,
         _proto: &State,

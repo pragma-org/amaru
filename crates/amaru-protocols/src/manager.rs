@@ -93,12 +93,16 @@ pub async fn stage(
             cr,
         } => {
             tracing::info!(?from, ?through, %peer, "fetching blocks");
-            let connection = manager.peers.get(&peer).unwrap();
-            eff.send(
-                &connection.1,
-                ConnectionMessage::FetchBlocks { from, through, cr },
-            )
-            .await;
+            if let Some(connection) = manager.peers.get(&peer) {
+                eff.send(
+                    &connection.1,
+                    ConnectionMessage::FetchBlocks { from, through, cr },
+                )
+                .await;
+            } else {
+                tracing::error!(%peer, "peer not found");
+                eff.respond(cr, Blocks::default()).await;
+            }
         }
     }
     manager
