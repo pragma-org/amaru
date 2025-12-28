@@ -14,13 +14,14 @@
 
 use crate::{
     blockfetch::messages::Message,
-    mux::MuxMessage,
+    mux::{Frame, MuxMessage},
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, Responder,
         StageState, miniprotocol, outcome,
     },
 };
-use amaru_kernel::Point;
+use amaru_kernel::{Point, peer::Peer};
+use amaru_ouroboros::ConnectionId;
 use pure_stage::{CallRef, DeserializerGuards, Effects, StageRef, Void};
 use std::{collections::VecDeque, mem};
 
@@ -34,13 +35,50 @@ pub fn register_deserializers() -> DeserializerGuards {
     ]
 }
 
+pub async fn register_blockfetch_initiator<M>(
+    muxer: &StageRef<MuxMessage>,
+    peer: Peer,
+    conn_id: ConnectionId,
+    eff: &Effects<M>,
+) -> StageRef<BlockFetchMessage> {
+    let blockfetch = eff
+        .wire_up(
+            eff.stage("blockfetch", initiator()).await,
+            BlockFetch::new(muxer.clone(), peer, conn_id),
+        )
+        .await;
+    eff.send(
+        muxer,
+        MuxMessage::Register {
+            protocol: PROTO_N2N_BLOCK_FETCH.erase(),
+            frame: Frame::OneCborItem,
+            handler: eff
+                .contramap(&blockfetch, "blockfetch_bytes", Inputs::Network)
+                .await,
+            max_buffer: 25000000,
+        },
+    )
+    .await;
+    eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Local)
+        .await
+}
+
 pub fn initiator() -> Miniprotocol<State, BlockFetch, Initiator> {
     miniprotocol(PROTO_N2N_BLOCK_FETCH)
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Blocks {
     blocks: Vec<Vec<u8>>,
+}
+
+impl std::fmt::Debug for Blocks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Blocks")
+            .field("blocks", &self.blocks.len())
+            .field("first_block", &self.blocks.first().map(|b| b.len()))
+            .finish()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -55,17 +93,24 @@ pub enum BlockFetchMessage {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockFetch {
     muxer: StageRef<MuxMessage>,
+    peer: Peer,
+    conn_id: ConnectionId,
     queue: VecDeque<(Point, Point, CallRef<Blocks>)>,
     blocks: Vec<Vec<u8>>,
 }
 
 impl BlockFetch {
-    pub fn new(muxer: StageRef<MuxMessage>) -> Self {
-        Self {
-            muxer,
-            queue: VecDeque::new(),
-            blocks: Vec::new(),
-        }
+    pub fn new(muxer: StageRef<MuxMessage>, peer: Peer, conn_id: ConnectionId) -> (State, Self) {
+        (
+            State::Idle,
+            Self {
+                muxer,
+                peer,
+                conn_id,
+                queue: VecDeque::new(),
+                blocks: Vec::new(),
+            },
+        )
     }
 }
 
@@ -203,7 +248,10 @@ impl ProtocolState<Initiator> for State {
         use messages::Message::*;
         match (self, input) {
             (Self::Busy, StartBatch) => Ok((outcome().want_next(), Self::Streaming)),
-            (Self::Busy, NoBlocks) => Ok((outcome().want_next(), Self::Idle)),
+            (Self::Busy, NoBlocks) => Ok((
+                outcome().want_next().result(InitiatorResult::NoBlocks),
+                Self::Idle,
+            )),
             (Self::Streaming, Block { body }) => Ok((
                 outcome().want_next().result(InitiatorResult::Block(body)),
                 Self::Streaming,

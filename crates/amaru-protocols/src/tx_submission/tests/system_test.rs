@@ -22,7 +22,7 @@ use crate::{
 use amaru_kernel::{peer::Peer, protocol_messages::network_magic::NetworkMagic};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ConnectionResource, in_memory_consensus_store::InMemConsensusStore};
-use pure_stage::{StageGraph, tokio::TokioBuilder};
+use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use std::{sync::Arc, time::Duration};
 use tokio::{runtime::Handle, time::timeout};
 use tracing_subscriber::EnvFilter;
@@ -52,7 +52,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
 
     let pipeline = network.stage(
         "pipeline",
-        async |_st: (), msg: ChainSyncInitiatorMsg, eff| {
+        async |st: StageRef<ConnectionMessage>, msg: ChainSyncInitiatorMsg, eff| {
             use chainsync::InitiatorResult::*;
             match msg.msg {
                 Initialize => {
@@ -69,6 +69,8 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
                 }
                 RollForward(header_content, tip) => {
                     tracing::info!(peer = %msg.peer, header_content.variant, ?header_content.byron_prefix, ?tip, "roll forward");
+                    let block = eff.call(&st, Duration::from_secs(5), |cr| ConnectionMessage::FetchBlocks { from: tip.point(), through: tip.point(), cr }).await;
+                    tracing::info!(?block, "fetched block");
                     eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
                         .await;
                 }
@@ -78,9 +80,9 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
                         .await;
                 }
             };
+            st
         },
     );
-    let pipeline = network.wire_up(pipeline, ());
 
     let connection = network.stage("connection", connection::stage);
     let connection = network.wire_up(
@@ -90,12 +92,14 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
             conn_id,
             Role::Initiator,
             NetworkMagic::for_testing(),
-            pipeline.without_state(),
+            pipeline.sender(),
         ),
     );
     network
-        .preload(connection, [ConnectionMessage::Initialize])
+        .preload(&connection, [ConnectionMessage::Initialize])
         .unwrap();
+
+    let _pipeline = network.wire_up(pipeline, connection.without_state());
 
     let running = network.run(Handle::current());
     match timeout(Duration::from_secs(20), running.join()).await {

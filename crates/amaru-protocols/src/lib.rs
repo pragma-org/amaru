@@ -19,6 +19,7 @@ pub mod chainsync;
 pub mod connection;
 pub mod handshake;
 pub mod keepalive;
+pub mod manager;
 pub mod mempool_effects;
 pub mod mux;
 pub mod network_effects;

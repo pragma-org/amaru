@@ -157,7 +157,7 @@ fn next_header(
         // client is on a different fork, we need to roll backward
         let header = store
             .load_header(&pointer.hash())
-            .ok_or_else(|| anyhow::anyhow!("tip not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("remote pointer not found"))?;
         for header in store.ancestors(header) {
             if store.load_from_best_chain(&header.point()).is_some() {
                 return Ok(Some(ResponderAction::RollBackward(header.point(), tip)));

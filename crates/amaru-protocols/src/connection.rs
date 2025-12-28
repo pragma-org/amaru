@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::blockfetch::{self, BlockFetchMessage, Blocks, register_blockfetch_initiator};
 use crate::chainsync::{
     self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder,
 };
@@ -25,6 +26,7 @@ use crate::{
     mux::{self, MuxMessage},
     protocol::{PROTO_HANDSHAKE, Role},
 };
+use amaru_kernel::Point;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_messages::version_table::VersionTable;
 use amaru_kernel::protocol_messages::{
@@ -32,7 +34,7 @@ use amaru_kernel::protocol_messages::{
     version_number::VersionNumber,
 };
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
-use pure_stage::{Effects, StageRef};
+use pure_stage::{CallRef, Effects, StageRef};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Connection {
@@ -77,21 +79,30 @@ enum State {
         muxer: StageRef<MuxMessage>,
         handshake: StageRef<Inputs<()>>,
     },
-    Initiator {
-        chainsync_initiator: StageRef<chainsync::InitiatorMessage>,
-        version_number: VersionNumber,
-        version_data: VersionData,
-        muxer: StageRef<MuxMessage>,
-        handshake: StageRef<Inputs<()>>,
-        keepalive: StageRef<HandlerMessage>,
-        tx_submission: StageRef<TxSubmissionMessage>,
-    },
+    Initiator(StateInitiator),
 }
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct StateInitiator {
+    chainsync_initiator: StageRef<chainsync::InitiatorMessage>,
+    blockfetch_initiator: StageRef<blockfetch::BlockFetchMessage>,
+    version_number: VersionNumber,
+    version_data: VersionData,
+    muxer: StageRef<MuxMessage>,
+    handshake: StageRef<Inputs<()>>,
+    keepalive: StageRef<HandlerMessage>,
+    tx_submission: StageRef<TxSubmissionMessage>,
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConnectionMessage {
     Initialize,
     Handshake(HandshakeResult),
+    FetchBlocks {
+        from: Point,
+        through: Point,
+        cr: CallRef<Blocks>,
+    },
     // LATER: make full duplex, etc.
 }
 
@@ -112,6 +123,14 @@ pub async fn stage(
                 eff,
             )
             .await
+        }
+        (State::Initiator(s), ConnectionMessage::FetchBlocks { from, through, cr }) => {
+            eff.send(
+                &s.blockfetch_initiator,
+                BlockFetchMessage::RequestRange { from, through, cr },
+            )
+            .await;
+            State::Initiator(s)
         }
         x => unimplemented!("{x:?}"),
     };
@@ -214,15 +233,18 @@ async fn do_handshake(
     if *role == Role::Initiator {
         let chainsync_initiator =
             register_chainsync_initiator(&muxer, peer.clone(), *conn_id, pipeline, &eff).await;
-        State::Initiator {
+        let blockfetch_initiator =
+            register_blockfetch_initiator(&muxer, peer.clone(), *conn_id, &eff).await;
+        State::Initiator(StateInitiator {
             chainsync_initiator,
+            blockfetch_initiator,
             version_number,
             version_data,
             muxer,
             handshake,
             keepalive,
             tx_submission,
-        }
+        })
     } else {
         let store = Store::new(eff.clone());
         let upstream = store.get_best_chain_hash();
