@@ -20,7 +20,7 @@ use crate::keepalive::register_keepalive;
 use crate::mux::HandlerMessage;
 use crate::protocol::Inputs;
 use crate::store_effects::Store;
-use crate::tx_submission::{TxSubmissionMessage, register_tx_submission};
+use crate::tx_submission::register_tx_submission;
 use crate::{
     handshake,
     mux::{self, MuxMessage},
@@ -34,7 +34,7 @@ use amaru_kernel::protocol_messages::{
     version_number::VersionNumber,
 };
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
-use pure_stage::{CallRef, Effects, StageRef};
+use pure_stage::{CallRef, Effects, StageRef, Void};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Connection {
@@ -77,7 +77,7 @@ enum State {
     Initial,
     Handshake {
         muxer: StageRef<MuxMessage>,
-        handshake: StageRef<Inputs<()>>,
+        handshake: StageRef<Inputs<Void>>,
     },
     Initiator(StateInitiator),
 }
@@ -89,9 +89,9 @@ struct StateInitiator {
     version_number: VersionNumber,
     version_data: VersionData,
     muxer: StageRef<MuxMessage>,
-    handshake: StageRef<Inputs<()>>,
+    handshake: StageRef<Inputs<Void>>,
     keepalive: StageRef<HandlerMessage>,
-    tx_submission: StageRef<TxSubmissionMessage>,
+    tx_submission: StageRef<HandlerMessage>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -162,7 +162,7 @@ async fn do_initialize(
         Role::Initiator => {
             eff.wire_up(
                 eff.stage("handshake", handshake::initiator()).await,
-                handshake::Handshake::new(
+                handshake::HandshakeInitiator::new(
                     muxer.clone(),
                     handshake_result,
                     VersionTable::v11_and_above(*magic, true),
@@ -173,7 +173,7 @@ async fn do_initialize(
         Role::Responder => {
             eff.wire_up(
                 eff.stage("handshake", handshake::responder()).await,
-                handshake::Handshake::new(
+                handshake::HandshakeResponder::new(
                     muxer.clone(),
                     handshake_result,
                     VersionTable::v11_and_above(*magic, true),
@@ -210,7 +210,7 @@ async fn do_handshake(
     }: &Params,
     muxer: StageRef<MuxMessage>,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
-    handshake: StageRef<Inputs<()>>,
+    handshake: StageRef<Inputs<Void>>,
     handshake_result: HandshakeResult,
     eff: Effects<ConnectionMessage>,
 ) -> State {

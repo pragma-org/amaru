@@ -72,7 +72,7 @@ fn test_against_node() {
     let handshake = network.stage("handshake", handshake::initiator());
     let handshake = network.wire_up(
         handshake,
-        handshake::Handshake::new(
+        handshake::HandshakeInitiator::new(
             mux.clone().without_state(),
             output.clone(),
             VersionTable::v11_and_above(network_magic, true),
@@ -150,7 +150,7 @@ fn test_against_node_with_tokio() {
     let handshake = network.stage("handshake", handshake::initiator());
     let handshake = network.wire_up(
         handshake,
-        handshake::Handshake::new(
+        handshake::HandshakeInitiator::new(
             mux.clone().without_state(),
             output.clone(),
             VersionTable::v11_and_above(network_magic, true),

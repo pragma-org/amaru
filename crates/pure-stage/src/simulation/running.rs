@@ -23,7 +23,7 @@
 use crate::simulation::SimulationBuilder;
 use crate::{
     BoxFuture, CallId, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources,
-    SendData, StageRef, StageResponse,
+    ScheduleId, ScheduleToken, SendData, StageRef, StageResponse,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     effect::StageEffect,
     effect_box::EffectBox,
@@ -32,10 +32,10 @@ use crate::{
         inputs::Inputs,
         random::EvalStrategy,
         resume::{
-            resume_add_stage_internal, resume_call_internal, resume_clock_internal,
-            resume_contramap_internal, resume_external_internal, resume_receive_internal,
-            resume_respond_internal, resume_send_internal, resume_wait_internal,
-            resume_wire_stage_internal,
+            resume_add_stage_internal, resume_call_internal, resume_cancel_schedule_internal,
+            resume_clock_internal, resume_contramap_internal, resume_external_internal,
+            resume_receive_internal, resume_respond_internal, resume_schedule_internal,
+            resume_send_internal, resume_wait_internal, resume_wire_stage_internal,
         },
         state::{StageData, StageState},
     },
@@ -90,6 +90,7 @@ pub struct SimulationRunning {
     terminate: watch::Sender<bool>,
     termination: watch::Receiver<bool>,
     external_effects: FuturesUnordered<BoxFuture<'static, (Name, Box<dyn SendData>)>>,
+    scheduled: BTreeMap<ScheduleId, (Name, Name, Box<dyn SendData>, Instant)>,
 }
 
 impl SimulationRunning {
@@ -123,6 +124,7 @@ impl SimulationRunning {
             terminate,
             termination,
             external_effects: FuturesUnordered::new(),
+            scheduled: BTreeMap::new(),
         }
     }
 
@@ -565,6 +567,7 @@ impl SimulationRunning {
     /// Inputs to this method can be obtained from [`Self::effect`], [`Self::try_effect`]
     /// or [`Blocked::assert_breakpoint`].
     pub fn handle_effect(&mut self, effect: Effect) -> Option<Blocked> {
+
         let runnable = &mut self.runnable;
         let run = &mut |name, response| {
             runnable.push_back((name, response));
@@ -670,6 +673,59 @@ impl SimulationRunning {
                 let res = resume_respond_internal(data, run, target, id)
                     .expect("respond effect is always runnable");
                 self.handle_send_response(msg, res);
+            }
+            Effect::Schedule {
+                at_stage,
+                to,
+                msg,
+                when,
+                id,
+            } => {
+                let from = at_stage.clone();
+                let token = ScheduleToken::new(id, from);
+                // Store the scheduled message
+                self.scheduled.insert(id, (at_stage.clone(), to.clone(), msg, when));
+                // Resume the stage first
+                let data = self
+                    .stages
+                    .get_mut(&at_stage)
+                    .assert_stage("which cannot schedule");
+                resume_schedule_internal(data, run, token)
+                    .expect("schedule effect is always runnable");
+                // Now schedule the wakeup (after run is dropped)
+                let now = self.clock.now();
+                let delay = if when > now {
+                    when.checked_since(now).unwrap_or(Duration::ZERO)
+                } else {
+                    Duration::ZERO
+                };
+                if delay > Duration::ZERO {
+                    // Schedule wakeup
+                    let id_for_wakeup = id;
+                    self.schedule_wakeup(delay, None, {
+                        move |sim| {
+                            // Check if the schedule was cancelled
+                            if let Some((_from, to, msg, _when)) = sim.scheduled.remove(&id_for_wakeup) {
+                                // Send the message
+                                let _ = deliver_message(&mut sim.stages, sim.mailbox_size, to, msg);
+                            }
+                        }
+                    });
+                } else {
+                    // Send immediately
+                    if let Some((_from, to, msg, _when)) = self.scheduled.remove(&id) {
+                        let _ = deliver_message(&mut self.stages, self.mailbox_size, to, msg);
+                    }
+                }
+            }
+            Effect::CancelSchedule { at_stage, id } => {
+                let cancelled = self.scheduled.remove(&id).is_some();
+                let data = self
+                    .stages
+                    .get_mut(&at_stage)
+                    .assert_stage("which cannot cancel schedule");
+                resume_cancel_schedule_internal(data, run, cancelled)
+                    .expect("cancel_schedule effect is always runnable");
             }
             Effect::External {
                 at_stage,

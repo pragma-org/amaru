@@ -20,7 +20,7 @@ use crate::protocol_messages::{
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use std::{collections::BTreeMap, fmt};
 
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct VersionTable<T>
 where
     T: fmt::Debug + Clone,

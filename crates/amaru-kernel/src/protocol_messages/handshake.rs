@@ -24,7 +24,7 @@ pub enum HandshakeResult {
     Query(VersionTable<VersionData>),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum RefuseReason {
     VersionMismatch(Vec<VersionNumber>),
     HandshakeDecodeError(VersionNumber, String),

@@ -41,6 +41,38 @@ impl CallId {
     }
 }
 
+/// A unique identifier for a scheduled effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ScheduleId(u64);
+
+impl ScheduleId {
+    pub(crate) fn new() -> Self {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_u64(u: u64) -> Self {
+        Self(u)
+    }
+}
+
+/// A token that can be used to cancel a scheduled message.
+///
+/// This token is returned by [`Effects::schedule_at`] and [`Effects::schedule_after`],
+/// and can be used with [`Effects::cancel_schedule`] to cancel the scheduled message.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ScheduleToken {
+    pub(crate) id: ScheduleId,
+    pub(crate) from: Name,
+}
+
+impl ScheduleToken {
+    pub(crate) fn new(id: ScheduleId, from: Name) -> Self {
+        Self { id, from }
+    }
+}
+
 /// The response channel for a call effect.
 ///
 /// In order to respond to the calling stage, use [`Effects::respond`].

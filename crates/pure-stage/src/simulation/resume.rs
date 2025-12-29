@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    CallId, Instant, Name, SendData, StageResponse,
+    CallId, Instant, Name, ScheduleToken, SendData, StageResponse,
     effect::{StageEffect, TransitionFactory},
     simulation::state::{StageData, StageState},
     trace_buffer::TraceBuffer,
@@ -307,4 +307,55 @@ pub fn resume_contramap_internal(
 
     run(data.name.clone(), StageResponse::ContramapResponse(name));
     Ok(transform.into_inner())
+}
+
+pub fn resume_schedule_internal(
+    data: &mut StageData,
+    run: &mut dyn FnMut(Name, StageResponse),
+    token: ScheduleToken,
+) -> anyhow::Result<()> {
+    let waiting_for = data
+        .waiting
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+
+    if !matches!(waiting_for, StageEffect::Schedule(_, _, _, id) if id == &token.id) {
+        anyhow::bail!(
+            "stage `{}` was not waiting for a schedule effect with id {:?}, but {:?}",
+            data.name,
+            token.id,
+            waiting_for
+        )
+    }
+
+    // it is important that all validations (i.e. `?`) happen before this point
+    data.waiting = None;
+
+    run(data.name.clone(), StageResponse::ScheduleResponse(token));
+    Ok(())
+}
+
+pub fn resume_cancel_schedule_internal(
+    data: &mut StageData,
+    run: &mut dyn FnMut(Name, StageResponse),
+    cancelled: bool,
+) -> anyhow::Result<()> {
+    let waiting_for = data
+        .waiting
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+
+    if !matches!(waiting_for, StageEffect::CancelSchedule(_)) {
+        anyhow::bail!(
+            "stage `{}` was not waiting for a cancel_schedule effect, but {:?}",
+            data.name,
+            waiting_for
+        )
+    }
+
+    // it is important that all validations (i.e. `?`) happen before this point
+    data.waiting = None;
+
+    run(data.name.clone(), StageResponse::CancelScheduleResponse(cancelled));
+    Ok(())
 }

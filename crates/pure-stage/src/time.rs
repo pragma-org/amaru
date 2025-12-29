@@ -95,6 +95,10 @@ impl Instant {
         Self(instant)
     }
 
+    pub(crate) fn to_tokio(self) -> tokio::time::Instant {
+        self.0
+    }
+
     pub(crate) fn now() -> Self {
         Self(tokio::time::Instant::now())
     }

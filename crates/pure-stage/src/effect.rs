@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use crate::{
-    BoxFuture, CallId, CallRef, Instant, Name, Resources, SendData, StageBuildRef, StageRef,
+    BoxFuture, CallId, CallRef, Instant, Name, Resources, ScheduleId, ScheduleToken, SendData, StageBuildRef, StageRef,
     effect_box::{EffectBox, airlock_effect},
     serde::{NoDebug, SendDataValue, never, to_cbor},
     time::Clock,
@@ -194,6 +194,60 @@ impl<M> Effects<M> {
             &self.effect,
             StageEffect::Respond(target, id, deadline, response, Box::new(resp)),
             |_eff| Some(()),
+        )
+    }
+
+    /// Schedule a message to be sent to the given stage at a specific instant in the future.
+    ///
+    /// Returns a token that can be used to cancel the scheduled message using [`cancel_schedule`](Self::cancel_schedule).
+    ///
+    /// The scheduled message will be sent at the specified `when` instant. If `when` is in the past,
+    /// the message will be sent immediately.
+    pub fn schedule_at<Msg: SendData>(
+        &self,
+        target: &StageRef<Msg>,
+        msg: Msg,
+        when: Instant,
+    ) -> BoxFuture<'static, ScheduleToken> {
+        let id = ScheduleId::new();
+        airlock_effect(
+            &self.effect,
+            StageEffect::Schedule(target.name().clone(), Box::new(msg), when, id),
+            |eff| match eff {
+                Some(StageResponse::ScheduleResponse(token)) => Some(token),
+                _ => None,
+            },
+        )
+    }
+
+    /// Schedule a message to be sent to the given stage after a delay.
+    ///
+    /// Returns a token that can be used to cancel the scheduled message using [`cancel_schedule`](Self::cancel_schedule).
+    ///
+    /// The scheduled message will be sent after the specified `delay` duration from now.
+    pub fn schedule_after<Msg: SendData>(
+        &self,
+        target: &StageRef<Msg>,
+        msg: Msg,
+        delay: Duration,
+    ) -> BoxFuture<'static, ScheduleToken> {
+        let now = self.clock.now();
+        let when = now + delay;
+        self.schedule_at(target, msg, when)
+    }
+
+    /// Cancel a previously scheduled message.
+    ///
+    /// Returns `true` if the scheduled message was found and cancelled, or `false` if it was
+    /// not found (e.g., it was already sent or already cancelled).
+    pub fn cancel_schedule(&self, token: ScheduleToken) -> BoxFuture<'static, bool> {
+        airlock_effect(
+            &self.effect,
+            StageEffect::CancelSchedule(token.id),
+            |eff| match eff {
+                Some(StageResponse::CancelScheduleResponse(cancelled)) => Some(cancelled),
+                _ => None,
+            },
         )
     }
 
@@ -565,6 +619,8 @@ pub enum StageEffect<T> {
     Clock,
     Wait(Duration),
     Respond(Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>, T),
+    Schedule(Name, T, Instant, ScheduleId),
+    CancelSchedule(ScheduleId),
     External(Box<dyn ExternalEffect>),
     Terminate,
     AddStage(Name),
@@ -586,6 +642,8 @@ pub enum StageResponse {
     WaitResponse(Instant),
     CallResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
     CallTimeout,
+    ScheduleResponse(ScheduleToken),
+    CancelScheduleResponse(bool),
     ExternalResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
     AddStageResponse(Name),
     ContramapResponse(Name),
@@ -608,6 +666,17 @@ impl StageResponse {
                 "msg": format!("{msg}"),
             }),
             StageResponse::CallTimeout => serde_json::json!({"type": "timeout"}),
+            StageResponse::ScheduleResponse(token) => serde_json::json!({
+                "type": "schedule",
+                "token": {
+                    "id": token.id,
+                    "from": token.from,
+                },
+            }),
+            StageResponse::CancelScheduleResponse(cancelled) => serde_json::json!({
+                "type": "cancel_schedule",
+                "cancelled": cancelled,
+            }),
             StageResponse::ExternalResponse(msg) => serde_json::json!({
                 "type": "external",
                 "msg": format!("{msg}"),
@@ -634,6 +703,12 @@ impl Display for StageResponse {
                 write!(f, "{}", msg.as_send_data_value().borrow())
             }
             StageResponse::CallTimeout => write!(f, "timeout"),
+            StageResponse::ScheduleResponse(token) => {
+                write!(f, "schedule-{}-{:?}", token.from, token.id)
+            }
+            StageResponse::CancelScheduleResponse(cancelled) => {
+                write!(f, "cancel_schedule-{}", cancelled)
+            }
             StageResponse::ExternalResponse(msg) => {
                 write!(f, "{}", msg.as_send_data_value().borrow())
             }
@@ -683,6 +758,23 @@ impl StageEffect<Box<dyn SendData>> {
                     target: name,
                     id,
                     msg,
+                },
+            ),
+            StageEffect::Schedule(target, msg, when, id) => (
+                StageEffect::Schedule(target.clone(), (), when, id),
+                Effect::Schedule {
+                    at_stage: at_name,
+                    to: target,
+                    msg,
+                    when,
+                    id,
+                },
+            ),
+            StageEffect::CancelSchedule(id) => (
+                StageEffect::CancelSchedule(id),
+                Effect::CancelSchedule {
+                    at_stage: at_name,
+                    id,
                 },
             ),
             StageEffect::External(effect) => (
@@ -757,6 +849,18 @@ pub enum Effect {
         id: CallId,
         #[serde(with = "crate::serde::serialize_send_data")]
         msg: Box<dyn SendData>,
+    },
+    Schedule {
+        at_stage: Name,
+        to: Name,
+        #[serde(with = "crate::serde::serialize_send_data")]
+        msg: Box<dyn SendData>,
+        when: Instant,
+        id: ScheduleId,
+    },
+    CancelSchedule {
+        at_stage: Name,
+        id: ScheduleId,
     },
     External {
         at_stage: Name,
@@ -839,6 +943,25 @@ impl Effect {
                     "msg": format!("{msg}"),
                 })
             }
+            Effect::Schedule {
+                at_stage,
+                to,
+                msg,
+                when,
+                id,
+            } => serde_json::json!({
+                "type": "schedule",
+                "at_stage": at_stage,
+                "to": to,
+                "msg": format!("{msg}"),
+                "when": when,
+                "id": format!("{:?}", id),
+            }),
+            Effect::CancelSchedule { at_stage, id } => serde_json::json!({
+                "type": "cancel_schedule",
+                "at_stage": at_stage,
+                "id": format!("{:?}", id),
+            }),
             Effect::External { at_stage, effect } => {
                 serde_json::json!({
                     "type": "external",
@@ -906,6 +1029,16 @@ impl Display for Effect {
                 id,
                 msg,
             } => write!(f, "respond {at_stage} -> {target} {id:?}: {msg}",),
+            Effect::Schedule {
+                at_stage,
+                to,
+                msg,
+                when,
+                id,
+            } => write!(f, "schedule {at_stage} -> {to} at {when} (id: {id:?}): {msg}",),
+            Effect::CancelSchedule { at_stage, id } => {
+                write!(f, "cancel_schedule {at_stage} (id: {id:?})")
+            }
             Effect::External { at_stage, effect } => {
                 write!(f, "external {at_stage}: {effect}",)
             }
@@ -1004,6 +1137,8 @@ impl Effect {
             Effect::Clock { at_stage, .. } => at_stage,
             Effect::Wait { at_stage, .. } => at_stage,
             Effect::Respond { at_stage, .. } => at_stage,
+            Effect::Schedule { at_stage, .. } => at_stage,
+            Effect::CancelSchedule { at_stage, .. } => at_stage,
             Effect::External { at_stage, .. } => at_stage,
             Effect::Terminate { at_stage, .. } => at_stage,
             Effect::AddStage { at_stage, .. } => at_stage,
@@ -1293,6 +1428,35 @@ impl PartialEq for Effect {
                         && id == other_id
                         && msg == other_msg
                 }
+                _ => false,
+            },
+            Effect::Schedule {
+                at_stage,
+                to,
+                msg,
+                when,
+                id,
+            } => match other {
+                Effect::Schedule {
+                    at_stage: other_at_stage,
+                    to: other_to,
+                    msg: other_msg,
+                    when: other_when,
+                    id: other_id,
+                } => {
+                    at_stage == other_at_stage
+                        && to == other_to
+                        && msg == other_msg
+                        && when == other_when
+                        && id == other_id
+                }
+                _ => false,
+            },
+            Effect::CancelSchedule { at_stage, id } => match other {
+                Effect::CancelSchedule {
+                    at_stage: other_at_stage,
+                    id: other_id,
+                } => at_stage == other_at_stage && id == other_id,
                 _ => false,
             },
             Effect::External { at_stage, effect } => match other {

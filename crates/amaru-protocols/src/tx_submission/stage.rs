@@ -214,7 +214,7 @@ pub async fn register_tx_submission(
 }
 
 /// The state of the tx submission protocol as a whole.
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
 pub enum TxSubmissionState {
     Init,
     Idle,

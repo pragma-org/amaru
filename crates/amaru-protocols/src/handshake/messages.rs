@@ -18,7 +18,7 @@ use amaru_kernel::protocol_messages::{
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use std::fmt;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Message<D>
 where
     D: fmt::Debug + Clone,

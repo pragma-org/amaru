@@ -45,7 +45,7 @@ pub use serde::{
     serialize_send_data::register_data_deserializer,
 };
 pub use stage_ref::{StageBuildRef, StageRef};
-pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning, stage_name};
+pub use stagegraph::{CallId, CallRef, ScheduleId, ScheduleToken, StageGraph, StageGraphRunning, stage_name};
 pub use time::{Clock, EPOCH, Instant};
 pub use types::{BoxFuture, Name, SendData, TryInStage, Void, err, warn};
 pub use typetag;

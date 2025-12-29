@@ -23,7 +23,7 @@ use crate::stage_name;
 use crate::stage_ref::StageStateRef;
 use crate::trace_buffer::TraceBuffer;
 use crate::{
-    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BoxFuture, Effects, Instant, Name, ScheduleToken, SendData, Sender, StageBuildRef, StageGraph, StageRef,
     effect::{StageEffect, StageResponse},
     effect_box::EffectBox,
     resources::Resources,
@@ -455,6 +455,38 @@ fn interpreter<St>(
                         }),
                     );
                     StageResponse::ContramapResponse(name)
+                }
+                StageEffect::Schedule(target, msg, when, id) => {
+                    let from = name.clone();
+                    let token = ScheduleToken::new(id, from);
+                    // Schedule the message to be sent at the specified time
+                    let inner_clone = inner.clone();
+                    tokio::spawn(async move {
+                        let now = now();
+                        if when > now {
+                            // Convert our Instant to tokio::time::Instant
+                            tokio::time::sleep_until(when.to_tokio()).await;
+                        }
+                        // Send the message - get the sender first, then drop the lock
+                        let (tx, msg) = {
+                            let mut senders = inner_clone.senders.lock();
+                            if let Some((tx, msg)) = find_recipient::<mpsc::Sender<Box<dyn SendData>>>(&mut senders, target, Some(msg)) {
+                                (Some(tx.clone()), Some(msg))
+                            } else {
+                                (None, None)
+                            }
+                        };
+                        if let (Some(tx), Some(msg)) = (tx, msg) {
+                            let _ = tx.send(msg).await;
+                        }
+                    });
+                    StageResponse::ScheduleResponse(token)
+                }
+                StageEffect::CancelSchedule(id) => {
+                    // TODO: Implement cancellation tracking in tokio runtime
+                    // For now, we'll return false as we don't have a way to track scheduled tasks
+                    tracing::warn!("cancel_schedule not fully implemented in tokio runtime");
+                    StageResponse::CancelScheduleResponse(false)
                 }
             };
             *effect.lock() = Some(Right(resp));
