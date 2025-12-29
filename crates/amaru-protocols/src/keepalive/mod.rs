@@ -12,130 +12,88 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    keepalive,
-    keepalive::messages::Message,
-    mux,
-    mux::{HandlerMessage, MuxMessage},
-    protocol::{NETWORK_SEND_TIMEOUT, PROTO_N2N_KEEP_ALIVE},
-};
-use amaru_kernel::bytes::NonEmptyBytes;
-use pure_stage::{Effects, StageRef, TryInStage};
-use std::time::Duration;
-
+mod initiator;
 mod messages;
+mod responder;
 #[cfg(test)]
 mod tests;
 
 use crate::connection::ConnectionMessage;
-use crate::protocol::Role;
-pub use messages::Cookie;
+use crate::mux;
+use crate::protocol::{Inputs, PROTO_N2N_KEEP_ALIVE, ProtocolState};
+use pure_stage::{Effects, StageRef, Void};
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
-pub struct KeepAlive {
-    muxer: StageRef<MuxMessage>,
-    cookie: Cookie,
+pub use messages::{Cookie, Message};
+
+pub fn register_deserializers() -> pure_stage::DeserializerGuards {
+    vec![
+        initiator::register_deserializers(),
+        responder::register_deserializers(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
-impl KeepAlive {
-    pub fn new(muxer: StageRef<MuxMessage>, cookie: Cookie) -> Self {
-        Self { muxer, cookie }
-    }
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub enum State {
+    Idle,
+    Waiting,
 }
 
-pub async fn initiator(
-    mut state: KeepAlive,
-    msg: HandlerMessage,
-    eff: Effects<HandlerMessage>,
-) -> KeepAlive {
-    match msg {
-        HandlerMessage::Registered(_) => {}
-        HandlerMessage::FromNetwork(non_empty_bytes) => {
-            let msg: Message = minicbor::decode(&non_empty_bytes)
-                .or_terminate(&eff, async |err| {
-                    tracing::error!(%err, "failed to decode message from network");
-                })
-                .await;
-            let Message::ResponseKeepAlive(cookie) = msg else {
-                tracing::error!(?msg, "expected ResponseKeepAlive message");
-                return eff.terminate().await;
-            };
-            if cookie != state.cookie {
-                tracing::error!(?cookie, ?state, "cookie mismatch");
-                return eff.terminate().await;
-            }
-            tracing::debug!(?cookie, "received ResponseKeepAlive message");
+pub fn spec<R: crate::protocol::RoleT>() -> crate::protocol::ProtoSpec<State, Message, R>
+where
+    State: ProtocolState<R, WireMsg = Message>,
+{
+    let mut spec = crate::protocol::ProtoSpec::default();
+    let keep_alive = || Message::KeepAlive(Cookie::new());
+    let response_keep_alive = || Message::ResponseKeepAlive(Cookie::new());
 
-            eff.send(
-                &state.muxer,
-                MuxMessage::WantNext(PROTO_N2N_KEEP_ALIVE.erase()),
-            )
-            .await;
+    // Initiator sends KeepAlive from Idle, transitions to Waiting
+    spec.i(State::Idle, keep_alive(), State::Waiting);
+    // Initiator receives ResponseKeepAlive in Waiting, transitions to Idle
+    spec.r(State::Waiting, response_keep_alive(), State::Idle);
 
-            // TODO keep track of timings and report up the tree
-            state.cookie = state.cookie.next();
-        }
-    }
-    eff.wait(Duration::from_secs(1)).await;
-    tracing::debug!(?state.cookie, "sending KeepAlive message");
-    eff.call(&state.muxer, NETWORK_SEND_TIMEOUT, |cr| {
-        let msg = NonEmptyBytes::encode(&Message::KeepAlive(state.cookie));
-        MuxMessage::Send(PROTO_N2N_KEEP_ALIVE.erase(), msg, cr)
-    })
-    .await;
-    tracing::debug!(?state.cookie, "KeepAlive message sent");
-    state
-}
-
-pub async fn responder(
-    state: KeepAlive,
-    msg: HandlerMessage,
-    eff: Effects<HandlerMessage>,
-) -> KeepAlive {
-    match msg {
-        HandlerMessage::Registered(_) => {}
-        HandlerMessage::FromNetwork(non_empty_bytes) => {
-            let msg: Message = minicbor::decode(&non_empty_bytes)
-                .or_terminate(&eff, async |err| {
-                    tracing::error!(%err, "failed to decode message from network");
-                })
-                .await;
-            let Message::KeepAlive(cookie) = msg else {
-                tracing::error!(?msg, "expected KeepAlive message");
-                return eff.terminate().await;
-            };
-            eff.call(&state.muxer, NETWORK_SEND_TIMEOUT, |cr| {
-                let msg = NonEmptyBytes::encode(&Message::ResponseKeepAlive(cookie));
-                MuxMessage::Send(PROTO_N2N_KEEP_ALIVE.responder().erase(), msg, cr)
-            })
-            .await;
-            eff.send(
-                &state.muxer,
-                MuxMessage::WantNext(PROTO_N2N_KEEP_ALIVE.responder().erase()),
-            )
-            .await;
-        }
-    }
-    state
+    spec
 }
 
 pub async fn register_keepalive(
-    role: Role,
-    muxer: StageRef<MuxMessage>,
+    role: crate::protocol::Role,
+    muxer: StageRef<crate::mux::MuxMessage>,
     eff: &Effects<ConnectionMessage>,
-) -> StageRef<HandlerMessage> {
-    let keepalive = if role == Role::Initiator {
-        eff.stage("keepalive", keepalive::initiator).await
+) -> StageRef<crate::mux::HandlerMessage> {
+    let keepalive = if role == crate::protocol::Role::Initiator {
+        let (state, stage) = initiator::KeepAliveInitiator::new(muxer.clone());
+        let keepalive = eff
+            .wire_up(
+                eff.stage("keepalive", initiator::initiator()).await,
+                (state, stage),
+            )
+            .await;
+        eff.contramap(
+            &keepalive,
+            "keepalive_handler",
+            Inputs::<initiator::InitiatorMessage>::Network,
+        )
+        .await
     } else {
-        eff.stage("keepalive", keepalive::responder).await
+        let (state, stage) = responder::KeepAliveResponder::new(muxer.clone());
+        let keepalive = eff
+            .wire_up(
+                eff.stage("keepalive", responder::responder()).await,
+                (state, stage),
+            )
+            .await;
+        eff.contramap(&keepalive, "keepalive_handler", Inputs::<Void>::Network)
+            .await
     };
-    let keepalive = eff
-        .wire_up(keepalive, KeepAlive::new(muxer.clone(), Cookie::new()))
-        .await;
+
     eff.send(
         &muxer,
-        MuxMessage::Register {
-            protocol: PROTO_N2N_KEEP_ALIVE.erase(),
+        crate::mux::MuxMessage::Register {
+            protocol: PROTO_N2N_KEEP_ALIVE.for_role(role).erase(),
             frame: mux::Frame::OneCborItem,
             handler: keepalive.clone(),
             max_buffer: 65535,
