@@ -21,8 +21,8 @@ use crate::{
 };
 use amaru_kernel::{
     Certificate, CertificatePointer, DRep, DRepRegistration, EraHistory, MemoizedDatum,
-    NonEmptySet, PROTOCOL_VERSION_9, PoolId, PoolParams, RequiredScript, ScriptHash, ScriptPurpose,
-    StakeCredential, TransactionPointer, protocol_parameters::ProtocolParameters,
+    NonEmptySet, PoolId, PoolParams, RequiredScript, ScriptHash, ScriptPurpose, StakeCredential,
+    TransactionPointer, protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use thiserror::Error;
@@ -212,14 +212,9 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
 
-            let valid_until = if protocol_parameters.protocol_version <= PROTOCOL_VERSION_9 {
-                era_history.slot_to_epoch(pointer.slot(), pointer.slot())?
-                    + protocol_parameters.drep_expiry
-            } else {
-                era_history.slot_to_epoch(pointer.slot(), pointer.slot())?
-                    + protocol_parameters.drep_expiry
-                    - governance_activity.consecutive_dormant_epochs as u64
-            };
+            let valid_until = era_history.slot_to_epoch(pointer.slot(), pointer.slot())?
+                + protocol_parameters.drep_expiry
+                - governance_activity.consecutive_dormant_epochs as u64;
 
             DRepsSlice::register(
                 context,
