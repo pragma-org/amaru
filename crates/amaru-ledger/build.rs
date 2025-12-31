@@ -12,9 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, env, fs, io::Write as _, path::Path};
+use std::{
+    collections::BTreeMap,
+    env, fs,
+    io::{Read as _, Write as _},
+    path::Path,
+};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 fn main() -> Result<()> {
     extract_conformance_test_vectors()
@@ -47,7 +52,7 @@ fn extract_conformance_test_vectors() -> Result<()> {
     writeln!(
         &mut output,
         "const TEST_DATA_DIR: &str = \"{}\";",
-        test_data_dir.display()
+        test_data_dir.to_string_lossy().escape_default()
     )?;
     writeln!(&mut output)?;
 
@@ -55,20 +60,27 @@ fn extract_conformance_test_vectors() -> Result<()> {
     let mut archive = tar::Archive::new(decoder);
     for entry in archive.entries().context("could not read tar file")? {
         let mut entry = entry.context("could not read tar entry")?;
-        if entry.header().entry_type().is_dir() {
+        if !entry.header().entry_type().is_file() {
             continue;
         }
-        entry
-            .unpack_in(&test_data_dir)
-            .context("could not extract data")?;
+        let mut buf = vec![];
+        entry.read_to_end(&mut buf)?;
 
-        let path = entry.path()?;
-        let Some(path) = path.to_str() else {
-            bail!("invalid path \"{}\"", path.display());
-        };
+        // Simplify paths a bit, so that this works on Windows
+        let path = entry
+            .path()?
+            .to_string_lossy()
+            .into_owned()
+            .replace(" /", "/");
+        let full_path = test_data_dir.join(&path);
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent).context("could not create parent dir")?;
+        }
+        fs::write(full_path, buf).context("could not write data")?;
+
         if !path.contains("pparams-by-hash") {
             let pparams_dir = "eras/conway/impl/dump/pparams-by-hash";
-            let result = match failures.get(path) {
+            let result = match failures.get(&path) {
                 Some(reason) => format!("Err(\"{}\")", reason.escape_default()),
                 None => "Ok(())".to_string(),
             };
