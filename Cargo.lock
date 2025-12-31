@@ -74,6 +74,7 @@ dependencies = [
  "amaru-ledger",
  "amaru-metrics",
  "amaru-network",
+ "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-progress-bar",
  "amaru-slot-arithmetic",
