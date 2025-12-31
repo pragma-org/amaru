@@ -18,7 +18,7 @@ They are executed via `cargo test`.
 ### Traces testing
 
 TODO
-Here we want to make sure OpenTelemtry traces are considered as part of the API.
+Here we want to make sure OpenTelemetry traces are considered as part of the API.
 
 ## Real chan tests
 
@@ -26,6 +26,11 @@ Here we want to make sure OpenTelemtry traces are considered as part of the API.
 On main branch: run upto the latest block
 
 ## Conformance tests
+
+The `amaru-ledger` module runs conformance tests based on vectors from the [cardano-blueprint](https://github.com/cardano-scaling/cardano-blueprint/tree/main/src/ledger/conformance-test-vectors repository). These are run as unit tests, executed via `cargo test`.
+
+Not all conformance tests pass; we use a snapshot approach to track which tests are currently failing and why. To update that snapshot, run
+`make update-ledger-conformance-test-snapshot`.
 
 `make generate-test-snapshots`
 TODO add details
