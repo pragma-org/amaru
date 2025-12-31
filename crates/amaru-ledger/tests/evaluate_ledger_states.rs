@@ -22,20 +22,42 @@ pub mod tests {
     use amaru_ledger::{
         self, context::DefaultValidationContext, rules::transaction, store::GovernanceActivity,
     };
-    use std::{collections::BTreeMap, env, fs, ops::Deref, path::Path};
+    use std::{collections::BTreeMap, env, fs, io::Write as _, ops::Deref, path::Path};
 
     // Tests cases are constructed in build.rs, which generates the test_cases.rs file
     include!(concat!(env!("OUT_DIR"), "/test_cases.rs"));
 
     fn import_and_evaluate_vector(
-        snapshot: &Path,
-        pparams_dir: &Path,
+        test_data_dir: &Path,
+        snapshot: &str,
+        pparams_dir: &str,
+        expected_result: Result<(), &str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let network = NetworkName::Testnet(1);
         let era_history = network.into();
-        let vector_file = fs::read(snapshot)?;
+        let vector_file = fs::read(test_data_dir.join(snapshot))?;
         let record: TestVector = cbor::decode(&vector_file)?;
-        evaluate_vector(record, era_history, pparams_dir)?;
+
+        let actual = evaluate_vector(record, era_history, &test_data_dir.join(pparams_dir))
+            .map_err(|e| e.to_string());
+        if let Some(path) = option_env!("AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH") {
+            // Append to the (toml format) snapshot file that tracks which tests are expected to fail.
+            if let Err(error) = actual {
+                let mut file = fs::OpenOptions::new().append(true).open(path)?;
+                writeln!(
+                    &mut file,
+                    "\"{}\" = \"{}\"",
+                    snapshot.replace("\\", "\\\\").replace("\"", "\\\""),
+                    error.replace("\\", "\\\\").replace("\"", "\\\""),
+                )?;
+            }
+        } else {
+            let expected = expected_result.map_err(|e| e.to_string());
+            assert_eq!(
+                expected, actual,
+                "The results of a conformance test have changed."
+            );
+        }
         Ok(())
     }
 

@@ -53,6 +53,7 @@ once_cell.workspace = true
 anyhow.workspace = true
 flate2.workspace = true
 tar.workspace = true
+toml.workspace = true
 
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [

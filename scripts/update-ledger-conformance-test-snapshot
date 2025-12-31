@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+cd "$(dirname "$0")/.."
+
+export AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH=$(mktemp)
+
+cargo test -p amaru-ledger --test evaluate_ledger_states -- --test-threads=1
+
+mv $AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH $PWD/crates/amaru-ledger/tests/data/rules-conformance.failures.toml
