@@ -12,68 +12,66 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, fs, path::Path};
+use std::{env, fs, io::Write as _, path::Path};
 
-fn main() {
-    get_conformance_test_vectors();
+use anyhow::{Context, Result, bail};
+
+fn main() -> Result<()> {
+    extract_conformance_test_vectors()
 }
 
-#[allow(clippy::unwrap_used)]
-fn get_conformance_test_vectors() {
-    let test_dir = Path::new("tests/data/rules-conformance");
-    if test_dir.exists() {
-        println!("cargo:rerun-if-changed={}", test_dir.to_str().unwrap());
-    }
+fn extract_conformance_test_vectors() -> Result<()> {
+    let tar_path = "tests/data/rules-conformance.tar.gz";
+    println!("cargo:rerun-if-changed={tar_path}");
+    let tar_file = fs::File::open(tar_path).context("could not open conformance tests tarball")?;
 
-    let mut files = Vec::new();
-    visit_dirs(test_dir, &mut files);
+    let out_dir = env::var("OUT_DIR").context("OUT_DIR not set")?;
+    let out_file = Path::new(&out_dir).join("test_cases.rs");
 
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("test_cases.rs");
+    let test_data_dir = Path::new(&out_dir).join("test-data");
+    fs::create_dir_all(&test_data_dir).context("could not initialize test data dir")?;
 
-    if files.is_empty() {
-        println!(
-            "cargo:warning=no conformance ledger test vectors found; unpack them in amaru-ledger/tests/data/conformance"
-        );
-    }
+    let mut output = fs::File::create(out_file).context("could not write test_cases.rs")?;
 
-    let pparams_dir = test_dir.join("eras/conway/impl/dump/pparams-by-hash");
+    writeln!(
+        &mut output,
+        "const TEST_DATA_DIR: &str = \"{}\";",
+        test_data_dir.display()
+    )?;
+    writeln!(&mut output)?;
 
-    let mut output = String::new();
-    for path in files {
-        if path.contains("pparams-by-hash") {
+    let decoder = flate2::read::GzDecoder::new(tar_file);
+    let mut archive = tar::Archive::new(decoder);
+    for entry in archive.entries().context("could not read tar file")? {
+        let mut entry = entry.context("could not read tar entry")?;
+        if entry.header().entry_type().is_dir() {
             continue;
         }
+        entry
+            .unpack_in(&test_data_dir)
+            .context("could not extract data")?;
 
-        output.push_str(&format!(
-            "#[test_case::test_case(\"{}\", \"{}\")]\n",
-            path,
-            pparams_dir.to_str().unwrap()
-        ));
-    }
-
-    output.push_str(
-        r#"
-pub fn rules_conformance_test_case(snapshot: &str, pparams_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
-    import_and_evaluate_vector(snapshot, pparams_dir)
-}
-"#,
-    );
-
-    fs::write(dest_path, output).unwrap();
-}
-
-fn visit_dirs(dir: &Path, files: &mut Vec<String>) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                visit_dirs(&path, files);
-            } else if path.is_file()
-                && let Some(path_str) = path.to_str()
-            {
-                files.push(path_str.to_string());
-            }
+        let path = entry.path()?;
+        let Some(path) = path.to_str() else {
+            bail!("invalid path \"{}\"", path.display());
+        };
+        if !path.contains("pparams-by-hash") {
+            let pparams_dir = "eras/conway/impl/dump/pparams-by-hash";
+            writeln!(
+                &mut output,
+                "#[test_case::test_case(\"{}\", \"{}\")]",
+                path.escape_default(),
+                pparams_dir.escape_default()
+            )?;
         }
     }
+    writeln!(
+        &mut output,
+        r#"pub fn rules_conformance_test_case(snapshot: &str, pparams_dir: &str) -> Result<(), Box<dyn std::error::Error>> {{
+    let test_data_dir = Path::new(TEST_DATA_DIR);
+    import_and_evaluate_vector(&test_data_dir.join(snapshot), &test_data_dir.join(pparams_dir))
+}}"#
+    )?;
+
+    Ok(())
 }

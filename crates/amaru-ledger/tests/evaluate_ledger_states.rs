@@ -28,14 +28,14 @@ pub mod tests {
     include!(concat!(env!("OUT_DIR"), "/test_cases.rs"));
 
     fn import_and_evaluate_vector(
-        snapshot: &str,
-        pparams_dir: &str,
+        snapshot: &Path,
+        pparams_dir: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let network = NetworkName::Testnet(1);
         let era_history = network.into();
         let vector_file = fs::read(snapshot)?;
         let record: TestVector = cbor::decode(&vector_file)?;
-        evaluate_vector(record, era_history, Path::new(pparams_dir))?;
+        evaluate_vector(record, era_history, pparams_dir)?;
         Ok(())
     }
 

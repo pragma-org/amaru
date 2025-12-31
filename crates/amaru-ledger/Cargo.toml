@@ -49,6 +49,11 @@ amaru-tracing-json.workspace = true
 minicbor.workspace = true
 once_cell.workspace = true
 
+[build-dependencies]
+anyhow.workspace = true
+flate2.workspace = true
+tar.workspace = true
+
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [
   "alloc",
