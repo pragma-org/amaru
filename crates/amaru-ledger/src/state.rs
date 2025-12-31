@@ -445,7 +445,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         )
         .map_err(StateError::Storage)?;
 
-        stake_distributions.push_front(recover_stake_distribution(
+        stake_distributions.push_front(compute_stake_distribution(
             &snapshot,
             &self.era_history,
             &self.protocol_parameters,
@@ -725,7 +725,7 @@ pub fn initial_stake_distributions(
         let protocol_parameters = snapshot.protocol_parameters()?;
 
         stake_distributions.push_front(
-            recover_stake_distribution(&snapshot, era_history, &protocol_parameters)
+            compute_stake_distribution(&snapshot, era_history, &protocol_parameters)
                 .map_err(|err| StoreError::Internal(err.into()))?,
         );
     }
@@ -740,7 +740,7 @@ pub fn initial_stake_distributions(
         epoch = %snapshot.epoch(),
     ),
 )]
-pub fn recover_stake_distribution(
+pub fn compute_stake_distribution(
     snapshot: &impl Snapshot,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
