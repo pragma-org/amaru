@@ -2,6 +2,15 @@ name: Continuous Integration
 
 on:
   workflow_dispatch:
+    inputs:
+      network:
+        description: Network to run
+        type: choice
+        options: [preprod, preview]
+        required: false
+      demo_target_epoch:
+        description: "Override DEMO_TARGET_EPOCH (leave empty for latest)"
+        required: false
   push:
     branches: ["main"]
   pull_request:
@@ -192,10 +201,56 @@ jobs:
       AWS_DEFAULT_REGION: auto
       ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
+      CARDANO_CLI_VERSION: 10.11.0.0
     if: ${{ !github.event.pull_request.draft }}
     continue-on-error: true
 
     steps:
+      - name: Gate and prepare environment
+        shell: bash
+        run: |
+          set -eux
+
+          SHOULD_RUN=true
+
+          # Skip this network test if a specific network is requested
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
+            [ -n "${{ github.event.inputs.network }}" ] && \
+            [ "${{ github.event.inputs.network }}" != "${{ matrix.network.name }}" ]; then
+            SHOULD_RUN=false
+          fi
+
+          if [ "$SHOULD_RUN" != "true" ]; then
+            echo "Skipping network '${{ matrix.network.name }}' as per workflow_dispatch input"
+            exit 0
+          fi
+
+          if [ -n "${{ github.event.inputs.demo_target_epoch }}" ]; then
+            DEMO_TARGET_EPOCH="${{ github.event.inputs.demo_target_epoch }}"
+            echo "Using DEMO_TARGET_EPOCH from workflow_dispatch: $DEMO_TARGET_EPOCH"
+          elif [ "${{ github.event_name }}" != "pull_request" ]; then
+            # Auto-resolve DEMO_TARGET_EPOCH to latest epoch - 1 for push events and workflow_dispatch without target epoch override
+            curl -L -o cardano-cli.tar.gz \
+              "https://github.com/IntersectMBO/cardano-cli/releases/download/cardano-cli-${CARDANO_CLI_VERSION}/cardano-cli-${CARDANO_CLI_VERSION}-x86_64-linux.tar.gz"
+
+            mkdir -p cardano-cli-bin
+            tar -xzf cardano-cli.tar.gz -C cardano-cli-bin
+            mv cardano-cli-bin/cardano-cli* cardano-cli-bin/cardano-cli
+            chmod +x cardano-cli-bin/cardano-cli
+
+            DEMO_TARGET_EPOCH=$(
+              sudo $PWD/cardano-cli-bin/cardano-cli query tip \
+                --socket-path ${{ runner.temp }}/ipc/node.socket \
+                --testnet-magic ${{ matrix.network.magic }} \
+              | jq '.epoch - 1'
+            )
+
+            echo "Auto-resolved DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH"
+          fi
+
+          # Make sure to export DEMO_TARGET_EPOCH for subsequent steps
+          echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
 
       - name: Reclaim Disk Space
@@ -283,37 +338,9 @@ jobs:
           key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
 
       - name: Run node
-        if: github.event_name == 'pull_request'
         timeout-minutes: 10
         shell: bash
         run: make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
-
-      - name: Install Cardano CLI
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: |
-          set -eux
-
-          VERSION="10.11.0.0"
-
-          curl -L -o cardano-cli.tar.gz \
-            "https://github.com/IntersectMBO/cardano-cli/releases/download/cardano-cli-${VERSION}/cardano-cli-${VERSION}-x86_64-linux.tar.gz"
-
-          mkdir -p cardano-cli-bin
-          tar -xzf cardano-cli.tar.gz -C cardano-cli-bin
-          mv cardano-cli-bin/cardano-cli* cardano-cli-bin/cardano-cli
-          ls $PWD/cardano-cli-bin/
-          chmod +x cardano-cli-bin/cardano-cli
-
-      - name: Run node until latest epoch (main branch only)
-        if: github.event_name == 'workflow_dispatch' || github.event_name != 'pull_request'
-        timeout-minutes: 60
-        shell: bash
-        run: |
-          set -eux
-
-          export DEMO_TARGET_EPOCH=$(sudo $PWD/cardano-cli-bin/cardano-cli query tip --socket-path ${{ runner.temp }}/ipc/node.socket --testnet-magic ${{ matrix.network.magic }} | jq '.epoch - 1')
-          make demo
 
       - name: Run tests
         if: github.event_name == 'pull_request'
