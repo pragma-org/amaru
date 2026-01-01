@@ -200,7 +200,6 @@ jobs:
     env:
       AMARU_NETWORK: ${{ matrix.network.name }}
       BUILD_PROFILE: test
-      DEMO_TARGET_EPOCH: ${{ matrix.network.target_epoch }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: auto
@@ -235,8 +234,8 @@ jobs:
             DEMO_TARGET_EPOCH="${{ github.event.inputs.demo_target_epoch }}"
             echo "Using DEMO_TARGET_EPOCH from workflow_dispatch: $DEMO_TARGET_EPOCH"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "Using DEMO_TARGET_EPOCH from matrix.network: $DEMO_TARGET_EPOCH"
             DEMO_TARGET_EPOCH=${{ matrix.network.target_epoch }}
+            echo "Using DEMO_TARGET_EPOCH from matrix.network: $DEMO_TARGET_EPOCH"
           else
             # For pushes, we will retrieve the latest epoch in a later step
             DEMO_TARGET_EPOCH=""
