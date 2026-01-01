@@ -11,6 +11,9 @@ on:
       demo_target_epoch:
         description: "Override DEMO_TARGET_EPOCH (leave empty for latest)"
         required: false
+      timeout:
+        description: "Override timeout for snapshot tests"
+        required: false
   push:
     branches: ["main"]
   pull_request:
@@ -187,10 +190,12 @@ jobs:
           - name: preprod
             magic: 1
             target_epoch: 182
+            timeout: ${{ github.event.inputs.timeout || 10 }}
           - name: preview
             magic: 2
             target_epoch: 680
             tests-may-fail: true
+            timeout: ${{ github.event.inputs.timeout || 10 }}
         cardano_node_version: [10.5.3]
     env:
       AMARU_NETWORK: ${{ matrix.network.name }}
@@ -208,6 +213,7 @@ jobs:
     steps:
       - name: Gate and prepare environment
         shell: bash
+        continue-on-error: true
         run: |
           set -eux
 
@@ -222,7 +228,7 @@ jobs:
 
           if [ "$SHOULD_RUN" != "true" ]; then
             echo "Skipping network '${{ matrix.network.name }}' as per workflow_dispatch input"
-            exit 0
+            exit 1
           fi
 
           if [ -n "${{ github.event.inputs.demo_target_epoch }}" ]; then
@@ -338,7 +344,7 @@ jobs:
           key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
 
       - name: Run node
-        timeout-minutes: 10
+        timeout-minutes: ${{ matrix.network.timeout }}
         shell: bash
         run: make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
 
