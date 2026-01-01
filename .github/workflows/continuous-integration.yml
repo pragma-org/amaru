@@ -306,7 +306,7 @@ jobs:
           chmod +x cardano-cli-bin/cardano-cli
 
       - name: Run node until latest epoch (main branch only)
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch' || github.event_name != 'pull_request'
         timeout-minutes: 60
         shell: bash
         run: |
