@@ -46,9 +46,9 @@ pub mod tests {
                 let mut file = fs::OpenOptions::new().append(true).open(path)?;
                 writeln!(
                     &mut file,
-                    "\"{}\" = \"{}\"",
-                    snapshot.replace("\\", "\\\\").replace("\"", "\\\""),
-                    error.replace("\\", "\\\\").replace("\"", "\\\""),
+                    "{} = {}",
+                    toml::Value::String(snapshot.to_string()),
+                    toml::Value::String(error),
                 )?;
             }
         } else {

@@ -47,7 +47,7 @@
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/DELEG/Unregister stake credentials/When not registered" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/DELEG/Unregister stake credentials/With incorrect deposit" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/DELEG/Unregister stake credentials/With non-zero reward balance" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/ENACT/Committee enactment/CC re-election" = "Expected success, got failure: invalid certificates: invalid cc member hot credential delegation: unknown source entity: AddrKeyhash(Hash<28>(\"8ed8575d4f9cc0a89bc1616ab75923ae07b19d23e8bd69586f3b76b1\"))"
+"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/ENACT/Committee enactment/CC re-election" = 'Expected success, got failure: invalid certificates: invalid cc member hot credential delegation: unknown source entity: AddrKeyhash(Hash<28>("8ed8575d4f9cc0a89bc1616ab75923ae07b19d23e8bd69586f3b76b1"))'
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Constitution proposals/rejected for/empty PrevGovId after the first constitution was enacted" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Constitution proposals/rejected for/invalid index in GovPurposeId" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Constitution proposals/rejected for/valid GovPurposeId but invalid purpose" = "Expected failure, got success"
