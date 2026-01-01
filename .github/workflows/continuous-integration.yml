@@ -190,12 +190,12 @@ jobs:
           - name: preprod
             magic: 1
             target_epoch: 182
-            timeout: ${{ github.event.inputs.timeout || 10 }}
+            timeout: ${{ fromJSON(github.event.inputs.timeout || '10') }}
           - name: preview
             magic: 2
             target_epoch: 680
             tests-may-fail: true
-            timeout: ${{ github.event.inputs.timeout || 10 }}
+            timeout: ${{ fromJSON(github.event.inputs.timeout || '10') }}
         cardano_node_version: [10.5.3]
     env:
       AMARU_NETWORK: ${{ matrix.network.name }}
@@ -234,24 +234,12 @@ jobs:
           if [ -n "${{ github.event.inputs.demo_target_epoch }}" ]; then
             DEMO_TARGET_EPOCH="${{ github.event.inputs.demo_target_epoch }}"
             echo "Using DEMO_TARGET_EPOCH from workflow_dispatch: $DEMO_TARGET_EPOCH"
-          elif [ "${{ github.event_name }}" != "pull_request" ]; then
-            # Auto-resolve DEMO_TARGET_EPOCH to latest epoch - 1 for push events and workflow_dispatch without target epoch override
-            curl -L -o cardano-cli.tar.gz \
-              "https://github.com/IntersectMBO/cardano-cli/releases/download/cardano-cli-${CARDANO_CLI_VERSION}/cardano-cli-${CARDANO_CLI_VERSION}-x86_64-linux.tar.gz"
-
-            mkdir -p cardano-cli-bin
-            tar -xzf cardano-cli.tar.gz -C cardano-cli-bin
-            mv cardano-cli-bin/cardano-cli* cardano-cli-bin/cardano-cli
-            chmod +x cardano-cli-bin/cardano-cli
-
-            DEMO_TARGET_EPOCH=$(
-              sudo $PWD/cardano-cli-bin/cardano-cli query tip \
-                --socket-path ${{ runner.temp }}/ipc/node.socket \
-                --testnet-magic ${{ matrix.network.magic }} \
-              | jq '.epoch - 1'
-            )
-
-            echo "Auto-resolved DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "Using DEMO_TARGET_EPOCH from matrix.network: $DEMO_TARGET_EPOCH"
+            DEMO_TARGET_EPOCH=${{ matrix.network.target_epoch }}
+          else
+            # For pushes, we will retrieve the latest epoch in a later step
+            DEMO_TARGET_EPOCH=""
           fi
 
           # Make sure to export DEMO_TARGET_EPOCH for subsequent steps
@@ -342,6 +330,30 @@ jobs:
         with:
           path: ./ledger.${{ matrix.network.name }}.db
           key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
+
+      - name: Retrieve latest epoch if needed
+        if: env.DEMO_TARGET_EPOCH == ''
+        shell: bash
+        run: |
+          curl -L -o cardano-cli.tar.gz \
+            "https://github.com/IntersectMBO/cardano-cli/releases/download/cardano-cli-${CARDANO_CLI_VERSION}/cardano-cli-${CARDANO_CLI_VERSION}-x86_64-linux.tar.gz"
+
+          mkdir -p cardano-cli-bin
+          tar -xzf cardano-cli.tar.gz -C cardano-cli-bin
+          mv cardano-cli-bin/cardano-cli* cardano-cli-bin/cardano-cli
+          chmod +x cardano-cli-bin/cardano-cli
+
+          DEMO_TARGET_EPOCH=$(
+            sudo $PWD/cardano-cli-bin/cardano-cli query tip \
+              --socket-path ${{ runner.temp }}/ipc/node.socket \
+              --testnet-magic ${{ matrix.network.magic }} \
+            | jq '.epoch - 1'
+          )
+
+          echo "Auto-resolved DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH"
+
+          # Make sure to export DEMO_TARGET_EPOCH for subsequent steps
+          echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
 
       - name: Run node
         timeout-minutes: ${{ matrix.network.timeout }}
