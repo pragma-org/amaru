@@ -40,7 +40,7 @@ pub mod tests {
 
         let actual = evaluate_vector(record, era_history, &test_data_dir.join(pparams_dir))
             .map_err(|e| e.to_string());
-        if let Some(path) = option_env!("AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH") {
+        if let Some(path) = std::env::var_os("AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH") {
             // Append to the (toml format) snapshot file that tracks which tests are expected to fail.
             if let Err(error) = actual {
                 let mut file = fs::OpenOptions::new().append(true).open(path)?;
