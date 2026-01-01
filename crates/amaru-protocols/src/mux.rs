@@ -21,7 +21,7 @@ use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
-use pure_stage::{CallRef, Effects, StageRef, TryInStage};
+use pure_stage::{Effects, StageRef, TryInStage};
 #[expect(clippy::disallowed_types)]
 use std::collections::HashMap;
 use std::{
@@ -125,7 +125,7 @@ pub enum MuxMessage {
     /// and without tearing down the connection.
     Buffer(ProtocolId<Erased>, usize),
     /// Send the given message on the protocol ID and notify when enqueued in TCP buffer
-    Send(ProtocolId<Erased>, NonEmptyBytes, CallRef<Sent>),
+    Send(ProtocolId<Erased>, NonEmptyBytes, StageRef<Sent>),
     /// internal message coming from the TCP stream reader
     FromNetwork(Timestamp, ProtocolId<Erased>, NonEmptyBytes),
     /// Notify that the segment has been written to the TCP stream
@@ -446,7 +446,7 @@ impl Muxer {
     }
 
     #[instrument(level = "trace", skip_all, fields(proto_id, bytes = bytes.len()))]
-    pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: CallRef<Sent>) {
+    pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: StageRef<Sent>) {
         tracing::trace!(proto = %proto_id, bytes = bytes.len(), "enqueueing send");
         #[allow(clippy::expect_used)]
         self.protocols
@@ -515,7 +515,7 @@ struct PerProto {
     incoming: BytesMut,
     outgoing: BytesMut,
     sent_bytes: usize,
-    notifiers: VecDeque<(CallRef<Sent>, usize)>,
+    notifiers: VecDeque<(StageRef<Sent>, usize)>,
     handler: StageRef<HandlerMessage>,
     wanted: usize,
     frame: Frame,
@@ -602,7 +602,7 @@ impl PerProto {
         Ok(())
     }
 
-    pub fn enqueue_send(&mut self, bytes: Bytes, sent: CallRef<Sent>) {
+    pub fn enqueue_send(&mut self, bytes: Bytes, sent: StageRef<Sent>) {
         self.outgoing.extend(&bytes);
         self.notifiers
             .push_back((sent, self.sent_bytes + self.outgoing.len()));
@@ -618,7 +618,7 @@ impl PerProto {
             if self.sent_bytes >= *size {
                 #[expect(clippy::expect_used)]
                 let (sent, _) = self.notifiers.pop_front().expect("checked above");
-                eff.respond(sent, Sent).await;
+                eff.send(&sent, Sent).await;
             } else {
                 break;
             }
@@ -641,7 +641,7 @@ mod tests {
     use amaru_ouroboros_traits::ConnectionProvider;
     use futures_util::StreamExt;
     use pure_stage::{
-        Effect, Instant, StageGraph,
+        Effect, StageGraph,
         simulation::{Blocked, SimulationBuilder, SimulationRunning},
         trace_buffer::TraceBuffer,
     };
@@ -698,6 +698,7 @@ mod tests {
         );
 
         let (output, mut rx) = graph.output::<HandlerMessage>("output", 10);
+        let (sent, mut sent_rx) = graph.output::<Sent>("sent", 10);
         let input = graph.input(&mux);
 
         graph
@@ -725,18 +726,17 @@ mod tests {
             }
         });
 
-        let (cr, cr_rx) = CallRef::channel(Instant::at_offset(Duration::from_secs(1)));
         input
             .send(MuxMessage::Send(
                 PROTO_N2C_CHAIN_SYNC.erase(),
                 Bytes::copy_from_slice(&[1, 24, 33]).try_into().unwrap(),
-                cr,
+                sent,
             ))
             .await
             .unwrap();
         let mut buf = [0u8; 11];
         assert_eq!(t(tcp.read_exact(&mut buf)).await.unwrap(), 11);
-        t(cr_rx).await.unwrap().cast::<Sent>().unwrap();
+        t(sent_rx.next()).await.unwrap();
         // first four bytes are timestamp; proto ID is 5, length is 3
         assert_eq!(&buf[4..], [0, 5, 0, 3, 1, 24, 33]);
 
@@ -855,8 +855,7 @@ mod tests {
             let writer = writer.clone();
             let reader = reader.clone();
             running.breakpoint("mux", move |eff| {
-                matches!(eff, Effect::Send { from, to, .. } | Effect::Respond { at_stage: from, target: to, .. }
-                if from == &mux_name && to != &writer && to != &reader)
+                matches!(eff, Effect::Send { from, to, .. } if from == &mux_name && to != &writer && to != &reader)
             });
         }
 
@@ -886,16 +885,16 @@ mod tests {
                         len: usize,
                         proto_id: ProtocolId<Initiator>| {
             let bytes = vec![msg; len];
-            let cr = CallRef::fake("fake", id, Instant::at_offset(Duration::ZERO));
+            let sent = StageRef::named_for_tests(&format!("sent_{id}"));
             running.enqueue_msg(
                 &mux,
                 [MuxMessage::Send(
                     proto_id.erase(),
                     Bytes::copy_from_slice(&bytes).try_into().unwrap(),
-                    cr.dummy(),
+                    sent.clone(),
                 )],
             );
-            cr
+            sent
         };
 
         let assert_send = |running: &mut SimulationRunning,
@@ -919,9 +918,9 @@ mod tests {
                 assert_send(running, data, proto_id);
                 resume_send(running);
             };
-        let assert_respond = |running: &mut SimulationRunning, cr: &CallRef<Sent>| {
+        let assert_respond = |running: &mut SimulationRunning, sent: &StageRef<Sent>| {
             let mux_sent = running.run_until_blocked().assert_breakpoint("mux");
-            mux_sent.assert_respond(&mux, cr, Sent);
+            mux_sent.assert_send(&mux, sent, Sent);
             running.handle_effect(mux_sent);
         };
 

@@ -16,8 +16,8 @@
 use pure_stage::simulation::running::OverrideResult;
 use pure_stage::simulation::{RandStdRng, SimulationBuilder};
 use pure_stage::{
-    CallRef, Effect, ExternalEffect, Instant, Name, OutputEffect, Receiver, Resources, SendData,
-    StageGraph, StageGraphRunning, StageRef, StageResponse, TryInStage, UnknownExternalEffect,
+    Effect, ExternalEffect, Instant, Name, OutputEffect, Receiver, Resources, SendData, StageGraph,
+    StageGraphRunning, StageRef, StageResponse, TryInStage, UnknownExternalEffect,
     serde::SendDataValue,
     trace_buffer::{TraceBuffer, TraceEntry},
 };
@@ -393,7 +393,7 @@ fn clock_manual() {
 struct State3(u32, StageRef<Msg3>);
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct Msg3(u32, CallRef<u32>);
+struct Msg3(u32, StageRef<u32>);
 
 #[test]
 fn call() {
@@ -421,7 +421,7 @@ fn call() {
 
     let callee = network.stage("callee", async |state, msg: Msg3, eff| {
         eff.wait(Duration::from_secs(1)).await;
-        eff.respond(msg.1, msg.0 * 2).await;
+        eff.send(&msg.1, msg.0 * 2).await;
         state
     });
     let caller = network.wire_up(caller, State3(1u32, callee.sender()));
@@ -443,7 +443,7 @@ fn call() {
         Duration::from_secs(2),
     );
 
-    let cr2 = cr.dummy();
+    let cr2 = cr.clone();
     sim.resume_send(&caller, &callee, Some(Msg3(msg, cr)))
         .unwrap();
     // still not runnable, now waiting for response
@@ -454,8 +454,8 @@ fn call() {
     sim.resume_receive(&callee).unwrap();
     sim.effect().assert_wait(&callee, Duration::from_secs(1));
     sim.resume_wait(&callee, sim.now()).unwrap();
-    sim.effect().assert_respond(&callee, &cr2, 8);
-    sim.resume_respond(&callee, &cr2, 7).unwrap();
+    sim.effect().assert_send(&callee, &cr2, 8);
+    sim.resume_send(&callee, &cr2, Some(7)).unwrap();
     sim.effect().assert_receive(&callee);
     // the processing above has already dealt with sending the response, which has resumed the caller
     sim.effect().assert_receive(&caller);
@@ -677,7 +677,7 @@ fn create_stage_within_stage() {
                 from: parent.name().clone(),
                 to: child_ref.name().clone(),
                 msg: SendDataValue::boxed(&42u32),
-                call: None
+                call: false
             }),
             TraceEntry::input(child_ref.name(), SendDataValue::boxed(&42u32)),
             TraceEntry::resume(child_ref.name(), StageResponse::Unit),
@@ -685,7 +685,7 @@ fn create_stage_within_stage() {
                 from: child_ref.name().clone(),
                 to: output.name().clone(),
                 msg: SendDataValue::boxed(&42u32),
-                call: None
+                call: false
             }),
             TraceEntry::input(output.name(), SendDataValue::boxed(&42u32)),
             TraceEntry::resume(parent.name(), StageResponse::Unit),

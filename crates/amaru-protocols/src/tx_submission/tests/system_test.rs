@@ -69,7 +69,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
                 }
                 RollForward(header_content, tip) => {
                     tracing::info!(peer = %msg.peer, header_content.variant, ?header_content.byron_prefix, ?tip, "roll forward");
-                    let block = eff.call(&st, Duration::from_secs(5), |cr| ConnectionMessage::FetchBlocks { from: tip.point(), through: tip.point(), cr }).await;
+                    let block = eff.call(&st, Duration::from_secs(5), move |cr| ConnectionMessage::FetchBlocks { from: tip.point(), through: tip.point(), cr }).await;
                     tracing::info!(?block, "fetched block");
                     eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
                         .await;

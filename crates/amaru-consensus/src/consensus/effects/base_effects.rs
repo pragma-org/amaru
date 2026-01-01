@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pure_stage::{BoxFuture, CallRef, Effects, Instant, SendData, StageRef};
+use pure_stage::{BoxFuture, Effects, Instant, SendData, StageRef};
 use serde::de::DeserializeOwned;
 use std::time::Duration;
 
@@ -29,7 +29,7 @@ pub trait BaseOps: Clone + Send {
         &self,
         target: &StageRef<Req>,
         timeout: Duration,
-        msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
+        msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
     ) -> BoxFuture<'static, Option<Resp>>;
 
     fn clock(&self) -> BoxFuture<'static, Instant>;
@@ -60,7 +60,7 @@ impl<T: Clone + SendData + Sync> BaseOps for Base<'_, T> {
         &self,
         target: &StageRef<Req>,
         timeout: Duration,
-        msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
+        msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
     ) -> BoxFuture<'static, Option<Resp>> {
         self.0.call(target, timeout, msg)
     }

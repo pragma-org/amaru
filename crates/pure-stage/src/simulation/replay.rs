@@ -90,8 +90,14 @@ impl Replay {
                     let remaining = trace.as_slice().len();
                     self.trace_buffer.lock().set_fetch_replay(trace);
 
-                    let effect =
-                        poll_stage(&self.trace_buffer, data, stage, response, &self.effect);
+                    let effect = poll_stage(
+                        &self.trace_buffer,
+                        data,
+                        stage,
+                        response,
+                        &self.effect,
+                        self.clock,
+                    );
 
                     trace = self
                         .trace_buffer

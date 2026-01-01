@@ -74,6 +74,20 @@ where
     }
 }
 
+impl SendData for Box<dyn SendData> {
+    fn test_eq(&self, other: &dyn SendData) -> bool {
+        (**self).test_eq(other)
+    }
+
+    fn deserialize_value(&self, other: &dyn SendData) -> anyhow::Result<Box<dyn SendData>> {
+        (**self).deserialize_value(other)
+    }
+
+    fn typetag_name(&self) -> &'static str {
+        (**self).typetag_name()
+    }
+}
+
 impl Display for dyn SendData {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_send_data_value().borrow())
@@ -199,6 +213,10 @@ impl Name {
         new.push_str(&self.0);
         new.push_str(other);
         Self(new.into())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 

@@ -12,144 +12,39 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::Instant;
 use crate::stage_ref::StageStateRef;
 use crate::{
-    BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
-    StageBuildRef, StageRef, types::MpscSender,
+    BoxFuture, Effects, Name, OutputEffect, Receiver, Resources, SendData, Sender, StageBuildRef,
+    StageRef, types::MpscSender,
 };
 use std::{
-    fmt::Debug,
+    fmt,
     future::Future,
-    marker::PhantomData,
     sync::atomic::{AtomicU64, Ordering},
 };
-use tokio::sync::{mpsc, oneshot};
-
-/// A unique identifier for a call effect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct CallId(u64);
-
-impl CallId {
-    pub(crate) fn new() -> Self {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn from_u64(u: u64) -> Self {
-        Self(u)
-    }
-}
+use tokio::sync::mpsc;
 
 /// A unique identifier for a scheduled effect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
-pub struct ScheduleId(u64);
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub struct ScheduleId(Instant, u64);
 
 impl ScheduleId {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(instant: Instant) -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
-        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
+        Self(instant, COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 
-    #[cfg(test)]
-    pub(crate) fn from_u64(u: u64) -> Self {
-        Self(u)
-    }
-}
-
-/// A token that can be used to cancel a scheduled message.
-///
-/// This token is returned by [`Effects::schedule_at`] and [`Effects::schedule_after`],
-/// and can be used with [`Effects::cancel_schedule`] to cancel the scheduled message.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct ScheduleToken {
-    pub(crate) id: ScheduleId,
-    pub(crate) from: Name,
-}
-
-impl ScheduleToken {
-    pub(crate) fn new(id: ScheduleId, from: Name) -> Self {
-        Self { id, from }
+    pub fn time(&self) -> Instant {
+        self.0
     }
 }
 
-/// The response channel for a call effect.
-///
-/// In order to respond to the calling stage, use [`Effects::respond`].
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct CallRef<Resp: SendData> {
-    pub(crate) target: Name,
-    pub(crate) id: CallId,
-    pub(crate) deadline: Instant,
-    #[serde(skip, default = "dummy_response")]
-    pub(crate) response: oneshot::Sender<Box<dyn SendData>>,
-    #[serde(skip)]
-    pub(crate) _ph: PhantomData<Resp>,
-}
-
-// FIXME: will need to inject deserialization context to reconstruct a channel
-fn dummy_response() -> oneshot::Sender<Box<dyn SendData>> {
-    oneshot::channel().0
-}
-
-impl<Resp: SendData> PartialEq for CallRef<Resp> {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl<Resp: SendData> Eq for CallRef<Resp> {}
-
-impl<Resp: SendData> Debug for CallRef<Resp> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CallRef")
-            .field("target", &self.target)
-            .field("id", &self.id)
-            .field("deadline", &self.deadline)
-            .finish()
-    }
-}
-
-impl<Resp: SendData> CallRef<Resp> {
-    /// Create a dummy that compares equal to its original but doesn’t actually work.
-    ///
-    /// This is useful within test procedures to retain a properly typed reference
-    /// that can be used as argument to [`assert_respond`](crate::Effect::assert_respond)
-    /// and [`resume_respond`](crate::effect_box::SimulationRunning::resume_respond).
-    pub fn dummy(&self) -> Self {
-        Self {
-            target: self.target.clone(),
-            id: self.id,
-            deadline: self.deadline,
-            response: oneshot::channel().0,
-            _ph: PhantomData,
-        }
-    }
-
-    /// Test facility for creating a fake call reference.
-    pub fn fake(target: impl AsRef<str>, id: u64, deadline: Instant) -> Self {
-        Self {
-            target: target.as_ref().into(),
-            id: CallId(id),
-            deadline,
-            response: oneshot::channel().0,
-            _ph: PhantomData,
-        }
-    }
-
-    /// Create a dummy channel for testing purposes.
-    pub fn channel(deadline: Instant) -> (Self, oneshot::Receiver<Box<dyn SendData>>) {
-        let (tx, rx) = oneshot::channel();
-        (
-            Self {
-                target: Name::from("dummy"),
-                id: CallId::new(),
-                deadline,
-                response: tx,
-                _ph: PhantomData,
-            },
-            rx,
-        )
+impl fmt::Display for ScheduleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "at {}: {}", self.0, self.1)
     }
 }
 

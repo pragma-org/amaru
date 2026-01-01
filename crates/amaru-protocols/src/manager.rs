@@ -21,7 +21,7 @@ use crate::{
 };
 use amaru_kernel::{Point, peer::Peer, protocol_messages::network_magic::NetworkMagic};
 use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
-use pure_stage::{CallRef, Effects, StageRef};
+use pure_stage::{Effects, StageRef};
 use std::collections::BTreeMap;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -31,7 +31,7 @@ pub enum ManagerMessage {
         peer: Peer,
         from: Point,
         through: Point,
-        cr: CallRef<Blocks>,
+        cr: StageRef<Blocks>,
     },
 }
 
@@ -106,7 +106,7 @@ pub async fn stage(
                 .await;
             } else {
                 tracing::error!(%peer, "peer not found");
-                eff.respond(cr, Blocks::default()).await;
+                eff.send(&cr, Blocks::default()).await;
             }
         }
     }

@@ -119,7 +119,7 @@ pub mod tests {
         BlockValidationError, HasStakeDistribution, PoolSummary, TxSubmissionMempool,
     };
     use amaru_slot_arithmetic::Slot;
-    use pure_stage::{BoxFuture, CallRef, Instant, StageRef};
+    use pure_stage::{BoxFuture, Instant, StageRef};
     use serde::de::DeserializeOwned;
     use std::collections::BTreeMap;
     use std::future::ready;
@@ -270,7 +270,7 @@ pub mod tests {
             &self,
             _target: &StageRef<Req>,
             _timeout: Duration,
-            _msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
+            _msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
         ) -> BoxFuture<'static, Option<Resp>> {
             Box::pin(async { None })
         }
@@ -306,7 +306,7 @@ pub mod tests {
             &self,
             _target: &StageRef<Req>,
             _timeout: Duration,
-            _msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
+            _msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
         ) -> BoxFuture<'static, Option<Resp>> {
             Box::pin(async { None })
         }

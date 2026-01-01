@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::Name;
-use std::{fmt, marker::PhantomData, ops::Deref};
+use std::{any::Any, fmt, marker::PhantomData, ops::Deref, sync::Arc};
 
 /// A handle to a stage during the building phase of a [`StageGraph`](crate::StageGraph).
 pub struct StageBuildRef<Msg, St, RefAux> {
@@ -27,6 +27,7 @@ impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
     pub fn sender(&self) -> StageRef<Msg> {
         StageRef {
             name: self.name.clone(),
+            extra: None,
             _ph: PhantomData,
         }
     }
@@ -37,7 +38,9 @@ impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
 pub struct StageRef<Msg> {
     name: Name,
     #[serde(skip)]
-    pub(crate) _ph: PhantomData<Msg>,
+    extra: Option<Arc<dyn Any + Send + Sync>>,
+    #[serde(skip)]
+    _ph: PhantomData<Msg>,
 }
 
 impl<Msg> PartialEq for StageRef<Msg> {
@@ -52,6 +55,7 @@ impl<Msg> Clone for StageRef<Msg> {
     fn clone(&self) -> Self {
         Self {
             name: self.name.clone(),
+            extra: self.extra.clone(),
             _ph: PhantomData,
         }
     }
@@ -81,7 +85,15 @@ impl<Msg> StageRef<Msg> {
     pub(crate) fn new(name: Name) -> Self {
         Self {
             name,
+            extra: None,
             _ph: PhantomData,
+        }
+    }
+
+    pub(crate) fn with_extra(self, extra: Arc<dyn Any + Send + Sync>) -> Self {
+        Self {
+            extra: Some(extra),
+            ..self
         }
     }
 
@@ -95,6 +107,10 @@ impl<Msg> StageRef<Msg> {
 
     pub fn name(&self) -> &Name {
         &self.name
+    }
+
+    pub(crate) fn extra(&self) -> Option<&Arc<dyn Any + Send + Sync>> {
+        self.extra.as_ref()
     }
 }
 
@@ -156,6 +172,7 @@ impl<Msg, St> AsRef<StageRef<Msg>> for StageStateRef<Msg, St> {
 fn stage_ref() {
     let stage = StageRef {
         name: "test".into(),
+        extra: None,
         _ph: PhantomData::<(u32, u64)>,
     };
 

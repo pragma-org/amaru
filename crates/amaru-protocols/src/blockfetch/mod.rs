@@ -22,7 +22,7 @@ use crate::{
 };
 use amaru_kernel::{Point, peer::Peer};
 use amaru_ouroboros::ConnectionId;
-use pure_stage::{CallRef, DeserializerGuards, Effects, StageRef, Void};
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use std::{collections::VecDeque, mem};
 
 mod messages;
@@ -86,7 +86,7 @@ pub enum BlockFetchMessage {
     RequestRange {
         from: Point,
         through: Point,
-        cr: CallRef<Blocks>,
+        cr: StageRef<Blocks>,
     },
 }
 
@@ -95,7 +95,7 @@ pub struct BlockFetch {
     muxer: StageRef<MuxMessage>,
     peer: Peer,
     conn_id: ConnectionId,
-    queue: VecDeque<(Point, Point, CallRef<Blocks>)>,
+    queue: VecDeque<(Point, Point, StageRef<Blocks>)>,
     blocks: Vec<Vec<u8>>,
 }
 
@@ -151,7 +151,7 @@ impl StageState<State, Initiator> for BlockFetch {
         let queued = match input {
             InitiatorResult::NoBlocks => {
                 let (_, _, cr) = self.queue.pop_front().expect("queue is empty");
-                eff.respond(cr, Blocks { blocks: Vec::new() }).await;
+                eff.send(&cr, Blocks { blocks: Vec::new() }).await;
                 self.queue.front()
             }
             InitiatorResult::Block(body) => {
@@ -161,7 +161,7 @@ impl StageState<State, Initiator> for BlockFetch {
             InitiatorResult::Done => {
                 let (_, _, cr) = self.queue.pop_front().expect("queue is empty");
                 let blocks = mem::take(&mut self.blocks);
-                eff.respond(cr, Blocks { blocks }).await;
+                eff.send(&cr, Blocks { blocks }).await;
                 self.queue.front()
             }
         };

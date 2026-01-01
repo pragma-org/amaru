@@ -26,7 +26,7 @@ use std::{cell::RefCell, fmt};
 /// Helper type to wrap futures/functions/etc. and thus avoid having to handroll
 /// a `Debug` implementation for a type containing the wrapped value.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NoDebug<T>(T);
+pub struct NoDebug<T>(pub T);
 impl<T> NoDebug<T> {
     pub fn new(t: T) -> Self {
         Self(t)

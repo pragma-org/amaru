@@ -22,10 +22,10 @@
 #[cfg(test)]
 use crate::simulation::SimulationBuilder;
 use crate::{
-    BoxFuture, CallId, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources,
-    ScheduleId, ScheduleToken, SendData, StageRef, StageResponse,
+    BoxFuture, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources, ScheduleId,
+    SendData, StageRef, StageResponse,
     adapter::{Adapter, StageOrAdapter, find_recipient},
-    effect::StageEffect,
+    effect::{CallTimeout, StageEffect},
     effect_box::EffectBox,
     simulation::{
         blocked::{Blocked, SendBlock},
@@ -34,14 +34,14 @@ use crate::{
         resume::{
             resume_add_stage_internal, resume_call_internal, resume_cancel_schedule_internal,
             resume_clock_internal, resume_contramap_internal, resume_external_internal,
-            resume_receive_internal, resume_respond_internal, resume_schedule_internal,
-            resume_send_internal, resume_wait_internal, resume_wire_stage_internal,
+            resume_receive_internal, resume_schedule_internal, resume_send_internal,
+            resume_wait_internal, resume_wire_stage_internal,
         },
         state::{StageData, StageState},
     },
     stage_name,
     stage_ref::StageStateRef,
-    stagegraph::{CallRef, StageGraphRunning},
+    stagegraph::StageGraphRunning,
     time::Clock,
     trace_buffer::TraceBuffer,
 };
@@ -49,17 +49,12 @@ use either::Either::{Left, Right};
 use futures_util::{StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
 use std::{
-    collections::{BTreeMap, BinaryHeap, VecDeque},
-    mem::{replace, take},
+    collections::{BTreeMap, VecDeque},
+    mem::replace,
     sync::Arc,
     task::{Context, Poll, Waker},
-    time::Duration,
 };
-use tokio::{
-    runtime::Handle,
-    select,
-    sync::{oneshot, watch},
-};
+use tokio::{runtime::Handle, select, sync::watch};
 
 /// A handle to a running [`SimulationBuilder`](crate::effect_box::SimulationBuilder).
 ///
@@ -80,8 +75,7 @@ pub struct SimulationRunning {
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
     runnable: VecDeque<(Name, StageResponse)>,
-    sleeping: BinaryHeap<Sleeping>,
-    responded: Vec<(Name, CallId)>,
+    scheduled: BTreeMap<ScheduleId, Box<dyn FnOnce(&mut SimulationRunning) + Send + 'static>>,
     mailbox_size: usize,
     overrides: Vec<OverrideExternalEffect>,
     breakpoints: Vec<(Name, Box<dyn Fn(&Effect) -> bool + Send + 'static>)>,
@@ -90,7 +84,6 @@ pub struct SimulationRunning {
     terminate: watch::Sender<bool>,
     termination: watch::Receiver<bool>,
     external_effects: FuturesUnordered<BoxFuture<'static, (Name, Box<dyn SendData>)>>,
-    scheduled: BTreeMap<ScheduleId, (Name, Name, Box<dyn SendData>, Instant)>,
 }
 
 impl SimulationRunning {
@@ -114,8 +107,7 @@ impl SimulationRunning {
             clock,
             resources,
             runnable: VecDeque::new(),
-            sleeping: BinaryHeap::new(),
-            responded: Vec::new(),
+            scheduled: BTreeMap::new(),
             mailbox_size,
             overrides: Vec::new(),
             breakpoints: Vec::new(),
@@ -124,7 +116,6 @@ impl SimulationRunning {
             terminate,
             termination,
             external_effects: FuturesUnordered::new(),
-            scheduled: BTreeMap::new(),
         }
     }
 
@@ -203,7 +194,7 @@ impl SimulationRunning {
     /// Returns `true` if wakeups were performed, `false` if there are no more wakeups or
     /// the clock was advanced to the given `max_time`.
     pub fn skip_to_next_wakeup(&mut self, max_time: Option<Instant>) -> bool {
-        let Some(Sleeping { time, .. }) = self.sleeping.peek() else {
+        let Some((id, _)) = self.scheduled.first_key_value() else {
             if let Some(time) = max_time {
                 self.clock.advance_to(time);
                 self.trace_buffer.lock().push_clock(time);
@@ -212,7 +203,8 @@ impl SimulationRunning {
         };
 
         // only advance as far as allowed
-        let time = (*time).min(max_time.unwrap_or(*time));
+        let time = id.time();
+        let time = time.min(max_time.unwrap_or(time));
 
         self.clock.advance_to(time);
         self.trace_buffer.lock().push_clock(time);
@@ -220,8 +212,12 @@ impl SimulationRunning {
         let mut performed_wakeups = false;
 
         // this won't find a match if max_time was hit
-        while matches!(self.sleeping.peek(), Some(Sleeping { time: t, .. }) if *t == time) {
-            let Sleeping { wakeup, .. } = self.sleeping.pop().expect("peeked, so must exist");
+        while matches!(self.scheduled.first_key_value(), Some((id, _)) if id.time() == time) {
+            let (_id, wakeup) = self
+                .scheduled
+                .first_entry()
+                .expect("peeked, so must exist")
+                .remove_entry();
             wakeup(self);
             performed_wakeups = true;
         }
@@ -229,25 +225,19 @@ impl SimulationRunning {
     }
 
     pub fn next_wakeup(&self) -> Option<Instant> {
-        self.sleeping.peek().map(|Sleeping { time, .. }| *time)
+        self.scheduled.first_key_value().map(|(id, _)| id.time())
     }
 
     fn schedule_wakeup(
         &mut self,
-        duration: Duration,
-        call_id: Option<CallId>,
+        id: ScheduleId,
         wakeup: impl FnOnce(&mut SimulationRunning) + Send + 'static,
     ) {
         assert!(
-            duration > Duration::ZERO,
-            "cannot schedule wakeup with zero delay"
+            id.time() > self.clock.now(),
+            "cannot schedule wakeup now or in the past"
         );
-        let time = self.clock.now() + duration;
-        self.sleeping.push(Sleeping {
-            time,
-            call_id,
-            wakeup: Box::new(wakeup),
-        });
+        self.scheduled.insert(id, Box::new(wakeup));
     }
 
     /// Place messages in the given stage’s mailbox, but don’t resume it.
@@ -329,36 +319,11 @@ impl SimulationRunning {
         let effect = poll_stage(
             &self.trace_buffer,
             data,
-            name.clone(),
+            name,
             response,
             &self.effect,
+            self.clock.now(),
         );
-
-        let names = take(&mut self.responded);
-        let runnable = &mut self.runnable;
-        let run = &mut |name, response| {
-            runnable.push_back((name, response));
-        };
-        if !names.is_empty() {
-            self.sleeping.retain(|s| {
-                let Some(cid) = s.call_id else {
-                    return true;
-                };
-                names.iter().all(|(_, id)| cid != *id)
-            });
-        }
-        for (name, id) in names {
-            let Some((recip, _)) = find_recipient(&mut self.stages, name, None) else {
-                continue; // responding to CallRef::channel()
-            };
-            let name = recip.name.clone();
-            let data = self
-                .stages
-                .get_mut(&name)
-                .assert_stage("which does not receive call responses");
-            // just trying to resume as far as possible, so failure to resume is okay
-            resume_call_internal(data, run, id).ok();
-        }
 
         self.trace_buffer.lock().push_suspend(&effect);
 
@@ -567,7 +532,6 @@ impl SimulationRunning {
     /// Inputs to this method can be obtained from [`Self::effect`], [`Self::try_effect`]
     /// or [`Blocked::assert_breakpoint`].
     pub fn handle_effect(&mut self, effect: Effect) -> Option<Blocked> {
-
         let runnable = &mut self.runnable;
         let run = &mut |name, response| {
             runnable.push_back((name, response));
@@ -587,28 +551,24 @@ impl SimulationRunning {
                     .stages
                     .get_mut(&from)
                     .assert_stage("which cannot receive send effects");
-                let call = resume_send_internal(data_from, run, to.clone())
+                resume_send_internal(data_from, run, to.clone(), false)
                     .expect("call is always runnable");
-                self.handle_call_continuation(from, to, call);
+            }
+            Effect::Send { from, to, call, .. } if to.as_str().is_empty() => {
+                tracing::info!(stage = %from, "message send to blackhole dropped");
+                let data_from = self
+                    .stages
+                    .get_mut(&from)
+                    .assert_stage("which cannot emit send effects");
+                resume_send_internal(data_from, run, to.clone(), call)
+                    .expect("call is always runnable");
             }
             Effect::Send {
                 from,
                 to,
+                call: false,
                 msg,
-                call: _,
             } => {
-                if to.as_str().is_empty() {
-                    tracing::warn!(stage = %from, "message send to blackhole dropped");
-                    let data_from = self
-                        .stages
-                        .get_mut(&from)
-                        .assert_stage("which cannot emit send effects");
-                    let call = resume_send_internal(data_from, run, to.clone())
-                        .expect("call is always runnable");
-                    self.handle_call_continuation(from, to, call);
-                    return None;
-                }
-
                 let resume =
                     match deliver_message(&mut self.stages, self.mailbox_size, to.clone(), msg) {
                         DeliverMessageResult::Delivered(data_to) => {
@@ -631,10 +591,70 @@ impl SimulationRunning {
                         .stages
                         .get_mut(&from)
                         .assert_stage("which cannot have sent");
-                    let call = resume_send_internal(data_from, run, to.clone())
+                    resume_send_internal(data_from, run, to.clone(), false)
                         .expect("call is always runnable");
-                    self.handle_call_continuation(from, to, call);
                 }
+            }
+            Effect::Send {
+                from,
+                to,
+                call: true,
+                msg,
+            } => {
+                // sending stage is always resumed
+                let data_from = self
+                    .stages
+                    .get_mut(&from)
+                    .assert_stage("which cannot receive send effects");
+                let id = resume_send_internal(data_from, run, to.clone(), true)
+                    .expect("call is always runnable");
+                let data_to = self.stages.get_mut(&to).assert_stage("which cannot call");
+                // call response races with other responses and timeout, so failure to resume is okay
+                resume_call_internal(data_to, run, id, msg).ok();
+            }
+            Effect::Call {
+                from,
+                to,
+                duration,
+                msg,
+            } => {
+                let Some(real_to) =
+                    (match deliver_message(&mut self.stages, self.mailbox_size, to.clone(), msg) {
+                        DeliverMessageResult::Delivered(data_to) => {
+                            // `to` may not be suspended on receive, so failure to resume is okay
+                            resume_receive_internal(&mut self.trace_buffer.lock(), data_to, run)
+                                .ok();
+                            Some(data_to.name.clone())
+                        }
+                        DeliverMessageResult::Full(data_to, send_data) => {
+                            data_to.senders.push_back((from.clone(), send_data));
+                            Some(data_to.name.clone())
+                        }
+                        DeliverMessageResult::NotFound => {
+                            tracing::warn!(stage = %to, "message send to terminated stage dropped");
+                            None
+                        }
+                    })
+                else {
+                    return None;
+                };
+                let id = ScheduleId::new(self.clock.now() + duration);
+                self.schedule_wakeup(id, move |sim| {
+                    let data_from = sim.stages.get_mut(&from).assert_stage("which cannot wait");
+                    let wakeup = resume_call_internal(
+                        data_from,
+                        &mut |name, response| {
+                            sim.runnable.push_back((name, response));
+                        },
+                        Some(id),
+                        Box::new(CallTimeout),
+                    );
+                    if wakeup.is_ok()
+                        && let Some(StageOrAdapter::Stage(data_to)) = sim.stages.get_mut(&real_to)
+                    {
+                        data_to.senders.retain(|(name, _)| name != &from);
+                    }
+                });
             }
             Effect::Clock { at_stage } => {
                 let data = self
@@ -645,7 +665,9 @@ impl SimulationRunning {
                     .expect("clock effect is always runnable");
             }
             Effect::Wait { at_stage, duration } => {
-                self.schedule_wakeup(duration, None, move |sim| {
+                let now = self.clock.now();
+                let id = ScheduleId::new(now + duration);
+                self.schedule_wakeup(id, move |sim| {
                     let data = sim
                         .stages
                         .get_mut(&at_stage)
@@ -660,62 +682,26 @@ impl SimulationRunning {
                     .expect("wait effect is always runnable");
                 });
             }
-            Effect::Respond {
-                at_stage,
-                target,
-                id,
-                msg,
-            } => {
-                let data = self
-                    .stages
-                    .get_mut(&at_stage)
-                    .assert_stage("which cannot respond");
-                let res = resume_respond_internal(data, run, target, id)
-                    .expect("respond effect is always runnable");
-                self.handle_send_response(msg, res);
-            }
-            Effect::Schedule {
-                at_stage,
-                to,
-                msg,
-                when,
-                id,
-            } => {
-                let from = at_stage.clone();
-                let token = ScheduleToken::new(id, from);
-                // Store the scheduled message
-                self.scheduled.insert(id, (at_stage.clone(), to.clone(), msg, when));
-                // Resume the stage first
+            Effect::Schedule { at_stage, msg, id } => {
                 let data = self
                     .stages
                     .get_mut(&at_stage)
                     .assert_stage("which cannot schedule");
-                resume_schedule_internal(data, run, token)
+                resume_schedule_internal(data, run, id)
                     .expect("schedule effect is always runnable");
                 // Now schedule the wakeup (after run is dropped)
                 let now = self.clock.now();
-                let delay = if when > now {
-                    when.checked_since(now).unwrap_or(Duration::ZERO)
-                } else {
-                    Duration::ZERO
-                };
-                if delay > Duration::ZERO {
+                if id.time() > now {
                     // Schedule wakeup
-                    let id_for_wakeup = id;
-                    self.schedule_wakeup(delay, None, {
+                    self.schedule_wakeup(id, {
                         move |sim| {
-                            // Check if the schedule was cancelled
-                            if let Some((_from, to, msg, _when)) = sim.scheduled.remove(&id_for_wakeup) {
-                                // Send the message
-                                let _ = deliver_message(&mut sim.stages, sim.mailbox_size, to, msg);
-                            }
+                            let _ =
+                                deliver_message(&mut sim.stages, sim.mailbox_size, at_stage, msg);
                         }
                     });
                 } else {
                     // Send immediately
-                    if let Some((_from, to, msg, _when)) = self.scheduled.remove(&id) {
-                        let _ = deliver_message(&mut self.stages, self.mailbox_size, to, msg);
-                    }
+                    let _ = deliver_message(&mut self.stages, self.mailbox_size, at_stage, msg);
                 }
             }
             Effect::CancelSchedule { at_stage, id } => {
@@ -920,49 +906,16 @@ impl SimulationRunning {
             .stages
             .get_mut(from.as_ref().name())
             .assert_stage("which cannot send");
-        let call = resume_send_internal(
+        resume_send_internal(
             data,
             &mut |name, response| {
                 self.runnable.push_back((name, response));
             },
             to.name().clone(),
+            to.extra().is_some(),
         )?;
 
-        self.handle_call_continuation(from.as_ref().name().clone(), to.name().clone(), call);
         Ok(())
-    }
-
-    fn handle_call_continuation(
-        &mut self,
-        from: Name,
-        to: Name,
-        call: Option<(
-            Duration,
-            oneshot::Receiver<Box<dyn SendData + 'static>>,
-            CallId,
-        )>,
-    ) {
-        if let Some((timeout, recv, id)) = call {
-            let deadline = self.clock.now() + timeout;
-            self.stages
-                .get_mut(&from)
-                .assert_stage("which cannot make a call")
-                .waiting = Some(StageEffect::Call(to, deadline, (), recv, id));
-            self.schedule_wakeup(timeout, Some(id), move |sim| {
-                let data = sim
-                    .stages
-                    .get_mut(&from)
-                    .assert_stage("which cannot make a call");
-                resume_call_internal(
-                    data,
-                    &mut |name, response| {
-                        sim.runnable.push_back((name, response));
-                    },
-                    id,
-                )
-                .ok();
-            });
-        }
     }
 
     /// Resume an [`Effect::Clock`].
@@ -1029,66 +982,25 @@ impl SimulationRunning {
         )
     }
 
-    /// Resume an [`Effect::Send`]’s second stage in case of a call.
-    ///
-    /// The message to be delivered to the stage must have been sent by the called stage already.
-    pub fn resume_call<Msg, Resp: SendData>(
+    /// Resume an [`Effect::Call`].
+    pub fn resume_call<Msg: SendData, Resp: SendData>(
         &mut self,
         at_stage: impl AsRef<StageRef<Msg>>,
-        call: &CallRef<Resp>,
+        msg: Msg,
     ) -> anyhow::Result<()> {
+        let at_stage = at_stage.as_ref();
         let data = self
             .stages
-            .get_mut(at_stage.as_ref().name())
+            .get_mut(at_stage.name())
             .assert_stage("which cannot make a call");
         resume_call_internal(
             data,
             &mut |name, response| {
                 self.runnable.push_back((name, response));
             },
-            call.id,
+            None,
+            Box::new(msg),
         )
-    }
-
-    /// Resume an [`Effect::Respond`].
-    pub fn resume_respond<Msg, Resp: SendData>(
-        &mut self,
-        at_stage: impl AsRef<StageRef<Msg>>,
-        cr: &CallRef<Resp>,
-        msg: Resp,
-    ) -> anyhow::Result<()> {
-        let data = self
-            .stages
-            .get_mut(at_stage.as_ref().name())
-            .assert_stage("which cannot respond");
-        let res = resume_respond_internal(
-            data,
-            &mut |name, response| {
-                self.runnable.push_back((name, response));
-            },
-            cr.target.clone(),
-            cr.id,
-        )?;
-
-        self.handle_send_response(Box::new(msg), res);
-        Ok(())
-    }
-
-    fn handle_send_response(
-        &mut self,
-        msg: Box<dyn SendData>,
-        (target, id, deadline, sender): (Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>),
-    ) {
-        if let Err(msg) = sender.send(msg) {
-            tracing::warn!(
-                "response to {} was dropped: {:?} (deadline: {})",
-                target,
-                msg,
-                deadline.pretty(self.now())
-            );
-        } else {
-            self.responded.push((target, id));
-        }
     }
 
     /// Resume an [`Effect::External`].
@@ -1250,48 +1162,6 @@ impl StageGraphRunning for SimulationRunning {
     }
 }
 
-/// An entry for the sleeping stage heap.
-///
-/// NOTE: the `Ord` implementation is reversed, so that the heap is a min-heap.
-/// The `wakeup` is secondarily ordered according to the address of the closure.
-struct Sleeping {
-    time: Instant,
-    call_id: Option<CallId>,
-    wakeup: Box<dyn FnOnce(&mut SimulationRunning) + Send + 'static>,
-}
-
-impl std::fmt::Debug for Sleeping {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Sleeping")
-            .field("time", &self.time)
-            .finish()
-    }
-}
-
-impl Eq for Sleeping {}
-
-impl Ord for Sleeping {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.time.cmp(&other.time).reverse().then_with(|| {
-            let left = self.wakeup.as_ref() as *const _ as *const u8 as usize;
-            let right = other.wakeup.as_ref() as *const _ as *const u8 as usize;
-            left.cmp(&right)
-        })
-    }
-}
-
-impl PartialEq for Sleeping {
-    fn eq(&self, other: &Self) -> bool {
-        self.time == other.time && std::ptr::eq(self.wakeup.as_ref(), other.wakeup.as_ref())
-    }
-}
-
-impl PartialOrd for Sleeping {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 struct OverrideExternalEffect {
     remaining: usize,
     transform: Box<
@@ -1344,10 +1214,10 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
             .map(|w| (k, w))
     }) {
         match v {
-            StageEffect::Send(name, _msg, call) => send.push(SendBlock {
+            StageEffect::Send(name, _call, _msg) => send.push(SendBlock {
                 from: k.clone(),
                 to: name.clone(),
-                is_call: call.is_some(),
+                is_call: false,
             }),
             StageEffect::Receive => {}
             StageEffect::Wait(..) | StageEffect::Call(..) => sleep.push(k.clone()),
@@ -1383,6 +1253,7 @@ pub(crate) fn poll_stage(
     name: Name,
     response: StageResponse,
     effect: &EffectBox,
+    now: Instant,
 ) -> Effect {
     let StageState::Running(pin) = &mut data.state else {
         panic!(
@@ -1409,7 +1280,7 @@ pub(crate) fn poll_stage(
                 panic!("stage `{name}` returned without awaiting any tracked effect")
             }
         };
-        let (wait_effect, effect) = stage_effect.split(name.clone());
+        let (wait_effect, effect) = stage_effect.split(name.clone(), now);
         if !matches!(wait_effect, StageEffect::Terminate) {
             data.waiting = Some(wait_effect);
         }
@@ -1460,7 +1331,7 @@ fn post_message(
 
 #[test]
 fn simulation_invariants() {
-    use crate::{StageGraph, stagegraph::CallRef};
+    use crate::StageGraph;
 
     tracing_subscriber::fmt()
         .with_test_writer()
@@ -1469,7 +1340,7 @@ fn simulation_invariants() {
         .ok();
 
     #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-    struct Msg(Option<CallRef<()>>);
+    struct Msg(Option<StageRef<()>>);
 
     let mut network = SimulationBuilder::default();
     let stage = network.stage("stage", async |_state, _msg: Msg, eff| {
@@ -1488,56 +1359,38 @@ fn simulation_invariants() {
 
     #[expect(clippy::type_complexity)]
     let ops: [(
-        Box<dyn Fn(&Effect) -> Option<CallId>>,
-        Box<dyn Fn(&mut SimulationRunning, &StageRef<Msg>, CallId) -> anyhow::Result<()>>,
+        Box<dyn Fn(&Effect) -> bool>,
+        Box<dyn Fn(&mut SimulationRunning, &StageRef<Msg>) -> anyhow::Result<()>>,
         &'static str,
     ); 5] = [
         (
-            Box::new(|eff: &Effect| {
-                matches!(eff, Effect::Receive { .. }).then(|| CallId::from_u64(0))
-            }),
-            Box::new(|sim, stage, _id| sim.resume_receive(stage)),
+            Box::new(|eff: &Effect| matches!(eff, Effect::Receive { .. })),
+            Box::new(|sim, stage| sim.resume_receive(stage)),
             "resume_receive",
         ),
         (
             Box::new(|eff: &Effect| {
                 // note that this also matches in the Call case, which is correct;
                 // resume_send will advance the stage to await the response
-                matches!(eff, Effect::Send { .. }).then(|| CallId::from_u64(1))
+                matches!(eff, Effect::Send { .. })
             }),
-            Box::new(|sim, stage, _id| sim.resume_send(stage, stage, Some(Msg(None)))),
+            Box::new(|sim, stage| sim.resume_send(stage, stage, Some(Msg(None)))),
             "resume_send",
         ),
         (
-            Box::new(|eff: &Effect| {
-                matches!(eff, Effect::Clock { .. }).then(|| CallId::from_u64(2))
-            }),
-            Box::new(|sim, stage, _id| sim.resume_clock(stage, Instant::now())),
+            Box::new(|eff: &Effect| matches!(eff, Effect::Clock { .. })),
+            Box::new(|sim, stage| sim.resume_clock(stage, Instant::now())),
             "resume_clock",
         ),
         (
-            Box::new(|eff: &Effect| {
-                matches!(eff, Effect::Wait { .. }).then(|| CallId::from_u64(3))
-            }),
-            Box::new(|sim, stage, _id| sim.resume_wait(stage, Instant::now())),
+            Box::new(|eff: &Effect| matches!(eff, Effect::Wait { .. })),
+            Box::new(|sim, stage| sim.resume_wait(stage, Instant::now())),
             "resume_wait",
         ),
         (
-            Box::new(|eff: &Effect| match eff {
-                Effect::Send {
-                    msg, call: Some(_), ..
-                } => Some(
-                    msg.cast_ref::<Msg>()
-                        .expect("internal message type error")
-                        .0
-                        .as_ref()
-                        .unwrap()
-                        .id,
-                ),
-                _ => None,
-            }),
+            Box::new(|eff: &Effect| matches!(eff, Effect::Send { .. })),
             // resume_call works because resume_send from the second item has already been called
-            Box::new(|sim, stage, id| {
+            Box::new(|sim, stage| {
                 let data = sim
                     .stages
                     .get_mut(stage.name())
@@ -1547,7 +1400,8 @@ fn simulation_invariants() {
                     &mut |name, response| {
                         sim.runnable.push_back((name, response));
                     },
-                    id,
+                    None,
+                    Box::new(Msg(None)),
                 )
             }),
             "resume_call",
@@ -1568,25 +1422,20 @@ fn simulation_invariants() {
         };
         tracing::info!(effect = ?effect, "effect");
         assert!(
-            ops[idx].0(&effect).is_some(),
+            ops[idx].0(&effect),
             "effect {effect:?} should match predicate for `{idx}`"
         );
         for (pred, op, name) in &ops {
-            if pred(&effect).is_none() {
+            if !pred(&effect) {
                 tracing::info!("op `{}` should not work", name);
-                op(
-                    &mut sim,
-                    &stage.clone().without_state(),
-                    CallId::from_u64(0),
-                )
-                .unwrap_err();
+                op(&mut sim, &stage.clone().without_state()).unwrap_err();
                 sim.invariants();
             }
         }
         for (pred, op, name) in &ops {
-            if let Some(id) = pred(&effect) {
+            if pred(&effect) {
                 tracing::info!("op `{}` should work", name);
-                op(&mut sim, &stage.clone().without_state(), id).unwrap();
+                op(&mut sim, &stage.clone().without_state()).unwrap();
                 sim.invariants();
             }
         }

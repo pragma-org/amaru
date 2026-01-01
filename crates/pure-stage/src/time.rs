@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use parking_lot::Mutex;
 use std::fmt::{Display, Formatter};
 use std::{
     sync::{
@@ -46,6 +47,16 @@ impl Clock for AtomicU64 {
         let nanos = nanos as u64;
         let old = self.swap(nanos, Ordering::Relaxed);
         assert!(old <= nanos, "clock is not monotonic");
+    }
+}
+
+impl Clock for Mutex<Instant> {
+    fn now(&self) -> Instant {
+        *self.lock()
+    }
+
+    fn advance_to(&self, instant: Instant) {
+        *self.lock() = instant;
     }
 }
 

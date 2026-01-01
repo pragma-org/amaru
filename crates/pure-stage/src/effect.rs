@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use crate::{
-    BoxFuture, CallId, CallRef, Instant, Name, Resources, ScheduleId, ScheduleToken, SendData, StageBuildRef, StageRef,
+    BoxFuture, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef, StageRef,
     effect_box::{EffectBox, airlock_effect},
     serde::{NoDebug, SendDataValue, never, to_cbor},
     time::Clock,
@@ -38,7 +38,6 @@ use std::{
     borrow::Borrow,
     fmt::{Display, Formatter},
 };
-use tokio::sync::oneshot;
 
 /// A handle for performing effects on the current stage.
 ///
@@ -108,13 +107,17 @@ impl<M: SendData> Effects<M> {
     }
 }
 
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct CallTimeout;
+
 impl<M> Effects<M> {
     /// Send a message to the given stage, blocking the current stage until space has been
     /// made available in the target stage’s send queue.
     pub fn send<Msg: SendData>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
+        let call = target.extra().cloned();
         airlock_effect(
             &self.effect,
-            StageEffect::Send(target.name().clone(), Box::new(msg), None),
+            StageEffect::Send(target.name().clone(), call, Box::new(msg)),
             |_eff| Some(()),
         )
     }
@@ -146,54 +149,38 @@ impl<M> Effects<M> {
         &self,
         target: &StageRef<Req>,
         timeout: Duration,
-        msg: impl FnOnce(CallRef<Resp>) -> Req + Send,
+        msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
     ) -> BoxFuture<'static, Option<Resp>> {
-        let (response, recv) = oneshot::channel();
-        let now = self.clock.now();
-        let deadline = now + timeout;
-        let target = target.name().clone();
-        let me = self.me.name().clone();
-        let id = CallId::new();
-
-        let msg = Box::new(msg(CallRef {
-            target: me,
-            id,
-            deadline,
-            response,
-            _ph: PhantomData,
-        }));
-
+        if target.extra().is_some() {
+            panic!(
+                "cannot answer a call with a call ({} -> {})",
+                self.me.name(),
+                target.name()
+            );
+        }
+        let msg = Box::new(move |name: Name, extra: Arc<dyn Any + Send + Sync>| {
+            Box::new(msg(StageRef::new(name).with_extra(extra))) as Box<dyn SendData>
+        }) as CallFn;
         airlock_effect(
             &self.effect,
-            StageEffect::Send(target, msg, Some((timeout, recv, id))),
+            StageEffect::Call(
+                target.name().clone(),
+                timeout,
+                CallExtra::CallFn(NoDebug::new(msg)),
+            ),
             |eff| match eff {
-                Some(StageResponse::CallResponse(resp)) => Some(Some(
-                    resp.cast_deserialize::<Resp>()
-                        .expect("internal messaging type error"),
-                )),
-                Some(StageResponse::CallTimeout) => Some(None),
+                Some(StageResponse::CallResponse(resp)) => {
+                    if resp.typetag_name() == type_name::<CallTimeout>() {
+                        Some(None)
+                    } else {
+                        Some(Some(
+                            resp.cast_deserialize::<Resp>()
+                                .expect("internal message type error"),
+                        ))
+                    }
+                }
                 _ => None,
             },
-        )
-    }
-
-    /// Respond to a call from another stage, where the call is represented by the given
-    /// [`CallRef`].
-    ///
-    /// This effect does not block the current stage because the target of the response has been
-    /// waiting for this message and is ready to receive it.
-    pub fn respond<Resp: SendData>(&self, cr: CallRef<Resp>, resp: Resp) -> BoxFuture<'static, ()> {
-        let CallRef {
-            target,
-            id,
-            deadline,
-            response,
-            _ph,
-        } = cr;
-        airlock_effect(
-            &self.effect,
-            StageEffect::Respond(target, id, deadline, response, Box::new(resp)),
-            |_eff| Some(()),
         )
     }
 
@@ -205,16 +192,15 @@ impl<M> Effects<M> {
     /// the message will be sent immediately.
     pub fn schedule_at<Msg: SendData>(
         &self,
-        target: &StageRef<Msg>,
         msg: Msg,
         when: Instant,
-    ) -> BoxFuture<'static, ScheduleToken> {
-        let id = ScheduleId::new();
+    ) -> BoxFuture<'static, ScheduleId> {
+        let id = ScheduleId::new(when);
         airlock_effect(
             &self.effect,
-            StageEffect::Schedule(target.name().clone(), Box::new(msg), when, id),
-            |eff| match eff {
-                Some(StageResponse::ScheduleResponse(token)) => Some(token),
+            StageEffect::Schedule(Box::new(msg), id),
+            move |eff| match eff {
+                Some(StageResponse::Unit) => Some(id),
                 _ => None,
             },
         )
@@ -227,23 +213,22 @@ impl<M> Effects<M> {
     /// The scheduled message will be sent after the specified `delay` duration from now.
     pub fn schedule_after<Msg: SendData>(
         &self,
-        target: &StageRef<Msg>,
         msg: Msg,
         delay: Duration,
-    ) -> BoxFuture<'static, ScheduleToken> {
+    ) -> BoxFuture<'static, ScheduleId> {
         let now = self.clock.now();
         let when = now + delay;
-        self.schedule_at(target, msg, when)
+        self.schedule_at(msg, when)
     }
 
     /// Cancel a previously scheduled message.
     ///
     /// Returns `true` if the scheduled message was found and cancelled, or `false` if it was
     /// not found (e.g., it was already sent or already cancelled).
-    pub fn cancel_schedule(&self, token: ScheduleToken) -> BoxFuture<'static, bool> {
+    pub fn cancel_schedule(&self, id: ScheduleId) -> BoxFuture<'static, bool> {
         airlock_effect(
             &self.effect,
-            StageEffect::CancelSchedule(token.id),
+            StageEffect::CancelSchedule(id),
             |eff| match eff {
                 Some(StageResponse::CancelScheduleResponse(cancelled)) => Some(cancelled),
                 _ => None,
@@ -598,28 +583,24 @@ fn unknown_external_effect() {
     assert_eq!(output2.msg, 3.2);
 }
 
+type CallFn =
+    Box<dyn FnOnce(Name, Arc<dyn Any + Send + Sync>) -> Box<dyn SendData> + Send + 'static>;
+#[derive(Debug)]
+pub enum CallExtra {
+    CallFn(NoDebug<CallFn>),
+    ScheduleId(ScheduleId),
+}
+
 /// An effect emitted by a stage (in which case T is `Box<dyn Message>`) or an effect
 /// upon whose resumption the stage waits (in which case T is `()`).
 #[derive(Debug)]
 pub enum StageEffect<T> {
     Receive,
-    Call(
-        Name,
-        Instant,
-        T,
-        oneshot::Receiver<Box<dyn SendData>>,
-        CallId,
-    ),
-    Send(
-        Name,
-        T,
-        // this is present in case the send is the first part of a call effect
-        Option<(Duration, oneshot::Receiver<Box<dyn SendData>>, CallId)>,
-    ),
+    Send(Name, Option<Arc<dyn Any + Send + Sync>>, T),
+    Call(Name, Duration, CallExtra),
     Clock,
     Wait(Duration),
-    Respond(Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>, T),
-    Schedule(Name, T, Instant, ScheduleId),
+    Schedule(T, ScheduleId),
     CancelSchedule(ScheduleId),
     External(Box<dyn ExternalEffect>),
     Terminate,
@@ -641,8 +622,6 @@ pub enum StageResponse {
     ClockResponse(Instant),
     WaitResponse(Instant),
     CallResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
-    CallTimeout,
-    ScheduleResponse(ScheduleToken),
     CancelScheduleResponse(bool),
     ExternalResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
     AddStageResponse(Name),
@@ -664,14 +643,6 @@ impl StageResponse {
             StageResponse::CallResponse(msg) => serde_json::json!({
                 "type": "call",
                 "msg": format!("{msg}"),
-            }),
-            StageResponse::CallTimeout => serde_json::json!({"type": "timeout"}),
-            StageResponse::ScheduleResponse(token) => serde_json::json!({
-                "type": "schedule",
-                "token": {
-                    "id": token.id,
-                    "from": token.from,
-                },
             }),
             StageResponse::CancelScheduleResponse(cancelled) => serde_json::json!({
                 "type": "cancel_schedule",
@@ -702,10 +673,6 @@ impl Display for StageResponse {
             StageResponse::CallResponse(msg) => {
                 write!(f, "{}", msg.as_send_data_value().borrow())
             }
-            StageResponse::CallTimeout => write!(f, "timeout"),
-            StageResponse::ScheduleResponse(token) => {
-                write!(f, "schedule-{}-{:?}", token.from, token.id)
-            }
             StageResponse::CancelScheduleResponse(cancelled) => {
                 write!(f, "cancel_schedule-{}", cancelled)
             }
@@ -722,21 +689,35 @@ impl StageEffect<Box<dyn SendData>> {
     /// Split this effect from the stage into two parts:
     /// - the marker we remember in the running simulation
     /// - the effect we emit to the outside world
-    pub(crate) fn split(self, at_name: Name) -> (StageEffect<()>, Effect) {
+    pub(crate) fn split(self, at_name: Name, now: Instant) -> (StageEffect<()>, Effect) {
         #[expect(clippy::panic)]
         match self {
             StageEffect::Receive => (StageEffect::Receive, Effect::Receive { at_stage: at_name }),
-            StageEffect::Send(name, msg, call_param) => {
-                let call = call_param
-                    .as_ref()
-                    .map(|(duration, _, id)| (*duration, *id));
+            StageEffect::Send(name, call, msg) => {
+                let is_call = call.is_some();
                 (
-                    StageEffect::Send(name.clone(), (), call_param),
+                    StageEffect::Send(name.clone(), call, ()),
                     Effect::Send {
                         from: at_name,
                         to: name,
+                        call: is_call,
                         msg,
-                        call,
+                    },
+                )
+            }
+            StageEffect::Call(name, duration, msg) => {
+                let id = ScheduleId::new(now + duration);
+                let CallExtra::CallFn(msg) = msg else {
+                    panic!("expected CallFn, got {:?}", msg);
+                };
+                let msg = (msg.into_inner())(at_name.clone(), Arc::new(id));
+                (
+                    StageEffect::Call(name.clone(), duration, CallExtra::ScheduleId(id)),
+                    Effect::Call {
+                        from: at_name,
+                        to: name,
+                        duration,
+                        msg,
                     },
                 )
             }
@@ -748,25 +729,11 @@ impl StageEffect<Box<dyn SendData>> {
                     duration,
                 },
             ),
-            StageEffect::Call(..) => {
-                panic!("call effect is only generated internally")
-            }
-            StageEffect::Respond(name, id, deadline, sender, msg) => (
-                StageEffect::Respond(name.clone(), id, deadline, sender, ()),
-                Effect::Respond {
-                    at_stage: at_name,
-                    target: name,
-                    id,
-                    msg,
-                },
-            ),
-            StageEffect::Schedule(target, msg, when, id) => (
-                StageEffect::Schedule(target.clone(), (), when, id),
+            StageEffect::Schedule(msg, id) => (
+                StageEffect::Schedule((), id),
                 Effect::Schedule {
                     at_stage: at_name,
-                    to: target,
                     msg,
-                    when,
                     id,
                 },
             ),
@@ -832,9 +799,16 @@ pub enum Effect {
     Send {
         from: Name,
         to: Name,
+        call: bool,
         #[serde(with = "crate::serde::serialize_send_data")]
         msg: Box<dyn SendData>,
-        call: Option<(Duration, CallId)>,
+    },
+    Call {
+        from: Name,
+        to: Name,
+        duration: Duration,
+        #[serde(with = "crate::serde::serialize_send_data")]
+        msg: Box<dyn SendData>,
     },
     Clock {
         at_stage: Name,
@@ -843,19 +817,10 @@ pub enum Effect {
         at_stage: Name,
         duration: Duration,
     },
-    Respond {
-        at_stage: Name,
-        target: Name,
-        id: CallId,
-        #[serde(with = "crate::serde::serialize_send_data")]
-        msg: Box<dyn SendData>,
-    },
     Schedule {
         at_stage: Name,
-        to: Name,
         #[serde(with = "crate::serde::serialize_send_data")]
         msg: Box<dyn SendData>,
-        when: Instant,
         id: ScheduleId,
     },
     CancelSchedule {
@@ -897,29 +862,29 @@ impl Effect {
             Effect::Send {
                 from,
                 to,
-                msg,
                 call,
+                msg,
             } => {
-                if let Some((duration, id)) = call {
-                    serde_json::json!({
-                        "type": "send",
-                        "from": from,
-                        "to": to,
-                        "msg": format!("{msg}"),
-                        "call": {
-                            "duration": duration.as_millis(),
-                            "id": id,
-                        }
-                    })
-                } else {
-                    serde_json::json!({
-                        "type": "send",
-                        "from": from,
-                        "to": to,
-                        "msg": format!("{msg}"),
-                    })
-                }
+                serde_json::json!({
+                    "type": "send",
+                    "from": from,
+                    "to": to,
+                    "call": format!("{:?}", call),
+                    "msg": format!("{msg}"),
+                })
             }
+            Effect::Call {
+                from,
+                to,
+                duration,
+                msg,
+            } => serde_json::json!({
+                "type": "call",
+                "from": from,
+                "to": to,
+                "duration": duration.as_millis(),
+                "msg": format!("{msg}"),
+            }),
             Effect::Clock { at_stage } => serde_json::json!({
                 "type": "clock",
                 "at_stage": at_stage,
@@ -929,32 +894,10 @@ impl Effect {
                 "at_stage": at_stage,
                 "duration": duration.as_millis(),
             }),
-            Effect::Respond {
-                at_stage,
-                target,
-                id,
-                msg,
-            } => {
-                serde_json::json!({
-                    "type": "respond",
-                    "at_stage": at_stage,
-                    "target": target,
-                    "id": id,
-                    "msg": format!("{msg}"),
-                })
-            }
-            Effect::Schedule {
-                at_stage,
-                to,
-                msg,
-                when,
-                id,
-            } => serde_json::json!({
+            Effect::Schedule { at_stage, msg, id } => serde_json::json!({
                 "type": "schedule",
                 "at_stage": at_stage,
-                "to": to,
                 "msg": format!("{msg}"),
-                "when": when,
                 "id": format!("{:?}", id),
             }),
             Effect::CancelSchedule { at_stage, id } => serde_json::json!({
@@ -1010,34 +953,26 @@ impl Display for Effect {
             Effect::Send {
                 from,
                 to,
-                msg,
                 call,
+                msg,
             } => {
-                if let Some((duration, _id)) = call {
-                    write!(f, "send {from} -> {to}: {msg} ({duration:?})",)
-                } else {
-                    write!(f, "send {from} -> {to}: {msg}",)
-                }
+                write!(f, "send {from} -> {to}: {call:?} {msg}",)
+            }
+            Effect::Call {
+                from,
+                to,
+                duration,
+                msg,
+            } => {
+                write!(f, "call {from} -> {to}: {duration:?} {msg}")
             }
             Effect::Clock { at_stage } => write!(f, "clock {at_stage}"),
             Effect::Wait { at_stage, duration } => {
                 write!(f, "wait {at_stage}: {duration:?}")
             }
-            Effect::Respond {
-                at_stage,
-                target,
-                id,
-                msg,
-            } => write!(f, "respond {at_stage} -> {target} {id:?}: {msg}",),
-            Effect::Schedule {
-                at_stage,
-                to,
-                msg,
-                when,
-                id,
-            } => write!(f, "schedule {at_stage} -> {to} at {when} (id: {id:?}): {msg}",),
+            Effect::Schedule { at_stage, msg, id } => write!(f, "schedule {at_stage} {id}: {msg}",),
             Effect::CancelSchedule { at_stage, id } => {
-                write!(f, "cancel_schedule {at_stage} (id: {id:?})")
+                write!(f, "cancel_schedule {at_stage} {id}")
             }
             Effect::External { at_stage, effect } => {
                 write!(f, "external {at_stage}: {effect}",)
@@ -1073,14 +1008,29 @@ impl Effect {
     pub fn send(
         from: impl AsRef<str>,
         to: impl AsRef<str>,
+        call: bool,
         msg: Box<dyn SendData>,
-        call: Option<(Duration, CallId)>,
     ) -> Self {
         Self::Send {
             from: Name::from(from.as_ref()),
             to: Name::from(to.as_ref()),
-            msg,
             call,
+            msg,
+        }
+    }
+
+    /// Construct a call effect.
+    pub fn call(
+        from: impl AsRef<str>,
+        to: impl AsRef<str>,
+        duration: Duration,
+        msg: Box<dyn SendData>,
+    ) -> Self {
+        Self::Call {
+            from: Name::from(from.as_ref()),
+            to: Name::from(to.as_ref()),
+            duration,
+            msg,
         }
     }
 
@@ -1096,21 +1046,6 @@ impl Effect {
         Self::Wait {
             at_stage: Name::from(at_stage.as_ref()),
             duration,
-        }
-    }
-
-    /// Construct a respond effect.
-    pub fn respond(
-        at_stage: impl AsRef<str>,
-        target: impl AsRef<str>,
-        id: CallId,
-        msg: Box<dyn SendData>,
-    ) -> Self {
-        Self::Respond {
-            at_stage: Name::from(at_stage.as_ref()),
-            target: Name::from(target.as_ref()),
-            id,
-            msg,
         }
     }
 
@@ -1134,9 +1069,9 @@ impl Effect {
         match self {
             Effect::Receive { at_stage, .. } => at_stage,
             Effect::Send { from, .. } => from,
+            Effect::Call { from, .. } => from,
             Effect::Clock { at_stage, .. } => at_stage,
             Effect::Wait { at_stage, .. } => at_stage,
-            Effect::Respond { at_stage, .. } => at_stage,
             Effect::Schedule { at_stage, .. } => at_stage,
             Effect::CancelSchedule { at_stage, .. } => at_stage,
             Effect::External { at_stage, .. } => at_stage,
@@ -1173,8 +1108,8 @@ impl Effect {
             Effect::Send {
                 from,
                 to,
+                call: _,
                 msg: m,
-                call: None,
             } if from == at_stage.name()
                 && to == target.name()
                 && (&**m as &dyn Any).downcast_ref::<Msg2>().unwrap() == &msg => {}
@@ -1224,42 +1159,18 @@ impl Effect {
         let at_stage = at_stage.as_ref();
         let target = target.as_ref();
         match self {
-            Effect::Send {
+            Effect::Call {
                 from,
                 to,
-                msg: m,
-                call: Some((d, _id)),
+                duration: d,
+                msg,
             } if &from == at_stage.name() && &to == target.name() && d == duration => {
-                extract(*m.cast::<Msg2>().expect("internal messaging type error"))
+                extract(*msg.cast::<Msg2>().expect("internal messaging type error"))
             }
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Send from `{}` to `{}` with duration {duration:?}",
                 at_stage.name(),
                 target.name()
-            ),
-        }
-    }
-
-    /// Assert that this effect is a respond effect.
-    pub fn assert_respond<Msg, Msg2: SendData + PartialEq>(
-        &self,
-        at_stage: impl AsRef<StageRef<Msg>>,
-        cr: &CallRef<Msg2>,
-        msg: Msg2,
-    ) {
-        let at_stage = at_stage.as_ref();
-        match self {
-            Effect::Respond {
-                at_stage: a,
-                target: _,
-                id: i,
-                msg: m,
-            } if a == at_stage.name()
-                && *i == cr.id
-                && &**m as &dyn SendData == &msg as &dyn SendData => {}
-            _ => panic!(
-                "unexpected effect {self:?}\n  looking for Respond at `{}` with id {cr:?} and msg {msg:?}",
-                at_stage.name()
             ),
         }
     }
@@ -1387,15 +1298,34 @@ impl PartialEq for Effect {
             Effect::Send {
                 from,
                 to,
-                msg,
                 call,
+                msg,
             } => match other {
                 Effect::Send {
                     from: other_from,
                     to: other_to,
-                    msg: other_msg,
                     call: other_call,
-                } => from == other_from && to == other_to && msg == other_msg && call == other_call,
+                    msg: other_msg,
+                } => from == other_from && to == other_to && call == other_call && msg == other_msg,
+                _ => false,
+            },
+            Effect::Call {
+                from,
+                to,
+                duration,
+                msg,
+            } => match other {
+                Effect::Call {
+                    from: other_from,
+                    to: other_to,
+                    duration: other_duration,
+                    msg: other_msg,
+                } => {
+                    from == other_from
+                        && to == other_to
+                        && duration == other_duration
+                        && msg == other_msg
+                }
                 _ => false,
             },
             Effect::Clock { at_stage } => match other {
@@ -1411,45 +1341,12 @@ impl PartialEq for Effect {
                 } => at_stage == other_at_stage && duration == other_duration,
                 _ => false,
             },
-            Effect::Respond {
-                at_stage,
-                target,
-                id,
-                msg,
-            } => match other {
-                Effect::Respond {
-                    at_stage: other_at_stage,
-                    target: other_target,
-                    id: other_id,
-                    msg: other_msg,
-                } => {
-                    at_stage == other_at_stage
-                        && target == other_target
-                        && id == other_id
-                        && msg == other_msg
-                }
-                _ => false,
-            },
-            Effect::Schedule {
-                at_stage,
-                to,
-                msg,
-                when,
-                id,
-            } => match other {
+            Effect::Schedule { at_stage, msg, id } => match other {
                 Effect::Schedule {
                     at_stage: other_at_stage,
-                    to: other_to,
                     msg: other_msg,
-                    when: other_when,
                     id: other_id,
-                } => {
-                    at_stage == other_at_stage
-                        && to == other_to
-                        && msg == other_msg
-                        && when == other_when
-                        && id == other_id
-                }
+                } => at_stage == other_at_stage && msg == other_msg && id == other_id,
                 _ => false,
             },
             Effect::CancelSchedule { at_stage, id } => match other {

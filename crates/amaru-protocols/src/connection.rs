@@ -34,7 +34,7 @@ use amaru_kernel::protocol_messages::{
     version_number::VersionNumber,
 };
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
-use pure_stage::{CallRef, Effects, StageRef, Void};
+use pure_stage::{Effects, StageRef, Void};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Connection {
@@ -101,7 +101,7 @@ pub enum ConnectionMessage {
     FetchBlocks {
         from: Point,
         through: Point,
-        cr: CallRef<Blocks>,
+        cr: StageRef<Blocks>,
     },
     // LATER: make full duplex, etc.
 }

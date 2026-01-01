@@ -136,7 +136,7 @@ async fn process_outcome(
     match outcome {
         Outcome::Send(msg) => {
             tracing::trace!(msg_type = ?msg.message_type(), "sending message to network");
-            eff.call(mux, NETWORK_SEND_TIMEOUT, |cr| {
+            eff.call(mux, NETWORK_SEND_TIMEOUT, move |cr| {
                 MuxMessage::Send(protocol, to_bytes(msg), cr)
             })
             .await;

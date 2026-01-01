@@ -13,13 +13,12 @@
 // limitations under the License.
 
 use crate::{
-    CallId, Instant, Name, ScheduleToken, SendData, StageResponse,
-    effect::{StageEffect, TransitionFactory},
+    Instant, Name, ScheduleId, SendData, StageResponse,
+    effect::{CallExtra, StageEffect, TransitionFactory},
     simulation::state::{StageData, StageState},
     trace_buffer::TraceBuffer,
 };
-use std::{mem::replace, time::Duration};
-use tokio::sync::oneshot::{Receiver, Sender};
+use std::mem::replace;
 
 pub fn resume_receive_internal(
     trace_buffer: &mut TraceBuffer,
@@ -66,13 +65,15 @@ pub fn resume_send_internal(
     data: &mut StageData,
     run: &mut dyn FnMut(Name, StageResponse),
     to: Name,
-) -> anyhow::Result<Option<(Duration, Receiver<Box<dyn SendData>>, CallId)>> {
+    call: bool,
+) -> anyhow::Result<Option<ScheduleId>> {
     let waiting_for = data
         .waiting
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
-    if !matches!(waiting_for, StageEffect::Send(name, _msg, _call) if name == &to) {
+    if !matches!(waiting_for, StageEffect::Send(name, call2, _msg) if name == &to && call2.is_some() == call)
+    {
         anyhow::bail!(
             "stage `{}` was not waiting for a send effect to `{}`, but {:?}",
             data.name,
@@ -82,13 +83,16 @@ pub fn resume_send_internal(
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
-    let Some(StageEffect::Send(_to, _msg, call)) = data.waiting.take() else {
-        panic!("match is guaranteed by the validation above");
+    let Some(StageEffect::Send(_, call, _)) = data.waiting.take() else {
+        panic!("checked above");
     };
+    let call = call.map(|call| {
+        *call
+            .downcast_ref::<ScheduleId>()
+            .expect("StageRef extra must be a ScheduleId")
+    });
 
-    if call.is_none() {
-        run(data.name.clone(), StageResponse::Unit);
-    }
+    run(data.name.clone(), StageResponse::Unit);
     Ok(call)
 }
 
@@ -145,14 +149,16 @@ pub fn resume_wait_internal(
 pub fn resume_call_internal(
     data: &mut StageData,
     run: &mut dyn FnMut(Name, StageResponse),
-    id: CallId,
+    id: Option<ScheduleId>,
+    msg: Box<dyn SendData>,
 ) -> anyhow::Result<()> {
     let waiting_for = data
         .waiting
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
-    if !matches!(waiting_for, StageEffect::Call(_,_,_,_,id2) if id2 == &id) {
+    if !matches!(waiting_for, StageEffect::Call(_,_,CallExtra::ScheduleId(id2)) if id.iter().all(|id| id == id2))
+    {
         anyhow::bail!(
             "stage `{}` was not waiting for a call effect, but {:?}",
             data.name,
@@ -161,48 +167,10 @@ pub fn resume_call_internal(
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
-    let Some(StageEffect::Call(_name, _timeout, _msg, mut recv, _id)) = data.waiting.take() else {
-        panic!("match is guaranteed by the validation above");
-    };
+    data.waiting = None;
 
-    let msg = recv
-        .try_recv()
-        .ok()
-        .map(StageResponse::CallResponse)
-        .unwrap_or(StageResponse::CallTimeout);
-
-    run(data.name.clone(), msg);
+    run(data.name.clone(), StageResponse::CallResponse(msg));
     Ok(())
-}
-
-pub fn resume_respond_internal(
-    data: &mut StageData,
-    run: &mut dyn FnMut(Name, StageResponse),
-    target: Name,
-    id: CallId,
-) -> anyhow::Result<(Name, CallId, Instant, Sender<Box<dyn SendData>>)> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
-
-    if !matches!(waiting_for, StageEffect::Respond(name, id2, _deadline, _sender, _msg) if id2 == &id && name == &target)
-    {
-        anyhow::bail!(
-            "stage `{}` was not waiting for a respond effect with id {id:?}, but {:?}",
-            data.name,
-            waiting_for
-        )
-    }
-
-    // it is important that all validations (i.e. `?``) happen before this point
-    let Some(StageEffect::Respond(target, _id2, deadline, sender, _msg)) = data.waiting.take()
-    else {
-        panic!("match is guaranteed by the validation above");
-    };
-
-    run(data.name.clone(), StageResponse::Unit);
-    Ok((target, id, deadline, sender))
 }
 
 pub fn resume_external_internal(
@@ -312,18 +280,18 @@ pub fn resume_contramap_internal(
 pub fn resume_schedule_internal(
     data: &mut StageData,
     run: &mut dyn FnMut(Name, StageResponse),
-    token: ScheduleToken,
+    id: ScheduleId,
 ) -> anyhow::Result<()> {
     let waiting_for = data
         .waiting
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
-    if !matches!(waiting_for, StageEffect::Schedule(_, _, _, id) if id == &token.id) {
+    if !matches!(waiting_for, StageEffect::Schedule(_, id2) if id2 == &id) {
         anyhow::bail!(
             "stage `{}` was not waiting for a schedule effect with id {:?}, but {:?}",
             data.name,
-            token.id,
+            id,
             waiting_for
         )
     }
@@ -331,7 +299,7 @@ pub fn resume_schedule_internal(
     // it is important that all validations (i.e. `?`) happen before this point
     data.waiting = None;
 
-    run(data.name.clone(), StageResponse::ScheduleResponse(token));
+    run(data.name.clone(), StageResponse::Unit);
     Ok(())
 }
 
@@ -356,6 +324,9 @@ pub fn resume_cancel_schedule_internal(
     // it is important that all validations (i.e. `?`) happen before this point
     data.waiting = None;
 
-    run(data.name.clone(), StageResponse::CancelScheduleResponse(cancelled));
+    run(
+        data.name.clone(),
+        StageResponse::CancelScheduleResponse(cancelled),
+    );
     Ok(())
 }

@@ -18,19 +18,23 @@
 //! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
 
 use crate::adapter::{Adapter, StageOrAdapter, find_recipient};
+use crate::effect::{CallExtra, CallTimeout};
+use crate::serde::NoDebug;
 use crate::simulation::Transition;
-use crate::stage_name;
 use crate::stage_ref::StageStateRef;
 use crate::trace_buffer::TraceBuffer;
 use crate::{
-    BoxFuture, Effects, Instant, Name, ScheduleToken, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
     effect::{StageEffect, StageResponse},
     effect_box::EffectBox,
     resources::Resources,
     stagegraph::StageGraphRunning,
     time::Clock,
 };
+use crate::{ScheduleId, stage_name};
 use either::Either::{Left, Right};
+use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 use parking_lot::Mutex;
 use std::{
     collections::BTreeMap,
@@ -39,6 +43,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll, Waker},
 };
+use tokio::sync::oneshot;
 use tokio::{
     runtime::Handle,
     sync::{
@@ -139,10 +144,7 @@ impl TokioBuilder {
 }
 
 impl StageGraph for TokioBuilder {
-    type RefAux<Msg, State> = (
-        Receiver<Box<dyn SendData>>,
-        Box<dyn FnMut(State, Msg, Effects<Msg>) -> BoxFuture<'static, State> + 'static + Send>,
-    );
+    type RefAux<Msg, State> = (Receiver<Box<dyn SendData>>, TypedTransition<State, Msg>);
 
     fn stage<Msg: SendData, St: SendData, F, Fut>(
         &mut self,
@@ -231,17 +233,13 @@ impl StageGraph for TokioBuilder {
     }
 }
 
+type TypedTransition<St, Msg> =
+    Box<dyn FnMut(St, Msg, Effects<Msg>) -> BoxFuture<'static, St> + Send>;
+
 async fn run_stage<Msg: SendData, St: SendData>(
     mut state: St,
     mut rx: Receiver<Box<dyn SendData + 'static>>,
-    mut ff: Box<
-        dyn FnMut(
-                St,
-                Msg,
-                Effects<Msg>,
-            ) -> std::pin::Pin<Box<dyn Future<Output = St> + Send + 'static>>
-            + Send,
-    >,
+    mut ff: TypedTransition<St, Msg>,
     stage_name: Name,
     inner: Arc<TokioInner>,
 ) {
@@ -255,19 +253,30 @@ async fn run_stage<Msg: SendData, St: SendData>(
         inner.resources.clone(),
         inner.trace_buffer.clone(),
     );
-    while let Some(msg) = rx.recv().await {
-        let result = interpreter(
-            &inner,
-            &effect,
-            &stage_name,
-            ff(
-                state,
-                #[expect(clippy::expect_used)]
-                *msg.cast::<Msg>().expect("internal message type error"),
-                effects.clone(),
-            ),
-        )
-        .await;
+
+    let mut timers = FuturesUnordered::<BoxFuture<'static, Option<(Msg, ScheduleId)>>>::new();
+    let mut scheduled = BTreeMap::<ScheduleId, oneshot::Sender<()>>::new();
+
+    loop {
+        let msg = tokio::select! { biased;
+            Some(res) = timers.next(), if !timers.is_empty() => {
+                let Some((msg, id)) = res else {
+                    // timer was cancelled, tx already removed from `scheduled`
+                    continue;
+                };
+                scheduled.remove(&id);
+                msg
+            }
+            Some(msg) = rx.recv() => *msg.cast::<Msg>().expect("internal message type error"),
+            else => {
+                tracing::error!(%stage_name, "stage sender dropped");
+                inner.termination.send_replace(true);
+                break;
+            }
+        };
+        let f = ff(state, msg, effects.clone());
+        let result =
+            interpreter(&inner, &effect, &stage_name, &mut timers, &mut scheduled, f).await;
         match result {
             Some(st) => state = st,
             None => {
@@ -287,9 +296,32 @@ async fn run_stage_boxed(
     stage_name: Name,
     inner: Arc<TokioInner>,
 ) {
-    tracing::debug!("running stage `{stage_name}`");
-    while let Some(msg) = rx.recv().await {
-        let result = interpreter(&inner, &effect, &stage_name, (transition)(state, msg)).await;
+    tracing::debug!("running boxed stage `{stage_name}`");
+
+    let mut timers =
+        FuturesUnordered::<BoxFuture<'static, Option<(Box<dyn SendData>, ScheduleId)>>>::new();
+    let mut scheduled = BTreeMap::<ScheduleId, oneshot::Sender<()>>::new();
+
+    loop {
+        let msg = tokio::select! { biased;
+            Some(res) = timers.next(), if !timers.is_empty() => {
+                let Some((msg, id)) = res else {
+                    // timer was cancelled, tx already removed from `scheduled`
+                    continue;
+                };
+                scheduled.remove(&id);
+                msg
+            }
+            Some(msg) = rx.recv() => msg,
+            else => {
+                tracing::error!(%stage_name, "stage sender dropped");
+                inner.termination.send_replace(true);
+                break;
+            }
+        };
+        let f = (transition)(state, msg);
+        let result =
+            interpreter(&inner, &effect, &stage_name, &mut timers, &mut scheduled, f).await;
         match result {
             Some(st) => state = st,
             None => {
@@ -321,12 +353,16 @@ fn mk_sender<Msg: SendData>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg
     }))
 }
 
+type StageRefExtra = Mutex<Option<oneshot::Sender<Box<dyn SendData>>>>;
+
 // clippy is lying, changing to async fn does not work.
 #[expect(clippy::manual_async_fn)]
-fn interpreter<St>(
+fn interpreter<St, Msg: SendData>(
     inner: &Arc<TokioInner>,
     effect: &EffectBox,
     name: &Name,
+    timers: &mut FuturesUnordered<BoxFuture<'static, Option<(Msg, ScheduleId)>>>,
+    scheduled: &mut BTreeMap<ScheduleId, oneshot::Sender<()>>,
     mut stage: BoxFuture<'static, St>,
 ) -> impl Future<Output = Option<St>> + Send {
     // trying to write this as an async fn fails with inscrutable compile errors, it seems
@@ -350,63 +386,54 @@ fn interpreter<St>(
                         panic!("effect Receive cannot be explicitly awaited (stage `{name}`)")
                     }
                 }
-                StageEffect::Send(target, msg, call) => {
-                    if target.as_str().is_empty() {
-                        if let Some((duration, _, _)) = call {
-                            tracing::warn!(stage = %name, "call to blackhole stage dropped");
-                            tokio::time::sleep(duration).await;
-                            StageResponse::CallTimeout
-                        } else {
-                            tracing::warn!(stage = %name, "message send to blackhole stage dropped");
-                            StageResponse::Unit
-                        }
-                    } else {
-                        let (tx, msg) = {
-                            let mut senders = inner.senders.lock();
-                            #[expect(clippy::expect_used)]
-                            let (tx, msg) = find_recipient(&mut senders, target.clone(), Some(msg))
-                                .expect("stage ref contained unknown name");
-                            (tx.clone(), msg)
-                        };
-                        let Ok(_) = tx.send(msg).await else {
-                            tracing::warn!(
-                                "message send failed from stage `{name}` to stage `{target}`"
-                            );
-                            return None;
-                        };
-                        if let Some((d, rx, _id)) = call {
-                            tokio::time::timeout(d, rx)
-                                .await
-                                .ok()
-                                .and_then(|r| r.ok())
-                                .map(StageResponse::CallResponse)
-                                .unwrap_or(StageResponse::CallTimeout)
-                        } else {
-                            StageResponse::Unit
-                        }
+                StageEffect::Send(target, ..) if target.is_empty() => {
+                    tracing::warn!(stage = %name, "message send to blackhole stage dropped");
+                    StageResponse::Unit
+                }
+                StageEffect::Send(_target, Some(call), msg) => {
+                    let sender = call
+                        .downcast_ref::<StageRefExtra>()
+                        .expect("expected CallExtra");
+                    if let Some(sender) = sender.lock().take() {
+                        sender.send(msg).ok();
+                    }
+                    StageResponse::Unit
+                }
+                StageEffect::Send(target, None, msg) => {
+                    let (tx, msg) = {
+                        let mut senders = inner.senders.lock();
+                        #[expect(clippy::expect_used)]
+                        let (tx, msg) = find_recipient(&mut senders, target.clone(), Some(msg))
+                            .expect("stage ref contained unknown name");
+                        (tx.clone(), msg)
+                    };
+                    tx.send(msg).await.ok();
+                    StageResponse::Unit
+                }
+                StageEffect::Call(target, duration, msg) => {
+                    let CallExtra::CallFn(NoDebug(msg)) = msg else {
+                        panic!("expected CallFn, got {:?}", msg);
+                    };
+                    let (tx_response, rx) = oneshot::channel();
+                    let sender = StageRefExtra::new(Some(tx_response));
+                    let msg = (msg)(name.clone(), Arc::new(sender));
+                    let (tx_call, msg) = {
+                        let mut senders = inner.senders.lock();
+                        #[expect(clippy::expect_used)]
+                        let (tx, msg) = find_recipient(&mut senders, target.clone(), Some(msg))
+                            .expect("stage ref contained unknown name");
+                        (tx.clone(), msg)
+                    };
+                    tx_call.send(msg).await.ok();
+                    match tokio::time::timeout(duration, rx).await {
+                        Ok(Ok(msg)) => StageResponse::CallResponse(msg),
+                        _ => StageResponse::CallResponse(Box::new(CallTimeout)),
                     }
                 }
                 StageEffect::Clock => StageResponse::ClockResponse(now()),
                 StageEffect::Wait(duration) => {
                     tokio::time::sleep(duration).await;
                     StageResponse::WaitResponse(now())
-                }
-                StageEffect::Call(..) => {
-                    #[expect(clippy::panic)]
-                    {
-                        panic!("StageEffect::Call cannot be explicitly awaited (stage `{name}`")
-                    }
-                }
-                StageEffect::Respond(target, _call_id, deadline, sender, msg) => {
-                    if let Err(msg) = sender.send(msg) {
-                        tracing::warn!(
-                            "response to {} was dropped: {:?} (deadline: {})",
-                            target,
-                            msg,
-                            deadline.pretty(now())
-                        );
-                    }
-                    StageResponse::Unit
                 }
                 StageEffect::External(effect) => {
                     tracing::debug!("stage `{name}` external effect: {:?}", effect);
@@ -456,37 +483,27 @@ fn interpreter<St>(
                     );
                     StageResponse::ContramapResponse(name)
                 }
-                StageEffect::Schedule(target, msg, when, id) => {
-                    let from = name.clone();
-                    let token = ScheduleToken::new(id, from);
-                    // Schedule the message to be sent at the specified time
-                    let inner_clone = inner.clone();
-                    tokio::spawn(async move {
-                        let now = now();
-                        if when > now {
-                            // Convert our Instant to tokio::time::Instant
-                            tokio::time::sleep_until(when.to_tokio()).await;
+                StageEffect::Schedule(msg, id) => {
+                    let when = id.time();
+                    let msg = *msg.cast::<Msg>().expect("internal message type error");
+                    let sleep = tokio::time::sleep_until(when.to_tokio());
+                    let (tx, rx) = oneshot::channel();
+                    scheduled.insert(id, tx);
+                    timers.push(Box::pin(async move {
+                        tokio::select! { biased;
+                            _ = rx => None,
+                            _ = sleep => Some((msg, id)),
                         }
-                        // Send the message - get the sender first, then drop the lock
-                        let (tx, msg) = {
-                            let mut senders = inner_clone.senders.lock();
-                            if let Some((tx, msg)) = find_recipient::<mpsc::Sender<Box<dyn SendData>>>(&mut senders, target, Some(msg)) {
-                                (Some(tx.clone()), Some(msg))
-                            } else {
-                                (None, None)
-                            }
-                        };
-                        if let (Some(tx), Some(msg)) = (tx, msg) {
-                            let _ = tx.send(msg).await;
-                        }
-                    });
-                    StageResponse::ScheduleResponse(token)
+                    }));
+                    StageResponse::Unit
                 }
                 StageEffect::CancelSchedule(id) => {
-                    // TODO: Implement cancellation tracking in tokio runtime
-                    // For now, we'll return false as we don't have a way to track scheduled tasks
-                    tracing::warn!("cancel_schedule not fully implemented in tokio runtime");
-                    StageResponse::CancelScheduleResponse(false)
+                    if let Some(tx) = scheduled.remove(&id) {
+                        tx.send(()).ok();
+                        StageResponse::CancelScheduleResponse(true)
+                    } else {
+                        StageResponse::CancelScheduleResponse(false)
+                    }
                 }
             };
             *effect.lock() = Some(Right(resp));
