@@ -41,6 +41,7 @@ uplc-turbo.workspace = true
 # External dependencies ───────────────────────────────────────────────────────┐
 proptest.workspace = true
 test-case.workspace = true
+toml.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = ["test-utils"] }
