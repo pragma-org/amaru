@@ -41,7 +41,9 @@ use amaru_kernel::{
     stake_credential_hash,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
+use amaru_ouroboros_traits::{
+    HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError,
+};
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use anyhow::{Context, anyhow};
 use std::{
@@ -443,7 +445,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         )
         .map_err(StateError::Storage)?;
 
-        stake_distributions.push_front(recover_stake_distribution(
+        stake_distributions.push_front(compute_stake_distribution(
             &snapshot,
             &self.era_history,
             &self.protocol_parameters,
@@ -723,7 +725,7 @@ pub fn initial_stake_distributions(
         let protocol_parameters = snapshot.protocol_parameters()?;
 
         stake_distributions.push_front(
-            recover_stake_distribution(&snapshot, era_history, &protocol_parameters)
+            compute_stake_distribution(&snapshot, era_history, &protocol_parameters)
                 .map_err(|err| StoreError::Internal(err.into()))?,
         );
     }
@@ -738,7 +740,7 @@ pub fn initial_stake_distributions(
         epoch = %snapshot.epoch(),
     ),
 )]
-pub fn recover_stake_distribution(
+pub fn compute_stake_distribution(
     snapshot: &impl Snapshot,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
@@ -1090,7 +1092,7 @@ pub struct StakeDistributionObserver {
 
 impl HasStakeDistribution for StakeDistributionObserver {
     #[expect(clippy::unwrap_used)]
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
+    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
         let epoch = self
             .era_history
             // NOTE: This function is called by the consensus when validating block headers. So in
@@ -1100,17 +1102,19 @@ impl HasStakeDistribution for StakeDistributionObserver {
             //
             // Either way, we do know at this point how to forecast this slot.
             .slot_to_epoch_unchecked_horizon(slot)
-            .ok()?
+            .map_err(GetPoolError::SlotToEpochConversionFailure)?
             - 2;
-
         let view = self.view.lock().unwrap();
-        view.iter().find(|s| s.epoch == epoch).and_then(|s| {
-            s.pools.get(pool).map(|st| PoolSummary {
-                vrf: st.parameters.vrf,
-                stake: st.stake,
-                active_stake: s.active_stake,
-            })
-        })
+        let stake_distribution = view
+            .iter()
+            .find(|s| s.epoch == epoch)
+            .ok_or(GetPoolError::StakeDistributionNotAvailable(epoch))?;
+
+        Ok(stake_distribution.pools.get(pool).map(|st| PoolSummary {
+            vrf: st.parameters.vrf,
+            stake: st.stake,
+            active_stake: stake_distribution.active_stake,
+        }))
     }
 }
 

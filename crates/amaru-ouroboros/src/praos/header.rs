@@ -19,7 +19,7 @@ use crate::{
 };
 use amaru_kernel::protocol_parameters::ConsensusParameters;
 use amaru_kernel::{Header, HeaderHash, Nonce};
-use amaru_ouroboros_traits::HasStakeDistribution;
+use amaru_ouroboros_traits::{HasStakeDistribution, has_stake_distribution::GetPoolError};
 use amaru_slot_arithmetic::Slot;
 use std::sync::Arc;
 use std::{array::TryFromSliceError, ops::Deref, sync::LazyLock};
@@ -57,6 +57,8 @@ pub enum AssertHeaderError {
     TryFromSliceError,
     #[error("Unknown pool: {}", hex::encode(&pool[0..7]))]
     UnknownPool { pool: PoolId },
+    #[error("{0}")]
+    PoolError(#[from] GetPoolError),
 }
 
 impl From<TryFromSliceError> for AssertHeaderError {
@@ -108,11 +110,13 @@ pub fn assert_all<'a>(
     ) = ledger_state
         .get_pool(absolute_slot, &pool)
         .map(|pool| {
-            (
-                pool.vrf,
-                FixedDecimal::from(pool.stake) / FixedDecimal::from(pool.active_stake),
-            )
-        })
+            pool.map(|pool| {
+                (
+                    pool.vrf,
+                    FixedDecimal::from(pool.stake) / FixedDecimal::from(pool.active_stake),
+                )
+            })
+        })?
         .ok_or(AssertHeaderError::UnknownPool { pool })?;
 
     let active_slot_coeff = consensus_parameters.active_slot_coeff();

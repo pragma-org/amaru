@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Lovelace, PoolId, VrfKeyhash};
-use amaru_slot_arithmetic::Slot;
+use amaru_kernel::{Epoch, Lovelace, PoolId, VrfKeyhash};
+use amaru_slot_arithmetic::{EraHistoryError, Slot};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 pub mod mock_ledger_state;
 
@@ -28,9 +29,17 @@ pub struct PoolSummary {
     pub stake: Lovelace,
 }
 
+#[derive(Debug, Error, serde::Serialize, serde::Deserialize)]
+pub enum GetPoolError {
+    #[error("slot to epoch conversion failed {0}.")]
+    SlotToEpochConversionFailure(#[from] EraHistoryError),
+    #[error("no stake distribution available for pool access {0}.")]
+    StakeDistributionNotAvailable(Epoch),
+}
+
 /// The HasStakeDistribution trait provides a lookup mechanism for various information sourced from the ledger
 pub trait HasStakeDistribution: Send + Sync {
     /// Obtain information about a pool such as its VRF key hash and its stake. The information is
     /// fetched from the ledger based on the given slot.
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary>;
+    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError>;
 }
