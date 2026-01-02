@@ -74,6 +74,9 @@ jobs:
 
     runs-on: ${{ matrix.environments.runner }}
     steps:
+      - name: Support longpaths
+        run: git config --system core.longpaths true
+        if: contains(matrix.environments.runner, 'windows')
       - uses: actions/checkout@v4
         with:
           submodules: true
@@ -244,6 +247,9 @@ jobs:
           # Make sure to export DEMO_TARGET_EPOCH for subsequent steps
           echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
 
+      - name: Support longpaths
+        run: git config --system core.longpaths true
+        if: contains(needs.snapshots-instance-choice.outputs.runner, 'windows')
       - uses: actions/checkout@v4
 
       - name: Reclaim Disk Space
