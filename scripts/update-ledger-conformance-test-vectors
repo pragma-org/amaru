@@ -15,4 +15,4 @@ fi
 
 rm -rf "$VECTOR_DIR"
 mkdir "$VECTOR_DIR"
-tar -xvf "$TAR_PATH" -C "$VECTOR_DIR"
+tar --transform='s/ \//\//g' -xvf "$TAR_PATH" -C "$VECTOR_DIR"
