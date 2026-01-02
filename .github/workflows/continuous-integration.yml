@@ -82,6 +82,7 @@ jobs:
     steps:
       - name: Support longpaths
         run: git config --system core.longpaths true
+        if: contains(matrix.environments.runner, 'windows')
       - uses: actions/checkout@v4
         with:
           submodules: true
@@ -253,6 +254,7 @@ jobs:
 
       - name: Support longpaths
         run: git config --system core.longpaths true
+        if: contains(needs.snapshots-instance-choice.outputs.runner, 'windows')
       - uses: actions/checkout@v4
 
       - name: Reclaim Disk Space
