@@ -42,7 +42,7 @@ use amaru_kernel::{
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    HasStakeDistribution, PoolSummary, has_stake_distribution::PoolError,
+    HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError,
 };
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use anyhow::{Context, anyhow};
@@ -1092,7 +1092,7 @@ pub struct StakeDistributionObserver {
 
 impl HasStakeDistribution for StakeDistributionObserver {
     #[expect(clippy::unwrap_used)]
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, PoolError> {
+    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
         let epoch = self
             .era_history
             // NOTE: This function is called by the consensus when validating block headers. So in
@@ -1102,13 +1102,13 @@ impl HasStakeDistribution for StakeDistributionObserver {
             //
             // Either way, we do know at this point how to forecast this slot.
             .slot_to_epoch_unchecked_horizon(slot)
-            .map_err(PoolError::SlotToEpochConversionFailure)?
+            .map_err(GetPoolError::SlotToEpochConversionFailure)?
             - 2;
         let view = self.view.lock().unwrap();
         let stake_distribution = view
             .iter()
             .find(|s| s.epoch == epoch)
-            .ok_or(PoolError::StakeDistributionNotAvailable(epoch))?;
+            .ok_or(GetPoolError::StakeDistributionNotAvailable(epoch))?;
 
         Ok(stake_distribution.pools.get(pool).map(|st| PoolSummary {
             vrf: st.parameters.vrf,

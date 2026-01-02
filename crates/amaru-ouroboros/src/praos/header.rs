@@ -19,7 +19,7 @@ use crate::{
 };
 use amaru_kernel::protocol_parameters::ConsensusParameters;
 use amaru_kernel::{Header, HeaderHash, Nonce};
-use amaru_ouroboros_traits::{HasStakeDistribution, has_stake_distribution::PoolError};
+use amaru_ouroboros_traits::{HasStakeDistribution, has_stake_distribution::GetPoolError};
 use amaru_slot_arithmetic::Slot;
 use std::sync::Arc;
 use std::{array::TryFromSliceError, ops::Deref, sync::LazyLock};
@@ -58,7 +58,7 @@ pub enum AssertHeaderError {
     #[error("Unknown pool: {}", hex::encode(&pool[0..7]))]
     UnknownPool { pool: PoolId },
     #[error("{0}")]
-    PoolError(#[from] PoolError),
+    PoolError(#[from] GetPoolError),
 }
 
 impl From<TryFromSliceError> for AssertHeaderError {

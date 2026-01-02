@@ -30,7 +30,7 @@ pub struct PoolSummary {
 }
 
 #[derive(Debug, Error, serde::Serialize, serde::Deserialize)]
-pub enum PoolError {
+pub enum GetPoolError {
     #[error("slot to epoch conversion failed {0}.")]
     SlotToEpochConversionFailure(#[from] EraHistoryError),
     #[error("no stake distribution available for pool access {0}.")]
@@ -41,5 +41,5 @@ pub enum PoolError {
 pub trait HasStakeDistribution: Send + Sync {
     /// Obtain information about a pool such as its VRF key hash and its stake. The information is
     /// fetched from the ledger based on the given slot.
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, PoolError>;
+    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError>;
 }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{HasStakeDistribution, PoolSummary, has_stake_distribution::PoolError};
+use crate::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
 use amaru_kernel::{Lovelace, PoolId, Slot, VrfKeyhash};
 use std::collections::BTreeMap;
 
@@ -38,7 +38,7 @@ impl MockLedgerState {
 }
 
 impl HasStakeDistribution for MockLedgerState {
-    fn get_pool(&self, _slot: Slot, _pool: &PoolId) -> Result<Option<PoolSummary>, PoolError> {
+    fn get_pool(&self, _slot: Slot, _pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
         Ok(Some(PoolSummary {
             vrf: self.vrf_vkey_hash,
             stake: self.stake,
