@@ -62,6 +62,8 @@ jobs:
 
     runs-on: ${{ matrix.environments.runner }}
     steps:
+      - name: Support longpaths
+        run: git config --system core.longpaths true
       - uses: actions/checkout@v4
         with:
           submodules: true
@@ -196,6 +198,8 @@ jobs:
     continue-on-error: true
 
     steps:
+      - name: Support longpaths
+        run: git config --system core.longpaths true
       - uses: actions/checkout@v4
 
       - name: Reclaim Disk Space
