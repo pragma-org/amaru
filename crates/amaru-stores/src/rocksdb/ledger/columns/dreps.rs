@@ -42,9 +42,9 @@ pub fn get<DB>(
 ) -> Result<Option<Row>, StoreError> {
     let key = as_key(&PREFIX, credential);
     Ok(db
-        .get(&key)
+        .get_pinned(&key)
         .map_err(|err| StoreError::Internal(err.into()))?
-        .map(unsafe_decode::<Row>))
+        .map(|d| unsafe_decode::<Row>(&d)))
 }
 
 /// Register a new DRep.
@@ -65,9 +65,9 @@ pub fn add<DB>(
         // but instead, we record the de-registration event; necessary to reconstruct a "valid"
         // ledger state down the line.
         let row = if let Some(mut row) = db
-            .get(&key)
+            .get_pinned(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(unsafe_decode::<Row>)
+            .map(|d| unsafe_decode::<Row>(&d))
         {
             // Re-registration
             if let Some(DRepRegistration {
@@ -136,9 +136,9 @@ pub fn set_valid_until<DB>(
         let key = as_key(&PREFIX, &credential);
 
         if let Some(mut row) = db
-            .get(&key)
+            .get_pinned(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(unsafe_decode::<Row>)
+            .map(|d| unsafe_decode::<Row>(&d))
         {
             row.valid_until = valid_until;
             db.put(key, as_value(row))
@@ -179,9 +179,9 @@ pub fn remove<DB>(
         }
 
         if let Some(mut row) = db
-            .get(&key)
+            .get_pinned(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(unsafe_decode::<Row>)
+            .map(|d| unsafe_decode::<Row>(&d))
         {
             row.previous_deregistration = Some(pointer);
             db.put(key, as_value(row))
