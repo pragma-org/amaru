@@ -51,7 +51,7 @@
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Constitution proposals/rejected for/empty PrevGovId after the first constitution was enacted" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Constitution proposals/rejected for/invalid index in GovPurposeId" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Constitution proposals/rejected for/valid GovPurposeId but invalid purpose" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/HardFork/Hardfork is the first one (doesn't have a GovPurposeId) /Hardfork cantFollow" = "Expected failure, got success"
+"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/HardFork/Hardfork is the first one (doesn't have a GovPurposeId)/Hardfork cantFollow" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/HardFork/Hardfork is the second one (has a GovPurposeId)/Hardfork cantFollow" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Network ID/Fails with invalid network ID in proposal return address" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Policy/policy is respected by proposals" = "Expected failure, got success"
