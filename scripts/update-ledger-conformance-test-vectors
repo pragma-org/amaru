@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+export TAR_PATH='cardano-blueprint/src/ledger/conformance-test-vectors/vectors.tar.gz'
+export VECTOR_DIR='crates/amaru-ledger/tests/data/rules-conformance'
+
+if [ ! -f "$TAR_PATH" ]; then
+    echo "Could not find $TAR_PATH."
+    echo 'Tip: run `git submodule update --init`'
+    exit 1
+fi
+
+rm -rf "$VECTOR_DIR"
+mkdir "$VECTOR_DIR"
+tar -xvf "$TAR_PATH" -C "$VECTOR_DIR"

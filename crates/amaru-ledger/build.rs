@@ -15,22 +15,21 @@
 use std::{
     collections::BTreeMap,
     env, fs,
-    io::{Read as _, Write as _},
-    path::Path,
+    io::Write as _,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
 
 fn main() -> Result<()> {
-    extract_conformance_test_vectors()
+    get_conformance_test_vectors()
 }
 
 type FailuresTable = BTreeMap<String, String>;
 
-fn extract_conformance_test_vectors() -> Result<()> {
-    let tar_path = "tests/data/rules-conformance.tar.gz";
-    println!("cargo:rerun-if-changed={tar_path}");
-    let tar_file = fs::File::open(tar_path).context("could not open conformance tests tarball")?;
+fn get_conformance_test_vectors() -> Result<()> {
+    let vectors_path = "tests/data/rules-conformance";
+    println!("cargo:rerun-if-changed={vectors_path}");
 
     let failures_path = "tests/data/rules-conformance.failures.toml";
     println!("cargo:rerun-if-changed={failures_path}");
@@ -44,8 +43,9 @@ fn extract_conformance_test_vectors() -> Result<()> {
     let out_dir = env::var("OUT_DIR").context("OUT_DIR not set")?;
     let out_file = Path::new(&out_dir).join("test_cases.rs");
 
-    let test_data_dir = Path::new(&out_dir).join("test-data");
-    fs::create_dir_all(&test_data_dir).context("could not initialize test data dir")?;
+    let test_data_dir = env::current_dir()?.join("tests/data/rules-conformance");
+    let mut files = Vec::new();
+    visit_dirs(&test_data_dir, &mut files);
 
     let mut output = fs::File::create(out_file).context("could not write test_cases.rs")?;
 
@@ -56,41 +56,27 @@ fn extract_conformance_test_vectors() -> Result<()> {
     )?;
     writeln!(&mut output)?;
 
-    let decoder = flate2::read::GzDecoder::new(tar_file);
-    let mut archive = tar::Archive::new(decoder);
-    for entry in archive.entries().context("could not read tar file")? {
-        let mut entry = entry.context("could not read tar entry")?;
-        if !entry.header().entry_type().is_file() {
+    for path in files {
+        let Ok(relative_path) = path.strip_prefix(&test_data_dir) else {
+            continue;
+        };
+        let Some(relative_path_str) = relative_path.to_str() else {
+            continue;
+        };
+        if relative_path_str.contains("pparams-by-hash") {
             continue;
         }
-        let mut buf = vec![];
-        entry.read_to_end(&mut buf)?;
-
-        // Simplify paths a bit, so that this works on Windows
-        let path = entry
-            .path()?
-            .to_string_lossy()
-            .into_owned()
-            .replace(" /", "/");
-        let full_path = test_data_dir.join(&path);
-        if let Some(parent) = full_path.parent() {
-            fs::create_dir_all(parent).context("could not create parent dir")?;
-        }
-        fs::write(full_path, buf).context("could not write data")?;
-
-        if !path.contains("pparams-by-hash") {
-            let pparams_dir = "eras/conway/impl/dump/pparams-by-hash";
-            let result = match failures.get(&path) {
-                Some(reason) => format!("Err(\"{}\")", reason.escape_default()),
-                None => "Ok(())".to_string(),
-            };
-            writeln!(
-                &mut output,
-                "#[test_case::test_case(\"{}\", \"{}\", {result})]",
-                path.escape_default(),
-                pparams_dir.escape_default()
-            )?;
-        }
+        let pparams_dir = "eras/conway/impl/dump/pparams-by-hash";
+        let result = match failures.get(relative_path_str) {
+            Some(reason) => format!("Err(\"{}\")", reason.escape_default()),
+            None => "Ok(())".to_string(),
+        };
+        writeln!(
+            &mut output,
+            "#[test_case::test_case(\"{}\", \"{}\", {result})]",
+            relative_path_str.escape_default(),
+            pparams_dir.escape_default()
+        )?;
     }
     writeln!(
         &mut output,
@@ -101,4 +87,17 @@ fn extract_conformance_test_vectors() -> Result<()> {
     )?;
 
     Ok(())
+}
+
+fn visit_dirs(dir: &Path, files: &mut Vec<PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                visit_dirs(&path, files);
+            } else if path.is_file() {
+                files.push(path);
+            }
+        }
+    }
 }
