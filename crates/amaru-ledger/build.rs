@@ -43,7 +43,10 @@ fn get_conformance_test_vectors() -> Result<()> {
     let out_dir = env::var("OUT_DIR").context("OUT_DIR not set")?;
     let out_file = Path::new(&out_dir).join("test_cases.rs");
 
-    let test_data_dir = env::current_dir()?.join("tests/data/rules-conformance");
+    let test_data_dir = env::current_dir()?
+        .join("tests")
+        .join("data")
+        .join("rules-conformance");
     let mut files = Vec::new();
     visit_dirs(&test_data_dir, &mut files);
 
@@ -66,8 +69,9 @@ fn get_conformance_test_vectors() -> Result<()> {
         if relative_path_str.contains("pparams-by-hash") {
             continue;
         }
+        let relative_path_str = relative_path_str.replace("\\", "/");
         let pparams_dir = "eras/conway/impl/dump/pparams-by-hash";
-        let result = match failures.get(relative_path_str) {
+        let result = match failures.get(&relative_path_str) {
             Some(reason) => format!("Err(\"{}\")", reason.escape_default()),
             None => "Ok(())".to_string(),
         };
