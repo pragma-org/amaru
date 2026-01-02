@@ -19,8 +19,10 @@ use amaru_kernel::{
     BlockHeader, EraHistory, Header, Point, RawBlock,
     network::NetworkName,
     protocol_parameters::{ConsensusParameters, GlobalParameters},
+    to_cbor,
 };
 use amaru_ledger::{block_validator::BlockValidator, rules::parse_block};
+use amaru_ouroboros::praos::header;
 use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
 use amaru_stores::rocksdb::{
     RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore,
@@ -28,6 +30,7 @@ use amaru_stores::rocksdb::{
 use anyhow::anyhow;
 use clap::Parser;
 use flate2::read::GzDecoder;
+use rayon::prelude::*;
 use std::{
     fs::{self, File},
     io::Read,
@@ -171,9 +174,12 @@ async fn load_blocks(
 
 /// Process blocks as if they were processed by the full node
 /// Particularly all on disk side-effects are performed
+/// Blocks are assumed valid; no validation error should happen
+#[allow(clippy::unwrap_used)]
 async fn process_block(
     chain_store: &Arc<dyn ChainStore<BlockHeader>>,
     praos_chain_store: &PraosChainStore<BlockHeader>,
+    consensus_parameters: Arc<ConsensusParameters>,
     block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
     point: &Point,
     raw_block: &RawBlock,
@@ -183,10 +189,29 @@ async fn process_block(
     let block_header: BlockHeader = BlockHeader::from(header);
     chain_store.store_header(&block_header)?;
     chain_store.store_block(&point.hash(), raw_block)?;
-    praos_chain_store.evolve_nonce(&block_header)?;
-    let _ = block_validator
+    let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
+
+    // Verify block headers
+    header::assert_all(
+        consensus_parameters,
+        block_header.header(),
+        to_cbor(&block_header.header_body()).as_slice(),
+        Arc::new(
+            block_validator
+                .state
+                .lock()
+                .unwrap()
+                .view_stake_distribution(),
+        ),
+        &epoch_nonce.active,
+    )
+    .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
+
+    // Verify block content
+    block_validator
         .roll_forward_block(point, raw_block)
         .await
+        .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?;
 
     Ok(())
@@ -203,6 +228,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let era_history: &EraHistory = network.into();
     let global_parameters: &GlobalParameters = network.into();
+    let consensus_parameters = Arc::new(ConsensusParameters::new(
+        global_parameters.clone(),
+        era_history,
+        Default::default(),
+    ));
     let block_validator = new_block_validator(network, ledger_dir)?;
     let tip = block_validator.get_tip();
     let chain_store: Arc<dyn ChainStore<BlockHeader>> =
@@ -233,6 +263,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             process_block(
                 &chain_store,
                 &praos_chain_store,
+                consensus_parameters.clone(),
                 &block_validator,
                 point,
                 raw_block,
