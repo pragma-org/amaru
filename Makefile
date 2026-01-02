@@ -73,6 +73,9 @@ all-ci-checks: ## &test Run all CI checks
 fetch-data: ## &test Fetch epoch data (dreps, pools, accounts, ...) from a Haskell node
 	@npm --prefix data run fetch -- "$(AMARU_NETWORK)"
 
+update-ledger-conformance-test-vectors: ## &test Update the set of test vectors used for ledger conformance tests
+	@./scripts/update-ledger-conformance-test-vectors
+
 update-ledger-conformance-test-snapshot: ## &test Update the snapshot of results from ledger conformance tests
 	@./scripts/update-ledger-conformance-test-snapshot
 

@@ -29,6 +29,8 @@ On main branch: run upto the latest block
 
 The `amaru-ledger` module runs conformance tests based on vectors from the [cardano-blueprint](https://github.com/cardano-scaling/cardano-blueprint/tree/main/src/ledger/conformance-test-vectors) repository. These are run as unit tests, executed via `cargo test`.
 
+To update the set of test vectors, run the command `make update-ledger-conformance-test-vectors`. This will pull the latest test vectors from the cardano-blueprint submodule.
+
 Not all conformance tests pass; we use a snapshot approach to track which tests are currently failing and why. To update that snapshot, run
 `make update-ledger-conformance-test-snapshot`.
 
