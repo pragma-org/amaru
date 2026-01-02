@@ -70,8 +70,12 @@ jobs:
             packages: -p amaru-ledger -p amaru-slot-arithmetic
             extra-args: +nightly -Zbuild-std=std,panic_abort
             command: build
-            setup: rustup component add rust-src --toolchain nightly
-
+            setup: |
+              rustup component add rust-src --toolchain nightly
+              curl -L -o riscv32-glibc-llvm.tar.xz \
+                "https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.11.04/riscv32-glibc-ubuntu-24.04-llvm.tar.xz"
+              tar -xvf riscv32-glibc-llvm.tar.xz
+              export CC_riscv32gc_unknown_linux_gnu="$(pwd)/riscv/bin/riscv32-unknown-linux-gnu-clang"
     runs-on: ${{ matrix.environments.runner }}
     steps:
       - uses: actions/checkout@v4

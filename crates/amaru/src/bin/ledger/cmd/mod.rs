@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraHistory, network::NetworkName, protocol_parameters::GlobalParameters};
+use amaru::stages::Config;
+use amaru_kernel::{
+    ArenaPool, EraHistory, network::NetworkName, protocol_parameters::GlobalParameters,
+};
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
 use std::{error::Error, path::PathBuf};
@@ -27,11 +30,16 @@ pub fn new_block_validator(
 ) -> Result<BlockValidator<RocksDB, RocksDBHistoricalStores>, Box<dyn Error>> {
     let era_history: &EraHistory = network.into();
     let global_parameters: &GlobalParameters = network.into();
-    let config = RocksDbConfig::new(ledger_dir);
-    let store = RocksDBHistoricalStores::new(&config, 2);
+    let rocks_db_config = RocksDbConfig::new(ledger_dir);
+    let store = RocksDBHistoricalStores::new(&rocks_db_config, 2);
+    let config = Config::default();
     let block_validator = BlockValidator::new(
-        RocksDB::new(&config)?,
+        RocksDB::new(&rocks_db_config)?,
         store,
+        ArenaPool::new(
+            config.ledger_vm_alloc_arena_count,
+            config.ledger_vm_alloc_arena_size,
+        ),
         network,
         era_history.clone(),
         global_parameters.clone(),

@@ -33,8 +33,8 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher, IsHeader, Lovelace,
-    MemoizedTransactionOutput, MintedBlock, Network, Point, PoolId, RawBlock, Slot,
+    ArenaPool, ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher, IsHeader,
+    Lovelace, MemoizedTransactionOutput, MintedBlock, Point, PoolId, RawBlock, Slot,
     StakeCredential, StakeCredentialType, TransactionInput, expect_stake_credential,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
@@ -604,6 +604,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &mut self,
         point: &Point,
         raw_block: &RawBlock,
+        arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
         let block = match parse_block(&raw_block[..]) {
             Ok(block) => block,
@@ -617,7 +618,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         match rules::validate_block(
             &mut context,
-            &Network::from(*self.network()),
+            arena_pool,
+            self.network(),
             self.protocol_parameters(),
             self.era_history(),
             self.governance_activity(),

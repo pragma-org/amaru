@@ -12,17 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap};
-
-use amaru_kernel::{Address, KeyValuePairs};
-
 use crate::{
     PlutusDataError, ToPlutusData, constr_v2,
     script_context::{
-        Datums, OutputRef, PlutusData, Redeemers, ScriptContext, ScriptPurpose, TransactionOutput,
-        TxInfo, Value, Withdrawals,
+        Datums, OutputRef, PlutusData, ScriptContext, StakeAddress, TransactionOutput, TxInfo,
+        Value, Withdrawals,
     },
 };
+use amaru_kernel::{Address, StakePayload};
+use std::collections::BTreeMap;
 
 impl ToPlutusData<2> for ScriptContext<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
@@ -84,23 +82,26 @@ impl ToPlutusData<2> for Datums<'_> {
 
 impl ToPlutusData<2> for Withdrawals {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        <BTreeMap<_, _> as ToPlutusData<2>>::to_plutus_data(&self.0)
+        let map = self.0.iter().collect::<BTreeMap<_, _>>();
+        <BTreeMap<_, _> as ToPlutusData<2>>::to_plutus_data(&map)
     }
 }
 
-impl ToPlutusData<2> for Redeemers<'_, ScriptPurpose<'_>> {
+impl ToPlutusData<2> for amaru_kernel::StakeAddress {
+    /// In PlutusV1 and PlutusV2:
+    /// Anywhere a `StakeCredential` is used, it is actually an enum with variants `Pointer` and `Credential`
+    ///
+    /// It is actually not possible (by the ledger serialization) logic to construct a StakeAdress with a `Pointer`, so this can be hardcoded
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let converted: Result<Vec<_>, _> = self
-            .0
-            .iter()
-            .map(|(purpose, data)| {
-                Ok((
-                    <ScriptPurpose<'_> as ToPlutusData<2>>::to_plutus_data(purpose)?,
-                    <Cow<'_, _> as ToPlutusData<2>>::to_plutus_data(data)?,
-                ))
-            })
-            .collect();
+        match self.payload() {
+            StakePayload::Stake(keyhash) => constr_v2!(0, [constr_v2!(0, [keyhash])?]),
+            StakePayload::Script(script_hash) => constr_v2!(0, [constr_v2!(1, [script_hash])?]),
+        }
+    }
+}
 
-        Ok(PlutusData::Map(KeyValuePairs::Def(converted?)))
+impl ToPlutusData<2> for StakeAddress {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        <amaru_kernel::StakeAddress as ToPlutusData<2>>::to_plutus_data(&self.0)
     }
 }

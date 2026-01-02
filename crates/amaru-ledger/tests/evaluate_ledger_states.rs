@@ -16,7 +16,7 @@
 pub mod tests {
     use amaru_kernel::{
         AnyCbor, AuxiliaryData, Bytes, Epoch, EraHistory, Hasher, KeepRaw, MintedTransactionBody,
-        MintedTx, MintedWitnessSet, Network, TransactionPointer, cbor, network::NetworkName,
+        MintedTx, MintedWitnessSet, TransactionPointer, cbor, network::NetworkName,
         protocol_parameters::ProtocolParameters,
     };
     use amaru_ledger::{
@@ -212,9 +212,9 @@ pub mod tests {
             };
 
             // Run the transaction against the imported ledger state
-            let result = transaction::execute(
+            let result = transaction::phase_one::execute(
                 &mut validation_context,
-                &Network::Testnet,
+                &NetworkName::Preprod,
                 &protocol_parameters,
                 era_history,
                 &governance_activity,
@@ -226,7 +226,7 @@ pub mod tests {
             );
 
             match result {
-                Ok(()) if !success => return Err("Expected failure, got success".into()),
+                Ok(_) if !success => return Err("Expected failure, got success".into()),
                 Err(e) if success => {
                     return Err(format!("Expected success, got failure: {}", e).into());
                 }
