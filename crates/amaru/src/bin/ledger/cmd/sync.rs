@@ -30,6 +30,7 @@ use amaru_stores::rocksdb::{
 use anyhow::anyhow;
 use clap::Parser;
 use flate2::read::GzDecoder;
+use rayon::prelude::*;
 use std::{
     fs::{self, File},
     io::Read,
@@ -204,7 +205,7 @@ async fn process_block(
         ),
         &epoch_nonce.active,
     )
-    .and_then(|assertions| assertions.iter().try_for_each(|assert| assert()))?;
+    .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
 
     // Verify block content
     block_validator
