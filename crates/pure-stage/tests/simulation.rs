@@ -114,7 +114,7 @@ fn automatic() {
         "Suspend(Wait { at_stage: Name(\"basic-1\"), duration: 10s })",
         "Clock(Instant(10s))",
         "Resume { stage: Name(\"basic-1\"), response: WaitResponse(Instant(10s)) }",
-        "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), msg: SendDataValue { typetag: \"u32\", value: Integer(2) }, call: None })",
+        "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), call: false, msg: SendDataValue { typetag: \"u32\", value: Integer(2) } })",
         "Input { stage: Name(\"output-2\"), input: SendDataValue { typetag: \"u32\", value: Integer(2) } }",
         "Resume { stage: Name(\"output-2\"), response: Unit }",
         "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(2)), (Text(\"sender\"), Map([]))]) } } })",
@@ -129,7 +129,7 @@ fn automatic() {
         "Suspend(Receive { at_stage: Name(\"output-2\") })",
         "Clock(Instant(20s))",
         "Resume { stage: Name(\"basic-1\"), response: WaitResponse(Instant(20s)) }",
-        "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), msg: SendDataValue { typetag: \"u32\", value: Integer(4) }, call: None })",
+        "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), call: false, msg: SendDataValue { typetag: \"u32\", value: Integer(4) } })",
         "Input { stage: Name(\"output-2\"), input: SendDataValue { typetag: \"u32\", value: Integer(4) } }",
         "Resume { stage: Name(\"output-2\"), response: Unit }",
         "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(4)), (Text(\"sender\"), Map([]))]) } } })",
@@ -144,7 +144,7 @@ fn automatic() {
         "Suspend(Receive { at_stage: Name(\"output-2\") })",
         "Clock(Instant(30s))",
         "Resume { stage: Name(\"basic-1\"), response: WaitResponse(Instant(30s)) }",
-        "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), msg: SendDataValue { typetag: \"u32\", value: Integer(7) }, call: None })",
+        "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), call: false, msg: SendDataValue { typetag: \"u32\", value: Integer(7) } })",
         "Input { stage: Name(\"output-2\"), input: SendDataValue { typetag: \"u32\", value: Integer(7) } }",
         "Resume { stage: Name(\"output-2\"), response: Unit }",
         "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(7)), (Text(\"sender\"), Map([]))]) } } })",
@@ -172,10 +172,8 @@ fn automatic() {
     );
     assert_eq!(replay.is_running(in_ref.name()), false);
     assert_eq!(replay.is_idle(in_ref.name()), true);
-    assert_eq!(replay.is_failed(output.name()), false);
+    assert_eq!(replay.is_terminating(output.name()), false);
     assert_eq!(replay.is_idle(output.name()), true);
-    assert_eq!(replay.get_failure(in_ref.name()), None);
-    assert_eq!(replay.get_failure(output.name()), None);
     assert_eq!(replay.clock(), Instant::at_offset(Duration::from_secs(30)));
 }
 
@@ -220,7 +218,19 @@ fn breakpoint() {
 
 #[test]
 fn overrides() {
-    let mut network = SimulationBuilder::default();
+    let _guard = pure_stage::register_data_deserializer::<State>();
+    let _guard = pure_stage::register_data_deserializer::<u32>();
+    let _guard = pure_stage::register_effect_deserializer::<OutputEffect<u32>>();
+
+    tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init()
+        .ok();
+
+    let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
+    let guard = TraceBuffer::drop_guard(&trace_buffer);
+    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
     let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
         state.0 += msg;
         eff.send(&state.1, state.0).await;
@@ -247,6 +257,8 @@ fn overrides() {
         .assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 7]);
     assert_eq!(count.load(Ordering::Relaxed), 1);
+
+    guard.defuse();
 }
 
 #[test]
@@ -443,19 +455,13 @@ fn call() {
         Duration::from_secs(2),
     );
 
-    let cr2 = cr.clone();
-    sim.resume_send(&caller, &callee, Some(Msg3(msg, cr)))
-        .unwrap();
-    // still not runnable, now waiting for response
-    sim.try_effect()
-        .unwrap_err()
-        .assert_sleeping_until(Instant::at_offset(Duration::from_secs(3)));
-
-    sim.resume_receive(&callee).unwrap();
+    sim.try_effect().unwrap_err().assert_busy([caller.name()]);
+    // this will resume receive on callee
+    sim.resume_call_send(&caller, &callee, Msg3(msg, cr.clone()));
     sim.effect().assert_wait(&callee, Duration::from_secs(1));
     sim.resume_wait(&callee, sim.now()).unwrap();
-    sim.effect().assert_send(&callee, &cr2, 8);
-    sim.resume_send(&callee, &cr2, Some(7)).unwrap();
+    sim.effect().assert_send(&callee, &cr, 8);
+    sim.resume_send(&callee, &cr, Some(7)).unwrap();
     sim.effect().assert_receive(&callee);
     // the processing above has already dealt with sending the response, which has resumed the caller
     sim.effect().assert_receive(&caller);
@@ -664,14 +670,15 @@ fn create_stage_within_stage() {
                 parent.name(),
                 StageResponse::AddStageResponse(child_ref.name().clone())
             ),
-            TraceEntry::suspend(Effect::WireStage {
-                at_stage: parent.name().clone(),
-                name: child_ref.name().clone(),
-                initial_state: SendDataValue::boxed(&ChildState {
+            TraceEntry::suspend(Effect::wire_stage(
+                parent.name().clone(),
+                child_ref.name().clone(),
+                SendDataValue::boxed(&ChildState {
                     value: 0u32,
                     output: output.clone()
-                })
-            }),
+                }),
+                None
+            )),
             TraceEntry::resume(parent.name(), StageResponse::Unit),
             TraceEntry::suspend(Effect::Send {
                 from: parent.name().clone(),

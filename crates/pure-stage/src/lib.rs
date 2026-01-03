@@ -15,6 +15,7 @@
 #![deny(clippy::future_not_send)]
 
 mod adapter;
+pub mod drop_guard;
 mod effect;
 mod effect_box;
 mod logging;
@@ -47,5 +48,5 @@ pub use serde::{
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{ScheduleId, StageGraph, StageGraphRunning, stage_name};
 pub use time::{Clock, EPOCH, Instant};
-pub use types::{BoxFuture, Name, SendData, TryInStage, Void, err, warn};
+pub use types::{BLACKHOLE_NAME, BoxFuture, Name, SendData, TryInStage, Void, err, warn};
 pub use typetag;

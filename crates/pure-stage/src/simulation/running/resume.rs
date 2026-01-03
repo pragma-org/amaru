@@ -14,17 +14,27 @@
 
 use crate::{
     Instant, Name, ScheduleId, SendData, StageResponse,
-    effect::{CallExtra, StageEffect, TransitionFactory},
-    simulation::state::{StageData, StageState},
-    trace_buffer::TraceBuffer,
+    adapter::StageOrAdapter,
+    effect::{CallExtra, CallTimeout, StageEffect, TransitionFactory},
+    simulation::{
+        SimulationRunning,
+        running::{AssertStage, DeliverMessageResult, LogTermination},
+        state::{StageData, StageState},
+    },
 };
 use std::mem::replace;
 
 pub fn resume_receive_internal(
-    trace_buffer: &mut TraceBuffer,
-    data: &mut StageData,
-    run: &mut dyn FnMut(Name, StageResponse),
+    simulation: &mut SimulationRunning,
+    at_stage: &Name,
 ) -> anyhow::Result<()> {
+    let data = simulation
+        .stages
+        .get_mut(at_stage)
+        .ok_or_else(|| anyhow::anyhow!("stage `{}` was already terminated", at_stage))?;
+    let StageOrAdapter::Stage(data) = data else {
+        panic!("stage is an adapter, which cannot receive");
+    };
     let waiting_for = data
         .waiting
         .as_ref()
@@ -38,26 +48,46 @@ pub fn resume_receive_internal(
         )
     }
 
-    let msg = data
-        .mailbox
-        .pop_front()
-        .ok_or_else(|| anyhow::anyhow!("mailbox is empty while resuming receive"))?;
+    let msg = match data.tombstones.pop_front() {
+        Some(Ok(msg)) => msg,
+        Some(Err(name)) => {
+            tracing::info!(parent = %data.name, child = %name, "terminated by unsupervised child termination");
+            let (supervised_by, msg) = simulation
+                .terminate_stage(at_stage.clone())
+                .ok_or_else(|| anyhow::anyhow!("stage was already terminated"))?;
+            let Some(StageOrAdapter::Stage(supervisor)) = simulation.stages.get_mut(&supervised_by)
+            else {
+                panic!("supervisor can neither be an adapter nor terminated");
+            };
+            supervisor.tombstones.push_back(msg);
+            resume_receive_internal(simulation, &supervised_by).ok();
+            anyhow::bail!("stage terminated by unsupervised child termination")
+        }
+        None => data
+            .mailbox
+            .pop_front()
+            .ok_or_else(|| anyhow::anyhow!("mailbox is empty while resuming receive"))?,
+    };
 
     // it is important that all validations (i.e. `?``) happen before this point
     data.waiting = None;
 
-    let StageState::Idle(state) = replace(&mut data.state, StageState::Failed(String::new()))
-    else {
+    let StageState::Idle(state) = replace(&mut data.state, StageState::Idle(Box::new(()))) else {
         panic!(
             "stage {} must have been Idle, was {:?}",
             data.name, data.state
         );
     };
 
-    trace_buffer.push_receive(&data.name, &msg);
+    simulation
+        .trace_buffer
+        .lock()
+        .push_receive(&data.name, &msg);
     data.state = StageState::Running((data.transition)(state, msg));
 
-    run(data.name.clone(), StageResponse::Unit);
+    simulation
+        .runnable
+        .push_back((data.name.clone(), StageResponse::Unit));
     Ok(())
 }
 
@@ -75,9 +105,10 @@ pub fn resume_send_internal(
     if !matches!(waiting_for, StageEffect::Send(name, call2, _msg) if name == &to && call2.is_some() == call)
     {
         anyhow::bail!(
-            "stage `{}` was not waiting for a send effect to `{}`, but {:?}",
+            "stage `{}` was not waiting for a send effect to `{}`/{}, but {:?}",
             data.name,
             to,
+            call,
             waiting_for
         )
     }
@@ -146,6 +177,67 @@ pub fn resume_wait_internal(
     Ok(())
 }
 
+pub fn resume_call_send_internal(
+    sim: &mut SimulationRunning,
+    from: Name,
+    to: Name,
+    msg: Box<dyn SendData>,
+) -> Option<()> {
+    let data_from = sim
+        .stages
+        .get_mut(&from)
+        .log_termination(&from)?
+        .assert_stage("which cannot receive call effects");
+    let Some(StageEffect::Call(_, _, CallExtra::Scheduled(id))) = data_from.waiting.as_ref() else {
+        tracing::warn!(stage = %from, "stage was not waiting for a call effect, but {:?}", data_from.waiting);
+        return None;
+    };
+    let id = *id;
+
+    let Some(real_to) =
+        (match super::deliver_message(&mut sim.stages, sim.mailbox_size, to.clone(), msg) {
+            DeliverMessageResult::Delivered(data_to) => {
+                // `to` may not be suspended on receive, so failure to resume is okay
+                let name = data_to.name.clone();
+                resume_receive_internal(sim, &name).ok();
+                Some(name)
+            }
+            DeliverMessageResult::Full(data_to, send_data) => {
+                data_to.senders.push_back((from.clone(), send_data));
+                Some(data_to.name.clone())
+            }
+            DeliverMessageResult::NotFound => {
+                tracing::warn!(stage = %to, "message send to terminated stage dropped");
+                None
+            }
+        })
+    else {
+        return None;
+    };
+
+    sim.schedule_wakeup(id, move |sim| {
+        let Some(data_from) = sim.stages.get_mut(&from) else {
+            tracing::warn!(name = %from, "stage was terminated, skipping call effect delivery");
+            return;
+        };
+        let wakeup = resume_call_internal(
+            data_from.assert_stage("which cannot wait"),
+            &mut |name, response| {
+                sim.runnable.push_back((name, response));
+            },
+            Some(id),
+            Box::new(CallTimeout),
+        );
+        if wakeup.is_ok()
+            && let Some(StageOrAdapter::Stage(data_to)) = sim.stages.get_mut(&real_to)
+        {
+            data_to.senders.retain(|(name, _)| name != &from);
+        }
+    });
+
+    Some(())
+}
+
 pub fn resume_call_internal(
     data: &mut StageData,
     run: &mut dyn FnMut(Name, StageResponse),
@@ -157,7 +249,7 @@ pub fn resume_call_internal(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
-    if !matches!(waiting_for, StageEffect::Call(_,_,CallExtra::ScheduleId(id2)) if id.iter().all(|id| id == id2))
+    if !matches!(waiting_for, StageEffect::Call(_,_,CallExtra::Scheduled(id2)) if id.iter().all(|id| id == id2))
     {
         anyhow::bail!(
             "stage `{}` was not waiting for a call effect, but {:?}",
@@ -231,7 +323,7 @@ pub fn resume_wire_stage_internal(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
-    if !matches!(waiting_for, StageEffect::WireStage(_, _, _)) {
+    if !matches!(waiting_for, StageEffect::WireStage(..)) {
         anyhow::bail!(
             "stage `{}` was not waiting for a wire stage effect, but {:?}",
             data.name,
@@ -240,7 +332,7 @@ pub fn resume_wire_stage_internal(
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
-    let Some(StageEffect::WireStage(_, transition, _)) = data.waiting.take() else {
+    let Some(StageEffect::WireStage(_, transition, _, _)) = data.waiting.take() else {
         panic!("checked above");
     };
 

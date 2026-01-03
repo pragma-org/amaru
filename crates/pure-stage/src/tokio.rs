@@ -18,7 +18,8 @@
 //! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
 
 use crate::adapter::{Adapter, StageOrAdapter, find_recipient};
-use crate::effect::{CallExtra, CallTimeout};
+use crate::drop_guard::DropGuard;
+use crate::effect::{CallExtra, CallTimeout, CanSupervise, TransitionFactory};
 use crate::serde::NoDebug;
 use crate::simulation::Transition;
 use crate::stage_ref::StageStateRef;
@@ -36,6 +37,7 @@ use either::Either::{Left, Right};
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use parking_lot::Mutex;
+use std::any::Any;
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -65,20 +67,18 @@ struct TokioInner {
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
     mailbox_size: usize,
-    termination: watch::Sender<bool>,
     stage_counter: Mutex<usize>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
 }
 
 impl TokioInner {
-    fn new(termination: watch::Sender<bool>) -> Self {
+    fn new() -> Self {
         Self {
             senders: Default::default(),
             handles: Default::default(),
             clock: Arc::new(TokioClock),
             resources: Resources::default(),
             mailbox_size: 10,
-            termination,
             stage_counter: Mutex::new(0usize),
             trace_buffer: TraceBuffer::new_shared(0, 0),
         }
@@ -102,14 +102,16 @@ pub struct TokioBuilder {
     tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, ()>>>,
     inner: TokioInner,
     termination: watch::Receiver<bool>,
+    termination_tx: watch::Sender<bool>,
 }
 
 impl Default for TokioBuilder {
     fn default() -> Self {
-        let (termination, termination_rx) = watch::channel(false);
+        let (termination_tx, termination_rx) = watch::channel(false);
         Self {
             tasks: Default::default(),
-            inner: TokioInner::new(termination),
+            inner: TokioInner::new(),
+            termination_tx,
             termination: termination_rx,
         }
     }
@@ -121,6 +123,7 @@ impl TokioBuilder {
             tasks,
             inner,
             termination,
+            termination_tx: _, // only statically spawned stages can terminate the network
         } = self;
         let inner = Arc::new(inner);
         let handles = tasks
@@ -141,16 +144,21 @@ impl TokioBuilder {
 
         TokioRunning { inner, termination }
     }
+
+    pub fn with_trace_buffer(mut self, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Self {
+        self.inner.trace_buffer = trace_buffer;
+        self
+    }
 }
 
-impl StageGraph for TokioBuilder {
-    type RefAux<Msg, State> = (Receiver<Box<dyn SendData>>, TypedTransition<State, Msg>);
+type RefAux = (Receiver<Box<dyn SendData>>, TransitionFactory);
 
+impl StageGraph for TokioBuilder {
     fn stage<Msg: SendData, St: SendData, F, Fut>(
         &mut self,
         name: impl AsRef<str>,
         mut f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
+    ) -> StageBuildRef<Msg, St, Box<dyn Any + Send>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
@@ -162,29 +170,48 @@ impl StageGraph for TokioBuilder {
             .senders
             .lock()
             .insert(name.clone(), StageOrAdapter::Stage(tx));
+
+        let me = StageRef::new(name.clone());
+        let clock = self.inner.clock.clone();
+        let resources = self.inner.resources.clone();
+        let trace_buffer = self.inner.trace_buffer.clone();
+        let ff = Box::new(move |effect| {
+            let eff = Effects::new(me, effect, clock, resources, trace_buffer);
+            Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
+                let state = state.cast::<St>().expect("internal state type error");
+                let msg = msg.cast::<Msg>().expect("internal message type error");
+                let state = f(*state, *msg, eff.clone());
+                Box::pin(async move { Box::new(state.await) as Box<dyn SendData> })
+                    as BoxFuture<'static, Box<dyn SendData>>
+            }) as Transition
+        });
+        let network: RefAux = (rx, ff);
+
         StageBuildRef {
             name,
-            network: (
-                rx,
-                Box::new(move |state, msg, eff| Box::pin(f(state, msg, eff))),
-            ),
+            network: Box::new(network),
             _ph: PhantomData,
         }
     }
 
     fn wire_up<Msg: SendData, St: SendData>(
         &mut self,
-        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        stage: StageBuildRef<Msg, St, Box<dyn Any + Send>>,
         state: St,
     ) -> StageStateRef<Msg, St> {
-        let StageBuildRef {
-            name,
-            network: (rx, ff),
-            _ph,
-        } = stage;
+        let StageBuildRef { name, network, _ph } = stage;
+        let (rx, ff) = *network
+            .downcast::<RefAux>()
+            .expect("internal network type error");
         let stage_name = name.clone();
+        let state = Box::new(state);
+        let termination_tx = self.termination_tx.clone();
         self.tasks.push(Box::new(move |inner| {
-            Box::pin(run_stage(state, rx, ff, stage_name, inner))
+            let stage = run_stage_boxed(state, rx, ff, stage_name, inner);
+            Box::pin(async move {
+                stage.await;
+                termination_tx.send_replace(true);
+            })
         }));
         StageStateRef::new(name)
     }
@@ -233,100 +260,65 @@ impl StageGraph for TokioBuilder {
     }
 }
 
-type TypedTransition<St, Msg> =
-    Box<dyn FnMut(St, Msg, Effects<Msg>) -> BoxFuture<'static, St> + Send>;
-
-async fn run_stage<Msg: SendData, St: SendData>(
-    mut state: St,
-    mut rx: Receiver<Box<dyn SendData + 'static>>,
-    mut ff: TypedTransition<St, Msg>,
-    stage_name: Name,
-    inner: Arc<TokioInner>,
-) {
-    tracing::debug!("running stage `{stage_name}`");
-    let me = StageRef::new(stage_name.clone());
-    let effect = Arc::new(Mutex::new(None));
-    let effects = Effects::new(
-        me,
-        effect.clone(),
-        inner.clock.clone(),
-        inner.resources.clone(),
-        inner.trace_buffer.clone(),
-    );
-
-    let mut timers = FuturesUnordered::<BoxFuture<'static, Option<(Msg, ScheduleId)>>>::new();
-    let mut scheduled = BTreeMap::<ScheduleId, oneshot::Sender<()>>::new();
-
-    loop {
-        let msg = tokio::select! { biased;
-            Some(res) = timers.next(), if !timers.is_empty() => {
-                let Some((msg, id)) = res else {
-                    // timer was cancelled, tx already removed from `scheduled`
-                    continue;
-                };
-                scheduled.remove(&id);
-                msg
-            }
-            Some(msg) = rx.recv() => *msg.cast::<Msg>().expect("internal message type error"),
-            else => {
-                tracing::error!(%stage_name, "stage sender dropped");
-                inner.termination.send_replace(true);
-                break;
-            }
-        };
-        let f = ff(state, msg, effects.clone());
-        let result =
-            interpreter(&inner, &effect, &stage_name, &mut timers, &mut scheduled, f).await;
-        match result {
-            Some(st) => state = st,
-            None => {
-                tracing::info!(%stage_name, "terminated");
-                inner.termination.send_replace(true);
-                break;
-            }
-        }
-    }
+enum PriorityMessage {
+    Scheduled(Box<dyn SendData>, ScheduleId),
+    TimerCancelled(ScheduleId),
+    Tombstone(Box<dyn SendData>),
 }
 
 async fn run_stage_boxed(
     mut state: Box<dyn SendData>,
     mut rx: Receiver<Box<dyn SendData + 'static>>,
-    mut transition: Transition,
-    effect: EffectBox,
+    transition: TransitionFactory,
     stage_name: Name,
     inner: Arc<TokioInner>,
 ) {
     tracing::debug!("running boxed stage `{stage_name}`");
 
-    let mut timers =
-        FuturesUnordered::<BoxFuture<'static, Option<(Box<dyn SendData>, ScheduleId)>>>::new();
-    let mut scheduled = BTreeMap::<ScheduleId, oneshot::Sender<()>>::new();
+    let effect = Arc::new(Mutex::new(None));
+    let mut transition = transition(effect.clone());
+
+    // this also contains tasks tracking the termination of spawned stages, which when dropped
+    // will terminate those spawned stages
+    let mut timers = FuturesUnordered::<BoxFuture<'static, PriorityMessage>>::new();
+    let mut cancellation = BTreeMap::<ScheduleId, oneshot::Sender<()>>::new();
 
     loop {
         let msg = tokio::select! { biased;
-            Some(res) = timers.next(), if !timers.is_empty() => {
-                let Some((msg, id)) = res else {
-                    // timer was cancelled, tx already removed from `scheduled`
-                    continue;
-                };
-                scheduled.remove(&id);
-                msg
-            }
+            Some(res) = timers.next(), if !timers.is_empty() => match res {
+                PriorityMessage::Scheduled(msg, id) => {
+                    cancellation.remove(&id);
+                    msg
+                }
+                PriorityMessage::TimerCancelled(_id) => continue,
+                PriorityMessage::Tombstone(msg) => msg,
+            },
             Some(msg) = rx.recv() => msg,
             else => {
                 tracing::error!(%stage_name, "stage sender dropped");
-                inner.termination.send_replace(true);
                 break;
             }
         };
+        if msg.is::<CanSupervise>() {
+            tracing::debug!(
+                "stage `{stage_name}` terminates because of an unsupervised child termination"
+            );
+            break;
+        }
         let f = (transition)(state, msg);
-        let result =
-            interpreter(&inner, &effect, &stage_name, &mut timers, &mut scheduled, f).await;
+        let result = interpreter(
+            &inner,
+            &effect,
+            &stage_name,
+            &mut timers,
+            &mut cancellation,
+            f,
+        )
+        .await;
         match result {
             Some(st) => state = st,
             None => {
                 tracing::info!(%stage_name, "terminated");
-                inner.termination.send_replace(true);
                 break;
             }
         }
@@ -357,14 +349,14 @@ type StageRefExtra = Mutex<Option<oneshot::Sender<Box<dyn SendData>>>>;
 
 // clippy is lying, changing to async fn does not work.
 #[expect(clippy::manual_async_fn)]
-fn interpreter<St, Msg: SendData>(
+fn interpreter(
     inner: &Arc<TokioInner>,
     effect: &EffectBox,
     name: &Name,
-    timers: &mut FuturesUnordered<BoxFuture<'static, Option<(Msg, ScheduleId)>>>,
-    scheduled: &mut BTreeMap<ScheduleId, oneshot::Sender<()>>,
-    mut stage: BoxFuture<'static, St>,
-) -> impl Future<Output = Option<St>> + Send {
+    timers: &mut FuturesUnordered<BoxFuture<'static, PriorityMessage>>,
+    cancellation: &mut BTreeMap<ScheduleId, oneshot::Sender<()>>,
+    mut stage: BoxFuture<'static, Box<dyn SendData>>,
+) -> impl Future<Output = Option<Box<dyn SendData>>> + Send {
     // trying to write this as an async fn fails with inscrutable compile errors, it seems
     // that rustc has some issue with this particular pattern
     async move {
@@ -415,6 +407,8 @@ fn interpreter<St, Msg: SendData>(
                         panic!("expected CallFn, got {:?}", msg);
                     };
                     let (tx_response, rx) = oneshot::channel();
+                    // it is important to use the type alias StageRefExtra here, otherwise the
+                    // compiler would accept any type that implements Send + Sync + 'static
                     let sender = StageRefExtra::new(Some(tx_response));
                     let msg = (msg)(name.clone(), Arc::new(sender));
                     let (tx_call, msg) = {
@@ -448,22 +442,30 @@ fn interpreter<St, Msg: SendData>(
                     let name = stage_name(&mut inner.stage_counter.lock(), name.as_str());
                     StageResponse::AddStageResponse(name)
                 }
-                StageEffect::WireStage(name, transition, initial_state) => {
+                StageEffect::WireStage(name, transition, initial_state, tombstone) => {
                     tracing::debug!("stage `{name}` wired");
                     let (tx, rx) = mpsc::channel(inner.mailbox_size);
                     inner
                         .senders
                         .lock()
                         .insert(name.clone(), StageOrAdapter::Stage(tx));
-                    let effect = Arc::new(Mutex::new(None));
-                    inner.handles.lock().push(tokio::spawn(run_stage_boxed(
+                    let stage = run_stage_boxed(
                         initial_state,
                         rx,
-                        (transition.into_inner())(effect.clone()),
-                        effect,
-                        name,
+                        transition.into_inner(),
+                        name.clone(),
                         inner.clone(),
-                    )));
+                    );
+                    let handle = tokio::spawn(stage);
+                    // need to construct DropGuard before pushing into the FuturesUnordered to avoid Future being dropped
+                    // before the guard is established
+                    let mut handle = DropGuard::new(handle, |handle| handle.abort());
+                    timers.push(Box::pin(async move {
+                        if let Err(err) = (&mut *handle).await {
+                            tracing::error!("stage `{name}` failed: {}", err);
+                        }
+                        PriorityMessage::Tombstone(tombstone)
+                    }));
                     StageResponse::Unit
                 }
                 StageEffect::Contramap {
@@ -485,20 +487,19 @@ fn interpreter<St, Msg: SendData>(
                 }
                 StageEffect::Schedule(msg, id) => {
                     let when = id.time();
-                    let msg = *msg.cast::<Msg>().expect("internal message type error");
                     let sleep = tokio::time::sleep_until(when.to_tokio());
                     let (tx, rx) = oneshot::channel();
-                    scheduled.insert(id, tx);
+                    cancellation.insert(id, tx);
                     timers.push(Box::pin(async move {
                         tokio::select! { biased;
-                            _ = rx => None,
-                            _ = sleep => Some((msg, id)),
+                            _ = rx => PriorityMessage::TimerCancelled(id),
+                            _ = sleep => PriorityMessage::Scheduled(msg, id),
                         }
                     }));
                     StageResponse::Unit
                 }
                 StageEffect::CancelSchedule(id) => {
-                    if let Some(tx) = scheduled.remove(&id) {
+                    if let Some(tx) = cancellation.remove(&id) {
                         tx.send(()).ok();
                         StageResponse::CancelScheduleResponse(true)
                     } else {

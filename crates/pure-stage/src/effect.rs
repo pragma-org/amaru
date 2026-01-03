@@ -322,7 +322,7 @@ impl<M> Effects<M> {
         &self,
         name: impl AsRef<str>,
         mut f: F,
-    ) -> crate::StageBuildRef<Msg, St, TransitionFactory>
+    ) -> crate::StageBuildRef<Msg, St, (TransitionFactory, CanSupervise)>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
@@ -356,7 +356,24 @@ impl<M> Effects<M> {
         };
         crate::StageBuildRef {
             name,
-            network: Box::new(transition),
+            network: (Box::new(transition), CanSupervise(())),
+            _ph: PhantomData,
+        }
+    }
+
+    /// Supervise the given stage by sending the tombstone when it terminates.
+    ///
+    /// When an unsupervised child stage terminates, this stage will terminate as well.
+    pub fn supervise<Msg: SendData, St>(
+        &self,
+        stage: crate::StageBuildRef<Msg, St, (TransitionFactory, CanSupervise)>,
+        tombstone: Msg,
+    ) -> crate::StageBuildRef<Msg, St, (TransitionFactory, Msg)> {
+        let StageBuildRef { name, network, .. } = stage;
+
+        crate::StageBuildRef {
+            name,
+            network: (network.0, tombstone),
             _ph: PhantomData,
         }
     }
@@ -393,9 +410,9 @@ impl<M> Effects<M> {
     }
 
     #[expect(clippy::future_not_send)]
-    pub async fn wire_up<Msg, St>(
+    pub async fn wire_up<Msg, St, T: SendData>(
         &self,
-        stage: crate::StageBuildRef<Msg, St, TransitionFactory>,
+        stage: crate::StageBuildRef<Msg, St, (TransitionFactory, T)>,
         state: St,
     ) -> StageRef<Msg>
     where
@@ -403,10 +420,16 @@ impl<M> Effects<M> {
         St: SendData,
     {
         let StageBuildRef { name, network, _ph } = stage;
+        let (transition, tombstone) = network;
 
         airlock_effect(
             &self.effect,
-            StageEffect::WireStage(name.clone(), NoDebug::new(network), Box::new(state)),
+            StageEffect::WireStage(
+                name.clone(),
+                NoDebug::new(transition),
+                Box::new(state),
+                Box::new(tombstone),
+            ),
             |eff| match eff {
                 Some(StageResponse::Unit) => Some(()),
                 _ => None,
@@ -415,6 +438,15 @@ impl<M> Effects<M> {
         .await;
 
         StageRef::new(name)
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CanSupervise(()); // private field to prevent instantiation
+
+impl CanSupervise {
+    pub fn for_test() -> Self {
+        Self(())
     }
 }
 
@@ -588,7 +620,7 @@ type CallFn =
 #[derive(Debug)]
 pub enum CallExtra {
     CallFn(NoDebug<CallFn>),
-    ScheduleId(ScheduleId),
+    Scheduled(ScheduleId),
 }
 
 /// An effect emitted by a stage (in which case T is `Box<dyn Message>`) or an effect
@@ -605,7 +637,7 @@ pub enum StageEffect<T> {
     External(Box<dyn ExternalEffect>),
     Terminate,
     AddStage(Name),
-    WireStage(Name, NoDebug<TransitionFactory>, T),
+    WireStage(Name, NoDebug<TransitionFactory>, T, T),
     Contramap {
         original: Name,
         new_name: Name,
@@ -712,7 +744,7 @@ impl StageEffect<Box<dyn SendData>> {
                 };
                 let msg = (msg.into_inner())(at_name.clone(), Arc::new(id));
                 (
-                    StageEffect::Call(name.clone(), duration, CallExtra::ScheduleId(id)),
+                    StageEffect::Call(name.clone(), duration, CallExtra::Scheduled(id)),
                     Effect::Call {
                         from: at_name,
                         to: name,
@@ -762,12 +794,13 @@ impl StageEffect<Box<dyn SendData>> {
                     name,
                 },
             ),
-            StageEffect::WireStage(name, transition, initial_state) => (
-                StageEffect::WireStage(name.clone(), transition, ()),
+            StageEffect::WireStage(name, transition, initial_state, tombstone) => (
+                StageEffect::WireStage(name.clone(), transition, (), ()),
                 Effect::WireStage {
                     at_stage: at_name,
                     name,
                     initial_state,
+                    tombstone,
                 },
             ),
             StageEffect::Contramap {
@@ -844,6 +877,8 @@ pub enum Effect {
         name: Name,
         #[serde(with = "crate::serde::serialize_send_data")]
         initial_state: Box<dyn SendData>,
+        #[serde(with = "crate::serde::serialize_send_data")]
+        tombstone: Box<dyn SendData>,
     },
     Contramap {
         at_stage: Name,
@@ -926,11 +961,13 @@ impl Effect {
                 at_stage,
                 name,
                 initial_state,
+                tombstone,
             } => serde_json::json!({
                 "type": "wire_stage",
                 "at_stage": at_stage,
                 "name": name,
                 "initial_state": format!("{initial_state}"),
+                "tombstone": format!("{tombstone}"),
             }),
             Effect::Contramap {
                 at_stage,
@@ -983,7 +1020,11 @@ impl Display for Effect {
                 at_stage,
                 name,
                 initial_state,
-            } => write!(f, "wire_stage {at_stage} {name} {initial_state}"),
+                tombstone,
+            } => write!(
+                f,
+                "wire_stage {at_stage} {name} {initial_state} {tombstone}"
+            ),
             Effect::Contramap {
                 at_stage,
                 original,
@@ -1064,6 +1105,28 @@ impl Effect {
         }
     }
 
+    /// Construct an add stage effect.
+    pub fn add_stage(at_stage: impl AsRef<str>, name: impl AsRef<str>) -> Self {
+        Self::AddStage {
+            at_stage: Name::from(at_stage.as_ref()),
+            name: Name::from(name.as_ref()),
+        }
+    }
+
+    /// Construct a wire stage effect.
+    pub fn wire_stage(
+        at_stage: impl AsRef<str>,
+        name: impl AsRef<str>,
+        initial_state: Box<dyn SendData>,
+        tombstone: Option<Box<dyn SendData>>,
+    ) -> Self {
+        Self::WireStage {
+            at_stage: Name::from(at_stage.as_ref()),
+            name: Name::from(name.as_ref()),
+            initial_state,
+            tombstone: tombstone.unwrap_or_else(|| SendDataValue::boxed(&CanSupervise(()))),
+        }
+    }
     /// Get the stage name of this effect.
     pub fn at_stage(&self) -> &Name {
         match self {
@@ -1250,6 +1313,7 @@ impl Effect {
                 at_stage: a,
                 name: n,
                 initial_state: i,
+                tombstone: _,
             } if a == at_stage.name()
                 && n.as_str() == name.as_ref()
                 && i.cast_ref::<St>().expect("type error") == &initial_state => {}
@@ -1272,6 +1336,7 @@ impl Effect {
                 at_stage: a,
                 name: n,
                 initial_state: i,
+                tombstone: _,
             } if a == at_stage.name()
                 && i.cast_ref::<St>().expect("type error") == &initial_state =>
             {
@@ -1383,15 +1448,18 @@ impl PartialEq for Effect {
                 at_stage,
                 name,
                 initial_state,
+                tombstone,
             } => match other {
                 Effect::WireStage {
                     at_stage: other_at_stage,
                     name: other_name,
                     initial_state: other_initial_state,
+                    tombstone: other_tombstone,
                 } => {
                     at_stage == other_at_stage
                         && name == other_name
                         && initial_state == other_initial_state
+                        && tombstone == other_tombstone
                 }
                 _ => false,
             },

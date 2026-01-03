@@ -18,6 +18,7 @@ use crate::{
     BoxFuture, Effects, Name, OutputEffect, Receiver, Resources, SendData, Sender, StageBuildRef,
     StageRef, types::MpscSender,
 };
+use std::any::Any;
 use std::{
     fmt,
     future::Future,
@@ -84,8 +85,6 @@ impl fmt::Display for ScheduleId {
 /// let mut running = network.run(rt.handle().clone());
 /// ```
 pub trait StageGraph {
-    type RefAux<Msg, State>;
-
     /// Create a stage from an asynchronous transition function (state × message → state) and
     /// an initial state.
     ///
@@ -113,7 +112,7 @@ pub trait StageGraph {
         &mut self,
         name: impl AsRef<str>,
         f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
+    ) -> StageBuildRef<Msg, St, Box<dyn Any + Send>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
@@ -123,7 +122,7 @@ pub trait StageGraph {
     /// Finalize the given stage by providing its initial state.
     fn wire_up<Msg, St>(
         &mut self,
-        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        stage: StageBuildRef<Msg, St, Box<dyn Any + Send>>,
         state: St,
     ) -> StageStateRef<Msg, St>
     where

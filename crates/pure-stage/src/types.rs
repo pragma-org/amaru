@@ -18,15 +18,14 @@ use crate::{
 };
 use anyhow::Context;
 use cbor4ii::serde::from_slice;
-use std::fmt::{Display, Formatter};
 use std::{
     any::{Any, type_name},
     borrow::Borrow,
-    fmt,
+    fmt::{self, Display, Formatter},
     future::Future,
     ops::{Deref, DerefMut},
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 use tokio::sync::mpsc;
 
@@ -111,7 +110,7 @@ impl dyn SendData {
         })
     }
 
-    fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
+    pub fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
         if (&*self as &dyn Any).is::<T>() {
             #[expect(clippy::expect_used)]
             Ok(Box::new(
@@ -145,6 +144,7 @@ impl dyn SendData {
             Err(this) => this,
         };
         deserialize_value::<T>(&*this)
+            .with_context(|| format!("deserializing `{}`", type_name::<T>()))
     }
 
     /// Cast the SendData to a SendDataValue to be able to access its inner value.
@@ -202,6 +202,8 @@ pub enum Void {}
     Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct Name(Arc<str>);
+
+pub static BLACKHOLE_NAME: LazyLock<Name> = LazyLock::new(|| Name(Arc::from("")));
 
 impl Name {
     pub fn as_str(&self) -> &str {
