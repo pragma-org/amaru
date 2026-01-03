@@ -15,20 +15,22 @@
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep,
-    EraHistory, Lovelace, MemoizedTransactionOutput, PROTOCOL_VERSION_9, Point, PoolId,
-    StakeCredential, TransactionInput, cbor, protocol_parameters::ProtocolParameters,
+    Ballot, CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus,
+    DRep, EraHistory, Lovelace, MemoizedTransactionOutput, PROTOCOL_VERSION_9, Point, PoolId,
+    StakeCredential, TransactionInput, Voter, cbor, protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
     state::diff_bind::Resettable,
     store::{
         Columns, EpochTransitionProgress, GovernanceActivity, HistoricalStores, OpenErrorKind,
-        ReadStore, Snapshot, Store, StoreError, TransactionalContext, columns as scolumns,
+        ProposalsStream, ReadStore, Snapshot, Store, StoreError, TransactionalContext,
+        columns as scolumns,
     },
     summary::Pots,
 };
 use amaru_slot_arithmetic::Epoch;
+use futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream};
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, Direction, Env, IteratorMode, ReadOptions, Transaction,
 };
@@ -897,6 +899,64 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         with: impl FnMut(scolumns::cc_members::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, cc_members::PREFIX, with)
+    }
+
+    fn get_votes_for<'s>(
+        &'s self,
+        proposal: &'s ComparableProposalId,
+    ) -> LocalBoxFuture<'s, Result<BTreeMap<Voter, Ballot>, StoreError>> {
+        async move {
+            // !!! NOT FOR PRODUCTION !!!
+            // This is for an example only.
+            // If this were real, we should not be filtering the entire votes table
+            // but using an index or a proposal_id prefix
+            let iter = self.iter_votes()?;
+            let votes = iter
+                .filter(|(key, _)| &key.proposal == proposal)
+                .map(|(key, value)| (key.voter, value))
+                .collect();
+
+            Ok(votes)
+        }
+        .boxed_local()
+    }
+
+    fn modify_proposals<'b, F, T>(&'b self, action: F) -> LocalBoxFuture<'b, Result<T, StoreError>>
+    where
+        F: for<'s> FnOnce(
+                &'s Self,
+                ProposalsStream<'s>,
+            ) -> LocalBoxFuture<'s, Result<T, StoreError>>
+            + 'b,
+        T: 'b,
+    {
+        async move {
+            let prefix = proposals::PREFIX;
+            let raw_iter = self.db.prefix_iterator(prefix).filter_map(|item| item.ok());
+
+            let mut tracker =
+                amaru_iter_borrow::new::<PREFIX_LEN, proposals::Key, proposals::Row>(raw_iter);
+
+            let result = {
+                let iter = stream::iter(tracker.as_iter_borrow());
+                let stream = iter.map(|(k, v)| (k, v));
+                let boxed_stream: ProposalsStream<'_> = Box::new(stream);
+                action(self, boxed_stream).await
+            };
+
+            if result.is_ok() {
+                for (key, value) in tracker.into_iter_updates() {
+                    match value {
+                        Some(v) => self.db.put(key, as_value(v)),
+                        None => self.db.delete(key),
+                    }
+                    .map_err(|e| StoreError::Internal(e.into()))?;
+                }
+            }
+
+            result
+        }
+        .boxed_local()
     }
 }
 

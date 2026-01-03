@@ -17,15 +17,15 @@ use crate::in_memory::ledger::columns::{
 };
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep,
-    EraHistory, Lovelace, Point, PoolId, Slot, StakeCredential, TransactionInput,
+    Ballot, CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus,
+    DRep, EraHistory, Lovelace, Point, PoolId, Slot, StakeCredential, TransactionInput, Voter,
     protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
     store::{
-        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store,
-        StoreError, TransactionalContext,
+        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ProposalsStream, ReadStore,
+        Snapshot, Store, StoreError, TransactionalContext,
         columns::{
             accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
             pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
@@ -34,6 +34,7 @@ use amaru_ledger::{
     },
 };
 use amaru_slot_arithmetic::Epoch;
+use futures::{FutureExt, future::LocalBoxFuture};
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::{RefCell, RefMut},
@@ -770,6 +771,27 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         with: impl FnMut(amaru_ledger::store::columns::cc_members::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
         self.with_column(&self.store.cc_members, with)
+    }
+
+    #[allow(clippy::todo)]
+    fn get_votes_for<'s>(
+        &'s self,
+        _proposal: &'s ComparableProposalId,
+    ) -> LocalBoxFuture<'s, Result<BTreeMap<Voter, Ballot>, StoreError>> {
+        async { todo!("Implement get_votes_for for MemoryStore") }.boxed_local()
+    }
+
+    #[allow(clippy::todo)]
+    fn modify_proposals<'b, F, T>(&'b self, _action: F) -> LocalBoxFuture<'b, Result<T, StoreError>>
+    where
+        F: for<'s> FnOnce(
+                &'s Self,
+                ProposalsStream<'s>,
+            ) -> LocalBoxFuture<'s, Result<T, StoreError>>
+            + 'b,
+        T: 'b,
+    {
+        async { todo!("Implement modify_proposals for MemoryStore") }.boxed_local()
     }
 }
 
