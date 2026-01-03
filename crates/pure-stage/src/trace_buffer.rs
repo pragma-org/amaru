@@ -137,9 +137,10 @@ impl Display for TraceEntry {
                         other @ StageResponse::ClockResponse(_)
                         | other @ StageResponse::WaitResponse(_)
                         | other @ StageResponse::CallResponse(_)
-                        | other @ StageResponse::CallTimeout
+                        | other @ StageResponse::CancelScheduleResponse(_)
                         | other @ StageResponse::ExternalResponse(_)
-                        | other @ StageResponse::AddStageResponse(_) => format!(" -> {other}"),
+                        | other @ StageResponse::AddStageResponse(_)
+                        | other @ StageResponse::ContramapResponse(_) => format!(" -> {other}"),
                     },
                 )
             }

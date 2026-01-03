@@ -52,17 +52,8 @@ pub enum ConsensusError {
         actual_point: Point,
         expected_point: Point,
     },
-    #[error(
-        "Failed to decode header at {}: {} ({})",
-        point,
-        hex::encode(header),
-        reason
-    )]
-    CannotDecodeHeader {
-        point: Point,
-        header: Vec<u8>,
-        reason: String,
-    },
+    #[error("Failed to decode header: {} ({})", hex::encode(&header[..header.len().min(32)]), reason)]
+    CannotDecodeHeader { header: Vec<u8>, reason: String },
     #[error("Unknown peer {0}, bailing out")]
     UnknownPeer(Peer),
     #[error("Unknown point {0}, bailing out")]

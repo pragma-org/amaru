@@ -12,24 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{BaseOps, ConsensusOps, NetworkOps};
-use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
+use crate::consensus::effects::{BaseOps, ConsensusOps};
+use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
 use crate::consensus::span::HasSpan;
 use amaru_kernel::consensus_events::{ValidateBlockEvent, ValidateHeaderEvent};
 use amaru_kernel::{IsHeader, RawBlock};
+use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
+use std::time::Duration;
 use tracing::Instrument;
 
 type State = (
     StageRef<ValidateBlockEvent>,
     StageRef<ValidationFailed>,
     StageRef<ProcessingFailed>,
+    StageRef<ManagerMessage>,
 );
 
 /// This stages fetches the full block from a peer after its header has been validated.
 /// It then sends the full block to the downstream stage for validation and storage.
 pub fn stage(
-    (downstream, failures, errors): State,
+    (downstream, failures, errors, manager): State,
     msg: ValidateHeaderEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
@@ -38,14 +41,27 @@ pub fn stage(
         match msg {
             ValidateHeaderEvent::Validated { peer, header, span } => {
                 let point = header.point();
-                let block = match eff.network().fetch_block(peer.clone(), point).await {
-                    Ok(block) => block,
-                    Err(e) => {
-                        eff.base()
-                            .send(&failures, ValidationFailed::new(&peer, e))
-                            .await;
-                        return (downstream, failures, errors);
-                    }
+                let peer2 = peer.clone();
+                let block = eff
+                    .base()
+                    .call(&manager, Duration::from_secs(5), move |cr| {
+                        ManagerMessage::FetchBlocks {
+                            peer: peer2,
+                            from: point,
+                            through: point,
+                            cr,
+                        }
+                    })
+                    .await
+                    .unwrap_or_default();
+                let Some(block) = block.blocks.into_iter().next() else {
+                    eff.base()
+                        .send(
+                            &failures,
+                            ValidationFailed::new(&peer, ConsensusError::FetchBlockFailed(point)),
+                        )
+                        .await;
+                    return (downstream, failures, errors, manager);
                 };
 
                 let block = RawBlock::from(&*block);
@@ -55,7 +71,7 @@ pub fn stage(
                     eff.base()
                         .send(&errors, ProcessingFailed::new(&peer, e.into()))
                         .await;
-                    return (downstream, failures, errors);
+                    return (downstream, failures, errors, manager);
                 }
 
                 let validated = ValidateBlockEvent::Validated {
@@ -84,7 +100,7 @@ pub fn stage(
                     .await
             }
         }
-        (downstream, failures, errors)
+        (downstream, failures, errors, manager)
     }
     .instrument(span)
 }
@@ -137,6 +153,7 @@ mod tests {
         let downstream: StageRef<ValidateBlockEvent> = StageRef::named_for_tests("downstream");
         let failures: StageRef<ValidationFailed> = StageRef::named_for_tests("failures");
         let errors: StageRef<ProcessingFailed> = StageRef::named_for_tests("errors");
-        (downstream, failures, errors)
+        let manager: StageRef<ManagerMessage> = StageRef::named_for_tests("manager");
+        (downstream, failures, errors, manager)
     }
 }

@@ -14,39 +14,36 @@
 
 use crate::stages::{
     build_stage_graph::build_stage_graph,
-    consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer,
+    consensus::forward_chain::{tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip},
 };
-use acto::AcTokio;
-use amaru_consensus::{
-    consensus::{
-        effects::{
-            ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
-            ResourceHeaderValidation, ResourceMeter, ResourceParameters,
-        },
-        errors::ConsensusError,
-        headers_tree::HeadersTreeState,
-        stages::{
-            pull, select_chain::SelectChain, track_peers::SyncTracker,
-            validate_header::ValidateHeader,
-        },
-        tip::{AsHeaderTip, HeaderTip},
+use amaru_consensus::consensus::{
+    effects::{
+        ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
+        ResourceHeaderValidation, ResourceMeter, ResourceParameters,
     },
-    network_operations::ResourceNetworkOperations,
+    errors::ConsensusError,
+    headers_tree::HeadersTreeState,
+    stages::{
+        pull::{self, SyncTracker},
+        select_chain::SelectChain,
+        validate_header::ValidateHeader,
+    },
 };
 use amaru_kernel::{
     BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
     network::NetworkName,
     peer::Peer,
+    protocol_messages::{network_magic::NetworkMagic, tip::Tip},
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_metrics::METRICS_METER_NAME;
-use amaru_network::NetworkResource;
-use amaru_network::point::to_network_point;
+use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, ChainStore, HasStakeDistribution,
+    CanValidateBlocks, ChainStore, ConnectionResource, HasStakeDistribution,
     in_memory_consensus_store::InMemConsensusStore,
 };
+use amaru_protocols::manager;
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore},
@@ -54,7 +51,6 @@ use amaru_stores::{
 use anyhow::Context;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pallas_network::miniprotocols::chainsync::Tip;
 use pure_stage::{
     StageGraph,
     tokio::{TokioBuilder, TokioRunning},
@@ -91,7 +87,7 @@ pub struct Config {
     pub chain_store: StoreType<()>,
     pub upstream_peers: Vec<String>,
     pub network: NetworkName,
-    pub network_magic: u32,
+    pub network_magic: NetworkMagic,
     pub listen_address: String,
     pub max_downstream_peers: usize,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
@@ -105,7 +101,7 @@ impl Default for Config {
             chain_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./chain.db"))),
             upstream_peers: vec![],
             network: NetworkName::Preprod,
-            network_magic: 1,
+            network_magic: NetworkMagic::PREPROD,
             listen_address: "0.0.0.0:3000".to_string(),
             max_downstream_peers: 10,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
@@ -187,8 +183,8 @@ pub async fn build_and_run_network(
     let chain_store = make_chain_store(&config, &tip.hash())?;
     let our_tip = chain_store
         .load_header(&tip.hash())
-        .map(|h| h.as_header_tip())
-        .unwrap_or(HeaderTip::new(Point::Origin, 0));
+        .map(|h| h.tip())
+        .unwrap_or(Tip::new(Point::Origin, 0.into()));
 
     let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
     let chain_selector = make_chain_selector(
@@ -214,25 +210,56 @@ pub async fn build_and_run_network(
         TcpForwardChainServer::new(
             chain_store.clone(),
             config.listen_address.clone(),
-            config.network_magic as u64,
+            config.network_magic.as_u64(),
             config.max_downstream_peers,
-            our_tip.clone(),
+            to_pallas_tip(our_tip),
         )
         .await?,
     );
 
     let mut network = TokioBuilder::default();
-    let acto_runtime = AcTokio::from_handle("network", Handle::current().clone());
 
+    let manager = network.stage("manager", manager::stage);
     let receive_header_stage =
-        build_stage_graph(chain_selector, sync_tracker, our_tip, &mut network);
+        build_stage_graph(chain_selector, our_tip, manager.sender(), &mut network);
 
     let pull_stage = network.stage("pull", pull::stage);
-    let pull_stage = network.wire_up(pull_stage, receive_header_stage);
-    network
-        .preload(pull_stage, vec![pull::NextSync])
-        .map_err(|_| anyhow::anyhow!("failed to preload pull stage"))?;
+    let pull_stage = network.wire_up(pull_stage, (sync_tracker, receive_header_stage));
 
+    let manager = network.wire_up(
+        manager,
+        manager::Manager::new(config.network_magic, pull_stage.without_state()),
+    );
+    for peer in &peers {
+        let Ok(_) = network.preload(&manager, [manager::ManagerMessage::AddPeer(peer.clone())])
+        else {
+            tracing::warn!("supplied more peers than can be initially connected");
+            break;
+        };
+    }
+
+    // Create the stages for the new network protocols stack
+    // let conn = ConnectionResource::new(65535);
+    // let conn_id = create_upstream_connection(&peers, &conn).await?;
+    // let connection = network.stage("connection", connection::stage);
+    // let connection = network.wire_up(
+    //     connection,
+    //     connection::Connection::new(
+    //         conn_id,
+    //         Role::Initiator,
+    //         NetworkMagic::new(config.network_magic as u64),
+    //     ),
+    // );
+    // network
+    //     .preload(connection, [ConnectionMessage::Initialize])
+    //     .map_err(|e| anyhow!("{e}"))?;
+    //
+    // network.resources().put(conn);
+    // network
+    //     .resources()
+    //     .put::<ResourceMempool<Tx>>(Arc::new(InMemoryMempool::default()));
+
+    // Register resources
     network
         .resources()
         .put::<ResourceHeaderStore>(chain_store.clone());
@@ -250,12 +277,7 @@ pub async fn build_and_run_network(
         .put::<ResourceForwardEventListener>(forward_event_listener);
     network
         .resources()
-        .put::<ResourceNetworkOperations>(Arc::new(NetworkResource::new(
-            peers,
-            &acto_runtime,
-            config.network_magic.into(),
-            chain_store,
-        )));
+        .put::<ConnectionResource>(Arc::new(TokioConnections::new(65535)));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);
@@ -264,6 +286,34 @@ pub async fn build_and_run_network(
 
     Ok(network.run(Handle::current().clone()))
 }
+
+// / Temporary function to create a connection to an upstream peer.
+// / This will be replaced by some proper peer management.
+// pub async fn create_upstream_connection(
+//     peers: &[Peer],
+//     conn: &ConnectionResource,
+// ) -> anyhow::Result<ConnectionId> {
+//     if let Some(peer) = peers.first() {
+//         timeout(Duration::from_secs(5), async {
+//             match ToSocketAddrs::String(env::var("PEER").unwrap_or(peer.to_string()))
+//                 .resolve()
+//                 .await
+//             {
+//                 Ok(addr) => conn.connect(addr).await.map_err(anyhow::Error::from),
+//                 Err(e) => Err(anyhow::anyhow!(
+//                     "Failed to resolve address for upstream peer {}: {}",
+//                     peer,
+//                     e
+//                 )),
+//             }
+//         })
+//         .await?
+//     } else {
+//         Err(anyhow::anyhow!(
+//             "No upstream peers configured to connect to"
+//         ))
+//     }
+// }
 
 #[expect(clippy::panic)]
 fn make_chain_store(
@@ -379,7 +429,7 @@ pub trait AsTip {
 
 impl<H: IsHeader> AsTip for H {
     fn as_tip(&self) -> Tip {
-        Tip(to_network_point(self.point()), self.block_height())
+        Tip::new(self.point(), self.block_height())
     }
 }
 

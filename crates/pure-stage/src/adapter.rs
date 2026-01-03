@@ -64,23 +64,21 @@ impl<T> StageOrAdapter<T> {
     }
 }
 
-#[tracing::instrument(skip_all, fields(%name))]
-pub fn find_recipient<'a, T>(
-    senders: &'a mut BTreeMap<Name, StageOrAdapter<T>>,
-    name: Name,
+pub fn find_recipient<T>(
+    senders: &mut BTreeMap<Name, StageOrAdapter<T>>,
+    orig_name: Name,
     mut msg: Option<Box<dyn SendData>>,
-) -> Option<(&'a mut T, Box<dyn SendData>)> {
-    let mut name = &name;
+) -> Option<(&mut T, Box<dyn SendData>)> {
+    let mut name = &orig_name;
     loop {
         match senders.get(name) {
             Some(StageOrAdapter::Stage(_)) => {
-                tracing::trace!(target = %name, "found stage");
+                tracing::trace!(%orig_name, target = %name, "found stage");
                 break;
             }
             Some(StageOrAdapter::Adapter(adapter)) => {
                 msg = msg.map(|msg| (adapter.transform)(msg));
                 name = &adapter.target;
-                tracing::trace!(target = %name, "followed adapter");
             }
             None => {
                 if let Some(msg) = &msg {
