@@ -430,6 +430,7 @@ pub fn warn<'a, E: std::fmt::Display + Send + 'a>(
 #[cfg(test)]
 mod test {
     use crate::simulation::SimulationBuilder;
+    use crate::trace_buffer::TerminationReason;
     use crate::{
         Effect, Instant, SendData, StageGraph, StageGraphRunning, StageResponse, TryInStage,
         serde::SendDataValue,
@@ -501,7 +502,8 @@ mod test {
                 TraceEntry::state("stage-1", SendDataValue::boxed(&1u32)),
                 TraceEntry::input("stage-1", SendDataValue::boxed(&None::<u32>)),
                 TraceEntry::resume("stage-1", StageResponse::Unit),
-                TraceEntry::suspend(Effect::terminate("stage-1"))
+                TraceEntry::suspend(Effect::terminate("stage-1")),
+                TraceEntry::terminated("stage-1", TerminationReason::Voluntary),
             ]
         );
     }
@@ -541,7 +543,8 @@ mod test {
                 TraceEntry::suspend(Effect::wait("stage-1", Duration::from_secs(2))),
                 TraceEntry::clock(two_sec),
                 TraceEntry::resume("stage-1", StageResponse::WaitResponse(two_sec)),
-                TraceEntry::suspend(Effect::terminate("stage-1"))
+                TraceEntry::suspend(Effect::terminate("stage-1")),
+                TraceEntry::terminated("stage-1", TerminationReason::Voluntary),
             ]
         );
     }

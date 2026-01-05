@@ -21,13 +21,23 @@ use crate::{
         running::{AssertStage, DeliverMessageResult, LogTermination},
         state::{StageData, StageState},
     },
+    trace_buffer::TerminationReason,
 };
+use anyhow::Context;
 use std::mem::replace;
 
+#[derive(Debug, thiserror::Error)]
+#[error("stage `{0}` terminated by unsupervised child termination")]
+pub struct UnsupervisedChildTermination(pub Name);
+
+/// Try to resume a receive effect.
+///
+/// Returns `Ok(true)` if the receive was in fact resumed, `Ok(false)` if the stage was not waiting for a receive effect,
+/// or `Err` if the simulation should be terminated due to a bug or a top-level stage termination.
 pub fn resume_receive_internal(
     simulation: &mut SimulationRunning,
     at_stage: &Name,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     let data = simulation
         .stages
         .get_mut(at_stage)
@@ -35,17 +45,12 @@ pub fn resume_receive_internal(
     let StageOrAdapter::Stage(data) = data else {
         panic!("stage is an adapter, which cannot receive");
     };
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let Some(waiting_for) = data.waiting.as_ref() else {
+        return Ok(false);
+    };
 
     if !matches!(waiting_for, StageEffect::Receive) {
-        anyhow::bail!(
-            "stage `{}` was not waiting for a receive effect, but {:?}",
-            data.name,
-            waiting_for
-        )
+        return Ok(false);
     }
 
     let msg = match data.tombstones.pop_front() {
@@ -53,20 +58,25 @@ pub fn resume_receive_internal(
         Some(Err(name)) => {
             tracing::info!(parent = %data.name, child = %name, "terminated by unsupervised child termination");
             let (supervised_by, msg) = simulation
-                .terminate_stage(at_stage.clone())
+                .terminate_stage(at_stage.clone(), TerminationReason::Supervision(name))
                 .ok_or_else(|| anyhow::anyhow!("stage was already terminated"))?;
             let Some(StageOrAdapter::Stage(supervisor)) = simulation.stages.get_mut(&supervised_by)
             else {
-                panic!("supervisor can neither be an adapter nor terminated");
+                tracing::error!(%at_stage, "terminating simulation due to unsupervised stage termination");
+                simulation.terminate.send_replace(true);
+                return Err(UnsupervisedChildTermination(at_stage.clone()).into());
             };
             supervisor.tombstones.push_back(msg);
-            resume_receive_internal(simulation, &supervised_by).ok();
-            anyhow::bail!("stage terminated by unsupervised child termination")
+            resume_receive_internal(simulation, &supervised_by)
+                .with_context(|| format!("sending tombstone from `{}`", at_stage))?;
+            return Ok(false);
         }
-        None => data
-            .mailbox
-            .pop_front()
-            .ok_or_else(|| anyhow::anyhow!("mailbox is empty while resuming receive"))?,
+        None => {
+            let Some(msg) = data.mailbox.pop_front() else {
+                return Ok(false);
+            };
+            msg
+        }
     };
 
     // it is important that all validations (i.e. `?``) happen before this point
@@ -85,7 +95,7 @@ pub fn resume_receive_internal(
     simulation
         .runnable
         .push_back((data.name.clone(), StageResponse::Unit));
-    Ok(())
+    Ok(true)
 }
 
 pub fn resume_send_internal(
@@ -179,15 +189,14 @@ pub fn resume_call_send_internal(
     from: Name,
     to: Name,
     msg: Box<dyn SendData>,
-) -> Option<()> {
-    let data_from = sim
-        .stages
-        .get_mut(&from)
-        .log_termination(&from)?
-        .assert_stage("which cannot receive call effects");
+) -> anyhow::Result<bool> {
+    let Some(data_from) = sim.stages.get_mut(&from).log_termination(&from) else {
+        return Ok(false);
+    };
+    let data_from = data_from.assert_stage("which cannot receive call effects");
     let Some(StageEffect::Call(_, _, CallExtra::Scheduled(id))) = data_from.waiting.as_ref() else {
         tracing::warn!(stage = %from, "stage was not waiting for a call effect, but {:?}", data_from.waiting);
-        return None;
+        return Ok(false);
     };
     let id = *id;
 
@@ -196,7 +205,7 @@ pub fn resume_call_send_internal(
             DeliverMessageResult::Delivered(data_to) => {
                 // `to` may not be suspended on receive, so failure to resume is okay
                 let name = data_to.name.clone();
-                resume_receive_internal(sim, &name).ok();
+                resume_receive_internal(sim, &name)?;
                 Some(name)
             }
             DeliverMessageResult::Full(data_to, send_data) => {
@@ -209,7 +218,7 @@ pub fn resume_call_send_internal(
             }
         })
     else {
-        return None;
+        return Ok(false);
     };
 
     sim.schedule_wakeup(id, move |sim| {
@@ -232,7 +241,7 @@ pub fn resume_call_send_internal(
         }
     });
 
-    Some(())
+    Ok(true)
 }
 
 pub fn resume_call_internal(

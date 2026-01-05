@@ -120,13 +120,11 @@ fn automatic() {
         "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(2)), (Text(\"sender\"), Map([]))]) } } })",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
         "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(2), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
-        "Suspend(Receive { at_stage: Name(\"basic-1\") })",
         "Input { stage: Name(\"basic-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(2) } }",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
         "Suspend(Wait { at_stage: Name(\"basic-1\"), duration: 10s })",
         "Resume { stage: Name(\"output-2\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
         "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
-        "Suspend(Receive { at_stage: Name(\"output-2\") })",
         "Clock(Instant(20s))",
         "Resume { stage: Name(\"basic-1\"), response: WaitResponse(Instant(20s)) }",
         "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), call: false, msg: SendDataValue { typetag: \"u32\", value: Integer(4) } })",
@@ -135,13 +133,11 @@ fn automatic() {
         "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(4)), (Text(\"sender\"), Map([]))]) } } })",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
         "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(4), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
-        "Suspend(Receive { at_stage: Name(\"basic-1\") })",
         "Input { stage: Name(\"basic-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(3) } }",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
         "Suspend(Wait { at_stage: Name(\"basic-1\"), duration: 10s })",
         "Resume { stage: Name(\"output-2\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
         "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
-        "Suspend(Receive { at_stage: Name(\"output-2\") })",
         "Clock(Instant(30s))",
         "Resume { stage: Name(\"basic-1\"), response: WaitResponse(Instant(30s)) }",
         "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), call: false, msg: SendDataValue { typetag: \"u32\", value: Integer(7) } })",
@@ -150,10 +146,8 @@ fn automatic() {
         "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(7)), (Text(\"sender\"), Map([]))]) } } })",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
         "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(7), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
-        "Suspend(Receive { at_stage: Name(\"basic-1\") })",
         "Resume { stage: Name(\"output-2\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
         "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
-        "Suspend(Receive { at_stage: Name(\"output-2\") })",
     ];
 
     pretty_assertions::assert_eq!(
@@ -457,7 +451,8 @@ fn call() {
 
     sim.try_effect().unwrap_err().assert_busy([caller.name()]);
     // this will resume receive on callee
-    sim.resume_call_send(&caller, &callee, Msg3(msg, cr.clone()));
+    sim.resume_call_send(&caller, &callee, Msg3(msg, cr.clone()))
+        .unwrap();
     sim.effect().assert_wait(&callee, Duration::from_secs(1));
     sim.resume_wait(&callee, sim.now()).unwrap();
     sim.effect().assert_send(&callee, &cr, 8);
@@ -679,6 +674,13 @@ fn create_stage_within_stage() {
                 }),
                 None
             )),
+            TraceEntry::state(
+                child_ref.name(),
+                SendDataValue::boxed(&ChildState {
+                    value: 0,
+                    output: output.clone()
+                })
+            ),
             TraceEntry::resume(parent.name(), StageResponse::Unit),
             TraceEntry::suspend(Effect::Send {
                 from: parent.name().clone(),
@@ -703,9 +705,6 @@ fn create_stage_within_stage() {
                     output: output.clone()
                 })
             ),
-            TraceEntry::suspend(Effect::Receive {
-                at_stage: parent.name().clone()
-            }),
             TraceEntry::resume(output.name(), StageResponse::Unit),
             TraceEntry::suspend(Effect::External {
                 at_stage: output.name().clone(),
@@ -721,9 +720,6 @@ fn create_stage_within_stage() {
                     output: output.clone()
                 })
             ),
-            TraceEntry::suspend(Effect::Receive {
-                at_stage: child_ref.name().clone()
-            }),
             TraceEntry::resume(
                 output.name(),
                 StageResponse::ExternalResponse(SendDataValue::boxed(&()))
@@ -735,9 +731,6 @@ fn create_stage_within_stage() {
                     BTreeMap::<u8, u8>::new()
                 )
             ),
-            TraceEntry::suspend(Effect::Receive {
-                at_stage: output.name().clone()
-            }),
         ]
     );
 }

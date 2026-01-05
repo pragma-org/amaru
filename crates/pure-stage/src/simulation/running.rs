@@ -43,7 +43,7 @@ use crate::{
     stage_ref::StageStateRef,
     stagegraph::StageGraphRunning,
     time::Clock,
-    trace_buffer::TraceBuffer,
+    trace_buffer::{TerminationReason, TraceBuffer},
 };
 use either::Either::{Left, Right};
 use futures_util::{StreamExt, stream::FuturesUnordered};
@@ -521,6 +521,7 @@ impl SimulationRunning {
             })
             .collect::<Vec<_>>();
         for name in receiving {
+            // ignore all errors since this is a purely optimistic wake-up
             resume_receive_internal(self, &name).ok();
         }
     }
@@ -551,12 +552,27 @@ impl SimulationRunning {
     pub fn handle_effect(&mut self, effect: Effect) -> Option<Blocked> {
         let runnable = &mut self.runnable;
         let run = &mut |name, response| {
+            tracing::debug!(%name, ?response, "enqueuing stage");
             runnable.push_back((name, response));
         };
 
         match effect {
             Effect::Receive { at_stage: to } => {
-                resume_receive_internal(self, &to).ok()?;
+                match resume_receive_internal(self, &to) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        // nothing in the mailbox
+                        return None;
+                    }
+                    Err(err) => {
+                        tracing::warn!(%to, ?err, "cannot resume receive, shutting down simulation");
+                        let terminated = err
+                            .downcast::<resume::UnsupervisedChildTermination>()
+                            .map(|e| e.0)
+                            .unwrap_or(to);
+                        return Some(Blocked::Terminated(terminated));
+                    }
+                }
                 let Some(StageOrAdapter::Stage(data_to)) = self.stages.get_mut(&to) else {
                     return None;
                 };
@@ -570,7 +586,10 @@ impl SimulationRunning {
                     .assert_stage("which cannot receive send effects");
                 resume_send_internal(
                     data_from,
-                    &mut |name, response| self.runnable.push_back((name, response)),
+                    &mut |name, response| {
+                        tracing::debug!(%name, ?response, "enqueuing stage");
+                        self.runnable.push_back((name, response));
+                    },
                     to.clone(),
                     false,
                 )
@@ -592,23 +611,30 @@ impl SimulationRunning {
                 call: false,
                 msg,
             } => {
-                let resume =
-                    match deliver_message(&mut self.stages, self.mailbox_size, to.clone(), msg) {
-                        DeliverMessageResult::Delivered(data_to) => {
-                            // `to` may not be suspended on receive, so failure to resume is okay
-                            let name = data_to.name.clone();
-                            resume_receive_internal(self, &name).ok();
-                            Some(from)
+                let mb = self.mailbox_size;
+                let resume = match deliver_message(&mut self.stages, mb, to.clone(), msg) {
+                    DeliverMessageResult::Delivered(data_to) => {
+                        // `to` may not be suspended on receive, so failure to resume is okay
+                        let name = data_to.name.clone();
+                        if let Err(err) = resume_receive_internal(self, &name) {
+                            tracing::warn!(%from, %to, ?err, "cannot deliver send, shutting down simulation");
+                            let terminated = err
+                                .downcast::<resume::UnsupervisedChildTermination>()
+                                .map(|e| e.0)
+                                .unwrap_or(name);
+                            return Some(Blocked::Terminated(terminated));
                         }
-                        DeliverMessageResult::Full(data_to, send_data) => {
-                            data_to.senders.push_back((from, send_data));
-                            None
-                        }
-                        DeliverMessageResult::NotFound => {
-                            tracing::warn!(stage = %to, "message send to terminated stage dropped");
-                            Some(from)
-                        }
-                    };
+                        Some(from)
+                    }
+                    DeliverMessageResult::Full(data_to, send_data) => {
+                        data_to.senders.push_back((from, send_data));
+                        None
+                    }
+                    DeliverMessageResult::NotFound => {
+                        tracing::warn!(stage = %to, "message send to terminated stage dropped");
+                        Some(from)
+                    }
+                };
                 if let Some(from) = resume {
                     let data_from = self
                         .stages
@@ -617,7 +643,10 @@ impl SimulationRunning {
                         .assert_stage("which cannot have sent");
                     resume_send_internal(
                         data_from,
-                        &mut |name, response| self.runnable.push_back((name, response)),
+                        &mut |name, response| {
+                            tracing::debug!(%name, ?response, "enqueuing stage");
+                            self.runnable.push_back((name, response));
+                        },
                         to.clone(),
                         false,
                     )
@@ -653,7 +682,13 @@ impl SimulationRunning {
                 duration: _,
                 msg,
             } => {
-                resume_call_send_internal(self, from, to, msg);
+                if !matches!(
+                    resume_call_send_internal(self, from.clone(), to.clone(), msg),
+                    Ok(true)
+                ) {
+                    tracing::warn!(%from, %to, "couldn’t deliver call effect");
+                    return Some(Blocked::Terminated(from));
+                }
             }
             Effect::Clock { at_stage } => {
                 let data = self
@@ -675,6 +710,7 @@ impl SimulationRunning {
                     resume_wait_internal(
                         data.assert_stage("which cannot wait"),
                         &mut |name, response| {
+                            tracing::debug!(%name, ?response, "enqueuing stage");
                             sim.runnable.push_back((name, response));
                         },
                         sim.clock.now(),
@@ -761,7 +797,8 @@ impl SimulationRunning {
             }
             Effect::Terminate { at_stage } => {
                 tracing::info!(stage = %at_stage, "terminated");
-                let (supervised_by, msg) = self.terminate_stage(at_stage.clone())?;
+                let (supervised_by, msg) =
+                    self.terminate_stage(at_stage.clone(), TerminationReason::Voluntary)?;
                 if supervised_by == *BLACKHOLE_NAME {
                     // top-level stage terminated, terminate the simulation
                     self.terminate.send_replace(true);
@@ -772,7 +809,14 @@ impl SimulationRunning {
                     .get_mut(&supervised_by)
                     .assert_stage("which cannot supervise");
                 supervisor.tombstones.push_back(msg);
-                resume_receive_internal(self, &supervised_by).ok();
+                if let Err(err) = resume_receive_internal(self, &supervised_by) {
+                    tracing::warn!(%supervised_by, ?err, "shutting down simulation");
+                    let terminated = err
+                        .downcast::<resume::UnsupervisedChildTermination>()
+                        .map(|e| e.0)
+                        .unwrap_or(supervised_by);
+                    return Some(Blocked::Terminated(terminated));
+                }
             }
             Effect::AddStage { at_stage, name } => {
                 let name = stage_name(&mut self.stage_count, name.as_str());
@@ -790,6 +834,7 @@ impl SimulationRunning {
                 initial_state,
                 tombstone,
             } => {
+                self.trace_buffer.lock().push_state(&name, &initial_state);
                 let data = self
                     .stages
                     .get_mut(&at_stage)
@@ -846,6 +891,7 @@ impl SimulationRunning {
     fn terminate_stage(
         &mut self,
         at_stage: Name,
+        reason: TerminationReason,
     ) -> Option<(Name, Result<Box<dyn SendData>, Name>)> {
         let Some(data) = self.stages.get_mut(&at_stage) else {
             tracing::warn!(name = %at_stage, "stage was already terminated, skipping terminate stage effect");
@@ -862,6 +908,7 @@ impl SimulationRunning {
 
         let runnable = &mut self.runnable;
         let run = &mut |name, response| {
+            tracing::debug!(%name, ?response, "enqueuing stage");
             runnable.push_back((name, response));
         };
         let senders = std::mem::take(&mut data.senders);
@@ -887,8 +934,9 @@ impl SimulationRunning {
             .collect::<Vec<_>>();
         for child in children {
             tracing::info!(stage = %child, parent = %at_stage, "terminating child stage");
-            self.terminate_stage(child);
+            self.terminate_stage(child, TerminationReason::Aborted);
         }
+        self.trace_buffer.lock().push_terminated(&at_stage, reason);
         let Some(StageOrAdapter::Stage(stage)) = self.stages.remove(&at_stage) else {
             unreachable!();
         };
@@ -943,8 +991,15 @@ impl SimulationRunning {
         &mut self,
         at_stage: impl AsRef<StageRef<Msg>>,
     ) -> anyhow::Result<()> {
-        resume_receive_internal(self, at_stage.as_ref().name())?;
-        Ok(())
+        resume_receive_internal(self, at_stage.as_ref().name()).and_then(|resumed| {
+            if resumed {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "stage was not waiting for a receive effect"
+                ))
+            }
+        })
     }
 
     /// Resume an [`Effect::Send`].
@@ -979,6 +1034,7 @@ impl SimulationRunning {
         let id = resume_send_internal(
             data,
             &mut |name, response| {
+                tracing::debug!(%name, ?response, "enqueuing stage");
                 self.runnable.push_back((name, response));
             },
             to.name().clone(),
@@ -996,6 +1052,7 @@ impl SimulationRunning {
             resume_call_internal(
                 data,
                 &mut |name, response| {
+                    tracing::debug!(%name, ?response, "enqueuing stage");
                     self.runnable.push_back((name, response));
                 },
                 Some(id),
@@ -1023,6 +1080,7 @@ impl SimulationRunning {
         resume_clock_internal(
             data,
             &mut |name, response| {
+                tracing::debug!(%name, ?response, "enqueuing stage");
                 self.runnable.push_back((name, response));
             },
             time,
@@ -1048,6 +1106,7 @@ impl SimulationRunning {
         resume_wait_internal(
             data,
             &mut |name, response| {
+                tracing::debug!(%name, ?response, "enqueuing stage");
                 self.runnable.push_back((name, response));
             },
             time,
@@ -1064,13 +1123,20 @@ impl SimulationRunning {
         from: impl AsRef<StageRef<Msg>>,
         to: impl AsRef<StageRef<Msg2>>,
         msg: Msg2,
-    ) {
+    ) -> anyhow::Result<()> {
         resume_call_send_internal(
             self,
             from.as_ref().name().clone(),
             to.as_ref().name().clone(),
             Box::new(msg),
-        );
+        )
+        .and_then(|resumed| {
+            if resumed {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("stage was not waiting for a call effect"))
+            }
+        })
     }
 
     /// Resume an [`Effect::Call`].
@@ -1091,6 +1157,7 @@ impl SimulationRunning {
         resume_call_internal(
             data,
             &mut |name, response| {
+                tracing::debug!(%name, ?response, "enqueuing stage");
                 self.runnable.push_back((name, response));
             },
             None,
@@ -1113,6 +1180,7 @@ impl SimulationRunning {
             .get_mut(at_stage.as_ref())
             .assert_stage("which cannot receive external effects");
         resume_external_internal(data, result, &mut |name, response| {
+            tracing::debug!(%name, ?response, "enqueuing stage");
             self.runnable.push_back((name, response));
         })
     }
@@ -1132,6 +1200,7 @@ impl SimulationRunning {
             .get_mut(at_stage.as_ref())
             .assert_stage("which cannot receive external effects");
         resume_external_internal(data, Box::new(result), &mut |name, response| {
+            tracing::debug!(%name, ?response, "enqueuing stage");
             self.runnable.push_back((name, response));
         })
     }
@@ -1153,6 +1222,7 @@ impl SimulationRunning {
         resume_add_stage_internal(
             data,
             &mut |name, response| {
+                tracing::debug!(%name, ?response, "enqueuing stage");
                 self.runnable.push_back((name, response));
             },
             name,
@@ -1177,6 +1247,7 @@ impl SimulationRunning {
             .get_mut(at_stage.name())
             .assert_stage("which cannot wire a stage");
         let transition = resume_wire_stage_internal(data, &mut |name, response| {
+            tracing::debug!(%name, ?response, "enqueuing stage");
             self.runnable.push_back((name, response));
         })?;
 
@@ -1211,6 +1282,7 @@ impl SimulationRunning {
         let transform = resume_contramap_internal(
             data,
             &mut |name, response| {
+                tracing::debug!(%name, ?response, "enqueuing stage");
                 self.runnable.push_back((name, response));
             },
             original.clone(),

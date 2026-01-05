@@ -278,6 +278,16 @@ enum TerminationReasonRef<'a> {
     Aborted,
 }
 
+impl<'a> From<&'a TerminationReason> for TerminationReasonRef<'a> {
+    fn from(reason: &'a TerminationReason) -> Self {
+        match reason {
+            TerminationReason::Voluntary => TerminationReasonRef::Voluntary,
+            TerminationReason::Supervision(child) => TerminationReasonRef::Supervision(child),
+            TerminationReason::Aborted => TerminationReasonRef::Aborted,
+        }
+    }
+}
+
 /// Helper struct that has the same serialization format as TraceEntry but doesn’t require owned effect data.
 #[derive(serde::Serialize)]
 enum TraceEntryRefRef<'a> {
@@ -485,6 +495,13 @@ impl TraceBuffer {
     /// stage state has been computed.
     pub fn push_state(&mut self, stage: &Name, state: &Box<dyn SendData>) {
         self.push(TraceEntryRef::State { stage, state });
+    }
+
+    pub fn push_terminated(&mut self, stage: &Name, reason: TerminationReason) {
+        self.push(TraceEntryRef::Terminated {
+            stage,
+            reason: (&reason).into(),
+        });
     }
 
     pub fn push_terminated_voluntary(&mut self, stage: &Name) {
