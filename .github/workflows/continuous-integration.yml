@@ -190,12 +190,12 @@ jobs:
           - name: preprod
             magic: 1
             target_epoch: 182
-            timeout: ${{ fromJSON(github.event.inputs.timeout || '30') }}
+            timeout: ${{ fromJSON(github.event.inputs.timeout || '15') }}
           - name: preview
             magic: 2
             target_epoch: 680
             tests-may-fail: true
-            timeout: ${{ fromJSON(github.event.inputs.timeout || '30') }}
+            timeout: ${{ fromJSON(github.event.inputs.timeout || '15') }}
         cardano_node_version: [10.5.3]
     env:
       AMARU_NETWORK: ${{ matrix.network.name }}
