@@ -30,7 +30,8 @@ use amaru_ledger::{
 };
 use amaru_slot_arithmetic::Epoch;
 use rocksdb::{
-    DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction
+    DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode,
+    ReadOptions, Transaction,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -968,7 +969,6 @@ where
 }
 
 #[expect(clippy::panic)]
-#[expect(clippy::unwrap_used)]
 pub fn iter<'a, 'b, K, V, DB, F>(
     db_iter_opt: F,
     prefix: [u8; PREFIX_LEN],
@@ -992,17 +992,17 @@ where
             let k = cbor::decode(&key[PREFIX_LEN..]).unwrap_or_else(|e| {
                 panic!(
                     "unable to decode key {}::<{}> for type {}: {e:?}",
-                    hex::encode(&key),
+                    hex::encode(key),
                     std::any::type_name::<K>(),
                     std::any::type_name::<V>()
                 )
             });
-            let v = cbor::decode(&value).unwrap_or_else(|e| {
+            let v = cbor::decode(value).unwrap_or_else(|e| {
                 panic!(
                     "unable to decode value {}::<{}> for key {}::<{}>: {e:?}",
-                    hex::encode(&value),
+                    hex::encode(value),
                     std::any::type_name::<V>(),
-                    hex::encode(&key),
+                    hex::encode(key),
                     std::any::type_name::<K>(),
                 )
             });
