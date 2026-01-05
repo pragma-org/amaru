@@ -138,6 +138,9 @@ removeUnusedFilesAndDirs() {
         else
             echo "::warning::AGENT_TOOLSDIRECTORY is not set. Skipping removal."
         fi
+    else
+        echo "not in a GitHub Runner"
+    fi
 
     for element in "${to_remove[@]}"; do
         if [ ! -e "$element" ]; then
