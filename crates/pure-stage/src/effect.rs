@@ -14,7 +14,8 @@
 // limitations under the License.
 
 use crate::{
-    BoxFuture, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef, StageRef,
+    BLACKHOLE_NAME, BoxFuture, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef,
+    StageRef,
     effect_box::{EffectBox, airlock_effect},
     serde::{NoDebug, SendDataValue, never, to_cbor},
     time::Clock,
@@ -190,11 +191,10 @@ impl<M> Effects<M> {
     ///
     /// The scheduled message will be sent at the specified `when` instant. If `when` is in the past,
     /// the message will be sent immediately.
-    pub fn schedule_at<Msg: SendData>(
-        &self,
-        msg: Msg,
-        when: Instant,
-    ) -> BoxFuture<'static, ScheduleId> {
+    pub fn schedule_at(&self, msg: M, when: Instant) -> BoxFuture<'static, ScheduleId>
+    where
+        M: SendData,
+    {
         let id = ScheduleId::new(when);
         airlock_effect(
             &self.effect,
@@ -211,11 +211,10 @@ impl<M> Effects<M> {
     /// Returns a token that can be used to cancel the scheduled message using [`cancel_schedule`](Self::cancel_schedule).
     ///
     /// The scheduled message will be sent after the specified `delay` duration from now.
-    pub fn schedule_after<Msg: SendData>(
-        &self,
-        msg: Msg,
-        delay: Duration,
-    ) -> BoxFuture<'static, ScheduleId> {
+    pub fn schedule_after(&self, msg: M, delay: Duration) -> BoxFuture<'static, ScheduleId>
+    where
+        M: SendData,
+    {
         let now = self.clock.now();
         let when = now + delay;
         self.schedule_at(msg, when)
@@ -354,9 +353,10 @@ impl<M> Effects<M> {
                     as BoxFuture<'static, Box<dyn SendData>>
             }) as Transition
         };
+        let can_supervise = CanSupervise(name.clone());
         crate::StageBuildRef {
             name,
-            network: (Box::new(transition), CanSupervise(())),
+            network: (Box::new(transition), can_supervise),
             _ph: PhantomData,
         }
     }
@@ -364,11 +364,11 @@ impl<M> Effects<M> {
     /// Supervise the given stage by sending the tombstone when it terminates.
     ///
     /// When an unsupervised child stage terminates, this stage will terminate as well.
-    pub fn supervise<Msg: SendData, St>(
+    pub fn supervise<Msg, St>(
         &self,
         stage: crate::StageBuildRef<Msg, St, (TransitionFactory, CanSupervise)>,
-        tombstone: Msg,
-    ) -> crate::StageBuildRef<Msg, St, (TransitionFactory, Msg)> {
+        tombstone: M,
+    ) -> crate::StageBuildRef<Msg, St, (TransitionFactory, M)> {
         let StageBuildRef { name, network, .. } = stage;
 
         crate::StageBuildRef {
@@ -442,11 +442,11 @@ impl<M> Effects<M> {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CanSupervise(()); // private field to prevent instantiation
+pub struct CanSupervise(pub(crate) Name); // private field to prevent instantiation
 
 impl CanSupervise {
     pub fn for_test() -> Self {
-        Self(())
+        Self(BLACKHOLE_NAME.clone())
     }
 }
 
@@ -1038,13 +1038,6 @@ impl Display for Effect {
 
 #[expect(clippy::wildcard_enum_match_arm, clippy::panic)]
 impl Effect {
-    /// Construct a receive effect.
-    pub fn receive(at_stage: impl AsRef<str>) -> Self {
-        Self::Receive {
-            at_stage: Name::from(at_stage.as_ref()),
-        }
-    }
-
     /// Construct a send effect.
     pub fn send(
         from: impl AsRef<str>,
@@ -1090,6 +1083,22 @@ impl Effect {
         }
     }
 
+    /// Construct a schedule effect.
+    pub fn schedule(at_stage: impl AsRef<str>, msg: Box<dyn SendData>) -> Self {
+        Self::Schedule {
+            at_stage: Name::from(at_stage.as_ref()),
+            msg,
+            id: ScheduleId::fake(),
+        }
+    }
+
+    pub fn cancel(at_stage: impl AsRef<str>) -> Self {
+        Self::CancelSchedule {
+            at_stage: Name::from(at_stage.as_ref()),
+            id: ScheduleId::fake(),
+        }
+    }
+
     /// Construct an external effect.
     pub fn external(at_stage: impl AsRef<str>, effect: Box<dyn ExternalEffect>) -> Self {
         Self::External {
@@ -1124,7 +1133,8 @@ impl Effect {
             at_stage: Name::from(at_stage.as_ref()),
             name: Name::from(name.as_ref()),
             initial_state,
-            tombstone: tombstone.unwrap_or_else(|| SendDataValue::boxed(&CanSupervise(()))),
+            tombstone: tombstone
+                .unwrap_or_else(|| SendDataValue::boxed(&CanSupervise(Name::from(name.as_ref())))),
         }
     }
     /// Get the stage name of this effect.

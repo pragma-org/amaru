@@ -27,15 +27,23 @@ use std::{
 use tokio::sync::mpsc;
 
 /// A unique identifier for a scheduled effect.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ScheduleId(Instant, u64);
+
+impl PartialEq for ScheduleId {
+    fn eq(&self, other: &Self) -> bool {
+        self.1 == 0 || other.1 == 0 || (self.0 == other.0 && self.1 == other.1)
+    }
+}
 
 impl ScheduleId {
     pub(crate) fn new(instant: Instant) -> Self {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        static COUNTER: AtomicU64 = AtomicU64::new(1);
         Self(instant, COUNTER.fetch_add(1, Ordering::Relaxed))
+    }
+
+    pub fn fake() -> Self {
+        Self(Instant::now(), 0)
     }
 
     pub fn time(&self) -> Instant {

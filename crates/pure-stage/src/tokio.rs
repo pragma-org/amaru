@@ -34,10 +34,11 @@ use crate::{
 };
 use crate::{ScheduleId, stage_name};
 use either::Either::{Left, Right};
-use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
+use futures_util::{FutureExt, StreamExt};
 use parking_lot::Mutex;
 use std::any::Any;
+use std::future::poll_fn;
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -137,7 +138,12 @@ impl TokioBuilder {
         let inner2 = inner.clone();
         rt.spawn(async move {
             termination2.wait_for(|x| *x).await.ok();
-            for handle in inner2.handles.lock().iter() {
+            let handles = inner2.handles.lock();
+            tracing::info!(
+                stages = handles.len(),
+                "termination signal received, shutting down stages"
+            );
+            for handle in handles.iter() {
                 handle.abort();
             }
         });
@@ -273,7 +279,7 @@ async fn run_stage_boxed(
     stage_name: Name,
     inner: Arc<TokioInner>,
 ) {
-    tracing::debug!("running boxed stage `{stage_name}`");
+    tracing::debug!("running stage `{stage_name}`");
 
     let effect = Arc::new(Mutex::new(None));
     let mut transition = transition(effect.clone());
@@ -283,28 +289,40 @@ async fn run_stage_boxed(
     let mut timers = FuturesUnordered::<BoxFuture<'static, PriorityMessage>>::new();
     let mut cancellation = BTreeMap::<ScheduleId, oneshot::Sender<()>>::new();
 
-    loop {
-        let msg = tokio::select! { biased;
-            Some(res) = timers.next(), if !timers.is_empty() => match res {
-                PriorityMessage::Scheduled(msg, id) => {
-                    cancellation.remove(&id);
-                    msg
+    let tb = DropGuard::new(inner.trace_buffer.clone(), |tb| {
+        tb.lock().push_terminated_aborted(&stage_name)
+    });
+
+    'outer: loop {
+        inner.trace_buffer.lock().push_state(&stage_name, &state);
+
+        let msg = loop {
+            tokio::select! { biased;
+                Some(res) = timers.next(), if !timers.is_empty() => match res {
+                    PriorityMessage::Scheduled(msg, id) => {
+                        cancellation.remove(&id);
+                        break msg;
+                    }
+                    PriorityMessage::TimerCancelled(_id) => continue,
+                    PriorityMessage::Tombstone(msg) => break msg,
+                },
+                Some(msg) = rx.recv() => break msg,
+                else => {
+                    tracing::error!(%stage_name, "stage sender dropped");
+                    break 'outer;
                 }
-                PriorityMessage::TimerCancelled(_id) => continue,
-                PriorityMessage::Tombstone(msg) => msg,
-            },
-            Some(msg) = rx.recv() => msg,
-            else => {
-                tracing::error!(%stage_name, "stage sender dropped");
-                break;
             }
         };
-        if msg.is::<CanSupervise>() {
+        if let Ok(CanSupervise(child)) = msg.cast_ref::<CanSupervise>() {
             tracing::debug!(
                 "stage `{stage_name}` terminates because of an unsupervised child termination"
             );
+            tb.lock().push_terminated_supervision(&stage_name, child);
             break;
         }
+
+        inner.trace_buffer.lock().push_input(&stage_name, &msg);
+
         let f = (transition)(state, msg);
         let result = interpreter(
             &inner,
@@ -319,10 +337,13 @@ async fn run_stage_boxed(
             Some(st) => state = st,
             None => {
                 tracing::info!(%stage_name, "terminated");
+                tb.lock().push_terminated_voluntary(&stage_name);
                 break;
             }
         }
     }
+
+    DropGuard::into_inner(tb);
 }
 
 #[expect(clippy::expect_used, clippy::panic)]
@@ -360,6 +381,8 @@ fn interpreter(
     // trying to write this as an async fn fails with inscrutable compile errors, it seems
     // that rustc has some issue with this particular pattern
     async move {
+        let tb = || inner.trace_buffer.lock();
+        tb().push_resume(name, &StageResponse::Unit);
         loop {
             let poll = stage.as_mut().poll(&mut Context::from_waker(Waker::noop()));
             if let Poll::Ready(state) = poll {
@@ -371,6 +394,9 @@ fn interpreter(
             let Some(Left(eff)) = effect.lock().take() else {
                 panic!("stage `{name}` used .await on something that was not a stage effect");
             };
+            // this does not push the Call effect because getting the message consumes it
+            tb().push_suspend_ref(name, &eff);
+
             let resp = match eff {
                 StageEffect::Receive => {
                     #[expect(clippy::panic)]
@@ -411,6 +437,9 @@ fn interpreter(
                     // compiler would accept any type that implements Send + Sync + 'static
                     let sender = StageRefExtra::new(Some(tx_response));
                     let msg = (msg)(name.clone(), Arc::new(sender));
+
+                    tb().push_suspend_call(name, &target, duration, &*msg);
+
                     let (tx_call, msg) = {
                         let mut senders = inner.senders.lock();
                         #[expect(clippy::expect_used)]
@@ -507,6 +536,7 @@ fn interpreter(
                     }
                 }
             };
+            tb().push_resume(name, &resp);
             *effect.lock() = Some(Right(resp));
         }
     }
@@ -532,12 +562,27 @@ impl TokioRunning {
     }
 
     pub async fn join(self) {
-        let handles = std::mem::take(&mut *self.inner.handles.lock());
-        for handle in handles {
-            handle.await.unwrap_or_else(|err| {
-                tracing::error!("stage task failed: {:?}", err);
+        poll_fn(move |cx| {
+            let mut handles = self.inner.handles.lock();
+            handles.retain_mut(|h| {
+                if let Poll::Ready(res) = h.poll_unpin(cx) {
+                    match res {
+                        Ok(_) => tracing::info!("stage task completed"),
+                        Err(err) if err.is_cancelled() => tracing::info!("stage task cancelled"),
+                        Err(err) => tracing::error!("stage task failed: {:?}", err),
+                    }
+                    false
+                } else {
+                    true
+                }
             });
-        }
+            if handles.is_empty() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
     }
 
     pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {

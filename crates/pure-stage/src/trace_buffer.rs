@@ -15,12 +15,14 @@
 
 //! This module contains the [`TraceBuffer`] type, which is used to record the trace of a simulation.
 
-use crate::ExternalEffect;
+use crate::effect::StageEffect;
 use crate::{Effect, Instant, Name, SendData, effect::StageResponse, serde::to_cbor};
+use crate::{ExternalEffect, ScheduleId};
 use cbor4ii::serde::from_slice;
 use parking_lot::Mutex;
 use std::borrow::Borrow;
 use std::fmt::{Debug, Display, Formatter};
+use std::time::Duration;
 use std::{collections::VecDeque, sync::Arc};
 
 /// A buffer for recording the trace of a simulation.
@@ -63,6 +65,17 @@ pub enum TraceEntry {
         #[serde(with = "crate::serde::serialize_send_data")]
         state: Box<dyn SendData>,
     },
+    Terminated {
+        stage: Name,
+        reason: TerminationReason,
+    },
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum TerminationReason {
+    Voluntary,
+    Supervision(Name),
+    Aborted,
 }
 
 impl TraceEntry {
@@ -91,6 +104,11 @@ impl TraceEntry {
             "stage": stage,
             "state": state.to_string(),
             }),
+            TraceEntry::Terminated { stage, reason } => serde_json::json!({
+            "type": "terminated",
+            "stage": stage,
+            "reason": reason,
+            }),
         }
     }
 }
@@ -118,6 +136,11 @@ impl Debug for TraceEntry {
                 .debug_struct("State")
                 .field("stage", stage)
                 .field("state", state)
+                .finish(),
+            TraceEntry::Terminated { stage, reason } => f
+                .debug_struct("Terminated")
+                .field("stage", stage)
+                .field("reason", reason)
                 .finish(),
         }
     }
@@ -161,6 +184,9 @@ impl Display for TraceEntry {
                     state = state.as_send_data_value().borrow()
                 )
             }
+            TraceEntry::Terminated { stage, reason } => {
+                write!(f, "terminated {stage} {reason:?}")
+            }
         }
     }
 }
@@ -200,13 +226,22 @@ impl TraceEntry {
         }
     }
 
-    pub fn at_stage(&self) -> Option<&Name> {
+    /// Construct a terminated entry.
+    pub fn terminated(stage: impl AsRef<str>, reason: TerminationReason) -> Self {
+        Self::Terminated {
+            stage: Name::from(stage.as_ref()),
+            reason,
+        }
+    }
+
+    pub fn at_stage<'a, 'b: 'a>(&'b self) -> Option<&'a Name> {
         match self {
             TraceEntry::Suspend(effect) => Some(effect.at_stage()),
             TraceEntry::Resume { stage, .. } => Some(stage),
             TraceEntry::Clock(..) => None,
             TraceEntry::Input { stage, .. } => Some(stage),
             TraceEntry::State { stage, .. } => Some(stage),
+            TraceEntry::Terminated { stage, .. } => Some(stage),
         }
     }
 }
@@ -230,6 +265,17 @@ enum TraceEntryRef<'a> {
         stage: &'a Name,
         state: &'a Box<dyn SendData>,
     },
+    Terminated {
+        stage: &'a Name,
+        reason: TerminationReasonRef<'a>,
+    },
+}
+
+#[derive(Debug, PartialEq, serde::Serialize)]
+enum TerminationReasonRef<'a> {
+    Voluntary,
+    Supervision(&'a Name),
+    Aborted,
 }
 
 /// Helper struct that has the same serialization format as TraceEntry but doesn’t require owned effect data.
@@ -245,10 +291,108 @@ enum TraceEntryRefRef<'a> {
 /// Helper struct that has the same serialization format as Effect but doesn’t require owned effect data.
 #[derive(serde::Serialize)]
 enum EffectRef<'a> {
+    Receive {
+        at_stage: &'a Name,
+    },
+    Send {
+        from: &'a Name,
+        to: &'a Name,
+        call: bool,
+        msg: &'a dyn SendData,
+    },
+    Call {
+        from: &'a Name,
+        to: &'a Name,
+        duration: Duration,
+        msg: &'a dyn SendData,
+    },
+    Clock {
+        at_stage: &'a Name,
+    },
+    Wait {
+        at_stage: &'a Name,
+        duration: Duration,
+    },
+    Schedule {
+        at_stage: &'a Name,
+        msg: &'a dyn SendData,
+        id: ScheduleId,
+    },
+    CancelSchedule {
+        at_stage: &'a Name,
+        id: ScheduleId,
+    },
     External {
         at_stage: &'a Name,
         effect: &'a dyn crate::ExternalEffect,
     },
+    Terminate {
+        at_stage: &'a Name,
+    },
+    AddStage {
+        at_stage: &'a Name,
+        name: &'a Name,
+    },
+    WireStage {
+        at_stage: &'a Name,
+        name: &'a Name,
+        initial_state: &'a dyn SendData,
+        tombstone: &'a dyn SendData,
+    },
+    Contramap {
+        at_stage: &'a Name,
+        original: &'a Name,
+        new_name: &'a Name,
+    },
+}
+
+impl<'a> EffectRef<'a> {
+    fn from(at_stage: &'a Name, effect: &'a StageEffect<Box<dyn SendData>>) -> Option<Self> {
+        Some(match effect {
+            StageEffect::Receive => EffectRef::Receive { at_stage },
+            StageEffect::Send(to, call, msg) => EffectRef::Send {
+                from: at_stage,
+                to,
+                call: call.is_some(),
+                msg: &**msg,
+            },
+            StageEffect::Call(..) => return None,
+            StageEffect::Clock => EffectRef::Clock { at_stage },
+            StageEffect::Wait(duration) => EffectRef::Wait {
+                at_stage,
+                duration: *duration,
+            },
+            StageEffect::Schedule(msg, id) => EffectRef::Schedule {
+                at_stage,
+                msg: &**msg,
+                id: *id,
+            },
+            StageEffect::CancelSchedule(id) => EffectRef::CancelSchedule { at_stage, id: *id },
+            StageEffect::External(effect) => EffectRef::External {
+                at_stage,
+                effect: &**effect,
+            },
+            StageEffect::Terminate => EffectRef::Terminate { at_stage },
+            StageEffect::AddStage(name) => EffectRef::AddStage { at_stage, name },
+            StageEffect::WireStage(name, _transition, initial_state, tombstone) => {
+                EffectRef::WireStage {
+                    at_stage,
+                    name,
+                    initial_state: &**initial_state,
+                    tombstone: &**tombstone,
+                }
+            }
+            StageEffect::Contramap {
+                original,
+                new_name,
+                transform: _,
+            } => EffectRef::Contramap {
+                at_stage,
+                original,
+                new_name,
+            },
+        })
+    }
 }
 
 /// Helper struct that has the same serialization format as StageResponse but doesn’t require owned response data.
@@ -292,6 +436,27 @@ impl TraceBuffer {
         }));
     }
 
+    pub fn push_suspend_call(
+        &mut self,
+        at_stage: &Name,
+        to: &Name,
+        duration: Duration,
+        msg: &dyn SendData,
+    ) {
+        self.push(TraceEntryRefRef::Suspend(EffectRef::Call {
+            from: at_stage,
+            to,
+            duration,
+            msg,
+        }));
+    }
+
+    pub fn push_suspend_ref(&mut self, at_stage: &Name, effect: &StageEffect<Box<dyn SendData>>) {
+        if let Some(effect) = EffectRef::from(at_stage, effect) {
+            self.push(TraceEntryRefRef::Suspend(effect));
+        }
+    }
+
     /// Push a resume event to the trace buffer.
     pub fn push_resume(&mut self, stage: &Name, response: &StageResponse) {
         self.push(TraceEntryRef::Resume { stage, response });
@@ -310,7 +475,7 @@ impl TraceBuffer {
     }
 
     /// Push a receive event to the trace buffer.
-    pub fn push_receive(&mut self, stage: &Name, input: &Box<dyn SendData>) {
+    pub fn push_input(&mut self, stage: &Name, input: &Box<dyn SendData>) {
         self.push(TraceEntryRef::Input { stage, input });
     }
 
@@ -320,6 +485,27 @@ impl TraceBuffer {
     /// stage state has been computed.
     pub fn push_state(&mut self, stage: &Name, state: &Box<dyn SendData>) {
         self.push(TraceEntryRef::State { stage, state });
+    }
+
+    pub fn push_terminated_voluntary(&mut self, stage: &Name) {
+        self.push(TraceEntryRef::Terminated {
+            stage,
+            reason: TerminationReasonRef::Voluntary,
+        });
+    }
+
+    pub fn push_terminated_supervision(&mut self, stage: &Name, child: &Name) {
+        self.push(TraceEntryRef::Terminated {
+            stage,
+            reason: TerminationReasonRef::Supervision(child),
+        });
+    }
+
+    pub fn push_terminated_aborted(&mut self, stage: &Name) {
+        self.push(TraceEntryRef::Terminated {
+            stage,
+            reason: TerminationReasonRef::Aborted,
+        });
     }
 
     fn push<T: serde::Serialize>(&mut self, msg: T) {

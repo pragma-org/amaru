@@ -79,10 +79,7 @@ pub fn resume_receive_internal(
         );
     };
 
-    simulation
-        .trace_buffer
-        .lock()
-        .push_receive(&data.name, &msg);
+    simulation.trace_buffer.lock().push_input(&data.name, &msg);
     data.state = StageState::Running((data.transition)(state, msg));
 
     simulation

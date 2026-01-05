@@ -163,6 +163,9 @@ impl Replay {
                         ),
                     }
                 }
+                TraceEntry::Terminated { stage, reason: _ } => {
+                    self.latest_state.remove(&stage);
+                }
             }
             idx += 1;
         }

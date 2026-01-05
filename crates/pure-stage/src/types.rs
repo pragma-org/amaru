@@ -499,7 +499,6 @@ mod test {
                 TraceEntry::input("stage-1", SendDataValue::boxed(&Some(1u32))),
                 TraceEntry::resume("stage-1", StageResponse::Unit),
                 TraceEntry::state("stage-1", SendDataValue::boxed(&1u32)),
-                TraceEntry::suspend(Effect::receive("stage-1")),
                 TraceEntry::input("stage-1", SendDataValue::boxed(&None::<u32>)),
                 TraceEntry::resume("stage-1", StageResponse::Unit),
                 TraceEntry::suspend(Effect::terminate("stage-1"))
@@ -537,7 +536,6 @@ mod test {
                 TraceEntry::input("stage-1", SendDataValue::boxed(&Ok::<_, u32>(1u32))),
                 TraceEntry::resume("stage-1", StageResponse::Unit),
                 TraceEntry::state("stage-1", SendDataValue::boxed(&1u32)),
-                TraceEntry::suspend(Effect::receive("stage-1")),
                 TraceEntry::input("stage-1", SendDataValue::boxed(&Err::<u32, _>(2u32))),
                 TraceEntry::resume("stage-1", StageResponse::Unit),
                 TraceEntry::suspend(Effect::wait("stage-1", Duration::from_secs(2))),

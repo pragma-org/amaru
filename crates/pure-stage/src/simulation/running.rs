@@ -338,7 +338,9 @@ impl SimulationRunning {
             self.clock.now(),
         );
 
-        self.trace_buffer.lock().push_suspend(&effect);
+        if !matches!(effect, Effect::Receive { .. }) {
+            self.trace_buffer.lock().push_suspend(&effect);
+        }
 
         Ok(effect)
     }
