@@ -248,10 +248,8 @@ jobs:
 
       - name: Reclaim Disk Space
         run: |
-          # based on https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
+          chmod +x ./scripts/cleanup-runner.sh
+          ./scripts/cleanup-runner.sh
 
       - id: timestamp
         shell: bash
