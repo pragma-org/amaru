@@ -476,7 +476,6 @@ macro_rules! impl_ReadStore_body {
                 iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     utxo::PREFIX,
-                    Direction::Forward,
                 )
             }
 
@@ -491,7 +490,6 @@ macro_rules! impl_ReadStore_body {
                 iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     accounts::PREFIX,
-                    Direction::Forward,
                 )
             }
 
@@ -502,7 +500,6 @@ macro_rules! impl_ReadStore_body {
                 iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     slots::PREFIX,
-                    Direction::Forward,
                 )
             }
 
@@ -513,7 +510,6 @@ macro_rules! impl_ReadStore_body {
                 iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     pools::PREFIX,
-                    Direction::Forward,
                 )
             }
 
@@ -524,7 +520,6 @@ macro_rules! impl_ReadStore_body {
                 iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     dreps::PREFIX,
-                    Direction::Forward,
                 )
             }
 
@@ -537,7 +532,6 @@ macro_rules! impl_ReadStore_body {
                 iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     proposals::PREFIX,
-                    Direction::Forward,
                 )
             }
 
@@ -550,7 +544,6 @@ macro_rules! impl_ReadStore_body {
                 iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     cc_members::PREFIX,
-                    Direction::Forward,
                 )
             }
 
@@ -561,7 +554,6 @@ macro_rules! impl_ReadStore_body {
                 iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     votes::PREFIX,
-                    Direction::Forward,
                 )
             }
         }
@@ -980,7 +972,6 @@ where
 pub fn iter<'a, 'b, K, V, DB, F>(
     db_iter_opt: F,
     prefix: [u8; PREFIX_LEN],
-    direction: Direction,
 ) -> Result<impl Iterator<Item = (K, V)> + 'a, StoreError>
 where
     DB: 'a + 'b + DBAccess,
@@ -991,29 +982,36 @@ where
 {
     let mut opts = ReadOptions::default();
     opts.set_prefix_same_as_start(true);
-    let it = (db_iter_opt)(IteratorMode::From(prefix.as_ref(), direction), opts);
-    let decoded_it = it.map(|e| {
-        let (key, value) = e.unwrap();
-        let k = cbor::decode(&key[PREFIX_LEN..]).unwrap_or_else(|e| {
-            panic!(
-                "unable to decode key {}::<{}> for type {}: {e:?}",
-                hex::encode(&key),
-                std::any::type_name::<K>(),
-                std::any::type_name::<V>()
-            )
-        });
-        let v = cbor::decode(&value).unwrap_or_else(|e| {
-            panic!(
-                "unable to decode value {}::<{}> for key {}::<{}>: {e:?}",
-                hex::encode(&value),
-                std::any::type_name::<V>(),
-                hex::encode(&key),
-                std::any::type_name::<K>(),
-            )
-        });
-        (k, v)
-    });
-    Ok(decoded_it)
+    let mut it: rocksdb::DBRawIteratorWithThreadMode<'_, _> = (db_iter_opt)(
+        IteratorMode::From(prefix.as_ref(), Direction::Forward),
+        opts,
+    )
+    .into();
+    Ok(std::iter::from_fn(move || {
+        if let Some((key, value)) = it.item() {
+            let k = cbor::decode(&key[PREFIX_LEN..]).unwrap_or_else(|e| {
+                panic!(
+                    "unable to decode key {}::<{}> for type {}: {e:?}",
+                    hex::encode(&key),
+                    std::any::type_name::<K>(),
+                    std::any::type_name::<V>()
+                )
+            });
+            let v = cbor::decode(&value).unwrap_or_else(|e| {
+                panic!(
+                    "unable to decode value {}::<{}> for key {}::<{}>: {e:?}",
+                    hex::encode(&value),
+                    std::any::type_name::<V>(),
+                    hex::encode(&key),
+                    std::any::type_name::<K>(),
+                )
+            });
+            it.next();
+            Some((k, v))
+        } else {
+            None
+        }
+    }))
 }
 
 /// An generic column iterator, provided that rows from the column are (de)serialisable.
