@@ -441,7 +441,6 @@ impl<'distr> RatificationContext<'distr> {
             .and_then(|committee| {
                 let threshold = committee.voting_threshold(
                     self.epoch,
-                    self.protocol_parameters.protocol_version,
                     self.protocol_parameters.min_committee_size,
                     proposal,
                 )?;
@@ -472,14 +471,7 @@ impl<'distr> RatificationContext<'distr> {
                 tracing::Span::current()
                     .record("required_threshold.pools", field::display(&threshold));
 
-                let tally = || {
-                    stake_pools::tally(
-                        self.protocol_parameters.protocol_version,
-                        proposal,
-                        votes,
-                        stake_distribution,
-                    )
-                };
+                let tally = || stake_pools::tally(proposal, votes, stake_distribution);
 
                 threshold == SafeRatio::zero() || tally() >= threshold
             }
@@ -493,7 +485,6 @@ impl<'distr> RatificationContext<'distr> {
         stake_distribution: &StakeDistribution,
     ) -> bool {
         match dreps::voting_threshold(
-            self.protocol_parameters.protocol_version,
             self.constitutional_committee.is_none(),
             &self.protocol_parameters.drep_voting_thresholds,
             proposal,

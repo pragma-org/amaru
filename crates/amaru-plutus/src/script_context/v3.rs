@@ -630,7 +630,6 @@ mod tests {
     #[test_case(fixture!("certificates_v10"); "certificates (protocol ver 10")]
     // The following test is commented out because we are disregarding protocol version 9.
     // See the comment on the `ToPlutusData` implementation for `Certificate` for more information
-    // #[test_case(fixture!("certificates_v9"); "certificates (protocol ver 9")]
     fn test_plutus_v3(test_vector: &TestVector) {
         // Ensure we're testing against the right Plutus version.
         // If not, we should fail early.

@@ -17,8 +17,8 @@ use crate::summary::{
     SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution,
 };
 use amaru_kernel::{
-    DRep, PROTOCOL_VERSION_9, PoolId, ProtocolParamUpdate, ProtocolVersion, Vote,
-    expect_stake_credential, protocol_parameters::PoolVotingThresholds,
+    DRep, PoolId, ProtocolParamUpdate, Vote, expect_stake_credential,
+    protocol_parameters::PoolVotingThresholds,
 };
 use num::Zero;
 use std::collections::BTreeMap;
@@ -95,7 +95,6 @@ fn any_update_in_security_group(update: &ProtocolParamUpdate) -> bool {
 
 /// Count the ratio of yes votes amongst pool operators.
 pub fn tally(
-    protocol_version: ProtocolVersion,
     proposal: &ProposalEnum,
     votes: BTreeMap<&PoolId, &Vote>,
     stake_distribution: &StakeDistribution,
@@ -116,12 +115,6 @@ pub fn tally(
 
                     // Hard forks always require explicit votes from SPO
                     None if proposal.is_hardfork() => (yes, abstain),
-
-                    // Prior to v10, a pool not voting would be considered abstaining on anything
-                    // other than a hard fork.
-                    None if protocol_version <= PROTOCOL_VERSION_9 => {
-                        (yes, abstain + pool.voting_stake)
-                    }
 
                     // Starting from v10, the fallback is given to the DRep chosen by the pool's
                     // reward account (?!), if any. If there's no drep, then the vote is considered
@@ -174,127 +167,25 @@ mod tests {
         },
     };
     use amaru_kernel::{
-        DRep, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, PoolId, ProtocolParamUpdate,
-        ProtocolVersion, Vote, expect_stake_credential,
+        PoolId, ProtocolParamUpdate, Vote,
         tests::{
-            VOTE_YES, any_comparable_proposal_id, any_ex_units, any_pool_voting_thresholds,
-            any_protocol_params_update, any_protocol_version, any_rational_number, any_vote_ref,
+            any_comparable_proposal_id, any_ex_units, any_pool_voting_thresholds,
+            any_protocol_params_update, any_rational_number, any_vote_ref,
         },
     };
-    use num::{One, ToPrimitive, Zero};
+    use num::{One, Zero};
     use proptest::{collection, option, prelude::*, sample};
     use std::{collections::BTreeMap, rc::Rc};
 
     proptest! {
         #[test]
-        fn prop_tally_is_never_greater_than_1((protocol_version, proposal, votes, stake_distribution) in any_tally()) {
+        fn prop_tally_is_never_greater_than_1((proposal, votes, stake_distribution) in any_tally()) {
             let result = tally(
-                protocol_version,
                 &proposal,
                 votes.iter().map(|(k, v)| (k, *v)).collect(),
                 &stake_distribution
             );
             prop_assert!(result <= SafeRatio::one())
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_tally_default_differs_between_v9_and_v10((_, proposal, votes, stake_distribution) in any_tally()) {
-            let result_v9 = tally(
-                PROTOCOL_VERSION_9,
-                &proposal,
-                votes.iter().map(|(k, v)| (k, *v)).collect(),
-                &stake_distribution
-            );
-            let result_v9_str =
-                format!(
-                    "{}{}",
-                    result_v9,
-                    result_v9
-                        .to_f64()
-                        .map(|s| format!(" ({s})"))
-                        .unwrap_or_default()
-                );
-
-            let result_v10 = tally(
-                PROTOCOL_VERSION_10,
-                &proposal,
-                votes.iter().map(|(k, v)| (k, *v)).collect(),
-                &stake_distribution
-            );
-            let result_v10_str =
-                format!(
-                    "{}{}",
-                    result_v10,
-                    result_v10
-                        .to_f64()
-                        .map(|s| format!(" ({s})"))
-                        .unwrap_or_default()
-                );
-
-            let everyone_voted = votes.len() == stake_distribution.pools.len();
-
-            let none_voted_yes = votes.iter().filter(|(_, vote)| **vote == &VOTE_YES).count() == 0;
-
-            let both_zero = result_v9 == SafeRatio::zero() && result_v10 == SafeRatio::zero();
-
-            let non_voters_all_default_abstain =
-                    stake_distribution
-                        .pools
-                        .iter()
-                        .filter(|(pool, _st)| !votes.contains_key(pool))
-                        .all(|(_pool, st)| {
-                            let reward_account = expect_stake_credential(&st.parameters.reward_account);
-
-                            stake_distribution
-                                    .accounts
-                                    .get(&reward_account)
-                                    .map(|st| st.drep.as_ref() == Some(&DRep::Abstain))
-                                    .unwrap_or(false)
-                        });
-
-            if none_voted_yes {
-                prop_assert!(
-                    if proposal.is_no_confidence() {
-                        result_v9 == SafeRatio::zero()
-                    } else {
-                        both_zero
-                    },
-                    "no one voted yes but thresholds are not zero\n\
-                    v9 =  {result_v9_str}\n\
-                    v10 = {result_v10_str}",
-                );
-            }
-
-            if everyone_voted || proposal.is_hardfork() || non_voters_all_default_abstain {
-                prop_assert!(
-                    result_v9 == result_v10,
-                    "v9 & v10 should be equal but weren't\n\
-                    v9 =  {result_v9_str}\n\
-                    v10 = {result_v10_str}\n\
-                    everyone_voted? {everyone_voted}\n\
-                    non voters all default to abstain? {non_voters_all_default_abstain}\n\
-                    is hardfork? {}",
-                    proposal.is_hardfork(),
-                );
-            } else if proposal.is_no_confidence() && none_voted_yes {
-                prop_assert!(
-                    result_v10 > result_v9 || both_zero,
-                    "v10 should be strictly greater than v9, or both null, but they weren't\n\
-                    v9 =  {result_v9_str}\n\
-                    v10 = {result_v10_str}\n\
-                    both zero? {both_zero}"
-                );
-            } else if !proposal.is_no_confidence() {
-                prop_assert!(
-                    result_v9 > result_v10 || both_zero,
-                    "v9 should be strictly greater than v10 (or both null) but wasn't\n\
-                    v9 =  {result_v9_str}\n\
-                    v10 = {result_v10_str}\n\
-                    both zero? {both_zero}"
-                );
-            }
         }
     }
 
@@ -432,7 +323,6 @@ mod tests {
 
     pub fn any_tally() -> impl Strategy<
         Value = (
-            ProtocolVersion,
             ProposalEnum,
             BTreeMap<PoolId, &'static Vote>,
             Rc<StakeDistribution>,
@@ -440,16 +330,13 @@ mod tests {
     > {
         any_stake_distribution_no_dreps().prop_flat_map(|stake_distribution| {
             (
-                any_protocol_version(),
                 any_proposal_enum(),
                 any_votes(&stake_distribution),
                 Just(Rc::new(stake_distribution)),
             )
-                .prop_map(
-                    move |(protocol_version, proposal, votes, stake_distribution)| {
-                        (protocol_version, proposal, votes, stake_distribution)
-                    },
-                )
+                .prop_map(move |(proposal, votes, stake_distribution)| {
+                    (proposal, votes, stake_distribution)
+                })
         })
     }
 
