@@ -172,7 +172,6 @@ cleanPackages() {
     local packages=(
         '^aspnetcore-.*'
         '^dotnet-.*'
-        '^llvm-.*'
         '^mongodb-.*'
         'firefox'
         'libgl1-mesa-dri'
