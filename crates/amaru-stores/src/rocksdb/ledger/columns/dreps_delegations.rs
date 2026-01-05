@@ -191,7 +191,7 @@ fn iter_drep<DB>(
         .map(move |item| {
             item.map(|(key, _)| {
                 let (_, right) = key.split_at(prefix.len());
-                let delegator = unsafe_decode::<StakeCredential>(right.to_vec());
+                let delegator = unsafe_decode::<StakeCredential>(right);
                 (key, delegator)
             })
         })
