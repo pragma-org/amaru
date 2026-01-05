@@ -64,6 +64,8 @@ jobs:
             command: build
             setup: rustup target add wasm32-unknown-unknown
 
+          # When targetting RISC-V, the uplc-turbo crate fails to compile.
+          # Providing the specific RISC-V gnu clang compiler to Rust allows it to build
           - runner: ubuntu-22.04
             target: riscv32gc-unknown-linux-gnu
             title: riscv32
