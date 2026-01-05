@@ -146,6 +146,7 @@ impl<M> Effects<M> {
     ///
     /// The returned future will resolve to `Some(resp)` if the call was successful, or `None`
     /// if the call timed out.
+    #[expect(clippy::panic)]
     pub fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
         &self,
         target: &StageRef<Req>,

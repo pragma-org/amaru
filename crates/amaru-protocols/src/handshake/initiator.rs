@@ -174,6 +174,7 @@ pub enum InitiatorAction {
 }
 
 #[cfg(test)]
+#[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
     use crate::handshake::HandshakeState;
     use crate::handshake::initiator::InitiatorAction;

@@ -311,6 +311,7 @@ impl ProtocolState<Responder> for ResponderState {
 }
 
 #[cfg(test)]
+#[expect(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::*;
     use crate::{

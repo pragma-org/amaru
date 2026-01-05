@@ -156,6 +156,7 @@ impl From<HandshakeResult> for ResponderAction {
 }
 
 #[cfg(test)]
+#[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
     use crate::handshake::HandshakeState;
     use crate::handshake::messages::Message;

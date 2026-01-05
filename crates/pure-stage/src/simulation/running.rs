@@ -705,7 +705,7 @@ impl SimulationRunning {
                 self.schedule_wakeup(id, move |sim| {
                     let Some(data) = sim.stages.get_mut(&at_stage) else {
                         tracing::warn!(name = %at_stage, "stage was terminated, skipping wait effect delivery");
-                        return ;
+                        return;
                     };
                     resume_wait_internal(
                         data.assert_stage("which cannot wait"),
@@ -715,7 +715,7 @@ impl SimulationRunning {
                         },
                         sim.clock.now(),
                     )
-                    .expect("wait effect is always runnable");
+                        .expect("wait effect is always runnable");
                 });
             }
             Effect::Schedule { at_stage, msg, id } => {
@@ -926,11 +926,11 @@ impl SimulationRunning {
         let children = self
             .stages
             .iter()
-            .filter_map(|(n, d)| {
+            .filter(|(_, d)| {
                 matches!(d, StageOrAdapter::Stage(StageData { supervised_by, .. })
                     if supervised_by == &at_stage)
-                .then(|| n.clone())
             })
+            .map(|(n, _)| n.clone())
             .collect::<Vec<_>>();
         for child in children {
             tracing::info!(stage = %child, parent = %at_stage, "terminating child stage");
@@ -1478,9 +1478,7 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
             }),
             StageEffect::Receive => {}
             StageEffect::Wait(..) => sleep.push(k.clone()),
-            StageEffect::Call(_, _, CallExtra::Scheduled(id))
-                if sim.scheduled.contains_key(&id) =>
-            {
+            StageEffect::Call(_, _, CallExtra::Scheduled(id)) if sim.scheduled.contains_key(id) => {
                 sleep.push(k.clone())
             }
             _ => busy.push(k.clone()),

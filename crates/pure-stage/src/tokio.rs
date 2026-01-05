@@ -160,6 +160,7 @@ impl TokioBuilder {
 type RefAux = (Receiver<Box<dyn SendData>>, TransitionFactory);
 
 impl StageGraph for TokioBuilder {
+    #[expect(clippy::expect_used)]
     fn stage<Msg: SendData, St: SendData, F, Fut>(
         &mut self,
         name: impl AsRef<str>,
@@ -200,6 +201,7 @@ impl StageGraph for TokioBuilder {
         }
     }
 
+    #[expect(clippy::expect_used)]
     fn wire_up<Msg: SendData, St: SendData>(
         &mut self,
         stage: StageBuildRef<Msg, St, Box<dyn Any + Send>>,
@@ -409,6 +411,7 @@ fn interpreter(
                     StageResponse::Unit
                 }
                 StageEffect::Send(_target, Some(call), msg) => {
+                    #[expect(clippy::expect_used)]
                     let sender = call
                         .downcast_ref::<StageRefExtra>()
                         .expect("expected CallExtra");
@@ -429,6 +432,7 @@ fn interpreter(
                     StageResponse::Unit
                 }
                 StageEffect::Call(target, duration, msg) => {
+                    #[expect(clippy::panic)]
                     let CallExtra::CallFn(NoDebug(msg)) = msg else {
                         panic!("expected CallFn, got {:?}", msg);
                     };

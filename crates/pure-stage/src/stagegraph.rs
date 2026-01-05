@@ -27,7 +27,7 @@ use std::{
 use tokio::sync::mpsc;
 
 /// A unique identifier for a scheduled effect.
-#[derive(Debug, Clone, Copy, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct ScheduleId(Instant, u64);
 
 impl PartialEq for ScheduleId {

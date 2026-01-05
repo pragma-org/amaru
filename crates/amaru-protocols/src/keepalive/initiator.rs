@@ -157,6 +157,7 @@ pub enum InitiatorAction {
 }
 
 #[cfg(test)]
+#[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
     use crate::keepalive::State;
     use crate::keepalive::initiator::InitiatorAction;

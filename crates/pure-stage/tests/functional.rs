@@ -43,6 +43,7 @@ fn group_by_stage(entries: &[E]) -> BTreeMap<&Name, Vec<&E>> {
 }
 
 #[track_caller]
+#[cfg(test)]
 fn assert_equiv(actual: Vec<E>, expected: &[E]) {
     // permit reorderings between stages and only enforce expected prefix
     let actual = group_by_stage(&actual);
@@ -63,6 +64,7 @@ fn assert_equiv(actual: Vec<E>, expected: &[E]) {
     }
 }
 
+#[cfg(test)]
 fn run_sim(graph: impl Fn(&mut SimulationBuilder)) -> Vec<E> {
     let rt = Runtime::new().unwrap();
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
@@ -80,6 +82,7 @@ fn run_sim(graph: impl Fn(&mut SimulationBuilder)) -> Vec<E> {
     trace_buffer.lock().hydrate_without_timestamps()
 }
 
+#[cfg(test)]
 fn run_tokio(graph: impl Fn(&mut TokioBuilder)) -> Vec<E> {
     let rt = Runtime::new().unwrap();
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
@@ -194,6 +197,7 @@ fn call_then_terminate() {
 }
 
 #[test]
+#[expect(clippy::wildcard_enum_match_arm)]
 fn clock_wait_then_terminate() {
     logging();
     fn graph(builder: &mut impl StageGraph) {

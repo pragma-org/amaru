@@ -201,6 +201,7 @@ async fn do_initialize(
     State::Handshake { muxer, handshake }
 }
 
+#[expect(clippy::expect_used)]
 async fn do_handshake(
     Params {
         role,

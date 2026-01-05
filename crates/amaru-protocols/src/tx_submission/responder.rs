@@ -89,7 +89,7 @@ impl StageState<TxSubmissionState, Responder> for TxSubmissionResponder {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         let mempool = MemoryPool::new(eff.clone());
-        
+
         // Convert ResponderResult back to Message for step() method
         let msg = match input {
             ResponderResult::Init => Message::Init,
@@ -97,19 +97,22 @@ impl StageState<TxSubmissionState, Responder> for TxSubmissionResponder {
             ResponderResult::ReplyTxs(txs) => Message::ReplyTxs(txs),
             ResponderResult::Done => Message::Done,
         };
-        
+
         // Use the existing step() method which handles all the business logic
         let (_new_proto_state, outcome) = self.state.step(&mempool, proto, msg).await?;
-        
+
         // Convert the outcome to an action
         match outcome {
-            crate::tx_submission::Outcome::Send(Message::RequestTxIds(ack, req, blocking)) => {
-                Ok((Some(ResponderAction::SendRequestTxIds { ack, req, blocking }), self))
-            }
+            crate::tx_submission::Outcome::Send(Message::RequestTxIds(ack, req, blocking)) => Ok((
+                Some(ResponderAction::SendRequestTxIds { ack, req, blocking }),
+                self,
+            )),
             crate::tx_submission::Outcome::Send(Message::RequestTxs(tx_ids)) => {
                 Ok((Some(ResponderAction::SendRequestTxs(tx_ids)), self))
             }
-            crate::tx_submission::Outcome::Send(Message::Init | Message::ReplyTxIds(_) | Message::ReplyTxs(_) | Message::Done) => {
+            crate::tx_submission::Outcome::Send(
+                Message::Init | Message::ReplyTxIds(_) | Message::ReplyTxs(_) | Message::Done,
+            ) => {
                 // These messages should not be sent by responder
                 anyhow::bail!("unexpected message in outcome: {:?}", outcome);
             }
@@ -140,21 +143,20 @@ impl ProtocolState<Responder> for TxSubmissionState {
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
         Ok(match (self, input) {
             (TxSubmissionState::Init, Message::Init) => (
-                outcome()
-                    .want_next()
-                    .result(ResponderResult::Init),
+                outcome().want_next().result(ResponderResult::Init),
                 TxSubmissionState::Init, // Stay in Init, stage state will handle transition
             ),
-            (TxSubmissionState::TxIdsBlocking | TxSubmissionState::TxIdsNonBlocking, Message::ReplyTxIds(tx_ids)) => (
+            (
+                TxSubmissionState::TxIdsBlocking | TxSubmissionState::TxIdsNonBlocking,
+                Message::ReplyTxIds(tx_ids),
+            ) => (
                 outcome()
                     .want_next()
                     .result(ResponderResult::ReplyTxIds(tx_ids)),
                 TxSubmissionState::Txs, // Transition to Txs state
             ),
             (TxSubmissionState::Txs, Message::ReplyTxs(txs)) => (
-                outcome()
-                    .want_next()
-                    .result(ResponderResult::ReplyTxs(txs)),
+                outcome().want_next().result(ResponderResult::ReplyTxs(txs)),
                 TxSubmissionState::Txs, // Stay in Txs, stage state will handle transition to TxIdsBlocking/NonBlocking
             ),
             (_, Message::Done) => (
@@ -173,18 +175,28 @@ impl ProtocolState<Responder> for TxSubmissionState {
                 } else {
                     TxSubmissionState::TxIdsNonBlocking
                 };
-                (outcome().send(Message::RequestTxIds(ack, req, blocking)), new_state)
+                (
+                    outcome().send(Message::RequestTxIds(ack, req, blocking)),
+                    new_state,
+                )
             }
-            (TxSubmissionState::Txs, ResponderAction::SendRequestTxs(tx_ids)) => {
-                (outcome().send(Message::RequestTxs(tx_ids)), TxSubmissionState::Txs)
-            }
-            (TxSubmissionState::TxIdsBlocking | TxSubmissionState::TxIdsNonBlocking, ResponderAction::SendRequestTxIds { ack, req, blocking }) => {
+            (TxSubmissionState::Txs, ResponderAction::SendRequestTxs(tx_ids)) => (
+                outcome().send(Message::RequestTxs(tx_ids)),
+                TxSubmissionState::Txs,
+            ),
+            (
+                TxSubmissionState::TxIdsBlocking | TxSubmissionState::TxIdsNonBlocking,
+                ResponderAction::SendRequestTxIds { ack, req, blocking },
+            ) => {
                 let new_state = if blocking == Blocking::Yes {
                     TxSubmissionState::TxIdsBlocking
                 } else {
                     TxSubmissionState::TxIdsNonBlocking
                 };
-                (outcome().send(Message::RequestTxIds(ack, req, blocking)), new_state)
+                (
+                    outcome().send(Message::RequestTxIds(ack, req, blocking)),
+                    new_state,
+                )
             }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
@@ -193,7 +205,11 @@ impl ProtocolState<Responder> for TxSubmissionState {
 
 #[derive(Debug)]
 pub enum ResponderAction {
-    SendRequestTxIds { ack: u16, req: u16, blocking: Blocking },
+    SendRequestTxIds {
+        ack: u16,
+        req: u16,
+        blocking: Blocking,
+    },
     SendRequestTxs(Vec<TxId>),
 }
 

@@ -264,6 +264,7 @@ impl ProtocolState<Initiator> for InitiatorState {
 }
 
 #[cfg(test)]
+#[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
     use super::*;
     use crate::protocol::{ProtoSpec, Role};

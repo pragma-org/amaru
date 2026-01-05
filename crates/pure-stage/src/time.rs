@@ -65,11 +65,11 @@ impl Clock for Mutex<Instant> {
 /// A point in time in the simulation.
 ///
 /// Note that this is an opaque type that serialises and prints as a duration since the [`EPOCH`].
-#[derive(Clone, Copy, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Eq, PartialOrd, Ord)]
 pub struct Instant(tokio::time::Instant);
 
 thread_local! {
-    static TOLERANCE: RefCell<Duration> = RefCell::new(Duration::from_nanos(0));
+    static TOLERANCE: RefCell<Duration> = const { RefCell::new(Duration::from_nanos(0)) };
 }
 
 impl PartialEq for Instant {

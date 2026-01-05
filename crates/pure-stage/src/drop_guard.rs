@@ -46,13 +46,13 @@ impl<T, F: FnOnce(T)> Deref for DropGuard<T, F> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        &*self.inner
+        &self.inner
     }
 }
 
 impl<T, F: FnOnce(T)> DerefMut for DropGuard<T, F> {
     fn deref_mut(&mut self) -> &mut T {
-        &mut *self.inner
+        &mut self.inner
     }
 }
 

@@ -14,7 +14,9 @@
 
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct Cookie(u16);
 
 impl Default for Cookie {
@@ -62,7 +64,9 @@ impl<'b, T> Decode<'b, T> for Cookie {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Message {
     KeepAlive(Cookie),
     ResponseKeepAlive(Cookie),
