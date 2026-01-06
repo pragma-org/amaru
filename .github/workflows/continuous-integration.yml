@@ -37,11 +37,11 @@ jobs:
       fail-fast: false
       matrix:
         environments:
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             title: x86_64/linux
 
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: aarch64-unknown-linux-musl
             title: aarch64/linux
             command: test # This is a cross specific command. Do not change
@@ -57,14 +57,14 @@ jobs:
             title: x86_64/windows
             command: test-amaru --profile dev-debug
 
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: wasm32-unknown-unknown
             title: wasm32
             packages: -p amaru-consensus -p amaru-ledger -p pure-stage
             command: build
             setup: rustup target add wasm32-unknown-unknown
 
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: riscv32gc-unknown-linux-gnu
             title: riscv32
             packages: -p amaru-ledger -p amaru-slot-arithmetic
