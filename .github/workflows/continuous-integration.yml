@@ -37,11 +37,11 @@ jobs:
       fail-fast: false
       matrix:
         environments:
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             title: x86_64/linux
 
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: aarch64-unknown-linux-musl
             title: aarch64/linux
             command: test # This is a cross specific command. Do not change
@@ -57,14 +57,14 @@ jobs:
             title: x86_64/windows
             command: test-amaru --profile dev-debug
 
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: wasm32-unknown-unknown
             title: wasm32
             packages: -p amaru-consensus -p amaru-ledger -p pure-stage
             command: build
             setup: rustup target add wasm32-unknown-unknown
 
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: riscv32gc-unknown-linux-gnu
             title: riscv32
             packages: -p amaru-ledger -p amaru-slot-arithmetic
@@ -138,7 +138,7 @@ jobs:
 
   coverage:
     name: Test coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: ${{ !github.event.pull_request.draft }}
     env:
       CARGO_TERM_COLOR: always
@@ -169,12 +169,11 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
 
-
   snapshots-instance-choice:
     name: End-to-end snapshot preparation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
-      runner: ${{ steps.alt-runner.outputs.runner || 'ubuntu-latest' }}
+      runner: ${{ steps.alt-runner.outputs.runner || 'ubuntu-22.04' }}
     steps:
       - id: alt-runner
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
@@ -190,12 +189,12 @@ jobs:
           - name: preprod
             magic: 1
             target_epoch: 182
-            timeout: ${{ fromJSON(github.event.inputs.timeout || '10') }}
+            timeout: ${{ fromJSON(github.event.inputs.timeout || '15') }}
           - name: preview
             magic: 2
             target_epoch: 680
             tests-may-fail: true
-            timeout: ${{ fromJSON(github.event.inputs.timeout || '10') }}
+            timeout: ${{ fromJSON(github.event.inputs.timeout || '15') }}
         cardano_node_version: [10.5.3]
     env:
       AMARU_NETWORK: ${{ matrix.network.name }}
@@ -248,10 +247,8 @@ jobs:
 
       - name: Reclaim Disk Space
         run: |
-          # based on https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
+          chmod +x ./scripts/cleanup-runner.sh
+          ./scripts/cleanup-runner.sh
 
       - id: timestamp
         shell: bash
@@ -391,7 +388,7 @@ jobs:
       run:
         working-directory: examples/${{ matrix.projects }}
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache/restore@v4
@@ -406,7 +403,7 @@ jobs:
 
   benches:
     name: Benches
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache/restore@v4
@@ -421,7 +418,7 @@ jobs:
 
   cli:
     name: Test the CLI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache/restore@v4
