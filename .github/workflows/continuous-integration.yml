@@ -169,7 +169,6 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
 
-
   snapshots-instance-choice:
     name: End-to-end snapshot preparation
     runs-on: ubuntu-latest
@@ -177,7 +176,7 @@ jobs:
       runner: ${{ steps.alt-runner.outputs.runner || 'ubuntu-latest' }}
     steps:
       - id: alt-runner
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        # if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         run: echo "runner=buildjet-4vcpu-ubuntu-2204" >> $GITHUB_OUTPUT
 
   snapshots:
