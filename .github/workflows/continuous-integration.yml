@@ -86,17 +86,17 @@ jobs:
         if: github.event_name == 'push'
         with:
           path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-${{ matrix.environments.target }}-${{ steps.timestamp.outputs.value }}
+          key: cargo-${{ matrix.environments.target }}-${{ matrix.environments.runner }}-${{ steps.timestamp.outputs.value }}
           restore-keys: |
-            cargo-${{ matrix.environments.target }}
+            cargo-${{ matrix.environments.target }}-${{ matrix.environments.runner }}
       # Only restore cache for other types of events (e.g. Pull requests).
       - uses: actions/cache/restore@v4
         if: github.event_name != 'push'
         with:
           path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-${{ matrix.environments.target }}
+          key: cargo-${{ matrix.environments.target }}-${{ matrix.environments.runner }}
           restore-keys: |
-            cargo-${{ matrix.environments.target }}
+            cargo-${{ matrix.environments.target }}-${{ matrix.environments.runner }}
       - name: Run build
         shell: bash
         run: |
