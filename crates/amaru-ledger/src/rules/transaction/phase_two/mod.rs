@@ -97,7 +97,7 @@ where
         })
         .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()?;
 
-    let mut resolved_reference_inptus = transaction_body
+    let mut resolved_reference_inputs = transaction_body
         .reference_inputs
         .as_ref()
         .map(|reference_inputs| {
@@ -117,7 +117,7 @@ where
         .transpose()?
         .unwrap_or_default();
 
-    resolved_inputs.append(&mut resolved_reference_inptus);
+    resolved_inputs.append(&mut resolved_reference_inputs);
     let utxos = Utxos::from(resolved_inputs);
 
     let tx_info = TxInfo::new(
