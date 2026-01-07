@@ -121,6 +121,9 @@ pub mod memoized;
 
 pub mod network;
 
+pub mod ordered_redeemer;
+pub use ordered_redeemer::*;
+
 pub mod peer;
 
 pub use point::*;
@@ -177,6 +180,9 @@ pub mod vote;
 pub mod macros;
 pub mod serde_utils;
 pub mod string_utils;
+
+pub mod arena_pool;
+pub use arena_pool::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
@@ -813,6 +819,30 @@ impl HasOwnership for Voter {
     }
 }
 
+impl HasOwnership for Certificate {
+    fn credential(&self) -> Option<StakeCredential> {
+        match self {
+            Certificate::StakeRegistration(stake_credential)
+            | Certificate::StakeDeregistration(stake_credential)
+            | Certificate::StakeDelegation(stake_credential, _)
+            | Certificate::Reg(stake_credential, _)
+            | Certificate::UnReg(stake_credential, _)
+            | Certificate::VoteDeleg(stake_credential, _)
+            | Certificate::StakeVoteDeleg(stake_credential, _, _)
+            | Certificate::StakeRegDeleg(stake_credential, _, _)
+            | Certificate::VoteRegDeleg(stake_credential, _, _)
+            | Certificate::StakeVoteRegDeleg(stake_credential, _, _, _)
+            | Certificate::AuthCommitteeHot(stake_credential, _)
+            | Certificate::ResignCommitteeCold(stake_credential, _)
+            | Certificate::RegDRepCert(stake_credential, _, _)
+            | Certificate::UnRegDRepCert(stake_credential, _)
+            | Certificate::UpdateDRepCert(stake_credential, _) => Some(stake_credential.clone()),
+            Certificate::PoolRegistration { operator: id, .. }
+            | Certificate::PoolRetirement(id, _) => Some(StakeCredential::AddrKeyhash(*id)),
+        }
+    }
+}
+
 pub trait HasScriptHash {
     /*
         To compute a script hash, one must prepend a tag to the bytes of the script before hashing.
@@ -986,23 +1016,6 @@ impl HasRedeemers for Redeemers {
                 .map(|(key, redeemer)| (Cow::Borrowed(key), (&redeemer.ex_units, &redeemer.data)))
                 .collect(),
         }
-    }
-}
-
-pub fn normalize_redeemers(redeemers: &Redeemers) -> Vec<Cow<'_, Redeemer>> {
-    match redeemers {
-        Redeemers::List(list) => list.iter().map(Cow::Borrowed).collect(),
-        Redeemers::Map(map) => map
-            .iter()
-            .map(|(tag, value)| {
-                Cow::Owned(Redeemer {
-                    tag: tag.tag,
-                    index: tag.index,
-                    data: value.data.clone(),
-                    ex_units: value.ex_units,
-                })
-            })
-            .collect(),
     }
 }
 

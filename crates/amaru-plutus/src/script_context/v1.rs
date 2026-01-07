@@ -12,17 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap};
-
-use amaru_kernel::{Address, AssetName, Hash, TransactionInput};
-
 use crate::{
     IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData, constr, constr_v1,
     script_context::{
         Certificate, CurrencySymbol, DatumOption, Datums, IsPrePlutusVersion3, Mint, OutputRef,
-        PlutusData, ScriptContext, ScriptPurpose, TransactionOutput, TxInfo, Value, Withdrawals,
+        PlutusData, ScriptContext, ScriptPurpose, StakeAddress, TransactionOutput, TxInfo, Value,
+        Withdrawals,
     },
 };
+use amaru_kernel::{
+    Address, AssetName, Certificate as PallasCertificate, Hash, StakePayload, TransactionInput,
+};
+use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
 impl ToPlutusData<1> for OutputRef<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
@@ -126,6 +127,25 @@ where
     }
 }
 
+impl ToPlutusData<1> for amaru_kernel::StakeAddress {
+    /// In PlutusV1 and PlutusV2:
+    /// Anywhere a `StakeCredential` is used, it is actually an enum with variants `Pointer` and `Credential`
+    ///
+    /// It is actually not possible (by the ledger serialization) logic to construct a StakeAddress with a `Pointer`, so this can be hardcoded
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        match self.payload() {
+            StakePayload::Stake(keyhash) => constr_v1!(0, [constr_v1!(0, [keyhash])?]),
+            StakePayload::Script(script_hash) => constr_v1!(0, [constr_v1!(1, [script_hash])?]),
+        }
+    }
+}
+
+impl ToPlutusData<1> for StakeAddress {
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        <amaru_kernel::StakeAddress as ToPlutusData<1>>::to_plutus_data(&self.0)
+    }
+}
+
 impl<const V: u8> ToPlutusData<V> for TransactionInput
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
@@ -136,16 +156,18 @@ where
 }
 
 #[allow(clippy::wildcard_enum_match_arm)]
-impl<const V: u8> ToPlutusData<V> for Certificate
+impl<const V: u8> ToPlutusData<V> for Certificate<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
     /// Serialize `Certificate` as PlutusData for PlutusV1 or PlutusV2.
     ///
+    /// It's worth noting that the following certificate variants are allowed, but translated to the "old" representation:
+    /// - `Certificate::Reg` -> `Certificate::StakeRegistration`
+    /// - `Certificate::UnReg` -> `Certificate::StakeDeregistration`
+    ///
     /// # Errors
     /// The following Certificates cannot be included in PlutusV1 or PlutusV2:
-    /// - `Certificate::Reg`
-    /// - `Certificate::UnReg`
     /// - `Certificate::VoteDeleg`
     /// - `Certificate::StakeVoteDeleg`
     /// - `Certificate::StakeRegDeleg`
@@ -158,18 +180,29 @@ where
     /// - `Certificate::UpdateDRepCert`
     ///
     /// Serializing any of those will result in a `PlutusDataError`
+    ///
+    /// In PlutusV1 and PlutusV2:
+    /// Anywhere a `StakeCredential` is used, it is actually an enum with variants `Pointer` and `Credential`
+    ///
+    /// It is actually not possible (by the ledger serialization) logic to construct a Certificate with a `Pointer`, so this can be hardcoded to `Constr(0, [cred])`
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self {
-            Certificate::StakeRegistration(stake_credential) => {
-                constr!(0, [stake_credential])
+        match self.deref() {
+            PallasCertificate::StakeRegistration(stake_credential) => {
+                constr!(0, [constr!(0, [stake_credential])?])
             }
-            Certificate::StakeDeregistration(stake_credential) => {
-                constr!(1, [stake_credential])
+            PallasCertificate::Reg(stake_credential, _) => {
+                constr!(0, [constr!(0, [stake_credential])?])
             }
-            Certificate::StakeDelegation(stake_credential, hash) => {
-                constr!(2, [stake_credential, hash])
+            PallasCertificate::StakeDeregistration(stake_credential) => {
+                constr!(1, [constr!(0, [stake_credential])?])
             }
-            Certificate::PoolRegistration {
+            PallasCertificate::UnReg(stake_credential, _) => {
+                constr!(1, [constr!(0, [stake_credential])?])
+            }
+            PallasCertificate::StakeDelegation(stake_credential, hash) => {
+                constr!(2, [constr!(0, [stake_credential])?, hash])
+            }
+            PallasCertificate::PoolRegistration {
                 operator,
                 vrf_keyhash,
                 pledge: _,
@@ -180,7 +213,7 @@ where
                 relays: _,
                 pool_metadata: _,
             } => constr!(3, [operator, vrf_keyhash]),
-            Certificate::PoolRetirement(hash, epoch) => constr!(4, [hash, epoch]),
+            PallasCertificate::PoolRetirement(hash, epoch) => constr!(4, [hash, epoch]),
             certificate => Err(PlutusDataError::unsupported_version(
                 format!("illegal certificate type: {certificate:?}"),
                 V,
@@ -227,15 +260,10 @@ where
         <BTreeMap<_, _> as ToPlutusData<1>>::to_plutus_data(&mint)
     }
 }
+
 impl ToPlutusData<1> for Withdrawals {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        <Vec<_> as ToPlutusData<1>>::to_plutus_data(
-            &self
-                .0
-                .iter()
-                .map(|(address, coin)| Ok((constr_v1!(0, [address])?, *coin)))
-                .collect::<Result<Vec<_>, _>>()?,
-        )
+        <Vec<_> as ToPlutusData<1>>::to_plutus_data(&self.0.iter().collect::<Vec<_>>())
     }
 }
 
@@ -248,12 +276,15 @@ impl ToPlutusData<1> for Datums<'_> {
 // This test logic is basically 100% duplicated with v3. Should be able to simplify.
 #[cfg(test)]
 mod tests {
+    use super::{
+        super::test_vectors::{self, TestVector},
+        *,
+    };
+    use crate::script_context::Redeemers;
+    use amaru_kernel::{
+        MintedTx, OriginalHash, PROTOCOL_VERSION_10, network::NetworkName, to_cbor,
+    };
     use std::ops::Deref;
-
-    use super::super::test_vectors::{self, TestVector};
-    use super::*;
-    use amaru_kernel::network::NetworkName;
-    use amaru_kernel::{MintedTx, OriginalHash, normalize_redeemers, to_cbor};
     use test_case::test_case;
 
     const PLUTUS_VERSION: u8 = 1;
@@ -277,7 +308,7 @@ mod tests {
         let transaction: MintedTx<'_> =
             minicbor::decode(&test_vector.input.transaction_bytes).unwrap();
 
-        let redeemers = normalize_redeemers(
+        let redeemers = Redeemers::iter_from(
             transaction
                 .transaction_witness_set
                 .redeemer
@@ -287,7 +318,6 @@ mod tests {
         );
 
         let produced_contexts = redeemers
-            .iter()
             .map(|redeemer| {
                 let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
@@ -298,10 +328,11 @@ mod tests {
                     &0.into(),
                     network,
                     network.into(),
+                    PROTOCOL_VERSION_10,
                 )
                 .unwrap();
 
-                let script_context = ScriptContext::new(&tx_info, redeemer, None).unwrap();
+                let script_context = ScriptContext::new(&tx_info, redeemer.deref()).unwrap();
                 let plutus_data = to_cbor(
                     &<ScriptContext<'_> as ToPlutusData<1>>::to_plutus_data(&script_context)
                         .expect("failed to ScriptContext convert to PlutusData"),

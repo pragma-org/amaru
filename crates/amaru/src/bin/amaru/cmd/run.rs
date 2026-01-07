@@ -146,6 +146,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         max_downstream_peers: args.max_downstream_peers,
         max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
         migrate_chain_db: args.migrate_chain_db,
+        ..Config::default()
     })
 }
 

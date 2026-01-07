@@ -14,18 +14,15 @@
 
 use crate::{
     constr,
-    script_context::{
-        CurrencySymbol, DatumOption, RequiredSigners, Script, StakeAddress, TimeRange,
-    },
+    script_context::{CurrencySymbol, DatumOption, RequiredSigners, Script, TimeRange},
 };
 use amaru_kernel::{
     Address, BigInt, Bytes, ComputeHash, Hash, Int, KeyValuePairs, MaybeIndefArray, MemoizedDatum,
     NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ShelleyDelegationPart,
-    ShelleyPaymentPart, StakeCredential, StakePayload,
+    ShelleyPaymentPart, StakeCredential,
 };
-use thiserror::Error;
-
 use std::{borrow::Cow, collections::BTreeMap};
+use thiserror::Error;
 
 /// Represents an error that occured during serialization to `PlutusData`.
 #[derive(Debug, Error)]
@@ -118,6 +115,7 @@ where
 impl<const V: u8> ToPlutusData<V> for Address
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
+    amaru_kernel::StakeAddress: ToPlutusData<V>,
 {
     /// In all Plutus v1 and v2 and v3 encodings, Byron addresses are not possible encodings.
     ///
@@ -158,7 +156,9 @@ where
 
                 constr!(0, [payment_part_plutus_data, stake_part_plutus_data])
             }
-            Address::Stake(stake_address) => stake_address.to_plutus_data(),
+            Address::Stake(stake_address) => {
+                <amaru_kernel::StakeAddress as ToPlutusData<V>>::to_plutus_data(stake_address)
+            }
             Address::Byron(_) => unreachable!("unable to encode Byron address in PlutusData"),
         }
     }
@@ -179,27 +179,6 @@ where
         };
 
         constr!(0, [lower?, upper?])
-    }
-}
-
-impl<const V: u8> ToPlutusData<V> for amaru_kernel::StakeAddress
-where
-    PlutusVersion<V>: IsKnownPlutusVersion,
-{
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self.payload() {
-            StakePayload::Stake(keyhash) => constr!(0, [keyhash]),
-            StakePayload::Script(script_hash) => constr!(1, [script_hash]),
-        }
-    }
-}
-
-impl<const V: u8> ToPlutusData<V> for StakeAddress
-where
-    PlutusVersion<V>: IsKnownPlutusVersion,
-{
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        amaru_kernel::StakeAddress::from(self.clone()).to_plutus_data()
     }
 }
 
