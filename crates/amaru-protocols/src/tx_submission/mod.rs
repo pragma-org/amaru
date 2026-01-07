@@ -15,12 +15,6 @@
 mod initiator;
 mod responder;
 
-pub mod initiator_state;
-pub use initiator_state::*;
-
-pub mod responder_state;
-pub use responder_state::*;
-
 pub mod responder_params;
 pub use responder_params::*;
 
@@ -30,9 +24,6 @@ pub use messages::*;
 pub mod outcome;
 pub use outcome::*;
 
-pub mod stage;
-pub use stage::*;
-
 #[cfg(test)]
 mod tests;
 
@@ -41,11 +32,13 @@ pub use tests::*;
 
 use crate::connection::ConnectionMessage;
 use crate::mux;
-use crate::protocol::{Inputs, PROTO_N2N_TX_SUB, Role};
+use crate::protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT};
+use amaru_kernel::Tx;
 use amaru_ouroboros::TxOrigin;
+use amaru_ouroboros_traits::TxId;
 use pure_stage::{Effects, StageRef, Void};
 
-pub use initiator::{InitiatorMessage, initiator};
+pub use initiator::initiator;
 pub use responder::{ResponderResult, responder};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
@@ -58,51 +51,60 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
     .collect()
 }
 
-// TODO: Implement spec() function once Message implements Ord
-// Message currently cannot implement Ord because it contains Vec and Tx which don't implement Ord
-// We may need to use a different approach for protocol validation, or create a simplified
-// message type for spec validation
-/*
 pub fn spec<R: RoleT>() -> crate::protocol::ProtoSpec<TxSubmissionState, Message, R>
 where
     TxSubmissionState: ProtocolState<R, WireMsg = Message>,
-    Message: Ord,
 {
     let mut spec = crate::protocol::ProtoSpec::default();
+    let request_tx_ids_blocking = |start: u16, end: u16| Message::RequestTxIdsBlocking(start, end);
+    let request_tx_ids_non_blocking =
+        |start: u16, end: u16| Message::RequestTxIdsNonBlocking(start, end);
+    let request_txs = |txs: Vec<TxId>| Message::RequestTxs(txs);
+    let reply_tx_ids = |tx_ids: Vec<(TxId, u32)>| Message::ReplyTxIds(tx_ids);
+    let reply_txs = |txs: Vec<Tx>| Message::ReplyTxs(txs);
 
-    // Initiator transitions
-    // Init -> send Init -> Idle
-    spec.i(TxSubmissionState::Init, Message::Init, TxSubmissionState::Idle);
-    // Idle -> receive RequestTxIds -> Idle (stays in Idle, sends ReplyTxIds)
+    spec.i(
+        TxSubmissionState::Init,
+        Message::Init,
+        TxSubmissionState::Idle,
+    );
+    spec.i(
+        TxSubmissionState::TxIdsBlocking,
+        reply_tx_ids(vec![]),
+        TxSubmissionState::Idle,
+    );
+    spec.i(
+        TxSubmissionState::TxIdsNonBlocking,
+        reply_tx_ids(vec![]),
+        TxSubmissionState::Idle,
+    );
+    spec.i(
+        TxSubmissionState::Txs,
+        reply_txs(vec![]),
+        TxSubmissionState::Idle,
+    );
     spec.i(
         TxSubmissionState::Idle,
-        Message::RequestTxIds(0, 0, crate::tx_submission::Blocking::Yes),
+        Message::Done,
+        TxSubmissionState::Done,
+    );
+    spec.r(
         TxSubmissionState::Idle,
+        request_tx_ids_blocking(0, 0),
+        TxSubmissionState::TxIdsBlocking,
     );
-    // Idle -> receive RequestTxs -> Idle (stays in Idle, sends ReplyTxs)
-    spec.i(TxSubmissionState::Idle, Message::RequestTxs(vec![]), TxSubmissionState::Idle);
-
-    // Responder transitions
-    // Init -> receive Init -> Init (then sends RequestTxIds, transitions to TxIdsBlocking)
-    spec.r(TxSubmissionState::Init, Message::Init, TxSubmissionState::TxIdsBlocking);
-    // TxIdsBlocking/TxIdsNonBlocking -> receive ReplyTxIds -> Txs
-    spec.r(TxSubmissionState::TxIdsBlocking, Message::ReplyTxIds(vec![]), TxSubmissionState::Txs);
     spec.r(
-        TxSubmissionState::TxIdsNonBlocking,
-        Message::ReplyTxIds(vec![]),
-        TxSubmissionState::Txs,
-    );
-    // Txs -> receive ReplyTxs -> TxIdsBlocking or TxIdsNonBlocking
-    spec.r(TxSubmissionState::Txs, Message::ReplyTxs(vec![]), TxSubmissionState::TxIdsBlocking);
-    spec.r(
-        TxSubmissionState::Txs,
-        Message::ReplyTxs(vec![]),
+        TxSubmissionState::Idle,
+        request_tx_ids_non_blocking(0, 0),
         TxSubmissionState::TxIdsNonBlocking,
     );
-
+    spec.r(
+        TxSubmissionState::Idle,
+        request_txs(vec![]),
+        TxSubmissionState::Txs,
+    );
     spec
 }
-*/
 
 pub async fn register_tx_submission(
     role: Role,
@@ -121,7 +123,7 @@ pub async fn register_tx_submission(
         eff.contramap(
             &tx_submission,
             "tx_submission_handler",
-            Inputs::<InitiatorMessage>::Network,
+            Inputs::<Void>::Network,
         )
         .await
     } else {
@@ -156,4 +158,15 @@ pub async fn register_tx_submission(
     .await;
 
     tx_submission
+}
+
+/// The state of the tx submission protocol as a whole.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
+pub enum TxSubmissionState {
+    Init,
+    Idle,
+    Done,
+    Txs,
+    TxIdsBlocking,
+    TxIdsNonBlocking,
 }

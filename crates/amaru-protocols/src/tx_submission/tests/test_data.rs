@@ -12,29 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::Message::{ReplyTxIds, ReplyTxs, RequestTxIds, RequestTxs};
-use crate::tx_submission::{Blocking, Message};
 use amaru_kernel::{Hash, Nullable, Set};
-use amaru_ouroboros_traits::{Mempool, TxId};
+use amaru_ouroboros_traits::Mempool;
 use pallas_primitives::TransactionInput;
 use pallas_primitives::conway::{PseudoTransactionBody, PseudoTx, Tx, WitnessSet};
 use std::sync::Arc;
-
-pub fn reply_tx_ids(txs: &[Tx], ids: &[usize]) -> Message {
-    ReplyTxIds(ids.iter().map(|id| (TxId::from(&txs[*id]), 50)).collect())
-}
-
-pub fn reply_txs(txs: &[Tx], ids: &[usize]) -> Message {
-    ReplyTxs(ids.iter().map(|id| txs[*id].clone()).collect())
-}
-
-pub fn request_tx_ids(ack: u16, req: u16, blocking: Blocking) -> Message {
-    RequestTxIds(ack, req, blocking)
-}
-
-pub fn request_txs(txs: &[Tx], ids: &[usize]) -> Message {
-    RequestTxs(ids.iter().map(|id| TxId::from(&txs[*id])).collect())
-}
 
 pub fn create_transactions(number: u64) -> Vec<Tx> {
     (0..number).map(create_transaction).collect()

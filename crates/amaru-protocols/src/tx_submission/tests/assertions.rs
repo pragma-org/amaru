@@ -12,17 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::Outcome;
-use crate::tx_submission::tests::Nodes;
 use amaru_ouroboros_traits::{TxId, TxSubmissionMempool};
 use pallas_primitives::conway::Tx;
 use std::sync::Arc;
-
-/// Check that all the given transactions are currently present in the responder mempool.
-#[track_caller]
-pub fn expect_responder_transactions(nodes: &Nodes, txs: Vec<Tx>) {
-    expect_transactions(nodes.responder_mempool.clone(), txs)
-}
 
 /// Check that all the given transactions are currently present in the given mempool.
 #[track_caller]
@@ -50,9 +42,12 @@ pub fn expect_transactions(mempool: Arc<dyn TxSubmissionMempool<Tx>>, txs: Vec<T
     }
 }
 
-/// Check a list of outcomes against the expected ones.
+/// Check a list of actions against the expected ones.
 #[track_caller]
-pub fn assert_outcomes_eq(actual: &[Outcome], expected: &[Outcome]) {
+pub fn assert_actions_eq<T: std::fmt::Debug + std::fmt::Display + PartialEq>(
+    actual: &[T],
+    expected: &[T],
+) {
     if actual != expected {
         panic!(
             "\nActual outcomes\n\n{}\n\nExpected outcomes\n\n{}\n",

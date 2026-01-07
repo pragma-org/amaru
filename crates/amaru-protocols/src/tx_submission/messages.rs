@@ -23,18 +23,34 @@ use std::fmt::Display;
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum Message {
     Init,
-    RequestTxIds(u16, u16, Blocking),
-    ReplyTxIds(Vec<(TxId, u32)>),
+    RequestTxIdsBlocking(u16, u16),
+    RequestTxIdsNonBlocking(u16, u16),
     RequestTxs(Vec<TxId>),
+    ReplyTxIds(Vec<(TxId, u32)>),
     ReplyTxs(Vec<Tx>),
     Done,
+}
+
+impl PartialOrd for Message {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Message {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let serialized_self = minicbor::to_vec(self).unwrap_or_default();
+        let serialized_other = minicbor::to_vec(other).unwrap_or_default();
+        serialized_self.cmp(&serialized_other)
+    }
 }
 
 impl Message {
     pub fn message_type(&self) -> &'static str {
         match self {
             Message::Init => "Init",
-            Message::RequestTxIds(_, _, _) => "RequestTxIds",
+            Message::RequestTxIdsBlocking(_, _) => "RequestTxIdsBlocking",
+            Message::RequestTxIdsNonBlocking(_, _) => "RequestTxIdsNonBlocking",
             Message::ReplyTxIds(_) => "ReplyTxIds",
             Message::RequestTxs(_) => "RequestTxs",
             Message::ReplyTxs(_) => "ReplyTxs",
@@ -50,9 +66,15 @@ impl Encode<()> for Message {
         _ctx: &mut (),
     ) -> Result<(), encode::Error<W::Error>> {
         match self {
-            Message::RequestTxIds(ack, req, blocking) => {
+            Message::RequestTxIdsBlocking(ack, req) => {
                 e.array(4)?.u16(0)?;
-                e.encode(blocking)?;
+                e.encode(Blocking::Yes)?;
+                e.u16(*ack)?;
+                e.u16(*req)?;
+            }
+            Message::RequestTxIdsNonBlocking(ack, req) => {
+                e.array(4)?.u16(0)?;
+                e.encode(Blocking::No)?;
                 e.u16(*ack)?;
                 e.u16(*req)?;
             }
@@ -101,7 +123,10 @@ impl<'b> Decode<'b, ()> for Message {
                 let blocking = d.decode()?;
                 let ack = d.u16()?;
                 let req = d.u16()?;
-                Ok(Message::RequestTxIds(ack, req, blocking))
+                match blocking {
+                    Blocking::Yes => Ok(Message::RequestTxIdsBlocking(ack, req)),
+                    Blocking::No => Ok(Message::RequestTxIdsNonBlocking(ack, req)),
+                }
             }
             1 => {
                 let items = d.decode()?;
@@ -127,18 +152,11 @@ impl Display for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Message::Init => write!(f, "Init"),
-            Message::RequestTxIds(ack, req, blocking) => {
-                write!(
-                    f,
-                    "RequestTxIds(ack: {}, req: {}, blocking: {})",
-                    ack,
-                    req,
-                    if blocking == &Blocking::Yes {
-                        "true"
-                    } else {
-                        "false"
-                    }
-                )
+            Message::RequestTxIdsBlocking(ack, req) => {
+                write!(f, "RequestTxIdsBlocking(ack: {}, req: {})", ack, req,)
+            }
+            Message::RequestTxIdsNonBlocking(ack, req) => {
+                write!(f, "RequestTxIdsNonBlocking(ack: {}, req: {})", ack, req,)
             }
             Message::ReplyTxIds(ids) => {
                 write!(
@@ -260,7 +278,10 @@ mod tests {
 
     prop_compose! {
         fn request_tx_ids_message()((ack, req) in any_ack_req(), blocking in any_blocking()) -> Message {
-            Message::RequestTxIds(ack, req, blocking)
+            match blocking {
+                Blocking::Yes => Message::RequestTxIdsBlocking(ack, req),
+                Blocking::No => Message::RequestTxIdsNonBlocking(ack, req),
+            }
         }
     }
 

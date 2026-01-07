@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 
 /// This faulty transaction validator rejects every second transaction.
 #[derive(Clone, Debug, Default)]
+#[expect(dead_code)]
 pub struct FaultyTxValidator {
     count: Arc<Mutex<u16>>,
 }

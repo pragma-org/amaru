@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::Message;
 use amaru_ouroboros_traits::TxId;
 use std::fmt::{Display, Formatter};
+
+use crate::tx_submission::{ResponderResult, initiator::InitiatorResult};
 
 /// Outcome of a protocol state machine step
 #[derive(Debug)]
 pub enum Outcome {
     Done,
     Error(ProtocolError),
-    Send(Message),
+    Initiator(InitiatorResult),
+    Responder(ResponderResult),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -108,7 +110,12 @@ impl PartialEq for Outcome {
         match (self, other) {
             (Outcome::Done, Outcome::Done) => true,
             (Outcome::Error(e1), Outcome::Error(e2)) => format!("{}", e1) == format!("{}", e2),
-            (Outcome::Send(msg1), Outcome::Send(msg2)) => msg1 == msg2,
+            (Outcome::Initiator(m1), Outcome::Initiator(m2)) => {
+                format!("{}", m1) == format!("{}", m2)
+            }
+            (Outcome::Responder(m1), Outcome::Responder(m2)) => {
+                format!("{}", m1) == format!("{}", m2)
+            }
             _ => false,
         }
     }
@@ -121,7 +128,8 @@ impl Display for Outcome {
         match self {
             Outcome::Done => write!(f, "Done"),
             Outcome::Error(err) => write!(f, "ProtocolError({})", err),
-            Outcome::Send(msg) => write!(f, "Send({})", msg),
+            Outcome::Initiator(msg) => write!(f, "Initiator({})", msg),
+            Outcome::Responder(msg) => write!(f, "Responder({})", msg),
         }
     }
 }

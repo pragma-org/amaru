@@ -21,7 +21,6 @@ minicbor.workspace = true
 pallas-traverse.workspace = true
 pure-stage.workspace = true
 serde.workspace = true
-tokio.workspace = true
 tracing.workspace = true
 
 amaru-kernel.workspace = true

@@ -99,12 +99,16 @@ where
         for state in states {
             for &message in &messages {
                 let to = self.transitions.get(state).and_then(|m| m.get(message));
-                let (outcome, is_local) = if let Some(msg) = local_msg(message) {
+                if state == &initial && Some(message) == out.send.as_ref() {
+                    assert_eq!(Some(&init), to.map(|(_, s)| s));
+                    continue;
+                }
+                let (outcome, is_local) = if let Some(action) = local_msg(message) {
                     assert!(
                         state.network(message.clone()).is_err(),
                         "state accepts network message {message:?} while that is a local message"
                     );
-                    (state.local(msg).ok(), true)
+                    (state.local(action).ok(), true)
                 } else {
                     (
                         state
@@ -117,7 +121,10 @@ where
                 let ((r, to), (send, next)) = match (to, outcome) {
                     (None, None) => continue,
                     (None, Some(_)) => panic!("extraneous transition {:?} -> {:?}", state, message),
-                    (Some(_), None) => panic!("missing transition {:?} -> {:?}", state, message),
+                    (Some(_), None) => panic!(
+                        "missing transition {:?} -> {:?} for {:?}",
+                        state, message, to
+                    ),
                     (Some(to), Some(outcome)) => (to, outcome),
                 };
                 if is_local {

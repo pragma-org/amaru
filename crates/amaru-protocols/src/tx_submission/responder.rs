@@ -12,16 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::{BTreeSet, VecDeque};
+use std::fmt::Display;
+
 use crate::mempool_effects::MemoryPool;
 use crate::mux::MuxMessage;
 use crate::protocol::{
     Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState,
     miniprotocol, outcome,
 };
-use crate::tx_submission::{
-    Blocking, Message, ResponderParams, TxSubmissionResponderState, TxSubmissionState,
-};
+use crate::tx_submission::{Blocking, Message, ProtocolError, ResponderParams, TxSubmissionState};
+use ProtocolError::*;
 use amaru_kernel::Tx;
+use amaru_ouroboros::TxSubmissionMempool;
 use amaru_ouroboros_traits::{TxId, TxOrigin};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
@@ -31,43 +34,6 @@ pub fn register_deserializers() -> DeserializerGuards {
 
 pub fn responder() -> Miniprotocol<TxSubmissionState, TxSubmissionResponder, Responder> {
     miniprotocol(PROTO_N2N_TX_SUB.responder())
-}
-
-/// Result from protocol state when network message is received
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum ResponderResult {
-    Init,
-    ReplyTxIds(Vec<(TxId, u32)>),
-    ReplyTxs(Vec<Tx>),
-    Done,
-}
-
-#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct TxSubmissionResponder {
-    state: TxSubmissionResponderState,
-    muxer: StageRef<MuxMessage>,
-}
-
-impl TxSubmissionResponder {
-    pub fn new(
-        muxer: StageRef<MuxMessage>,
-        params: ResponderParams,
-        origin: TxOrigin,
-    ) -> (TxSubmissionState, Self) {
-        (
-            TxSubmissionState::Init,
-            Self {
-                state: TxSubmissionResponderState::new(params, origin),
-                muxer,
-            },
-        )
-    }
-}
-
-impl AsRef<StageRef<MuxMessage>> for TxSubmissionResponder {
-    fn as_ref(&self) -> &StageRef<MuxMessage> {
-        &self.muxer
-    }
 }
 
 impl StageState<TxSubmissionState, Responder> for TxSubmissionResponder {
@@ -84,46 +50,25 @@ impl StageState<TxSubmissionState, Responder> for TxSubmissionResponder {
 
     async fn network(
         mut self,
-        proto: &TxSubmissionState,
+        _proto: &TxSubmissionState,
         input: ResponderResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        let mempool = MemoryPool::new(eff.clone());
+        let mempool: &dyn TxSubmissionMempool<Tx> = &MemoryPool::new(eff.clone());
 
-        // Convert ResponderResult back to Message for step() method
-        let msg = match input {
-            ResponderResult::Init => Message::Init,
-            ResponderResult::ReplyTxIds(tx_ids) => Message::ReplyTxIds(tx_ids),
-            ResponderResult::ReplyTxs(txs) => Message::ReplyTxs(txs),
-            ResponderResult::Done => Message::Done,
+        let action = match input {
+            ResponderResult::Init => {
+                tracing::trace!("received Init");
+                self.initialize_state(mempool);
+                None
+            }
+            ResponderResult::ReplyTxIds(tx_ids) => self.process_tx_ids_reply(mempool, tx_ids)?,
+            ResponderResult::ReplyTxs(txs) => {
+                self.process_txs_reply(mempool, txs, self.origin.clone())?
+            }
+            ResponderResult::Done => None,
         };
-
-        // Use the existing step() method which handles all the business logic
-        let (_new_proto_state, outcome) = self.state.step(&mempool, proto, msg).await?;
-
-        // Convert the outcome to an action
-        match outcome {
-            crate::tx_submission::Outcome::Send(Message::RequestTxIds(ack, req, blocking)) => Ok((
-                Some(ResponderAction::SendRequestTxIds { ack, req, blocking }),
-                self,
-            )),
-            crate::tx_submission::Outcome::Send(Message::RequestTxs(tx_ids)) => {
-                Ok((Some(ResponderAction::SendRequestTxs(tx_ids)), self))
-            }
-            crate::tx_submission::Outcome::Send(
-                Message::Init | Message::ReplyTxIds(_) | Message::ReplyTxs(_) | Message::Done,
-            ) => {
-                // These messages should not be sent by responder
-                anyhow::bail!("unexpected message in outcome: {:?}", outcome);
-            }
-            crate::tx_submission::Outcome::Done => {
-                // Protocol is done, no action needed
-                Ok((None, self))
-            }
-            crate::tx_submission::Outcome::Error(err) => {
-                anyhow::bail!("protocol error: {}", err);
-            }
-        }
+        Ok((action, self))
     }
 }
 
@@ -144,7 +89,7 @@ impl ProtocolState<Responder> for TxSubmissionState {
         Ok(match (self, input) {
             (TxSubmissionState::Init, Message::Init) => (
                 outcome().want_next().result(ResponderResult::Init),
-                TxSubmissionState::Init, // Stay in Init, stage state will handle transition
+                TxSubmissionState::Idle,
             ),
             (
                 TxSubmissionState::TxIdsBlocking | TxSubmissionState::TxIdsNonBlocking,
@@ -153,13 +98,13 @@ impl ProtocolState<Responder> for TxSubmissionState {
                 outcome()
                     .want_next()
                     .result(ResponderResult::ReplyTxIds(tx_ids)),
-                TxSubmissionState::Txs, // Transition to Txs state
+                TxSubmissionState::Idle,
             ),
             (TxSubmissionState::Txs, Message::ReplyTxs(txs)) => (
                 outcome().want_next().result(ResponderResult::ReplyTxs(txs)),
-                TxSubmissionState::Txs, // Stay in Txs, stage state will handle transition to TxIdsBlocking/NonBlocking
+                TxSubmissionState::Idle,
             ),
-            (_, Message::Done) => (
+            (TxSubmissionState::Idle, Message::Done) => (
                 outcome().result(ResponderResult::Done),
                 TxSubmissionState::Done,
             ),
@@ -169,41 +114,253 @@ impl ProtocolState<Responder> for TxSubmissionState {
 
     fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
         Ok(match (self, input) {
-            (TxSubmissionState::Init, ResponderAction::SendRequestTxIds { ack, req, blocking }) => {
-                let new_state = if blocking == Blocking::Yes {
-                    TxSubmissionState::TxIdsBlocking
-                } else {
-                    TxSubmissionState::TxIdsNonBlocking
-                };
-                (
-                    outcome().send(Message::RequestTxIds(ack, req, blocking)),
-                    new_state,
-                )
+            (TxSubmissionState::Idle, ResponderAction::SendRequestTxIds { ack, req, blocking }) => {
+                match blocking {
+                    Blocking::Yes => (
+                        outcome().send(Message::RequestTxIdsBlocking(ack, req)),
+                        TxSubmissionState::TxIdsBlocking,
+                    ),
+                    Blocking::No => (
+                        outcome().send(Message::RequestTxIdsNonBlocking(ack, req)),
+                        TxSubmissionState::TxIdsNonBlocking,
+                    ),
+                }
             }
-            (TxSubmissionState::Txs, ResponderAction::SendRequestTxs(tx_ids)) => (
+            (TxSubmissionState::Idle, ResponderAction::SendRequestTxs(tx_ids)) => (
                 outcome().send(Message::RequestTxs(tx_ids)),
                 TxSubmissionState::Txs,
             ),
-            (
-                TxSubmissionState::TxIdsBlocking | TxSubmissionState::TxIdsNonBlocking,
-                ResponderAction::SendRequestTxIds { ack, req, blocking },
-            ) => {
-                let new_state = if blocking == Blocking::Yes {
-                    TxSubmissionState::TxIdsBlocking
-                } else {
-                    TxSubmissionState::TxIdsNonBlocking
-                };
-                (
-                    outcome().send(Message::RequestTxIds(ack, req, blocking)),
-                    new_state,
-                )
-            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
 }
 
-#[derive(Debug)]
+/// Result from protocol state when network message is received
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ResponderResult {
+    Init,
+    ReplyTxIds(Vec<(TxId, u32)>),
+    ReplyTxs(Vec<Tx>),
+    Done,
+}
+
+impl Display for ResponderResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ResponderResult::Init => write!(f, "Init"),
+            ResponderResult::ReplyTxIds(tx_ids) => {
+                write!(f, "ReplyTxIds(len: {})", tx_ids.len())
+            }
+            ResponderResult::ReplyTxs(txs) => write!(f, "ReplyTxs(len: {})", txs.len()),
+            ResponderResult::Done => write!(f, "Done"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TxSubmissionResponder {
+    /// Responder parameters: batch sizes, window sizes, etc.
+    params: ResponderParams,
+    /// All tx_ids advertised but not yet acked (and their size).
+    window: VecDeque<(TxId, u32)>,
+    /// Tx ids we want to fetch but haven't yet requested.
+    pending_fetch: VecDeque<TxId>,
+    /// Tx ids we requested; waiting for replies.
+    /// First as a FIFO queue because when we receive tx bodies we don't get the ids back.
+    inflight_fetch_queue: VecDeque<TxId>,
+    /// Then as a set for quick lookup when processing received ids.
+    /// This is kept in sync with `inflight_fetch_queue`. When we receive a tx body,
+    /// we pop it from the front of the queue and remove it from the set.
+    inflight_fetch_set: BTreeSet<TxId>,
+    /// The origin of the transactions we are fetching.
+    origin: TxOrigin,
+    muxer: StageRef<MuxMessage>,
+}
+
+impl TxSubmissionResponder {
+    pub fn new(
+        muxer: StageRef<MuxMessage>,
+        params: ResponderParams,
+        origin: TxOrigin,
+    ) -> (TxSubmissionState, Self) {
+        (
+            TxSubmissionState::Init,
+            Self {
+                params,
+                window: VecDeque::new(),
+                pending_fetch: VecDeque::new(),
+                inflight_fetch_queue: VecDeque::new(),
+                inflight_fetch_set: BTreeSet::new(),
+                origin,
+                muxer,
+            },
+        )
+    }
+
+    fn initialize_state(
+        &mut self,
+        mempool: &dyn TxSubmissionMempool<Tx>,
+    ) -> Option<ResponderAction> {
+        let (ack, req, blocking) = self.request_tx_ids(mempool);
+        Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
+    }
+
+    fn process_tx_ids_reply(
+        &mut self,
+        mempool: &dyn TxSubmissionMempool<Tx>,
+        tx_ids: Vec<(TxId, u32)>,
+    ) -> anyhow::Result<Option<ResponderAction>> {
+        if tx_ids.len() > self.params.max_window.into() {
+            return protocol_error(TooManyTxIdsReceived(
+                tx_ids.len(),
+                self.params.max_window.into(),
+            ));
+        }
+        self.received_tx_ids(mempool, tx_ids);
+        Ok(Some(ResponderAction::SendRequestTxs(self.txs_to_request())))
+    }
+
+    fn process_txs_reply(
+        &mut self,
+        mempool: &dyn TxSubmissionMempool<Tx>,
+        txs: Vec<Tx>,
+        origin: TxOrigin,
+    ) -> anyhow::Result<Option<ResponderAction>> {
+        if txs.len() > self.params.fetch_batch.into() {
+            return protocol_error(ReceivedTxsExceedsBatchSize(
+                txs.len(),
+                self.params.fetch_batch.into(),
+            ));
+        }
+        let tx_ids = txs.iter().map(TxId::from).collect::<Vec<_>>();
+        let not_in_flight = tx_ids
+            .iter()
+            .filter(|tx_id| !self.inflight_fetch_set.contains(tx_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !not_in_flight.is_empty() {
+            return protocol_error(SomeReceivedTxsNotInFlight(not_in_flight));
+        }
+
+        self.received_txs(mempool, txs, origin)?;
+        let (ack, req, blocking) = self.request_tx_ids(mempool);
+        Ok(Some(ResponderAction::SendRequestTxIds {
+            ack,
+            req,
+            blocking,
+        }))
+    }
+
+    /// Prepare a request for tx ids, acknowledging already processed ones
+    /// and requesting as many as fit in the window.
+    #[allow(clippy::expect_used)]
+    fn request_tx_ids(&mut self, mempool: &dyn TxSubmissionMempool<Tx>) -> (u16, u16, Blocking) {
+        // Acknowledge everything we’ve already processed.
+        let mut ack = 0_u16;
+
+        while let Some((tx_id, _size)) = self.window.front() {
+            let already_in_mempool = mempool.contains(tx_id);
+            if already_in_mempool {
+                // pop from window and ack it
+                if self.window.pop_front().is_some() {
+                    ack = ack
+                        .checked_add(1)
+                        .expect("ack overflow: protocol invariant violated");
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Request as many as we can fit in the window.
+        let req = self
+            .params
+            .max_window
+            .checked_sub(self.window.len() as u16)
+            .expect("req underflow: protocol invariant violated");
+
+        // We need to block if there are no more outstanding tx ids.
+        let blocking = if self.window.is_empty() {
+            Blocking::Yes
+        } else {
+            Blocking::No
+        };
+        (ack, req, blocking)
+    }
+
+    /// Register received tx ids, adding them to the window and to the pending fetch list
+    /// if they are not already in the mempool.
+    fn received_tx_ids<Tx: Send + Sync + 'static>(
+        &mut self,
+        mempool: &dyn TxSubmissionMempool<Tx>,
+        tx_ids: Vec<(TxId, u32)>,
+    ) {
+        for (tx_id, size) in tx_ids {
+            // We add the tx id to the window to acknowledge it on the next round.
+            self.window.push_back((tx_id, size));
+
+            // We only add to pending fetch if we haven't received it yet in the mempool.
+            if !mempool.contains(&tx_id) {
+                self.pending_fetch.push_back(tx_id);
+            }
+        }
+    }
+
+    /// Prepare a batch of tx ids for the txs to request.
+    fn txs_to_request(&mut self) -> Vec<TxId> {
+        let mut tx_ids = Vec::new();
+
+        while tx_ids.len() < self.params.fetch_batch.into() {
+            if let Some(id) = self.pending_fetch.pop_front() {
+                self.inflight_fetch_queue.push_back(id);
+                self.inflight_fetch_set.insert(id);
+                tx_ids.push(id);
+            } else {
+                break;
+            }
+        }
+
+        tx_ids
+    }
+
+    /// Process received txs, validating and inserting them into the mempool.
+    fn received_txs(
+        &mut self,
+        mempool: &dyn TxSubmissionMempool<Tx>,
+        txs: Vec<Tx>,
+        origin: TxOrigin,
+    ) -> anyhow::Result<()> {
+        for tx in txs {
+            // this is the exact id we requested for this body (FIFO)
+            if let Some(requested_id) = self.inflight_fetch_queue.pop_front() {
+                self.inflight_fetch_set.remove(&requested_id);
+
+                match mempool.validate_transaction(tx.clone()) {
+                    Ok(_) => {
+                        mempool.insert(tx, origin.clone())?;
+                    }
+                    Err(e) => {
+                        tracing::warn!("received invalid transaction {}: {}", requested_id, e);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn protocol_error(error: ProtocolError) -> anyhow::Result<Option<ResponderAction>> {
+    tracing::warn!("protocol error: {error}");
+    Ok(Some(ResponderAction::Error(error)))
+}
+
+impl AsRef<StageRef<MuxMessage>> for TxSubmissionResponder {
+    fn as_ref(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum ResponderAction {
     SendRequestTxIds {
         ack: u16,
@@ -211,10 +368,255 @@ pub enum ResponderAction {
         blocking: Blocking,
     },
     SendRequestTxs(Vec<TxId>),
+    Error(ProtocolError),
+}
+
+impl Display for ResponderAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ResponderAction::SendRequestTxIds { ack, req, blocking } => {
+                write!(
+                    f,
+                    "SendRequestTxIds(ack: {}, req: {}, blocking: {:?})",
+                    ack, req, blocking
+                )
+            }
+            ResponderAction::SendRequestTxs(tx_ids) => {
+                write!(f, "SendRequestTxs(tx_ids: {:?})", tx_ids)
+            }
+            ResponderAction::Error(err) => write!(f, "Error({})", err),
+        }
+    }
 }
 
 #[cfg(test)]
-pub mod tests {
-    // TODO: Implement protocol spec check similar to keepalive
-    // This will require creating a spec() function first
+mod tests {
+
+    use super::*;
+    use crate::protocol::Role;
+    use crate::tx_submission::assert_actions_eq;
+    use crate::tx_submission::tests::create_transactions;
+    use amaru_mempool::strategies::InMemoryMempool;
+    use pallas_primitives::conway::Tx;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_responder() -> anyhow::Result<()> {
+        let txs = create_transactions(6);
+
+        // Create a mempool with no initial transactions
+        // since we are going to fetch them from the initiator
+        let mempool = Arc::new(InMemoryMempool::default());
+
+        // Send replies from the initiator as if they were replies to previous requests from the responder
+        let results = vec![
+            init(),
+            reply_tx_ids(&txs, &[0, 1, 2]),
+            reply_txs(&txs, &[0, 1]),
+            reply_tx_ids(&txs, &[3, 4, 5]),
+            reply_txs(&txs, &[2, 3]),
+            reply_tx_ids(&txs, &[]),
+            reply_txs(&txs, &[4, 5]),
+            done(),
+        ];
+
+        let actions = run_stage(mempool.clone(), results).await?;
+
+        assert_actions_eq(
+            &actions,
+            &[
+                request_tx_ids(0, 3, Blocking::Yes),
+                request_txs(&txs, &[0, 1]),
+                request_tx_ids(2, 2, Blocking::No),
+                request_txs(&txs, &[2, 3]),
+                request_tx_ids(2, 1, Blocking::No),
+                request_txs(&txs, &[4, 5]),
+                request_tx_ids(2, 3, Blocking::Yes),
+            ],
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_returned_tx_ids_should_respect_the_window_size() -> anyhow::Result<()> {
+        let txs = create_transactions(6);
+        let mempool = Arc::new(InMemoryMempool::default());
+
+        let results = vec![init(), reply_tx_ids(&txs, &[0, 1, 2, 3, 4])];
+
+        let actions = run_stage(mempool.clone(), results).await?;
+        assert_actions_eq(
+            &actions,
+            &[
+                request_tx_ids(0, 3, Blocking::Yes),
+                error_action(TooManyTxIdsReceived(5, 3)),
+            ],
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_returned_txs_should_respect_the_batch_size() -> anyhow::Result<()> {
+        let txs = create_transactions(6);
+        let mempool = Arc::new(InMemoryMempool::default());
+
+        let results = vec![
+            init(),
+            reply_tx_ids(&txs, &[0, 1, 2]),
+            reply_txs(&txs, &[0]),
+            reply_tx_ids(&txs, &[]),
+            reply_txs(&txs, &[1, 2, 3]),
+        ];
+
+        let outcomes = run_stage(mempool.clone(), results).await?;
+        assert_actions_eq(
+            &outcomes,
+            &[
+                request_tx_ids(0, 3, Blocking::Yes),
+                request_txs(&txs, &[0, 1]),
+                request_tx_ids(1, 1, Blocking::No),
+                request_txs(&txs, &[2]),
+                error_action(ReceivedTxsExceedsBatchSize(3, 2)),
+            ],
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_returned_txs_be_a_subset_of_the_inflight_txs() -> anyhow::Result<()> {
+        let txs = create_transactions(6);
+        let mempool = Arc::new(InMemoryMempool::default());
+
+        let results = vec![
+            reply_tx_ids(&txs, &[0, 1, 2]),
+            reply_txs(&txs, &[0]),
+            reply_tx_ids(&txs, &[]),
+            reply_txs(&txs, &[1, 3]),
+        ];
+
+        let actions = run_stage(mempool.clone(), results).await?;
+        assert_actions_eq(
+            &actions,
+            &[
+                request_tx_ids(0, 3, Blocking::Yes),
+                request_txs(&txs, &[0, 1]),
+                request_tx_ids(1, 1, Blocking::No),
+                request_txs(&txs, &[2]),
+                error_action(SomeReceivedTxsNotInFlight(vec![TxId::from(&txs[3])])),
+            ],
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_responder_protocol() {
+        crate::tx_submission::spec::<Responder>().check(
+            TxSubmissionState::Init,
+            Role::Responder,
+            |msg| match msg {
+                Message::RequestTxIdsBlocking(ack, req) => {
+                    Some(ResponderAction::SendRequestTxIds {
+                        ack: *ack,
+                        req: *req,
+                        blocking: Blocking::Yes,
+                    })
+                }
+                Message::RequestTxIdsNonBlocking(ack, req) => {
+                    Some(ResponderAction::SendRequestTxIds {
+                        ack: *ack,
+                        req: *req,
+                        blocking: Blocking::No,
+                    })
+                }
+                Message::RequestTxs(txs) => Some(ResponderAction::SendRequestTxs(txs.clone())),
+                Message::ReplyTxs(_) | Message::ReplyTxIds(_) | Message::Init | Message::Done => {
+                    None
+                }
+            },
+            |msg| msg.clone(),
+        );
+    }
+
+    // HELPERS
+
+    async fn run_stage(
+        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        results: Vec<ResponderResult>,
+    ) -> anyhow::Result<Vec<ResponderAction>> {
+        let (actions, _responder) = run_stage_and_return_state(mempool, results).await?;
+        Ok(actions)
+    }
+
+    async fn run_stage_and_return_state(
+        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        results: Vec<ResponderResult>,
+    ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
+        run_stage_and_return_state_with(
+            TxSubmissionResponder::new(
+                StageRef::named_for_tests("muxer"),
+                ResponderParams::default(),
+                TxOrigin::Local,
+            )
+            .1,
+            mempool,
+            results,
+        )
+        .await
+    }
+
+    async fn run_stage_and_return_state_with(
+        mut responder: TxSubmissionResponder,
+        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        results: Vec<ResponderResult>,
+    ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
+        let mut actions = vec![];
+        for r in results {
+            let action = match r {
+                ResponderResult::Init => {
+                    responder.initialize_state(mempool.as_ref());
+                    None
+                }
+                ResponderResult::ReplyTxIds(tx_ids) => {
+                    responder.process_tx_ids_reply(mempool.as_ref(), tx_ids)?
+                }
+                ResponderResult::ReplyTxs(txs) => {
+                    responder.process_txs_reply(mempool.as_ref(), txs, responder.origin.clone())?
+                }
+                ResponderResult::Done => None,
+            };
+            if let Some(action) = action {
+                actions.push(action)
+            };
+        }
+        Ok((actions, responder))
+    }
+    // HELPERS
+
+    fn init() -> ResponderResult {
+        ResponderResult::Init
+    }
+
+    fn done() -> ResponderResult {
+        ResponderResult::Done
+    }
+
+    fn reply_tx_ids(txs: &[Tx], ids: &[usize]) -> ResponderResult {
+        ResponderResult::ReplyTxIds(ids.iter().map(|id| (TxId::from(&txs[*id]), 50)).collect())
+    }
+
+    fn reply_txs(txs: &[Tx], ids: &[usize]) -> ResponderResult {
+        ResponderResult::ReplyTxs(ids.iter().map(|id| txs[*id].clone()).collect())
+    }
+
+    fn request_tx_ids(ack: u16, req: u16, blocking: Blocking) -> ResponderAction {
+        ResponderAction::SendRequestTxIds { ack, req, blocking }
+    }
+
+    fn request_txs(txs: &[Tx], ids: &[usize]) -> ResponderAction {
+        ResponderAction::SendRequestTxs(ids.iter().map(|id| TxId::from(&txs[*id])).collect())
+    }
+
+    fn error_action(error: ProtocolError) -> ResponderAction {
+        ResponderAction::Error(error)
+    }
 }
