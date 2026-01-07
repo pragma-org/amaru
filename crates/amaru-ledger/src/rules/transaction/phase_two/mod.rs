@@ -205,28 +205,45 @@ where
 
             let result = program.eval_with_params(&arena, plutus_version, cost_model, uplc_budget);
 
-            match result.term {
-                Ok(term) => match term {
-                    Term::Error => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+            match plutus_version {
+                PlutusVersion::V1 | PlutusVersion::V2 => match result.term {
+                    Ok(term) => match term {
+                        Term::Error => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+                            plutus_version,
+                            info: result.info,
+                            err: "Error term evaluated".into(),
+                        })),
+                        Term::Var(_)
+                        | Term::Lambda { .. }
+                        | Term::Apply { .. }
+                        | Term::Delay(_)
+                        | Term::Force(_)
+                        | Term::Case { .. }
+                        | Term::Constr { .. }
+                        | Term::Constant(_)
+                        | Term::Builtin(_) => Ok(()),
+                    },
+                    Err(e) => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
                         plutus_version,
                         info: result.info,
-                        err: "Error term evaluated".into(),
+                        err: e.to_string(),
                     })),
-                    Term::Var(_)
-                    | Term::Lambda { .. }
-                    | Term::Apply { .. }
-                    | Term::Delay(_)
-                    | Term::Force(_)
-                    | Term::Case { .. }
-                    | Term::Constr { .. }
-                    | Term::Constant(_)
-                    | Term::Builtin(_) => Ok(()),
                 },
-                Err(e) => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
-                    plutus_version,
-                    info: result.info,
-                    err: e.to_string(),
-                })),
+
+                // According to [CIP-117](https://cips.cardano.org/cip/CIP-0117), Plutus V3 scripts must evaluate to a constant term of unit
+                PlutusVersion::V3 => match result.term {
+                    Ok(Term::Constant(Constant::Unit)) => Ok(()),
+                    Ok(_) => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+                        plutus_version,
+                        info: result.info,
+                        err: "evaluated to a non-unit term".to_string(),
+                    })),
+                    Err(e) => Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+                        plutus_version,
+                        info: result.info,
+                        err: e.to_string(),
+                    })),
+                },
             }
         })
         .collect::<Result<Vec<_>, _>>()
