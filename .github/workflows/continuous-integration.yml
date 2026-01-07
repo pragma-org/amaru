@@ -373,7 +373,7 @@ jobs:
           echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
 
       - name: Run node
-        timeout-minutes: ${{ env.TIMEOUT_RUN }}
+        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN) }}
         shell: bash
         run: make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
 
