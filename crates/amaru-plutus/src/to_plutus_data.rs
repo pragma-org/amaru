@@ -157,8 +157,7 @@ where
                 constr!(0, [payment_part_plutus_data, stake_part_plutus_data])
             }
             Address::Stake(stake_address) => {
-                <amaru_kernel::StakeAddress as ToPlutusData<V>>::to_plutus_data(stake_address)?
-                    .to_plutus_data()
+                <amaru_kernel::StakeAddress as ToPlutusData<V>>::to_plutus_data(stake_address)
             }
             Address::Byron(_) => unreachable!("unable to encode Byron address in PlutusData"),
         }
