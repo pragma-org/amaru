@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::observability::{
-    DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL, setup_observability,
+use amaru::{
+    observability::{
+        DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL,
+        setup_observability,
+    },
+    panic::panic_handler,
 };
-use amaru::panic::panic_handler;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::sync::LazyLock;
