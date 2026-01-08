@@ -78,25 +78,20 @@ pub fn heterogeneous_array<'d, A>(
 
 /// Decode any heterogeneous CBOR map, irrespective of whether they're indefinite or definite.
 ///
-/// A good choice for `S` is generally to pick a tuple of `PartialDecoder<_>` for each field item
+/// A good choice for `S` is generally to pick a tuple of `Option` for each field item
 /// that needs decoding. For example:
 ///
 /// ```rs
 /// let (address, value, datum, script) = decode_map(
 ///     d,
-///     (
-///         missing_field::<Output, _>(0),
-///         missing_field::<Output, _>(1),
-///         with_default_value(MemoizedDatum::None),
-///         with_default_value(None),
-///     ),
+///     (None, None, MemoizedDatum::None, None),
 ///     |d| d.u8(),
 ///     |d, state, field| {
 ///         match field {
-///             0 => state.0 = decode_chunk(d, |d| decode_address(d.bytes()?)),
-///             1 => state.1 = decode_chunk(d, |d| d.decode()),
-///             2 => state.2 = decode_chunk(d, decode_datum),
-///             3 => state.3 = decode_chunk(d, decode_reference_script),
+///             0 => state.0 = Some(decode_address(d.bytes()?),
+///             1 => state.1 = Some(d.decode()?),
+///             2 => state.2 = decode_datum()?,
+///             3 => state.3 = decode_reference_script()?,
 ///             _ => return unexpected_field::<Output, _>(field),
 ///         }
 ///         Ok(())
@@ -126,40 +121,15 @@ pub fn heterogeneous_map<K, S>(
     Ok(state)
 }
 
-// PartialDecoder
-// ----------------------------------------------------------------------------
-
-/// A decoder that is part of another larger one. This is particularly useful to decode map
-/// key/value in an arbitrary order; while logically recomposing them in a readable order.
-type PartialDecoder<A> = Box<dyn FnOnce() -> Result<A, cbor::decode::Error>>;
-
-/// Wrap a decoder as a `PartialDecoder`; this is mostly a convenient utility to avoid boilerplate.
-pub fn decode_chunk<A: 'static>(
-    d: &mut cbor::Decoder<'_>,
-    decode: impl FnOnce(&mut cbor::Decoder<'_>) -> Result<A, cbor::decode::Error>,
-) -> PartialDecoder<A> {
-    // NOTE: It is crucial that this happens *outside* of the boxed closure, to ensure bytes are consumed
-    // when the closure is created; not when it is invoked!
-    let a = decode(d);
-    Box::new(|| a)
-}
-
 /// Yield a `PartialDecoder` that fails with a comprehensible error message when an expected field
 /// is missing from the map.
-pub fn missing_field<C: ?Sized, A>(field_tag: u8) -> PartialDecoder<A> {
-    Box::new(move || {
-        let msg = format!(
-            "missing <{}> at field .{field_tag} in <{}> CBOR map",
-            std::any::type_name::<A>(),
-            std::any::type_name::<C>(),
-        );
-        Err(cbor::decode::Error::message(msg))
-    })
-}
-
-/// Yield a `PartialDecoder` that always succeeds with the given default value.
-pub fn with_default_value<A: 'static>(default: A) -> PartialDecoder<A> {
-    Box::new(move || Ok(default))
+pub fn missing_field<C: ?Sized, A>(field_tag: u8) -> cbor::decode::Error {
+    let msg = format!(
+        "missing <{}> at field .{field_tag} in <{}> CBOR map",
+        std::any::type_name::<A>(),
+        std::any::type_name::<C>(),
+    );
+    cbor::decode::Error::message(msg)
 }
 
 /// Yield a `Result<_, decode::Error>` that always fails with a comprehensible error message when a
@@ -177,10 +147,10 @@ pub fn unexpected_field<C: ?Sized, A>(field_tag: impl Display) -> Result<A, cbor
 #[cfg(test)]
 mod tests {
     use crate::{
-        cbor, decode_chunk, from_cbor, from_cbor_no_leftovers, heterogeneous_array,
-        heterogeneous_map, missing_field,
+        cbor, from_cbor, from_cbor_no_leftovers, heterogeneous_array, heterogeneous_map,
+        missing_field,
         tests::{AsDefinite, AsIndefinite, AsMap, foo::Foo},
-        to_cbor, unexpected_field, with_default_value,
+        to_cbor, unexpected_field,
     };
     use std::fmt::Debug;
 
@@ -315,12 +285,12 @@ mod tests {
             fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
                 let (field0, field1) = heterogeneous_map(
                     d,
-                    (missing_field::<Foo, _>(0), missing_field::<Foo, _>(1)),
+                    (None::<u8>, None::<u8>),
                     |d| d.u8(),
                     |d, state, field| {
                         match field {
-                            0 => state.0 = decode_chunk(d, |d| d.decode_with(ctx)),
-                            1 => state.1 = decode_chunk(d, |d| d.decode_with(ctx)),
+                            0 => state.0 = d.decode_with(ctx)?,
+                            1 => state.1 = d.decode_with(ctx)?,
                             _ => return unexpected_field::<Foo, _>(field),
                         }
                         Ok(())
@@ -328,8 +298,8 @@ mod tests {
                 )?;
 
                 Ok(NoMissingFields(Foo {
-                    field0: field0()?,
-                    field1: field1()?,
+                    field0: field0.ok_or_else(|| missing_field::<Foo, u8>(0))?,
+                    field1: field1.ok_or_else(|| missing_field::<Foo, u8>(1))?,
                 }))
             }
         }
@@ -341,22 +311,19 @@ mod tests {
             fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
                 let (field0, field1) = heterogeneous_map(
                     d,
-                    (with_default_value(14_u8), with_default_value(42_u8)),
+                    (14_u8, 42_u8),
                     |d| d.u8(),
                     |d, state, field| {
                         match field {
-                            0 => state.0 = decode_chunk(d, |d| d.decode_with(ctx)),
-                            1 => state.1 = decode_chunk(d, |d| d.decode_with(ctx)),
+                            0 => state.0 = d.decode_with(ctx)?,
+                            1 => state.1 = d.decode_with(ctx)?,
                             _ => return unexpected_field::<Foo, _>(field),
                         }
                         Ok(())
                     },
                 )?;
 
-                Ok(WithDefaultValues(Foo {
-                    field0: field0()?,
-                    field1: field1()?,
-                }))
+                Ok(WithDefaultValues(Foo { field0, field1 }))
             }
         }
 

@@ -18,10 +18,7 @@ use crate::{
     decode_script, from_minted_script,
     script::{PlaceholderScript, encode_script, serialize_memoized_script},
 };
-use amaru_minicbor_extra::{
-    decode_break, decode_chunk, heterogeneous_map, missing_field, unexpected_field,
-    with_default_value,
-};
+use amaru_minicbor_extra::{decode_break, heterogeneous_map, missing_field, unexpected_field};
 use pallas_codec::minicbor::data::Type;
 use pallas_primitives::{Bytes, Hash, PolicyId, PositiveCoin, conway::Multiasset};
 
@@ -99,22 +96,16 @@ fn decode_modern_output<C>(
     d: &mut cbor::Decoder<'_>,
     ctx: &mut C,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
-    // TODO: stat can be a builder insted of callbacks.
     let (address, value, datum, script) = heterogeneous_map(
         d,
-        (
-            missing_field::<MemoizedTransactionOutput, _>(0),
-            missing_field::<MemoizedTransactionOutput, _>(1),
-            with_default_value(MemoizedDatum::None),
-            with_default_value(None),
-        ),
+        (None, None, MemoizedDatum::None, None),
         |d| d.u8(),
         |d, state, field| {
             match field {
-                0 => state.0 = decode_chunk(d, |d| decode_address(d.bytes()?)),
-                1 => state.1 = decode_chunk(d, |d| d.decode_with(ctx)),
-                2 => state.2 = decode_chunk(d, |d| d.decode_with(ctx)),
-                3 => state.3 = decode_chunk(d, |d| Ok(Some(decode_script(d, ctx)?))),
+                0 => state.0 = Some(decode_address(d.bytes()?)?),
+                1 => state.1 = Some(d.decode_with(ctx)?),
+                2 => state.2 = d.decode_with(ctx)?,
+                3 => state.3 = Some(decode_script(d, ctx)?),
                 _ => return unexpected_field::<MemoizedTransactionOutput, _>(field),
             }
             Ok(())
@@ -123,10 +114,10 @@ fn decode_modern_output<C>(
 
     Ok(MemoizedTransactionOutput {
         is_legacy: false,
-        address: address()?,
-        value: value()?,
-        datum: datum()?,
-        script: script()?,
+        address: address.ok_or_else(|| missing_field::<MemoizedTransactionOutput, Address>(0))?,
+        value: value.ok_or_else(|| missing_field::<MemoizedTransactionOutput, Value>(1))?,
+        datum,
+        script,
     })
 }
 
