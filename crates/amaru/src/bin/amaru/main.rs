@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::observability::{
-    DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL, setup_observability,
+use amaru::{
+    observability::{
+        DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL,
+        setup_observability,
+    },
+    panic::panic_handler,
 };
-use amaru::panic::panic_handler;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::sync::LazyLock;
@@ -97,6 +100,9 @@ enum Command {
     /// This command is only relevant when one upgrades Amaru to a newer version that
     /// requires changes in the database format.
     MigrateChainDB(cmd::migrate_chain_db::Args),
+
+    /// Reset the ledger database to the beginning of a specific epoch
+    ResetToEpoch(cmd::reset_to_epoch::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -162,6 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
         Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
         Command::MigrateChainDB(args) => cmd::migrate_chain_db::run(args).await,
+        Command::ResetToEpoch(args) => cmd::reset_to_epoch::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
