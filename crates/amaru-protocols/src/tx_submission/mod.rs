@@ -108,10 +108,10 @@ where
 
 pub async fn register_tx_submission(
     role: Role,
-    muxer: StageRef<crate::mux::MuxMessage>,
+    muxer: StageRef<mux::MuxMessage>,
     eff: &Effects<ConnectionMessage>,
     origin: TxOrigin,
-) -> StageRef<crate::mux::HandlerMessage> {
+) -> StageRef<mux::HandlerMessage> {
     let tx_submission = if role == Role::Initiator {
         let (state, stage) = initiator::TxSubmissionInitiator::new(muxer.clone());
         let tx_submission = eff
@@ -148,7 +148,7 @@ pub async fn register_tx_submission(
 
     eff.send(
         &muxer,
-        crate::mux::MuxMessage::Register {
+        mux::MuxMessage::Register {
             protocol: PROTO_N2N_TX_SUB.for_role(role).erase(),
             frame: mux::Frame::OneCborItem,
             handler: tx_submission.clone(),

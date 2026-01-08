@@ -132,28 +132,37 @@ impl ProtocolState<Initiator> for TxSubmissionState {
         input: Self::WireMsg,
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
         Ok(match (self, input) {
-            (TxSubmissionState::Idle, Message::RequestTxIdsBlocking(ack, req)) => (
-                outcome().want_next().result(InitiatorResult::RequestTxIds {
-                    ack,
-                    req,
-                    blocking: Blocking::Yes,
-                }),
-                TxSubmissionState::TxIdsBlocking,
-            ),
-            (TxSubmissionState::Idle, Message::RequestTxIdsNonBlocking(ack, req)) => (
-                outcome().want_next().result(InitiatorResult::RequestTxIds {
-                    ack,
-                    req,
-                    blocking: Blocking::No,
-                }),
-                TxSubmissionState::TxIdsNonBlocking,
-            ),
-            (TxSubmissionState::Idle, Message::RequestTxs(tx_ids)) => (
-                outcome()
-                    .want_next()
-                    .result(InitiatorResult::RequestTxs(tx_ids)),
-                TxSubmissionState::Txs,
-            ),
+            (TxSubmissionState::Idle, Message::RequestTxIdsBlocking(ack, req)) => {
+                tracing::trace!(ack=%ack, req=%req, "received RequestTxIdsBlocking");
+                (
+                    outcome().want_next().result(InitiatorResult::RequestTxIds {
+                        ack,
+                        req,
+                        blocking: Blocking::Yes,
+                    }),
+                    TxSubmissionState::TxIdsBlocking,
+                )
+            }
+            (TxSubmissionState::Idle, Message::RequestTxIdsNonBlocking(ack, req)) => {
+                tracing::trace!(ack=%ack, req=%req, "received RequestTxIdsNonBlocking");
+                (
+                    outcome().want_next().result(InitiatorResult::RequestTxIds {
+                        ack,
+                        req,
+                        blocking: Blocking::No,
+                    }),
+                    TxSubmissionState::TxIdsNonBlocking,
+                )
+            }
+            (TxSubmissionState::Idle, Message::RequestTxs(tx_ids)) => {
+                tracing::trace!(tx_ids_nb = tx_ids.len(), "received RequestTxs");
+                (
+                    outcome()
+                        .want_next()
+                        .result(InitiatorResult::RequestTxs(tx_ids)),
+                    TxSubmissionState::Txs,
+                )
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

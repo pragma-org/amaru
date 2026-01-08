@@ -13,23 +13,26 @@
 // limitations under the License.
 
 use crate::{
-    chainsync::{self, ChainSyncInitiatorMsg},
     connection::{self, ConnectionMessage},
     network_effects::create_connection,
     protocol::Role,
     store_effects::ResourceHeaderStore,
 };
-use amaru_kernel::{peer::Peer, protocol_messages::network_magic::NetworkMagic};
+use amaru_kernel::{Tx, peer::Peer, protocol_messages::network_magic::NetworkMagic};
+use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ConnectionResource, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros_traits::ResourceMempool;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use std::{sync::Arc, time::Duration};
 use tokio::{runtime::Handle, time::timeout};
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 /// You can run this test against a real upstream node (don't forget to include `-- --ignored` in `cargo test`).
 /// The upstream node must be either running at 127.0.0.1:3000 or at the address specified in the `PEER`
 /// environment variable.
+/// Run with RUST_LOG=trace to see the logs
 #[tokio::test]
 #[ignore]
 async fn test_tx_submission_with_node() -> anyhow::Result<()> {
@@ -37,6 +40,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .with_test_writer()
         .init();
+    info!("starting test_tx_submission");
 
     let conn = TokioConnections::new(65535);
     let conn_id = create_connection(&conn).await?;
@@ -49,40 +53,9 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
     network
         .resources()
         .put::<ResourceHeaderStore>(Arc::new(InMemConsensusStore::new()));
-
-    let pipeline = network.stage(
-        "pipeline",
-        async |st: StageRef<ConnectionMessage>, msg: ChainSyncInitiatorMsg, eff| {
-            use chainsync::InitiatorResult::*;
-            match msg.msg {
-                Initialize => {
-                    tracing::info!(peer = %msg.peer,"initialize");
-                }
-                IntersectFound(point, tip) => {
-                    tracing::info!(peer = %msg.peer, ?point, ?tip, "intersect found");
-                }
-                IntersectNotFound(tip) => {
-                    tracing::info!(peer = %msg.peer, ?tip, "intersect not found");
-                    eff.send(&msg.handler, chainsync::InitiatorMessage::Done)
-                        .await;
-                    return eff.terminate().await;
-                }
-                RollForward(header_content, tip) => {
-                    tracing::info!(peer = %msg.peer, header_content.variant, ?header_content.byron_prefix, ?tip, "roll forward");
-                    let block = eff.call(&st, Duration::from_secs(5), move |cr| ConnectionMessage::FetchBlocks { from: tip.point(), through: tip.point(), cr }).await;
-                    tracing::info!(?block, "fetched block");
-                    eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
-                        .await;
-                }
-                RollBackward(point, tip) => {
-                    tracing::info!(peer = %msg.peer, ?point, ?tip, "roll backward");
-                    eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
-                        .await;
-                }
-            };
-            st
-        },
-    );
+    network
+        .resources()
+        .put::<ResourceMempool<Tx>>(Arc::new(InMemoryMempool::default()));
 
     let connection = network.stage("connection", connection::stage);
     let connection = network.wire_up(
@@ -92,17 +65,15 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
             conn_id,
             Role::Initiator,
             NetworkMagic::for_testing(),
-            pipeline.sender(),
+            StageRef::blackhole(),
         ),
     );
     network
         .preload(&connection, [ConnectionMessage::Initialize])
         .unwrap();
 
-    let _pipeline = network.wire_up(pipeline, connection.without_state());
-
     let running = network.run(Handle::current());
-    match timeout(Duration::from_secs(20), running.join()).await {
+    match timeout(Duration::from_secs(20000), running.join()).await {
         Ok(_) => anyhow::bail!("test should have timed out"),
         Err(_) => {
             tracing::info!("test timed out as expected");
