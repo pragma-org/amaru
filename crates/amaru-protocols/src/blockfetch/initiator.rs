@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    blockfetch::{State, messages::Message},
+    blockfetch::{BlockFetchState, messages::Message},
     mux::MuxMessage,
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, StageState,
@@ -33,7 +33,7 @@ pub fn register_deserializers() -> DeserializerGuards {
     ]
 }
 
-pub fn initiator() -> Miniprotocol<State, BlockFetchInitiator, Initiator> {
+pub fn initiator() -> Miniprotocol<BlockFetchState, BlockFetchInitiator, Initiator> {
     miniprotocol(PROTO_N2N_BLOCK_FETCH)
 }
 
@@ -70,9 +70,13 @@ pub struct BlockFetchInitiator {
 }
 
 impl BlockFetchInitiator {
-    pub fn new(muxer: StageRef<MuxMessage>, peer: Peer, conn_id: ConnectionId) -> (State, Self) {
+    pub fn new(
+        muxer: StageRef<MuxMessage>,
+        peer: Peer,
+        conn_id: ConnectionId,
+    ) -> (BlockFetchState, Self) {
         (
-            State::Idle,
+            BlockFetchState::Idle,
             Self {
                 muxer,
                 peer,
@@ -84,12 +88,12 @@ impl BlockFetchInitiator {
     }
 }
 
-impl StageState<State, Initiator> for BlockFetchInitiator {
+impl StageState<BlockFetchState, Initiator> for BlockFetchInitiator {
     type LocalIn = BlockFetchMessage;
 
     async fn local(
         mut self,
-        _proto: &State,
+        _proto: &BlockFetchState,
         input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
@@ -108,7 +112,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
     #[expect(clippy::expect_used)]
     async fn network(
         mut self,
-        _proto: &State,
+        _proto: &BlockFetchState,
         input: InitiatorResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
@@ -141,7 +145,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
     }
 }
 
-impl ProtocolState<Initiator> for State {
+impl ProtocolState<Initiator> for BlockFetchState {
     type WireMsg = Message;
     type Action = InitiatorAction;
     type Out = InitiatorResult;
@@ -203,14 +207,27 @@ pub enum InitiatorAction {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::blockfetch::State;
+    use crate::blockfetch::BlockFetchState::*;
     use crate::blockfetch::initiator::InitiatorAction;
-    use crate::blockfetch::messages::Message;
+    use crate::blockfetch::messages::Message::*;
+    use crate::blockfetch::spec;
     use crate::protocol::{Initiator, Role};
 
     #[test]
+    #[expect(clippy::wildcard_enum_match_arm)]
     fn test_initiator_protocol() {
-        // TODO: Add protocol spec check similar to keepalive
-        // This would require a spec() function in blockfetch/mod.rs
+        spec::<Initiator>().check(
+            Idle,
+            Role::Initiator,
+            |msg| match msg {
+                RequestRange { from, through } => Some(InitiatorAction::RequestRange {
+                    from: *from,
+                    through: *through,
+                }),
+                ClientDone => Some(InitiatorAction::ClientDone),
+                _ => None,
+            },
+            |msg| msg.clone(),
+        );
     }
 }

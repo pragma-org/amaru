@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::blockfetch::{self, BlockFetchMessage, Blocks, register_blockfetch_initiator};
+use crate::blockfetch::{
+    self, BlockFetchMessage, Blocks, register_blockfetch_initiator, register_blockfetch_responder,
+};
 use crate::chainsync::{
     self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder,
 };
@@ -80,6 +82,7 @@ enum State {
         handshake: StageRef<Inputs<Void>>,
     },
     Initiator(StateInitiator),
+    Responder(StateResponder),
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -92,6 +95,16 @@ struct StateInitiator {
     handshake: StageRef<Inputs<Void>>,
     keepalive: StageRef<HandlerMessage>,
     tx_submission: StageRef<HandlerMessage>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct StateResponder {
+    chainsync_responder: StageRef<chainsync::ResponderMessage>,
+    muxer: StageRef<MuxMessage>,
+    handshake: StageRef<Inputs<Void>>,
+    keepalive: StageRef<HandlerMessage>,
+    tx_submission: StageRef<HandlerMessage>,
+    blockfetch_responder: StageRef<HandlerMessage>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -253,9 +266,17 @@ async fn do_handshake(
             .load_header(&upstream)
             .expect("best chain hash not found");
         let upstream = header.tip();
-        let _chainsync_responder =
+        let chainsync_responder =
             register_chainsync_responder(&muxer, upstream, peer.clone(), *conn_id, &eff).await;
+        let blockfetch_responder = register_blockfetch_responder(&muxer, &eff).await;
 
-        todo!()
+        State::Responder(StateResponder {
+            chainsync_responder,
+            blockfetch_responder,
+            muxer,
+            handshake,
+            keepalive,
+            tx_submission,
+        })
     }
 }

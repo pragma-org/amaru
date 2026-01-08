@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    blockfetch::{State, messages::Message},
+    blockfetch::{BlockFetchState, messages::Message},
     mux::MuxMessage,
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, Responder, StageState,
@@ -27,27 +27,27 @@ pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<BlockFetchResponder>().boxed()]
 }
 
-pub fn responder() -> Miniprotocol<State, BlockFetchResponder, Responder> {
+pub fn responder() -> Miniprotocol<BlockFetchState, BlockFetchResponder, Responder> {
     miniprotocol(PROTO_N2N_BLOCK_FETCH.responder())
 }
 
-#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockFetchResponder {
     muxer: StageRef<MuxMessage>,
 }
 
 impl BlockFetchResponder {
-    pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (State::Idle, Self { muxer })
+    pub fn new(muxer: StageRef<MuxMessage>) -> (BlockFetchState, Self) {
+        (BlockFetchState::Idle, Self { muxer })
     }
 }
 
-impl StageState<State, Responder> for BlockFetchResponder {
+impl StageState<BlockFetchState, Responder> for BlockFetchResponder {
     type LocalIn = Void;
 
     async fn local(
         self,
-        _proto: &State,
+        _proto: &BlockFetchState,
         input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
@@ -56,13 +56,13 @@ impl StageState<State, Responder> for BlockFetchResponder {
 
     async fn network(
         self,
-        _proto: &State,
+        _proto: &BlockFetchState,
         input: ResponderResult,
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
-            ResponderResult::RequestRange { .. } => todo!(),
-            ResponderResult::Done => todo!(),
+            ResponderResult::RequestRange { .. } => Ok((Some(ResponderAction::NoBlocks), self)),
+            ResponderResult::Done => Ok((None, self)),
         }
     }
 
@@ -71,7 +71,7 @@ impl StageState<State, Responder> for BlockFetchResponder {
     }
 }
 
-impl ProtocolState<Responder> for State {
+impl ProtocolState<Responder> for BlockFetchState {
     type WireMsg = Message;
     type Action = ResponderAction;
     type Out = ResponderResult;
@@ -132,14 +132,26 @@ pub enum ResponderResult {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::blockfetch::State;
-    use crate::blockfetch::messages::Message;
+    use crate::blockfetch::BlockFetchState::*;
+    use crate::blockfetch::messages::Message::*;
     use crate::blockfetch::responder::ResponderAction;
+    use crate::blockfetch::spec;
     use crate::protocol::{Responder, Role};
 
     #[test]
+    #[expect(clippy::wildcard_enum_match_arm)]
     fn test_responder_protocol() {
-        // TODO: Add protocol spec check similar to keepalive
-        // This would require a spec() function in blockfetch/mod.rs
+        spec::<Responder>().check(
+            Idle,
+            Role::Responder,
+            |msg| match msg {
+                NoBlocks => Some(ResponderAction::NoBlocks),
+                StartBatch => Some(ResponderAction::StartBatch),
+                Block { body } => Some(ResponderAction::Block(body.clone())),
+                BatchDone => Some(ResponderAction::BatchDone),
+                _ => None,
+            },
+            |msg| msg.clone(),
+        );
     }
 }
