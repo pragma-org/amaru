@@ -492,6 +492,7 @@ mod tests {
         let mempool = Arc::new(InMemoryMempool::default());
 
         let results = vec![
+            init(),
             reply_tx_ids(&txs, &[0, 1, 2]),
             reply_txs(&txs, &[0]),
             reply_tx_ids(&txs, &[]),
@@ -576,10 +577,7 @@ mod tests {
         let mut actions = vec![];
         for r in results {
             let action = match r {
-                ResponderResult::Init => {
-                    responder.initialize_state(mempool.as_ref());
-                    None
-                }
+                ResponderResult::Init => responder.initialize_state(mempool.as_ref()),
                 ResponderResult::ReplyTxIds(tx_ids) => {
                     responder.process_tx_ids_reply(mempool.as_ref(), tx_ids)?
                 }

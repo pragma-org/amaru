@@ -117,6 +117,7 @@ impl StageState<BlockFetchState, Initiator> for BlockFetchInitiator {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         let queued = match input {
+            InitiatorResult::Initialize => None,
             InitiatorResult::NoBlocks => {
                 let (_, _, cr) = self.queue.pop_front().expect("queue is empty");
                 eff.send(&cr, Blocks { blocks: Vec::new() }).await;
@@ -151,7 +152,7 @@ impl ProtocolState<Initiator> for BlockFetchState {
     type Out = InitiatorResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome(), *self))
+        Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
     fn network(
@@ -194,6 +195,7 @@ impl ProtocolState<Initiator> for BlockFetchState {
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorResult {
+    Initialize,
     NoBlocks,
     Block(Vec<u8>),
     Done,

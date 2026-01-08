@@ -47,7 +47,7 @@ impl HandshakeInitiator {
         version_table: VersionTable<VersionData>,
     ) -> (HandshakeState, Self) {
         (
-            HandshakeState::StPropose,
+            HandshakeState::Propose,
             Self {
                 muxer,
                 connection,
@@ -76,6 +76,7 @@ impl StageState<HandshakeState, Initiator> for HandshakeInitiator {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         Ok(match input {
+            InitiatorResult::Initialize => (None, self),
             InitiatorResult::Propose => {
                 tracing::debug!(?self.our_versions, "proposing versions");
                 (
@@ -112,7 +113,7 @@ impl ProtocolState<Initiator> for HandshakeState {
     type Out = InitiatorResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome().result(InitiatorResult::Propose), Self::StPropose))
+        Ok((outcome().result(InitiatorResult::Initialize), Self::Propose))
     }
 
     fn network(
@@ -124,7 +125,7 @@ impl ProtocolState<Initiator> for HandshakeState {
                 // TCP simultaneous open
                 (
                     outcome().result(InitiatorResult::SimOpen(version_table)),
-                    Self::StDone,
+                    Self::Done,
                 )
             }
             Message::Accept(version_number, version_data) => (
@@ -132,19 +133,19 @@ impl ProtocolState<Initiator> for HandshakeState {
                     version_number,
                     version_data,
                 ))),
-                Self::StDone,
+                Self::Done,
             ),
             Message::Refuse(refuse_reason) => (
                 outcome().result(InitiatorResult::Conclusion(HandshakeResult::Refused(
                     refuse_reason,
                 ))),
-                Self::StDone,
+                Self::Done,
             ),
             Message::QueryReply(version_table) => (
                 outcome().result(InitiatorResult::Conclusion(HandshakeResult::Query(
                     version_table,
                 ))),
-                Self::StDone,
+                Self::Done,
             ),
         })
     }
@@ -153,7 +154,7 @@ impl ProtocolState<Initiator> for HandshakeState {
         Ok(match input {
             InitiatorAction::Propose(version_table) => (
                 outcome().send(Message::Propose(version_table)),
-                Self::StConfirm,
+                Self::Confirm,
             ),
         })
     }
@@ -161,6 +162,7 @@ impl ProtocolState<Initiator> for HandshakeState {
 
 #[derive(Debug)]
 pub enum InitiatorResult {
+    Initialize,
     Propose,
     Conclusion(HandshakeResult),
     SimOpen(VersionTable<VersionData>),
@@ -182,7 +184,7 @@ pub mod tests {
     #[test]
     fn test_initiator_protocol() {
         crate::handshake::spec::<Initiator>().check(
-            HandshakeState::StPropose,
+            HandshakeState::Propose,
             Role::Initiator,
             |msg| match msg {
                 Message::Propose(version_table) => {
