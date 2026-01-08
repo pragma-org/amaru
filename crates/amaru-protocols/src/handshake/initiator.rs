@@ -57,12 +57,6 @@ impl HandshakeInitiator {
     }
 }
 
-impl AsRef<StageRef<MuxMessage>> for HandshakeInitiator {
-    fn as_ref(&self) -> &StageRef<MuxMessage> {
-        &self.muxer
-    }
-}
-
 impl StageState<HandshakeState, Initiator> for HandshakeInitiator {
     type LocalIn = Void;
 
@@ -105,6 +99,10 @@ impl StageState<HandshakeState, Initiator> for HandshakeInitiator {
                 (None, self)
             }
         })
+    }
+
+    fn muxer(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
     }
 }
 

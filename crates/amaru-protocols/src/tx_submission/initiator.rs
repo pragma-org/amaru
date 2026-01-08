@@ -112,6 +112,10 @@ impl StageState<TxSubmissionState, Initiator> for TxSubmissionInitiator {
         };
         Ok((action, self))
     }
+
+    fn muxer(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
+    }
 }
 
 impl ProtocolState<Initiator> for TxSubmissionState {

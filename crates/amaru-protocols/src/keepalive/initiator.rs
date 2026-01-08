@@ -24,6 +24,7 @@ use crate::{
     },
 };
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use std::time::Duration;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -66,12 +67,6 @@ impl KeepAliveInitiator {
     }
 }
 
-impl AsRef<StageRef<MuxMessage>> for KeepAliveInitiator {
-    fn as_ref(&self) -> &StageRef<MuxMessage> {
-        &self.muxer
-    }
-}
-
 impl StageState<State, Initiator> for KeepAliveInitiator {
     type LocalIn = InitiatorMessage;
 
@@ -79,12 +74,17 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         self,
         proto: &State,
         input: Self::LocalIn,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         use State::*;
 
         match (proto, input) {
             (Idle, InitiatorMessage::SendKeepAlive) => {
+                eff.schedule_after(
+                    Inputs::Local(InitiatorMessage::SendKeepAlive),
+                    Duration::from_secs(30),
+                )
+                .await;
                 Ok((Some(InitiatorAction::SendKeepAlive(self.cookie)), self))
             }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
@@ -95,17 +95,15 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         mut self,
         _proto: &State,
         input: InitiatorResult,
-        eff: &Effects<Inputs<Self::LocalIn>>,
+        _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         // After receiving a response, increment cookie and schedule next send
         self.cookie = input.cookie.next();
-
-        // Schedule next keep-alive after 1 second by sending a message to ourselves
-        eff.wait(std::time::Duration::from_secs(1)).await;
-        eff.send(eff.me_ref(), Inputs::Local(InitiatorMessage::SendKeepAlive))
-            .await;
-
         Ok((None, self))
+    }
+
+    fn muxer(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
     }
 }
 

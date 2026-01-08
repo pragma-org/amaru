@@ -35,7 +35,7 @@ pub struct Outcome<S, R> {
     pub want_next: bool,
 }
 
-impl<S, D> Outcome<S, D> {
+impl<S, R> Outcome<S, R> {
     pub fn send(self, send: S) -> Self {
         Self {
             send: Some(send),
@@ -44,7 +44,7 @@ impl<S, D> Outcome<S, D> {
         }
     }
 
-    pub fn result(self, done: D) -> Self {
+    pub fn result(self, done: R) -> Self {
         Self {
             send: self.send,
             result: Some(done),
@@ -61,7 +61,7 @@ impl<S, D> Outcome<S, D> {
     }
 }
 
-impl<S, D> From<Option<S>> for Outcome<S, D> {
+impl<S, R> From<Option<S>> for Outcome<S, R> {
     fn from(send: Option<S>) -> Self {
         Self {
             send,
@@ -71,7 +71,7 @@ impl<S, D> From<Option<S>> for Outcome<S, D> {
     }
 }
 
-pub fn outcome<S, D>() -> Outcome<S, D> {
+pub fn outcome<S, R>() -> Outcome<S, R> {
     Outcome {
         send: None,
         result: None,
@@ -88,10 +88,12 @@ pub trait ProtocolState<R: RoleT>: Sized + SendData {
     type Out: std::fmt::Debug + Send;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)>;
+
     fn network(
         &self,
         input: Self::WireMsg,
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)>;
+
     fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)>;
 }
 
@@ -107,18 +109,21 @@ pub trait StageState<Proto: ProtocolState<R>, R: RoleT>: Sized + SendData {
         input: Self::LocalIn,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> impl Future<Output = anyhow::Result<(Option<Proto::Action>, Self)>> + Send;
+
     fn network(
         self,
         proto: &Proto,
         input: Proto::Out,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> impl Future<Output = anyhow::Result<(Option<Proto::Action>, Self)>> + Send;
+
+    fn muxer(&self) -> &StageRef<MuxMessage>;
 }
 
 pub type Miniprotocol<A, B, R>
 where
     A: ProtocolState<R>,
-    B: StageState<A, R> + AsRef<StageRef<MuxMessage>>,
+    B: StageState<A, R>,
     R: RoleT,
 = impl Fn((A, B), Inputs<B::LocalIn>, Effects<Inputs<B::LocalIn>>) -> BoxFuture<'static, (A, B)>
     + Send
@@ -136,7 +141,7 @@ pub fn miniprotocol<Proto, Stage, Role>(
 ) -> Miniprotocol<Proto, Stage, Role>
 where
     Proto: ProtocolState<Role>,
-    Stage: AsRef<StageRef<MuxMessage>> + StageState<Proto, Role>,
+    Stage: StageState<Proto, Role>,
     Role: RoleT,
 {
     enum LocalOrNetwork<L, A> {
@@ -150,23 +155,28 @@ where
             // handle network input, if any
             let local_or_network = match input {
                 Inputs::Network(wire_msg) => {
-                    let (result, msg) = if let HandlerMessage::FromNetwork(wire_msg) = wire_msg {
+                    let (outcome, s) = if let HandlerMessage::FromNetwork(wire_msg) = wire_msg {
                         let wire_msg: Proto::WireMsg = minicbor::decode(&wire_msg)
                             .or_terminate(&eff, err("failed to decode message from network"))
                             .await;
-                        (proto.network(wire_msg), "failed to step protocol state")
+                        proto
+                            .network(wire_msg)
+                            .or_terminate(&eff, err("failed to step protocol state"))
+                            .await
                     } else {
-                        (proto.init(), "failed to initialize protocol state")
+                        proto
+                            .init()
+                            .or_terminate(&eff, err("failed to initialize protocol state"))
+                            .await
                     };
-                    let (outcome, s) = result.or_terminate(&eff, err(msg)).await;
                     proto = s;
                     if outcome.want_next {
-                        eff.send(stage.as_ref(), MuxMessage::WantNext(proto_id.erase()))
+                        eff.send(stage.muxer(), MuxMessage::WantNext(proto_id.erase()))
                             .await;
                     }
                     if let Some(msg) = outcome.send {
                         let msg = NonEmptyBytes::encode(&msg);
-                        eff.call(stage.as_ref(), NETWORK_SEND_TIMEOUT, move |cr| {
+                        eff.call(stage.muxer(), NETWORK_SEND_TIMEOUT, move |cr| {
                             MuxMessage::Send(proto_id.erase(), msg, cr)
                         })
                         .await;
@@ -210,12 +220,12 @@ where
                     .await;
                 proto = s;
                 if outcome.want_next {
-                    eff.send(stage.as_ref(), MuxMessage::WantNext(proto_id.erase()))
+                    eff.send(stage.muxer(), MuxMessage::WantNext(proto_id.erase()))
                         .await;
                 }
                 if let Some(msg) = outcome.send {
                     let msg = NonEmptyBytes::encode(&msg);
-                    eff.call(stage.as_ref(), NETWORK_SEND_TIMEOUT, move |cr| {
+                    eff.call(stage.muxer(), NETWORK_SEND_TIMEOUT, move |cr| {
                         MuxMessage::Send(proto_id.erase(), msg, cr)
                     })
                     .await;

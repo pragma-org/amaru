@@ -669,12 +669,16 @@ impl SimulationRunning {
                     .assert_stage("which cannot receive send effects");
                 let id = resume_send_internal(data_from, run, to.clone(), true)
                     .expect("call is always runnable");
-                let data_to = self.stages.get_mut(&to).assert_stage("which cannot call");
-                // call response races with other responses and timeout, so failure to resume is okay
-                resume_call_internal(data_to, run, id, msg).ok();
                 if let Some(id) = id {
                     self.scheduled.remove(&id);
                 }
+                let data_to = self
+                    .stages
+                    .get_mut(&to)
+                    .log_termination(&to)?
+                    .assert_stage("which cannot call");
+                // call response races with other responses and timeout, so failure to resume is okay
+                resume_call_internal(data_to, run, id, msg).ok();
             }
             Effect::Call {
                 from,
@@ -893,6 +897,10 @@ impl SimulationRunning {
         at_stage: Name,
         reason: TerminationReason,
     ) -> Option<(Name, Result<Box<dyn SendData>, Name>)> {
+        // FIXME:
+        // - add kill switch to scheduled external effects to terminate them
+        // - record source stage for scheduled messages to remove them
+
         let Some(data) = self.stages.get_mut(&at_stage) else {
             tracing::warn!(name = %at_stage, "stage was already terminated, skipping terminate stage effect");
             return None;
@@ -917,8 +925,8 @@ impl SimulationRunning {
                 .stages
                 .get_mut(&waiting)
                 .assert_stage("which cannot send");
-            let Ok(_) = resume_send_internal(data, run, at_stage.clone(), false) else {
-                tracing::error!(from = %waiting, to = %at_stage, "failed to resume send");
+            if let Err(err) = resume_send_internal(data, run, at_stage.clone(), false) {
+                tracing::error!(from = %waiting, to = %at_stage, %err, "failed to resume send");
                 continue;
             };
         }

@@ -44,12 +44,6 @@ impl KeepAliveResponder {
     }
 }
 
-impl AsRef<StageRef<MuxMessage>> for KeepAliveResponder {
-    fn as_ref(&self) -> &StageRef<MuxMessage> {
-        &self.muxer
-    }
-}
-
 impl StageState<State, Responder> for KeepAliveResponder {
     type LocalIn = Void;
 
@@ -69,6 +63,10 @@ impl StageState<State, Responder> for KeepAliveResponder {
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         Ok((Some(ResponderAction::SendResponse(input.cookie)), self))
+    }
+
+    fn muxer(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
     }
 }
 

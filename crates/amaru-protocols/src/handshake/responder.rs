@@ -60,12 +60,6 @@ impl HandshakeResponder {
     }
 }
 
-impl AsRef<StageRef<MuxMessage>> for HandshakeResponder {
-    fn as_ref(&self) -> &StageRef<MuxMessage> {
-        &self.muxer
-    }
-}
-
 impl StageState<HandshakeState, Responder> for HandshakeResponder {
     type LocalIn = Void;
 
@@ -91,6 +85,10 @@ impl StageState<HandshakeState, Responder> for HandshakeResponder {
         );
         eff.send(&self.connection, result.clone()).await;
         Ok((Some(result.into()), self))
+    }
+
+    fn muxer(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
     }
 }
 

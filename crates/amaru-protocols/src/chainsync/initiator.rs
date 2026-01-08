@@ -84,12 +84,6 @@ impl ChainSyncInitiator {
     }
 }
 
-impl AsRef<StageRef<MuxMessage>> for ChainSyncInitiator {
-    fn as_ref(&self) -> &StageRef<MuxMessage> {
-        &self.muxer
-    }
-}
-
 impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
     type LocalIn = InitiatorMessage;
 
@@ -151,6 +145,10 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
         )
         .await;
         Ok((action, self))
+    }
+
+    fn muxer(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
     }
 }
 
@@ -293,16 +291,16 @@ pub mod tests {
             || RollBackward(Point::Origin, Tip::new(Point::Origin, BlockHeight::new(0)));
 
         let mut spec = ProtoSpec::default();
-        spec.i(Idle, find_intersect(), Intersect);
-        spec.i(Idle, Message::Done, InitiatorState::Done);
-        spec.i(Idle, Message::RequestNext, CanAwait);
-        spec.r(Intersect, intersect_found(), Idle);
-        spec.r(Intersect, intersect_not_found(), Idle);
-        spec.r(CanAwait, AwaitReply, MustReply);
-        spec.r(CanAwait, roll_forward(), Idle);
-        spec.r(CanAwait, roll_backward(), Idle);
-        spec.r(MustReply, roll_forward(), Idle);
-        spec.r(MustReply, roll_backward(), Idle);
+        spec.init(Idle, find_intersect(), Intersect);
+        spec.init(Idle, Message::Done, InitiatorState::Done);
+        spec.init(Idle, Message::RequestNext, CanAwait);
+        spec.resp(Intersect, intersect_found(), Idle);
+        spec.resp(Intersect, intersect_not_found(), Idle);
+        spec.resp(CanAwait, AwaitReply, MustReply);
+        spec.resp(CanAwait, roll_forward(), Idle);
+        spec.resp(CanAwait, roll_backward(), Idle);
+        spec.resp(MustReply, roll_forward(), Idle);
+        spec.resp(MustReply, roll_backward(), Idle);
         spec
     }
 

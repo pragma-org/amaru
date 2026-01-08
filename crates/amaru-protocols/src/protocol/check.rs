@@ -40,7 +40,7 @@ where
     Message: Ord + std::fmt::Debug + Clone,
     R: RoleT,
 {
-    pub fn i(&mut self, from: State, msg: Message, to: State) {
+    pub fn init(&mut self, from: State, msg: Message, to: State) {
         let present = self
             .transitions
             .entry(from.clone())
@@ -54,7 +54,7 @@ where
         }
     }
 
-    pub fn r(&mut self, from: State, msg: Message, to: State) {
+    pub fn resp(&mut self, from: State, msg: Message, to: State) {
         let present = self
             .transitions
             .entry(from.clone())

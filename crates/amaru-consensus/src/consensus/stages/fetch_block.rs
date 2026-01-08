@@ -44,6 +44,7 @@ pub fn stage(
                 let peer2 = peer.clone();
                 let block = eff
                     .base()
+                    // FIXME: which timeout to use?
                     .call(&manager, Duration::from_secs(5), move |cr| {
                         ManagerMessage::FetchBlocks {
                             peer: peer2,

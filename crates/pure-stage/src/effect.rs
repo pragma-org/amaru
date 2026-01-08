@@ -1138,6 +1138,19 @@ impl Effect {
                 .unwrap_or_else(|| SendDataValue::boxed(&CanSupervise(Name::from(name.as_ref())))),
         }
     }
+
+    pub fn contramap(
+        at_stage: impl AsRef<str>,
+        original: impl AsRef<str>,
+        new_name: impl AsRef<str>,
+    ) -> Self {
+        Self::Contramap {
+            at_stage: Name::from(at_stage.as_ref()),
+            original: Name::from(original.as_ref()),
+            new_name: Name::from(new_name.as_ref()),
+        }
+    }
+
     /// Get the stage name of this effect.
     pub fn at_stage(&self) -> &Name {
         match self {

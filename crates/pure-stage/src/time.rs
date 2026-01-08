@@ -121,7 +121,7 @@ impl serde::Serialize for Instant {
 }
 
 impl Instant {
-    pub fn with_tolerance(tolerance: Duration) -> DropGuard<Duration, fn(Duration)> {
+    pub fn with_tolerance_for_test(tolerance: Duration) -> DropGuard<Duration, fn(Duration)> {
         fn restore(tolerance: Duration) {
             TOLERANCE.with_borrow_mut(|t2| *t2 = tolerance)
         }

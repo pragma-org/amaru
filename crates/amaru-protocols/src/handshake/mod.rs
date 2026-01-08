@@ -90,9 +90,9 @@ where
     let refuse = || Message::Refuse(RefuseReason::VersionMismatch(vec![VersionNumber::V14]));
     let query_reply = || Message::QueryReply(VersionTable::empty());
 
-    spec.i(StPropose, propose(), StConfirm);
-    spec.r(StConfirm, accept(), StDone);
-    spec.r(StConfirm, refuse(), StDone);
-    spec.r(StConfirm, query_reply(), StDone);
+    spec.init(StPropose, propose(), StConfirm);
+    spec.resp(StConfirm, accept(), StDone);
+    spec.resp(StConfirm, refuse(), StDone);
+    spec.resp(StConfirm, query_reply(), StDone);
     spec
 }

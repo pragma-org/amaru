@@ -76,12 +76,6 @@ impl ChainSyncResponder {
     }
 }
 
-impl AsRef<StageRef<MuxMessage>> for ChainSyncResponder {
-    fn as_ref(&self) -> &StageRef<MuxMessage> {
-        &self.muxer
-    }
-}
-
 impl StageState<ResponderState, Responder> for ChainSyncResponder {
     type LocalIn = ResponderMessage;
 
@@ -133,6 +127,10 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 Ok((None, self))
             }
         }
+    }
+
+    fn muxer(&self) -> &StageRef<MuxMessage> {
+        &self.muxer
     }
 }
 
@@ -350,20 +348,20 @@ mod tests {
             || RollBackward(Point::Origin, Tip::new(Point::Origin, BlockHeight::new(0)));
 
         let mut spec = ProtoSpec::default();
-        spec.i(idle(false), find_intersect(), Intersect);
-        spec.i(idle(true), find_intersect(), Intersect);
-        spec.i(idle(false), RequestNext, can_await(false));
-        spec.i(idle(true), RequestNext, can_await(true));
-        spec.i(idle(false), Message::Done, Done);
-        spec.i(idle(true), Message::Done, Done);
-        spec.r(Intersect, intersect_found(), idle(true));
-        spec.r(Intersect, intersect_not_found(), idle(false));
-        spec.r(can_await(false), AwaitReply, MustReply);
-        spec.r(can_await(false), roll_forward(), idle(false));
-        spec.r(can_await(false), roll_backward(), idle(false));
-        spec.r(can_await(true), roll_backward(), idle(false));
-        spec.r(MustReply, roll_forward(), idle(false));
-        spec.r(MustReply, roll_backward(), idle(false));
+        spec.init(idle(false), find_intersect(), Intersect);
+        spec.init(idle(true), find_intersect(), Intersect);
+        spec.init(idle(false), RequestNext, can_await(false));
+        spec.init(idle(true), RequestNext, can_await(true));
+        spec.init(idle(false), Message::Done, Done);
+        spec.init(idle(true), Message::Done, Done);
+        spec.resp(Intersect, intersect_found(), idle(true));
+        spec.resp(Intersect, intersect_not_found(), idle(false));
+        spec.resp(can_await(false), AwaitReply, MustReply);
+        spec.resp(can_await(false), roll_forward(), idle(false));
+        spec.resp(can_await(false), roll_backward(), idle(false));
+        spec.resp(can_await(true), roll_backward(), idle(false));
+        spec.resp(MustReply, roll_forward(), idle(false));
+        spec.resp(MustReply, roll_backward(), idle(false));
 
         spec.check(
             idle(false),

@@ -76,6 +76,7 @@ pub async fn stage(
             let connection = eff
                 .stage(format!("{conn_id}-{peer}"), connection::stage)
                 .await;
+            // FIXME add supervision leading to connection retry
             let connection = eff
                 .wire_up(
                     connection,

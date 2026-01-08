@@ -237,6 +237,9 @@ pub fn resume_call_send_internal(
         if wakeup.is_ok()
             && let Some(StageOrAdapter::Stage(data_to)) = sim.stages.get_mut(&real_to)
         {
+            // here we clean up in case the message was not yet delivered to the mailbox;
+            // no strong reasons on a theoretical level, but it would be confusing if the
+            // caller is woken up later when mailbox capacity frees up
             data_to.senders.retain(|(name, _)| name != &from);
         }
     });

@@ -52,9 +52,9 @@ where
     let response_keep_alive = || Message::ResponseKeepAlive(Cookie::new());
 
     // Initiator sends KeepAlive from Idle, transitions to Waiting
-    spec.i(State::Idle, keep_alive(), State::Waiting);
+    spec.init(State::Idle, keep_alive(), State::Waiting);
     // Initiator receives ResponseKeepAlive in Waiting, transitions to Idle
-    spec.r(State::Waiting, response_keep_alive(), State::Idle);
+    spec.resp(State::Waiting, response_keep_alive(), State::Idle);
 
     spec
 }
