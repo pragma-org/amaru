@@ -40,6 +40,7 @@ minicbor.workspace = true
 mithril-client = { workspace = true, optional = true}
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
+opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
 pallas-hardano.workspace = true
 pallas-network.workspace = true

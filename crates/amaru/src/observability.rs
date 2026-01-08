@@ -15,6 +15,7 @@
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
+use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use std::{
     env::VarError,
     error::Error,
@@ -245,7 +246,7 @@ pub fn setup_open_telemetry(
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
     let resource = Resource::builder()
-        .with_attribute(KeyValue::new("service.name", config.service_name.clone()))
+        .with_attribute(KeyValue::new(SERVICE_NAME, config.service_name.clone()))
         .build();
 
     // Traces & span
