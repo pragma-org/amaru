@@ -358,8 +358,17 @@ Coming soon.
 
 ## Configuring OpenTelemetry
 
-Amaru provides a few options to configure OpenTelemetry:
+Amaru recognizes standard OpenTelemetry env variable for its configuration:
 
-- `--otlp-service-name <STRING>` (environment variable `AMARU_OTLP_SERVICE_NAME`): Sets the `service.name` key used to identify metrics and traces. This is useful when a single OTLP service stack collects telemetry from several Amaru instances
-- `--otlp-span-url <STRING>` (environment variable `AMARU_OTLP_SPAN_URL`): Sets the endpoint used to send spans, defaults to `http://localhost:4317`
-- `--otlp-metric-url <STRING>` (environment variable `AMARU_OTLP_METRIC_URL`): Sets the endpoint used to send metrics, defaults to `http://localhost:4318/v1/metrics`
+* `OTEL_SERVICE_NAME`: Sets the `service.name` key used to identify metrics and traces. This is useful when a single OTLP service stack collects telemetry from several Amaru instances
+* `OTEL_EXPORTER_OTLP_ENDPOINT`: Sets the endpoint used to send spans, defaults to `http://localhost:4317`
+* `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`: Sets the endpoint used to send metrics, defaults to `http://localhost:4318/v1/metrics`
+
+Note that two different transports are used internally:
+
+* OTLP/gRPC for spans
+* OTLP/HTTP for metrics
+
+This helps maximize compatibility with 3rd party tools receiving those data.
+
+One can find more available env variables [here](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) and [here](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/protocol/exporter.md).

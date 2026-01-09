@@ -211,42 +211,17 @@ impl Default for OpenTelemetryHandle {
 
 pub const DEFAULT_OTLP_SERVICE_NAME: &str = "amaru";
 
-pub const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
-
 pub const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
-
-/// Configuration for OpenTelemetry tracing layer.
-pub struct OpenTelemetryConfig {
-    /// Uniquely identifies this particular instance of Amaru
-    pub service_name: String,
-
-    /// URL for exporting OTLP spans and traces
-    pub span_url: String,
-
-    /// URL for exporting OTLP metrics
-    pub metric_url: String,
-}
-
-impl Default for OpenTelemetryConfig {
-    fn default() -> Self {
-        OpenTelemetryConfig {
-            service_name: DEFAULT_OTLP_SERVICE_NAME.to_string(),
-            span_url: DEFAULT_OTLP_SPAN_URL.to_string(),
-            metric_url: DEFAULT_OTLP_METRIC_URL.to_string(),
-        }
-    }
-}
 
 #[expect(clippy::panic)]
 pub fn setup_open_telemetry(
-    config: &OpenTelemetryConfig,
     subscriber: &mut TracingSubscriber<Registry>,
 ) -> (OpenTelemetryHandle, DelayedWarning) {
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
     let resource = Resource::builder()
-        .with_attribute(KeyValue::new(SERVICE_NAME, config.service_name.clone()))
+        .with_attribute(KeyValue::new(SERVICE_NAME, DEFAULT_OTLP_SERVICE_NAME))
         .build();
 
     // Traces & span
@@ -255,7 +230,6 @@ pub fn setup_open_telemetry(
         .with_batch_exporter(
             opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
-                .with_endpoint(config.span_url.clone())
                 .build()
                 .unwrap_or_else(|e| panic!("failed to setup opentelemetry span exporter: {e}")),
         )
@@ -266,7 +240,7 @@ pub fn setup_open_telemetry(
     // support gRPC for metrics.
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
         .with_http()
-        .with_endpoint(config.metric_url.clone())
+        .with_endpoint(DEFAULT_OTLP_METRIC_URL)
         .with_temporality(Temporality::default())
         .build()
         .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
@@ -283,7 +257,7 @@ pub fn setup_open_telemetry(
     opentelemetry::global::set_meter_provider(metrics_provider.clone());
 
     // Subscriber
-    let opentelemetry_tracer = opentelemetry_provider.tracer(config.service_name.clone());
+    let opentelemetry_tracer = opentelemetry_provider.tracer(DEFAULT_OTLP_SERVICE_NAME);
     let (default_filter, warning) = new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
 
     let opentelemetry_layer = tracing_opentelemetry::layer()
@@ -346,9 +320,6 @@ fn new_default_filter(var: &str, default: &str) -> (EnvFilter, DelayedWarning) {
 pub fn setup_observability(
     with_open_telemetry: bool,
     with_json_traces: bool,
-    service_name: String,
-    span_url: String,
-    metric_url: String,
 ) -> (
     Option<SdkMeterProvider>,
     Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
@@ -357,11 +328,6 @@ pub fn setup_observability(
 
     let (OpenTelemetryHandle { metrics, teardown }, warning_otlp) = if with_open_telemetry {
         setup_open_telemetry(
-            &OpenTelemetryConfig {
-                service_name,
-                span_url,
-                metric_url,
-            },
             &mut subscriber,
         )
     } else {
