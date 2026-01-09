@@ -18,10 +18,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     num::NonZeroUsize,
     pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Arc,
 };
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -31,11 +28,27 @@ type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 )]
 pub struct ConnectionId(u64);
 
+#[cfg(not(target_arch = "riscv32"))]
+static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(target_arch = "riscv32")]
+static COUNTER: parking_lot::Mutex<u64> = parking_lot::Mutex::new(0);
+
 #[expect(clippy::new_without_default)]
 impl ConnectionId {
     pub fn new() -> Self {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
+        #[cfg(not(target_arch = "riscv32"))]
+        {
+            Self(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+        }
+
+        #[cfg(target_arch = "riscv32")]
+        {
+            let mut guard = COUNTER.lock();
+            let id = *guard;
+            *guard += 1;
+            Self(id)
+        }
     }
 }
 
