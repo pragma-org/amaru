@@ -45,7 +45,7 @@ pub use pallas_addresses::{
 };
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{AnyCbor, Bytes, CborWrap, Int, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{AnyCbor, Bytes, CborWrap, Int, KeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
@@ -59,16 +59,16 @@ pub use pallas_primitives::{
         AddrKeyhash, AssetName, AuxiliaryData, BigInt, Block, BootstrapWitness, Certificate, Coin,
         Constitution, Constr, CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash,
         DatumOption, DnsName, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId,
-        HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, Mint, MintedBlock,
-        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, Multiasset, NativeScript, NonEmptySet, NonZeroInt, PlutusData,
-        PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
+        HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, Mint, MintedDatumOption,
+        MintedScriptRef, MintedTransactionOutput, Multiasset, NativeScript, NetworkId,
+        NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonZeroInt, PlutusData, PlutusScript,
+        PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
         ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners, RewardAccount, ScriptHash,
-        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
-        UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures,
-        VrfKeyhash, WitnessSet,
+        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners as PallasRequiredSigners,
+        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionInput, TransactionOutput,
+        Tx, UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure,
+        VotingProcedures as PallasVotingProcedures, VrfKeyhash,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -124,6 +124,12 @@ pub mod network;
 pub mod ordered_redeemer;
 pub use ordered_redeemer::*;
 
+pub mod non_empty_key_value_pairs;
+pub use non_empty_key_value_pairs::NonEmptyKeyValuePairs;
+
+pub mod non_empty_set;
+pub use non_empty_set::NonEmptySet;
+
 pub mod peer;
 
 pub use point::*;
@@ -169,6 +175,18 @@ pub mod stake_credential;
 
 pub use strict_maybe::*;
 pub mod strict_maybe;
+
+pub mod transaction;
+pub use transaction::*;
+
+pub mod transaction_body;
+pub use transaction_body::*;
+
+pub mod block;
+pub use block::*;
+
+pub mod witness_set;
+pub use witness_set::*;
 
 use crate::string_utils::ListToString;
 pub use transaction_pointer::*;
@@ -1018,6 +1036,11 @@ impl HasRedeemers for Redeemers {
         }
     }
 }
+
+pub type RequiredSigners = NonEmptySet<AddrKeyhash>;
+
+pub type VotingProcedures =
+    NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>;
 
 #[cfg(test)]
 mod test {

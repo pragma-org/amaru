@@ -127,7 +127,7 @@ mod tests {
         rules::{InvalidEd25519Signature, WithPosition, tests::fixture_context},
     };
     use amaru_kernel::{
-        KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash, WitnessSet, hash,
+        KeepRaw, MintedTransactionBody, MintedWitnessSet, WitnessSet, get_original_hash, hash,
         include_cbor, include_json, json,
     };
     use amaru_tracing_json::assert_trace;
@@ -289,7 +289,7 @@ mod tests {
     ) -> Result<(), InvalidVKeyWitness> {
         assert_trace(
             || {
-                let transaction_id = tx.original_hash();
+                let transaction_id = get_original_hash(&tx);
                 super::execute(
                     &mut ctx,
                     transaction_id,
