@@ -28,6 +28,8 @@ env:
     ~/.cargo/registry/cache/
     ~/.cargo/git/db/
     target/
+  INPUT_TIMEOUT: ${{ github.event.inputs.timeout }}
+  INPUT_DEMO_TARGET_EPOCH: ${{ github.event.inputs.demo_target_epoch }}
 
 jobs:
   build:
@@ -195,12 +197,14 @@ jobs:
           - name: preprod
             magic: 1
             target_epoch: 182
-            timeout: ${{ fromJSON(github.event.inputs.timeout || '15') }}
+            default-timeout-light-run: 15
+            default-timeout-full-run: 60
           - name: preview
             magic: 2
             target_epoch: 680
             tests-may-fail: true
-            timeout: ${{ fromJSON(github.event.inputs.timeout || '15') }}
+            default-timeout-light-run: 15
+            default-timeout-full-run: 60
         cardano_node_version: [10.5.3]
     env:
       AMARU_NETWORK: ${{ matrix.network.name }}
@@ -211,6 +215,8 @@ jobs:
       ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
       CARDANO_CLI_VERSION: 10.11.0.0
+      DEFAULT_TIMEOUT_LIGHT: ${{ matrix.network.default-timeout-light-run }}
+      DEFAULT_TIMEOUT_FULL: ${{ matrix.network.default-timeout-full-run }}
     if: ${{ !github.event.pull_request.draft }}
     continue-on-error: true
 
@@ -235,6 +241,7 @@ jobs:
             exit 1
           fi
 
+          TIMEOUT_RUN="${DEFAULT_TIMEOUT_LIGHT}"
           if [ -n "${{ github.event.inputs.demo_target_epoch }}" ]; then
             DEMO_TARGET_EPOCH="${{ github.event.inputs.demo_target_epoch }}"
             echo "Using DEMO_TARGET_EPOCH from workflow_dispatch: $DEMO_TARGET_EPOCH"
@@ -244,10 +251,18 @@ jobs:
           else
             # For pushes, we will retrieve the latest epoch in a later step
             DEMO_TARGET_EPOCH=""
+            TIMEOUT_RUN="${DEFAULT_TIMEOUT_FULL}"
           fi
 
-          # Make sure to export DEMO_TARGET_EPOCH for subsequent steps
+          if [ -n "$INPUT_TIMEOUT" ]; then
+            echo "Using INPUT_TIMEOUT from workflow_dispatch: $INPUT_TIMEOUT"
+            TIMEOUT_RUN="${INPUT_TIMEOUT}"
+          fi
+
+          # Make sure to export all env variables for subsequent steps
           echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
+          echo "TIMEOUT_RUN=$TIMEOUT_RUN" >> "$GITHUB_ENV"
+
 
       - uses: actions/checkout@v4
 
@@ -358,7 +373,7 @@ jobs:
           echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
 
       - name: Run node
-        timeout-minutes: ${{ matrix.network.timeout }}
+        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN) }}
         shell: bash
         run: make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
 
