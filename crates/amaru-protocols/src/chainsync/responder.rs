@@ -90,7 +90,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 self.upstream = tip;
                 let action = next_header(
                     *proto,
-                    self.pointer,
+                    &mut self.pointer,
                     &Store::new(eff.clone()),
                     self.upstream,
                 )
@@ -101,7 +101,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
     }
 
     async fn network(
-        self,
+        mut self,
         proto: &ResponderState,
         input: ResponderResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
@@ -110,12 +110,15 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
             ResponderResult::FindIntersect(points) => {
                 let action = intersect(points, &Store::new(eff.clone()), self.upstream)
                     .context("failed to find intersection")?;
+                if let ResponderAction::IntersectFound(point, _tip) = &action {
+                    self.pointer = *point;
+                }
                 Ok((Some(action), self))
             }
             ResponderResult::RequestNext => {
                 let action = next_header(
                     *proto,
-                    self.pointer,
+                    &mut self.pointer,
                     &Store::new(eff.clone()),
                     self.upstream,
                 )
@@ -136,20 +139,20 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
 
 fn next_header(
     state: ResponderState,
-    pointer: Point,
+    pointer: &mut Point,
     store: &dyn ReadOnlyChainStore<BlockHeader>,
     tip: Tip,
 ) -> anyhow::Result<Option<ResponderAction>> {
     match state {
         ResponderState::CanAwait {
             send_rollback: true,
-        } => return Ok(Some(ResponderAction::RollBackward(pointer, tip))),
+        } => return Ok(Some(ResponderAction::RollBackward(*pointer, tip))),
         ResponderState::MustReply | ResponderState::CanAwait { .. } => {}
         ResponderState::Idle { .. } | ResponderState::Intersect | ResponderState::Done => {
             return Ok(None);
         }
     };
-    if pointer == tip.point() {
+    if *pointer == tip.point() {
         return Ok((matches!(state, ResponderState::CanAwait { .. }))
             .then_some(ResponderAction::AwaitReply));
     }
@@ -160,6 +163,7 @@ fn next_header(
             .ok_or_else(|| anyhow::anyhow!("remote pointer not found"))?;
         for header in store.ancestors(header) {
             if store.load_from_best_chain(&header.point()).is_some() {
+                *pointer = header.point();
                 return Ok(Some(ResponderAction::RollBackward(header.point(), tip)));
             }
         }
@@ -168,7 +172,10 @@ fn next_header(
     // pointer is on the best chain, we need to roll forward
     Ok(store
         .next_best_chain(&pointer)
-        .and_then(|point| store.load_header(&point.hash()))
+        .and_then(|point| {
+            *pointer = point;
+            store.load_header(&point.hash())
+        })
         .map(|header| {
             ResponderAction::RollForward(
                 HeaderContent {

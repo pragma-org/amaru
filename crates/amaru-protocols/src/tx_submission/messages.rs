@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::tx_submission::Blocking;
-use amaru_kernel::{Tx, bytes::NonEmptyBytes};
+use amaru_kernel::{Tx, bytes::NonEmptyBytes, to_cbor};
 use amaru_ouroboros_traits::TxId;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,7 @@ use std::fmt::Display;
 
 /// Messages for the txsubmission mini-protocol.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum Message {
     Init,
     RequestTxIdsBlocking(u16, u16),
@@ -31,6 +32,16 @@ pub enum Message {
     Done,
 }
 
+impl Message {
+    /// This is copied from the `std::mem` docs, it is the official way.
+    fn discriminant(&self) -> u8 {
+        // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
+        // between `repr(C)` structs, each of which has the `u8` discriminant as its first
+        // field, so we can read the discriminant without offsetting the pointer.
+        unsafe { *<*const _>::from(self).cast::<u8>() }
+    }
+}
+
 impl PartialOrd for Message {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -39,9 +50,27 @@ impl PartialOrd for Message {
 
 impl Ord for Message {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let serialized_self = minicbor::to_vec(self).unwrap_or_default();
-        let serialized_other = minicbor::to_vec(other).unwrap_or_default();
-        serialized_self.cmp(&serialized_other)
+        self.discriminant()
+            .cmp(&other.discriminant())
+            .then_with(|| match (self, other) {
+                (Message::Init, Message::Init) => std::cmp::Ordering::Equal,
+                (Message::RequestTxIdsBlocking(a1, b1), Message::RequestTxIdsBlocking(a2, b2)) => {
+                    a1.cmp(&a2).then_with(|| b1.cmp(&b2))
+                }
+                (
+                    Message::RequestTxIdsNonBlocking(a1, b1),
+                    Message::RequestTxIdsNonBlocking(a2, b2),
+                ) => a1.cmp(&a2).then_with(|| b1.cmp(&b2)),
+                (Message::RequestTxs(a1), Message::RequestTxs(a2)) => a1.cmp(&a2),
+                (Message::ReplyTxIds(a1), Message::ReplyTxIds(a2)) => a1.cmp(&a2),
+                (Message::ReplyTxs(a1), Message::ReplyTxs(a2)) => {
+                    let left = to_cbor(a1);
+                    let right = to_cbor(a2);
+                    left.cmp(&right)
+                }
+                (Message::Done, Message::Done) => std::cmp::Ordering::Equal,
+                _ => unreachable!(),
+            })
     }
 }
 

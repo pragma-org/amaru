@@ -74,17 +74,12 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         self,
         proto: &State,
         input: Self::LocalIn,
-        eff: &Effects<Inputs<Self::LocalIn>>,
+        _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         use State::*;
 
         match (proto, input) {
             (Idle, InitiatorMessage::SendKeepAlive) => {
-                eff.schedule_after(
-                    Inputs::Local(InitiatorMessage::SendKeepAlive),
-                    Duration::from_secs(30),
-                )
-                .await;
                 Ok((Some(InitiatorAction::SendKeepAlive(self.cookie)), self))
             }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
@@ -95,10 +90,17 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         mut self,
         _proto: &State,
         input: InitiatorResult,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         // After receiving a response, increment cookie and schedule next send
         self.cookie = input.cookie.next();
+        let delay = if u16::from(input.cookie) == 0 {
+            Duration::from_secs(1)
+        } else {
+            Duration::from_secs(30)
+        };
+        eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), delay)
+            .await;
         Ok((None, self))
     }
 

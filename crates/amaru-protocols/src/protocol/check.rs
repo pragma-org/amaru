@@ -192,10 +192,18 @@ where
             let from = surjection(from);
             for (message, (role, to)) in transitions {
                 let to = surjection(to);
-                simplified
+                let existing_target = simplified
                     .entry(from.clone())
                     .or_default()
                     .insert(message.clone(), (*role, to.clone()));
+                if let Some((existing_role, existing_target)) = existing_target.as_ref()
+                    && (existing_target != &to || existing_role != role)
+                {
+                    panic!(
+                        "transition {:?} -> {:?} -> {:?} already defined with different target state when inserting {:?}",
+                        from, message, existing_target, to
+                    );
+                }
             }
         }
 

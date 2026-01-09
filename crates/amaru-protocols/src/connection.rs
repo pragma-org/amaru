@@ -28,13 +28,14 @@ use crate::{
     mux::{self, MuxMessage},
     protocol::{PROTO_HANDSHAKE, Role},
 };
-use amaru_kernel::Point;
 use amaru_kernel::peer::Peer;
+use amaru_kernel::protocol_messages::tip::Tip;
 use amaru_kernel::protocol_messages::version_table::VersionTable;
 use amaru_kernel::protocol_messages::{
     handshake::HandshakeResult, network_magic::NetworkMagic, version_data::VersionData,
     version_number::VersionNumber,
 };
+use amaru_kernel::{ORIGIN_HASH, Point};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
 use pure_stage::{Effects, StageRef, Void};
 
@@ -264,10 +265,14 @@ async fn do_handshake(
     } else {
         let store = Store::new(eff.clone());
         let upstream = store.get_best_chain_hash();
-        let header = store
-            .load_header(&upstream)
-            .expect("best chain hash not found");
-        let upstream = header.tip();
+        let upstream = if upstream == ORIGIN_HASH {
+            Tip::new(Point::Origin, 0.into())
+        } else {
+            let header = store
+                .load_header(&upstream)
+                .expect("best chain hash not found");
+            header.tip()
+        };
         let chainsync_responder =
             register_chainsync_responder(&muxer, upstream, peer.clone(), *conn_id, &eff).await;
         let blockfetch_responder = register_blockfetch_responder(&muxer, &eff).await;
