@@ -306,15 +306,11 @@ pub mod tests {
 
     #[test]
     fn test_initiator_protocol() {
-        spec().check(
-            Idle,
-            |msg| match msg {
-                FindIntersect(points) => Some(InitiatorAction::Intersect(points.clone())),
-                RequestNext => Some(InitiatorAction::RequestNext),
-                Message::Done => Some(InitiatorAction::Done),
-                _ => None,
-            },
-            |msg| msg.clone(),
-        );
+        spec().check(Idle, |msg| match msg {
+            FindIntersect(points) => Some(InitiatorAction::Intersect(points.clone())),
+            RequestNext => Some(InitiatorAction::RequestNext),
+            Message::Done => Some(InitiatorAction::Done),
+            _ => None,
+        });
     }
 }

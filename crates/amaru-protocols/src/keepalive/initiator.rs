@@ -166,13 +166,9 @@ pub mod tests {
 
     #[test]
     fn test_initiator_protocol() {
-        crate::keepalive::spec::<Initiator>().check(
-            State::Idle,
-            |msg| match msg {
-                Message::KeepAlive(cookie) => Some(InitiatorAction::SendKeepAlive(*cookie)),
-                _ => None,
-            },
-            |msg| *msg,
-        );
+        crate::keepalive::spec::<Initiator>().check(State::Idle, |msg| match msg {
+            Message::KeepAlive(cookie) => Some(InitiatorAction::SendKeepAlive(*cookie)),
+            _ => None,
+        });
     }
 }

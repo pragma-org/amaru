@@ -712,21 +712,15 @@ mod tests {
 
     #[test]
     fn test_initiator_protocol() {
-        crate::tx_submission::spec::<Initiator>().check(
-            State::Init,
-            |msg| match msg {
-                Message::ReplyTxIds(tx_ids) => {
-                    Some(InitiatorAction::SendReplyTxIds(tx_ids.clone()))
-                }
-                Message::ReplyTxs(txs) => Some(InitiatorAction::SendReplyTxs(txs.clone())),
-                Message::Done => Some(InitiatorAction::Done),
-                Message::Init
-                | Message::RequestTxs(_)
-                | Message::RequestTxIdsBlocking(_, _)
-                | Message::RequestTxIdsNonBlocking(_, _) => None,
-            },
-            |msg| msg.clone(),
-        );
+        crate::tx_submission::spec::<Initiator>().check(State::Init, |msg| match msg {
+            Message::ReplyTxIds(tx_ids) => Some(InitiatorAction::SendReplyTxIds(tx_ids.clone())),
+            Message::ReplyTxs(txs) => Some(InitiatorAction::SendReplyTxs(txs.clone())),
+            Message::Done => Some(InitiatorAction::Done),
+            Message::Init
+            | Message::RequestTxs(_)
+            | Message::RequestTxIdsBlocking(_, _)
+            | Message::RequestTxIdsNonBlocking(_, _) => None,
+        });
     }
 
     // HELPERS

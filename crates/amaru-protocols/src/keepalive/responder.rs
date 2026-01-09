@@ -125,16 +125,12 @@ pub mod tests {
 
     #[test]
     fn test_responder_protocol() {
-        crate::keepalive::spec::<Responder>().check(
-            State::Idle,
-            |msg| match msg {
-                // ResponseKeepAlive is sent by responder (local action)
-                Message::ResponseKeepAlive(cookie) => Some(ResponderAction::SendResponse(*cookie)),
-                // KeepAlive is received from initiator (network message)
-                Message::KeepAlive(_) => None,
-                Message::Done => None,
-            },
-            |msg| *msg,
-        );
+        crate::keepalive::spec::<Responder>().check(State::Idle, |msg| match msg {
+            // ResponseKeepAlive is sent by responder (local action)
+            Message::ResponseKeepAlive(cookie) => Some(ResponderAction::SendResponse(*cookie)),
+            // KeepAlive is received from initiator (network message)
+            Message::KeepAlive(_) => None,
+            Message::Done => None,
+        });
     }
 }

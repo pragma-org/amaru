@@ -367,20 +367,16 @@ mod tests {
         spec.resp(MustReply, roll_forward(), idle(false));
         spec.resp(MustReply, roll_backward(), idle(false));
 
-        spec.check(
-            idle(false),
-            |msg| match msg {
-                AwaitReply => Some(ResponderAction::AwaitReply),
-                RollForward(header_content, tip) => {
-                    Some(ResponderAction::RollForward(header_content.clone(), *tip))
-                }
-                RollBackward(point, tip) => Some(ResponderAction::RollBackward(*point, *tip)),
-                IntersectFound(point, tip) => Some(ResponderAction::IntersectFound(*point, *tip)),
-                IntersectNotFound(tip) => Some(ResponderAction::IntersectNotFound(*tip)),
-                _ => None,
-            },
-            |msg| msg.clone(),
-        );
+        spec.check(idle(false), |msg| match msg {
+            AwaitReply => Some(ResponderAction::AwaitReply),
+            RollForward(header_content, tip) => {
+                Some(ResponderAction::RollForward(header_content.clone(), *tip))
+            }
+            RollBackward(point, tip) => Some(ResponderAction::RollBackward(*point, *tip)),
+            IntersectFound(point, tip) => Some(ResponderAction::IntersectFound(*point, *tip)),
+            IntersectNotFound(tip) => Some(ResponderAction::IntersectNotFound(*tip)),
+            _ => None,
+        });
 
         spec.assert_refines(
             &super::super::initiator::tests::spec(),

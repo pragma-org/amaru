@@ -211,17 +211,13 @@ pub mod tests {
     #[test]
     #[expect(clippy::wildcard_enum_match_arm)]
     fn test_initiator_protocol() {
-        crate::blockfetch::spec::<Initiator>().check(
-            State::Idle,
-            |msg| match msg {
-                Message::RequestRange { from, through } => Some(InitiatorAction::RequestRange {
-                    from: *from,
-                    through: *through,
-                }),
-                Message::ClientDone => Some(InitiatorAction::ClientDone),
-                _ => None,
-            },
-            |msg| msg.clone(),
-        );
+        crate::blockfetch::spec::<Initiator>().check(State::Idle, |msg| match msg {
+            Message::RequestRange { from, through } => Some(InitiatorAction::RequestRange {
+                from: *from,
+                through: *through,
+            }),
+            Message::ClientDone => Some(InitiatorAction::ClientDone),
+            _ => None,
+        });
     }
 }

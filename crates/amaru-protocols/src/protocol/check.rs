@@ -78,12 +78,7 @@ where
     /// The `basic_msg` function can be used to canonicalize the message
     /// in case properties are modified while sending or receiving; this
     /// may be necessary because `check` uses PartialEq for comparison.
-    pub fn check(
-        &self,
-        initial: State,
-        local_msg: impl Fn(&Message) -> Option<State::Action>,
-        basic_msg: impl Fn(&Message) -> Message,
-    ) {
+    pub fn check(&self, initial: State, local_msg: impl Fn(&Message) -> Option<State::Action>) {
         let role = const { R::ROLE.unwrap() };
 
         let states = self.transitions.keys().collect::<Vec<_>>();
@@ -155,7 +150,6 @@ where
                         "expecting {message:?} not allowed for {role:?}"
                     );
                     if let Some(send) = send.send {
-                        let send = basic_msg(&send);
                         let to2 = self.transitions.get(to).and_then(|m| m.get(&send));
                         if let Some((r2, to2)) = to2 {
                             assert_eq!(*r2, role, "sending {send:?} not allowed for {role:?}");

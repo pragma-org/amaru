@@ -181,15 +181,11 @@ pub mod tests {
 
     #[test]
     fn test_initiator_protocol() {
-        crate::handshake::spec::<Initiator>().check(
-            State::Propose,
-            |msg| match msg {
-                Message::Propose(version_table) => {
-                    Some(InitiatorAction::Propose(version_table.clone()))
-                }
-                _ => None,
-            },
-            |msg| msg.clone(),
-        );
+        crate::handshake::spec::<Initiator>().check(State::Propose, |msg| match msg {
+            Message::Propose(version_table) => {
+                Some(InitiatorAction::Propose(version_table.clone()))
+            }
+            _ => None,
+        });
     }
 }

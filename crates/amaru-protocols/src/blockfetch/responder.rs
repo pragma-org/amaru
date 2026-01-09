@@ -138,16 +138,12 @@ pub mod tests {
     #[test]
     #[expect(clippy::wildcard_enum_match_arm)]
     fn test_responder_protocol() {
-        crate::blockfetch::spec::<Responder>().check(
-            State::Idle,
-            |msg| match msg {
-                Message::NoBlocks => Some(ResponderAction::NoBlocks),
-                Message::StartBatch => Some(ResponderAction::StartBatch),
-                Message::Block { body } => Some(ResponderAction::Block(body.clone())),
-                Message::BatchDone => Some(ResponderAction::BatchDone),
-                _ => None,
-            },
-            |msg| msg.clone(),
-        );
+        crate::blockfetch::spec::<Responder>().check(State::Idle, |msg| match msg {
+            Message::NoBlocks => Some(ResponderAction::NoBlocks),
+            Message::StartBatch => Some(ResponderAction::StartBatch),
+            Message::Block { body } => Some(ResponderAction::Block(body.clone())),
+            Message::BatchDone => Some(ResponderAction::BatchDone),
+            _ => None,
+        });
     }
 }

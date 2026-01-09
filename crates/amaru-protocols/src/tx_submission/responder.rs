@@ -507,30 +507,20 @@ mod tests {
 
     #[test]
     fn test_responder_protocol() {
-        crate::tx_submission::spec::<Responder>().check(
-            State::Init,
-            |msg| match msg {
-                Message::RequestTxIdsBlocking(ack, req) => {
-                    Some(ResponderAction::SendRequestTxIds {
-                        ack: *ack,
-                        req: *req,
-                        blocking: Blocking::Yes,
-                    })
-                }
-                Message::RequestTxIdsNonBlocking(ack, req) => {
-                    Some(ResponderAction::SendRequestTxIds {
-                        ack: *ack,
-                        req: *req,
-                        blocking: Blocking::No,
-                    })
-                }
-                Message::RequestTxs(txs) => Some(ResponderAction::SendRequestTxs(txs.clone())),
-                Message::ReplyTxs(_) | Message::ReplyTxIds(_) | Message::Init | Message::Done => {
-                    None
-                }
-            },
-            |msg| msg.clone(),
-        );
+        crate::tx_submission::spec::<Responder>().check(State::Init, |msg| match msg {
+            Message::RequestTxIdsBlocking(ack, req) => Some(ResponderAction::SendRequestTxIds {
+                ack: *ack,
+                req: *req,
+                blocking: Blocking::Yes,
+            }),
+            Message::RequestTxIdsNonBlocking(ack, req) => Some(ResponderAction::SendRequestTxIds {
+                ack: *ack,
+                req: *req,
+                blocking: Blocking::No,
+            }),
+            Message::RequestTxs(txs) => Some(ResponderAction::SendRequestTxs(txs.clone())),
+            Message::ReplyTxs(_) | Message::ReplyTxIds(_) | Message::Init | Message::Done => None,
+        });
     }
 
     // HELPERS

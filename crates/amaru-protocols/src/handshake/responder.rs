@@ -160,15 +160,11 @@ pub mod tests {
 
     #[test]
     fn test_responder_protocol() {
-        crate::handshake::spec::<Responder>().check(
-            State::Propose,
-            |msg| match msg {
-                Message::Accept(vn, vd) => Some(ResponderAction::Accept(*vn, vd.clone())),
-                Message::Refuse(reason) => Some(ResponderAction::Refuse(reason.clone())),
-                Message::QueryReply(vt) => Some(ResponderAction::Query(vt.clone())),
-                _ => None,
-            },
-            |msg| msg.clone(),
-        );
+        crate::handshake::spec::<Responder>().check(State::Propose, |msg| match msg {
+            Message::Accept(vn, vd) => Some(ResponderAction::Accept(*vn, vd.clone())),
+            Message::Refuse(reason) => Some(ResponderAction::Refuse(reason.clone())),
+            Message::QueryReply(vt) => Some(ResponderAction::Query(vt.clone())),
+            _ => None,
+        });
     }
 }
