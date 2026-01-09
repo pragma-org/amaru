@@ -16,18 +16,21 @@ use crate::{
     blockfetch::Blocks,
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage},
-    network_effects::ConnectEffect,
+    network_effects::{Network, NetworkOps},
     protocol::Role,
 };
 use amaru_kernel::{Point, peer::Peer, protocol_messages::network_magic::NetworkMagic};
 use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
 use pure_stage::{Effects, StageRef};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ManagerMessage {
     AddPeer(Peer),
-    Disconnected(Peer),
+    /// Internal message sent from the connection stage only!
+    ConnectionDied(Peer, ConnectionId),
+    Connect(Peer),
+    RemovePeer(Peer),
     FetchBlocks {
         peer: Peer,
         from: Point,
@@ -38,9 +41,16 @@ pub enum ManagerMessage {
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Manager {
-    peers: BTreeMap<Peer, (ConnectionId, StageRef<ConnectionMessage>)>,
+    peers: BTreeMap<Peer, ConnectionState>,
     magic: NetworkMagic,
     chain_sync: StageRef<ChainSyncInitiatorMsg>,
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+enum ConnectionState {
+    Scheduled,
+    Connected(ConnectionId, StageRef<ConnectionMessage>),
+    Disconnecting(ConnectionId),
 }
 
 impl Manager {
@@ -65,8 +75,28 @@ pub async fn stage(
                 return manager;
             }
             tracing::info!(%peer, "adding peer");
+            manager
+                .peers
+                .insert(peer.clone(), ConnectionState::Scheduled);
+            eff.send(&eff.me_ref(), ManagerMessage::Connect(peer)).await;
+        }
+        ManagerMessage::Connect(peer) => {
+            // FIXME slow connection will block the manager, should delegate to a child stage
+            let entry = match manager.peers.get_mut(&peer) {
+                Some(ConnectionState::Connected(..)) => {
+                    tracing::debug!(%peer, "discarding connection request, already connected");
+                    return manager;
+                }
+                Some(
+                    entry @ ConnectionState::Scheduled | entry @ ConnectionState::Disconnecting(..),
+                ) => entry,
+                None => {
+                    tracing::debug!(%peer, "discarding connection request, not added");
+                    return manager;
+                }
+            };
             let addr = ToSocketAddrs::String(peer.to_string());
-            let conn_id = match eff.external(ConnectEffect { addr }).await {
+            let conn_id = match Network::new(&eff).connect(addr).await {
                 Ok(conn_id) => conn_id,
                 Err(err) => {
                     tracing::error!(?err, %peer, "failed to connect to peer");
@@ -77,7 +107,10 @@ pub async fn stage(
             let connection = eff
                 .stage(format!("{conn_id}-{peer}"), connection::stage)
                 .await;
-            let connection = eff.supervise(connection, ManagerMessage::Disconnected(peer.clone()));
+            let connection = eff.supervise(
+                connection,
+                ManagerMessage::ConnectionDied(peer.clone(), conn_id),
+            );
             let connection = eff
                 .wire_up(
                     connection,
@@ -91,12 +124,44 @@ pub async fn stage(
                 )
                 .await;
             eff.send(&connection, ConnectionMessage::Initialize).await;
-            manager.peers.insert(peer, (conn_id, connection));
+            *entry = ConnectionState::Connected(conn_id, connection);
         }
-        ManagerMessage::Disconnected(peer) => {
-            // FIXME: reconnect instead for a few attempts
-            tracing::info!(%peer, "disconnected from peer");
-            manager.peers.remove(&peer);
+        ManagerMessage::RemovePeer(peer) => match manager.peers.get(&peer) {
+            Some(ConnectionState::Connected(_conn_id, connection)) => {
+                eff.send(&connection, ConnectionMessage::Disconnect).await;
+            }
+            Some(ConnectionState::Scheduled | ConnectionState::Disconnecting(..)) => {
+                tracing::info!(%peer, "removing currently disconnected peer");
+                manager.peers.remove(&peer);
+            }
+            None => {
+                tracing::info!(%peer, "disconnect request ignored, not connected");
+            }
+        },
+        ManagerMessage::ConnectionDied(peer, conn_id) => {
+            if let Err(err) = Network::new(&eff).close(conn_id).await {
+                tracing::error!(?err, %peer, "failed to close connection");
+            }
+            let Some(peer_state) = manager.peers.get_mut(&peer) else {
+                tracing::debug!(%peer, "connection died, peer already removed");
+                return manager;
+            };
+            match peer_state {
+                ConnectionState::Connected(..) => {
+                    tracing::info!(%peer, "disconnected from peer, scheduling reconnect");
+                    eff.schedule_after(ManagerMessage::Connect(peer), Duration::from_secs(10))
+                        .await;
+                }
+                ConnectionState::Scheduled => {
+                    tracing::debug!(%peer, "connection died, peer already scheduled");
+                    return manager;
+                }
+                ConnectionState::Disconnecting(..) => {
+                    tracing::debug!(%peer, "peer terminated after removal");
+                    manager.peers.remove(&peer);
+                    return manager;
+                }
+            }
         }
         ManagerMessage::FetchBlocks {
             peer,
@@ -105,9 +170,9 @@ pub async fn stage(
             cr,
         } => {
             tracing::info!(?from, ?through, %peer, "fetching blocks");
-            if let Some(connection) = manager.peers.get(&peer) {
+            if let Some(ConnectionState::Connected(_, connection)) = manager.peers.get(&peer) {
                 eff.send(
-                    &connection.1,
+                    &connection,
                     ConnectionMessage::FetchBlocks { from, through, cr },
                 )
                 .await;

@@ -110,6 +110,7 @@ struct StateResponder {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConnectionMessage {
     Initialize,
+    Disconnect,
     Handshake(HandshakeResult),
     FetchBlocks {
         from: Point,
@@ -125,6 +126,7 @@ pub async fn stage(
     eff: Effects<ConnectionMessage>,
 ) -> Connection {
     let state = match (state, msg) {
+        (_, ConnectionMessage::Disconnect) => return eff.terminate().await,
         (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
         (State::Handshake { muxer, handshake }, ConnectionMessage::Handshake(handshake_result)) => {
             do_handshake(
