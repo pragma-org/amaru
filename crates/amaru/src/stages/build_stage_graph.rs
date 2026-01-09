@@ -60,7 +60,7 @@ pub fn build_stage_graph(
         network.stage("validation_errors", async move |manager, error, eff| {
             let ValidationFailed { peer, error } = error;
             tracing::error!(%peer, %error, "peer error");
-            eff.send(&manager, ManagerMessage::Disconnected(peer)).await;
+            eff.send(&manager, ManagerMessage::RemovePeer(peer)).await;
             manager
         });
 

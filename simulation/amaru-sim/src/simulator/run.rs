@@ -178,7 +178,9 @@ pub fn spawn_node(
     // FIXME: switch simulation to tracking network bytes
     let manager = network.stage("manager", async |_, msg: ManagerMessage, eff| match msg {
         ManagerMessage::AddPeer(_) => {}
-        ManagerMessage::Disconnected(_) => {}
+        ManagerMessage::RemovePeer(_) => {}
+        ManagerMessage::Connect(_) => {}
+        ManagerMessage::ConnectionDied(_, _) => {}
         ManagerMessage::FetchBlocks { cr, .. } => {
             // we just need to return a non-empty block to proceed with the simulation
             eff.send(
