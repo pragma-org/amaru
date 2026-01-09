@@ -82,6 +82,9 @@ jobs:
               export CC_riscv32gc_unknown_linux_gnu="$(pwd)/riscv/bin/riscv32-unknown-linux-gnu-clang"
     runs-on: ${{ matrix.environments.runner }}
     steps:
+      - name: Support longpaths
+        run: git config --system core.longpaths true
+        if: contains(matrix.environments.runner, 'windows')
       - uses: actions/checkout@v4
         with:
           submodules: true
@@ -264,6 +267,9 @@ jobs:
           echo "TIMEOUT_RUN=$TIMEOUT_RUN" >> "$GITHUB_ENV"
 
 
+      - name: Support longpaths
+        run: git config --system core.longpaths true
+        if: contains(needs.snapshots-instance-choice.outputs.runner, 'windows')
       - uses: actions/checkout@v4
 
       - name: Reclaim Disk Space

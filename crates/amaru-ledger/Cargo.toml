@@ -41,6 +41,7 @@ uplc-turbo.workspace = true
 # External dependencies ───────────────────────────────────────────────────────┐
 proptest.workspace = true
 test-case.workspace = true
+toml.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = ["test-utils"] }
@@ -48,6 +49,10 @@ amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
 amaru-tracing-json.workspace = true
 minicbor.workspace = true
 once_cell.workspace = true
+
+[build-dependencies]
+anyhow.workspace = true
+toml.workspace = true
 
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [

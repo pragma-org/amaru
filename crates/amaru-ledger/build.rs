@@ -12,67 +12,95 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, fs, path::Path};
+use std::{
+    collections::BTreeMap,
+    env, fs,
+    io::Write as _,
+    path::{Path, PathBuf},
+};
 
-fn main() {
-    get_conformance_test_vectors();
+use anyhow::{Context, Result};
+
+fn main() -> Result<()> {
+    get_conformance_test_vectors()
 }
 
-#[allow(clippy::unwrap_used)]
-fn get_conformance_test_vectors() {
-    let test_dir = Path::new("tests/data/rules-conformance");
-    if test_dir.exists() {
-        println!("cargo:rerun-if-changed={}", test_dir.to_str().unwrap());
-    }
+type FailuresTable = BTreeMap<String, String>;
 
+fn get_conformance_test_vectors() -> Result<()> {
+    let vectors_path = "tests/data/rules-conformance";
+    println!("cargo:rerun-if-changed={vectors_path}");
+
+    let failures_path = "tests/data/rules-conformance.failures.toml";
+    println!("cargo:rerun-if-changed={failures_path}");
+    let failures = match fs::read(failures_path) {
+        Ok(bytes) => {
+            toml::from_slice::<FailuresTable>(&bytes).context("could not parse failures file")?
+        }
+        Err(_) => FailuresTable::new(),
+    };
+
+    let out_dir = env::var("OUT_DIR").context("OUT_DIR not set")?;
+    let out_file = Path::new(&out_dir).join("test_cases.rs");
+
+    let test_data_dir = env::current_dir()?
+        .join("tests")
+        .join("data")
+        .join("rules-conformance");
     let mut files = Vec::new();
-    visit_dirs(test_dir, &mut files);
+    visit_dirs(&test_data_dir, &mut files);
 
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("test_cases.rs");
+    let mut output = fs::File::create(out_file).context("could not write test_cases.rs")?;
 
-    if files.is_empty() {
-        println!(
-            "cargo:warning=no conformance ledger test vectors found; unpack them in amaru-ledger/tests/data/conformance"
-        );
-    }
+    writeln!(
+        &mut output,
+        "const TEST_DATA_DIR: &str = \"{}\";",
+        test_data_dir.to_string_lossy().escape_default()
+    )?;
+    writeln!(&mut output)?;
 
-    let pparams_dir = test_dir.join("eras/conway/impl/dump/pparams-by-hash");
-
-    let mut output = String::new();
     for path in files {
-        if path.contains("pparams-by-hash") {
+        let Ok(relative_path) = path.strip_prefix(&test_data_dir) else {
+            continue;
+        };
+        let Some(relative_path_str) = relative_path.to_str() else {
+            continue;
+        };
+        if relative_path_str.contains("pparams-by-hash") {
             continue;
         }
-
-        output.push_str(&format!(
-            "#[test_case::test_case(\"{}\", \"{}\")]\n",
-            path,
-            pparams_dir.to_str().unwrap()
-        ));
+        let relative_path_str = relative_path_str.replace("\\", "/");
+        let pparams_dir = "eras/conway/impl/dump/pparams-by-hash";
+        let result = match failures.get(&relative_path_str) {
+            Some(reason) => format!("Err(\"{}\")", reason.escape_default()),
+            None => "Ok(())".to_string(),
+        };
+        writeln!(
+            &mut output,
+            "#[test_case::test_case(\"{}\", \"{}\", {result})]",
+            relative_path_str.escape_default(),
+            pparams_dir.escape_default()
+        )?;
     }
+    writeln!(
+        &mut output,
+        r#"pub fn rules_conformance_test_case(snapshot: &str, pparams_dir: &str, result: Result<(), &str>) -> Result<(), Box<dyn std::error::Error>> {{
+    let test_data_dir = Path::new(TEST_DATA_DIR);
+    import_and_evaluate_vector(test_data_dir, snapshot, pparams_dir, result)
+}}"#
+    )?;
 
-    output.push_str(
-        r#"
-pub fn rules_conformance_test_case(snapshot: &str, pparams_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
-    import_and_evaluate_vector(snapshot, pparams_dir)
+    Ok(())
 }
-"#,
-    );
 
-    fs::write(dest_path, output).unwrap();
-}
-
-fn visit_dirs(dir: &Path, files: &mut Vec<String>) {
+fn visit_dirs(dir: &Path, files: &mut Vec<PathBuf>) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 visit_dirs(&path, files);
-            } else if path.is_file()
-                && let Some(path_str) = path.to_str()
-            {
-                files.push(path_str.to_string());
+            } else if path.is_file() {
+                files.push(path);
             }
         }
     }
