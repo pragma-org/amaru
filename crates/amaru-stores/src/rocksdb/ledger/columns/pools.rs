@@ -21,20 +21,20 @@ use amaru_ledger::store::{
     },
 };
 use amaru_slot_arithmetic::Epoch;
-use rocksdb::Transaction;
+use rocksdb::{DBPinnableSlice, Transaction};
 use tracing::error;
 
 /// Name prefixed used for storing Pool entries. UTF-8 encoding for "pool"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x6f, 0x6c];
 
-pub fn get(
-    db_get: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, rocksdb::Error>,
+pub fn get<'a>(
+    db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     pool: &Key,
 ) -> Result<Option<Row>, StoreError> {
     let key = as_key(&PREFIX, pool);
     Ok(db_get(&key)
         .map_err(|err| StoreError::Internal(err.into()))?
-        .map(unsafe_decode::<Row>))
+        .map(|d| unsafe_decode::<Row>(&d)))
 }
 
 pub fn add<DB>(
