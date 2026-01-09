@@ -78,7 +78,7 @@ pub async fn stage(
             manager
                 .peers
                 .insert(peer.clone(), ConnectionState::Scheduled);
-            eff.send(&eff.me_ref(), ManagerMessage::Connect(peer)).await;
+            eff.send(eff.me_ref(), ManagerMessage::Connect(peer)).await;
         }
         ManagerMessage::Connect(peer) => {
             // FIXME slow connection will block the manager, should delegate to a child stage
@@ -138,7 +138,7 @@ pub async fn stage(
             };
             match entry {
                 ConnectionState::Connected(conn_id, connection) => {
-                    eff.send(&connection, ConnectionMessage::Disconnect).await;
+                    eff.send(connection, ConnectionMessage::Disconnect).await;
                     *entry = ConnectionState::Disconnecting(*conn_id);
                 }
                 ConnectionState::Scheduled | ConnectionState::Disconnecting(..) => {
@@ -182,7 +182,7 @@ pub async fn stage(
             tracing::info!(?from, ?through, %peer, "fetching blocks");
             if let Some(ConnectionState::Connected(_, connection)) = manager.peers.get(&peer) {
                 eff.send(
-                    &connection,
+                    connection,
                     ConnectionMessage::FetchBlocks { from, through, cr },
                 )
                 .await;

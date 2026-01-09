@@ -55,14 +55,14 @@ impl Ord for Message {
             .then_with(|| match (self, other) {
                 (Message::Init, Message::Init) => std::cmp::Ordering::Equal,
                 (Message::RequestTxIdsBlocking(a1, b1), Message::RequestTxIdsBlocking(a2, b2)) => {
-                    a1.cmp(&a2).then_with(|| b1.cmp(&b2))
+                    a1.cmp(a2).then_with(|| b1.cmp(b2))
                 }
                 (
                     Message::RequestTxIdsNonBlocking(a1, b1),
                     Message::RequestTxIdsNonBlocking(a2, b2),
-                ) => a1.cmp(&a2).then_with(|| b1.cmp(&b2)),
-                (Message::RequestTxs(a1), Message::RequestTxs(a2)) => a1.cmp(&a2),
-                (Message::ReplyTxIds(a1), Message::ReplyTxIds(a2)) => a1.cmp(&a2),
+                ) => a1.cmp(a2).then_with(|| b1.cmp(b2)),
+                (Message::RequestTxs(a1), Message::RequestTxs(a2)) => a1.cmp(a2),
+                (Message::ReplyTxIds(a1), Message::ReplyTxIds(a2)) => a1.cmp(a2),
                 (Message::ReplyTxs(a1), Message::ReplyTxs(a2)) => {
                     let left = to_cbor(a1);
                     let right = to_cbor(a2);

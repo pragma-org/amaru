@@ -156,7 +156,7 @@ fn next_header(
         return Ok((matches!(state, ResponderState::CanAwait { .. }))
             .then_some(ResponderAction::AwaitReply));
     }
-    if store.load_from_best_chain(&pointer).is_none() {
+    if store.load_from_best_chain(pointer).is_none() {
         // client is on a different fork, we need to roll backward
         let header = store
             .load_header(&pointer.hash())
@@ -171,7 +171,7 @@ fn next_header(
     }
     // pointer is on the best chain, we need to roll forward
     Ok(store
-        .next_best_chain(&pointer)
+        .next_best_chain(pointer)
         .and_then(|point| {
             *pointer = point;
             store.load_header(&point.hash())
