@@ -16,8 +16,38 @@ use crate::{Anchor, Vote, cbor, heterogeneous_array};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ballot {
-    pub vote: Vote,
-    pub anchor: Option<Anchor>,
+    vote: Vote,
+
+    /// NOTE: Anchors are kept in a Box since
+    ///
+    /// - Anchors are often absent from votes (~60% of the time on Mainnet); thus reducing the
+    ///   memory footprint of this from 64B to 16B
+    ///
+    /// - Rarely (i.e. never) accessed anyway by the ledger which completely neglects the cost of
+    ///   the indirection.
+    ///
+    /// One may ask: if never accessed, why keep it around?
+    ///
+    /// -> Because it is still on-chain data which may be relevant to users even though it has no
+    ///    influence on the ledger validations.
+    anchor: Option<Box<Anchor>>,
+}
+
+impl Ballot {
+    pub fn new(vote: Vote, anchor: Option<Anchor>) -> Self {
+        Self {
+            vote,
+            anchor: anchor.map(Box::new),
+        }
+    }
+
+    pub fn vote(&self) -> &Vote {
+        &self.vote
+    }
+
+    pub fn anchor(&self) -> Option<&Anchor> {
+        self.anchor.as_deref()
+    }
 }
 
 impl<C> cbor::encode::Encode<C> for Ballot {
@@ -27,8 +57,8 @@ impl<C> cbor::encode::Encode<C> for Ballot {
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
-        e.encode_with(&self.vote, ctx)?;
-        e.encode_with(&self.anchor, ctx)?;
+        e.encode_with(self.vote(), ctx)?;
+        e.encode_with(self.anchor(), ctx)?;
         Ok(())
     }
 }
@@ -59,10 +89,7 @@ pub mod tests {
             vote in any_vote(),
             anchor in option::of(any_anchor()),
         ) -> Ballot  {
-            Ballot {
-                vote,
-                anchor,
-            }
+            Ballot::new(vote, anchor)
         }
     }
 

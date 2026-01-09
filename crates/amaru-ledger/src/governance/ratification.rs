@@ -529,19 +529,19 @@ fn partition_votes(
         |(mut dreps, mut committee, mut pools), (voter, ballot)| {
             match voter {
                 Voter::ConstitutionalCommitteeKey(hash) => {
-                    committee.insert(StakeCredential::AddrKeyhash(*hash), &ballot.vote);
+                    committee.insert(StakeCredential::AddrKeyhash(*hash), ballot.vote());
                 }
                 Voter::ConstitutionalCommitteeScript(hash) => {
-                    committee.insert(StakeCredential::ScriptHash(*hash), &ballot.vote);
+                    committee.insert(StakeCredential::ScriptHash(*hash), ballot.vote());
                 }
                 Voter::DRepKey(hash) => {
-                    dreps.insert(DRep::Key(*hash), &ballot.vote);
+                    dreps.insert(DRep::Key(*hash), ballot.vote());
                 }
                 Voter::DRepScript(hash) => {
-                    dreps.insert(DRep::Script(*hash), &ballot.vote);
+                    dreps.insert(DRep::Script(*hash), ballot.vote());
                 }
                 Voter::StakePoolKey(pool_id) => {
-                    pools.insert(pool_id, &ballot.vote);
+                    pools.insert(pool_id, ballot.vote());
                 }
             };
 
