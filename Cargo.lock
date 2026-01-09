@@ -363,6 +363,7 @@ dependencies = [
  "amaru-consensus",
  "amaru-kernel",
  "amaru-ouroboros",
+ "amaru-protocols",
  "amaru-slot-arithmetic",
  "amaru-tracing-json",
  "anyhow",

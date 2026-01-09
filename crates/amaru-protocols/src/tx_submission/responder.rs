@@ -95,10 +95,7 @@ impl ProtocolState<Responder> for State {
                 outcome().want_next().result(ResponderResult::Init),
                 State::Idle,
             ),
-            (
-                State::TxIdsBlocking | State::TxIdsNonBlocking,
-                Message::ReplyTxIds(tx_ids),
-            ) => (
+            (State::TxIdsBlocking | State::TxIdsNonBlocking, Message::ReplyTxIds(tx_ids)) => (
                 outcome()
                     .want_next()
                     .result(ResponderResult::ReplyTxIds(tx_ids)),
@@ -108,10 +105,7 @@ impl ProtocolState<Responder> for State {
                 outcome().want_next().result(ResponderResult::ReplyTxs(txs)),
                 State::Idle,
             ),
-            (State::Idle, Message::Done) => (
-                outcome().result(ResponderResult::Done),
-                State::Done,
-            ),
+            (State::Idle, Message::Done) => (outcome().result(ResponderResult::Done), State::Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -130,10 +124,9 @@ impl ProtocolState<Responder> for State {
                     ),
                 }
             }
-            (State::Idle, ResponderAction::SendRequestTxs(tx_ids)) => (
-                outcome().send(Message::RequestTxs(tx_ids)),
-                State::Txs,
-            ),
+            (State::Idle, ResponderAction::SendRequestTxs(tx_ids)) => {
+                (outcome().send(Message::RequestTxs(tx_ids)), State::Txs)
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
