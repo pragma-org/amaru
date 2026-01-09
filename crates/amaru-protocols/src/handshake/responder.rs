@@ -159,13 +159,12 @@ pub mod tests {
     use crate::handshake::HandshakeState;
     use crate::handshake::messages::Message;
     use crate::handshake::responder::ResponderAction;
-    use crate::protocol::{Responder, Role};
+    use crate::protocol::Responder;
 
     #[test]
     fn test_responder_protocol() {
         crate::handshake::spec::<Responder>().check(
             HandshakeState::StPropose,
-            Role::Responder,
             |msg| match msg {
                 Message::Propose(version_table) => {
                     Some(ResponderAction::Query(version_table.clone()))

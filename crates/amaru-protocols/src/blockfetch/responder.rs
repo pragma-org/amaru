@@ -132,14 +132,21 @@ pub enum ResponderResult {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::blockfetch::State;
-    use crate::blockfetch::messages::Message;
-    use crate::blockfetch::responder::ResponderAction;
-    use crate::protocol::{Responder, Role};
+    use super::*;
+    use crate::protocol::Responder;
 
     #[test]
     fn test_responder_protocol() {
-        // TODO: Add protocol spec check similar to keepalive
-        // This would require a spec() function in blockfetch/mod.rs
+        crate::blockfetch::spec::<Responder>().check(
+            State::Idle,
+            |msg| match msg {
+                Message::NoBlocks => Some(ResponderAction::NoBlocks),
+                Message::StartBatch => Some(ResponderAction::StartBatch),
+                Message::Block { body } => Some(ResponderAction::Block(body.clone())),
+                Message::BatchDone => Some(ResponderAction::BatchDone),
+                _ => None,
+            },
+            |msg| msg.clone(),
+        );
     }
 }

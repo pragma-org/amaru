@@ -265,7 +265,7 @@ impl ProtocolState<Initiator> for InitiatorState {
 #[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
     use super::*;
-    use crate::protocol::{ProtoSpec, Role};
+    use crate::protocol::ProtoSpec;
     use InitiatorState::*;
     use Message::*;
     use amaru_kernel::protocol_messages::block_height::BlockHeight;
@@ -308,7 +308,6 @@ pub mod tests {
     fn test_initiator_protocol() {
         spec().check(
             Idle,
-            Role::Initiator,
             |msg| match msg {
                 FindIntersect(points) => Some(InitiatorAction::Intersect(points.clone())),
                 RequestNext => Some(InitiatorAction::RequestNext),

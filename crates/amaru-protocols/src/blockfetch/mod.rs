@@ -17,7 +17,7 @@ mod messages;
 mod responder;
 
 use crate::mux::{Frame, MuxMessage};
-use crate::protocol::Inputs;
+use crate::protocol::{Inputs, ProtoSpec, ProtocolState, RoleT};
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef};
@@ -37,7 +37,9 @@ pub fn register_deserializers() -> DeserializerGuards {
 pub use initiator::initiator;
 pub use responder::responder;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum State {
     Idle,
     Busy,
@@ -46,6 +48,7 @@ pub enum State {
 }
 
 // Re-export types
+use amaru_kernel::Point;
 pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks};
 pub use responder::BlockFetchResponder;
 
@@ -76,4 +79,26 @@ pub async fn register_blockfetch_initiator<M>(
     .await;
     eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Local)
         .await
+}
+
+pub fn spec<R: RoleT>() -> ProtoSpec<State, Message, R>
+where
+    State: ProtocolState<R, WireMsg = Message>,
+{
+    use State::*;
+
+    let request_range = || Message::RequestRange {
+        from: Point::Origin,
+        through: Point::Origin,
+    };
+    let block = || Message::Block { body: Vec::new() };
+
+    let mut spec = ProtoSpec::default();
+    spec.init(Idle, request_range(), Busy);
+    spec.resp(Busy, Message::NoBlocks, Idle);
+    spec.resp(Busy, Message::StartBatch, Streaming);
+    spec.resp(Streaming, block(), Streaming);
+    spec.resp(Streaming, Message::BatchDone, Idle);
+
+    spec
 }

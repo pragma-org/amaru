@@ -160,13 +160,12 @@ pub mod tests {
     use crate::keepalive::State;
     use crate::keepalive::initiator::InitiatorAction;
     use crate::keepalive::messages::Message;
-    use crate::protocol::{Initiator, Role};
+    use crate::protocol::Initiator;
 
     #[test]
     fn test_initiator_protocol() {
         crate::keepalive::spec::<Initiator>().check(
             State::Idle,
-            Role::Initiator,
             |msg| match msg {
                 Message::KeepAlive(cookie) => Some(InitiatorAction::SendKeepAlive(*cookie)),
                 _ => None,

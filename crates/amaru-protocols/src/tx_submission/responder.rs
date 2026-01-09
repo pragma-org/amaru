@@ -397,7 +397,6 @@ impl Display for ResponderAction {
 mod tests {
 
     use super::*;
-    use crate::protocol::Role;
     use crate::tx_submission::assert_actions_eq;
     use crate::tx_submission::tests::create_transactions;
     use amaru_mempool::strategies::InMemoryMempool;
@@ -516,7 +515,6 @@ mod tests {
     fn test_responder_protocol() {
         crate::tx_submission::spec::<Responder>().check(
             TxSubmissionState::Init,
-            Role::Responder,
             |msg| match msg {
                 Message::RequestTxIdsBlocking(ack, req) => {
                     Some(ResponderAction::SendRequestTxIds {

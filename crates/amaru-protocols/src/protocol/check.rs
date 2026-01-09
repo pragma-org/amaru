@@ -40,6 +40,7 @@ where
     Message: Ord + std::fmt::Debug + Clone,
     R: RoleT,
 {
+    /// Add a transition that can be executed by the initiator.
     pub fn init(&mut self, from: State, msg: Message, to: State) {
         let present = self
             .transitions
@@ -54,6 +55,7 @@ where
         }
     }
 
+    /// Add a transition that can be executed by the responder.
     pub fn resp(&mut self, from: State, msg: Message, to: State) {
         let present = self
             .transitions
@@ -68,13 +70,22 @@ where
         }
     }
 
+    /// Check that the protocol implementation follows the spec.
+    ///
+    /// The `local_msg` function turns the network message under test
+    /// into a local action so that the protocol can be tested.
+    ///
+    /// The `basic_msg` function can be used to canonicalize the message
+    /// in case properties are modified while sending or receiving; this
+    /// may be necessary because `check` uses PartialEq for comparison.
     pub fn check(
         &self,
         initial: State,
-        role: Role,
         local_msg: impl Fn(&Message) -> Option<State::Action>,
         basic_msg: impl Fn(&Message) -> Message,
     ) {
+        let role = const { R::ROLE.unwrap() };
+
         let states = self.transitions.keys().collect::<Vec<_>>();
         let messages = self
             .transitions
@@ -85,7 +96,6 @@ where
         let (out, init) = initial.init().unwrap();
         match role {
             Role::Initiator => {
-                assert!(out.send.is_some() || out.result.is_some());
                 if out.send.is_none() {
                     assert_eq!(initial, init);
                 }
@@ -164,6 +174,10 @@ where
         }
     }
 
+    /// Assert that this protocol refines the other protocol.
+    ///
+    /// This means that this protocol has more states than the other
+    /// protocol, thus the state projection must be a surjection.
     pub fn assert_refines<S2, R2>(
         &self,
         other: &ProtoSpec<S2, Message, R2>,

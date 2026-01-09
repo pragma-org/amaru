@@ -312,10 +312,7 @@ impl ProtocolState<Responder> for ResponderState {
 #[expect(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::*;
-    use crate::{
-        chainsync::initiator::InitiatorState,
-        protocol::{ProtoSpec, Role},
-    };
+    use crate::{chainsync::initiator::InitiatorState, protocol::ProtoSpec};
     use amaru_kernel::protocol_messages::block_height::BlockHeight;
 
     #[test]
@@ -365,7 +362,6 @@ mod tests {
 
         spec.check(
             idle(false),
-            Role::Responder,
             |msg| match msg {
                 AwaitReply => Some(ResponderAction::AwaitReply),
                 RollForward(header_content, tip) => {

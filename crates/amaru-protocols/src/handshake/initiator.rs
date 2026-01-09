@@ -177,13 +177,12 @@ pub mod tests {
     use crate::handshake::HandshakeState;
     use crate::handshake::initiator::InitiatorAction;
     use crate::handshake::messages::Message;
-    use crate::protocol::{Initiator, Role};
+    use crate::protocol::Initiator;
 
     #[test]
     fn test_initiator_protocol() {
         crate::handshake::spec::<Initiator>().check(
             HandshakeState::StPropose,
-            Role::Initiator,
             |msg| match msg {
                 Message::Propose(version_table) => {
                     Some(InitiatorAction::Propose(version_table.clone()))

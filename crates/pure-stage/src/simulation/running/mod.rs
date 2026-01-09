@@ -686,11 +686,8 @@ impl SimulationRunning {
                 duration: _,
                 msg,
             } => {
-                if !matches!(
-                    resume_call_send_internal(self, from.clone(), to.clone(), msg),
-                    Ok(true)
-                ) {
-                    tracing::warn!(%from, %to, "couldn’t deliver call effect");
+                if let Err(err) = resume_call_send_internal(self, from.clone(), to.clone(), msg) {
+                    tracing::warn!(%from, %to, %err, "couldn’t deliver call effect");
                     return Some(Blocked::Terminated(from));
                 }
             }

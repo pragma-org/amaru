@@ -203,14 +203,21 @@ pub enum InitiatorAction {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::blockfetch::State;
-    use crate::blockfetch::initiator::InitiatorAction;
-    use crate::blockfetch::messages::Message;
-    use crate::protocol::{Initiator, Role};
+    use super::*;
+    use crate::protocol::Initiator;
 
     #[test]
     fn test_initiator_protocol() {
-        // TODO: Add protocol spec check similar to keepalive
-        // This would require a spec() function in blockfetch/mod.rs
+        crate::blockfetch::spec::<Initiator>().check(
+            State::Idle,
+            |msg| match msg {
+                Message::RequestRange { from, through } => Some(InitiatorAction::RequestRange {
+                    from: *from,
+                    through: *through,
+                }),
+                _ => None,
+            },
+            |msg| msg.clone(),
+        );
     }
 }

@@ -63,42 +63,42 @@ where
     let reply_tx_ids = |tx_ids: Vec<(TxId, u32)>| Message::ReplyTxIds(tx_ids);
     let reply_txs = |txs: Vec<Tx>| Message::ReplyTxs(txs);
 
-    spec.i(
+    spec.init(
         TxSubmissionState::Init,
         Message::Init,
         TxSubmissionState::Idle,
     );
-    spec.i(
+    spec.init(
         TxSubmissionState::TxIdsBlocking,
         reply_tx_ids(vec![]),
         TxSubmissionState::Idle,
     );
-    spec.i(
+    spec.init(
         TxSubmissionState::TxIdsNonBlocking,
         reply_tx_ids(vec![]),
         TxSubmissionState::Idle,
     );
-    spec.i(
+    spec.init(
         TxSubmissionState::Txs,
         reply_txs(vec![]),
         TxSubmissionState::Idle,
     );
-    spec.i(
+    spec.init(
         TxSubmissionState::Idle,
         Message::Done,
         TxSubmissionState::Done,
     );
-    spec.r(
+    spec.resp(
         TxSubmissionState::Idle,
         request_tx_ids_blocking(0, 0),
         TxSubmissionState::TxIdsBlocking,
     );
-    spec.r(
+    spec.resp(
         TxSubmissionState::Idle,
         request_tx_ids_non_blocking(0, 0),
         TxSubmissionState::TxIdsNonBlocking,
     );
-    spec.r(
+    spec.resp(
         TxSubmissionState::Idle,
         request_txs(vec![]),
         TxSubmissionState::Txs,

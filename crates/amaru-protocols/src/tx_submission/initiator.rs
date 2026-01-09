@@ -401,16 +401,10 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
 
 #[cfg(test)]
 mod tests {
-    // TODO: Implement protocol spec check similar to keepalive
-    // This will require creating a spec() function first
-
     use super::*;
-    use crate::{
-        protocol::Role,
-        tx_submission::{
-            assert_actions_eq, create_transactions_in_mempool,
-            tests::{SizedMempool, create_transactions},
-        },
+    use crate::tx_submission::{
+        assert_actions_eq, create_transactions_in_mempool,
+        tests::{SizedMempool, create_transactions},
     };
     use std::sync::Arc;
 
@@ -716,7 +710,6 @@ mod tests {
     fn test_initiator_protocol() {
         crate::tx_submission::spec::<Initiator>().check(
             TxSubmissionState::Init,
-            Role::Initiator,
             |msg| match msg {
                 Message::ReplyTxIds(tx_ids) => {
                     Some(InitiatorAction::SendReplyTxIds(tx_ids.clone()))

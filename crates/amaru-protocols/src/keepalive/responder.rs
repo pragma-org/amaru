@@ -121,13 +121,12 @@ pub mod tests {
     use crate::keepalive::State;
     use crate::keepalive::messages::Message;
     use crate::keepalive::responder::ResponderAction;
-    use crate::protocol::{Responder, Role};
+    use crate::protocol::Responder;
 
     #[test]
     fn test_responder_protocol() {
         crate::keepalive::spec::<Responder>().check(
             State::Idle,
-            Role::Responder,
             |msg| match msg {
                 // ResponseKeepAlive is sent by responder (local action)
                 Message::ResponseKeepAlive(cookie) => Some(ResponderAction::SendResponse(*cookie)),

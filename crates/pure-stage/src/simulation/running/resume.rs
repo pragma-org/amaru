@@ -196,30 +196,31 @@ pub fn resume_call_send_internal(
     let data_from = data_from.assert_stage("which cannot receive call effects");
     let Some(StageEffect::Call(_, _, CallExtra::Scheduled(id))) = data_from.waiting.as_ref() else {
         tracing::warn!(stage = %from, "stage was not waiting for a call effect, but {:?}", data_from.waiting);
-        return Ok(false);
+        anyhow::bail!(
+            "stage was not waiting for a call effect, but {:?}",
+            data_from.waiting
+        );
     };
     let id = *id;
 
-    let Some(real_to) =
-        (match super::deliver_message(&mut sim.stages, sim.mailbox_size, to.clone(), msg) {
-            DeliverMessageResult::Delivered(data_to) => {
-                // `to` may not be suspended on receive, so failure to resume is okay
-                let name = data_to.name.clone();
-                resume_receive_internal(sim, &name)?;
-                Some(name)
-            }
-            DeliverMessageResult::Full(data_to, send_data) => {
-                data_to.senders.push_back((from.clone(), send_data));
-                Some(data_to.name.clone())
-            }
-            DeliverMessageResult::NotFound => {
-                tracing::warn!(stage = %to, "message send to terminated stage dropped");
-                None
-            }
-        })
-    else {
-        return Ok(false);
+    let real_to = match super::deliver_message(&mut sim.stages, sim.mailbox_size, to.clone(), msg) {
+        DeliverMessageResult::Delivered(data_to) => {
+            // `to` may not be suspended on receive, so failure to resume is okay
+            let name = data_to.name.clone();
+            resume_receive_internal(sim, &name)?;
+            Some(name)
+        }
+        DeliverMessageResult::Full(data_to, send_data) => {
+            data_to.senders.push_back((from.clone(), send_data));
+            Some(data_to.name.clone())
+        }
+        DeliverMessageResult::NotFound => {
+            tracing::warn!(stage = %to, "message send to terminated stage dropped");
+            None
+        }
     };
+
+    let ret = real_to.is_some();
 
     sim.schedule_wakeup(id, move |sim| {
         let Some(data_from) = sim.stages.get_mut(&from) else {
@@ -235,6 +236,7 @@ pub fn resume_call_send_internal(
             Box::new(CallTimeout),
         );
         if wakeup.is_ok()
+            && let Some(real_to) = real_to
             && let Some(StageOrAdapter::Stage(data_to)) = sim.stages.get_mut(&real_to)
         {
             // here we clean up in case the message was not yet delivered to the mailbox;
@@ -244,7 +246,7 @@ pub fn resume_call_send_internal(
         }
     });
 
-    Ok(true)
+    Ok(ret)
 }
 
 pub fn resume_call_internal(

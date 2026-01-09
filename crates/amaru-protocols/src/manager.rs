@@ -27,6 +27,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ManagerMessage {
     AddPeer(Peer),
+    Disconnected(Peer),
     FetchBlocks {
         peer: Peer,
         from: Point,
@@ -76,7 +77,7 @@ pub async fn stage(
             let connection = eff
                 .stage(format!("{conn_id}-{peer}"), connection::stage)
                 .await;
-            // FIXME add supervision leading to connection retry
+            let connection = eff.supervise(connection, ManagerMessage::Disconnected(peer.clone()));
             let connection = eff
                 .wire_up(
                     connection,
@@ -91,6 +92,11 @@ pub async fn stage(
                 .await;
             eff.send(&connection, ConnectionMessage::Initialize).await;
             manager.peers.insert(peer, (conn_id, connection));
+        }
+        ManagerMessage::Disconnected(peer) => {
+            // FIXME: reconnect instead for a few attempts
+            tracing::info!(%peer, "disconnected from peer");
+            manager.peers.remove(&peer);
         }
         ManagerMessage::FetchBlocks {
             peer,
