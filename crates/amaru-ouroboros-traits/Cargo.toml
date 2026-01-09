@@ -20,6 +20,7 @@ test-utils = ["dep:rand"]
 anyhow.workspace = true
 async-trait.workspace = true
 hex.workspace = true
+parking_lot.workspace = true
 rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true

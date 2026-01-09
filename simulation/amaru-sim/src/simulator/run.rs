@@ -43,6 +43,8 @@ use amaru_ouroboros::{
     ChainStore, can_validate_blocks::mock::MockCanValidateBlocks,
     in_memory_consensus_store::InMemConsensusStore,
 };
+use amaru_protocols::blockfetch::Blocks;
+use amaru_protocols::manager::ManagerMessage;
 use async_trait::async_trait;
 use pure_stage::simulation::RandStdRng;
 use pure_stage::simulation::SimulationBuilder;
@@ -174,10 +176,25 @@ pub fn spawn_node(
     );
 
     // FIXME: switch simulation to tracking network bytes
-    let manager = StageRef::blackhole();
+    let manager = network.stage("manager", async |_, msg: ManagerMessage, eff| match msg {
+        ManagerMessage::AddPeer(_) => {}
+        ManagerMessage::Disconnected(_) => {}
+        ManagerMessage::FetchBlocks { cr, .. } => {
+            // we just need to return a non-empty block to proceed with the simulation
+            eff.send(
+                &cr,
+                Blocks {
+                    blocks: vec![vec![1]],
+                },
+            )
+            .await;
+        }
+    });
+    let manager = network.wire_up(manager, ());
 
     let our_tip = Tip::new(Point::Origin, 0.into());
-    let receive_header_ref = build_stage_graph(select_chain, our_tip, manager, network);
+    let receive_header_ref =
+        build_stage_graph(select_chain, our_tip, manager.without_state(), network);
 
     let (output, rx1) = network.output("output", 10);
 

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::{
-    effects::{ConsensusEffects, DisconnectEffect},
+    effects::ConsensusEffects,
     errors::{ProcessingFailed, ValidationFailed},
     stages::{
         fetch_block, forward_chain, receive_header,
@@ -56,11 +56,13 @@ pub fn build_stage_graph(
     );
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
-    let validation_errors_stage = network.stage("validation_errors", async |_, error, eff| {
-        let ValidationFailed { peer, error } = error;
-        tracing::error!(%peer, %error, "peer error");
-        eff.external(DisconnectEffect::new(peer)).await;
-    });
+    let validation_errors_stage =
+        network.stage("validation_errors", async move |manager, error, eff| {
+            let ValidationFailed { peer, error } = error;
+            tracing::error!(%peer, %error, "peer error");
+            eff.send(&manager, ManagerMessage::Disconnected(peer)).await;
+            manager
+        });
 
     let processing_errors_stage = network.stage(
         "processing_errors",
@@ -71,7 +73,7 @@ pub fn build_stage_graph(
         },
     );
 
-    let validation_errors_stage = network.wire_up(validation_errors_stage, ());
+    let validation_errors_stage = network.wire_up(validation_errors_stage, manager.clone());
     let processing_errors_stage = network.wire_up(processing_errors_stage, ());
 
     let forward_chain_stage = network.wire_up(

@@ -14,7 +14,6 @@
 
 use crate::consensus::errors::ProcessingFailed;
 use amaru_kernel::{BlockHeader, IsHeader, Point, peer::Peer, protocol_messages::tip::Tip};
-use amaru_ouroboros::network_operations::ResourceNetworkOperations;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
@@ -142,32 +141,4 @@ impl ExternalEffect for ForwardEventEffect {
 
 impl ExternalEffectAPI for ForwardEventEffect {
     type Response = Result<(), ProcessingFailed>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DisconnectEffect {
-    peer: Peer,
-}
-
-impl ExternalEffectAPI for DisconnectEffect {
-    type Response = ();
-}
-
-impl DisconnectEffect {
-    pub fn new(peer: Peer) -> Self {
-        Self { peer }
-    }
-}
-
-impl ExternalEffect for DisconnectEffect {
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            #[expect(clippy::expect_used)]
-            let network = resources
-                .get::<ResourceNetworkOperations>()
-                .expect("DisconnectEffect requires a NetworkOperations")
-                .clone();
-            network.disconnect(&self.peer).await
-        })
-    }
 }
