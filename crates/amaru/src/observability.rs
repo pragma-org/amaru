@@ -327,9 +327,7 @@ pub fn setup_observability(
     let mut subscriber = TracingSubscriber::new();
 
     let (OpenTelemetryHandle { metrics, teardown }, warning_otlp) = if with_open_telemetry {
-        setup_open_telemetry(
-            &mut subscriber,
-        )
+        setup_open_telemetry(&mut subscriber)
     } else {
         (OpenTelemetryHandle::default(), None)
     };

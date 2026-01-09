@@ -130,10 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Started with global arguments"
     );
 
-    let (metrics, teardown) = setup_observability(
-        args.with_open_telemetry,
-        args.with_json_traces,
-    );
+    let (metrics, teardown) = setup_observability(args.with_open_telemetry, args.with_json_traces);
 
     let result = match args.command {
         Command::Run(args) => cmd::run::run(args, metrics).await,
