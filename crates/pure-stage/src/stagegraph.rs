@@ -30,6 +30,7 @@ use tokio::sync::mpsc;
 #[derive(Debug, Clone, Copy, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct ScheduleId(Instant, u64);
 
+/// FIXME: we need to implement a factory for schedule ids to avoid global mutable state
 impl PartialEq for ScheduleId {
     fn eq(&self, other: &Self) -> bool {
         self.1 == 0 || other.1 == 0 || (self.0 == other.0 && self.1 == other.1)
