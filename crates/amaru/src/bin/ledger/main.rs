@@ -42,25 +42,7 @@ struct Cli {
 
     #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
-
-    #[arg(long, value_name = "STRING", env("AMARU_SERVICE_NAME"), default_value_t = DEFAULT_SERVICE_NAME.to_string()
-    )]
-    service_name: String,
-
-    #[arg(long, value_name = "URL", env("AMARU_OTLP_SPAN_URL"), default_value_t = DEFAULT_OTLP_SPAN_URL.to_string()
-    )]
-    otlp_span_url: String,
-
-    #[arg(long, value_name = "URL", env("AMARU_OTLP_METRIC_URL"), default_value_t = DEFAULT_OTLP_METRIC_URL.to_string()
-    )]
-    otlp_metric_url: String,
 }
-
-const DEFAULT_SERVICE_NAME: &str = "amaru-ledger";
-
-const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
-
-const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -71,19 +53,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(
         with_open_telemetry = args.with_open_telemetry,
         with_json_traces = args.with_json_traces,
-        service_name = args.service_name,
-        otlp_span_url = args.otlp_span_url,
-        otlp_metric_url = args.otlp_metric_url,
         "Started with global arguments"
     );
 
-    let (_metrics, teardown) = setup_observability(
-        args.with_open_telemetry,
-        args.with_json_traces,
-        args.service_name,
-        args.otlp_span_url,
-        args.otlp_metric_url,
-    );
+    let (_metrics, teardown) = setup_observability(args.with_open_telemetry, args.with_json_traces);
 
     let result = match args.command {
         Command::Sync(args) => cmd::sync::run(args).await,

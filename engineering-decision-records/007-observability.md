@@ -63,9 +63,3 @@ The Amaru binary itself will contain a `metrics` module that stores and construc
 - Users of the Amaru node can track, aggregate, and alert on the health of the node based on multiple system or component specific metrics. They might notice, for example, that CPU usage hits 100% at epoch boundaries, resulting in missing slot leader checks, which indicates that the machine they are running the node on is underprovisioned.
 
 - [PR #84](https://github.com/pragma-org/amaru/pull/84)
-
-## Discussion points
-
-- One thing we discussed was whether to use the notion of Gasket metrics or not. Gasket is a pipeline processing library written by one of the maintainers of Amaru, and provides some light metrics tracking machinery that also exposes things via prometheus. At this time, we've decided not to use these metrics, as it's not the primary responsibility of the Gasket framework, so that the Amaru node is in full control of the metrics it tracks and reports.
-
-- [Discussion on PR #73](https://github.com/pragma-org/amaru/pull/73#discussion_r1938041620)

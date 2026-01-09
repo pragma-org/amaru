@@ -12,13 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::{
-    observability::{
-        DEFAULT_OTLP_METRIC_URL, DEFAULT_OTLP_SERVICE_NAME, DEFAULT_OTLP_SPAN_URL,
-        setup_observability,
-    },
-    panic::panic_handler,
-};
+use amaru::observability::setup_observability;
+use amaru::panic::panic_handler;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::sync::LazyLock;
@@ -118,18 +113,6 @@ struct Cli {
 
     #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
-
-    #[arg(long, value_name = "STRING", env("AMARU_OTLP_SERVICE_NAME"), default_value_t = DEFAULT_OTLP_SERVICE_NAME.to_string()
-    )]
-    otlp_service_name: String,
-
-    #[arg(long, value_name = "URL", env("AMARU_OTLP_SPAN_URL"), default_value_t = DEFAULT_OTLP_SPAN_URL.to_string()
-    )]
-    otlp_span_url: String,
-
-    #[arg(long, value_name = "URL", env("AMARU_OTLP_METRIC_URL"), default_value_t = DEFAULT_OTLP_METRIC_URL.to_string()
-    )]
-    otlp_metric_url: String,
 }
 
 #[tokio::main]
@@ -144,19 +127,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(
         with_open_telemetry = args.with_open_telemetry,
         with_json_traces = args.with_json_traces,
-        otlp_service_name = args.otlp_service_name,
-        otlp_span_url = args.otlp_span_url,
-        otlp_metric_url = args.otlp_metric_url,
         "Started with global arguments"
     );
 
-    let (metrics, teardown) = setup_observability(
-        args.with_open_telemetry,
-        args.with_json_traces,
-        args.otlp_service_name,
-        args.otlp_span_url,
-        args.otlp_metric_url,
-    );
+    let (metrics, teardown) = setup_observability(args.with_open_telemetry, args.with_json_traces);
 
     let result = match args.command {
         Command::Run(args) => cmd::run::run(args, metrics).await,
