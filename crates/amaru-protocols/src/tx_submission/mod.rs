@@ -33,9 +33,7 @@ pub use tests::*;
 use crate::connection::ConnectionMessage;
 use crate::mux;
 use crate::protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT};
-use amaru_kernel::Tx;
 use amaru_ouroboros::TxOrigin;
-use amaru_ouroboros_traits::TxId;
 use pure_stage::{Effects, StageRef, Void};
 
 pub use initiator::initiator;
@@ -55,30 +53,23 @@ pub fn spec<R: RoleT>() -> crate::protocol::ProtoSpec<State, Message, R>
 where
     State: ProtocolState<R, WireMsg = Message>,
 {
+    use Message::*;
+    use State::*;
     let mut spec = crate::protocol::ProtoSpec::default();
-    let request_tx_ids_blocking = |start: u16, end: u16| Message::RequestTxIdsBlocking(start, end);
-    let request_tx_ids_non_blocking =
-        |start: u16, end: u16| Message::RequestTxIdsNonBlocking(start, end);
-    let request_txs = |txs: Vec<TxId>| Message::RequestTxs(txs);
-    let reply_tx_ids = |tx_ids: Vec<(TxId, u32)>| Message::ReplyTxIds(tx_ids);
-    let reply_txs = |txs: Vec<Tx>| Message::ReplyTxs(txs);
+    let request_tx_ids_blocking = || RequestTxIdsBlocking(0, 0);
+    let request_tx_ids_non_blocking = || RequestTxIdsNonBlocking(0, 0);
+    let request_txs = || RequestTxs(vec![]);
+    let reply_tx_ids = || ReplyTxIds(vec![]);
+    let reply_txs = || ReplyTxs(vec![]);
 
-    spec.init(State::Init, Message::Init, State::Idle);
-    spec.init(State::TxIdsBlocking, reply_tx_ids(vec![]), State::Idle);
-    spec.init(State::TxIdsNonBlocking, reply_tx_ids(vec![]), State::Idle);
-    spec.init(State::Txs, reply_txs(vec![]), State::Idle);
-    spec.init(State::Idle, Message::Done, State::Done);
-    spec.resp(
-        State::Idle,
-        request_tx_ids_blocking(0, 0),
-        State::TxIdsBlocking,
-    );
-    spec.resp(
-        State::Idle,
-        request_tx_ids_non_blocking(0, 0),
-        State::TxIdsNonBlocking,
-    );
-    spec.resp(State::Idle, request_txs(vec![]), State::Txs);
+    spec.init(State::Init, Message::Init, Idle);
+    spec.init(TxIdsBlocking, reply_tx_ids(), Idle);
+    spec.init(TxIdsNonBlocking, reply_tx_ids(), Idle);
+    spec.init(Txs, reply_txs(), Idle);
+    spec.init(Idle, Message::Done, State::Done);
+    spec.resp(Idle, request_tx_ids_blocking(), TxIdsBlocking);
+    spec.resp(Idle, request_tx_ids_non_blocking(), TxIdsNonBlocking);
+    spec.resp(Idle, request_txs(), Txs);
     spec
 }
 
