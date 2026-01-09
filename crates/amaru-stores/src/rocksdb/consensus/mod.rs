@@ -25,7 +25,7 @@ use amaru_ouroboros_traits::{
     ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError,
 };
 use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
-use std::{fs, ops::Deref, path::PathBuf};
+use std::{fs, path::PathBuf};
 use tracing::{Level, instrument};
 
 use crate::rocksdb::RocksDbConfig;
@@ -313,7 +313,7 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
                 .map(|item| match item {
                     Ok((k, v)) => {
                         let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
-                        (hash, RawBlock::from(v.deref()))
+                        (hash, RawBlock::from(v))
                     }
                     Err(err) => panic!("error iterating over blocks: {}", err),
                 }),

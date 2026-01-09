@@ -46,20 +46,20 @@ pub fn heterogeneous_array<'d, A>(
     d: &mut cbor::Decoder<'d>,
     elems: impl FnOnce(
         &mut cbor::Decoder<'d>,
-        Box<dyn FnOnce(u64) -> Result<(), cbor::decode::Error>>,
+        &dyn Fn(u64) -> Result<(), cbor::decode::Error>,
     ) -> Result<A, cbor::decode::Error>,
 ) -> Result<A, cbor::decode::Error> {
     let len = d.array()?;
 
     match len {
         None => {
-            let result = elems(d, Box::new(|_| Ok(())))?;
+            let result = elems(d, &|_| Ok(()))?;
             decode_break(d, len)?;
             Ok(result)
         }
         Some(len) => elems(
             d,
-            Box::new(move |expected_len| {
+            &(move |expected_len| {
                 if len != expected_len {
                     return Err(cbor::decode::Error::message(format!(
                         "CBOR array length mismatch: expected {} got {}",
