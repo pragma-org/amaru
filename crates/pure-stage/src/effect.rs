@@ -942,11 +942,15 @@ impl Effect {
                 "id": format!("{:?}", id),
             }),
             Effect::External { at_stage, effect } => {
+                let effect_type = effect
+                    .cast_ref::<UnknownExternalEffect>()
+                    .map(|e| e.send_data_value().typetag.as_str())
+                    .unwrap_or_else(|| effect.typetag_name());
                 serde_json::json!({
                     "type": "external",
                     "at_stage": at_stage,
                     "effect": effect.to_string(),
-                    "effect_type": effect.typetag_name(),
+                    "effect_type": effect_type,
                 })
             }
             Effect::Terminate { at_stage } => serde_json::json!({
