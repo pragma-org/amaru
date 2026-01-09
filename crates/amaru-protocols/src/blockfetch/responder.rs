@@ -31,7 +31,7 @@ pub fn responder() -> Miniprotocol<State, BlockFetchResponder, Responder> {
     miniprotocol(PROTO_N2N_BLOCK_FETCH.responder())
 }
 
-#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockFetchResponder {
     muxer: StageRef<MuxMessage>,
 }
@@ -61,8 +61,8 @@ impl StageState<State, Responder> for BlockFetchResponder {
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
-            ResponderResult::RequestRange { .. } => todo!(),
-            ResponderResult::Done => todo!(),
+            ResponderResult::RequestRange { .. } => Ok((Some(ResponderAction::NoBlocks), self)),
+            ResponderResult::Done => Ok((None, self)),
         }
     }
 
@@ -136,6 +136,7 @@ pub mod tests {
     use crate::protocol::Responder;
 
     #[test]
+    #[expect(clippy::wildcard_enum_match_arm)]
     fn test_responder_protocol() {
         crate::blockfetch::spec::<Responder>().check(
             State::Idle,

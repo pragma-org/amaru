@@ -56,7 +56,7 @@ use crate::protocol::{
     Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState,
     miniprotocol, outcome,
 };
-use crate::tx_submission::{Blocking, Message, ProtocolError, TxSubmissionState};
+use crate::tx_submission::{Blocking, Message, ProtocolError, State};
 use ProtocolError::*;
 use amaru_kernel::Tx;
 use amaru_ouroboros::{MempoolSeqNo, TxSubmissionMempool};
@@ -72,16 +72,16 @@ pub fn register_deserializers() -> DeserializerGuards {
     ]
 }
 
-pub fn initiator() -> Miniprotocol<TxSubmissionState, TxSubmissionInitiator, Initiator> {
+pub fn initiator() -> Miniprotocol<State, TxSubmissionInitiator, Initiator> {
     miniprotocol(PROTO_N2N_TX_SUB)
 }
 
-impl StageState<TxSubmissionState, Initiator> for TxSubmissionInitiator {
+impl StageState<State, Initiator> for TxSubmissionInitiator {
     type LocalIn = Void;
 
     async fn local(
         self,
-        _proto: &TxSubmissionState,
+        _proto: &State,
         _input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
@@ -91,7 +91,7 @@ impl StageState<TxSubmissionState, Initiator> for TxSubmissionInitiator {
 
     async fn network(
         mut self,
-        _proto: &TxSubmissionState,
+        _proto: &State,
         input: InitiatorResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
@@ -118,13 +118,13 @@ impl StageState<TxSubmissionState, Initiator> for TxSubmissionInitiator {
     }
 }
 
-impl ProtocolState<Initiator> for TxSubmissionState {
+impl ProtocolState<Initiator> for State {
     type WireMsg = Message;
     type Action = InitiatorAction;
     type Out = InitiatorResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome().send(Message::Init), TxSubmissionState::Idle))
+        Ok((outcome().send(Message::Init), State::Idle))
     }
 
     fn network(
@@ -132,49 +132,53 @@ impl ProtocolState<Initiator> for TxSubmissionState {
         input: Self::WireMsg,
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
         Ok(match (self, input) {
-            (TxSubmissionState::Idle, Message::RequestTxIdsBlocking(ack, req)) => (
-                outcome().want_next().result(InitiatorResult::RequestTxIds {
-                    ack,
-                    req,
-                    blocking: Blocking::Yes,
-                }),
-                TxSubmissionState::TxIdsBlocking,
-            ),
-            (TxSubmissionState::Idle, Message::RequestTxIdsNonBlocking(ack, req)) => (
-                outcome().want_next().result(InitiatorResult::RequestTxIds {
-                    ack,
-                    req,
-                    blocking: Blocking::No,
-                }),
-                TxSubmissionState::TxIdsNonBlocking,
-            ),
-            (TxSubmissionState::Idle, Message::RequestTxs(tx_ids)) => (
-                outcome()
-                    .want_next()
-                    .result(InitiatorResult::RequestTxs(tx_ids)),
-                TxSubmissionState::Txs,
-            ),
+            (State::Idle, Message::RequestTxIdsBlocking(ack, req)) => {
+                tracing::trace!(ack=%ack, req=%req, "received RequestTxIdsBlocking");
+                (
+                    outcome().want_next().result(InitiatorResult::RequestTxIds {
+                        ack,
+                        req,
+                        blocking: Blocking::Yes,
+                    }),
+                    State::TxIdsBlocking,
+                )
+            }
+            (State::Idle, Message::RequestTxIdsNonBlocking(ack, req)) => {
+                tracing::trace!(ack=%ack, req=%req, "received RequestTxIdsNonBlocking");
+                (
+                    outcome().want_next().result(InitiatorResult::RequestTxIds {
+                        ack,
+                        req,
+                        blocking: Blocking::No,
+                    }),
+                    State::TxIdsNonBlocking,
+                )
+            }
+            (State::Idle, Message::RequestTxs(tx_ids)) => {
+                tracing::trace!(tx_ids_nb = tx_ids.len(), "received RequestTxs");
+                (
+                    outcome()
+                        .want_next()
+                        .result(InitiatorResult::RequestTxs(tx_ids)),
+                    State::Txs,
+                )
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
 
     fn local(&self, action: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
         Ok(match (self, action) {
-            (TxSubmissionState::TxIdsBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => (
-                outcome().send(Message::ReplyTxIds(tx_ids)),
-                TxSubmissionState::Idle,
-            ),
-            (TxSubmissionState::TxIdsNonBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => (
-                outcome().send(Message::ReplyTxIds(tx_ids)),
-                TxSubmissionState::Idle,
-            ),
-            (TxSubmissionState::Txs, InitiatorAction::SendReplyTxs(txs)) => (
-                outcome().send(Message::ReplyTxs(txs)),
-                TxSubmissionState::Idle,
-            ),
-            (TxSubmissionState::Idle, InitiatorAction::Done) => {
-                (outcome().send(Message::Done), TxSubmissionState::Done)
+            (State::TxIdsBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => {
+                (outcome().send(Message::ReplyTxIds(tx_ids)), State::Idle)
             }
+            (State::TxIdsNonBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => {
+                (outcome().send(Message::ReplyTxIds(tx_ids)), State::Idle)
+            }
+            (State::Txs, InitiatorAction::SendReplyTxs(txs)) => {
+                (outcome().send(Message::ReplyTxs(txs)), State::Idle)
+            }
+            (State::Idle, InitiatorAction::Done) => (outcome().send(Message::Done), State::Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -248,9 +252,9 @@ pub struct TxSubmissionInitiator {
 }
 
 impl TxSubmissionInitiator {
-    pub fn new(muxer: StageRef<MuxMessage>) -> (TxSubmissionState, Self) {
+    pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
         (
-            TxSubmissionState::Init,
+            State::Init,
             Self {
                 window: VecDeque::new(),
                 last_seq: None,
@@ -709,7 +713,7 @@ mod tests {
     #[test]
     fn test_initiator_protocol() {
         crate::tx_submission::spec::<Initiator>().check(
-            TxSubmissionState::Init,
+            State::Init,
             |msg| match msg {
                 Message::ReplyTxIds(tx_ids) => {
                     Some(InitiatorAction::SendReplyTxIds(tx_ids.clone()))

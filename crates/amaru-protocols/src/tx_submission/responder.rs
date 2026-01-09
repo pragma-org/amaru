@@ -21,7 +21,7 @@ use crate::protocol::{
     Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState,
     miniprotocol, outcome,
 };
-use crate::tx_submission::{Blocking, Message, ProtocolError, ResponderParams, TxSubmissionState};
+use crate::tx_submission::{Blocking, Message, ProtocolError, ResponderParams, State};
 use ProtocolError::*;
 use amaru_kernel::Tx;
 use amaru_ouroboros::TxSubmissionMempool;
@@ -32,16 +32,16 @@ pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<TxSubmissionResponder>().boxed()]
 }
 
-pub fn responder() -> Miniprotocol<TxSubmissionState, TxSubmissionResponder, Responder> {
+pub fn responder() -> Miniprotocol<State, TxSubmissionResponder, Responder> {
     miniprotocol(PROTO_N2N_TX_SUB.responder())
 }
 
-impl StageState<TxSubmissionState, Responder> for TxSubmissionResponder {
+impl StageState<State, Responder> for TxSubmissionResponder {
     type LocalIn = Void;
 
     async fn local(
         self,
-        _proto: &TxSubmissionState,
+        _proto: &State,
         input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
@@ -50,7 +50,7 @@ impl StageState<TxSubmissionState, Responder> for TxSubmissionResponder {
 
     async fn network(
         mut self,
-        _proto: &TxSubmissionState,
+        _proto: &State,
         input: ResponderResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
@@ -76,7 +76,7 @@ impl StageState<TxSubmissionState, Responder> for TxSubmissionResponder {
     }
 }
 
-impl ProtocolState<Responder> for TxSubmissionState {
+impl ProtocolState<Responder> for State {
     type WireMsg = Message;
     type Action = ResponderAction;
     type Out = ResponderResult;
@@ -91,26 +91,26 @@ impl ProtocolState<Responder> for TxSubmissionState {
         input: Self::WireMsg,
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
         Ok(match (self, input) {
-            (TxSubmissionState::Init, Message::Init) => (
+            (State::Init, Message::Init) => (
                 outcome().want_next().result(ResponderResult::Init),
-                TxSubmissionState::Idle,
+                State::Idle,
             ),
             (
-                TxSubmissionState::TxIdsBlocking | TxSubmissionState::TxIdsNonBlocking,
+                State::TxIdsBlocking | State::TxIdsNonBlocking,
                 Message::ReplyTxIds(tx_ids),
             ) => (
                 outcome()
                     .want_next()
                     .result(ResponderResult::ReplyTxIds(tx_ids)),
-                TxSubmissionState::Idle,
+                State::Idle,
             ),
-            (TxSubmissionState::Txs, Message::ReplyTxs(txs)) => (
+            (State::Txs, Message::ReplyTxs(txs)) => (
                 outcome().want_next().result(ResponderResult::ReplyTxs(txs)),
-                TxSubmissionState::Idle,
+                State::Idle,
             ),
-            (TxSubmissionState::Idle, Message::Done) => (
+            (State::Idle, Message::Done) => (
                 outcome().result(ResponderResult::Done),
-                TxSubmissionState::Done,
+                State::Done,
             ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
@@ -118,21 +118,21 @@ impl ProtocolState<Responder> for TxSubmissionState {
 
     fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
         Ok(match (self, input) {
-            (TxSubmissionState::Idle, ResponderAction::SendRequestTxIds { ack, req, blocking }) => {
+            (State::Idle, ResponderAction::SendRequestTxIds { ack, req, blocking }) => {
                 match blocking {
                     Blocking::Yes => (
                         outcome().send(Message::RequestTxIdsBlocking(ack, req)),
-                        TxSubmissionState::TxIdsBlocking,
+                        State::TxIdsBlocking,
                     ),
                     Blocking::No => (
                         outcome().send(Message::RequestTxIdsNonBlocking(ack, req)),
-                        TxSubmissionState::TxIdsNonBlocking,
+                        State::TxIdsNonBlocking,
                     ),
                 }
             }
-            (TxSubmissionState::Idle, ResponderAction::SendRequestTxs(tx_ids)) => (
+            (State::Idle, ResponderAction::SendRequestTxs(tx_ids)) => (
                 outcome().send(Message::RequestTxs(tx_ids)),
-                TxSubmissionState::Txs,
+                State::Txs,
             ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
@@ -186,9 +186,9 @@ impl TxSubmissionResponder {
         muxer: StageRef<MuxMessage>,
         params: ResponderParams,
         origin: TxOrigin,
-    ) -> (TxSubmissionState, Self) {
+    ) -> (State, Self) {
         (
-            TxSubmissionState::Init,
+            State::Init,
             Self {
                 params,
                 window: VecDeque::new(),
@@ -491,6 +491,7 @@ mod tests {
         let mempool = Arc::new(InMemoryMempool::default());
 
         let results = vec![
+            init(),
             reply_tx_ids(&txs, &[0, 1, 2]),
             reply_txs(&txs, &[0]),
             reply_tx_ids(&txs, &[]),
@@ -514,7 +515,7 @@ mod tests {
     #[test]
     fn test_responder_protocol() {
         crate::tx_submission::spec::<Responder>().check(
-            TxSubmissionState::Init,
+            State::Init,
             |msg| match msg {
                 Message::RequestTxIdsBlocking(ack, req) => {
                     Some(ResponderAction::SendRequestTxIds {
@@ -574,10 +575,7 @@ mod tests {
         let mut actions = vec![];
         for r in results {
             let action = match r {
-                ResponderResult::Init => {
-                    responder.initialize_state(mempool.as_ref());
-                    None
-                }
+                ResponderResult::Init => responder.initialize_state(mempool.as_ref()),
                 ResponderResult::ReplyTxIds(tx_ids) => {
                     responder.process_tx_ids_reply(mempool.as_ref(), tx_ids)?
                 }

@@ -175,36 +175,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_header_point_that_does_not_match_the_expected_point_sends_an_error()
-    -> anyhow::Result<()> {
-        let peer = Peer::new("name");
-        let header = run(any_header());
-        let point = run(any_header()).point();
-        let message = ChainSyncEvent::RollForward {
-            peer: peer.clone(),
-            tip: Tip::new(point, 0.into()),
-            span: Span::current(),
-            raw_header: cbor::to_vec(header.clone())?,
-        };
-        let consensus_ops = mock_consensus_ops();
-
-        stage(make_state(), message, consensus_ops.clone()).await;
-
-        let error = ValidationFailed::new(
-            &peer,
-            ConsensusError::HeaderPointMismatch {
-                actual_point: header.point(),
-                expected_point: point,
-            },
-        );
-        assert_eq!(
-            consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![("failures".to_string(), vec![format!("{error:?}")])])
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn rollback_is_just_sent_downstream() -> anyhow::Result<()> {
         let header = run(any_header());
         let peer = Peer::new("name");

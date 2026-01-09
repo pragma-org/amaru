@@ -106,7 +106,7 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::consensus::errors::{ConsensusError, ProcessingFailed};
+    use crate::consensus::errors::ProcessingFailed;
     use amaru_kernel::peer::Peer;
     use amaru_kernel::protocol_messages::tip::Tip;
     use amaru_kernel::{Point, PoolId, RawBlock};
@@ -118,12 +118,15 @@ pub mod tests {
     use amaru_ouroboros_traits::{
         BlockValidationError, HasStakeDistribution, PoolSummary, TxSubmissionMempool,
     };
+    use amaru_protocols::blockfetch::Blocks;
     use amaru_slot_arithmetic::Slot;
+    use parking_lot::Mutex;
+    use pure_stage::serde::{from_cbor, to_cbor};
     use pure_stage::{BoxFuture, Instant, StageRef};
     use serde::de::DeserializeOwned;
     use std::collections::BTreeMap;
     use std::future::ready;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::time::Duration;
 
     #[derive(Clone)]
@@ -163,26 +166,8 @@ pub mod tests {
         }
     }
 
-    #[derive(Clone)]
-    pub struct MockNetworkOps {
-        block_to_return: Arc<Mutex<Result<Vec<u8>, ConsensusError>>>,
-    }
-
-    impl Default for MockNetworkOps {
-        fn default() -> Self {
-            Self {
-                block_to_return: Arc::new(Mutex::new(Ok(vec![]))),
-            }
-        }
-    }
-
-    impl MockNetworkOps {
-        pub fn return_block(&self, block: Result<Vec<u8>, ConsensusError>) -> &Self {
-            let mut self_block_to_return = self.block_to_return.lock().unwrap();
-            *self_block_to_return = block;
-            self
-        }
-    }
+    #[derive(Clone, Default)]
+    pub struct MockNetworkOps;
 
     impl NetworkOps for MockNetworkOps {
         fn send_forward_event(
@@ -241,14 +226,30 @@ pub mod tests {
         }
     }
 
-    #[derive(Default, Clone)]
+    #[derive(Clone)]
     pub struct MockBaseOps {
         messages: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
+        call_data: Arc<Mutex<Option<Vec<u8>>>>,
+    }
+
+    impl Default for MockBaseOps {
+        fn default() -> Self {
+            MockBaseOps {
+                messages: Arc::new(Mutex::new(BTreeMap::new())),
+                call_data: Arc::new(Mutex::new(None)),
+            }
+        }
     }
 
     impl MockBaseOps {
         pub fn received(&self) -> BTreeMap<String, Vec<String>> {
-            self.messages.lock().unwrap().clone()
+            self.messages.lock().clone()
+        }
+
+        pub fn return_blocks(&self, blocks: Blocks) -> &Self {
+            let mut call_data = self.call_data.lock();
+            *call_data = Some(to_cbor(&blocks));
+            self
         }
     }
 
@@ -258,7 +259,7 @@ pub mod tests {
             target: &StageRef<Msg>,
             msg: Msg,
         ) -> BoxFuture<'static, ()> {
-            let mut messages = self.messages.lock().unwrap();
+            let mut messages = self.messages.lock();
             messages
                 .entry(target.name().to_string())
                 .or_default()
@@ -271,8 +272,13 @@ pub mod tests {
             _target: &StageRef<Req>,
             _timeout: Duration,
             _msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
-        ) -> BoxFuture<'static, Option<Resp>> {
-            Box::pin(async { None })
+        ) -> BoxFuture<'_, Option<Resp>> {
+            Box::pin(async {
+                // Clone the bytes out of the mutex guard so we don't hold the lock
+                // while deserializing, and to avoid moving out of the guard.
+                let data = self.call_data.lock().clone();
+                data.map(|bytes| from_cbor(&bytes).expect("Failed to cast call data"))
+            })
         }
 
         fn clock(&self) -> BoxFuture<'static, Instant> {
@@ -294,7 +300,7 @@ pub mod tests {
             target: &StageRef<Msg>,
             msg: Msg,
         ) -> BoxFuture<'static, ()> {
-            let mut messages = self.messages.lock().unwrap();
+            let mut messages = self.messages.lock();
             messages
                 .entry(target.name().to_string())
                 .or_default()
@@ -343,7 +349,7 @@ pub mod tests {
         MockConsensusOps {
             mock_store: InMemConsensusStore::new(),
             mock_mempool: Arc::new(InMemoryMempool::default()),
-            mock_network: MockNetworkOps::default(),
+            mock_network: MockNetworkOps,
             mock_ledger: MockLedgerOps,
             mock_base: MockBaseOps::default(),
             mock_metrics: MockMetricsOps,

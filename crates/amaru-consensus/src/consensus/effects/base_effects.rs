@@ -30,7 +30,7 @@ pub trait BaseOps: Clone + Send {
         target: &StageRef<Req>,
         timeout: Duration,
         msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
-    ) -> BoxFuture<'static, Option<Resp>>;
+    ) -> BoxFuture<'_, Option<Resp>>;
 
     fn clock(&self) -> BoxFuture<'static, Instant>;
     fn wait(&self, duration: Duration) -> BoxFuture<'static, Instant>;

@@ -42,7 +42,7 @@ pub fn stage(
             ValidateHeaderEvent::Validated { peer, header, span } => {
                 let point = header.point();
                 let peer2 = peer.clone();
-                let block = eff
+                let blocks = eff
                     .base()
                     // FIXME: which timeout to use?
                     .call(&manager, Duration::from_secs(5), move |cr| {
@@ -55,7 +55,7 @@ pub fn stage(
                     })
                     .await
                     .unwrap_or_default();
-                let Some(block) = block.blocks.into_iter().next() else {
+                let Some(block) = blocks.blocks.into_iter().next() else {
                     eff.base()
                         .send(
                             &failures,
@@ -113,6 +113,7 @@ mod tests {
     use crate::consensus::errors::ValidationFailed;
     use amaru_kernel::is_header::tests::{any_header, run};
     use amaru_kernel::peer::Peer;
+    use amaru_protocols::blockfetch::Blocks;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
     use tracing::Span;
@@ -128,7 +129,9 @@ mod tests {
         };
         let block = vec![1u8; 128];
         let consensus_ops = mock_consensus_ops();
-        consensus_ops.mock_network.return_block(Ok(block.clone()));
+        consensus_ops.mock_base.return_blocks(Blocks {
+            blocks: vec![block.clone()],
+        });
 
         stage(make_state(), message, consensus_ops.clone()).await;
 

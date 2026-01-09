@@ -42,10 +42,10 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
 #[derive(
     Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
-pub enum HandshakeState {
-    StPropose,
-    StConfirm,
-    StDone,
+pub enum State {
+    Propose,
+    Confirm,
+    Done,
 }
 
 // Re-export types
@@ -72,11 +72,11 @@ pub fn compute_negotiation_result(
     ))
 }
 
-pub fn spec<R: RoleT>() -> ProtoSpec<HandshakeState, Message<VersionData>, R>
+pub fn spec<R: RoleT>() -> ProtoSpec<State, Message<VersionData>, R>
 where
-    HandshakeState: ProtocolState<R, WireMsg = Message<VersionData>>,
+    State: ProtocolState<R, WireMsg = Message<VersionData>>,
 {
-    use HandshakeState::*;
+    use State::*;
 
     let mut spec = ProtoSpec::default();
 
@@ -90,9 +90,9 @@ where
     let refuse = || Message::Refuse(RefuseReason::VersionMismatch(vec![VersionNumber::V14]));
     let query_reply = || Message::QueryReply(VersionTable::empty());
 
-    spec.init(StPropose, propose(), StConfirm);
-    spec.resp(StConfirm, accept(), StDone);
-    spec.resp(StConfirm, refuse(), StDone);
-    spec.resp(StConfirm, query_reply(), StDone);
+    spec.init(Propose, propose(), Confirm);
+    spec.resp(Confirm, accept(), Done);
+    spec.resp(Confirm, refuse(), Done);
+    spec.resp(Confirm, query_reply(), Done);
     spec
 }

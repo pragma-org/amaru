@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    handshake::{HandshakeState, messages::Message},
+    handshake::{State, messages::Message},
     mux::MuxMessage,
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_HANDSHAKE, ProtocolState, Responder, StageState,
@@ -32,7 +32,7 @@ pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<HandshakeResponder>().boxed()]
 }
 
-pub fn responder() -> Miniprotocol<HandshakeState, HandshakeResponder, Responder> {
+pub fn responder() -> Miniprotocol<State, HandshakeResponder, Responder> {
     miniprotocol(PROTO_HANDSHAKE.responder())
 }
 
@@ -48,9 +48,9 @@ impl HandshakeResponder {
         muxer: StageRef<MuxMessage>,
         connection: StageRef<HandshakeResult>,
         version_table: VersionTable<VersionData>,
-    ) -> (HandshakeState, Self) {
+    ) -> (State, Self) {
         (
-            HandshakeState::StPropose,
+            State::Propose,
             Self {
                 muxer,
                 connection,
@@ -60,12 +60,12 @@ impl HandshakeResponder {
     }
 }
 
-impl StageState<HandshakeState, Responder> for HandshakeResponder {
+impl StageState<State, Responder> for HandshakeResponder {
     type LocalIn = Void;
 
     async fn local(
         self,
-        _proto: &HandshakeState,
+        _proto: &State,
         input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
@@ -74,7 +74,7 @@ impl StageState<HandshakeState, Responder> for HandshakeResponder {
 
     async fn network(
         self,
-        _proto: &HandshakeState,
+        _proto: &State,
         input: Proposal,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
@@ -92,23 +92,22 @@ impl StageState<HandshakeState, Responder> for HandshakeResponder {
     }
 }
 
-impl ProtocolState<Responder> for HandshakeState {
+impl ProtocolState<Responder> for State {
     type WireMsg = Message<VersionData>;
     type Action = ResponderAction;
     type Out = Proposal;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome(), Self::StPropose))
+        Ok((outcome(), Self::Propose))
     }
 
     fn network(
         &self,
         input: Self::WireMsg,
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        #[expect(clippy::wildcard_enum_match_arm)]
-        match input {
-            Message::Propose(version_table) => {
-                Ok((outcome().result(Proposal(version_table)), Self::StConfirm))
+        match (self, input) {
+            (Self::Propose, Message::Propose(version_table)) => {
+                Ok((outcome().result(Proposal(version_table)), Self::Confirm))
             }
             input => anyhow::bail!("invalid message from initiator: {:?}", input),
         }
@@ -118,14 +117,14 @@ impl ProtocolState<Responder> for HandshakeState {
         Ok(match input {
             ResponderAction::Accept(version_number, version_data) => (
                 outcome().send(Message::Accept(version_number, version_data)),
-                Self::StDone,
+                Self::Done,
             ),
             ResponderAction::Refuse(refuse_reason) => {
-                (outcome().send(Message::Refuse(refuse_reason)), Self::StDone)
+                (outcome().send(Message::Refuse(refuse_reason)), Self::Done)
             }
             ResponderAction::Query(version_table) => (
-                outcome().send(Message::Propose(version_table)),
-                Self::StDone,
+                outcome().send(Message::QueryReply(version_table)),
+                Self::Done,
             ),
         })
     }
@@ -154,21 +153,19 @@ impl From<HandshakeResult> for ResponderAction {
 }
 
 #[cfg(test)]
-#[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
-    use crate::handshake::HandshakeState;
-    use crate::handshake::messages::Message;
     use crate::handshake::responder::ResponderAction;
+    use crate::handshake::{Message, State};
     use crate::protocol::Responder;
 
     #[test]
     fn test_responder_protocol() {
         crate::handshake::spec::<Responder>().check(
-            HandshakeState::StPropose,
+            State::Propose,
             |msg| match msg {
-                Message::Propose(version_table) => {
-                    Some(ResponderAction::Query(version_table.clone()))
-                }
+                Message::Accept(vn, vd) => Some(ResponderAction::Accept(*vn, vd.clone())),
+                Message::Refuse(reason) => Some(ResponderAction::Refuse(reason.clone())),
+                Message::QueryReply(vt) => Some(ResponderAction::Query(vt.clone())),
                 _ => None,
             },
             |msg| msg.clone(),

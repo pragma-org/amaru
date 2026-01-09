@@ -113,6 +113,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         let queued = match input {
+            InitiatorResult::Initialize => None,
             InitiatorResult::NoBlocks => {
                 let (_, _, cr) = self.queue.pop_front().expect("queue is empty");
                 eff.send(&cr, Blocks { blocks: Vec::new() }).await;
@@ -147,7 +148,7 @@ impl ProtocolState<Initiator> for State {
     type Out = InitiatorResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome(), *self))
+        Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
     fn network(
@@ -190,6 +191,7 @@ impl ProtocolState<Initiator> for State {
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorResult {
+    Initialize,
     NoBlocks,
     Block(Vec<u8>),
     Done,
@@ -207,6 +209,7 @@ pub mod tests {
     use crate::protocol::Initiator;
 
     #[test]
+    #[expect(clippy::wildcard_enum_match_arm)]
     fn test_initiator_protocol() {
         crate::blockfetch::spec::<Initiator>().check(
             State::Idle,
@@ -215,6 +218,7 @@ pub mod tests {
                     from: *from,
                     through: *through,
                 }),
+                Message::ClientDone => Some(InitiatorAction::ClientDone),
                 _ => None,
             },
             |msg| msg.clone(),

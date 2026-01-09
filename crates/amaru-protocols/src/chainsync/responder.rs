@@ -45,7 +45,7 @@ pub enum ResponderMessage {
     NewTip(Tip),
 }
 
-#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ChainSyncResponder {
     upstream: Tip,
     peer: Peer,
@@ -378,7 +378,7 @@ mod tests {
         spec.assert_refines(
             &super::super::initiator::tests::spec(),
             |state| match state {
-                Idle { .. } => todo!(),
+                Idle { .. } => InitiatorState::Idle,
                 CanAwait { .. } => InitiatorState::CanAwait,
                 MustReply => InitiatorState::MustReply,
                 Intersect => InitiatorState::Intersect,

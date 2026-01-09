@@ -51,9 +51,9 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
     .collect()
 }
 
-pub fn spec<R: RoleT>() -> crate::protocol::ProtoSpec<TxSubmissionState, Message, R>
+pub fn spec<R: RoleT>() -> crate::protocol::ProtoSpec<State, Message, R>
 where
-    TxSubmissionState: ProtocolState<R, WireMsg = Message>,
+    State: ProtocolState<R, WireMsg = Message>,
 {
     let mut spec = crate::protocol::ProtoSpec::default();
     let request_tx_ids_blocking = |start: u16, end: u16| Message::RequestTxIdsBlocking(start, end);
@@ -63,55 +63,31 @@ where
     let reply_tx_ids = |tx_ids: Vec<(TxId, u32)>| Message::ReplyTxIds(tx_ids);
     let reply_txs = |txs: Vec<Tx>| Message::ReplyTxs(txs);
 
-    spec.init(
-        TxSubmissionState::Init,
-        Message::Init,
-        TxSubmissionState::Idle,
-    );
-    spec.init(
-        TxSubmissionState::TxIdsBlocking,
-        reply_tx_ids(vec![]),
-        TxSubmissionState::Idle,
-    );
-    spec.init(
-        TxSubmissionState::TxIdsNonBlocking,
-        reply_tx_ids(vec![]),
-        TxSubmissionState::Idle,
-    );
-    spec.init(
-        TxSubmissionState::Txs,
-        reply_txs(vec![]),
-        TxSubmissionState::Idle,
-    );
-    spec.init(
-        TxSubmissionState::Idle,
-        Message::Done,
-        TxSubmissionState::Done,
-    );
+    spec.init(State::Init, Message::Init, State::Idle);
+    spec.init(State::TxIdsBlocking, reply_tx_ids(vec![]), State::Idle);
+    spec.init(State::TxIdsNonBlocking, reply_tx_ids(vec![]), State::Idle);
+    spec.init(State::Txs, reply_txs(vec![]), State::Idle);
+    spec.init(State::Idle, Message::Done, State::Done);
     spec.resp(
-        TxSubmissionState::Idle,
+        State::Idle,
         request_tx_ids_blocking(0, 0),
-        TxSubmissionState::TxIdsBlocking,
+        State::TxIdsBlocking,
     );
     spec.resp(
-        TxSubmissionState::Idle,
+        State::Idle,
         request_tx_ids_non_blocking(0, 0),
-        TxSubmissionState::TxIdsNonBlocking,
+        State::TxIdsNonBlocking,
     );
-    spec.resp(
-        TxSubmissionState::Idle,
-        request_txs(vec![]),
-        TxSubmissionState::Txs,
-    );
+    spec.resp(State::Idle, request_txs(vec![]), State::Txs);
     spec
 }
 
 pub async fn register_tx_submission(
     role: Role,
-    muxer: StageRef<crate::mux::MuxMessage>,
+    muxer: StageRef<mux::MuxMessage>,
     eff: &Effects<ConnectionMessage>,
     origin: TxOrigin,
-) -> StageRef<crate::mux::HandlerMessage> {
+) -> StageRef<mux::HandlerMessage> {
     let tx_submission = if role == Role::Initiator {
         let (state, stage) = initiator::TxSubmissionInitiator::new(muxer.clone());
         let tx_submission = eff
@@ -148,7 +124,7 @@ pub async fn register_tx_submission(
 
     eff.send(
         &muxer,
-        crate::mux::MuxMessage::Register {
+        mux::MuxMessage::Register {
             protocol: PROTO_N2N_TX_SUB.for_role(role).erase(),
             frame: mux::Frame::OneCborItem,
             handler: tx_submission.clone(),
@@ -162,7 +138,7 @@ pub async fn register_tx_submission(
 
 /// The state of the tx submission protocol as a whole.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
-pub enum TxSubmissionState {
+pub enum State {
     Init,
     Idle,
     Done,

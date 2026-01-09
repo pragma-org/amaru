@@ -136,6 +136,7 @@ dependencies = [
  "itertools 0.14.0",
  "opentelemetry",
  "pallas-crypto",
+ "parking_lot",
  "pprof",
  "proptest",
  "pure-stage",

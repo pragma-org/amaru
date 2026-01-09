@@ -15,7 +15,7 @@
 use amaru_kernel::Point;
 use minicbor::{Decode, Decoder, Encode, Encoder, data::IanaTag, decode, encode};
 
-#[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Message {
     RequestRange { from: Point, through: Point },
     ClientDone,
