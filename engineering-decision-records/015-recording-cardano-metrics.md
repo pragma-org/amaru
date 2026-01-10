@@ -5,7 +5,7 @@ status: accepted
 
 # Recording & Exposing Cardano Metrics
 
-## Motivation
+## Context
 
 Amaru [observability](./007-observability.md) has already been discussed and documented previously. However, something we're missing is exposing domain-specific metrics for tools such as [nView](https://github.com/blinklabs-io/nview), a local monitoring tool for a Cardano node.
 
@@ -15,7 +15,11 @@ nView reads Prometheus metrics from a `/metrics` endpoint, so if we collect and 
 
 We will propagate metrics via a stage effect instead of passing around a large record to each stage to be mutated. There is a new `amaru-metrics` crate that holds the structs and enums relevant for the metrics collection. There is a `MetricsEvent` enum, with a variant for each specific type of metric (`LedgerMetrics`, `ConsensusMetrics`, etc.). Each of those metrics implements a `MetricRecorder` trait, which is called from `RecordMetricsEffect` effect.
 
-## Discussion
+## Consequences
+
+\-
+
+## Discussion points
 
 We had previously discussed using a generic `Metric` trait that a metrics stage could consume without caring about specifics using dynamic dispatch. This allowed the metrics to be owned by the relevant stage and modifying said metrics required no changes to any other pieces of logic.
 

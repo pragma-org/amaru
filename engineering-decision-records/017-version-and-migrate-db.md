@@ -1,7 +1,6 @@
 ---
 type: architecture
 status: accepted
-participants: abailly, etorreborre
 ---
 
 # Version & Migrate Chain Database
@@ -35,7 +34,7 @@ participants: abailly, etorreborre
   * when importing headers and nonces, we are supposed to know what we do and open or create the DB. This may result in data corruption if misused, restrict to very specific workflows (eg. continuous integration)
 * Running migration scripts is idempotent: once the DB is migrated, rerunning migrations is a no-op
 
-## Follow-up questions
+## Discussion points
 
 This EDR does not answer some questions about migrations and database changes that could nevertheless be interesting and impactful for users:
 
