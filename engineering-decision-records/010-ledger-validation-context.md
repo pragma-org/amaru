@@ -22,7 +22,7 @@ Cardano transactions are, in fact, akin to a collection of primitive operations 
 
 The entire validation sequence can be [mapped as a flow chart](https://app.excalidraw.com/l/7Ao24g28S3o/872UZdalVsy), which reads top-down and left-to-right.
 
-## Motivation
+### Motivation
 
 ### 1. Transition inter-dependencies and evolving context
 
@@ -272,7 +272,7 @@ pub trait WitnessSlice {
 }
 ```
 
-### Further considerations
+## Consequences
 
 The current design will effectively process blocks in three passes:
 

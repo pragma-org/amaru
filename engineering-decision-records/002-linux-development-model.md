@@ -33,7 +33,7 @@ We propose to adopt a development process similar to Linux to encourage decentra
 - Higher barrier to entry for new contributors unfamiliar with the proposed decentralized tools and processes.
 - Risk of disorganized release management and communication inefficiencies.
 
-## Discussion Points:
+## Discussion points
 
 - The Linux kernel development process is designed for a large, well-established community with many subsystems and contributors, which may not be suitable for Amaru's smaller team.
 - Ensuring protocol consistency and stability is critical for Amaru, unlike the flexible development allowed in Linux.

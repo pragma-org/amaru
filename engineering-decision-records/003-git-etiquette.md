@@ -7,7 +7,7 @@ revision:
 
 # Git Etiquette
 
-## Motivation
+## Context
 
 In a large project with multiple contributors, it is necessary to establish some git etiquette to keep the project maintainable. The following are the guiding principles:
 
@@ -59,3 +59,11 @@ Contributors will follow these git practices to keep the project maintainable.
       maintained indefinitely and may be redistributed consistent with
       this project or the open source license(s) involved.
   ```
+
+## Consequences
+
+\-
+
+## Discussion points
+
+\-

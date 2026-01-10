@@ -7,8 +7,6 @@ status: proposed
 
 This document records strategies for handling errors throughout the Amaru stack.
 
-## Motivation
-
 Rust notoriously let users free to deal with errors. We need a consistent strategy for how our project reports, wraps, and propagates errors. Particularly as it grows in complexity, is composed of multiple crates, includes external crates, and possibly compiles to WebAssembly.
 
 Defining precise errors and composing them without introducing too much overhead is not straightforward and requires following a consistent methodology.
@@ -125,3 +123,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 ```
+
+## Discussion points
+
+- https://gist.github.com/jeluard/495e07dd83600b46a29fc8644c8b9875

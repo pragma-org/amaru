@@ -71,3 +71,7 @@ Ledger updates from epoch boundary processing will arrive asynchronously within 
 This implies that e.g. updated stake distributions need to be actively awaited by the `ValidateHeader` stage when it detects an epoch change.
 It also implies that updated protocol parameters need to be actively awaited by any concerned consensus stages before being able to participate in the epoch after the following epoch change.
 These concerns can be handled by handling the ledger updates in a dedicated stage that can then be interrogated from other stages that need the information, asserting back pressure on the incoming data flow until the required information is available.
+
+## Discussion points
+
+\-
