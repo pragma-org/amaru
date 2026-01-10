@@ -1,0 +1,81 @@
+name: Work Item
+type: task
+description: |
+  Define a work item tied to the roadmap.
+
+  If you're an external contributor with a feature request, you should rather create a [GitHub Discussion](https://github.com/pragma-org/amaru/discussions).
+projects: ["pragma-org/3"]
+body:
+  - type: textarea
+    id: abstract
+    attributes:
+      label: Abstract
+      description: |
+        A short summary of the work item.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why?
+      description: |
+        What problem are we solving, and why is it important.
+    validations:
+      required: true
+
+  - type: textarea
+    id: how
+    attributes:
+      label: How?
+      description: |
+        Describe the implementation plan, parts of the code which needs to be modified, known design decisions or directions.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Testing Strategy / Acceptance Criteria
+      description: |
+        How is the work going to be validated, tested and documented?
+    validations:
+      required: true
+
+  - type: textarea
+    id: discussions
+    attributes:
+      label: Discussion points
+      description: |
+        Record discussions happening aroun the item, mostly done a posteriori, but can have been preliminary discussions
+    validations:
+      required: false
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies & Related Tasks
+      description: |
+        Issues, PRs, or items that are related
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      description: |
+        Ensure that you've completed all the necessary steps before submitting the ticket.
+      options:
+        - label: I understand that feature requests and unrefined work item should be open as [GitHub Discussions](https://github.com/pragma-org/amaru/discussions) instead.
+          required: true
+        - label: I have assigned this item to an existing milestone from the roadmap
+          required: true
+        - label: I have added a label capturing the impact of this item (i.e. value for users/stakeholders if successful)
+          required: true
+        - label: I have added a label capturing the delivery risk of this item (i.e. how likely is it that this task will succeed as planned)
+          required: true
+        - label: I have added a label capturing the effort of this item (i.e. how large is the task?)
+          required: true
+    validations:
+      required: true

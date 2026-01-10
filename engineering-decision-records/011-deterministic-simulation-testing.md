@@ -7,7 +7,7 @@ status: accepted
 
 ## Context
 
-Testing and debugging distributed systems is difficult. 
+Testing and debugging distributed systems is difficult.
 
 One of the main contributing factors to the problem of testing is that there
 are so many failure modes, which results in a combinatorial explosion of states
@@ -17,8 +17,6 @@ Even when one finds a failing test case, the problem of debugging is
 complicated by the parallel nature of a network of nodes. The same test cases
 might not fail deterministically, because some bugs are only triggered in some
 interleaving of threads that only happen rarely.
-
-## Motivation
 
 The state-of-the-art to deal with the testing problem is to generate test
 cases which includes fault injection and "fuzz" a whole network of nodes.
@@ -42,7 +40,7 @@ To tackle the problem of testing and debugging we've introduced two changes:
      messages get delivered to the nodes and can step through the execution
      deterministically using the pure-stage API.
 
-## Discussion points
+## Consequences
 
 Apart from the goal of determinism, the design of the pure-stage library and
 the simulator were mainly driven by the following considerations.
@@ -286,7 +284,9 @@ Some differences that may or may not motivate the double effort:
    system had not been made deterministic (and solely relied on Antithesis for
    determinism).
 
-## Relation to production Mode
+## Discussion points
+
+### Relation to production Mode
 
 The above description focuses on a special mode of execution for the pure-stage
 infrastructure that allows us to deterministically run a whole network while

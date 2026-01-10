@@ -7,19 +7,17 @@ status: accepted
 
 ## Context
 
-Amaru is meant to be(come) a rather large and complex project, spanning over multiple years. 
+Amaru is meant to be(come) a rather large and complex project, spanning over multiple years.
 
-The ambition of the project is to build a new fully interoperable block-producing node for improving the overall performance the Cardano blockchain. 
+The ambition of the project is to build a new fully interoperable block-producing node for improving the overall performance the Cardano blockchain.
 
 The Amaru node wants to provide a simplified entry point for building things on Cardano by using a modular design and Rust as its main coding language.
 
-## Motivation
-
 Given the ambition of the project, we need a structured approach to turn ambitions into concrete goals.
 
-We want to have a unified structure to streamline development, ensure cross-team collaboration, and maintain focus on core objectives. 
+We want to have a unified structure to streamline development, ensure cross-team collaboration, and maintain focus on core objectives.
 
-This framework needs to enable efficient coordination across diverse teams and ensuring that all contributors align with the product’s high standards for performance, security, and resilience. 
+This framework needs to enable efficient coordination across diverse teams and ensuring that all contributors align with the product’s high standards for performance, security, and resilience.
 
 ## Decision
 
@@ -52,6 +50,6 @@ This representation encapsulates all the phases imagined for running the Amaru p
 > * [Domain Driven Design modelling process](https://github.com/ddd-crew/ddd-starter-modelling-process/blob/master/README.md)
 > * [Core mindset behind each step of Drive & Deliver](https://theleanstartup.com/principles)
 > * [Extreme programming is the guideline for the Drive & deliver steps of the framework](https://www.altexsoft.com/blog/extreme-programming-values-principles-and-practices/)
-> * [Outcome driven methodology used to create the framework for Amaru](https://www.mobiusloop.com/blog/pka8i66gimn35593mck8f4ipwidenb)  
+> * [Outcome driven methodology used to create the framework for Amaru](https://www.mobiusloop.com/blog/pka8i66gimn35593mck8f4ipwidenb)
 
 - We integrated feedbacks of experienced software developpers, project managers, product managers into our approach and kept just the necessary phases

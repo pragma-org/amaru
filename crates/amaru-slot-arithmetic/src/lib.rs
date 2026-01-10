@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(step_trait)]
-
 use amaru_minicbor_extra::heterogeneous_array;
 use minicbor::{
     Decode, Decoder, Encode,
@@ -23,7 +21,6 @@ use num::BigUint;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::Display,
-    iter::Step,
     ops::{Add, Sub},
     str::FromStr,
 };
@@ -171,20 +168,6 @@ impl Sub<Epoch> for Epoch {
 
     fn sub(self, rhs: Epoch) -> Self::Output {
         self.0 - rhs.0
-    }
-}
-
-impl Step for Epoch {
-    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
-        u64::steps_between(&start.0, &end.0)
-    }
-
-    fn forward_checked(start: Self, count: usize) -> Option<Self> {
-        u64::forward_checked(start.0, count).map(Epoch)
-    }
-
-    fn backward_checked(start: Self, count: usize) -> Option<Self> {
-        u64::backward_checked(start.0, count).map(Epoch)
     }
 }
 

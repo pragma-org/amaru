@@ -9,8 +9,6 @@ status: accepted
 
 This decision record documents a general organization for how the Amaru node will collect and report critical operational metrics, logs, and tracing data.
 
-## Motivation
-
 A key component of operating any computing system at scale is observability: tracking what happened, how often something happened, how long it took, how many resources something is consuming, and where potential issues or bottlenecks might be found.
 
 Thus, we would like Amaru to track and report these traces and metrics. We would also like to use industry standards so that users of the Amaru node can swap out their own visualization and aggregation infrastructure as needed.
@@ -56,7 +54,7 @@ Such metrics should follow the [Open Telemetry Metrics Semantics conventions](ht
 
 The Amaru binary itself will contain a `metrics` module that stores and constructs instances of all other metrics types. It will be responsible for constructing and orchestrating all modules and crates. It will also track common system and process metrics, such as CPU and memory usage.
 
-## Consequence
+## Consequences
 
 - Each component of the Amaru node can fully own its own metrics. At the same time, someone wishing to document or explore the metrics supported by the Amaru node has a single entrypoint to begin their exploration.
 

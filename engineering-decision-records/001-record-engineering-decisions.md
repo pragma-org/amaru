@@ -53,7 +53,6 @@ status: proposed | accepted | rejected
 <!-- Summarizes, a posteriori, the major discussion points around that decisions -->
 ```
 
-
 ## Consequences
 
 - We'll start recording major engineering decisions on the project, like this one, before or after they happen. Conversations are often spread on different channels, especially Discord, in the present context, and we do not want decisions taken on peripheral channels to be lost in the void.

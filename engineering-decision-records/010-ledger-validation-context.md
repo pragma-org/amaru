@@ -22,7 +22,7 @@ Cardano transactions are, in fact, akin to a collection of primitive operations 
 
 The entire validation sequence can be [mapped as a flow chart](https://app.excalidraw.com/l/7Ao24g28S3o/872UZdalVsy), which reads top-down and left-to-right.
 
-## Motivation
+### Motivation
 
 ### 1. Transition inter-dependencies and evolving context
 
@@ -272,17 +272,19 @@ pub trait WitnessSlice {
 }
 ```
 
-### Further considerations
+## Consequences
 
-The current design will effectively process blocks in three passes:
+- The current design will effectively process blocks in three passes:
 
-1. Parsing
-2. Preparation
-3. Validation
+  1. Parsing
+  2. Preparation
+  3. Validation
 
-It sounds _reasonable_ and more performant to combine the parsing & preparation steps and only requires two passes. Since the block is already being traversed for parsing, we could maintain an additional parsing context that takes care of marking elements to be fetched for validation. Besides, this approach seems well-geared towards the libraries that we already use for decoding CBOR (a.k.a [minicbor](https://docs.rs/minicbor/latest/minicbor/)) which provides [a mechanism](https://docs.rs/minicbor/latest/minicbor/fn.decode_with.html) for writing decoders that take an additional mutable context as parameter.
+  It sounds _reasonable_ and more performant to combine the parsing & preparation steps and only requires two passes. Since the block is already being traversed for parsing, we could maintain an additional parsing context that takes care of marking elements to be fetched for validation. Besides, this approach seems well-geared towards the libraries that we already use for decoding CBOR (a.k.a [minicbor](https://docs.rs/minicbor/latest/minicbor/)) which provides [a mechanism](https://docs.rs/minicbor/latest/minicbor/fn.decode_with.html) for writing decoders that take an additional mutable context as parameter.
 
-This change would, however, require rewriting many of the decoders in Pallas to support decoding from such a custom context. Since the context wouldn't change the underlying serialization, we could reuse the existing decoders based on the unit (i.e., `()`) context.
+  This change would, however, require rewriting many of the decoders in Pallas to support decoding from such a custom context. Since the context wouldn't change the underlying serialization, we could reuse the existing decoders based on the unit (i.e., `()`) context.
+
+- We introduce the use of the nightly [`try_trait_v2`](https://github.com/rust-lang/rust/issues/84277) in order to simplify the writing of ledger rules and distinguish between a ledger rule violation (OK as part of normal operations, can happen when someone submits an ill-forme transaction), from actual runtime errors. Both are handled separately but must both interrupt the flow of execution.
 
 ## Discussion points
 
