@@ -640,12 +640,14 @@ mod tests {
     use pure_stage::{
         Effect, StageGraph,
         simulation::{Blocked, SimulationBuilder, SimulationRunning},
+        tokio::TokioBuilder,
         trace_buffer::TraceBuffer,
     };
     use std::{fmt, sync::Arc, time::Duration};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
+        runtime::Handle,
         time::timeout,
     };
     use tracing_subscriber::EnvFilter;
@@ -1045,5 +1047,99 @@ mod tests {
                 assert_eq!(&bytes.split_to(len), &vec![msg; len]);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_tokio() {
+        let _guard = pure_stage::register_data_deserializer::<MuxMessage>();
+        let _guard = pure_stage::register_data_deserializer::<NonEmptyBytes>();
+        let _guard = pure_stage::register_effect_deserializer::<SendEffect>();
+        let _guard = pure_stage::register_effect_deserializer::<RecvEffect>();
+        let _guard = pure_stage::register_data_deserializer::<State>();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server_addr = listener.local_addr().unwrap();
+        let server_task = tokio::spawn(async move { listener.accept().await.unwrap().0 });
+
+        let network = TokioConnections::new(65536);
+        let conn_id = t(network.connect(vec![server_addr])).await.unwrap();
+        let mut tcp = t(server_task).await.unwrap();
+
+        let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
+        let trace_guard = TraceBuffer::drop_guard(&trace_buffer);
+        let mut graph = TokioBuilder::default().with_trace_buffer(trace_buffer);
+
+        let mux = graph.stage("mux", super::stage);
+        let mux = graph.wire_up(mux, State::new(conn_id, &[(PROTO_TEST.erase(), 0)]));
+
+        let (output, mut rx) = graph.output::<HandlerMessage>("output", 10);
+        let (sent, mut sent_rx) = graph.output::<Sent>("sent", 10);
+        let input = graph.input(&mux);
+
+        graph
+            .resources()
+            .put::<ConnectionResource>(Arc::new(network));
+
+        let running = graph.run(Handle::current());
+
+        input
+            .send(MuxMessage::Send(
+                PROTO_TEST.erase(),
+                Bytes::copy_from_slice(&[1, 24, 33]).try_into().unwrap(),
+                sent,
+            ))
+            .await
+            .unwrap();
+        let mut buf = [0u8; 11];
+        assert_eq!(t(tcp.read_exact(&mut buf)).await.unwrap(), 11);
+        t(sent_rx.next()).await.unwrap();
+        // first four bytes are timestamp; proto ID is 257 (0x0101), length is 3
+        assert_eq!(&buf[4..], [1, 1, 0, 3, 1, 24, 33]);
+
+        input
+            .send(MuxMessage::Register {
+                protocol: PROTO_TEST.erase(),
+                frame: Frame::OneCborItem,
+                handler: output,
+                max_buffer: 100,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            t(rx.next()).await.unwrap(),
+            HandlerMessage::Registered(PROTO_TEST.erase())
+        );
+
+        input
+            .send(MuxMessage::WantNext(PROTO_TEST.erase()))
+            .await
+            .unwrap();
+
+        // need to flip role bit before sending as responses
+        buf[4] |= 0x80;
+
+        t(tcp.write_all(&buf)).await.unwrap();
+        t(tcp.flush()).await.unwrap();
+        assert_eq!(
+            t(rx.next()).await.unwrap(),
+            HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(&[1]).unwrap())
+        );
+        s(rx.next()).await;
+        input
+            .send(MuxMessage::WantNext(PROTO_TEST.erase()))
+            .await
+            .unwrap();
+        assert_eq!(
+            t(rx.next()).await.unwrap(),
+            HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(&[24, 33]).unwrap())
+        );
+
+        // wrong protocol ID
+        buf[5] += 1;
+        t(tcp.write_all(&buf)).await.unwrap();
+        t(tcp.flush()).await.unwrap();
+        t(running.join()).await;
+
+        trace_guard.defuse();
     }
 }
