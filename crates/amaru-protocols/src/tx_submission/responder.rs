@@ -83,7 +83,7 @@ impl ProtocolState<Responder> for State {
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
         // Responder waits for Init message, doesn't send anything on init
-        Ok((outcome(), self.clone()))
+        Ok((outcome().want_next(), *self))
     }
 
     fn network(
@@ -91,21 +91,18 @@ impl ProtocolState<Responder> for State {
         input: Self::WireMsg,
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
         Ok(match (self, input) {
-            (State::Init, Message::Init) => (
-                outcome().want_next().result(ResponderResult::Init),
-                State::Idle,
-            ),
+            (State::Init, Message::Init) => (outcome().result(ResponderResult::Init), State::Idle),
             (State::TxIdsBlocking | State::TxIdsNonBlocking, Message::ReplyTxIds(tx_ids)) => (
-                outcome()
-                    .want_next()
-                    .result(ResponderResult::ReplyTxIds(tx_ids)),
+                outcome().result(ResponderResult::ReplyTxIds(tx_ids)),
                 State::Idle,
             ),
             (State::Txs, Message::ReplyTxs(txs)) => (
-                outcome().want_next().result(ResponderResult::ReplyTxs(txs)),
+                outcome().result(ResponderResult::ReplyTxs(txs)),
                 State::Idle,
             ),
-            (State::Idle, Message::Done) => (outcome().result(ResponderResult::Done), State::Done),
+            (State::TxIdsBlocking, Message::Done) => {
+                (outcome().result(ResponderResult::Done), State::Done)
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -115,18 +112,23 @@ impl ProtocolState<Responder> for State {
             (State::Idle, ResponderAction::SendRequestTxIds { ack, req, blocking }) => {
                 match blocking {
                     Blocking::Yes => (
-                        outcome().send(Message::RequestTxIdsBlocking(ack, req)),
+                        outcome()
+                            .send(Message::RequestTxIdsBlocking(ack, req))
+                            .want_next(),
                         State::TxIdsBlocking,
                     ),
                     Blocking::No => (
-                        outcome().send(Message::RequestTxIdsNonBlocking(ack, req)),
+                        outcome()
+                            .send(Message::RequestTxIdsNonBlocking(ack, req))
+                            .want_next(),
                         State::TxIdsNonBlocking,
                     ),
                 }
             }
-            (State::Idle, ResponderAction::SendRequestTxs(tx_ids)) => {
-                (outcome().send(Message::RequestTxs(tx_ids)), State::Txs)
-            }
+            (State::Idle, ResponderAction::SendRequestTxs(tx_ids)) => (
+                outcome().send(Message::RequestTxs(tx_ids)).want_next(),
+                State::Txs,
+            ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

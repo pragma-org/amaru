@@ -66,7 +66,7 @@ where
     spec.init(TxIdsBlocking, reply_tx_ids(), Idle);
     spec.init(TxIdsNonBlocking, reply_tx_ids(), Idle);
     spec.init(Txs, reply_txs(), Idle);
-    spec.init(Idle, Message::Done, State::Done);
+    spec.init(TxIdsBlocking, Message::Done, State::Done);
     spec.resp(Idle, request_tx_ids_blocking(), TxIdsBlocking);
     spec.resp(Idle, request_tx_ids_non_blocking(), TxIdsNonBlocking);
     spec.resp(Idle, request_txs(), Txs);
@@ -128,7 +128,9 @@ pub async fn register_tx_submission(
 }
 
 /// The state of the tx submission protocol as a whole.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, serde::Serialize, serde::Deserialize,
+)]
 pub enum State {
     Init,
     Idle,

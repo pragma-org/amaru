@@ -77,7 +77,7 @@ impl ProtocolState<Responder> for State {
     type Out = ResponderResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome(), *self))
+        Ok((outcome().want_next(), *self))
     }
 
     fn network(
@@ -87,9 +87,7 @@ impl ProtocolState<Responder> for State {
         use Message::*;
         match (self, input) {
             (Self::Idle, RequestRange { from, through }) => Ok((
-                outcome()
-                    .want_next()
-                    .result(ResponderResult::RequestRange { from, through }),
+                outcome().result(ResponderResult::RequestRange { from, through }),
                 Self::Busy,
             )),
             (Self::Idle, ClientDone) => Ok((
@@ -104,11 +102,15 @@ impl ProtocolState<Responder> for State {
         use ResponderAction::*;
         match (self, input) {
             (Self::Busy, StartBatch) => Ok((outcome().send(Message::StartBatch), Self::Streaming)),
-            (Self::Busy, NoBlocks) => Ok((outcome().send(Message::NoBlocks), Self::Idle)),
+            (Self::Busy, NoBlocks) => {
+                Ok((outcome().send(Message::NoBlocks).want_next(), Self::Idle))
+            }
             (Self::Streaming, Block(body)) => {
                 Ok((outcome().send(Message::Block { body }), Self::Streaming))
             }
-            (Self::Streaming, BatchDone) => Ok((outcome().send(Message::BatchDone), Self::Idle)),
+            (Self::Streaming, BatchDone) => {
+                Ok((outcome().send(Message::BatchDone).want_next(), Self::Idle))
+            }
             (state, action) => {
                 anyhow::bail!("unexpected action in state {:?}: {:?}", state, action)
             }

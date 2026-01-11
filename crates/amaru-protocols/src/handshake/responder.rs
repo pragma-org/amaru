@@ -98,13 +98,17 @@ impl ProtocolState<Responder> for State {
     type Out = Proposal;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome(), Self::Propose))
+        Ok((outcome().want_next(), Self::Propose))
     }
 
     fn network(
         &self,
         input: Self::WireMsg,
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+        anyhow::ensure!(
+            self == &Self::Propose,
+            "handshake responder cannot receive in confirm state"
+        );
         match (self, input) {
             (Self::Propose, Message::Propose(version_table)) => {
                 Ok((outcome().result(Proposal(version_table)), Self::Confirm))
@@ -114,6 +118,10 @@ impl ProtocolState<Responder> for State {
     }
 
     fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
+        anyhow::ensure!(
+            self == &Self::Confirm,
+            "handshake responder cannot send in propose state"
+        );
         Ok(match input {
             ResponderAction::Accept(version_number, version_data) => (
                 outcome().send(Message::Accept(version_number, version_data)),
@@ -137,7 +145,7 @@ pub enum ResponderAction {
     Query(VersionTable<VersionData>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Proposal(VersionTable<VersionData>);
 
 impl From<HandshakeResult> for ResponderAction {

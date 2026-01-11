@@ -59,14 +59,12 @@ impl<S, R> Outcome<S, R> {
             want_next: true,
         }
     }
-}
 
-impl<S, R> From<Option<S>> for Outcome<S, R> {
-    fn from(send: Option<S>) -> Self {
-        Self {
-            send,
+    pub fn without_result(self) -> Outcome<S, Void> {
+        Outcome {
+            send: self.send,
             result: None,
-            want_next: false,
+            want_next: self.want_next,
         }
     }
 }
@@ -85,7 +83,7 @@ pub fn outcome<S, R>() -> Outcome<S, R> {
 pub trait ProtocolState<R: RoleT>: Sized + SendData {
     type WireMsg: for<'de> minicbor::Decode<'de, ()> + minicbor::Encode<()> + Send;
     type Action: std::fmt::Debug + Send;
-    type Out: std::fmt::Debug + Send;
+    type Out: std::fmt::Debug + PartialEq + Send;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)>;
 

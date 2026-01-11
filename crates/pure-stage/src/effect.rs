@@ -1174,6 +1174,7 @@ impl Effect {
     }
 
     /// Assert that this effect is a receive effect.
+    #[track_caller]
     pub fn assert_receive<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>) {
         let at_stage = at_stage.as_ref();
         match self {
@@ -1187,6 +1188,7 @@ impl Effect {
 
     /// Assert that this effect is a send effect.
     #[expect(clippy::unwrap_used)]
+    #[track_caller]
     pub fn assert_send<Msg1, Msg2: SendData + PartialEq>(
         &self,
         at_stage: impl AsRef<StageRef<Msg1>>,
@@ -1213,6 +1215,7 @@ impl Effect {
     }
 
     /// Assert that this effect is a clock effect.
+    #[track_caller]
     pub fn assert_clock<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>) {
         let at_stage = at_stage.as_ref();
         match self {
@@ -1225,6 +1228,7 @@ impl Effect {
     }
 
     /// Assert that this effect is a wait effect.
+    #[track_caller]
     pub fn assert_wait<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>, duration: Duration) {
         let at_stage = at_stage.as_ref();
         match self {
@@ -1240,6 +1244,7 @@ impl Effect {
     }
 
     /// Assert that this effect is a call effect.
+    #[track_caller]
     pub fn assert_call<Msg1, Msg2: SendData, Out>(
         self,
         at_stage: impl AsRef<StageRef<Msg1>>,
@@ -1267,6 +1272,7 @@ impl Effect {
     }
 
     /// Assert that this effect is an external effect.
+    #[track_caller]
     pub fn assert_external<Eff: ExternalEffect + PartialEq>(
         &self,
         at_stage: impl AsRef<Name>,
@@ -1286,6 +1292,7 @@ impl Effect {
     }
 
     /// Extract the external effect from this effect.
+    #[track_caller]
     pub fn extract_external<Eff: ExternalEffectAPI + PartialEq>(
         self,
         at_stage: impl AsRef<Name>,
@@ -1309,6 +1316,7 @@ impl Effect {
     }
 
     /// Assert that this effect is an add stage effect.
+    #[track_caller]
     pub fn assert_add_stage<Msg>(
         &self,
         at_stage: impl AsRef<StageRef<Msg>>,
@@ -1329,6 +1337,7 @@ impl Effect {
     }
 
     /// Assert that this effect is a wire stage effect.
+    #[track_caller]
     pub fn assert_wire_stage<Msg, St: SendData + PartialEq>(
         &self,
         at_stage: impl AsRef<StageRef<Msg>>,
@@ -1353,6 +1362,7 @@ impl Effect {
         }
     }
 
+    #[track_caller]
     pub fn extract_wire_stage<Msg, St: SendData + PartialEq>(
         &self,
         at_stage: impl AsRef<StageRef<Msg>>,

@@ -244,7 +244,7 @@ impl ProtocolState<Responder> for ResponderState {
     type Out = ResponderResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome(), *self))
+        Ok((outcome().want_next(), *self))
     }
 
     fn network(
@@ -274,13 +274,15 @@ impl ProtocolState<Responder> for ResponderState {
 
         Ok(match (self, input) {
             (Intersect, ResponderAction::IntersectFound(point, tip)) => (
-                outcome().send(Message::IntersectFound(point, tip)),
+                outcome()
+                    .send(Message::IntersectFound(point, tip))
+                    .want_next(),
                 Idle {
                     send_rollback: true,
                 },
             ),
             (Intersect, ResponderAction::IntersectNotFound(tip)) => (
-                outcome().send(Message::IntersectNotFound(tip)),
+                outcome().send(Message::IntersectNotFound(tip)).want_next(),
                 Idle {
                     send_rollback: false,
                 },
@@ -292,20 +294,26 @@ impl ProtocolState<Responder> for ResponderState {
             (CanAwait { send_rollback }, ResponderAction::RollForward(content, tip)) => {
                 ensure!(!*send_rollback, "cannot RollForward after intersect");
                 (
-                    outcome().send(Message::RollForward(content, tip)),
+                    outcome()
+                        .send(Message::RollForward(content, tip))
+                        .want_next(),
                     Idle {
                         send_rollback: false,
                     },
                 )
             }
             (MustReply, ResponderAction::RollForward(content, tip)) => (
-                outcome().send(Message::RollForward(content, tip)),
+                outcome()
+                    .send(Message::RollForward(content, tip))
+                    .want_next(),
                 Idle {
                     send_rollback: false,
                 },
             ),
             (CanAwait { .. } | MustReply, ResponderAction::RollBackward(point, tip)) => (
-                outcome().send(Message::RollBackward(point, tip)),
+                outcome()
+                    .send(Message::RollBackward(point, tip))
+                    .want_next(),
                 Idle {
                     send_rollback: false,
                 },

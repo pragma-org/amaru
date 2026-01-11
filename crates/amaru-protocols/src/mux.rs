@@ -110,8 +110,8 @@ pub struct Read;
 pub enum MuxMessage {
     /// Register the given protocol with its ID so that data will be fed into it
     ///
-    /// The protocol will get the first invocation for free and must then request
-    /// following invocations by sending `WantNext` (for strict flow control).
+    /// Note that the handler explicitly needs to request each network message by sending `WantNext`.
+    /// This is necessary to allow proper handling of TCP simultaneous open in the handshake protocol.
     Register {
         protocol: ProtocolId<Erased>,
         frame: Frame,
@@ -396,8 +396,7 @@ impl Muxer {
     ) -> anyhow::Result<()> {
         eff.send(&handler, HandlerMessage::Registered(proto_id))
             .await;
-        let pp = self.do_register(proto_id, frame, max_buffer, handler);
-        pp.want_next(eff).await?;
+        self.do_register(proto_id, frame, max_buffer, handler);
         Ok(())
     }
 
@@ -754,6 +753,11 @@ mod tests {
             HandlerMessage::Registered(PROTO_N2C_CHAIN_SYNC.erase())
         );
 
+        input
+            .send(MuxMessage::WantNext(PROTO_N2C_CHAIN_SYNC.erase()))
+            .await
+            .unwrap();
+
         // need to flip role bit before sending as responses
         buf[4] = 0x80;
 
@@ -876,6 +880,7 @@ mod tests {
             HandlerMessage::Registered(PROTO_N2C_CHAIN_SYNC.erase()),
         );
         running.handle_effect(registered);
+        running.enqueue_msg(&mux, [MuxMessage::WantNext(PROTO_N2C_CHAIN_SYNC.erase())]);
         running.run_until_blocked().assert_busy([&reader]);
 
         // send a message towards the network

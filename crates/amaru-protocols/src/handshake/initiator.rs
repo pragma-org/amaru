@@ -76,7 +76,6 @@ impl StageState<State, Initiator> for HandshakeInitiator {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         Ok(match input {
-            InitiatorResult::Initialize => (None, self),
             InitiatorResult::Propose => {
                 tracing::debug!(?self.our_versions, "proposing versions");
                 (
@@ -113,13 +112,17 @@ impl ProtocolState<Initiator> for State {
     type Out = InitiatorResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome().result(InitiatorResult::Initialize), Self::Propose))
+        Ok((outcome().result(InitiatorResult::Propose), Self::Propose))
     }
 
     fn network(
         &self,
         input: Self::WireMsg,
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+        anyhow::ensure!(
+            self == &Self::Confirm,
+            "handshake initiator cannot receive in initial state"
+        );
         Ok(match input {
             Message::Propose(version_table) => {
                 // TCP simultaneous open
@@ -151,18 +154,21 @@ impl ProtocolState<Initiator> for State {
     }
 
     fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
+        anyhow::ensure!(
+            self == &Self::Propose,
+            "handshake initiator cannot send in confirmation state"
+        );
         Ok(match input {
             InitiatorAction::Propose(version_table) => (
-                outcome().send(Message::Propose(version_table)),
+                outcome().send(Message::Propose(version_table)).want_next(),
                 Self::Confirm,
             ),
         })
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InitiatorResult {
-    Initialize,
     Propose,
     Conclusion(HandshakeResult),
     SimOpen(VersionTable<VersionData>),

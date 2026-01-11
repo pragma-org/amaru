@@ -167,6 +167,7 @@ impl ConnectionProvider for TokioConnections {
         Box::pin(
             async move {
                 let connection = resource.lock().remove(&conn).ok_or_else(|| {
+                    // TODO: figure out how to not raise an error for a connection that has simply been closed already
                     std::io::Error::other(format!("connection {conn} not found for close"))
                 })?;
                 connection.writer.lock().await.shutdown().await?;

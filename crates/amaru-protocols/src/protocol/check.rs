@@ -21,8 +21,59 @@ use std::{
 };
 
 pub struct ProtoSpec<State, Message, R> {
-    transitions: BTreeMap<State, BTreeMap<Message, (Role, State)>>,
+    transitions: BTreeMap<State, PerState<State, Message>>,
     _phantom: PhantomData<R>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+struct PerState<State, Message> {
+    agency: Role,
+    transitions: BTreeMap<Message, (Role, State, bool)>,
+}
+
+impl<State, Message> PerState<State, Message> {
+    fn initiator() -> Self {
+        Self {
+            agency: Role::Initiator,
+            transitions: Default::default(),
+        }
+    }
+
+    fn responder() -> Self {
+        Self {
+            agency: Role::Responder,
+            transitions: Default::default(),
+        }
+    }
+
+    fn role(role: Role) -> Self {
+        Self {
+            agency: role,
+            transitions: Default::default(),
+        }
+    }
+
+    fn insert(&mut self, msg: Message, role: Role, to: State) -> Option<(Role, State)>
+    where
+        Message: std::fmt::Debug + Ord,
+        State: std::fmt::Debug,
+    {
+        assert_eq!(self.agency, role, "inserting {msg:?}@{role:?} to {to:?}");
+        self.transitions
+            .insert(msg, (role, to, false))
+            .map(|(r, t, _)| (r, t))
+    }
+
+    fn insert_sim_open(&mut self, msg: Message, role: Role, to: State) -> Option<(Role, State)>
+    where
+        Message: std::fmt::Debug + Ord,
+        State: std::fmt::Debug,
+    {
+        assert_eq!(self.agency, role, "inserting {msg:?}@{role:?} to {to:?}");
+        self.transitions
+            .insert(msg, (role, to, true))
+            .map(|(r, t, _)| (r, t))
+    }
 }
 
 impl<State, Message, R> Default for ProtoSpec<State, Message, R> {
@@ -45,8 +96,8 @@ where
         let present = self
             .transitions
             .entry(from.clone())
-            .or_default()
-            .insert(msg.clone(), (Role::Initiator, to.clone()));
+            .or_insert_with(PerState::initiator)
+            .insert(msg.clone(), Role::Initiator, to.clone());
         if let Some(present) = present {
             panic!(
                 "transition {:?} -> {:?} -> {:?} already defined when inserting {:?}",
@@ -60,8 +111,22 @@ where
         let present = self
             .transitions
             .entry(from.clone())
-            .or_default()
-            .insert(msg.clone(), (Role::Responder, to.clone()));
+            .or_insert_with(PerState::responder)
+            .insert(msg.clone(), Role::Responder, to.clone());
+        if let Some(present) = present {
+            panic!(
+                "transition {:?} -> {:?} -> {:?} already defined when inserting {:?}",
+                from, msg, present, to
+            );
+        }
+    }
+
+    pub fn sim_open(&mut self, from: State, msg: Message, to: State) {
+        let present = self
+            .transitions
+            .entry(from.clone())
+            .or_insert_with(PerState::responder)
+            .insert_sim_open(msg.clone(), Role::Responder, to.clone());
         if let Some(present) = present {
             panic!(
                 "transition {:?} -> {:?} -> {:?} already defined when inserting {:?}",
@@ -85,45 +150,84 @@ where
         let messages = self
             .transitions
             .values()
-            .flat_map(|m| m.keys())
+            .flat_map(|m| m.transitions.keys())
             .collect::<BTreeSet<_>>();
 
         let (out, init) = initial.init().unwrap();
         match role {
             Role::Initiator => {
-                if out.send.is_none() {
-                    assert_eq!(initial, init);
+                if let Some(_send) = out.send.as_ref() {
+                    assert_ne!(
+                        initial, init,
+                        "initialization with send must transition to a different state"
+                    );
+                } else {
+                    assert_eq!(
+                        initial, init,
+                        "initialization without send must remain in the same state"
+                    );
                 }
             }
             Role::Responder => {
                 assert!(out.send.is_none());
-                assert_eq!(initial, init);
+                assert_eq!(
+                    initial, init,
+                    "initialization without send must remain in the same state"
+                );
             }
         }
+        assert_eq!(
+            out.want_next,
+            self.transitions
+                .get(&init)
+                .expect("init() transitions to non-existent state")
+                .agency
+                == role.opposite(),
+            "initialization must want_next for responder and not for initiator (unless sending from init()) (got {out:?})"
+        );
 
         for state in states {
             for &message in &messages {
-                let to = self.transitions.get(state).and_then(|m| m.get(message));
+                let to = self
+                    .transitions
+                    .get(state)
+                    .and_then(|m| m.transitions.get(message));
                 if state == &initial && Some(message) == out.send.as_ref() {
-                    assert_eq!(Some(&init), to.map(|(_, s)| s));
+                    assert_eq!(Some(&init), to.map(|(_, s, _)| s));
                     continue;
                 }
-                let (outcome, is_local) = if let Some(action) = local_msg(message) {
-                    assert!(
-                        state.network(message.clone()).is_err(),
-                        "state accepts network message {message:?} while that is a local message"
+                let (must_be_local, is_sim_open) = to
+                    .map(|(r, _, s)| (*r == role, *s))
+                    .unwrap_or((false, false));
+
+                let outcome = if must_be_local {
+                    assert_eq!(
+                        None,
+                        state.network(message.clone()).ok(),
+                        "state {state:?} allows network message {message:?} while local node has agency"
                     );
-                    (state.local(action).ok(), true)
+                    let Some(local_msg) = local_msg(message) else {
+                        if is_sim_open {
+                            continue;
+                        }
+                        panic!(
+                            "local message {message:?} not declared for {state:?} in check() arguments"
+                        );
+                    };
+                    state.local(local_msg).ok()
                 } else {
-                    (
-                        state
-                            .network(message.clone())
-                            .ok()
-                            .map(|(outcome, next)| (outcome.send.into(), next)),
-                        false,
-                    )
+                    assert_eq!(
+                        None,
+                        local_msg(message).and_then(|action| state.local(action).ok()),
+                        "state {state:?} allows local message {message:?} while the peer may have agency"
+                    );
+                    state
+                        .network(message.clone())
+                        .ok()
+                        .map(|(outcome, next)| (outcome.without_result(), next))
                 };
-                let ((r, to), (send, next)) = match (to, outcome) {
+
+                let ((r, to, _), (send, next)) = match (to, outcome) {
                     (None, None) => continue,
                     (None, Some(_)) => panic!("extraneous transition {:?} -> {:?}", state, message),
                     (Some(_), None) => panic!(
@@ -132,6 +236,9 @@ where
                     ),
                     (Some(to), Some(outcome)) => (to, outcome),
                 };
+                // we only get here if `to` was `Some`, meaning that must_be_local == is_local
+                let is_local = must_be_local;
+
                 if is_local {
                     assert_eq!(*r, role, "sending {message:?} not allowed for {role:?}");
                     assert_eq!(
@@ -149,9 +256,12 @@ where
                         role.opposite(),
                         "expecting {message:?} not allowed for {role:?}"
                     );
-                    if let Some(send) = send.send {
-                        let to2 = self.transitions.get(to).and_then(|m| m.get(&send));
-                        if let Some((r2, to2)) = to2 {
+                    if let Some(send) = send.send.as_ref() {
+                        let to2 = self
+                            .transitions
+                            .get(to)
+                            .and_then(|m| m.transitions.get(send));
+                        if let Some((r2, to2, _)) = to2 {
                             assert_eq!(*r2, role, "sending {send:?} not allowed for {role:?}");
                             assert_eq!(to2, &next, "final state mismatch for {to:?} -> {send:?}");
                         } else {
@@ -161,6 +271,22 @@ where
                         assert_eq!(
                             &next, to,
                             "final state mismatch for {state:?} -> {message:?}"
+                        );
+                    }
+                }
+
+                // check that want-next is called when transitioning into a state with remote agency
+                // (note that transition into final state will yield None for the get())
+                if let Some(s) = self.transitions.get(&next) {
+                    if s.agency == role.opposite() {
+                        assert!(
+                            send.want_next,
+                            "transition into state with remote agency requires want_next: {state:?} -> {message:?} -> {to:?} (got {send:?})"
+                        );
+                    } else {
+                        assert!(
+                            !send.want_next,
+                            "transition into state with local agency should not want_next: {state:?} -> {message:?} -> {to:?} (got {send:?})"
                         );
                     }
                 }
@@ -180,16 +306,16 @@ where
         S2: Ord + std::fmt::Debug + Clone + ProtocolState<R2, WireMsg = Message>,
         R2: RoleT,
     {
-        let mut simplified = BTreeMap::<S2, BTreeMap<Message, (Role, S2)>>::new();
+        let mut simplified = BTreeMap::<S2, PerState<S2, Message>>::new();
 
-        for (from, transitions) in &self.transitions {
+        for (from, per_state) in &self.transitions {
             let from = surjection(from);
-            for (message, (role, to)) in transitions {
+            for (message, (role, to, _)) in per_state.transitions.iter() {
                 let to = surjection(to);
                 let existing_target = simplified
                     .entry(from.clone())
-                    .or_default()
-                    .insert(message.clone(), (*role, to.clone()));
+                    .or_insert_with(|| PerState::role(*role))
+                    .insert(message.clone(), *role, to.clone());
                 if let Some((existing_role, existing_target)) = existing_target.as_ref()
                     && (existing_target != &to || existing_role != role)
                 {

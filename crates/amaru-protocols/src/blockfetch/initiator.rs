@@ -158,18 +158,14 @@ impl ProtocolState<Initiator> for State {
         use Message::*;
         match (self, input) {
             (Self::Busy, StartBatch) => Ok((outcome().want_next(), Self::Streaming)),
-            (Self::Busy, NoBlocks) => Ok((
-                outcome().want_next().result(InitiatorResult::NoBlocks),
-                Self::Idle,
-            )),
+            (Self::Busy, NoBlocks) => Ok((outcome().result(InitiatorResult::NoBlocks), Self::Idle)),
             (Self::Streaming, Block { body }) => Ok((
                 outcome().want_next().result(InitiatorResult::Block(body)),
                 Self::Streaming,
             )),
-            (Self::Streaming, BatchDone) => Ok((
-                outcome().want_next().result(InitiatorResult::Done),
-                Self::Idle,
-            )),
+            (Self::Streaming, BatchDone) => {
+                Ok((outcome().result(InitiatorResult::Done), Self::Idle))
+            }
             (state, msg) => anyhow::bail!("unexpected message in state {:?}: {:?}", state, msg),
         }
     }
@@ -178,7 +174,9 @@ impl ProtocolState<Initiator> for State {
         use InitiatorAction::*;
         match (self, input) {
             (Self::Idle, RequestRange { from, through }) => Ok((
-                outcome().send(Message::RequestRange { from, through }),
+                outcome()
+                    .send(Message::RequestRange { from, through })
+                    .want_next(),
                 Self::Busy,
             )),
             (Self::Idle, ClientDone) => Ok((outcome().send(Message::ClientDone), Self::Done)),

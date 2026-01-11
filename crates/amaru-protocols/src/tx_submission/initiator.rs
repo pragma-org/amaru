@@ -124,7 +124,7 @@ impl ProtocolState<Initiator> for State {
     type Out = InitiatorResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome().send(Message::Init), State::Idle))
+        Ok((outcome().send(Message::Init).want_next(), State::Idle))
     }
 
     fn network(
@@ -135,7 +135,7 @@ impl ProtocolState<Initiator> for State {
             (State::Idle, Message::RequestTxIdsBlocking(ack, req)) => {
                 tracing::trace!(ack=%ack, req=%req, "received RequestTxIdsBlocking");
                 (
-                    outcome().want_next().result(InitiatorResult::RequestTxIds {
+                    outcome().result(InitiatorResult::RequestTxIds {
                         ack,
                         req,
                         blocking: Blocking::Yes,
@@ -146,7 +146,7 @@ impl ProtocolState<Initiator> for State {
             (State::Idle, Message::RequestTxIdsNonBlocking(ack, req)) => {
                 tracing::trace!(ack=%ack, req=%req, "received RequestTxIdsNonBlocking");
                 (
-                    outcome().want_next().result(InitiatorResult::RequestTxIds {
+                    outcome().result(InitiatorResult::RequestTxIds {
                         ack,
                         req,
                         blocking: Blocking::No,
@@ -157,9 +157,7 @@ impl ProtocolState<Initiator> for State {
             (State::Idle, Message::RequestTxs(tx_ids)) => {
                 tracing::trace!(tx_ids_nb = tx_ids.len(), "received RequestTxs");
                 (
-                    outcome()
-                        .want_next()
-                        .result(InitiatorResult::RequestTxs(tx_ids)),
+                    outcome().result(InitiatorResult::RequestTxs(tx_ids)),
                     State::Txs,
                 )
             }
@@ -169,16 +167,21 @@ impl ProtocolState<Initiator> for State {
 
     fn local(&self, action: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
         Ok(match (self, action) {
-            (State::TxIdsBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => {
-                (outcome().send(Message::ReplyTxIds(tx_ids)), State::Idle)
+            (State::TxIdsBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => (
+                outcome().send(Message::ReplyTxIds(tx_ids)).want_next(),
+                State::Idle,
+            ),
+            (State::TxIdsNonBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => (
+                outcome().send(Message::ReplyTxIds(tx_ids)).want_next(),
+                State::Idle,
+            ),
+            (State::Txs, InitiatorAction::SendReplyTxs(txs)) => (
+                outcome().send(Message::ReplyTxs(txs)).want_next(),
+                State::Idle,
+            ),
+            (State::TxIdsBlocking, InitiatorAction::Done) => {
+                (outcome().send(Message::Done), State::Done)
             }
-            (State::TxIdsNonBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => {
-                (outcome().send(Message::ReplyTxIds(tx_ids)), State::Idle)
-            }
-            (State::Txs, InitiatorAction::SendReplyTxs(txs)) => {
-                (outcome().send(Message::ReplyTxs(txs)), State::Idle)
-            }
-            (State::Idle, InitiatorAction::Done) => (outcome().send(Message::Done), State::Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

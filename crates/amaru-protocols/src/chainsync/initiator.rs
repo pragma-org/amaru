@@ -223,22 +223,16 @@ impl ProtocolState<Initiator> for InitiatorState {
                 CanAwait,
             ),
             (Intersect, Message::IntersectNotFound(tip)) => (
-                outcome()
-                    .want_next()
-                    .result(InitiatorResult::IntersectNotFound(tip)),
+                outcome().result(InitiatorResult::IntersectNotFound(tip)),
                 Idle,
             ),
-            (CanAwait, Message::AwaitReply) => (outcome(), MustReply),
+            (CanAwait, Message::AwaitReply) => (outcome().want_next(), MustReply),
             (CanAwait | MustReply, Message::RollForward(content, tip)) => (
-                outcome()
-                    .want_next()
-                    .result(InitiatorResult::RollForward(content, tip)),
+                outcome().result(InitiatorResult::RollForward(content, tip)),
                 Idle,
             ),
             (CanAwait | MustReply, Message::RollBackward(point, tip)) => (
-                outcome()
-                    .want_next()
-                    .result(InitiatorResult::RollBackward(point, tip)),
+                outcome().result(InitiatorResult::RollBackward(point, tip)),
                 Idle,
             ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
@@ -249,11 +243,12 @@ impl ProtocolState<Initiator> for InitiatorState {
         use InitiatorState::*;
 
         Ok(match (self, input) {
-            (Idle, InitiatorAction::Intersect(points)) => {
-                (outcome().send(Message::FindIntersect(points)), Intersect)
-            }
+            (Idle, InitiatorAction::Intersect(points)) => (
+                outcome().send(Message::FindIntersect(points)).want_next(),
+                Intersect,
+            ),
             (Idle, InitiatorAction::RequestNext) => {
-                (outcome().send(Message::RequestNext), CanAwait)
+                (outcome().send(Message::RequestNext).want_next(), CanAwait)
             }
             (Idle, InitiatorAction::Done) => (outcome().send(Message::Done), Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),

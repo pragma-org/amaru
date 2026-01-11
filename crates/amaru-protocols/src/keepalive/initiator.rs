@@ -115,7 +115,7 @@ impl ProtocolState<Initiator> for State {
     type Out = InitiatorResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        // On init, trigger the first KeepAlive send
+        // On init, trigger the first KeepAlive send via the StageStage to set timers in motion
         Ok((
             outcome().result(InitiatorResult {
                 cookie: Cookie::new(),
@@ -131,10 +131,9 @@ impl ProtocolState<Initiator> for State {
         use State::*;
 
         Ok(match (self, input) {
-            (Waiting, Message::ResponseKeepAlive(cookie)) => (
-                outcome().want_next().result(InitiatorResult { cookie }),
-                Idle,
-            ),
+            (Waiting, Message::ResponseKeepAlive(cookie)) => {
+                (outcome().result(InitiatorResult { cookie }), Idle)
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -143,9 +142,10 @@ impl ProtocolState<Initiator> for State {
         use State::*;
 
         Ok(match (self, input) {
-            (Idle, InitiatorAction::SendKeepAlive(cookie)) => {
-                (outcome().send(Message::KeepAlive(cookie)), Waiting)
-            }
+            (Idle, InitiatorAction::SendKeepAlive(cookie)) => (
+                outcome().send(Message::KeepAlive(cookie)).want_next(),
+                Waiting,
+            ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

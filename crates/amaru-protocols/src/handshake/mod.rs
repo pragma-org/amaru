@@ -91,6 +91,7 @@ where
     let query_reply = || Message::QueryReply(VersionTable::empty());
 
     spec.init(Propose, propose(), Confirm);
+    spec.sim_open(Confirm, propose(), Done);
     spec.resp(Confirm, accept(), Done);
     spec.resp(Confirm, refuse(), Done);
     spec.resp(Confirm, query_reply(), Done);

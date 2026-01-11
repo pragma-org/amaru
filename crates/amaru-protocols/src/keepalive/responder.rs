@@ -76,7 +76,7 @@ impl ProtocolState<Responder> for State {
     type Out = ResponderResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        Ok((outcome(), *self))
+        Ok((outcome().want_next(), *self))
     }
 
     fn network(
@@ -86,10 +86,9 @@ impl ProtocolState<Responder> for State {
         use State::*;
 
         Ok(match (self, input) {
-            (Idle, Message::KeepAlive(cookie)) => (
-                outcome().want_next().result(ResponderResult { cookie }),
-                Waiting,
-            ),
+            (Idle, Message::KeepAlive(cookie)) => {
+                (outcome().result(ResponderResult { cookie }), Waiting)
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -98,9 +97,12 @@ impl ProtocolState<Responder> for State {
         use State::*;
 
         Ok(match (self, input) {
-            (Waiting, ResponderAction::SendResponse(cookie)) => {
-                (outcome().send(Message::ResponseKeepAlive(cookie)), Idle)
-            }
+            (Waiting, ResponderAction::SendResponse(cookie)) => (
+                outcome()
+                    .send(Message::ResponseKeepAlive(cookie))
+                    .want_next(),
+                Idle,
+            ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
