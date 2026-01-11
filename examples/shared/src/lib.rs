@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock, Network, Point,
-    PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value, cbor, from_cbor,
+    cbor, from_cbor,
     network::NetworkName,
     protocol_parameters::{self, GlobalParameters},
-    to_cbor,
+    to_cbor, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock, Network,
+    Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
 };
 use amaru_ledger::{
     context,
@@ -42,6 +42,8 @@ pub fn forward_ledger(raw_block: &str) {
     let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
 
     let global_parameters: &GlobalParameters = network.into();
+
+    let arena_pool = ArenaPool::new(10, 1_024_000);
 
     let protocol_parameters = match network {
         NetworkName::Preprod => &*protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
@@ -107,7 +109,8 @@ pub fn forward_ledger(raw_block: &str) {
     let mut context = context::DefaultValidationContext::new(inputs);
     if let BlockValidation::Invalid(_slot, _id, _err) = rules::validate_block(
         &mut context,
-        &Network::from(network),
+        &arena_pool,
+        &network,
         state.protocol_parameters(),
         &era_history,
         &GovernanceActivity {

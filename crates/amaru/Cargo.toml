@@ -40,9 +40,11 @@ minicbor.workspace = true
 mithril-client = { workspace = true, optional = true}
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
+opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
 pallas-hardano.workspace = true
 pallas-network.workspace = true
+rayon.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -67,6 +69,7 @@ amaru-kernel = { workspace = true, features = ["tracing"] }
 amaru-ledger.workspace = true
 amaru-network.workspace = true
 amaru-stores.workspace = true
+amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-protocols.workspace = true

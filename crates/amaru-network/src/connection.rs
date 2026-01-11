@@ -18,7 +18,7 @@ use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use bytes::{Buf, BytesMut};
 use parking_lot::Mutex;
 use pure_stage::BoxFuture;
-use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc};
+use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -51,34 +51,47 @@ impl TokioConnections {
     }
 }
 
+async fn connect(
+    addr: Vec<SocketAddr>,
+    resource: Arc<Mutex<Connections>>,
+    read_buf_size: usize,
+    timeout: Duration,
+) -> std::io::Result<ConnectionId> {
+    let (reader, writer) = tokio::time::timeout(timeout, TcpStream::connect(&*addr))
+        .await??
+        .into_split();
+    tracing::debug!(?addr, "connected");
+    let id = ConnectionId::new();
+    resource.lock().insert(
+        id,
+        Connection {
+            reader: Arc::new(AsyncMutex::new((
+                reader,
+                BytesMut::with_capacity(read_buf_size),
+            ))),
+            writer: Arc::new(AsyncMutex::new(writer)),
+        },
+    );
+    Ok(id)
+}
+
 impl ConnectionProvider for TokioConnections {
-    fn connect(&self, addr: Vec<SocketAddr>) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        let resource = self.connections.clone();
-        let read_buf_size = self.read_buf_size;
+    fn connect(
+        &self,
+        addr: Vec<SocketAddr>,
+        timeout: Duration,
+    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
         let addr2 = addr.clone();
         Box::pin(
-            async move {
-                let (reader, writer) = TcpStream::connect(&*addr).await?.into_split();
-                let id = ConnectionId::new();
-                resource.lock().insert(
-                    id,
-                    Connection {
-                        reader: Arc::new(AsyncMutex::new((
-                            reader,
-                            BytesMut::with_capacity(read_buf_size),
-                        ))),
-                        writer: Arc::new(AsyncMutex::new(writer)),
-                    },
-                );
-                Ok(id)
-            }
-            .instrument(tracing::debug_span!("connect", ?addr2)),
+            connect(addr, self.connections.clone(), self.read_buf_size, timeout)
+                .instrument(tracing::debug_span!("connect", ?addr2)),
         )
     }
 
     fn connect_addrs(
         &self,
         addr: ToSocketAddrs,
+        timeout: Duration,
     ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
         let resource = self.connections.clone();
         let read_buf_size = self.read_buf_size;
@@ -86,19 +99,8 @@ impl ConnectionProvider for TokioConnections {
         Box::pin(
             async move {
                 let addr = resolve(addr).await?;
-                let (reader, writer) = TcpStream::connect(&*addr).await?.into_split();
-                let id = ConnectionId::new();
-                resource.lock().insert(
-                    id,
-                    Connection {
-                        reader: Arc::new(AsyncMutex::new((
-                            reader,
-                            BytesMut::with_capacity(read_buf_size),
-                        ))),
-                        writer: Arc::new(AsyncMutex::new(writer)),
-                    },
-                );
-                Ok(id)
+                tracing::debug!(?addr, "resolved addresses");
+                connect(addr, resource, read_buf_size, timeout).await
             }
             .instrument(tracing::debug_span!("connect_addrs", ?addr2)),
         )
@@ -121,7 +123,11 @@ impl ConnectionProvider for TokioConnections {
                     })?
                     .writer
                     .clone();
-                connection.lock().await.write_all(&data).await?;
+                tokio::time::timeout(
+                    Duration::from_secs(100),
+                    connection.lock().await.write_all(&data),
+                )
+                .await??;
                 Ok(())
             }
             .instrument(tracing::trace_span!("send", %conn, len)),

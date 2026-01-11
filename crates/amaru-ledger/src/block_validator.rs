@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rules::block::BlockValidation;
-use crate::state;
-use crate::store::{HistoricalStores, Store};
+use crate::{
+    rules::block::BlockValidation,
+    state,
+    store::{HistoricalStores, Store},
+};
 use amaru_kernel::{
-    EraHistory, Point, RawBlock, network::NetworkName, protocol_parameters::GlobalParameters,
+    ArenaPool, EraHistory, Point, RawBlock, network::NetworkName,
+    protocol_parameters::GlobalParameters,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::CanValidateBlocks;
-use amaru_ouroboros_traits::can_validate_blocks::BlockValidationError;
+use amaru_ouroboros_traits::{CanValidateBlocks, can_validate_blocks::BlockValidationError};
 use anyhow::anyhow;
 use std::sync::{Arc, Mutex};
 
@@ -32,12 +34,14 @@ where
     HS: HistoricalStores + Send,
 {
     pub state: Arc<Mutex<state::State<S, HS>>>,
+    pub vm_eval_pool: ArenaPool,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
     pub fn new(
         store: S,
         snapshots: HS,
+        vm_eval_pool: ArenaPool,
         network: NetworkName,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
@@ -45,6 +49,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
         let state = state::State::new(store, snapshots, network, era_history, global_parameters)?;
         Ok(Self {
             state: Arc::new(Mutex::new(state)),
+            vm_eval_pool,
         })
     }
 
@@ -68,7 +73,7 @@ where
         raw_block: &RawBlock,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         let mut state = self.state.lock().unwrap();
-        match state.roll_forward(point, raw_block) {
+        match state.roll_forward(point, raw_block, &self.vm_eval_pool) {
             BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
             BlockValidation::Invalid(_, _, details) => Ok(Err(BlockValidationError::new(anyhow!(
                 "Invalid block: {details}"

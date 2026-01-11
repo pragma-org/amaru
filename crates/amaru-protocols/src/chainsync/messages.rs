@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Point, protocol_messages::tip::Tip};
+use amaru_kernel::{BlockHeader, Point, protocol_messages::tip::Tip, to_cbor};
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use pure_stage::DeserializerGuards;
 
@@ -37,6 +37,16 @@ pub struct HeaderContent {
     pub variant: u8,
     pub byron_prefix: Option<(u8, u64)>,
     pub cbor: Vec<u8>,
+}
+
+impl HeaderContent {
+    pub fn v6(header: &BlockHeader) -> Self {
+        Self {
+            variant: 6,
+            byron_prefix: None,
+            cbor: to_cbor(header),
+        }
+    }
 }
 
 impl Encode<()> for Message {

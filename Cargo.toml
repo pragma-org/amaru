@@ -22,6 +22,8 @@ async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 async-trait = "0.1.83"
 assert-json-diff = "2.0.2"
 bech32 = "0.11.0"
+binrw = "0.15.0"
+bumpalo = { version = "3.16.0", features = ["collections"] }
 bytes = "1.10.1"
 cbor-data = "0.8.19"
 cbor4ii = { version = "1.1.1", features = ["serde1", "use_std"] }
@@ -45,6 +47,7 @@ opentelemetry-otlp = { version = "0.31.0", features = [
   "http-proto",
   "reqwest-blocking-client",
 ] }
+opentelemetry-semantic-conventions = "0.31.0"
 opentelemetry_sdk = "0.31.0"
 pallas-addresses = "0.34.0"
 pallas-codec = "0.34.0" # When updating, double check that minicbor doesn't need to be updated too (see https://github.com/txpipe/pallas/blob/v0.32.0/pallas-codec/Cargo.toml#L22)
@@ -72,6 +75,7 @@ tar = "0.4.44"
 thiserror = "2.0.17"
 tokio = { version = "1.45.0", features = ["sync"] }
 tokio-util = "0.7.17"
+toml = "0.9.8"
 tracing = { version = "0.1.40", features = ["valuable"] }
 tracing-opentelemetry = "0.32.0"
 tracing-subscriber = { version = "0.3.20", features = [
@@ -101,6 +105,7 @@ amaru-slot-arithmetic = { path = "crates/amaru-slot-arithmetic" }
 amaru-stores = { path = "crates/amaru-stores" }
 amaru-tracing-json = { path = "crates/amaru-tracing-json" }
 pure-stage = { path = "crates/pure-stage" }
+uplc-turbo = { git = "https://github.com/pragma-org/uplc"}
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
 vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c2471fc5c4d441f13086676" }

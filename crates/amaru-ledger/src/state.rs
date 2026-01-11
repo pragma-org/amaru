@@ -33,21 +33,23 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher, IsHeader, Lovelace,
-    MemoizedTransactionOutput, MintedBlock, Network, Point, PoolId, RawBlock, Slot,
+    ArenaPool, ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher, IsHeader,
+    Lovelace, MemoizedTransactionOutput, MintedBlock, Point, PoolId, RawBlock, Slot,
     StakeCredential, StakeCredentialType, TransactionInput, expect_stake_credential,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     stake_credential_hash,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
+use amaru_ouroboros_traits::{
+    HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError,
+};
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use anyhow::{Context, anyhow};
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeMap, BTreeSet, VecDeque, btree_map},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
 };
@@ -443,7 +445,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         )
         .map_err(StateError::Storage)?;
 
-        stake_distributions.push_front(recover_stake_distribution(
+        stake_distributions.push_front(compute_stake_distribution(
             &snapshot,
             &self.era_history,
             &self.protocol_parameters,
@@ -602,6 +604,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &mut self,
         point: &Point,
         raw_block: &RawBlock,
+        arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
         let block = match parse_block(&raw_block[..]) {
             Ok(block) => block,
@@ -615,7 +618,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         match rules::validate_block(
             &mut context,
-            &Network::from(*self.network()),
+            arena_pool,
+            self.network(),
             self.protocol_parameters(),
             self.era_history(),
             self.governance_activity(),
@@ -722,7 +726,7 @@ pub fn initial_stake_distributions(
         let protocol_parameters = snapshot.protocol_parameters()?;
 
         stake_distributions.push_front(
-            recover_stake_distribution(&snapshot, era_history, &protocol_parameters)
+            compute_stake_distribution(&snapshot, era_history, &protocol_parameters)
                 .map_err(|err| StoreError::Internal(err.into()))?,
         );
     }
@@ -737,7 +741,7 @@ pub fn initial_stake_distributions(
         epoch = %snapshot.epoch(),
     ),
 )]
-pub fn recover_stake_distribution(
+pub fn compute_stake_distribution(
     snapshot: &impl Snapshot,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
@@ -1016,14 +1020,10 @@ fn new_ratification_context<'distr>(
     let votes = snapshot
         .iter_votes()?
         .fold(BTreeMap::new(), |mut votes, (k, v)| {
-            match votes.entry(k.proposal) {
-                btree_map::Entry::Vacant(entry) => {
-                    entry.insert(BTreeMap::from([(k.voter, v)]));
-                }
-                btree_map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().insert(k.voter, v);
-                }
-            }
+            votes
+                .entry(k.proposal)
+                .or_insert_with(Vec::new)
+                .push((k.voter, v));
 
             votes
         });
@@ -1089,7 +1089,7 @@ pub struct StakeDistributionObserver {
 
 impl HasStakeDistribution for StakeDistributionObserver {
     #[expect(clippy::unwrap_used)]
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
+    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
         let epoch = self
             .era_history
             // NOTE: This function is called by the consensus when validating block headers. So in
@@ -1099,17 +1099,19 @@ impl HasStakeDistribution for StakeDistributionObserver {
             //
             // Either way, we do know at this point how to forecast this slot.
             .slot_to_epoch_unchecked_horizon(slot)
-            .ok()?
+            .map_err(GetPoolError::SlotToEpochConversionFailure)?
             - 2;
-
         let view = self.view.lock().unwrap();
-        view.iter().find(|s| s.epoch == epoch).and_then(|s| {
-            s.pools.get(pool).map(|st| PoolSummary {
-                vrf: st.parameters.vrf,
-                stake: st.stake,
-                active_stake: s.active_stake,
-            })
-        })
+        let stake_distribution = view
+            .iter()
+            .find(|s| s.epoch == epoch)
+            .ok_or(GetPoolError::StakeDistributionNotAvailable(epoch))?;
+
+        Ok(stake_distribution.pools.get(pool).map(|st| PoolSummary {
+            vrf: st.parameters.vrf,
+            stake: st.stake,
+            active_stake: stake_distribution.active_stake,
+        }))
     }
 }
 

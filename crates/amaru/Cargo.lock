@@ -44,7 +44,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "clap",
- "gasket",
  "hex",
  "miette 7.2.0",
  "ouroboros",
@@ -585,33 +584,6 @@ name = "futures-sink"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e575fab7d1e0dcb8d0c7bcf9a63ee213816ab51902e6d244a95819acacf1d4f7"
-
-[[package]]
-name = "gasket"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75b60154514ed9e060f0b2b78819602fa5d68746d6b618efb2ea2fecc6f89f32"
-dependencies = [
- "async-trait",
- "crossbeam",
- "gasket-derive",
- "serde",
- "signal-hook",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "gasket-derive"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d16f3b9da5c685c55178b9749f79bf6a6c62d1bd07656a0c8eeddadb80ef29c8"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.79",
-]
 
 [[package]]
 name = "generic-array"

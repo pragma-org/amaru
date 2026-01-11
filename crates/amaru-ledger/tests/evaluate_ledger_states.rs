@@ -16,26 +16,48 @@
 pub mod tests {
     use amaru_kernel::{
         AnyCbor, AuxiliaryData, Bytes, Epoch, EraHistory, Hasher, KeepRaw, MintedTransactionBody,
-        MintedTx, MintedWitnessSet, Network, TransactionPointer, cbor, network::NetworkName,
+        MintedTx, MintedWitnessSet, TransactionPointer, cbor, network::NetworkName,
         protocol_parameters::ProtocolParameters,
     };
     use amaru_ledger::{
         self, context::DefaultValidationContext, rules::transaction, store::GovernanceActivity,
     };
-    use std::{collections::BTreeMap, env, fs, ops::Deref, path::Path};
+    use std::{collections::BTreeMap, env, fs, io::Write as _, ops::Deref, path::Path};
 
     // Tests cases are constructed in build.rs, which generates the test_cases.rs file
     include!(concat!(env!("OUT_DIR"), "/test_cases.rs"));
 
     fn import_and_evaluate_vector(
+        test_data_dir: &Path,
         snapshot: &str,
         pparams_dir: &str,
+        expected_result: Result<(), &str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let network = NetworkName::Testnet(1);
         let era_history = network.into();
-        let vector_file = fs::read(snapshot)?;
+        let vector_file = fs::read(test_data_dir.join(snapshot))?;
         let record: TestVector = cbor::decode(&vector_file)?;
-        evaluate_vector(record, era_history, Path::new(pparams_dir))?;
+
+        let actual = evaluate_vector(record, era_history, &test_data_dir.join(pparams_dir))
+            .map_err(|e| e.to_string());
+        if let Some(path) = std::env::var_os("AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH") {
+            // Append to the (toml format) snapshot file that tracks which tests are expected to fail.
+            if let Err(error) = actual {
+                let mut file = fs::OpenOptions::new().append(true).open(path)?;
+                writeln!(
+                    &mut file,
+                    "{} = {}",
+                    toml::Value::String(snapshot.to_string()),
+                    toml::Value::String(error),
+                )?;
+            }
+        } else {
+            let expected = expected_result.map_err(|e| e.to_string());
+            assert_eq!(
+                expected, actual,
+                "The results of a conformance test have changed."
+            );
+        }
         Ok(())
     }
 
@@ -212,9 +234,9 @@ pub mod tests {
             };
 
             // Run the transaction against the imported ledger state
-            let result = transaction::execute(
+            let result = transaction::phase_one::execute(
                 &mut validation_context,
-                &Network::Testnet,
+                &NetworkName::Preprod,
                 &protocol_parameters,
                 era_history,
                 &governance_activity,
@@ -226,7 +248,7 @@ pub mod tests {
             );
 
             match result {
-                Ok(()) if !success => return Err("Expected failure, got success".into()),
+                Ok(_) if !success => return Err("Expected failure, got success".into()),
                 Err(e) if success => {
                     return Err(format!("Expected success, got failure: {}", e).into());
                 }

@@ -30,9 +30,9 @@ pub fn upsert<DB>(
         let key = as_key(&PREFIX, &cold_credential);
 
         let mut row = db
-            .get(&key)
+            .get_pinned(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(unsafe_decode::<Row>)
+            .map(|d| unsafe_decode::<Row>(&d))
             // NOTE:
             // (1) If the registration doesn't exists, but a new cc member is being added,
             // then we can initialize a default value.

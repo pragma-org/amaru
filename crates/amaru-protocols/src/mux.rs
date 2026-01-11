@@ -682,7 +682,9 @@ mod tests {
         let server_task = tokio::spawn(async move { listener.accept().await.unwrap().0 });
 
         let network = TokioConnections::new(65536);
-        let conn_id = t(network.connect(vec![server_addr])).await.unwrap();
+        let conn_id = t(network.connect(vec![server_addr], Duration::from_secs(5)))
+            .await
+            .unwrap();
         let mut tcp = t(server_task).await.unwrap();
 
         let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
@@ -1062,7 +1064,9 @@ mod tests {
         let server_task = tokio::spawn(async move { listener.accept().await.unwrap().0 });
 
         let network = TokioConnections::new(65536);
-        let conn_id = t(network.connect(vec![server_addr])).await.unwrap();
+        let conn_id = t(network.connect(vec![server_addr], Duration::from_secs(5)))
+            .await
+            .unwrap();
         let mut tcp = t(server_task).await.unwrap();
 
         let trace_buffer = TraceBuffer::new_shared(1000, 1000000);

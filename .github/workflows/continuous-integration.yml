@@ -2,6 +2,18 @@ name: Continuous Integration
 
 on:
   workflow_dispatch:
+    inputs:
+      network:
+        description: Network to run
+        type: choice
+        options: [preprod, preview]
+        required: false
+      demo_target_epoch:
+        description: "Override DEMO_TARGET_EPOCH (leave empty for latest)"
+        required: false
+      timeout:
+        description: "Override timeout for snapshot tests"
+        required: false
   push:
     branches: ["main"]
   pull_request:
@@ -16,6 +28,8 @@ env:
     ~/.cargo/registry/cache/
     ~/.cargo/git/db/
     target/
+  INPUT_TIMEOUT: ${{ github.event.inputs.timeout }}
+  INPUT_DEMO_TARGET_EPOCH: ${{ github.event.inputs.demo_target_epoch }}
 
 jobs:
   build:
@@ -25,11 +39,11 @@ jobs:
       fail-fast: false
       matrix:
         environments:
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             title: x86_64/linux
 
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: aarch64-unknown-linux-musl
             title: aarch64/linux
             command: test # This is a cross specific command. Do not change
@@ -45,23 +59,32 @@ jobs:
             title: x86_64/windows
             command: test-amaru --profile dev-debug
 
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             target: wasm32-unknown-unknown
             title: wasm32
             packages: -p amaru-consensus -p amaru-ledger -p pure-stage
             command: build
             setup: rustup target add wasm32-unknown-unknown
 
-          - runner: ubuntu-latest
+          # When targetting RISC-V, the uplc-turbo crate fails to compile.
+          # Providing the specific RISC-V gnu clang compiler to Rust allows it to build
+          - runner: ubuntu-22.04
             target: riscv32gc-unknown-linux-gnu
             title: riscv32
             packages: -p amaru-ledger -p amaru-slot-arithmetic
             extra-args: +nightly -Zbuild-std=std,panic_abort
             command: build
-            setup: rustup component add rust-src --toolchain nightly
-
+            setup: |
+              rustup component add rust-src --toolchain nightly
+              curl -L -o riscv32-glibc-llvm.tar.xz \
+                "https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.11.04/riscv32-glibc-ubuntu-22.04-llvm.tar.xz"
+              tar -xvf riscv32-glibc-llvm.tar.xz
+              export CC_riscv32gc_unknown_linux_gnu="$(pwd)/riscv/bin/riscv32-unknown-linux-gnu-clang"
     runs-on: ${{ matrix.environments.runner }}
     steps:
+      - name: Support longpaths
+        run: git config --system core.longpaths true
+        if: contains(matrix.environments.runner, 'windows')
       - uses: actions/checkout@v4
         with:
           submodules: true
@@ -126,7 +149,7 @@ jobs:
 
   coverage:
     name: Test coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: ${{ !github.event.pull_request.draft }}
     env:
       CARGO_TERM_COLOR: always
@@ -157,12 +180,11 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
 
-
   snapshots-instance-choice:
     name: End-to-end snapshot preparation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
-      runner: ${{ steps.alt-runner.outputs.runner || 'ubuntu-latest' }}
+      runner: ${{ steps.alt-runner.outputs.runner || 'ubuntu-22.04' }}
     steps:
       - id: alt-runner
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
@@ -178,32 +200,82 @@ jobs:
           - name: preprod
             magic: 1
             target_epoch: 182
+            default-timeout-light-run: 15
+            default-timeout-full-run: 60
           - name: preview
             magic: 2
             target_epoch: 680
             tests-may-fail: true
+            default-timeout-light-run: 15
+            default-timeout-full-run: 60
         cardano_node_version: [10.5.3]
     env:
       AMARU_NETWORK: ${{ matrix.network.name }}
       BUILD_PROFILE: test
-      DEMO_TARGET_EPOCH: ${{ matrix.network.target_epoch }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: auto
       ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
+      CARDANO_CLI_VERSION: 10.11.0.0
+      DEFAULT_TIMEOUT_LIGHT: ${{ matrix.network.default-timeout-light-run }}
+      DEFAULT_TIMEOUT_FULL: ${{ matrix.network.default-timeout-full-run }}
     if: ${{ !github.event.pull_request.draft }}
     continue-on-error: true
 
     steps:
+      - name: Gate and prepare environment
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -eux
+
+          SHOULD_RUN=true
+
+          # Skip this network test if a specific network is requested
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
+            [ -n "${{ github.event.inputs.network }}" ] && \
+            [ "${{ github.event.inputs.network }}" != "${{ matrix.network.name }}" ]; then
+            SHOULD_RUN=false
+          fi
+
+          if [ "$SHOULD_RUN" != "true" ]; then
+            echo "Skipping network '${{ matrix.network.name }}' as per workflow_dispatch input"
+            exit 1
+          fi
+
+          TIMEOUT_RUN="${DEFAULT_TIMEOUT_LIGHT}"
+          if [ -n "${{ github.event.inputs.demo_target_epoch }}" ]; then
+            DEMO_TARGET_EPOCH="${{ github.event.inputs.demo_target_epoch }}"
+            echo "Using DEMO_TARGET_EPOCH from workflow_dispatch: $DEMO_TARGET_EPOCH"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            DEMO_TARGET_EPOCH=${{ matrix.network.target_epoch }}
+            echo "Using DEMO_TARGET_EPOCH from matrix.network: $DEMO_TARGET_EPOCH"
+          else
+            # For pushes, we will retrieve the latest epoch in a later step
+            DEMO_TARGET_EPOCH=""
+            TIMEOUT_RUN="${DEFAULT_TIMEOUT_FULL}"
+          fi
+
+          if [ -n "$INPUT_TIMEOUT" ]; then
+            echo "Using INPUT_TIMEOUT from workflow_dispatch: $INPUT_TIMEOUT"
+            TIMEOUT_RUN="${INPUT_TIMEOUT}"
+          fi
+
+          # Make sure to export all env variables for subsequent steps
+          echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
+          echo "TIMEOUT_RUN=$TIMEOUT_RUN" >> "$GITHUB_ENV"
+
+
+      - name: Support longpaths
+        run: git config --system core.longpaths true
+        if: contains(needs.snapshots-instance-choice.outputs.runner, 'windows')
       - uses: actions/checkout@v4
 
       - name: Reclaim Disk Space
         run: |
-          # based on https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
+          chmod +x ./scripts/cleanup-runner.sh
+          ./scripts/cleanup-runner.sh
 
       - id: timestamp
         shell: bash
@@ -282,38 +354,34 @@ jobs:
           path: ./ledger.${{ matrix.network.name }}.db
           key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
 
-      - name: Run node
-        if: github.event_name == 'pull_request'
-        timeout-minutes: 10
-        shell: bash
-        run: make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
-
-      - name: Install Cardano CLI
-        if: github.event_name != 'pull_request'
+      - name: Retrieve latest epoch if needed
+        if: env.DEMO_TARGET_EPOCH == ''
         shell: bash
         run: |
-          set -eux
-
-          VERSION="10.11.0.0"
-
           curl -L -o cardano-cli.tar.gz \
-            "https://github.com/IntersectMBO/cardano-cli/releases/download/cardano-cli-${VERSION}/cardano-cli-${VERSION}-x86_64-linux.tar.gz"
+            "https://github.com/IntersectMBO/cardano-cli/releases/download/cardano-cli-${CARDANO_CLI_VERSION}/cardano-cli-${CARDANO_CLI_VERSION}-x86_64-linux.tar.gz"
 
           mkdir -p cardano-cli-bin
           tar -xzf cardano-cli.tar.gz -C cardano-cli-bin
           mv cardano-cli-bin/cardano-cli* cardano-cli-bin/cardano-cli
-          ls $PWD/cardano-cli-bin/
           chmod +x cardano-cli-bin/cardano-cli
 
-      - name: Run node until latest epoch (main branch only)
-        if: github.event_name != 'pull_request'
-        timeout-minutes: 60
-        shell: bash
-        run: |
-          set -eux
+          DEMO_TARGET_EPOCH=$(
+            sudo $PWD/cardano-cli-bin/cardano-cli query tip \
+              --socket-path ${{ runner.temp }}/ipc/node.socket \
+              --testnet-magic ${{ matrix.network.magic }} \
+            | jq '.epoch - 1'
+          )
 
-          export DEMO_TARGET_EPOCH=$(sudo $PWD/cardano-cli-bin/cardano-cli query tip --socket-path ${{ runner.temp }}/ipc/node.socket --testnet-magic ${{ matrix.network.magic }} | jq '.epoch - 1')
-          make demo
+          echo "Auto-resolved DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH"
+
+          # Make sure to export DEMO_TARGET_EPOCH for subsequent steps
+          echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
+
+      - name: Run node
+        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN) }}
+        shell: bash
+        run: make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
 
       - name: Run tests
         if: github.event_name == 'pull_request'
@@ -347,7 +415,7 @@ jobs:
       run:
         working-directory: examples/${{ matrix.projects }}
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache/restore@v4
@@ -362,7 +430,7 @@ jobs:
 
   benches:
     name: Benches
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache/restore@v4
@@ -377,7 +445,7 @@ jobs:
 
   cli:
     name: Test the CLI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache/restore@v4

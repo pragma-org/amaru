@@ -30,7 +30,7 @@ use amaru_ledger::{
         },
     },
 };
-use rocksdb::Transaction;
+use rocksdb::{DBPinnableSlice, Transaction};
 use tracing::{debug, error};
 
 /// Name prefixed used for storing Account entries. UTF-8 encoding for "acct"
@@ -51,9 +51,9 @@ pub fn reset_delegation<DB>(
         let key = as_key(&PREFIX, &credential);
 
         let entry = db
-            .get(&key)
+            .get_pinned(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(unsafe_decode::<Row>);
+            .map(|d| unsafe_decode::<Row>(&d));
 
         if let Some(mut row) = entry {
             // Check whether the existing delegation is not taking precedence over the previous
@@ -135,9 +135,9 @@ pub fn add<DB>(
         // In case where a registration already exists, then we must only update the underlying
         // entry, while preserving the reward amount.
         let previous_drep = if let Some(mut row) = db
-            .get(&key)
+            .get_pinned(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(unsafe_decode::<Row>)
+            .map(|d| unsafe_decode::<Row>(&d))
         {
             pool.set_or_reset(&mut row.pool);
             let previous_drep = drep.set_or_reset(&mut row.drep);
@@ -201,9 +201,9 @@ pub fn reset_many<DB>(
         let key = as_key(&PREFIX, &credential);
 
         if let Some(mut row) = db
-            .get(&key)
+            .get_pinned(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(unsafe_decode::<Row>)
+            .map(|d| unsafe_decode::<Row>(&d))
         {
             row.rewards = 0;
             db.put(key, as_value(row))
@@ -221,15 +221,15 @@ pub fn reset_many<DB>(
 }
 
 /// Obtain a account from the store
-pub fn get(
-    db_get: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, rocksdb::Error>,
+pub fn get<'a>(
+    db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
     let key = as_key(&PREFIX, credential);
     let bytes = db_get(&key);
     bytes
         .map_err(|err| StoreError::Internal(err.into()))
-        .map(|opt| opt.map(unsafe_decode::<Row>))
+        .map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
 }
 
 /// Alter balance of a specific account. If the account did not exist, returns the leftovers
@@ -242,9 +242,9 @@ pub fn set<DB>(
     let key = as_key(&PREFIX, credential);
 
     if let Some(mut row) = db
-        .get(&key)
+        .get_pinned(&key)
         .map_err(|err| StoreError::Internal(err.into()))?
-        .map(unsafe_decode::<Row>)
+        .map(|d| unsafe_decode::<Row>(&d))
     {
         row.rewards = with_rewards(row.rewards);
         db.put(key, as_value(row))

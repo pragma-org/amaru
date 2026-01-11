@@ -30,9 +30,9 @@ pub fn get<T: ThreadMode>(
     key: &Key,
 ) -> Result<Option<Value>, StoreError> {
     Ok(db
-        .get(as_key(&PREFIX, key))
+        .get_pinned(as_key(&PREFIX, key))
         .map_err(|err| StoreError::Internal(err.into()))?
-        .map(unsafe_decode::<Value>))
+        .map(|d| unsafe_decode::<Value>(&d)))
 }
 
 pub fn put<DB>(db: &Transaction<'_, DB>, key: &Key, value: Value) -> Result<(), StoreError> {

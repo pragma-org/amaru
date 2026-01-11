@@ -1053,7 +1053,7 @@ fn import_votes(
                     StakeCredential::ScriptHash(hash) => Voter::ConstitutionalCommitteeScript(hash),
                 };
 
-                let ballot = Ballot { vote, anchor: None };
+                let ballot = Ballot::new(vote, None);
 
                 votes.push((new_ballot_id(voter), ballot));
             }
@@ -1064,7 +1064,7 @@ fn import_votes(
                     StakeCredential::ScriptHash(hash) => Voter::DRepScript(hash),
                 };
 
-                let ballot = Ballot { vote, anchor: None };
+                let ballot = Ballot::new(vote, None);
 
                 votes.push((new_ballot_id(voter), ballot));
             }
@@ -1072,7 +1072,7 @@ fn import_votes(
             for (pool_id, vote) in st.pools_votes.into_iter() {
                 let voter = Voter::StakePoolKey(pool_id);
 
-                let ballot = Ballot { vote, anchor: None };
+                let ballot = Ballot::new(vote, None);
 
                 votes.push((new_ballot_id(voter), ballot));
             }

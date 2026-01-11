@@ -95,6 +95,8 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         // After receiving a response, increment cookie and schedule next send
         self.cookie = input.cookie.next();
         let delay = if u16::from(input.cookie) == 0 {
+            // this is only for the very first keep-alive message, which the Haskell node expects within the first
+            // five seconds
             Duration::from_secs(1)
         } else {
             Duration::from_secs(30)
@@ -115,7 +117,7 @@ impl ProtocolState<Initiator> for State {
     type Out = InitiatorResult;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
-        // On init, trigger the first KeepAlive send via the StageStage to set timers in motion
+        // On init, trigger the first KeepAlive send via the StageState to set timers in motion
         Ok((
             outcome().result(InitiatorResult {
                 cookie: Cookie::new(),

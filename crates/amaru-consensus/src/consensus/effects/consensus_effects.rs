@@ -113,6 +113,7 @@ pub mod tests {
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_metrics::MetricsEvent;
     use amaru_metrics::ledger::LedgerMetrics;
+    use amaru_ouroboros::has_stake_distribution::GetPoolError;
     use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use amaru_ouroboros_traits::{
@@ -221,8 +222,12 @@ pub mod tests {
     }
 
     impl HasStakeDistribution for MockLedgerOps {
-        fn get_pool(&self, _slot: Slot, _pool: &PoolId) -> Option<PoolSummary> {
-            None
+        fn get_pool(
+            &self,
+            _slot: Slot,
+            _pool: &PoolId,
+        ) -> Result<Option<PoolSummary>, GetPoolError> {
+            Ok(None)
         }
     }
 

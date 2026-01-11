@@ -21,9 +21,7 @@ use crate::{
     },
     store_effects::Store,
 };
-use amaru_kernel::{
-    BlockHeader, IsHeader, Point, peer::Peer, protocol_messages::tip::Tip, to_cbor,
-};
+use amaru_kernel::{BlockHeader, IsHeader, Point, peer::Peer, protocol_messages::tip::Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -170,22 +168,17 @@ fn next_header(
         anyhow::bail!("no overlap found between client pointer chain and stored best chain");
     }
     // pointer is on the best chain, we need to roll forward
-    Ok(store
-        .next_best_chain(pointer)
-        .and_then(|point| {
-            *pointer = point;
-            store.load_header(&point.hash())
-        })
-        .map(|header| {
-            ResponderAction::RollForward(
-                HeaderContent {
-                    variant: 6, // FIXME
-                    byron_prefix: None,
-                    cbor: to_cbor(&header),
-                },
-                tip,
-            )
-        }))
+    let Some(point) = store.next_best_chain(pointer) else {
+        return Ok(None);
+    };
+    let header = store
+        .load_header(&point.hash())
+        .ok_or_else(|| anyhow::anyhow!("best-chain header not found: {}", point))?;
+    *pointer = point;
+    Ok(Some(ResponderAction::RollForward(
+        HeaderContent::v6(&header),
+        tip,
+    )))
 }
 
 fn intersect(

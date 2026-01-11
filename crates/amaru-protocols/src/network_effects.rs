@@ -15,7 +15,7 @@
 use amaru_kernel::bytes::NonEmptyBytes;
 use amaru_ouroboros::{ConnectionId, ConnectionResource, ToSocketAddrs};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, time::Duration};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
     vec![
@@ -27,7 +27,11 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
 }
 
 pub trait NetworkOps {
-    fn connect(&self, addr: ToSocketAddrs) -> BoxFuture<'static, Result<ConnectionId, String>>;
+    fn connect(
+        &self,
+        addr: ToSocketAddrs,
+        timeout: Duration,
+    ) -> BoxFuture<'static, Result<ConnectionId, String>>;
     fn send(
         &self,
         conn: ConnectionId,
@@ -50,8 +54,12 @@ impl<'a, T> Network<'a, T> {
 }
 
 impl<T> NetworkOps for Network<'_, T> {
-    fn connect(&self, addr: ToSocketAddrs) -> BoxFuture<'static, Result<ConnectionId, String>> {
-        self.0.external(ConnectEffect { addr })
+    fn connect(
+        &self,
+        addr: ToSocketAddrs,
+        timeout: Duration,
+    ) -> BoxFuture<'static, Result<ConnectionId, String>> {
+        self.0.external(ConnectEffect { addr, timeout })
     }
 
     fn send(
@@ -78,6 +86,7 @@ impl<T> NetworkOps for Network<'_, T> {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConnectEffect {
     pub addr: ToSocketAddrs,
+    pub timeout: Duration,
 }
 
 impl ExternalEffect for ConnectEffect {
@@ -89,7 +98,7 @@ impl ExternalEffect for ConnectEffect {
                 .expect("ConnectEffect requires a ConnectionResource")
                 .clone();
             resource
-                .connect_addrs(self.addr.clone())
+                .connect_addrs(self.addr.clone(), self.timeout)
                 .await
                 .map_err(|e| format!("failed to connect to {:?}: {:#}", self.addr, e))
         })
@@ -190,7 +199,7 @@ pub async fn create_connection(
             std::env::var("PEER").unwrap_or_else(|_| "127.0.0.1:3000".to_string()),
         );
         let addr = resolve(addr).await?;
-        Ok(conn.connect(addr).await?)
+        Ok(conn.connect(addr, Duration::from_secs(5)).await?)
     })
     .await?
 }

@@ -98,7 +98,10 @@ pub async fn stage(
                 }
             };
             let addr = ToSocketAddrs::String(peer.to_string());
-            let conn_id = match Network::new(&eff).connect(addr).await {
+            let conn_id = match Network::new(&eff)
+                .connect(addr, Duration::from_secs(10))
+                .await
+            {
                 Ok(conn_id) => conn_id,
                 Err(err) => {
                     tracing::error!(?err, %peer, "failed to connect to peer");

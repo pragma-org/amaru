@@ -19,6 +19,7 @@ use std::{
     num::NonZeroUsize,
     pin::Pin,
     sync::Arc,
+    time::Duration,
 };
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -133,11 +134,16 @@ impl From<SocketAddrV6> for ToSocketAddrs {
 pub type ConnectionResource = Arc<dyn ConnectionProvider>;
 
 pub trait ConnectionProvider: Send + Sync + 'static {
-    fn connect(&self, addr: Vec<SocketAddr>) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
+    fn connect(
+        &self,
+        addr: Vec<SocketAddr>,
+        timeout: Duration,
+    ) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
 
     fn connect_addrs(
         &self,
         addr: ToSocketAddrs,
+        timeout: Duration,
     ) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
 
     fn send(
