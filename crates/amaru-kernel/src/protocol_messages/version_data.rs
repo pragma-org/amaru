@@ -15,7 +15,7 @@
 use crate::protocol_messages::{network_magic::NetworkMagic, version_number::VersionNumber};
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct VersionData {
     network_magic: NetworkMagic,
     initiator_only_diffusion_mode: bool,

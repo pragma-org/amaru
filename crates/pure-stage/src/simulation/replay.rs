@@ -90,8 +90,14 @@ impl Replay {
                     let remaining = trace.as_slice().len();
                     self.trace_buffer.lock().set_fetch_replay(trace);
 
-                    let effect =
-                        poll_stage(&self.trace_buffer, data, stage, response, &self.effect);
+                    let effect = poll_stage(
+                        &self.trace_buffer,
+                        data,
+                        stage,
+                        response,
+                        &self.effect,
+                        self.clock,
+                    );
 
                     trace = self
                         .trace_buffer
@@ -149,14 +155,16 @@ impl Replay {
                             stage,
                             &*state
                         ),
-                        StageState::Failed(error) => anyhow::bail!(
-                            "idx {}: stage {} is failed while it should be in state {:?}: {}",
+                        StageState::Terminating => anyhow::bail!(
+                            "idx {}: stage {} is terminating while it should be in state {:?}",
                             idx,
                             stage,
-                            &*state,
-                            error
+                            &*state
                         ),
                     }
+                }
+                TraceEntry::Terminated { stage, reason: _ } => {
+                    self.latest_state.remove(&stage);
                 }
             }
             idx += 1;
@@ -179,19 +187,15 @@ impl Replay {
         )
     }
 
-    pub fn is_failed(&self, stage: &Name) -> bool {
-        matches!(self.stages.get(stage).unwrap().state, StageState::Failed(_))
+    pub fn is_terminating(&self, stage: &Name) -> bool {
+        matches!(
+            self.stages.get(stage).unwrap().state,
+            StageState::Terminating
+        )
     }
 
     pub fn is_idle(&self, stage: &Name) -> bool {
         matches!(self.stages.get(stage).unwrap().state, StageState::Idle(_))
-    }
-
-    pub fn get_failure(&self, stage: &Name) -> Option<&str> {
-        self.stages.get(stage).and_then(|s| match &s.state {
-            StageState::Idle(_) | StageState::Running(_) => None,
-            StageState::Failed(error) => Some(&**error),
-        })
     }
 
     pub fn clock(&self) -> Instant {

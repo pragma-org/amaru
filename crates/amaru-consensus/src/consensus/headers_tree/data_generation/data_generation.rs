@@ -124,7 +124,7 @@ fn generate_header_subtree(
     let mut spine = generate_headers(
         current_branch_expected_depth,
         header_body.block_number,
-        tree.value.slot(),
+        tree.value.slot().as_u64(),
         Some(tree.value.hash()),
         rng,
     );
@@ -215,7 +215,12 @@ pub fn store_header_with_parent(
     parent: &BlockHeader,
 ) -> BlockHeader {
     let mut std_rng = StdRng::from_seed([0; 32]);
-    let header = generate_header(1, parent.slot() + 1, Some(parent.hash()), &mut std_rng);
+    let header = generate_header(
+        1,
+        parent.slot().as_u64() + 1,
+        Some(parent.hash()),
+        &mut std_rng,
+    );
     store.store_header(&header).unwrap();
     header
 }

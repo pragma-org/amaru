@@ -52,23 +52,22 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
-    Fragment,
+    DnsName, Fragment, IPv4, IPv6, Port,
     alonzo::{TransactionOutput as AlonzoTransactionOutput, Value as AlonzoValue},
     babbage::{Header, MintedHeader, PseudoHeader},
     conway::{
         AddrKeyhash, AssetName, AuxiliaryData, BigInt, Block, BootstrapWitness, Certificate, Coin,
         Constitution, Constr, CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash,
-        DatumOption, DnsName, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId,
-        HeaderBody, IPv4, IPv6, KeepRaw, Language, MaybeIndefArray, Mint, MintedBlock,
-        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, Multiasset, NativeScript, NonEmptySet, NonZeroInt, PlutusData,
-        PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
-        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners, RewardAccount, ScriptHash,
-        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
-        UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures,
-        VrfKeyhash, WitnessSet,
+        DatumOption, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId, HeaderBody,
+        KeepRaw, Language, MaybeIndefArray, Mint, MintedBlock, MintedDatumOption, MintedScriptRef,
+        MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
+        NativeScript, NonEmptySet, NonZeroInt, PlutusData, PlutusScript, PolicyId, PoolMetadata,
+        PoolVotingThresholds, PositiveCoin, PostAlonzoTransactionOutput,
+        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
+        PseudoTransactionOutput, RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey,
+        Relay, RequiredSigners, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
+        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Vote, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -89,6 +88,8 @@ pub mod ballot;
 
 pub use ballot_id::*;
 pub mod ballot_id;
+
+pub mod bytes;
 
 pub use certificate_pointer::*;
 pub mod certificate_pointer;
@@ -114,7 +115,7 @@ pub mod ignore_eq;
 pub use ignore_eq::IgnoreEq;
 
 pub mod is_header;
-pub use is_header::{BlockHeader, IsHeader};
+pub use is_header::*;
 
 pub use memoized::*;
 pub mod memoized;
@@ -126,8 +127,7 @@ pub use ordered_redeemer::*;
 
 pub mod peer;
 
-pub use point::*;
-pub mod point;
+pub use protocol_messages::point::*;
 
 pub use pool_params::*;
 pub mod pool_params;
@@ -190,10 +190,10 @@ pub mod tests {
     pub use crate::{
         anchor::tests::*, ballot::tests::*, ballot_id::tests::*, certificate_pointer::tests::*,
         constitution::tests::*, constitutional_committee::tests::*, drep::tests::*,
-        network::tests::*, point::tests::*, pool_params::tests::*, proposal::tests::*,
-        proposal_id::tests::*, proposal_pointer::tests::*, protocol_parameters::tests::*,
-        reward_account::tests::*, stake_credential::tests::*, transaction_pointer::tests::*,
-        vote::tests::*,
+        network::tests::*, pool_params::tests::*, proposal::tests::*, proposal_id::tests::*,
+        proposal_pointer::tests::*, protocol_messages::point::tests::*,
+        protocol_parameters::tests::*, reward_account::tests::*, stake_credential::tests::*,
+        transaction_pointer::tests::*, vote::tests::*,
     };
     use proptest::prelude::*;
     use rand::{SeedableRng, prelude::StdRng};
@@ -269,10 +269,29 @@ pub type ScriptPurpose = RedeemerTag;
 pub type AuxiliaryDataHash = Hash<32>;
 
 /// Cheaply cloneable block bytes
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct RawBlock(Arc<[u8]>);
+
+impl fmt::Debug for RawBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let bytes = &self.0;
+        let total_len = bytes.len();
+        let preview_len = 32.min(total_len);
+        let preview = &bytes[0..preview_len];
+
+        let mut preview_hex = String::with_capacity(2 * preview_len + 3);
+        for &b in preview {
+            const HEX_CHARS: [u8; 16] = *b"0123456789abcdef";
+            preview_hex.push(HEX_CHARS[(b >> 4) as usize] as char);
+            preview_hex.push(HEX_CHARS[(b & 0x0f) as usize] as char);
+        }
+        if preview_len < total_len {
+            preview_hex.push_str("...");
+        }
+
+        write!(f, "RawBlock({total_len}, {preview_hex})")
+    }
+}
 
 impl Deref for RawBlock {
     type Target = [u8];

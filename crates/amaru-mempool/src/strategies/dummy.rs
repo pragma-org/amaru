@@ -12,51 +12,149 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{IntoKeys, Mempool};
-use std::{collections::BTreeSet, mem, ops::Deref};
+use amaru_ouroboros_traits::{
+    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
+    TxRejectReason, TxSubmissionMempool,
+};
+use minicbor::Encode;
+use parking_lot::RwLock;
+use std::pin::Pin;
+use std::{collections::BTreeSet, mem};
 
 #[derive(Debug, Default)]
 pub struct DummyMempool<T> {
-    transactions: Vec<T>,
+    inner: RwLock<DummyMempoolInner<T>>,
 }
 
 impl<T> DummyMempool<T> {
     pub fn new() -> Self {
         DummyMempool {
-            transactions: vec![],
+            inner: RwLock::new(DummyMempoolInner::new()),
         }
     }
 }
 
-impl<T> Mempool<T> for DummyMempool<T>
-where
-    T: Deref + Send + Sync,
-    T::Target: IntoKeys,
-    <T::Target as IntoKeys>::Key: Ord,
-{
-    fn add(&mut self, tx: T) {
-        self.transactions.push(tx);
+#[derive(Debug, Default)]
+pub struct DummyMempoolInner<T> {
+    transactions: Vec<T>,
+}
+
+impl<Tx: Encode<()> + Send + Sync + 'static> CanValidateTransactions<Tx> for DummyMempool<Tx> {
+    fn validate_transaction(&self, _tx: Tx) -> Result<(), TransactionValidationError> {
+        Ok(())
+    }
+}
+
+impl<Tx: Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for DummyMempool<Tx> {
+    fn insert(&self, tx: Tx, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+        let tx_id = TxId::from(&tx);
+        let mut inner = self.inner.write();
+        inner.transactions.push(tx);
+        let seq_no = MempoolSeqNo(inner.transactions.len() as u64 - 1);
+        Ok((tx_id, seq_no))
     }
 
-    fn take(&mut self) -> Vec<T> {
-        mem::take(&mut self.transactions)
+    fn get_tx(&self, _tx_id: &TxId) -> Option<Tx> {
+        None
     }
 
-    fn acknowledge(&mut self, tx: &T::Target) {
-        let refs: BTreeSet<&<T::Target as IntoKeys>::Key> = tx.keys().collect();
-        self.transactions
-            .retain(|tx| !tx.keys().any(|input| refs.contains(input)));
+    fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
+        vec![]
+    }
+
+    fn wait_for_at_least(
+        &self,
+        _seq_no: MempoolSeqNo,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        Box::pin(async move { true })
+    }
+
+    fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Tx> {
+        vec![]
+    }
+
+    fn last_seq_no(&self) -> MempoolSeqNo {
+        MempoolSeqNo(self.inner.read().transactions.len() as u64)
+    }
+}
+
+impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
+    fn take(&self) -> Vec<Tx> {
+        mem::take(&mut self.inner.write().transactions)
+    }
+
+    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
+    where
+        I: IntoIterator<Item = TxKey>,
+        Self: Sized,
+    {
+        let keys_to_remove = BTreeSet::from_iter(keys(tx));
+        self.inner
+            .write()
+            .transactions
+            .retain(|tx| !keys(tx).into_iter().any(|k| keys_to_remove.contains(&k)));
+    }
+}
+
+impl<T> DummyMempoolInner<T> {
+    pub fn new() -> Self {
+        DummyMempoolInner {
+            transactions: vec![],
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use minicbor::Encoder;
+    use minicbor::encode::{Error, Write};
+
+    #[test]
+    fn take_empty() {
+        let mempool: DummyMempool<FakeTx<'_>> = DummyMempool::new();
+        assert_eq!(mempool.take(), vec![]);
+    }
+
+    #[test]
+    fn add_then_take() {
+        let mempool = DummyMempool::new();
+        mempool.add(FakeTx::new("tx1", &[1])).unwrap();
+        mempool.add(FakeTx::new("tx2", &[2])).unwrap();
+        assert_eq!(
+            mempool.take(),
+            vec![FakeTx::new("tx1", &[1]), FakeTx::new("tx2", &[2])]
+        );
+    }
+
+    #[test]
+    fn invalidate_entries() {
+        let mempool = DummyMempool::new();
+        mempool.add(FakeTx::new("tx1", &[1, 2])).unwrap();
+        mempool.add(FakeTx::new("tx2", &[3, 4])).unwrap();
+        mempool.add(FakeTx::new("tx3", &[5, 6])).unwrap();
+        mempool.acknowledge(&FakeTx::new("tx4", &[2, 5, 7]), FakeTx::keys);
+        assert_eq!(mempool.take(), vec![FakeTx::new("tx2", &[3, 4])]);
+    }
+
+    // HELPERS
 
     #[derive(Debug, PartialEq, Eq)]
     struct FakeTx<'a> {
         id: &'a str,
         inputs: Vec<usize>,
+    }
+
+    impl Encode<()> for FakeTx<'_> {
+        fn encode<W: Write>(
+            &self,
+            e: &mut Encoder<W>,
+            _ctx: &mut (),
+        ) -> Result<(), Error<W::Error>> {
+            e.encode(self.id)?;
+            e.encode(&self.inputs)?;
+            Ok(())
+        }
     }
 
     impl<'a> FakeTx<'a> {
@@ -66,48 +164,9 @@ mod tests {
                 inputs: Vec::from(inputs),
             }
         }
-    }
 
-    impl Deref for FakeTx<'_> {
-        type Target = Self;
-
-        fn deref(&self) -> &Self::Target {
-            self
+        fn keys(&self) -> Vec<usize> {
+            self.inputs.clone()
         }
-    }
-
-    impl IntoKeys for FakeTx<'_> {
-        type Key = usize;
-
-        fn keys(&self) -> impl Iterator<Item = &Self::Key> {
-            self.inputs.iter()
-        }
-    }
-
-    #[test]
-    fn take_empty() {
-        let mut mempool: DummyMempool<FakeTx<'_>> = DummyMempool::new();
-        assert_eq!(mempool.take(), vec![]);
-    }
-
-    #[test]
-    fn add_then_take() {
-        let mut mempool = DummyMempool::new();
-        mempool.add(FakeTx::new("tx1", &[1]));
-        mempool.add(FakeTx::new("tx2", &[2]));
-        assert_eq!(
-            mempool.take(),
-            vec![FakeTx::new("tx1", &[1]), FakeTx::new("tx2", &[2])]
-        );
-    }
-
-    #[test]
-    fn invalidate_entries() {
-        let mut mempool = DummyMempool::new();
-        mempool.add(FakeTx::new("tx1", &[1, 2]));
-        mempool.add(FakeTx::new("tx2", &[3, 4]));
-        mempool.add(FakeTx::new("tx3", &[5, 6]));
-        mempool.acknowledge(&FakeTx::new("tx4", &[2, 5, 7]));
-        assert_eq!(mempool.take(), vec![FakeTx::new("tx2", &[3, 4])]);
     }
 }

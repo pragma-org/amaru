@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::drop_guard::DropGuard;
+use parking_lot::Mutex;
+use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
 use std::{
     sync::{
@@ -49,11 +52,38 @@ impl Clock for AtomicU64 {
     }
 }
 
+impl Clock for Mutex<Instant> {
+    fn now(&self) -> Instant {
+        *self.lock()
+    }
+
+    fn advance_to(&self, instant: Instant) {
+        *self.lock() = instant;
+    }
+}
+
 /// A point in time in the simulation.
 ///
 /// Note that this is an opaque type that serialises and prints as a duration since the [`EPOCH`].
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Eq, PartialOrd, Ord)]
 pub struct Instant(tokio::time::Instant);
+
+thread_local! {
+    static TOLERANCE: RefCell<Duration> = const { RefCell::new(Duration::from_nanos(0)) };
+}
+
+impl PartialEq for Instant {
+    fn eq(&self, other: &Self) -> bool {
+        let tolerance = TOLERANCE.with(|tolerance| *tolerance.borrow());
+        if tolerance.is_zero() {
+            self.0 == other.0
+        } else if self > other {
+            self.0 - other.0 <= tolerance
+        } else {
+            other.0 - self.0 <= tolerance
+        }
+    }
+}
 
 impl std::fmt::Debug for Instant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -91,8 +121,21 @@ impl serde::Serialize for Instant {
 }
 
 impl Instant {
+    pub fn with_tolerance_for_test(tolerance: Duration) -> DropGuard<Duration, fn(Duration)> {
+        fn restore(tolerance: Duration) {
+            TOLERANCE.with_borrow_mut(|t2| *t2 = tolerance)
+        }
+        TOLERANCE.with_borrow_mut(|t| {
+            DropGuard::new(std::mem::replace(t, tolerance), restore as fn(Duration))
+        })
+    }
+
     pub(crate) fn from_tokio(instant: tokio::time::Instant) -> Self {
         Self(instant)
+    }
+
+    pub(crate) fn to_tokio(self) -> tokio::time::Instant {
+        self.0
     }
 
     pub(crate) fn now() -> Self {

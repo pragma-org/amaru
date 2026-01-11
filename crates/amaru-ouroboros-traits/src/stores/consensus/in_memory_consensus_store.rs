@@ -141,7 +141,7 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
         if next.is_empty() {
             None
         } else {
-            Some(next[0].clone())
+            Some(*next[0])
         }
     }
 }
@@ -192,7 +192,7 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     #[expect(clippy::unwrap_used)]
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
-        inner.chain.push(point.clone());
+        inner.chain.push(*point);
         Ok(())
     }
 

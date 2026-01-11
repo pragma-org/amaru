@@ -12,7 +12,6 @@ rust-version.workspace = true
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
-acto.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 cbor4ii.workspace = true
@@ -41,8 +40,8 @@ tracing.workspace = true
 amaru.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-consensus = { workspace = true, features = ["test-utils"] }
-amaru-network.workspace = true
 amaru-ouroboros.workspace = true
+amaru-protocols.workspace = true
 amaru-slot-arithmetic.workspace = true
 
 [dev-dependencies]

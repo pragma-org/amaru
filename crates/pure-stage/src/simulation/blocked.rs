@@ -46,6 +46,7 @@ pub struct SendBlock {
 
 impl Blocked {
     /// Assert that the blocking reason is `Idle`.
+    #[track_caller]
     pub fn assert_idle(&self) {
         match self {
             Blocked::Idle => {}
@@ -54,6 +55,7 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Sleeping`.
+    #[track_caller]
     pub fn assert_sleeping(&self) -> Instant {
         match self {
             Blocked::Sleeping { next_wakeup } => *next_wakeup,
@@ -62,6 +64,7 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Sleeping` until the given instant.
+    #[track_caller]
     pub fn assert_sleeping_until(&self, until: Instant) {
         match self {
             Blocked::Sleeping { next_wakeup } => {
@@ -72,6 +75,7 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Deadlock` by at least the given stages.
+    #[track_caller]
     pub fn assert_deadlock(&self, names: impl IntoIterator<Item = impl AsRef<str> + fmt::Debug>) {
         let names = names.into_iter().collect::<Vec<_>>();
         match self {
@@ -84,6 +88,7 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Busy` by at least the given stages.
+    #[track_caller]
     pub fn assert_busy(
         &self,
         names: impl IntoIterator<Item = impl AsRef<str> + fmt::Debug>,
@@ -99,6 +104,7 @@ impl Blocked {
         self
     }
 
+    #[track_caller]
     pub fn assert_external_effects(&self, effects: usize) {
         let Self::Busy {
             external_effects, ..
@@ -110,6 +116,7 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Breakpoint` by the given name.
+    #[track_caller]
     pub fn assert_breakpoint(self, name: impl AsRef<str>) -> Effect {
         match self {
             Blocked::Breakpoint(n, eff) if name_match(&n, name.as_ref()) => eff,
@@ -118,6 +125,7 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Terminated` by the given name.
+    #[track_caller]
     pub fn assert_terminated(self, name: impl AsRef<str>) {
         match self {
             Blocked::Terminated(n) if name_match(&n, name.as_ref()) => {}

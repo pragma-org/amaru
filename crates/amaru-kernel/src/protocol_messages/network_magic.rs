@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
+use std::{env, num::ParseIntError};
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -44,6 +45,27 @@ impl NetworkMagic {
 
     pub fn as_u64(self) -> u64 {
         self.0
+    }
+
+    pub fn for_testing() -> Self {
+        env::var("NETWORK_MAGIC")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(Self::MAINNET)
+    }
+}
+
+impl std::str::FromStr for NetworkMagic {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "testnet" => Ok(Self::TESTNET),
+            "mainnet" => Ok(Self::MAINNET),
+            "preview" => Ok(Self::PREVIEW),
+            "preprod" => Ok(Self::PREPROD),
+            _ => Ok(Self(s.parse()?)),
+        }
     }
 }
 

@@ -13,4 +13,7 @@
 // limitations under the License.
 
 mod dummy;
+mod in_memory_mempool;
+
 pub use dummy::*;
+pub use in_memory_mempool::*;

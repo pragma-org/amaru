@@ -1,0 +1,141 @@
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+mod initiator;
+mod responder;
+
+pub mod responder_params;
+pub use responder_params::*;
+
+pub mod messages;
+pub use messages::*;
+
+pub mod outcome;
+pub use outcome::*;
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+pub use tests::*;
+
+use crate::connection::ConnectionMessage;
+use crate::mux;
+use crate::protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT};
+use amaru_ouroboros::TxOrigin;
+use pure_stage::{Effects, StageRef, Void};
+
+pub use initiator::initiator;
+pub use responder::{ResponderResult, responder};
+
+pub fn register_deserializers() -> pure_stage::DeserializerGuards {
+    vec![
+        initiator::register_deserializers(),
+        responder::register_deserializers(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+pub fn spec<R: RoleT>() -> crate::protocol::ProtoSpec<State, Message, R>
+where
+    State: ProtocolState<R, WireMsg = Message>,
+{
+    use Message::*;
+    use State::*;
+    let mut spec = crate::protocol::ProtoSpec::default();
+    let request_tx_ids_blocking = || RequestTxIdsBlocking(0, 0);
+    let request_tx_ids_non_blocking = || RequestTxIdsNonBlocking(0, 0);
+    let request_txs = || RequestTxs(vec![]);
+    let reply_tx_ids = || ReplyTxIds(vec![]);
+    let reply_txs = || ReplyTxs(vec![]);
+
+    spec.init(State::Init, Message::Init, Idle);
+    spec.init(TxIdsBlocking, reply_tx_ids(), Idle);
+    spec.init(TxIdsNonBlocking, reply_tx_ids(), Idle);
+    spec.init(Txs, reply_txs(), Idle);
+    spec.init(TxIdsBlocking, Message::Done, State::Done);
+    spec.resp(Idle, request_tx_ids_blocking(), TxIdsBlocking);
+    spec.resp(Idle, request_tx_ids_non_blocking(), TxIdsNonBlocking);
+    spec.resp(Idle, request_txs(), Txs);
+    spec
+}
+
+pub async fn register_tx_submission(
+    role: Role,
+    muxer: StageRef<mux::MuxMessage>,
+    eff: &Effects<ConnectionMessage>,
+    origin: TxOrigin,
+) -> StageRef<mux::HandlerMessage> {
+    let tx_submission = if role == Role::Initiator {
+        let (state, stage) = initiator::TxSubmissionInitiator::new(muxer.clone());
+        let tx_submission = eff
+            .wire_up(
+                eff.stage("tx_submission", initiator::initiator()).await,
+                (state, stage),
+            )
+            .await;
+        eff.contramap(
+            &tx_submission,
+            "tx_submission_handler",
+            Inputs::<Void>::Network,
+        )
+        .await
+    } else {
+        let (state, stage) = responder::TxSubmissionResponder::new(
+            muxer.clone(),
+            ResponderParams::new(2, 3),
+            origin,
+        );
+        let tx_submission = eff
+            .wire_up(
+                eff.stage("tx_submission", responder::responder()).await,
+                (state, stage),
+            )
+            .await;
+        eff.contramap(
+            &tx_submission,
+            "tx_submission_handler",
+            Inputs::<Void>::Network,
+        )
+        .await
+    };
+
+    eff.send(
+        &muxer,
+        mux::MuxMessage::Register {
+            protocol: PROTO_N2N_TX_SUB.for_role(role).erase(),
+            frame: mux::Frame::OneCborItem,
+            handler: tx_submission.clone(),
+            max_buffer: 5760,
+        },
+    )
+    .await;
+
+    tx_submission
+}
+
+/// The state of the tx submission protocol as a whole.
+#[derive(
+    Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, serde::Serialize, serde::Deserialize,
+)]
+pub enum State {
+    Init,
+    Idle,
+    Done,
+    Txs,
+    TxIdsBlocking,
+    TxIdsNonBlocking,
+}
