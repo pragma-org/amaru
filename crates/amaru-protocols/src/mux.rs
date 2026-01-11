@@ -631,9 +631,7 @@ mod tests {
     use super::*;
     use crate::{
         network_effects::{RecvEffect, SendEffect},
-        protocol::{
-            Initiator, PROTO_HANDSHAKE, PROTO_N2C_CHAIN_SYNC, PROTO_N2N_BLOCK_FETCH, Responder,
-        },
+        protocol::{Initiator, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_TEST, Responder},
     };
     use amaru_network::connection::TokioConnections;
     use amaru_ouroboros::ConnectionResource;
@@ -690,11 +688,7 @@ mod tests {
         let mut graph = SimulationBuilder::default().with_trace_buffer(trace_buffer);
 
         let mux = graph.stage("mux", super::stage);
-        let mux = graph.wire_up(
-            mux,
-            // FIXME make test-only protocol ID
-            State::new(conn_id, &[(PROTO_N2C_CHAIN_SYNC.erase(), 0)]),
-        );
+        let mux = graph.wire_up(mux, State::new(conn_id, &[(PROTO_TEST.erase(), 0)]));
 
         let (output, mut rx) = graph.output::<HandlerMessage>("output", 10);
         let (sent, mut sent_rx) = graph.output::<Sent>("sent", 10);
@@ -727,7 +721,7 @@ mod tests {
 
         input
             .send(MuxMessage::Send(
-                PROTO_N2C_CHAIN_SYNC.erase(),
+                PROTO_TEST.erase(),
                 Bytes::copy_from_slice(&[1, 24, 33]).try_into().unwrap(),
                 sent,
             ))
@@ -736,12 +730,12 @@ mod tests {
         let mut buf = [0u8; 11];
         assert_eq!(t(tcp.read_exact(&mut buf)).await.unwrap(), 11);
         t(sent_rx.next()).await.unwrap();
-        // first four bytes are timestamp; proto ID is 5, length is 3
-        assert_eq!(&buf[4..], [0, 5, 0, 3, 1, 24, 33]);
+        // first four bytes are timestamp; proto ID is 257 (0x0101), length is 3
+        assert_eq!(&buf[4..], [1, 1, 0, 3, 1, 24, 33]);
 
         input
             .send(MuxMessage::Register {
-                protocol: PROTO_N2C_CHAIN_SYNC.erase(),
+                protocol: PROTO_TEST.erase(),
                 frame: Frame::OneCborItem,
                 handler: output,
                 max_buffer: 100,
@@ -750,16 +744,16 @@ mod tests {
             .unwrap();
         assert_eq!(
             t(rx.next()).await.unwrap(),
-            HandlerMessage::Registered(PROTO_N2C_CHAIN_SYNC.erase())
+            HandlerMessage::Registered(PROTO_TEST.erase())
         );
 
         input
-            .send(MuxMessage::WantNext(PROTO_N2C_CHAIN_SYNC.erase()))
+            .send(MuxMessage::WantNext(PROTO_TEST.erase()))
             .await
             .unwrap();
 
         // need to flip role bit before sending as responses
-        buf[4] = 0x80;
+        buf[4] |= 0x80;
 
         t(tcp.write_all(&buf)).await.unwrap();
         t(tcp.flush()).await.unwrap();
@@ -769,7 +763,7 @@ mod tests {
         );
         s(rx.next()).await;
         input
-            .send(MuxMessage::WantNext(PROTO_N2C_CHAIN_SYNC.erase()))
+            .send(MuxMessage::WantNext(PROTO_TEST.erase()))
             .await
             .unwrap();
         assert_eq!(
@@ -810,7 +804,7 @@ mod tests {
                 conn_id,
                 // sequence of registration is the sequence of round-robin
                 &[
-                    (PROTO_N2C_CHAIN_SYNC.erase(), 1024),
+                    (PROTO_TEST.erase(), 1024),
                     (PROTO_N2N_BLOCK_FETCH.erase(), 0),
                     (PROTO_HANDSHAKE.erase(), 1),
                 ],
@@ -836,7 +830,7 @@ mod tests {
         running.enqueue_msg(
             &mux,
             [MuxMessage::Register {
-                protocol: PROTO_N2C_CHAIN_SYNC.erase(),
+                protocol: PROTO_TEST.erase(),
                 frame: Frame::OneCborItem,
                 handler: chain_sync.clone(),
                 max_buffer: 1024,
@@ -877,10 +871,10 @@ mod tests {
         registered.assert_send(
             &mux,
             &chain_sync,
-            HandlerMessage::Registered(PROTO_N2C_CHAIN_SYNC.erase()),
+            HandlerMessage::Registered(PROTO_TEST.erase()),
         );
         running.handle_effect(registered);
-        running.enqueue_msg(&mux, [MuxMessage::WantNext(PROTO_N2C_CHAIN_SYNC.erase())]);
+        running.enqueue_msg(&mux, [MuxMessage::WantNext(PROTO_TEST.erase())]);
         running.run_until_blocked().assert_busy([&reader]);
 
         // send a message towards the network
@@ -930,14 +924,14 @@ mod tests {
         };
 
         // start write but don't let the writer finish yet
-        let cr1 = send_msg(running, 101, 1, 1024, PROTO_N2C_CHAIN_SYNC);
+        let cr1 = send_msg(running, 101, 1, 1024, PROTO_TEST);
         assert_respond(running, &cr1);
-        assert_send(running, &[(1024, 1)], PROTO_N2C_CHAIN_SYNC);
+        assert_send(running, &[(1024, 1)], PROTO_TEST);
 
         // put 1024 bytes into the proto buffer
-        let cr2 = send_msg(running, 102, 2, 1024, PROTO_N2C_CHAIN_SYNC);
+        let cr2 = send_msg(running, 102, 2, 1024, PROTO_TEST);
         // put 10 bytes into the proto buffer
-        let cr3 = send_msg(running, 103, 3, 10, PROTO_N2C_CHAIN_SYNC);
+        let cr3 = send_msg(running, 103, 3, 10, PROTO_TEST);
         // the above are for checking correct responses via the CallRefs
 
         // fill segments for other two protocols
@@ -949,7 +943,7 @@ mod tests {
         assert_and_resume_send(running, &[(65535, 4)], PROTO_HANDSHAKE);
         assert_respond(running, &cr2);
         assert_respond(running, &cr3);
-        assert_and_resume_send(running, &[(1024, 2), (10, 3)], PROTO_N2C_CHAIN_SYNC);
+        assert_and_resume_send(running, &[(1024, 2), (10, 3)], PROTO_TEST);
         assert_respond(running, &cr5);
         assert_and_resume_send(running, &[(465, 5)], PROTO_N2N_BLOCK_FETCH);
         assert_respond(running, &cr4);
@@ -1007,16 +1001,11 @@ mod tests {
         };
 
         // send CBOR 1 followed by incomplete CBOR; "recv" effect always happens second
-        recv_msg(
-            running,
-            PROTO_N2C_CHAIN_SYNC.responder(),
-            &[1, 24],
-            &[&[1], &[]],
-        );
+        recv_msg(running, PROTO_TEST.responder(), &[1, 24], &[&[1], &[]]);
         // send CBOR 25 continuation followed by CBOR 3
         recv_msg(
             running,
-            PROTO_N2C_CHAIN_SYNC.responder(),
+            PROTO_TEST.responder(),
             &[25, 3],
             &[&[24, 25], &[], &[3]],
         );
