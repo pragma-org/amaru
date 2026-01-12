@@ -143,10 +143,12 @@ impl<'b> cbor::decode::Decode<'b, ()> for Point {
 pub mod tests {
     use super::Point;
     use crate::tests::random_bytes;
-    use crate::{HEADER_HASH_SIZE, HeaderHash};
+    use crate::{HEADER_HASH_SIZE, HeaderHash, prop_cbor_roundtrip};
     use amaru_slot_arithmetic::Slot;
     use pallas_crypto::hash::Hash;
     use proptest::prelude::*;
+
+    prop_cbor_roundtrip!(Point, any_point());
 
     /// Generate a random Hash that could be the hash of a `H: IsHeader` value.
     pub fn random_hash() -> HeaderHash {
@@ -154,12 +156,28 @@ pub mod tests {
     }
 
     prop_compose! {
-        pub fn any_point()(
-            slot in any::<u64>(),
-            bytes in proptest::array::uniform32(any::<u8>()),
-        ) -> Point {
-            Point::Specific(Slot::from(slot), Hash::new(bytes))
+        fn any_slot()(n in 0u64..=1000) -> Slot {
+            Slot::from(n)
         }
+    }
+
+    prop_compose! {
+        pub fn any_specific_point()(slot in any_slot(), header_hash in any_header_hash()) -> Point {
+            Point::Specific(slot, header_hash)
+        }
+    }
+
+    prop_compose! {
+        pub fn any_header_hash()(bytes in proptest::array::uniform32(any::<u8>())) -> HeaderHash {
+            Hash::new(bytes)
+        }
+    }
+
+    pub fn any_point() -> impl Strategy<Value = Point> {
+        prop_oneof![
+            1 => Just(Point::Origin),
+            3 => any_specific_point(),
+        ]
     }
 
     #[cfg(test)]

@@ -77,3 +77,18 @@ impl<'b, C> Decode<'b, C> for BlockHeight {
         u64::decode(d, ctx).map(BlockHeight)
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::*;
+    use crate::prop_cbor_roundtrip;
+    use proptest::prop_compose;
+
+    prop_cbor_roundtrip!(BlockHeight, any_block_height());
+
+    prop_compose! {
+        pub fn any_block_height()(h in 1..1000u64) -> BlockHeight {
+            BlockHeight::from(h)
+        }
+    }
+}

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::blockfetch::messages::check_length;
+use amaru_kernel::protocol_messages::handshake::check_length;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
 #[derive(
@@ -132,12 +132,7 @@ mod tests {
     use proptest::prelude::*;
     use proptest::prop_compose;
 
-    #[test]
-    fn test() {}
-    mod message {
-        use super::*;
-        prop_cbor_roundtrip!(Message, any_message());
-    }
+    prop_cbor_roundtrip!(Message, any_message());
 
     // HELPERS
 

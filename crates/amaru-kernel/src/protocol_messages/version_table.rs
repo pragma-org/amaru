@@ -149,3 +149,20 @@ where
         Ok(VersionTable { values })
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::*;
+    use crate::prop_cbor_roundtrip;
+    use crate::protocol_messages::version_data::{VersionData, tests::any_version_data};
+    use crate::protocol_messages::version_number::tests::any_version_number;
+    use proptest::prop_compose;
+
+    prop_cbor_roundtrip!(VersionTable<VersionData>, any_version_table());
+
+    prop_compose! {
+        pub fn any_version_table()(values in proptest::collection::btree_map(any_version_number(), any_version_data(), 0..3)) -> VersionTable<VersionData> {
+            VersionTable { values }
+        }
+    }
+}

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::blockfetch::messages::check_length;
 use crate::tx_submission::Blocking;
+use amaru_kernel::protocol_messages::handshake::check_length;
 use amaru_kernel::{Tx, bytes::NonEmptyBytes, to_cbor};
 use amaru_ouroboros_traits::TxId;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
@@ -178,7 +178,7 @@ impl<'b> Decode<'b, ()> for Message {
                 Ok(Message::Done)
             }
             6 => {
-                check_length(5, len, 1)?;
+                check_length(6, len, 1)?;
                 Ok(Message::Init)
             }
             _ => Err(decode::Error::message(

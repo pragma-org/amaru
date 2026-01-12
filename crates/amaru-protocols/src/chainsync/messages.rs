@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::blockfetch::messages::check_length;
+use amaru_kernel::protocol_messages::handshake::check_length;
 use amaru_kernel::{BlockHeader, Point, protocol_messages::tip::Tip, to_cbor};
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use pure_stage::DeserializerGuards;
@@ -235,15 +235,11 @@ impl Encode<()> for HeaderContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockfetch::messages::tests::any_point;
     use crate::chainsync::messages::Message::*;
     use amaru_kernel::prop_cbor_roundtrip;
-    use amaru_kernel::protocol_messages::block_height::BlockHeight;
+    use amaru_kernel::protocol_messages::{point::tests::any_point, tip::tests::any_tip};
     use proptest::prelude::*;
     use proptest::prop_compose;
-
-    #[test]
-    fn test() {}
 
     mod header_content {
         use super::*;
@@ -256,18 +252,6 @@ mod tests {
     }
 
     // HELPERS
-
-    prop_compose! {
-        fn any_tip()(point in any_point(), block_height in any_block_height()) -> Tip {
-            Tip::new(point, block_height)
-        }
-    }
-
-    prop_compose! {
-        fn any_block_height()(h in 1..1000u64) -> BlockHeight {
-            BlockHeight::from(h)
-        }
-    }
 
     fn done_message() -> impl Strategy<Value = Message> {
         Just(Message::Done)

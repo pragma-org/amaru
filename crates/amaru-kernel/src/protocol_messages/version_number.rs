@@ -71,3 +71,22 @@ impl<'b, C> Decode<'b, C> for VersionNumber {
         u64::decode(d, ctx).map(VersionNumber)
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use crate::prop_cbor_roundtrip;
+    use crate::protocol_messages::version_number::VersionNumber;
+    use proptest::prelude::{Just, Strategy};
+    use proptest::prop_oneof;
+
+    prop_cbor_roundtrip!(VersionNumber, any_version_number());
+
+    pub fn any_version_number() -> impl Strategy<Value = VersionNumber> {
+        prop_oneof![
+            1 => Just(VersionNumber::V11),
+            1 => Just(VersionNumber::V12),
+            1 => Just(VersionNumber::V13),
+            1 => Just(VersionNumber::V14),
+        ]
+    }
+}

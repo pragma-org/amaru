@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::protocol_messages::handshake::check_length;
 use crate::protocol_messages::{network_magic::NetworkMagic, version_number::VersionNumber};
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
@@ -68,9 +69,7 @@ impl<'b, T: AsRef<VersionNumber>> Decode<'b, T> for VersionData {
     fn decode(d: &mut Decoder<'b>, ctx: &mut T) -> Result<Self, decode::Error> {
         if ctx.as_ref().has_query_and_peer_sharing() {
             let len = d.array()?;
-            if len != Some(4) {
-                return Err(decode::Error::message("expected array of length 4"));
-            }
+            check_length(0, len, 4)?;
             let network_magic = d.decode()?;
             let initiator_only_diffusion_mode = d.bool()?;
             let peer_sharing = d.u8()?;
@@ -83,9 +82,7 @@ impl<'b, T: AsRef<VersionNumber>> Decode<'b, T> for VersionData {
             })
         } else {
             let len = d.array()?;
-            if len != Some(2) {
-                return Err(decode::Error::message("expected array of length 2"));
-            }
+            check_length(0, len, 2)?;
             let network_magic = d.decode()?;
             let initiator_only_diffusion_mode = d.bool()?;
             Ok(Self {
@@ -94,6 +91,23 @@ impl<'b, T: AsRef<VersionNumber>> Decode<'b, T> for VersionData {
                 peer_sharing: 0,
                 query: false,
             })
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::*;
+    use crate::protocol_messages::network_magic::tests::any_network_magic;
+    use proptest::prelude::any;
+    use proptest::prop_compose;
+
+    prop_compose! {
+        pub fn any_version_data()(network_magic in any_network_magic(),
+            initiator_only_diffusion_mode in any::<bool>(),
+            peer_sharing in any::<u8>(),
+            query in any::<bool>()) -> VersionData {
+            VersionData::new(network_magic, initiator_only_diffusion_mode, peer_sharing, query)
         }
     }
 }
