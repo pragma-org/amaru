@@ -76,7 +76,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         let anchor = store
             .load_header(&anchor_hash)
             .map(|h| h.as_tip())
-            .unwrap_or(Tip::new(Point::Origin, 0.into()));
+            .unwrap_or(Tip::origin());
 
         // the client is at least as up-to-date as we are
         if points.contains(current_tip) {
@@ -137,7 +137,7 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
         let best_tip = best_intersection
             .and_then(|(_, h)| store.load_header(&h))
             .map(|h| h.as_tip())
-            .unwrap_or(Tip::new(Point::Origin, 0.into()));
+            .unwrap_or(Tip::origin());
         Some(Self {
             initial: Some(best_tip),
             ops: headers.into(),

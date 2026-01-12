@@ -24,6 +24,10 @@ use std::fmt;
 pub struct Tip(Point, BlockHeight);
 
 impl Tip {
+    pub fn origin() -> Self {
+        Self(Point::Origin, BlockHeight::from(0))
+    }
+
     pub fn new(point: Point, block_height: BlockHeight) -> Self {
         Self(point, block_height)
     }

@@ -190,7 +190,7 @@ pub async fn build_and_run_network(
     let our_tip = chain_store
         .load_header(&tip.hash())
         .map(|h| h.tip())
-        .unwrap_or(Tip::new(Point::Origin, 0.into()));
+        .unwrap_or(Tip::origin());
 
     let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
     let chain_selector = make_chain_selector(

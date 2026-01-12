@@ -194,7 +194,7 @@ pub fn spawn_node(
     });
     let manager = network.wire_up(manager, ());
 
-    let our_tip = Tip::new(Point::Origin, 0.into());
+    let our_tip = Tip::origin();
     let receive_header_ref =
         build_stage_graph(select_chain, our_tip, manager.without_state(), network);
 

@@ -42,10 +42,14 @@ pub struct HeaderContent {
 
 impl HeaderContent {
     pub fn v6(header: &BlockHeader) -> Self {
+        Self::make_v6(to_cbor(header))
+    }
+
+    pub fn make_v6(cbor: Vec<u8>) -> Self {
         Self {
             variant: 6,
             byron_prefix: None,
-            cbor: to_cbor(header),
+            cbor,
         }
     }
 }
