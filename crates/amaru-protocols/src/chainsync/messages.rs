@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::blockfetch::messages::check_length;
 use amaru_kernel::{BlockHeader, Point, protocol_messages::tip::Tip, to_cbor};
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use pure_stage::DeserializerGuards;
@@ -105,36 +106,50 @@ impl Encode<()> for Message {
 
 impl<'b> Decode<'b, ()> for Message {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
-        d.array()?;
+        let len = d.array()?;
         let label = d.u16()?;
 
         match label {
-            0 => Ok(Message::RequestNext),
-            1 => Ok(Message::AwaitReply),
+            0 => {
+                check_length(0, len, 1)?;
+                Ok(Message::RequestNext)
+            }
+            1 => {
+                check_length(1, len, 1)?;
+                Ok(Message::AwaitReply)
+            }
             2 => {
+                check_length(2, len, 3)?;
                 let content = d.decode()?;
                 let tip = d.decode()?;
                 Ok(Message::RollForward(content, tip))
             }
             3 => {
+                check_length(3, len, 3)?;
                 let point = d.decode()?;
                 let tip = d.decode()?;
                 Ok(Message::RollBackward(point, tip))
             }
             4 => {
+                check_length(4, len, 2)?;
                 let points = d.decode()?;
                 Ok(Message::FindIntersect(points))
             }
             5 => {
+                check_length(5, len, 3)?;
                 let point = d.decode()?;
                 let tip = d.decode()?;
                 Ok(Message::IntersectFound(point, tip))
             }
             6 => {
+                check_length(6, len, 2)?;
                 let tip = d.decode()?;
                 Ok(Message::IntersectNotFound(tip))
             }
-            7 => Ok(Message::Done),
+            7 => {
+                check_length(7, len, 1)?;
+                Ok(Message::Done)
+            }
             _ => Err(decode::Error::message(
                 "unknown variant for chainsync message",
             )),
@@ -144,13 +159,15 @@ impl<'b> Decode<'b, ()> for Message {
 
 impl<'b> Decode<'b, ()> for HeaderContent {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
-        d.array()?;
+        let len = d.array()?;
         let variant = d.u8()?; // era variant
 
         match variant {
             // byron
             0 => {
-                d.array()?;
+                check_length(0, len, 2)?;
+                let len = d.array()?;
+                check_length(0, len, 2)?;
 
                 // can't find a reference anywhere about the structure of these values, but they
                 // seem to provide the Byron-specific variant of the header
@@ -166,10 +183,10 @@ impl<'b> Decode<'b, ()> for HeaderContent {
                 })
             }
             // shelley and beyond
-            _ => {
+            v => {
+                check_length(v as usize, len, 2)?;
                 d.tag()?;
                 let bytes = d.bytes()?;
-
                 Ok(HeaderContent {
                     variant,
                     byron_prefix: None,
@@ -211,5 +228,121 @@ impl Encode<()> for HeaderContent {
         }
 
         Ok(())
+    }
+}
+
+/// Roundtrip property tests for chainsync messages.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blockfetch::messages::tests::any_point;
+    use crate::chainsync::messages::Message::*;
+    use amaru_kernel::prop_cbor_roundtrip;
+    use amaru_kernel::protocol_messages::block_height::BlockHeight;
+    use proptest::prelude::*;
+    use proptest::prop_compose;
+
+    #[test]
+    fn test() {}
+
+    mod header_content {
+        use super::*;
+        prop_cbor_roundtrip!(HeaderContent, any_header_content());
+    }
+
+    mod message {
+        use super::*;
+        prop_cbor_roundtrip!(Message, any_message());
+    }
+
+    // HELPERS
+
+    prop_compose! {
+        fn any_tip()(point in any_point(), block_height in any_block_height()) -> Tip {
+            Tip::new(point, block_height)
+        }
+    }
+
+    prop_compose! {
+        fn any_block_height()(h in 1..1000u64) -> BlockHeight {
+            BlockHeight::from(h)
+        }
+    }
+
+    fn done_message() -> impl Strategy<Value = Message> {
+        Just(Message::Done)
+    }
+
+    fn request_next_message() -> impl Strategy<Value = Message> {
+        Just(Message::RequestNext)
+    }
+
+    fn await_reply_message() -> impl Strategy<Value = Message> {
+        Just(Message::AwaitReply)
+    }
+
+    prop_compose! {
+        fn any_vec_u8()(elems in proptest::collection::vec(any::<u8>(), 0..10)) -> Vec<u8> {
+            elems
+        }
+    }
+
+    prop_compose! {
+        fn any_byron_prefix()(b1 in any::<u8>(), b2 in any::<u64>()) -> (u8, u64) {
+            (b1, b2)
+        }
+    }
+
+    prop_compose! {
+        fn any_header_content()(variant in 0..8u8, byron_prefix in any_byron_prefix(), cbor in any_vec_u8()) -> HeaderContent {
+            if variant == 0 {
+                HeaderContent { variant, byron_prefix: Some(byron_prefix), cbor }
+            } else {
+                HeaderContent { variant, byron_prefix: None, cbor }
+            }
+        }
+    }
+
+    prop_compose! {
+        fn roll_forward_message()(header_content in any_header_content(), tip in any_tip()) -> Message {
+            RollForward(header_content, tip)
+        }
+    }
+
+    prop_compose! {
+        fn roll_backward_message()(point in any_point(), tip in any_tip()) -> Message {
+            RollBackward(point, tip)
+        }
+    }
+
+    prop_compose! {
+        fn find_intersect_message()(points in proptest::collection::vec(any_point(), 0..3)) -> Message {
+            FindIntersect(points)
+        }
+    }
+
+    prop_compose! {
+        fn intersect_found_message()(point in any_point(), tip in any_tip()) -> Message {
+            IntersectFound(point, tip)
+        }
+    }
+
+    prop_compose! {
+        fn intersect_not_found_message()(tip in any_tip()) -> Message {
+            IntersectNotFound(tip)
+        }
+    }
+
+    pub fn any_message() -> impl Strategy<Value = Message> {
+        prop_oneof![
+            1 => done_message(),
+            3 => request_next_message(),
+            3 => await_reply_message(),
+            3 => roll_forward_message(),
+            3 => roll_backward_message(),
+            3 => find_intersect_message(),
+            3 => intersect_found_message(),
+            3 => intersect_not_found_message(),
+        ]
     }
 }

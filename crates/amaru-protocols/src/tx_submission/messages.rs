@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::blockfetch::messages::check_length;
 use crate::tx_submission::Blocking;
 use amaru_kernel::{Tx, bytes::NonEmptyBytes, to_cbor};
 use amaru_ouroboros_traits::TxId;
@@ -117,19 +118,17 @@ impl Encode<()> for Message {
             }
             Message::RequestTxs(ids) => {
                 e.array(2)?.u16(2)?;
-                e.begin_array()?;
+                e.array(ids.len() as u64)?;
                 for id in ids {
                     e.encode(id)?;
                 }
-                e.end()?;
             }
             Message::ReplyTxs(txs) => {
                 e.array(2)?.u16(3)?;
-                e.begin_array()?;
+                e.array(txs.len() as u64)?;
                 for tx in txs {
                     e.encode(tx)?;
                 }
-                e.end()?;
             }
             Message::Done => {
                 e.array(1)?.u16(4)?;
@@ -144,11 +143,12 @@ impl Encode<()> for Message {
 
 impl<'b> Decode<'b, ()> for Message {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
-        d.array()?;
+        let len = d.array()?;
         let label = d.u16()?;
 
         match label {
             0 => {
+                check_length(0, len, 4)?;
                 let blocking = d.decode()?;
                 let ack = d.u16()?;
                 let req = d.u16()?;
@@ -158,18 +158,29 @@ impl<'b> Decode<'b, ()> for Message {
                 }
             }
             1 => {
+                check_length(1, len, 2)?;
                 let items = d.decode()?;
                 Ok(Message::ReplyTxIds(items))
             }
             2 => {
+                check_length(2, len, 2)?;
                 let ids = d.decode()?;
                 Ok(Message::RequestTxs(ids))
             }
-            3 => Ok(Message::ReplyTxs(
-                d.array_iter()?.collect::<Result<_, _>>()?,
-            )),
-            4 => Ok(Message::Done),
-            6 => Ok(Message::Init),
+            3 => {
+                check_length(3, len, 2)?;
+                Ok(Message::ReplyTxs(
+                    d.array_iter()?.collect::<Result<_, _>>()?,
+                ))
+            }
+            4 => {
+                check_length(4, len, 1)?;
+                Ok(Message::Done)
+            }
+            6 => {
+                check_length(5, len, 1)?;
+                Ok(Message::Init)
+            }
             _ => Err(decode::Error::message(
                 "unknown variant for txsubmission message",
             )),

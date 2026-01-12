@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::blockfetch::messages::check_length;
 use amaru_kernel::protocol_messages::{
     handshake::RefuseReason, version_number::VersionNumber, version_table::VersionTable,
 };
@@ -70,24 +71,28 @@ where
     VersionTable<D>: Decode<'b, ()>,
 {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
-        d.array()?;
+        let len = d.array()?;
 
         match d.u16()? {
             0 => {
+                check_length(0, len, 2)?;
                 let version_table = d.decode()?;
                 Ok(Message::Propose(version_table))
             }
             1 => {
+                check_length(1, len, 3)?;
                 let version_number = d.decode()?;
                 let mut ctx = version_number;
                 let version_data = d.decode_with(&mut ctx)?;
                 Ok(Message::Accept(version_number, version_data))
             }
             2 => {
+                check_length(2, len, 2)?;
                 let reason: RefuseReason = d.decode()?;
                 Ok(Message::Refuse(reason))
             }
             3 => {
+                check_length(3, len, 2)?;
                 let version_table = d.decode()?;
                 Ok(Message::QueryReply(version_table))
             }
@@ -96,5 +101,126 @@ where
                 n,
             ))),
         }
+    }
+}
+
+/// Roundtrip property tests for handshake messages.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::handshake::messages::Message::*;
+    use amaru_kernel::prop_cbor_roundtrip;
+    use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
+    use amaru_kernel::protocol_messages::version_data::VersionData;
+    use proptest::prelude::*;
+    use proptest::prop_compose;
+
+    mod refuse_reason {
+        use super::*;
+        prop_cbor_roundtrip!(RefuseReason, any_refuse_reason());
+    }
+
+    mod message {
+        use super::*;
+        prop_cbor_roundtrip!(Message<VersionData>, any_message());
+    }
+
+    // HELPERS
+    prop_compose! {
+        fn any_propose_message()(version_table in any_version_table()) -> Message<VersionData> {
+            Propose(version_table)
+        }
+    }
+
+    prop_compose! {
+        fn any_query_reply_message()(version_table in any_version_table()) -> Message<VersionData> {
+            QueryReply(version_table)
+        }
+    }
+
+    prop_compose! {
+        fn any_accept_message()(version_number in any_version_number(), version_data in any_version_data()) -> Message<VersionData> {
+            Accept(version_number, version_data)
+        }
+    }
+
+    prop_compose! {
+        fn any_refuse_message()(reason in any_refuse_reason()) -> Message<VersionData> {
+            Refuse(reason)
+        }
+    }
+
+    prop_compose! {
+        fn any_handshake_decode_error_reason()(version_number in any_version_number(), message in any::<String>()) -> RefuseReason {
+            RefuseReason::HandshakeDecodeError(version_number, message)
+        }
+    }
+
+    prop_compose! {
+        fn any_refused_reason()(version_number in any_version_number(), message in any::<String>()) -> RefuseReason {
+            RefuseReason::Refused(version_number, message)
+        }
+    }
+
+    prop_compose! {
+        fn any_version_mismatch_reason()(versions in proptest::collection::vec(any_version_number(), 1..3)) -> RefuseReason {
+            RefuseReason::VersionMismatch(versions)
+        }
+    }
+
+    pub fn any_refuse_reason() -> impl Strategy<Value = RefuseReason> {
+        prop_oneof![
+            1 => any_version_mismatch_reason(),
+            1 => any_handshake_decode_error_reason(),
+            1 => any_refused_reason(),
+        ]
+    }
+
+    pub fn any_version_number() -> impl Strategy<Value = VersionNumber> {
+        prop_oneof![
+            1 => Just(VersionNumber::V11),
+            1 => Just(VersionNumber::V12),
+            1 => Just(VersionNumber::V13),
+            1 => Just(VersionNumber::V14),
+        ]
+    }
+
+    pub fn any_network_magic() -> impl Strategy<Value = NetworkMagic> {
+        prop_oneof![
+            1 => Just(NetworkMagic::MAINNET),
+            1 => Just(NetworkMagic::PREVIEW),
+            1 => Just(NetworkMagic::PREPROD),
+            1 => Just(NetworkMagic::TESTNET),
+        ]
+    }
+
+    prop_compose! {
+        fn any_version_data()(network_magic in any_network_magic(),
+            initiator_only_diffusion_mode in any::<bool>(),
+            peer_sharing in any::<u8>(),
+            query in any::<bool>()) -> VersionData {
+            VersionData::new(network_magic, initiator_only_diffusion_mode, peer_sharing, query)
+        }
+    }
+
+    prop_compose! {
+        fn any_version_table()(values in proptest::collection::btree_map(any_version_number(), any_version_data(), 0..3)) -> VersionTable<VersionData> {
+            VersionTable { values }
+        }
+    }
+
+    prop_compose! {
+        fn any_byron_prefix()(b1 in any::<u8>(), b2 in any::<u64>()) -> (u8, u64) {
+            (b1, b2)
+        }
+    }
+
+    pub fn any_message() -> impl Strategy<Value = Message<VersionData>> {
+        prop_oneof![
+            1 => any_query_reply_message(),
+            1 => any_propose_message(),
+            1 => any_accept_message(),
+            1 => any_refuse_message(),
+        ]
     }
 }

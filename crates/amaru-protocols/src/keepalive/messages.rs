@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::blockfetch::messages::check_length;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
 #[derive(
@@ -99,27 +100,74 @@ impl<T> Encode<T> for Message {
 
 impl<'b, T> Decode<'b, T> for Message {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut T) -> Result<Self, decode::Error> {
-        let Some(len) = d.array()? else {
-            return Err(decode::Error::message("expected array"));
-        };
+        let len = d.array()?;
         let label = d.u16()?;
-        if label < 2 && len != 2 {
-            return Err(decode::Error::message("expected array of length 2"));
-        } else if label == 2 && len != 1 {
-            return Err(decode::Error::message("expected array of length 1"));
-        }
 
         match label {
             0 => {
+                check_length(0, len, 2)?;
                 let cookie = d.decode()?;
                 Ok(Message::KeepAlive(cookie))
             }
             1 => {
+                check_length(1, len, 2)?;
                 let cookie = d.decode()?;
                 Ok(Message::ResponseKeepAlive(cookie))
             }
-            2 => Ok(Message::Done),
+            2 => {
+                check_length(2, len, 1)?;
+                Ok(Message::Done)
+            }
             _ => Err(decode::Error::message("can't decode Message")),
         }
+    }
+}
+
+/// Roundtrip property tests for handshake messages.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keepalive::messages::Message::*;
+    use amaru_kernel::prop_cbor_roundtrip;
+    use proptest::prelude::*;
+    use proptest::prop_compose;
+
+    #[test]
+    fn test() {}
+    mod message {
+        use super::*;
+        prop_cbor_roundtrip!(Message, any_message());
+    }
+
+    // HELPERS
+
+    prop_compose! {
+        fn any_cookie()(n in any::<u16>()) -> Cookie {
+            Cookie(n)
+        }
+    }
+
+    prop_compose! {
+        fn any_keep_alive_message()(cookie in any_cookie()) -> Message {
+            KeepAlive(cookie)
+        }
+    }
+
+    prop_compose! {
+        fn any_response_keep_alive_message()(cookie in any_cookie()) -> Message {
+            ResponseKeepAlive(cookie)
+        }
+    }
+
+    pub fn done_message() -> impl Strategy<Value = Message> {
+        Just(Done)
+    }
+
+    pub fn any_message() -> impl Strategy<Value = Message> {
+        prop_oneof![
+            1 => done_message(),
+            1 => any_keep_alive_message(),
+            1 => any_response_keep_alive_message(),
+        ]
     }
 }

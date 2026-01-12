@@ -66,29 +66,141 @@ impl Encode<()> for Message {
 
 impl<'b> Decode<'b, ()> for Message {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
-        d.array()?;
+        let len = d.array()?;
         let label = d.u16()?;
 
         match label {
             0 => {
+                check_length(0, len, 3)?;
                 let from = d.decode()?;
                 let through = d.decode()?;
                 Ok(Message::RequestRange { from, through })
             }
-            1 => Ok(Message::ClientDone),
-            2 => Ok(Message::StartBatch),
-            3 => Ok(Message::NoBlocks),
+            1 => {
+                check_length(1, len, 1)?;
+                Ok(Message::ClientDone)
+            }
+            2 => {
+                check_length(2, len, 1)?;
+                Ok(Message::StartBatch)
+            }
+            3 => {
+                check_length(3, len, 1)?;
+                Ok(Message::NoBlocks)
+            }
             4 => {
+                check_length(4, len, 2)?;
                 d.tag()?;
                 let body = d.bytes()?;
                 Ok(Message::Block {
                     body: Vec::from(body),
                 })
             }
-            5 => Ok(Message::BatchDone),
+            5 => {
+                check_length(5, len, 1)?;
+                Ok(Message::BatchDone)
+            }
             _ => Err(decode::Error::message(
                 "unknown variant for blockfetch message",
             )),
         }
+    }
+}
+
+/// This function checks that the actual length of a CBOR array matches the expected length for
+/// a message variant with a given label.
+pub(crate) fn check_length(
+    label: usize,
+    actual: Option<u64>,
+    expected: u64,
+) -> Result<(), decode::Error> {
+    if actual != Some(expected) {
+        Err(decode::Error::message(format!(
+            "expected array length {expected} for label {label}, got: {actual:?}"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+/// Roundtrip property tests for blockfetch messages.
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use amaru_kernel::{Hash, HeaderHash, Point, Slot, prop_cbor_roundtrip};
+    use proptest::prelude::*;
+    use proptest::prop_compose;
+    use std::str::FromStr;
+
+    mod message {
+        use super::*;
+        prop_cbor_roundtrip!(Message, any_message());
+    }
+
+    // HELPERS
+
+    prop_compose! {
+        pub fn any_specific_point()(slot in any_slot(), header_hash in any_header_hash()) -> Point {
+            Point::Specific(slot, header_hash)
+        }
+    }
+
+    fn any_header_hash() -> impl Strategy<Value = HeaderHash> {
+        Just(
+            Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")
+                .unwrap(),
+        )
+    }
+
+    fn block_message() -> impl Strategy<Value = Message> {
+        Just(Message::Block {
+            body: vec![0u8; 128],
+        })
+    }
+
+    fn no_blocks_message() -> impl Strategy<Value = Message> {
+        Just(Message::NoBlocks)
+    }
+
+    fn batch_done_message() -> impl Strategy<Value = Message> {
+        Just(Message::BatchDone)
+    }
+
+    fn start_batch_message() -> impl Strategy<Value = Message> {
+        Just(Message::StartBatch)
+    }
+
+    fn client_done_message() -> impl Strategy<Value = Message> {
+        Just(Message::ClientDone)
+    }
+
+    prop_compose! {
+        fn any_slot()(n in 0u64..=1000) -> Slot {
+            Slot::from(n)
+        }
+    }
+
+    pub fn any_point() -> impl Strategy<Value = Point> {
+        prop_oneof![
+            1 => Just(Point::Origin),
+            3 => any_specific_point(),
+        ]
+    }
+
+    prop_compose! {
+        fn request_range_message()(from in any_point(), through in any_point()) -> Message {
+            Message::RequestRange {from, through}
+        }
+    }
+
+    pub fn any_message() -> impl Strategy<Value = Message> {
+        prop_oneof![
+            1 => block_message(),
+            3 => no_blocks_message(),
+            3 => start_batch_message(),
+            3 => batch_done_message(),
+            3 => client_done_message(),
+            3 => request_range_message(),
+        ]
     }
 }
