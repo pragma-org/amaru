@@ -15,6 +15,7 @@
 use crate::protocol_messages::{
     version_data::VersionData, version_number::VersionNumber, version_table::VersionTable,
 };
+use amaru_minicbor_extra::check_tagged_array_length;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
@@ -74,20 +75,20 @@ impl<'b> Decode<'b, ()> for RefuseReason {
 
         match d.u16()? {
             0 => {
-                check_length(0, len, 2)?;
+                check_tagged_array_length(0, len, 2)?;
                 let versions = d.array_iter::<VersionNumber>()?;
                 let versions = versions.collect::<Result<_, _>>()?;
                 Ok(RefuseReason::VersionMismatch(versions))
             }
             1 => {
-                check_length(1, len, 3)?;
+                check_tagged_array_length(1, len, 3)?;
                 let version = d.decode()?;
                 let msg = d.str()?;
 
                 Ok(RefuseReason::HandshakeDecodeError(version, msg.to_string()))
             }
             2 => {
-                check_length(2, len, 3)?;
+                check_tagged_array_length(2, len, 3)?;
                 let version = d.decode()?;
                 let msg = d.str()?;
 
@@ -95,18 +96,6 @@ impl<'b> Decode<'b, ()> for RefuseReason {
             }
             _ => Err(decode::Error::message("unknown variant for refusereason")),
         }
-    }
-}
-
-/// This function checks that the actual length of a CBOR array matches the expected length for
-/// a message variant with a given label.
-pub fn check_length(label: usize, actual: Option<u64>, expected: u64) -> Result<(), decode::Error> {
-    if actual != Some(expected) {
-        Err(decode::Error::message(format!(
-            "expected array length {expected} for label {label}, got: {actual:?}"
-        )))
-    } else {
-        Ok(())
     }
 }
 

@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Point;
-use amaru_kernel::protocol_messages::handshake::check_length;
+use amaru_kernel::{Point, check_tagged_array_length};
 use minicbor::{Decode, Decoder, Encode, Encoder, data::IanaTag, decode, encode};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -72,25 +71,25 @@ impl<'b> Decode<'b, ()> for Message {
 
         match label {
             0 => {
-                check_length(0, len, 3)?;
+                check_tagged_array_length(0, len, 3)?;
                 let from = d.decode()?;
                 let through = d.decode()?;
                 Ok(Message::RequestRange { from, through })
             }
             1 => {
-                check_length(1, len, 1)?;
+                check_tagged_array_length(1, len, 1)?;
                 Ok(Message::ClientDone)
             }
             2 => {
-                check_length(2, len, 1)?;
+                check_tagged_array_length(2, len, 1)?;
                 Ok(Message::StartBatch)
             }
             3 => {
-                check_length(3, len, 1)?;
+                check_tagged_array_length(3, len, 1)?;
                 Ok(Message::NoBlocks)
             }
             4 => {
-                check_length(4, len, 2)?;
+                check_tagged_array_length(4, len, 2)?;
                 let tag = d.tag()?;
                 if tag != IanaTag::Cbor.tag() {
                     return Err(decode::Error::message(format!(
@@ -106,7 +105,7 @@ impl<'b> Decode<'b, ()> for Message {
                 })
             }
             5 => {
-                check_length(5, len, 1)?;
+                check_tagged_array_length(5, len, 1)?;
                 Ok(Message::BatchDone)
             }
             _ => Err(decode::Error::message(

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::protocol_messages::handshake::check_length;
 use crate::{HeaderHash, Point, protocol_messages::block_height::BlockHeight};
+use amaru_minicbor_extra::check_tagged_array_length;
 use amaru_slot_arithmetic::Slot;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use std::fmt;
@@ -72,7 +72,7 @@ impl Encode<()> for Tip {
 impl<'b> Decode<'b, ()> for Tip {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
         let len = d.array()?;
-        check_length(0, len, 2)?;
+        check_tagged_array_length(0, len, 2)?;
         let point = d.decode()?;
         let block_num = d.decode()?;
         Ok(Tip(point, block_num))

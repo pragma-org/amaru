@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use crate::tx_submission::Blocking;
-use amaru_kernel::protocol_messages::handshake::check_length;
-use amaru_kernel::{Tx, bytes::NonEmptyBytes, to_cbor};
+use amaru_kernel::{Tx, bytes::NonEmptyBytes, check_tagged_array_length, to_cbor};
 use amaru_ouroboros_traits::TxId;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use serde::{Deserialize, Serialize};
@@ -148,7 +147,7 @@ impl<'b> Decode<'b, ()> for Message {
 
         match label {
             0 => {
-                check_length(0, len, 4)?;
+                check_tagged_array_length(0, len, 4)?;
                 let blocking = d.decode()?;
                 let ack = d.u16()?;
                 let req = d.u16()?;
@@ -158,27 +157,27 @@ impl<'b> Decode<'b, ()> for Message {
                 }
             }
             1 => {
-                check_length(1, len, 2)?;
+                check_tagged_array_length(1, len, 2)?;
                 let items = d.decode()?;
                 Ok(Message::ReplyTxIds(items))
             }
             2 => {
-                check_length(2, len, 2)?;
+                check_tagged_array_length(2, len, 2)?;
                 let ids = d.decode()?;
                 Ok(Message::RequestTxs(ids))
             }
             3 => {
-                check_length(3, len, 2)?;
+                check_tagged_array_length(3, len, 2)?;
                 Ok(Message::ReplyTxs(
                     d.array_iter()?.collect::<Result<_, _>>()?,
                 ))
             }
             4 => {
-                check_length(4, len, 1)?;
+                check_tagged_array_length(4, len, 1)?;
                 Ok(Message::Done)
             }
             6 => {
-                check_length(6, len, 1)?;
+                check_tagged_array_length(6, len, 1)?;
                 Ok(Message::Init)
             }
             _ => Err(decode::Error::message(

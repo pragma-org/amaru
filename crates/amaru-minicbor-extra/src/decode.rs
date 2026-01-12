@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::cbor;
+use minicbor::decode;
 use std::fmt::Display;
 
 pub mod lazy;
@@ -70,6 +71,22 @@ pub fn heterogeneous_array<'d, A>(
                 Ok(())
             }),
         ),
+    }
+}
+
+/// This function checks the size of an array containing a tagged value.
+/// The `label` parameter is used to identify which variant is being checked.
+pub fn check_tagged_array_length(
+    label: usize,
+    actual: Option<u64>,
+    expected: u64,
+) -> Result<(), decode::Error> {
+    if actual != Some(expected) {
+        Err(decode::Error::message(format!(
+            "expected array length {expected} for label {label}, got: {actual:?}"
+        )))
+    } else {
+        Ok(())
     }
 }
 

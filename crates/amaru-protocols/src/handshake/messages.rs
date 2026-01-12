@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::protocol_messages::handshake::check_length;
+use amaru_kernel::check_tagged_array_length;
 use amaru_kernel::protocol_messages::{
     handshake::RefuseReason, version_number::VersionNumber, version_table::VersionTable,
 };
@@ -75,24 +75,24 @@ where
 
         match d.u16()? {
             0 => {
-                check_length(0, len, 2)?;
+                check_tagged_array_length(0, len, 2)?;
                 let version_table = d.decode()?;
                 Ok(Message::Propose(version_table))
             }
             1 => {
-                check_length(1, len, 3)?;
+                check_tagged_array_length(1, len, 3)?;
                 let version_number = d.decode()?;
                 let mut ctx = version_number;
                 let version_data = d.decode_with(&mut ctx)?;
                 Ok(Message::Accept(version_number, version_data))
             }
             2 => {
-                check_length(2, len, 2)?;
+                check_tagged_array_length(2, len, 2)?;
                 let reason: RefuseReason = d.decode()?;
                 Ok(Message::Refuse(reason))
             }
             3 => {
-                check_length(3, len, 2)?;
+                check_tagged_array_length(3, len, 2)?;
                 let version_table = d.decode()?;
                 Ok(Message::QueryReply(version_table))
             }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::protocol_messages::handshake::check_length;
+use amaru_kernel::check_tagged_array_length;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
 #[derive(
@@ -105,17 +105,17 @@ impl<'b, T> Decode<'b, T> for Message {
 
         match label {
             0 => {
-                check_length(0, len, 2)?;
+                check_tagged_array_length(0, len, 2)?;
                 let cookie = d.decode()?;
                 Ok(Message::KeepAlive(cookie))
             }
             1 => {
-                check_length(1, len, 2)?;
+                check_tagged_array_length(1, len, 2)?;
                 let cookie = d.decode()?;
                 Ok(Message::ResponseKeepAlive(cookie))
             }
             2 => {
-                check_length(2, len, 1)?;
+                check_tagged_array_length(2, len, 1)?;
                 Ok(Message::Done)
             }
             _ => Err(decode::Error::message("can't decode Message")),

@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::protocol_messages::handshake::check_length;
-use amaru_kernel::{BlockHeader, Point, protocol_messages::tip::Tip, to_cbor};
+use amaru_kernel::{
+    BlockHeader, Point, check_tagged_array_length, protocol_messages::tip::Tip, to_cbor,
+};
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use pure_stage::DeserializerGuards;
 
@@ -115,43 +116,43 @@ impl<'b> Decode<'b, ()> for Message {
 
         match label {
             0 => {
-                check_length(0, len, 1)?;
+                check_tagged_array_length(0, len, 1)?;
                 Ok(Message::RequestNext)
             }
             1 => {
-                check_length(1, len, 1)?;
+                check_tagged_array_length(1, len, 1)?;
                 Ok(Message::AwaitReply)
             }
             2 => {
-                check_length(2, len, 3)?;
+                check_tagged_array_length(2, len, 3)?;
                 let content = d.decode()?;
                 let tip = d.decode()?;
                 Ok(Message::RollForward(content, tip))
             }
             3 => {
-                check_length(3, len, 3)?;
+                check_tagged_array_length(3, len, 3)?;
                 let point = d.decode()?;
                 let tip = d.decode()?;
                 Ok(Message::RollBackward(point, tip))
             }
             4 => {
-                check_length(4, len, 2)?;
+                check_tagged_array_length(4, len, 2)?;
                 let points = d.decode()?;
                 Ok(Message::FindIntersect(points))
             }
             5 => {
-                check_length(5, len, 3)?;
+                check_tagged_array_length(5, len, 3)?;
                 let point = d.decode()?;
                 let tip = d.decode()?;
                 Ok(Message::IntersectFound(point, tip))
             }
             6 => {
-                check_length(6, len, 2)?;
+                check_tagged_array_length(6, len, 2)?;
                 let tip = d.decode()?;
                 Ok(Message::IntersectNotFound(tip))
             }
             7 => {
-                check_length(7, len, 1)?;
+                check_tagged_array_length(7, len, 1)?;
                 Ok(Message::Done)
             }
             _ => Err(decode::Error::message(
@@ -169,9 +170,9 @@ impl<'b> Decode<'b, ()> for HeaderContent {
         match variant {
             // byron
             0 => {
-                check_length(0, len, 2)?;
+                check_tagged_array_length(0, len, 2)?;
                 let len = d.array()?;
-                check_length(0, len, 2)?;
+                check_tagged_array_length(0, len, 2)?;
 
                 // can't find a reference anywhere about the structure of these values, but they
                 // seem to provide the Byron-specific variant of the header
@@ -188,7 +189,7 @@ impl<'b> Decode<'b, ()> for HeaderContent {
             }
             // shelley and beyond
             v => {
-                check_length(v as usize, len, 2)?;
+                check_tagged_array_length(v as usize, len, 2)?;
                 d.tag()?;
                 let bytes = d.bytes()?;
                 Ok(HeaderContent {

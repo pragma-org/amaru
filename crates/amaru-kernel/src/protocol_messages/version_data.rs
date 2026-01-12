@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::protocol_messages::handshake::check_length;
 use crate::protocol_messages::{network_magic::NetworkMagic, version_number::VersionNumber};
+use amaru_minicbor_extra::check_tagged_array_length;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -69,7 +69,7 @@ impl<'b, T: AsRef<VersionNumber>> Decode<'b, T> for VersionData {
     fn decode(d: &mut Decoder<'b>, ctx: &mut T) -> Result<Self, decode::Error> {
         if ctx.as_ref().has_query_and_peer_sharing() {
             let len = d.array()?;
-            check_length(0, len, 4)?;
+            check_tagged_array_length(0, len, 4)?;
             let network_magic = d.decode()?;
             let initiator_only_diffusion_mode = d.bool()?;
             let peer_sharing = d.u8()?;
@@ -82,7 +82,7 @@ impl<'b, T: AsRef<VersionNumber>> Decode<'b, T> for VersionData {
             })
         } else {
             let len = d.array()?;
-            check_length(0, len, 2)?;
+            check_tagged_array_length(0, len, 2)?;
             let network_magic = d.decode()?;
             let initiator_only_diffusion_mode = d.bool()?;
             Ok(Self {
