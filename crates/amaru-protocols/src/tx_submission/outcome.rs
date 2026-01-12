@@ -116,13 +116,9 @@ impl PartialEq for Outcome {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Outcome::Done, Outcome::Done) => true,
-            (Outcome::Error(e1), Outcome::Error(e2)) => format!("{}", e1) == format!("{}", e2),
-            (Outcome::Initiator(m1), Outcome::Initiator(m2)) => {
-                format!("{}", m1) == format!("{}", m2)
-            }
-            (Outcome::Responder(m1), Outcome::Responder(m2)) => {
-                format!("{}", m1) == format!("{}", m2)
-            }
+            (Outcome::Error(e1), Outcome::Error(e2)) => e1 == e2,
+            (Outcome::Initiator(m1), Outcome::Initiator(m2)) => m1 == m2,
+            (Outcome::Responder(m1), Outcome::Responder(m2)) => m1 == m2,
             _ => false,
         }
     }

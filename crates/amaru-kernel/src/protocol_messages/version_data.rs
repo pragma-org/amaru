@@ -101,11 +101,12 @@ pub mod tests {
     use crate::protocol_messages::network_magic::tests::any_network_magic;
     use proptest::prelude::any;
     use proptest::prop_compose;
+    use proptest::strategy::Strategy;
 
     prop_compose! {
         pub fn any_version_data()(network_magic in any_network_magic(),
             initiator_only_diffusion_mode in any::<bool>(),
-            peer_sharing in any::<u8>(),
+            peer_sharing in any::<bool>().prop_map(|b| if b { 0 } else { 1 }),
             query in any::<bool>()) -> VersionData {
             VersionData::new(network_magic, initiator_only_diffusion_mode, peer_sharing, query)
         }

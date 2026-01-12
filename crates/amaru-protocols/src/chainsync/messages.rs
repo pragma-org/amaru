@@ -242,7 +242,9 @@ mod tests {
     use super::*;
     use crate::chainsync::messages::Message::*;
     use amaru_kernel::prop_cbor_roundtrip;
-    use amaru_kernel::protocol_messages::{point::tests::any_point, tip::tests::any_tip};
+    use amaru_kernel::protocol_messages::{
+        handshake::tests::any_byron_prefix, point::tests::any_point, tip::tests::any_tip,
+    };
     use proptest::prelude::*;
     use proptest::prop_compose;
 
@@ -273,12 +275,6 @@ mod tests {
     prop_compose! {
         fn any_vec_u8()(elems in proptest::collection::vec(any::<u8>(), 0..10)) -> Vec<u8> {
             elems
-        }
-    }
-
-    prop_compose! {
-        fn any_byron_prefix()(b1 in any::<u8>(), b2 in any::<u64>()) -> (u8, u64) {
-            (b1, b2)
         }
     }
 
