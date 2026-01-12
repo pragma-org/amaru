@@ -106,7 +106,7 @@ pub mod tests {
     prop_compose! {
         pub fn any_version_data()(network_magic in any_network_magic(),
             initiator_only_diffusion_mode in any::<bool>(),
-            peer_sharing in any::<bool>().prop_map(|b| if b { 0 } else { 1 }),
+            peer_sharing in any::<bool>().prop_map(|b| if b { 1 } else { 0 }),
             query in any::<bool>()) -> VersionData {
             VersionData::new(network_magic, initiator_only_diffusion_mode, peer_sharing, query)
         }

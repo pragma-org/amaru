@@ -59,8 +59,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         let action = match input {
             ResponderResult::Init => {
                 tracing::trace!("received Init");
-                self.initialize_state(mempool);
-                None
+                self.initialize_state(mempool)
             }
             ResponderResult::ReplyTxIds(tx_ids) => self.process_tx_ids_reply(mempool, tx_ids)?,
             ResponderResult::ReplyTxs(txs) => {

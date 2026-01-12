@@ -139,10 +139,6 @@ where
     ///
     /// The `local_msg` function turns the network message under test
     /// into a local action so that the protocol can be tested.
-    ///
-    /// The `basic_msg` function can be used to canonicalize the message
-    /// in case properties are modified while sending or receiving; this
-    /// may be necessary because `check` uses PartialEq for comparison.
     #[expect(clippy::expect_used)]
     pub fn check(&self, initial: State, local_msg: impl Fn(&Message) -> Option<State::Action>) {
         let role = const { R::ROLE.unwrap() };
