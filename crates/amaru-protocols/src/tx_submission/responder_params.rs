@@ -23,7 +23,7 @@ pub struct ResponderParams {
     pub fetch_batch: u16, // how many txs we request per round
 }
 
-const MAX_OUTSTANDING_TX_IDS: u16 = 3;
+const MAX_OUTSTANDING_TX_IDS: u16 = 10;
 const MAX_OUTSTANDING_TXS: u16 = 2;
 
 impl Default for ResponderParams {

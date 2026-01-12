@@ -169,9 +169,6 @@ pub struct TxSubmissionResponder {
     window: VecDeque<(TxId, u32)>,
     /// Tx ids we want to fetch but haven't yet requested.
     pending_fetch: VecDeque<TxId>,
-    /// Tx ids we requested; waiting for replies.
-    /// First as a FIFO queue because when we receive tx bodies we don't get the ids back.
-    inflight_fetch_queue: VecDeque<TxId>,
     /// Then as a set for quick lookup when processing received ids.
     /// This is kept in sync with `inflight_fetch_queue`. When we receive a tx body,
     /// we pop it from the front of the queue and remove it from the set.
@@ -193,7 +190,6 @@ impl TxSubmissionResponder {
                 params,
                 window: VecDeque::new(),
                 pending_fetch: VecDeque::new(),
-                inflight_fetch_queue: VecDeque::new(),
                 inflight_fetch_set: BTreeSet::new(),
                 origin,
                 muxer,
@@ -214,14 +210,26 @@ impl TxSubmissionResponder {
         mempool: &dyn TxSubmissionMempool<Tx>,
         tx_ids: Vec<(TxId, u32)>,
     ) -> anyhow::Result<Option<ResponderAction>> {
-        if tx_ids.len() > self.params.max_window.into() {
+        if self.window.len() + tx_ids.len() > self.params.max_window.into() {
             return protocol_error(TooManyTxIdsReceived(
                 tx_ids.len(),
+                self.window.len(),
                 self.params.max_window.into(),
             ));
         }
         self.received_tx_ids(mempool, tx_ids);
-        Ok(Some(ResponderAction::SendRequestTxs(self.txs_to_request())))
+
+        let txs = self.txs_to_request();
+        if txs.is_empty() {
+            let (ack, req, blocking) = self.request_tx_ids(mempool);
+            Ok(Some(ResponderAction::SendRequestTxIds {
+                ack,
+                req,
+                blocking,
+            }))
+        } else {
+            Ok(Some(ResponderAction::SendRequestTxs(txs)))
+        }
     }
 
     fn process_txs_reply(
@@ -236,7 +244,16 @@ impl TxSubmissionResponder {
                 self.params.fetch_batch.into(),
             ));
         }
-        let tx_ids = txs.iter().map(TxId::from).collect::<Vec<_>>();
+
+        // check for duplicate tx ids
+        let tx_ids = txs.iter().map(TxId::from).collect::<BTreeSet<_>>();
+        if tx_ids.len() != txs.len() {
+            // return the full list of tx ids including duplicates
+            let tx_ids = txs.iter().map(TxId::from).collect::<Vec<_>>();
+            return protocol_error(DuplicateTxIds(tx_ids));
+        }
+
+        // check that all received tx ids were in-flight
         let not_in_flight = tx_ids
             .iter()
             .filter(|tx_id| !self.inflight_fetch_set.contains(tx_id))
@@ -316,7 +333,6 @@ impl TxSubmissionResponder {
 
         while tx_ids.len() < self.params.fetch_batch.into() {
             if let Some(id) = self.pending_fetch.pop_front() {
-                self.inflight_fetch_queue.push_back(id);
                 self.inflight_fetch_set.insert(id);
                 tx_ids.push(id);
             } else {
@@ -335,17 +351,14 @@ impl TxSubmissionResponder {
         origin: TxOrigin,
     ) -> anyhow::Result<()> {
         for tx in txs {
-            // this is the exact id we requested for this body (FIFO)
-            if let Some(requested_id) = self.inflight_fetch_queue.pop_front() {
-                self.inflight_fetch_set.remove(&requested_id);
-
-                match mempool.validate_transaction(tx.clone()) {
-                    Ok(_) => {
-                        mempool.insert(tx, origin.clone())?;
-                    }
-                    Err(e) => {
-                        tracing::warn!("received invalid transaction {}: {}", requested_id, e);
-                    }
+            let requested_id = TxId::from(&tx);
+            self.inflight_fetch_set.remove(&requested_id);
+            match mempool.validate_transaction(tx.clone()) {
+                Ok(_) => {
+                    mempool.insert(tx, origin.clone())?;
+                }
+                Err(e) => {
+                    tracing::warn!("received invalid transaction {}: {}", requested_id, e);
                 }
             }
         }
@@ -428,13 +441,13 @@ mod tests {
         assert_actions_eq(
             &actions,
             &[
-                request_tx_ids(0, 3, Blocking::Yes),
+                request_tx_ids(0, 10, Blocking::Yes),
                 request_txs(&txs, &[0, 1]),
-                request_tx_ids(2, 2, Blocking::No),
+                request_tx_ids(2, 9, Blocking::No),
                 request_txs(&txs, &[2, 3]),
-                request_tx_ids(2, 1, Blocking::No),
+                request_tx_ids(2, 8, Blocking::No),
                 request_txs(&txs, &[4, 5]),
-                request_tx_ids(2, 3, Blocking::Yes),
+                request_tx_ids(2, 10, Blocking::Yes),
             ],
         );
         Ok(())
@@ -442,17 +455,20 @@ mod tests {
 
     #[tokio::test]
     async fn the_returned_tx_ids_should_respect_the_window_size() -> anyhow::Result<()> {
-        let txs = create_transactions(6);
+        let txs = create_transactions(11);
         let mempool = Arc::new(InMemoryMempool::default());
 
-        let results = vec![init(), reply_tx_ids(&txs, &[0, 1, 2, 3, 4])];
+        let results = vec![
+            init(),
+            reply_tx_ids(&txs, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+        ];
 
         let actions = run_stage(mempool.clone(), results).await?;
         assert_actions_eq(
             &actions,
             &[
-                request_tx_ids(0, 3, Blocking::Yes),
-                error_action(TooManyTxIdsReceived(5, 3)),
+                request_tx_ids(0, 10, Blocking::Yes),
+                error_action(TooManyTxIdsReceived(11, 0, 10)),
             ],
         );
         Ok(())
@@ -475,9 +491,9 @@ mod tests {
         assert_actions_eq(
             &outcomes,
             &[
-                request_tx_ids(0, 3, Blocking::Yes),
+                request_tx_ids(0, 10, Blocking::Yes),
                 request_txs(&txs, &[0, 1]),
-                request_tx_ids(1, 1, Blocking::No),
+                request_tx_ids(1, 8, Blocking::No),
                 request_txs(&txs, &[2]),
                 error_action(ReceivedTxsExceedsBatchSize(3, 2)),
             ],
@@ -502,9 +518,9 @@ mod tests {
         assert_actions_eq(
             &actions,
             &[
-                request_tx_ids(0, 3, Blocking::Yes),
+                request_tx_ids(0, 10, Blocking::Yes),
                 request_txs(&txs, &[0, 1]),
-                request_tx_ids(1, 1, Blocking::No),
+                request_tx_ids(1, 8, Blocking::No),
                 request_txs(&txs, &[2]),
                 error_action(SomeReceivedTxsNotInFlight(vec![TxId::from(&txs[3])])),
             ],
