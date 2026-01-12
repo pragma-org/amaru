@@ -161,15 +161,20 @@ fn intersect_points(store: &dyn ReadOnlyChainStore<BlockHeader>) -> Vec<Point> {
     }
     #[expect(clippy::expect_used)]
     let best = store.load_header(&best).expect("best chain hash is valid");
-    let mut last = best.tip().point();
+    let best_point = best.tip().point();
+    points.push(best_point);
+
+    let mut last = best_point;
     for (index, header) in store.ancestors(best).enumerate() {
         last = header.tip().point();
-        if index == spacing {
+        if index + 1 == spacing {
             points.push(last);
             spacing *= 2;
         }
     }
-    points.push(last);
+    if points.last() != Some(&last) {
+        points.push(last);
+    }
     points
 }
 
@@ -267,6 +272,9 @@ pub mod tests {
     use crate::protocol::ProtoSpec;
     use InitiatorState::*;
     use Message::*;
+    use amaru_kernel::is_header::tests::make_header;
+    use amaru_kernel::{HeaderHash, RawBlock, Slot};
+    use amaru_ouroboros_traits::{Nonces, StoreError};
 
     pub fn spec() -> ProtoSpec<InitiatorState, Message, Initiator> {
         // canonical states and messages
@@ -298,5 +306,87 @@ pub mod tests {
             Message::Done => Some(InitiatorAction::Done),
             _ => None,
         });
+    }
+
+    #[test]
+    fn test_intersect_points_includes_best_point_and_are_spaced_with_a_factor_2() {
+        let store = MockChainStoreForIntersectPoints::default();
+        let points = intersect_points(&store);
+        let slots = points
+            .iter()
+            .map(|p| p.slot_or_default().into())
+            .collect::<Vec<u64>>();
+        // The expected slots contain the best point (100) and the other points are spaced with a factor of 2.
+        assert_eq!(slots, vec![100, 99, 98, 96, 92, 84, 68, 36, 0]);
+    }
+
+    /// This chain store contains a chain of 100 blocks with slots from 0 to 100 where 100 is the best point.
+    #[derive(Debug)]
+    struct MockChainStoreForIntersectPoints {
+        best_point: Point,
+    }
+
+    impl Default for MockChainStoreForIntersectPoints {
+        fn default() -> Self {
+            Self {
+                best_point: Point::Specific(Slot::from(100), HeaderHash::new([100u8; 32])),
+            }
+        }
+    }
+
+    #[expect(clippy::todo)]
+    impl ReadOnlyChainStore<BlockHeader> for MockChainStoreForIntersectPoints {
+        fn get_best_chain_hash(&self) -> amaru_kernel::Hash<32> {
+            self.best_point.hash()
+        }
+
+        fn load_header(&self, _hash: &amaru_kernel::Hash<32>) -> Option<BlockHeader> {
+            Some(BlockHeader::new(
+                make_header(1, self.best_point.slot_or_default().into(), None),
+                self.best_point.hash(),
+            ))
+        }
+
+        fn ancestors<'a>(&'a self, _from: BlockHeader) -> Box<dyn Iterator<Item = BlockHeader> + 'a>
+        where
+            BlockHeader: 'a,
+        {
+            let mut ancestor_block_headers = vec![];
+            for slot in 0..100 {
+                let header_hash = HeaderHash::new([slot as u8; 32]);
+                let block_header = BlockHeader::new(make_header(1, slot, None), header_hash);
+                ancestor_block_headers.push(block_header);
+            }
+            ancestor_block_headers.reverse();
+            Box::new(ancestor_block_headers.into_iter())
+        }
+
+        fn get_children(&self, _hash: &HeaderHash) -> Vec<HeaderHash> {
+            todo!()
+        }
+
+        fn get_anchor_hash(&self) -> HeaderHash {
+            todo!()
+        }
+
+        fn load_from_best_chain(&self, _point: &Point) -> Option<HeaderHash> {
+            todo!()
+        }
+
+        fn next_best_chain(&self, _point: &Point) -> Option<Point> {
+            todo!()
+        }
+
+        fn load_block(&self, _hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+            todo!()
+        }
+
+        fn get_nonces(&self, _header: &HeaderHash) -> Option<Nonces> {
+            todo!()
+        }
+
+        fn has_header(&self, _hash: &HeaderHash) -> bool {
+            todo!()
+        }
     }
 }
