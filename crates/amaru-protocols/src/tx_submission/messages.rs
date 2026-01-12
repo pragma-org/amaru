@@ -245,8 +245,7 @@ pub enum TxSubmissionMessage {
 mod tests {
     use super::*;
     use crate::tx_submission::tests::create_transaction;
-    use amaru_kernel::{Hash, prop_cbor_roundtrip};
-    use pallas_primitives::conway::Tx;
+    use amaru_kernel::{Hash, Tx, prop_cbor_roundtrip};
     use prop::collection::vec;
     use proptest::prelude::*;
     use proptest::prop_compose;

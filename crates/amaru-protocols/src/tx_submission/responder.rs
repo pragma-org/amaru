@@ -394,8 +394,8 @@ mod tests {
     use super::*;
     use crate::tx_submission::assert_actions_eq;
     use crate::tx_submission::tests::create_transactions;
+    use amaru_kernel::Tx;
     use amaru_mempool::strategies::InMemoryMempool;
-    use pallas_primitives::conway::Tx;
     use std::sync::Arc;
 
     #[tokio::test]
