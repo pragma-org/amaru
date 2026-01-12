@@ -29,17 +29,19 @@ pub enum Inputs<L> {
 
 /// Outcome of a protocol step
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Outcome<S, R> {
+pub struct Outcome<S, R, E> {
     pub send: Option<S>,
     pub result: Option<R>,
+    pub terminate_with: Option<E>,
     pub want_next: bool,
 }
 
-impl<S, R> Outcome<S, R> {
+impl<S, R, E> Outcome<S, R, E> {
     pub fn send(self, send: S) -> Self {
         Self {
             send: Some(send),
             result: self.result,
+            terminate_with: self.terminate_with,
             want_next: self.want_next,
         }
     }
@@ -48,6 +50,7 @@ impl<S, R> Outcome<S, R> {
         Self {
             send: self.send,
             result: Some(done),
+            terminate_with: self.terminate_with,
             want_next: self.want_next,
         }
     }
@@ -56,23 +59,35 @@ impl<S, R> Outcome<S, R> {
         Self {
             send: self.send,
             result: self.result,
+            terminate_with: self.terminate_with,
             want_next: true,
         }
     }
 
-    pub fn without_result(self) -> Outcome<S, Void> {
+    pub fn terminate_with(self, e: E) -> Self {
+        Self {
+            send: self.send,
+            result: self.result,
+            terminate_with: Some(e),
+            want_next: self.want_next,
+        }
+    }
+
+    pub fn without_result(self) -> Outcome<S, Void, E> {
         Outcome {
             send: self.send,
             result: None,
+            terminate_with: self.terminate_with,
             want_next: self.want_next,
         }
     }
 }
 
-pub fn outcome<S, R>() -> Outcome<S, R> {
+pub fn outcome<S, R, E>() -> Outcome<S, R, E> {
     Outcome {
         send: None,
         result: None,
+        terminate_with: None,
         want_next: false,
     }
 }
@@ -84,15 +99,19 @@ pub trait ProtocolState<R: RoleT>: Sized + SendData {
     type WireMsg: for<'de> minicbor::Decode<'de, ()> + minicbor::Encode<()> + Send;
     type Action: std::fmt::Debug + Send;
     type Out: std::fmt::Debug + PartialEq + Send;
+    type Error: std::fmt::Debug + std::fmt::Display + PartialEq + Send;
 
-    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)>;
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)>;
 
     fn network(
         &self,
         input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)>;
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)>;
 
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)>;
+    fn local(
+        &self,
+        input: Self::Action,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)>;
 }
 
 /// This tracks the stage state that is used to make decisions based on inputs
@@ -217,6 +236,10 @@ where
                     .or_terminate(&eff, err("failed to step protocol state"))
                     .await;
                 proto = s;
+                if let Some(e) = outcome.terminate_with {
+                    err("protocol error")(e).await;
+                    return eff.terminate().await;
+                }
                 if outcome.want_next {
                     eff.send(stage.muxer(), MuxMessage::WantNext(proto_id.erase()))
                         .await;

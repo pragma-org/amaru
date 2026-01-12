@@ -194,6 +194,12 @@ impl PartialEq for dyn SendData {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum Void {}
 
+impl Display for Void {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> fmt::Result {
+        match *self {}
+    }
+}
+
 /// A unique identifier for a stage in the simulation.
 ///
 /// This is used to identify stages in the simulation, and is used in messages sent to other stages.

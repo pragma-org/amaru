@@ -110,15 +110,16 @@ impl ProtocolState<Initiator> for State {
     type WireMsg = Message<VersionData>;
     type Action = InitiatorAction;
     type Out = InitiatorResult;
+    type Error = Void;
 
-    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok((outcome().result(InitiatorResult::Propose), Self::Propose))
     }
 
     fn network(
         &self,
         input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         anyhow::ensure!(
             self == &Self::Confirm,
             "handshake initiator cannot receive in initial state"
@@ -153,7 +154,10 @@ impl ProtocolState<Initiator> for State {
         })
     }
 
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
+    fn local(
+        &self,
+        input: Self::Action,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         anyhow::ensure!(
             self == &Self::Propose,
             "handshake initiator cannot send in confirmation state"

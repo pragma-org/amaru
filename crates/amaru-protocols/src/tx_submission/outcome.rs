@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_ouroboros_traits::TxId;
-use std::fmt::{Display, Formatter};
-
 use crate::tx_submission::{ResponderResult, initiator::InitiatorResult};
+use amaru_ouroboros_traits::TxId;
+use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 
 /// Outcome of a protocol state machine step
 #[derive(Debug)]
@@ -26,7 +26,7 @@ pub enum Outcome {
     Responder(ResponderResult),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum ProtocolError {
     NoTxIdsRequested,
     BlockingRequestMadeWhenTxsStillUnacknowledged,

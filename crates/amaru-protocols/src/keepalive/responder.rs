@@ -74,15 +74,16 @@ impl ProtocolState<Responder> for State {
     type WireMsg = Message;
     type Action = ResponderAction;
     type Out = ResponderResult;
+    type Error = Void;
 
-    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok((outcome().want_next(), *self))
     }
 
     fn network(
         &self,
         input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use State::*;
 
         Ok(match (self, input) {
@@ -93,7 +94,10 @@ impl ProtocolState<Responder> for State {
         })
     }
 
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
+    fn local(
+        &self,
+        input: Self::Action,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         use State::*;
 
         Ok(match (self, input) {

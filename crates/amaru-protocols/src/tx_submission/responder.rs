@@ -80,8 +80,9 @@ impl ProtocolState<Responder> for State {
     type WireMsg = Message;
     type Action = ResponderAction;
     type Out = ResponderResult;
+    type Error = ProtocolError;
 
-    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         // Responder waits for Init message, doesn't send anything on init
         Ok((outcome().want_next(), *self))
     }
@@ -89,7 +90,7 @@ impl ProtocolState<Responder> for State {
     fn network(
         &self,
         input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok(match (self, input) {
             (State::Init, Message::Init) => (outcome().result(ResponderResult::Init), State::Idle),
             (State::TxIdsBlocking | State::TxIdsNonBlocking, Message::ReplyTxIds(tx_ids)) => (
@@ -107,7 +108,10 @@ impl ProtocolState<Responder> for State {
         })
     }
 
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
+    fn local(
+        &self,
+        input: Self::Action,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         Ok(match (self, input) {
             (State::Idle, ResponderAction::SendRequestTxIds { ack, req, blocking }) => {
                 match blocking {
@@ -129,6 +133,7 @@ impl ProtocolState<Responder> for State {
                 outcome().send(Message::RequestTxs(tx_ids)).want_next(),
                 State::Txs,
             ),
+            (_, ResponderAction::Error(e)) => (outcome().terminate_with(e), State::Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
