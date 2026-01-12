@@ -91,7 +91,15 @@ impl<'b> Decode<'b, ()> for Message {
             }
             4 => {
                 check_length(4, len, 2)?;
-                d.tag()?;
+                let tag = d.tag()?;
+                if tag != IanaTag::Cbor.tag() {
+                    return Err(decode::Error::message(format!(
+                        "unexpected tag for Block: expected {}, got {}",
+                        IanaTag::Cbor.tag(),
+                        tag
+                    )));
+                }
+
                 let body = d.bytes()?;
                 Ok(Message::Block {
                     body: Vec::from(body),
