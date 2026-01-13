@@ -31,7 +31,7 @@ use amaru_consensus::consensus::{
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
 };
 use amaru_kernel::Hash;
-use amaru_kernel::consensus_events::ChainSyncEvent;
+use amaru_kernel::consensus_events::{ChainSyncEvent, default_block};
 use amaru_kernel::protocol_messages::tip::Tip;
 use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
 use amaru_kernel::{BlockHeader, IsHeader};
@@ -50,6 +50,7 @@ use pure_stage::simulation::RandStdRng;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::trace_buffer::TraceEntry;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef, trace_buffer::TraceBuffer};
+use std::ops::Deref;
 use std::{
     sync::{
         Arc,
@@ -182,11 +183,13 @@ pub fn spawn_node(
         ManagerMessage::Connect(_) => {}
         ManagerMessage::ConnectionDied(_, _) => {}
         ManagerMessage::FetchBlocks { cr, .. } => {
-            // we just need to return a non-empty block to proceed with the simulation
+            // We need to return a non-empty block to proceed with the simulation.
+            // That block needs to be the same that is deserialized by default with the default_block() function
+            // used with the ValidateBlockEvent deserializer, otherwise the replay test will fail.
             eff.send(
                 &cr,
                 Blocks {
-                    blocks: vec![vec![1]],
+                    blocks: vec![default_block().deref().to_vec()],
                 },
             )
             .await;
