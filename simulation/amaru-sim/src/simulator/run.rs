@@ -176,7 +176,7 @@ pub fn spawn_node(
         },
     );
 
-    // FIXME: switch simulation to tracking network bytes
+    // TODO: switch simulation to tracking network bytes
     let manager = network.stage("manager", async |_, msg: ManagerMessage, eff| match msg {
         ManagerMessage::AddPeer(_) => {}
         ManagerMessage::RemovePeer(_) => {}
@@ -287,7 +287,7 @@ fn make_chain_selector(
 /// Property: at the end of the simulation, the chain built from the history of messages received
 /// downstream must match one of the best chains built directly from messages coming from upstream peers.
 ///
-/// FIXME: at some point we should implement a deterministic tie breaker when multiple best chains exist
+/// TODO: at some point we should implement a deterministic tie breaker when multiple best chains exist
 /// based on the VRF key of the received headers.
 fn chain_property() -> impl Fn(&History<ChainSyncMessage>, &GeneratedActions) -> Result<(), String>
 {

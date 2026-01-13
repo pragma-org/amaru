@@ -180,7 +180,7 @@ impl SelectChain {
 
 /// Definition of a fork.
 ///
-/// FIXME: The peer should not be needed here, as the fork should be
+/// TODO: The peer should not be needed here, as the fork should be
 /// comprised of known blocks. It is only needed to download the blocks
 /// we don't currently store.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

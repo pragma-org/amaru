@@ -187,7 +187,7 @@ impl From<Entry<ChainSyncMessage>> for GeneratedEntry {
 /// Generates a sequence of chain sync entries based on random actions from peers on a tree of
 /// headers generated with a specified depth.
 ///
-/// FIXME: since we are generating data with a `proptest` strategy the simulation framework can not
+/// TODO: since we are generating data with a `proptest` strategy the simulation framework can not
 /// for now shrink the list of actions generated here. This means that if a test fails the generated data
 /// will not be minimized to find a smaller failing case. The generation is deterministic though based on the
 /// RNG passed as a parameter.

@@ -488,7 +488,7 @@ impl SimulationRunning {
         }
     }
 
-    // FIXME: shouldn’t this have a clock ceiling?
+    // TODO: shouldn’t this have a clock ceiling?
     pub fn run_one_step(&mut self, rt: &Handle) -> Option<Blocked> {
         self.receive_inputs();
         match self.run_effect() {
@@ -894,7 +894,7 @@ impl SimulationRunning {
         at_stage: Name,
         reason: TerminationReason,
     ) -> Option<(Name, Result<Box<dyn SendData>, Name>)> {
-        // FIXME:
+        // FIXME(network):
         // - add kill switch to scheduled external effects to terminate them
         // - record source stage for scheduled messages to remove them
 

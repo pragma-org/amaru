@@ -24,7 +24,7 @@ use std::{
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// FIXME: we need to implement a factory for connection ids to avoid global mutable state
+/// FIXME(network): we need to implement a factory for connection ids to avoid global mutable state
 #[derive(
     Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]

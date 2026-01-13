@@ -215,7 +215,7 @@ impl<Tx: Send + Sync + 'static + Encode<()> + Clone> TxSubmissionMempool<Tx>
 
     /// Waits until the mempool reaches at least the given sequence number.
     ///
-    /// FIXME: this will potentially wait forever.
+    /// FIXME(network): this will potentially wait forever.
     fn wait_for_at_least(
         &self,
         seq_no: MempoolSeqNo,
