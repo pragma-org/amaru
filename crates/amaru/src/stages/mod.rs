@@ -30,20 +30,22 @@ use amaru_consensus::consensus::{
     },
 };
 use amaru_kernel::{
-    ArenaPool, BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point,
+    ArenaPool, BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point, Tx,
     network::NetworkName,
     peer::Peer,
     protocol_messages::{network_magic::NetworkMagic, tip::Tip},
     protocol_parameters::{ConsensusParameters, GlobalParameters},
 };
 use amaru_ledger::block_validator::BlockValidator;
+use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, ChainStore, ConnectionResource, HasStakeDistribution,
+    CanValidateBlocks, ChainStore, ConnectionResource, HasStakeDistribution, ResourceMempool,
     in_memory_consensus_store::InMemConsensusStore,
 };
 use amaru_protocols::manager;
+use amaru_protocols::manager::Manager;
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore},
@@ -234,7 +236,7 @@ pub async fn build_and_run_network(
 
     let manager = network.wire_up(
         manager,
-        manager::Manager::new(config.network_magic, pull_stage.without_state()),
+        Manager::new(config.network_magic, pull_stage.without_state()),
     );
     for peer in &peers {
         let Ok(_) = network.preload(&manager, [manager::ManagerMessage::AddPeer(peer.clone())])
@@ -243,27 +245,6 @@ pub async fn build_and_run_network(
             break;
         };
     }
-
-    // Create the stages for the new network protocols stack
-    // let conn = ConnectionResource::new(65535);
-    // let conn_id = create_upstream_connection(&peers, &conn).await?;
-    // let connection = network.stage("connection", connection::stage);
-    // let connection = network.wire_up(
-    //     connection,
-    //     connection::Connection::new(
-    //         conn_id,
-    //         Role::Initiator,
-    //         NetworkMagic::new(config.network_magic as u64),
-    //     ),
-    // );
-    // network
-    //     .preload(connection, [ConnectionMessage::Initialize])
-    //     .map_err(|e| anyhow!("{e}"))?;
-    //
-    // network.resources().put(conn);
-    // network
-    //     .resources()
-    //     .put::<ResourceMempool<Tx>>(Arc::new(InMemoryMempool::default()));
 
     // Register resources
     network
@@ -284,6 +265,9 @@ pub async fn build_and_run_network(
     network
         .resources()
         .put::<ConnectionResource>(Arc::new(TokioConnections::new(65535)));
+    network
+        .resources()
+        .put::<ResourceMempool<Tx>>(Arc::new(InMemoryMempool::default()));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);

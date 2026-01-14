@@ -78,6 +78,7 @@ dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",
+ "amaru-mempool",
  "amaru-metrics",
  "amaru-network",
  "amaru-ouroboros",
