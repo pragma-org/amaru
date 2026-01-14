@@ -721,8 +721,12 @@ pub fn initial_stake_distributions(
     let latest_epoch = snapshots.most_recent_snapshot();
 
     let mut stake_distributions = VecDeque::new();
-    for epoch in latest_epoch - 2..=latest_epoch - 1 {
-        let snapshot = snapshots.for_epoch(epoch)?;
+
+    let epoch_for_rewards = latest_epoch - Epoch::from(2);
+    let epoch_for_leader_schedule = latest_epoch - Epoch::from(1);
+
+    for epoch in [epoch_for_rewards, epoch_for_leader_schedule] {
+        let snapshot = snapshots.for_epoch(Epoch::from(epoch))?;
 
         let protocol_parameters = snapshot.protocol_parameters()?;
 

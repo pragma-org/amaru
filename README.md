@@ -1,6 +1,19 @@
-# Amaru
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://amaru.global/_astro/logo-dark.De0RyNtz.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://amaru.global/_astro/logo-light.C5lipD4m.svg">
+    <img alt="Amaru" src="https://amaru.global/_astro/logo-dark.De0RyNtz.svg" height="100">
+  </picture>
+  <hr />
+    <h2 align="center" style="border-bottom: none">A Cardano node client written in Rust.</h2>
 
-Amaru is a [Cardano](https://cardano.org) node client written in Rust. It is an ambitious project which aims to bring more diversity to the infrastructure operating the Cardano network.
+[![Licence](https://img.shields.io/github/license/pragma-org/amaru?style=for-the-badge)](https://github.com/pragma-org/amaru/blob/main/LICENSE)
+[![Twitter/X](https://img.shields.io/badge/Follow-@amaru__cardano-blue?style=for-the-badge&logo=x)](https://x.com/amaru_cardano)
+[![Discord](https://img.shields.io/badge/PRAGMA-%23amaru-5865f2?style=for-the-badge&logo=discord)](https://discord.gg/3nZYCHW9Ns)
+
+  <hr/>
+</div>
+
 
 ## Getting Started
 
@@ -58,21 +71,12 @@ multiple peers by replicating the option.
 
 See [monitoring/README.md](./monitoring/README.md).
 
-## Going further
-
-Amaru is the integration point of several other projects / repositories. Amongst them, we find in particular:
-
-| Repository                                                      | Purpose                                                                                                                                               |
-| ---                                                             | ---                                                                                                                                                   |
-| [txpipe/pallas](https://github.com/txpipe/pallas)               | Hosts many Rust primitives and building blocks for the node already powering tools like Dolos. In particular, the networking and serialization logic. |
-| [pragma-org/uplc](https://github.com/pragma-org/uplc)           | A highly performant UPLC parser and CEK machine.                                                                                                      |
-
 <hr/>
 
 <p align="center">
-  :boat: <a href="https://github.com/orgs/pragma-org/projects/1/views/1">Roadmap</a>
+  :boat: <a href="https://github.com/orgs/pragma-org/projects/3">Roadmap</a>
   |
-  :triangular_ruler: <a href="CONTRIBUTING.md">Contributing</a>
+  :triangular_ruler: <a href="./CONTRIBUTING.md">Contributing</a>
   |
-  <a href="https://discord.gg/3nZYCHW9Ns"><img src=".github/discord.svg" alt="Discord" /> Discord</a>
+  📰 <a href="./CHANGELOG.md">ChangeLog</a>
 </p>

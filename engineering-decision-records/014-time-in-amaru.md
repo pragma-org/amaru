@@ -1,7 +1,6 @@
 ---
 type: architecture
 status: accepted
-participants: abailly, etorreborre, rkuhn, stevena
 ---
 
 # Time in Amaru
@@ -52,3 +51,7 @@ Concretely:
 2. If governance proposes changing the slot length from 1 second, we must implement support for that era change.
    Whether we implement the full generality (as per chapter 17 of the linked report) or a narrower approach will be decided then.
    Follow-up: draft an EDR outlining era-schedule representation, header validation across era boundaries, and rollout/activation mechanics.
+
+## Discussion points
+
+\-

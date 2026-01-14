@@ -5,7 +5,7 @@ status: proposed
 
 # Avoid Primitive Obsession
 
-## Motivation
+## Context
 
 In software development, ["primitive obsession"](https://wiki.c2.com/?PrimitiveObsession) refers to the overuse of primitive data types (like integers, strings, booleans) to represent domain concepts. This can lead to several issues:
 

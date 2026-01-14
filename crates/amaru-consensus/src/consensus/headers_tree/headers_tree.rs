@@ -12,24 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::errors::ConsensusError::UnknownPoint;
-use crate::consensus::errors::{ConsensusError, InvalidHeaderParentData};
-use crate::consensus::headers_tree::HeadersTreeDisplay;
-use crate::consensus::headers_tree::headers_tree::Tracker::{Me, SomePeer};
-use crate::consensus::headers_tree::tree::Tree;
-use crate::consensus::stages::select_chain::RollbackChainSelection::RollbackBeyondLimit;
-use crate::consensus::stages::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
-use amaru_kernel::IsHeader;
-use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::{HeaderHash, ORIGIN_HASH, Point, peer::Peer};
+use crate::consensus::{
+    errors::{ConsensusError, ConsensusError::UnknownPoint, InvalidHeaderParentData},
+    headers_tree::{
+        HeadersTreeDisplay,
+        headers_tree::Tracker::{Me, SomePeer},
+        tree::Tree,
+    },
+    stages::select_chain::{
+        Fork, ForwardChainSelection, RollbackChainSelection,
+        RollbackChainSelection::RollbackBeyondLimit,
+    },
+};
+use amaru_kernel::{
+    HeaderHash, IsHeader, ORIGIN_HASH, Point, peer::Peer, string_utils::ListToString,
+};
 use amaru_ouroboros_traits::ChainStore;
 #[cfg(any(test, feature = "test-utils"))]
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Debug, Display, Formatter},
+    sync::Arc,
+};
 
 /// This data type stores the chains of headers known from different peers:
 ///
@@ -686,17 +693,18 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::headers_tree::data_generation::SelectionResult::Forward;
-    use crate::consensus::headers_tree::data_generation::*;
-    use crate::consensus::stages::select_chain::Fork;
-    use crate::consensus::stages::select_chain::ForwardChainSelection::SwitchToFork;
-    use amaru_kernel::BlockHeader;
-    use amaru_kernel::is_header::tests::{any_header_with_parent, run};
-    use amaru_kernel::string_utils::{ListDebug, ListsToString};
-    use amaru_kernel::tests::random_hash;
+    use crate::consensus::{
+        headers_tree::data_generation::{SelectionResult::Forward, *},
+        stages::select_chain::{Fork, ForwardChainSelection::SwitchToFork},
+    };
+    use amaru_kernel::{
+        BlockHeader,
+        is_header::tests::{any_header_with_parent, run},
+        string_utils::{ListDebug, ListsToString},
+        tests::random_hash,
+    };
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use proptest::proptest;
-    use std::assert_matches::assert_matches;
 
     #[test]
     fn initialize_peer_on_empty_tree() {
@@ -1253,7 +1261,7 @@ mod tests {
         let result = tree
             .select_roll_forward(&alice, &next_header_alice)
             .unwrap();
-        assert_matches!(result, SwitchToFork(_));
+        assert!(matches!(dbg!(result), SwitchToFork(_)));
 
         // bob catches up to alice, but alice stays the best
         let next_header_bob = run(any_header_with_parent(added_headers.last().unwrap().hash()));
@@ -1265,7 +1273,7 @@ mod tests {
         let next_header_bob = run(any_header_with_parent(next_header_bob.hash()));
         store.store_header(&next_header_bob).unwrap();
         let result = tree.select_roll_forward(&bob, &next_header_bob).unwrap();
-        assert_matches!(result, SwitchToFork(_));
+        assert!(matches!(dbg!(result), SwitchToFork(_)));
     }
 
     #[test]
@@ -1302,10 +1310,10 @@ mod tests {
         ];
 
         let results = check_execution(100, &actions, false);
-        assert_matches!(
-            results.last(),
+        assert!(matches!(
+            dbg!(results.last()),
             Some(Forward(ForwardChainSelection::NoChange))
-        );
+        ));
     }
 
     #[test]
