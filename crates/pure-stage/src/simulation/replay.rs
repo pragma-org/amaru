@@ -17,6 +17,7 @@ use anyhow::{Context as _, ensure};
 use cbor4ii::serde::from_slice;
 use std::{collections::HashMap, mem::replace, sync::Arc};
 
+use crate::effect::ScheduleIds;
 use crate::{
     Effect, Instant, Name, SendData,
     effect_box::EffectBox,
@@ -37,6 +38,7 @@ pub struct Replay {
     stages: HashMap<Name, StageData>,
     effect: EffectBox,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
+    schedule_ids_counter: ScheduleIds,
     pending_suspend: HashMap<Name, Effect>,
     latest_state: HashMap<Name, Box<dyn SendData>>,
     clock: Instant,
@@ -52,6 +54,7 @@ impl Replay {
             stages,
             effect,
             trace_buffer,
+            schedule_ids_counter: ScheduleIds::default(),
             pending_suspend: HashMap::new(),
             latest_state: HashMap::new(),
             clock: *EPOCH,
@@ -92,6 +95,7 @@ impl Replay {
 
                     let effect = poll_stage(
                         &self.trace_buffer,
+                        &self.schedule_ids_counter,
                         data,
                         stage,
                         response,

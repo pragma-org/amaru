@@ -25,7 +25,8 @@ use crate::simulation::Transition;
 use crate::stage_ref::StageStateRef;
 use crate::trace_buffer::TraceBuffer;
 use crate::{
-    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BoxFuture, Effects, Instant, Name, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph,
+    StageRef,
     effect::{StageEffect, StageResponse},
     effect_box::EffectBox,
     resources::Resources,
@@ -67,6 +68,7 @@ struct TokioInner {
     handles: Mutex<Vec<JoinHandle<()>>>,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
+    schedule_ids: ScheduleIds,
     mailbox_size: usize,
     stage_counter: Mutex<usize>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
@@ -79,6 +81,7 @@ impl TokioInner {
             handles: Default::default(),
             clock: Arc::new(TokioClock),
             resources: Resources::default(),
+            schedule_ids: ScheduleIds::default(),
             mailbox_size: 10,
             stage_counter: Mutex::new(0usize),
             trace_buffer: TraceBuffer::new_shared(0, 0),
@@ -155,6 +158,11 @@ impl TokioBuilder {
         self.inner.trace_buffer = trace_buffer;
         self
     }
+
+    pub fn with_schedule_ids(mut self, schedule_ids: ScheduleIds) -> Self {
+        self.inner.schedule_ids = schedule_ids;
+        self
+    }
 }
 
 type RefAux = (Receiver<Box<dyn SendData>>, TransitionFactory);
@@ -181,9 +189,10 @@ impl StageGraph for TokioBuilder {
         let me = StageRef::new(name.clone());
         let clock = self.inner.clock.clone();
         let resources = self.inner.resources.clone();
+        let schedule_ids = self.inner.schedule_ids.clone();
         let trace_buffer = self.inner.trace_buffer.clone();
         let ff = Box::new(move |effect| {
-            let eff = Effects::new(me, effect, clock, resources, trace_buffer);
+            let eff = Effects::new(me, effect, clock, resources, schedule_ids, trace_buffer);
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = state.cast::<St>().expect("internal state type error");
                 let msg = msg.cast::<Msg>().expect("internal message type error");

@@ -14,8 +14,8 @@
 
 use pretty_assertions::Comparison;
 use pure_stage::{
-    BLACKHOLE_NAME, Effect as Eff, Effects, Instant, Name, OutputEffect, ScheduleId, SendData,
-    StageGraph, StageRef, StageResponse as Resp, UnknownExternalEffect,
+    BLACKHOLE_NAME, Effect as Eff, Effects, Instant, Name, OutputEffect, ScheduleId, ScheduleIds,
+    SendData, StageGraph, StageRef, StageResponse as Resp, UnknownExternalEffect,
     serde::SendDataValue,
     simulation::SimulationBuilder,
     tokio::TokioBuilder,
@@ -71,7 +71,9 @@ fn run_sim(graph: impl Fn(&mut SimulationBuilder)) -> Vec<E> {
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let guard = TraceBuffer::drop_guard(&trace_buffer);
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
+    let mut network = SimulationBuilder::default()
+        .with_trace_buffer(trace_buffer.clone())
+        .with_epoch_clock();
     graph(&mut network);
 
     let mut sim = network.run();
@@ -92,7 +94,9 @@ fn run_tokio(graph: impl Fn(&mut TokioBuilder)) -> Vec<E> {
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let guard = TraceBuffer::drop_guard(&trace_buffer);
 
-    let mut network = TokioBuilder::default().with_trace_buffer(trace_buffer.clone());
+    let mut network = TokioBuilder::default()
+        .with_trace_buffer(trace_buffer.clone())
+        .with_schedule_ids(ScheduleIds::default());
     graph(&mut network);
 
     let sim = network.run(rt.handle().clone());
@@ -230,8 +234,9 @@ fn clock_wait_then_terminate() {
         ]
     };
 
-    let _guard = Instant::with_tolerance_for_test(dur(300));
     assert_equiv(run_sim(graph), &expected(*pure_stage::EPOCH));
+
+    let _guard = Instant::with_tolerance_for_test(dur(300));
     let actual = run_tokio(graph);
     let start = actual
         .iter()
@@ -249,7 +254,7 @@ fn clock_wait_then_terminate() {
 #[test]
 fn scheduling() {
     logging();
-    // without this the always-true comparison of ScheduleId::fake() will fail
+    // without this the always-true comparison of ScheduleIds will fail
     let _guard = pure_stage::register_data_deserializer::<Option<ScheduleId>>();
 
     fn graph(builder: &mut impl StageGraph) {
@@ -276,21 +281,26 @@ fn scheduling() {
         let trigger = builder.wire_up(trigger, None);
         builder.preload(trigger, [0]).unwrap();
     }
+    let schedule_ids = ScheduleIds::default();
+    let schedule_id_1 = schedule_ids.next_at(Instant::at_offset(dur(500)));
+    let schedule_id_2 = schedule_ids.next_at(Instant::at_offset(dur(200)));
+    let schedule_id_3 = schedule_ids.next_at(Instant::at_offset(dur(100)));
+
     let expected = {
         [
             E::state("trigger-1", b(None::<ScheduleId>)),
             E::input("trigger-1", sdv(0u32)),
             E::resume("trigger-1", Resp::Unit),
-            E::suspend(Eff::schedule("trigger-1", sdv(3u32))),
+            E::suspend(Eff::schedule("trigger-1", sdv(3u32), &schedule_id_1)),
             E::resume("trigger-1", Resp::Unit),
-            E::suspend(Eff::schedule("trigger-1", sdv(2u32))),
+            E::suspend(Eff::schedule("trigger-1", sdv(2u32), &schedule_id_2)),
             E::resume("trigger-1", Resp::Unit),
-            E::suspend(Eff::schedule("trigger-1", sdv(1u32))),
+            E::suspend(Eff::schedule("trigger-1", sdv(1u32), &schedule_id_3)),
             E::resume("trigger-1", Resp::Unit),
-            E::state("trigger-1", b(Some(ScheduleId::fake()))),
+            E::state("trigger-1", b(Some(schedule_id_2))),
             E::input("trigger-1", sdv(1u32)),
             E::resume("trigger-1", Resp::Unit),
-            E::suspend(Eff::cancel("trigger-1")),
+            E::suspend(Eff::cancel("trigger-1", &schedule_id_2)),
             E::resume("trigger-1", Resp::CancelScheduleResponse(true)),
             E::state("trigger-1", b(None::<ScheduleId>)),
             E::input("trigger-1", sdv(3u32)),
@@ -300,6 +310,8 @@ fn scheduling() {
     };
 
     assert_equiv(run_sim(graph), &expected);
+
+    let _guard = Instant::with_tolerance_for_test(dur(300));
     assert_equiv(run_tokio(graph), &expected);
 }
 
