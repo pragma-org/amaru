@@ -87,10 +87,7 @@ fn run_sim(graph: impl Fn(&mut SimulationBuilder)) -> Vec<E> {
 
 #[cfg(test)]
 fn run_tokio(graph: impl Fn(&mut TokioBuilder)) -> Vec<E> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all() // enables I/O + time drivers
-        .build()
-        .expect("runtime build");
+    let rt = Runtime::new().unwrap();
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let guard = TraceBuffer::drop_guard(&trace_buffer);
 
