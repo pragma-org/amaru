@@ -45,9 +45,10 @@ fn group_by_stage(entries: &[E]) -> BTreeMap<&Name, Vec<&E>> {
 
 #[track_caller]
 #[cfg(test)]
-fn assert_equiv(actual: Vec<E>, expected: &[E]) {
+fn assert_equiv(actual1: Vec<E>, expected: &[E]) {
     // permit reorderings between stages and only enforce expected prefix
-    let actual = group_by_stage(&actual);
+
+    let actual = group_by_stage(&actual1);
     let expected = group_by_stage(expected);
     let mut diff = Vec::new();
     for (name, entries) in expected {
@@ -61,6 +62,10 @@ fn assert_equiv(actual: Vec<E>, expected: &[E]) {
         for (name, diff) in diff {
             msg.push_str(&format!("stage {name}:\n{diff}\n"));
         }
+        for entry in actual1.iter() {
+            eprintln!("{entry:?}");
+        }
+
         panic!("trace entries differ:\n{msg}");
     }
 }
@@ -479,47 +484,52 @@ fn caller_already_terminated() {
 
     logging();
     fn graph(builder: &mut impl StageGraph) {
-        let trigger = builder.stage("trigger", async |_: (), msg: Msg, eff| match msg {
-            Msg::Start => {
-                let caller = eff
-                    .stage(
-                        "caller",
-                        async |_: (), callee: StageRef<StageRef<u32>>, eff| {
-                            eff.call(&callee, dur(1000), move |cr| cr).await;
-                            eff.terminate().await
-                        },
-                    )
-                    .await;
-                let caller = eff.supervise(caller, Msg::Super);
-                let caller = eff.wire_up(caller, ()).await;
+        let trigger = builder.stage(
+            "trigger",
+            async |callee_state: StageRef<u32>, msg: Msg, eff| match msg {
+                Msg::Start => {
+                    let caller = eff
+                        .stage(
+                            "caller",
+                            async |_: (), callee: StageRef<StageRef<u32>>, eff| {
+                                eff.call(&callee, dur(1000), move |cr| cr).await;
+                                eff.wait(dur(500)).await;
+                                eff.terminate().await
+                            },
+                        )
+                        .await;
+                    let caller = eff.supervise(caller, Msg::Super);
+                    let caller = eff.wire_up(caller, ()).await;
 
-                let callee = eff
-                    .stage(
-                        "callee",
-                        async |parent: StageRef<StageRef<u32>>, msg: StageRef<u32>, eff| {
-                            eff.send(&msg, 5).await;
-                            eff.send(&parent, msg).await;
-                            parent
-                        },
-                    )
-                    .await;
-                let me = eff.contramap(eff.me_ref(), "parent", Msg::Ref).await;
-                let callee = eff.wire_up(callee, me).await;
+                    let callee = eff
+                        .stage(
+                            "callee",
+                            async |parent: StageRef<StageRef<u32>>, msg: StageRef<u32>, eff| {
+                                eff.send(&msg, 5).await;
+                                eff.send(&parent, msg).await;
+                                parent
+                            },
+                        )
+                        .await;
+                    let me = eff.contramap(eff.me_ref(), "parent", Msg::Ref).await;
+                    let callee = eff.wire_up(callee, me).await;
 
-                eff.send(&caller, callee).await;
-            }
-            Msg::Super => {}
-            Msg::Ref(callee) => {
-                eff.send(&callee, 6).await;
-                eff.terminate().await
-            }
-        });
-        let trigger = builder.wire_up(trigger, ());
+                    eff.send(&caller, callee).await;
+                    callee_state
+                }
+                Msg::Super => {
+                    eff.send(&callee_state, 6).await;
+                    eff.terminate().await
+                }
+                Msg::Ref(callee) => callee,
+            },
+        );
+        let trigger = builder.wire_up(trigger, StageRef::blackhole());
         builder.preload(trigger, [Msg::Start]).unwrap();
     }
 
     let expected = [
-        E::state("trigger-1", sdv(())),
+        E::state("trigger-1", sdv(sr::<u32>(""))),
         E::input("trigger-1", sdv(Msg::Start)),
         E::resume("trigger-1", Resp::Unit),
         E::suspend(Eff::add_stage("trigger-1", "caller")),
@@ -549,7 +559,7 @@ fn caller_already_terminated() {
             sdv(sr::<StageRef<u32>>("callee-3")),
         )),
         E::resume("trigger-1", Resp::Unit),
-        E::state("trigger-1", sdv(())),
+        E::state("trigger-1", sdv(sr::<u32>(""))),
         E::state("caller-2", sdv(())),
         E::input("caller-2", sdv(sr::<StageRef<u32>>("callee-3"))),
         E::resume("caller-2", Resp::Unit),
@@ -571,6 +581,9 @@ fn caller_already_terminated() {
             sdv(src::<u32>("caller-2")),
         )),
         E::input("trigger-1", sdv(Msg::Ref(src::<u32>("caller-2")))),
+        E::resume("trigger-1", Resp::Unit),
+        E::state("trigger-1", sdv(src::<u32>("caller-2"))),
+        E::input("trigger-1", sdv(Msg::Super)),
         E::resume("trigger-1", Resp::Unit),
         E::suspend(Eff::send("trigger-1", "caller-2", true, sdv(6u32))),
         E::resume("trigger-1", Resp::Unit),
