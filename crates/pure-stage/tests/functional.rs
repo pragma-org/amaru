@@ -62,10 +62,10 @@ fn assert_equiv(actual1: Vec<E>, expected: &[E]) {
         for (name, diff) in diff {
             msg.push_str(&format!("stage {name}:\n{diff}\n"));
         }
+        msg.push_str("\n\nactual entries\n\n");
         for entry in actual1.iter() {
-            eprintln!("{entry:?}");
+            msg.push_str(&format!("{entry:?}\n"));
         }
-
         panic!("trace entries differ:\n{msg}");
     }
 }
