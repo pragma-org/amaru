@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// A collection of scheduled runnables.
 /// It maintains an order based on the scheduled time in order to efficiently retrieve the next runnables
 /// to wake up.
-/// It also a has methods to remove runnables based on their ScheduleId.
+/// It also has a method to remove runnables based on their ScheduleId which is used when cancelling scheduled tasks.
 pub struct ScheduledRunnables {
     by_id: BTreeMap<ScheduleId, Runnable>,
     by_time: BTreeMap<Instant, BTreeSet<ScheduleId>>,
