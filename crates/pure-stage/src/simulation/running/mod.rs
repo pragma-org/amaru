@@ -888,7 +888,7 @@ impl SimulationRunning {
         at_stage: Name,
         reason: TerminationReason,
     ) -> Option<(Name, Result<Box<dyn SendData>, Name>)> {
-        // FIXME(network):
+        // TODO(network):
         // - add kill switch to scheduled external effects to terminate them
         // - record source stage for scheduled messages to remove them
 

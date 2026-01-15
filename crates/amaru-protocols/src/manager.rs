@@ -81,7 +81,7 @@ pub async fn stage(
             eff.send(eff.me_ref(), ManagerMessage::Connect(peer)).await;
         }
         ManagerMessage::Connect(peer) => {
-            // FIXME(network) slow connection will block the manager, should delegate to a child stage
+            // TODO(network) slow connection will block the manager, should delegate to a child stage
             let entry = match manager.peers.get_mut(&peer) {
                 Some(ConnectionState::Connected(..)) => {
                     tracing::debug!(%peer, "discarding connection request, already connected");

@@ -116,7 +116,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
                 req,
                 blocking: Blocking::Yes,
             } => {
-                // FIXME(network): make the timeout configurable and figure out a good value
+                // TODO(network): make the timeout configurable and figure out a good value
                 let timeout = Duration::from_secs(60);
                 eff.timeout(
                     Inputs::Local(LocalTxSubmissionMessage::MempoolTimeout(timeout)),
