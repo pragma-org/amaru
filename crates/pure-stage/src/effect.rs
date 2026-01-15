@@ -146,7 +146,14 @@ impl<M> Effects<M> {
     ///
     /// The returned future will resolve to `Some(resp)` if the call was successful, or `None`
     /// if the call timed out.
+    ///
+    /// # Panics
+    ///
+    /// - If `target` is a call-context StageRef (i.e., carries an `extra()`), which would imply a nested call.
+    ///   This restriction may be lifted in the future.
+    // TODO(rkuhn): lift nested call restriction if/when needed.
     #[expect(clippy::panic)]
+    #[track_caller]
     pub fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
         &self,
         target: &StageRef<Req>,
