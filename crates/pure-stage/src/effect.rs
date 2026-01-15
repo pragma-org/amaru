@@ -285,6 +285,20 @@ impl<M> Effects<M> {
         )
     }
 
+    /// Execute a function with a timeout.
+    /// If the timeout is reached before the function completes, the message is sent and can be used
+    /// to terminate the stage.
+    pub async fn timeout<R>(&self, msg: M, delay: Duration, f: impl Future<Output = R>) -> R
+    where
+        M: SendData + Sync,
+        R: Send + Sync,
+    {
+        let schedule_id = self.schedule_after(msg, delay).await;
+        let result = f.await;
+        self.cancel_schedule(schedule_id).await;
+        result
+    }
+
     /// Run an effect that is not part of the StageGraph, as an asynchronous effect.
     pub fn external<T: ExternalEffectAPI>(&self, effect: T) -> BoxFuture<'static, T::Response> {
         airlock_effect(

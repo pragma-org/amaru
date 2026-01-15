@@ -12,6 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::mempool_effects::MemoryPool;
+use crate::mux::MuxMessage;
+use crate::protocol::{
+    Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState,
+    miniprotocol, outcome,
+};
+use crate::tx_submission::{Blocking, Message, ProtocolError, State};
+use ProtocolError::*;
+use amaru_kernel::Tx;
+use amaru_ouroboros::{MempoolSeqNo, TxSubmissionMempool};
+use amaru_ouroboros_traits::TxId;
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use serde::{Deserialize, Serialize};
 /// Manages the transaction submission protocol from the initiator's perspective.
 ///
 /// This module implements the initiator side of the Cardano transaction submission protocol (N2N),
@@ -49,19 +62,7 @@
 /// - Appropriate blocking/non-blocking requests based on acknowledgment state
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
-
-use crate::mempool_effects::MemoryPool;
-use crate::mux::MuxMessage;
-use crate::protocol::{
-    Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState,
-    miniprotocol, outcome,
-};
-use crate::tx_submission::{Blocking, Message, ProtocolError, State};
-use ProtocolError::*;
-use amaru_kernel::Tx;
-use amaru_ouroboros::{MempoolSeqNo, TxSubmissionMempool};
-use amaru_ouroboros_traits::TxId;
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use std::time::Duration;
 
 const MAX_REQUESTED_TX_IDS: u16 = 10;
 
@@ -76,17 +77,29 @@ pub fn initiator() -> Miniprotocol<State, TxSubmissionInitiator, Initiator> {
     miniprotocol(PROTO_N2N_TX_SUB)
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum LocalTxSubmissionMessage {
+    MempoolTimeout(Duration),
+}
+
 impl StageState<State, Initiator> for TxSubmissionInitiator {
-    type LocalIn = Void;
+    type LocalIn = LocalTxSubmissionMessage;
 
     async fn local(
         self,
         _proto: &State,
-        _input: Self::LocalIn,
+        input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        // Currently no local inputs are handled
-        Ok((None, self))
+        match input {
+            LocalTxSubmissionMessage::MempoolTimeout(d) => {
+                tracing::debug!(
+                    "terminating initiator due to timeout waiting for mempool: {:?}",
+                    d
+                );
+                Ok((Some(InitiatorAction::Done), self))
+            }
+        }
     }
 
     async fn network(
@@ -102,7 +115,16 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
                 ack,
                 req,
                 blocking: Blocking::Yes,
-            } => self.request_tx_ids_blocking(mempool, ack, req).await?,
+            } => {
+                // FIXME(network): make the timeout configurable and figure out a good value
+                let timeout = Duration::from_secs(60);
+                eff.timeout(
+                    Inputs::Local(LocalTxSubmissionMessage::MempoolTimeout(timeout)),
+                    timeout,
+                    self.request_tx_ids_blocking(mempool, ack, req),
+                )
+                .await?
+            }
             InitiatorResult::RequestTxIds {
                 ack,
                 req,

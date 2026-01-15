@@ -81,7 +81,7 @@ impl ScheduledRunnables {
     }
 
     /// Remove a scheduled runnable by its ScheduleId.
-    /// Return true if the runnable was found, false otherwise.
+    /// Return the runnable if it was found, None otherwise.
     pub fn remove(&mut self, id: &ScheduleId) -> Option<Runnable> {
         match self.by_id.remove(id) {
             Some(runnable) => {

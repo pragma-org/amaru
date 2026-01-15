@@ -36,6 +36,7 @@ use crate::protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT};
 use amaru_ouroboros::TxOrigin;
 use pure_stage::{Effects, StageRef, Void};
 
+use crate::tx_submission::initiator::LocalTxSubmissionMessage;
 pub use initiator::initiator;
 pub use responder::{ResponderResult, responder};
 
@@ -90,7 +91,7 @@ pub async fn register_tx_submission(
         eff.contramap(
             &tx_submission,
             "tx_submission_handler",
-            Inputs::<Void>::Network,
+            Inputs::<LocalTxSubmissionMessage>::Network,
         )
         .await
     } else {
