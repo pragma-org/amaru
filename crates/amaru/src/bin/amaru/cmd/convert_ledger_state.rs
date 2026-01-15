@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::DEFAULT_NETWORK;
-use amaru::bootstrap::InitialNonces;
+use amaru::{DEFAULT_NETWORK, bootstrap::InitialNonces};
 use amaru_kernel::{
     Bound, EraHistory, EraParams, Hash, HeaderHash, Nonce, Point, Summary, cbor,
     network::NetworkName,
@@ -25,31 +24,37 @@ use tracing::{debug, info};
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Path to the CBOR encoded ledger state snapshot as serialised by Haskell
-    /// node.
-    #[arg(
-        long,
-        value_name = "FILE",
-        env = "AMARU_SNAPSHOT",
-        verbatim_doc_comment
-    )]
-    snapshot: PathBuf,
-
-    /// Directory to store converted snapshots into.
-    ///
-    /// Directory will be created if it does not exist, defaults to '.'.
-    #[arg(long, value_name = "DIR", verbatim_doc_comment)]
-    target_dir: Option<PathBuf>,
-
     /// Network to convert snapshots for.
     #[arg(
         long,
-        value_name = "NETWORK",
-        env = "AMARU_NETWORK",
+        value_name = amaru::value_names::NETWORK,
+        env = amaru::env_vars::NETWORK,
         default_value_t = DEFAULT_NETWORK,
-        verbatim_doc_comment
     )]
     network: NetworkName,
+
+    /// Path to a CBOR encoded ledger state snapshot.
+    ///
+    /// Snapshot can be obtained from the Haskell cardano-node, using the `DebugEpochState` query, serialised as CBOR.
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::SNAPSHOT,
+    )]
+    snapshot: PathBuf,
+
+    /// Directory to store the converted snapshots into.
+    ///
+    /// Directory will be created if it does not exist.
+    ///
+    /// Defaults to '.' when omitted.
+    #[arg(
+        long,
+        value_name = amaru::value_names::DIRECTORY,
+        env = amaru::env_vars::TARGET_DIR,
+        default_value = ".",
+    )]
+    target_dir: PathBuf,
 }
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -61,13 +66,16 @@ pub enum Error {
 }
 
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let target_dir = args.target_dir.unwrap_or(PathBuf::from("."));
-
-    info!(network = %args.network, target_dir=%target_dir.to_string_lossy(), snapshot=%args.snapshot.to_string_lossy(),
-          "Running command convert-ledger-state",
+    info!(
+        _command = "convert-ledger-state",
+        network = %args.network,
+        snapshot = %args.snapshot.to_string_lossy(),
+        target_dir = %args.target_dir.to_string_lossy(),
+        "running"
     );
 
-    convert_one_snapshot_file(&target_dir, &args.snapshot, &args.network).await?;
+    convert_one_snapshot_file(&args.target_dir, &args.snapshot, &args.network).await?;
+
     Ok(())
 }
 
@@ -374,7 +382,7 @@ mod test {
         for snapshot in snapshots {
             let args = super::Args {
                 snapshot,
-                target_dir: Some(tempdir.path().to_path_buf()),
+                target_dir: tempdir.path().to_path_buf(),
                 network,
             };
 
@@ -426,7 +434,7 @@ mod test {
         for snapshot in snapshots {
             let args = super::Args {
                 snapshot,
-                target_dir: Some(target_dir.clone()),
+                target_dir: target_dir.clone(),
                 network,
             };
 

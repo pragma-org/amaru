@@ -12,54 +12,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::{
-    DEFAULT_NETWORK, bootstrap::bootstrap, default_chain_dir, default_ledger_dir,
-    default_snapshots_dir,
-};
+use amaru::{DEFAULT_NETWORK, bootstrap::bootstrap, default_chain_dir, default_ledger_dir};
 use amaru_kernel::network::NetworkName;
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use std::{error::Error, fs::remove_dir_all, path::PathBuf};
-use tracing::{error, info};
+use tracing::{info, warn};
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
-    ledger_dir: Option<PathBuf>,
-
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
+    #[arg(
+        long,
+        value_name = amaru::value_names::DIRECTORY,
+        env = amaru::env_vars::CHAIN_DIR,
+    )]
     chain_dir: Option<PathBuf>,
 
-    /// Network to bootstrap the node for.
-    ///
-    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet_<magic>' where
-    /// `magic` is a 32-bits unsigned value denoting a particular testnet.
-    #[arg(
-        long,
-        value_name = "NETWORK",
-        env = "AMARU_NETWORK",
-        default_value_t = DEFAULT_NETWORK,
-    )]
-    network: NetworkName,
-
-    #[arg(
-        long,
-        value_name = "DIR",
-        verbatim_doc_comment,
-        env = "AMARU_SNAPSHOTS_DIR"
-    )]
-    snapshots_dir: Option<PathBuf>,
-
+    /// Forcefully erase and overwrite the ledger database if it already exists.
     #[arg(
         short,
         long,
-        value_name = "BOOL",
-        verbatim_doc_comment,
-        env = "AMARU_FORCE",
-        default_value_t = false
+        action = ArgAction::SetTrue,
+        default_value_t = false,
     )]
     force: bool,
+
+    /// Path of the ledger on-disk storage.
+    #[arg(
+        long,
+        value_name = amaru::value_names::DIRECTORY,
+        env = amaru::env_vars::LEDGER_DIR,
+    )]
+    ledger_dir: Option<PathBuf>,
+
+    /// Network to bootstrap the node for.
+    #[arg(
+        long,
+        value_name = amaru::value_names::NETWORK,
+        env = amaru::env_vars::NETWORK,
+        default_value_t = DEFAULT_NETWORK,
+    )]
+    network: NetworkName,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
@@ -73,24 +66,30 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(network).into());
 
-    info!(network=%network, ledger_dir=%ledger_dir.to_string_lossy(), chain_dir=%chain_dir.to_string_lossy(),
-          "Running command bootstrap",
+    info!(
+        _command = "bootstrap",
+        chain_dir = %chain_dir.to_string_lossy(),
+        force = %args.force,
+        ledger_dir = %ledger_dir.to_string_lossy(),
+        network = %network,
+        "running",
     );
 
-    let snapshots_dir = args
-        .snapshots_dir
-        .unwrap_or_else(|| default_snapshots_dir(network).into());
-
-    let ledger_exists = ledger_dir.exists();
-    if ledger_exists && !args.force {
-        error!(ledger_dir=%ledger_dir.to_string_lossy(),  "Ledger directory already exists");
-    } else {
-        if args.force && ledger_exists {
-            info!(ledger_dir=%ledger_dir.to_string_lossy(), "Forcing bootstrap, removing existing ledger directory");
+    if ledger_dir.exists() {
+        if !args.force {
+            warn!(
+                ledger_dir=%ledger_dir.to_string_lossy(),
+                "ledger directory already exists"
+            );
+            return Ok(());
+        } else {
+            info!(
+                ledger_dir=%ledger_dir.to_string_lossy(),
+                "forcing bootstrap, removing existing ledger directory"
+            );
             remove_dir_all(&ledger_dir)?;
         }
-        bootstrap(network, ledger_dir, chain_dir, snapshots_dir).await?
     }
 
-    Ok(())
+    bootstrap(network, ledger_dir, chain_dir).await
 }

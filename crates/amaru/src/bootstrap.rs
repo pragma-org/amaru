@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{default_initial_nonces, default_snapshots_dir};
 use amaru_consensus::{ChainStore, Nonces};
 use amaru_kernel::{
     BlockHeader, EraHistory, Hash, HeaderHash, IsHeader, Nonce, Point, from_cbor,
@@ -153,17 +154,14 @@ pub async fn bootstrap(
     network: NetworkName,
     ledger_dir: PathBuf,
     chain_dir: PathBuf,
-    snapshots_dir: PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     let snapshot_file_name = "snapshots.json";
+    let snapshots_dir: PathBuf = default_snapshots_dir(network).into();
     let snapshots_file = get_bootstrap_file(network, snapshot_file_name)?
         .ok_or(BootstrapError::MissingConfigFile(snapshot_file_name.into()))?;
     download_snapshots(snapshots_file, &snapshots_dir).await?;
     import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
-    let nonces_file_name = "nonces.json";
-    let nonces_file = get_bootstrap_file(network, nonces_file_name)?
-        .ok_or(BootstrapError::MissingConfigFile(nonces_file_name.into()))?;
-    import_nonces_from_file(network.into(), &chain_dir, &nonces_file).await?;
+    import_nonces(network.into(), &chain_dir, default_initial_nonces(network)?).await?;
     import_headers_for_network(
         &chain_dir,
         get_bootstrap_headers(network)?.collect::<Vec<_>>(),
@@ -199,7 +197,7 @@ pub struct InitialNonces {
     pub tail: HeaderHash,
 }
 
-pub(crate) async fn import_nonces(
+pub async fn import_nonces(
     era_history: &EraHistory,
     chain_db_path: &PathBuf,
     initial_nonce: InitialNonces,
@@ -228,16 +226,6 @@ pub(crate) async fn import_nonces(
 
     db.put_nonces(&header_hash, &nonces)?;
 
-    Ok(())
-}
-
-pub async fn import_nonces_from_file(
-    era_history: &EraHistory,
-    chain_dir: &PathBuf,
-    nonces_file: &[u8],
-) -> Result<(), Box<dyn Error>> {
-    let initial_nonces: InitialNonces = serde_json::from_slice(nonces_file)?;
-    import_nonces(era_history, chain_dir, initial_nonces).await?;
     Ok(())
 }
 

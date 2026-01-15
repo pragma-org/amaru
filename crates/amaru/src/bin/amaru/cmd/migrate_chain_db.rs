@@ -26,13 +26,18 @@ use tracing::{error, info, info_span};
 #[derive(Debug, Parser)]
 pub struct Args {
     /// The path to the chain database to migrate
-    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
-    chain_dir: Option<PathBuf>,
-
     #[arg(
         long,
-        value_name = "NETWORK",
-        env = "AMARU_NETWORK",
+        value_name = amaru::value_names::DIRECTORY,
+        env = amaru::env_vars::CHAIN_DIR
+    )]
+    chain_dir: Option<PathBuf>,
+
+    /// Underlying network of the database to migrate
+    #[arg(
+        long,
+        value_name = amaru::value_names::NETWORK,
+        env = amaru::env_vars::NETWORK,
         default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
@@ -42,10 +47,14 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
+
     let config = RocksDbConfig::new(chain_dir.clone());
 
-    info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(),
-          "Running command migrate-chain-db",
+    info!(
+        _command = "migrate-chain-db",
+        chain_dir = %chain_dir.to_string_lossy(),
+        network = %args.network,
+        "running",
     );
 
     Ok(

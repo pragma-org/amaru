@@ -14,34 +14,35 @@
 
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_consensus::{DiagnosticChainStore, ReadOnlyChainStore};
-use amaru_kernel::network::NetworkName;
-use amaru_kernel::string_utils::ListToString;
-use amaru_kernel::to_cbor;
-use amaru_kernel::{BlockHeader, IsHeader};
-use amaru_stores::rocksdb::RocksDbConfig;
-use amaru_stores::rocksdb::consensus::{ReadOnlyChainDB, RocksDBStore};
+use amaru_kernel::{
+    BlockHeader, IsHeader, network::NetworkName, string_utils::ListToString, to_cbor,
+};
+use amaru_stores::rocksdb::{
+    RocksDbConfig,
+    consensus::{ReadOnlyChainDB, RocksDBStore},
+};
 use clap::Parser;
-use std::fmt::Display;
-use std::{error::Error, path::PathBuf};
+use std::{error::Error, fmt::Display, path::PathBuf};
 use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Network for which we are importing headers.
-    ///
-    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet_<magic>' where
-    /// `magic` is a 32-bits unsigned value denoting a particular testnet.
+    /// The path to the chain database to dump.
     #[arg(
         long,
-        value_name = "NETWORK",
-        env = "AMARU_NETWORK",
+        value_name = amaru::value_names::DIRECTORY,
+        env = amaru::env_vars::CHAIN_DIR
+    )]
+    chain_dir: Option<PathBuf>,
+
+    /// Network for which we are importing headers.
+    #[arg(
+        long,
+        value_name = amaru::value_names::NETWORK,
+        env = amaru::env_vars::NETWORK,
         default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
-
-    /// The path to the chain database to dump
-    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
-    chain_dir: Option<PathBuf>,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
@@ -49,12 +50,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
 
-    info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(),
-          "Running command dump-chain-db",
-    );
-
-    info!(network = %args.network, chain_dir=%chain_dir.to_string_lossy(),
-          "Running command dump-chain-db",
+    info!(
+        _command = "dump-chain-db",
+        chain_dir = %chain_dir.to_string_lossy(),
+        network = %args.network,
+        "running",
     );
 
     let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;

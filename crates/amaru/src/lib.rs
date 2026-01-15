@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::bootstrap::{BootstrapError, InitialNonces};
 use amaru_kernel::network::NetworkName;
 use include_dir::{Dir, include_dir};
 use std::{error::Error, path::PathBuf};
@@ -63,6 +64,16 @@ pub fn default_data_dir(network: NetworkName) -> String {
     )
 }
 
+pub fn default_initial_nonces(network: NetworkName) -> Result<InitialNonces, Box<dyn Error>> {
+    let default_nonces_file_name = "nonces.json";
+
+    let nonces_file = get_bootstrap_file(network, default_nonces_file_name)?.ok_or(
+        BootstrapError::MissingConfigFile(default_nonces_file_name.into()),
+    )?;
+
+    Ok(serde_json::from_slice(nonces_file.as_slice())?)
+}
+
 pub fn get_bootstrap_file(
     network: NetworkName,
     name: &str,
@@ -79,4 +90,88 @@ pub fn get_bootstrap_headers(
         .find(&path)?
         .filter_map(|f| f.as_file())
         .map(|f| f.contents().into()))
+}
+
+/// Value names (a.k.a. metavar) used across command-line options.
+///
+/// Conventions:
+///
+/// - Uppercase for types
+/// - Lowercase for enums / verbatim values
+pub mod value_names {
+    /// For directories / folders on the filesystem.
+    pub const DIRECTORY: &str = "DIR";
+
+    /// For network addresses made of an hostname and an option port number. Also known as an
+    /// _authority_.
+    pub const ENDPOINT: &str = "HOSTNAME[:PORT]";
+
+    /// For filepaths on the file-system.
+    pub const FILEPATH: &str = "FILEPATH";
+
+    /// Designates a well-known Cardano network name, or a custom dev network.
+    pub const NETWORK: &str = "mainnet|preprod|preview|testnet_<U32>";
+
+    /// A blockchain point, formatted as slot.hash
+    pub const POINT: &str = "SLOT.HEADER_HASH";
+
+    /// A non-negative integer value.
+    pub const UINT: &str = "UINT";
+
+    /// A non-negative integer value, or the keyword 'all'
+    pub const UINT_ALL: &str = "UINT|all";
+}
+
+/// Environment variables used across command-line options.
+pub mod env_vars {
+    /// --chain-dir
+    pub const CHAIN_DIR: &str = "AMARU_CHAIN_DIR";
+
+    /// --epoch
+    pub const EPOCH: &str = "AMARU_EPOCH";
+
+    /// --header-file
+    pub const HEADER_FILE: &str = "AMARU_HEADER_FILE";
+
+    /// --headers-dir
+    pub const HEADERS_DIR: &str = "AMARU_HEADERS_DIR";
+
+    /// --ledger-dir
+    pub const LEDGER_DIR: &str = "AMARU_LEDGER_DIR";
+
+    /// --listen-address
+    pub const LISTEN_ADDRESS: &str = "AMARU_LISTEN_ADDRESS";
+
+    /// --max-downstream-peers
+    pub const MAX_DOWNSTREAM_PEERS: &str = "AMARU_MAX_DOWNSTREAM_PEERS";
+
+    /// --max-extra-ledger-snapshots
+    pub const MAX_EXTRA_LEDGER_SNAPSHOTS: &str = "AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS";
+
+    /// --migrate-chain-db
+    pub const MIGRATE_CHAIN_DB: &str = "AMARU_MIGRATE_CHAIN_DB";
+
+    /// --network
+    pub const NETWORK: &str = "AMARU_NETWORK";
+
+    /// --nonces-file
+    pub const NONCES_FILE: &str = "AMARU_NONCES_FILE";
+
+    /// --parent
+    pub const PARENT: &str = "AMARU_PARENT";
+
+    /// --peer-address
+    pub const PEER_ADDRESS: &str = "AMARU_PEER_ADDRESS";
+
+    /// --pid-file
+    pub const PID_FILE: &str = "AMARU_PID_FILE";
+
+    /// --snapshot
+    pub const SNAPSHOT: &str = "AMARU_SNAPSHOT";
+
+    /// --snapshots-dir
+    pub const SNAPSHOTS_DIR: &str = "AMARU_SNAPSHOTS_DIR";
+
+    /// --target-dir
+    pub const TARGET_DIR: &str = "AMARU_TARGET_DIR";
 }
