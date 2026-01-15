@@ -16,7 +16,7 @@ use amaru_kernel::{
     cbor, from_cbor,
     network::NetworkName,
     protocol_parameters::{self, GlobalParameters},
-    to_cbor, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock, Network,
+    to_cbor, ArenaPool, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock,
     Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
 };
 use amaru_ledger::{

@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_ouroboros_traits::TxId;
-use std::fmt::{Display, Formatter};
-
 use crate::tx_submission::{ResponderResult, initiator::InitiatorResult};
+use amaru_ouroboros_traits::TxId;
+use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 
 /// Outcome of a protocol state machine step
 #[derive(Debug)]
@@ -26,7 +26,7 @@ pub enum Outcome {
     Responder(ResponderResult),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum ProtocolError {
     NoTxIdsRequested,
     BlockingRequestMadeWhenTxsStillUnacknowledged,
@@ -35,9 +35,10 @@ pub enum ProtocolError {
     NoTxsRequested,
     UnadvertisedTransactionIdsRequested(Vec<TxId>),
     UnknownTxsRequested(Vec<TxId>),
+    DuplicateTxIds(Vec<TxId>),
     MaxOutstandingTxIdsRequested(u16, u16),
     TooManyAcknowledgedTxs(u16, u16),
-    TooManyTxIdsReceived(usize, usize),
+    TooManyTxIdsReceived(usize, usize, usize),
     ReceivedTxsExceedsBatchSize(usize, usize),
     SomeReceivedTxsNotInFlight(Vec<TxId>),
 }
@@ -83,10 +84,10 @@ impl Display for ProtocolError {
                     "it is not possible to acknowledge more transactions than currently unacknowledged: {ack} > {window_len}"
                 )
             }
-            ProtocolError::TooManyTxIdsReceived(received, window_len) => {
+            ProtocolError::TooManyTxIdsReceived(received, current_window_len, max_window_len) => {
                 write!(
                     f,
-                    "the number of received transaction ids exceeds the current window size: {received} > {window_len}"
+                    "the number of received transaction ids exceeds the max window size: {received} + {current_window_len} > {max_window_len}"
                 )
             }
             ProtocolError::ReceivedTxsExceedsBatchSize(received, max) => {
@@ -101,6 +102,12 @@ impl Display for ProtocolError {
                     "some received transactions were not requested: {tx_ids:?}"
                 )
             }
+            ProtocolError::DuplicateTxIds(tx_ids) => {
+                write!(
+                    f,
+                    "duplicate transaction ids were found in the request: {tx_ids:?}"
+                )
+            }
         }
     }
 }
@@ -109,13 +116,9 @@ impl PartialEq for Outcome {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Outcome::Done, Outcome::Done) => true,
-            (Outcome::Error(e1), Outcome::Error(e2)) => format!("{}", e1) == format!("{}", e2),
-            (Outcome::Initiator(m1), Outcome::Initiator(m2)) => {
-                format!("{}", m1) == format!("{}", m2)
-            }
-            (Outcome::Responder(m1), Outcome::Responder(m2)) => {
-                format!("{}", m1) == format!("{}", m2)
-            }
+            (Outcome::Error(e1), Outcome::Error(e2)) => e1 == e2,
+            (Outcome::Initiator(m1), Outcome::Initiator(m2)) => m1 == m2,
+            (Outcome::Responder(m1), Outcome::Responder(m2)) => m1 == m2,
             _ => false,
         }
     }

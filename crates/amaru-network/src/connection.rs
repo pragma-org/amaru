@@ -34,7 +34,39 @@ pub struct Connection {
     writer: Arc<AsyncMutex<OwnedWriteHalf>>,
 }
 
-type Connections = BTreeMap<ConnectionId, Connection>;
+struct Connections {
+    connections: BTreeMap<ConnectionId, Connection>,
+}
+
+impl Connections {
+    fn new() -> Self {
+        Self {
+            connections: BTreeMap::new(),
+        }
+    }
+
+    fn add_connection(&mut self, connection: Connection) -> ConnectionId {
+        let id = if let Some((&last_id, _)) = self.connections.iter().next_back() {
+            last_id.next()
+        } else {
+            ConnectionId::default()
+        };
+        self.insert(id, connection);
+        id
+    }
+
+    fn insert(&mut self, id: ConnectionId, connection: Connection) {
+        self.connections.insert(id, connection);
+    }
+
+    fn get(&self, id: &ConnectionId) -> Option<&Connection> {
+        self.connections.get(id)
+    }
+
+    fn remove(&mut self, id: &ConnectionId) -> Option<Connection> {
+        self.connections.remove(id)
+    }
+}
 
 #[derive(Clone)]
 pub struct TokioConnections {
@@ -61,17 +93,14 @@ async fn connect(
         .await??
         .into_split();
     tracing::debug!(?addr, "connected");
-    let id = ConnectionId::new();
-    resource.lock().insert(
-        id,
-        Connection {
-            reader: Arc::new(AsyncMutex::new((
-                reader,
-                BytesMut::with_capacity(read_buf_size),
-            ))),
-            writer: Arc::new(AsyncMutex::new(writer)),
-        },
-    );
+    let mut connections = resource.lock();
+    let id = connections.add_connection(Connection {
+        reader: Arc::new(AsyncMutex::new((
+            reader,
+            BytesMut::with_capacity(read_buf_size),
+        ))),
+        writer: Arc::new(AsyncMutex::new(writer)),
+    });
     Ok(id)
 }
 

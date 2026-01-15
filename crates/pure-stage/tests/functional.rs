@@ -14,13 +14,14 @@
 
 use pretty_assertions::Comparison;
 use pure_stage::{
-    BLACKHOLE_NAME, Effect as Eff, Effects, Instant, Name, OutputEffect, ScheduleId, SendData,
-    StageGraph, StageRef, StageResponse as Resp, UnknownExternalEffect,
+    BLACKHOLE_NAME, Effect as Eff, Effects, Instant, Name, OutputEffect, ScheduleId, ScheduleIds,
+    SendData, StageGraph, StageRef, StageResponse as Resp, UnknownExternalEffect,
     serde::SendDataValue,
     simulation::SimulationBuilder,
     tokio::TokioBuilder,
     trace_buffer::{TerminationReason, TraceBuffer, TraceEntry as E},
 };
+use std::sync::Arc;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::runtime::Runtime;
 
@@ -44,9 +45,10 @@ fn group_by_stage(entries: &[E]) -> BTreeMap<&Name, Vec<&E>> {
 
 #[track_caller]
 #[cfg(test)]
-fn assert_equiv(actual: Vec<E>, expected: &[E]) {
+fn assert_equiv(actual1: Vec<E>, expected: &[E]) {
     // permit reorderings between stages and only enforce expected prefix
-    let actual = group_by_stage(&actual);
+
+    let actual = group_by_stage(&actual1);
     let expected = group_by_stage(expected);
     let mut diff = Vec::new();
     for (name, entries) in expected {
@@ -60,6 +62,10 @@ fn assert_equiv(actual: Vec<E>, expected: &[E]) {
         for (name, diff) in diff {
             msg.push_str(&format!("stage {name}:\n{diff}\n"));
         }
+        msg.push_str("\n\nactual entries\n\n");
+        for entry in actual1.iter() {
+            msg.push_str(&format!("{entry:?}\n"));
+        }
         panic!("trace entries differ:\n{msg}");
     }
 }
@@ -70,7 +76,9 @@ fn run_sim(graph: impl Fn(&mut SimulationBuilder)) -> Vec<E> {
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let guard = TraceBuffer::drop_guard(&trace_buffer);
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
+    let mut network = SimulationBuilder::default()
+        .with_trace_buffer(trace_buffer.clone())
+        .with_epoch_clock();
     graph(&mut network);
 
     let mut sim = network.run();
@@ -88,7 +96,10 @@ fn run_tokio(graph: impl Fn(&mut TokioBuilder)) -> Vec<E> {
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let guard = TraceBuffer::drop_guard(&trace_buffer);
 
-    let mut network = TokioBuilder::default().with_trace_buffer(trace_buffer.clone());
+    let mut network = TokioBuilder::default()
+        .with_trace_buffer(trace_buffer.clone())
+        .with_schedule_ids(ScheduleIds::default())
+        .with_epoch_clock();
     graph(&mut network);
 
     let sim = network.run(rt.handle().clone());
@@ -102,6 +113,9 @@ fn run_tokio(graph: impl Fn(&mut TokioBuilder)) -> Vec<E> {
 
 fn sr<T>(name: &str) -> StageRef<T> {
     StageRef::named_for_tests(name)
+}
+fn src<T>(name: &str) -> StageRef<T> {
+    StageRef::named_for_tests(name).with_extra_for_tests(Arc::new(()))
 }
 fn sdv<T: SendData>(value: T) -> Box<dyn SendData> {
     SendDataValue::boxed(&value)
@@ -183,10 +197,10 @@ fn call_then_terminate() {
             "trigger-2",
             "callee-1",
             dur(1000),
-            sdv(CallMsg(5u32, sr::<u32>("trigger-2"))),
+            sdv(CallMsg(5u32, src::<u32>("trigger-2"))),
         )),
         E::state("callee-1", sdv(())),
-        E::input("callee-1", sdv(CallMsg(5u32, sr::<u32>("trigger-2")))),
+        E::input("callee-1", sdv(CallMsg(5u32, src::<u32>("trigger-2")))),
         E::resume("callee-1", Resp::Unit),
         E::suspend(Eff::send("callee-1", "trigger-2", true, sdv(10u32))),
         E::resume("trigger-2", Resp::CallResponse(sdv(10u32))),
@@ -223,8 +237,9 @@ fn clock_wait_then_terminate() {
         ]
     };
 
-    let _guard = Instant::with_tolerance_for_test(dur(300));
     assert_equiv(run_sim(graph), &expected(*pure_stage::EPOCH));
+
+    let _guard = Instant::with_tolerance_for_test(dur(300));
     let actual = run_tokio(graph);
     let start = actual
         .iter()
@@ -242,7 +257,7 @@ fn clock_wait_then_terminate() {
 #[test]
 fn scheduling() {
     logging();
-    // without this the always-true comparison of ScheduleId::fake() will fail
+    // without this the always-true comparison of ScheduleIds will fail
     let _guard = pure_stage::register_data_deserializer::<Option<ScheduleId>>();
 
     fn graph(builder: &mut impl StageGraph) {
@@ -269,30 +284,38 @@ fn scheduling() {
         let trigger = builder.wire_up(trigger, None);
         builder.preload(trigger, [0]).unwrap();
     }
+    let schedule_ids = ScheduleIds::default();
+    let schedule_id_1 = schedule_ids.next_at(Instant::at_offset(dur(500)));
+    let schedule_id_2 = schedule_ids.next_at(Instant::at_offset(dur(200)));
+    let schedule_id_3 = schedule_ids.next_at(Instant::at_offset(dur(100)));
+
     let expected = {
         [
             E::state("trigger-1", b(None::<ScheduleId>)),
             E::input("trigger-1", sdv(0u32)),
             E::resume("trigger-1", Resp::Unit),
-            E::suspend(Eff::schedule("trigger-1", sdv(3u32))),
+            E::suspend(Eff::schedule("trigger-1", sdv(3u32), &schedule_id_1)),
             E::resume("trigger-1", Resp::Unit),
-            E::suspend(Eff::schedule("trigger-1", sdv(2u32))),
+            E::suspend(Eff::schedule("trigger-1", sdv(2u32), &schedule_id_2)),
             E::resume("trigger-1", Resp::Unit),
-            E::suspend(Eff::schedule("trigger-1", sdv(1u32))),
+            E::suspend(Eff::schedule("trigger-1", sdv(1u32), &schedule_id_3)),
             E::resume("trigger-1", Resp::Unit),
-            E::state("trigger-1", b(Some(ScheduleId::fake()))),
+            E::state("trigger-1", b(Some(schedule_id_2))),
             E::input("trigger-1", sdv(1u32)),
             E::resume("trigger-1", Resp::Unit),
-            E::suspend(Eff::cancel("trigger-1")),
+            E::suspend(Eff::cancel("trigger-1", &schedule_id_2)),
             E::resume("trigger-1", Resp::CancelScheduleResponse(true)),
             E::state("trigger-1", b(None::<ScheduleId>)),
             E::input("trigger-1", sdv(3u32)),
             E::resume("trigger-1", Resp::Unit),
             E::suspend(Eff::terminate("trigger-1")),
+            E::terminated("trigger-1", TerminationReason::Voluntary),
         ]
     };
 
     assert_equiv(run_sim(graph), &expected);
+
+    let _guard = Instant::with_tolerance_for_test(dur(300));
     assert_equiv(run_tokio(graph), &expected);
 }
 
@@ -461,47 +484,52 @@ fn caller_already_terminated() {
 
     logging();
     fn graph(builder: &mut impl StageGraph) {
-        let trigger = builder.stage("trigger", async |_: (), msg: Msg, eff| match msg {
-            Msg::Start => {
-                let caller = eff
-                    .stage(
-                        "caller",
-                        async |_: (), callee: StageRef<StageRef<u32>>, eff| {
-                            eff.call(&callee, dur(1000), move |cr| cr).await;
-                            eff.terminate().await
-                        },
-                    )
-                    .await;
-                let caller = eff.supervise(caller, Msg::Super);
-                let caller = eff.wire_up(caller, ()).await;
+        let trigger = builder.stage(
+            "trigger",
+            async |callee_state: StageRef<u32>, msg: Msg, eff| match msg {
+                Msg::Start => {
+                    let caller = eff
+                        .stage(
+                            "caller",
+                            async |_: (), callee: StageRef<StageRef<u32>>, eff| {
+                                eff.call(&callee, dur(1000), move |cr| cr).await;
+                                eff.wait(dur(500)).await;
+                                eff.terminate().await
+                            },
+                        )
+                        .await;
+                    let caller = eff.supervise(caller, Msg::Super);
+                    let caller = eff.wire_up(caller, ()).await;
 
-                let callee = eff
-                    .stage(
-                        "callee",
-                        async |parent: StageRef<StageRef<u32>>, msg: StageRef<u32>, eff| {
-                            eff.send(&msg, 5).await;
-                            eff.send(&parent, msg).await;
-                            parent
-                        },
-                    )
-                    .await;
-                let me = eff.contramap(eff.me_ref(), "parent", Msg::Ref).await;
-                let callee = eff.wire_up(callee, me).await;
+                    let callee = eff
+                        .stage(
+                            "callee",
+                            async |parent: StageRef<StageRef<u32>>, msg: StageRef<u32>, eff| {
+                                eff.send(&msg, 5).await;
+                                eff.send(&parent, msg).await;
+                                parent
+                            },
+                        )
+                        .await;
+                    let me = eff.contramap(eff.me_ref(), "parent", Msg::Ref).await;
+                    let callee = eff.wire_up(callee, me).await;
 
-                eff.send(&caller, callee).await;
-            }
-            Msg::Super => {}
-            Msg::Ref(callee) => {
-                eff.send(&callee, 6).await;
-                eff.terminate().await
-            }
-        });
-        let trigger = builder.wire_up(trigger, ());
+                    eff.send(&caller, callee).await;
+                    callee_state
+                }
+                Msg::Super => {
+                    eff.send(&callee_state, 6).await;
+                    eff.terminate().await
+                }
+                Msg::Ref(callee) => callee,
+            },
+        );
+        let trigger = builder.wire_up(trigger, StageRef::blackhole());
         builder.preload(trigger, [Msg::Start]).unwrap();
     }
 
     let expected = [
-        E::state("trigger-1", sdv(())),
+        E::state("trigger-1", sdv(sr::<u32>(""))),
         E::input("trigger-1", sdv(Msg::Start)),
         E::resume("trigger-1", Resp::Unit),
         E::suspend(Eff::add_stage("trigger-1", "caller")),
@@ -531,7 +559,7 @@ fn caller_already_terminated() {
             sdv(sr::<StageRef<u32>>("callee-3")),
         )),
         E::resume("trigger-1", Resp::Unit),
-        E::state("trigger-1", sdv(())),
+        E::state("trigger-1", sdv(sr::<u32>(""))),
         E::state("caller-2", sdv(())),
         E::input("caller-2", sdv(sr::<StageRef<u32>>("callee-3"))),
         E::resume("caller-2", Resp::Unit),
@@ -539,10 +567,10 @@ fn caller_already_terminated() {
             "caller-2",
             "callee-3",
             dur(1000),
-            sdv(sr::<u32>("caller-2")),
+            sdv(src::<u32>("caller-2")),
         )),
         E::state("callee-3", sdv(sr::<StageRef<u32>>("parent-4"))),
-        E::input("callee-3", sdv(sr::<u32>("caller-2"))),
+        E::input("callee-3", sdv(src::<u32>("caller-2"))),
         E::resume("callee-3", Resp::Unit),
         E::suspend(Eff::send("callee-3", "caller-2", true, sdv(5u32))),
         E::resume("callee-3", Resp::Unit),
@@ -550,9 +578,12 @@ fn caller_already_terminated() {
             "callee-3",
             "parent-4",
             false,
-            sdv(sr::<u32>("caller-2")),
+            sdv(src::<u32>("caller-2")),
         )),
-        E::input("trigger-1", sdv(Msg::Ref(sr::<u32>("caller-2")))),
+        E::input("trigger-1", sdv(Msg::Ref(src::<u32>("caller-2")))),
+        E::resume("trigger-1", Resp::Unit),
+        E::state("trigger-1", sdv(src::<u32>("caller-2"))),
+        E::input("trigger-1", sdv(Msg::Super)),
         E::resume("trigger-1", Resp::Unit),
         E::suspend(Eff::send("trigger-1", "caller-2", true, sdv(6u32))),
         E::resume("trigger-1", Resp::Unit),

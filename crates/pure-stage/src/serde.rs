@@ -158,7 +158,7 @@ pub mod serialize_send_data {
         deserializer.deserialize_struct("SendData", &["typetag", "value"], Visitor)
     }
 
-    /// FIXME: needs proper docs
+    /// TODO(network): needs proper docs
     pub fn register_data_deserializer<T: SendData + serde::de::DeserializeOwned>() -> DropGuard {
         let name = type_name::<T>();
         TYPES.with_borrow_mut(|types| {

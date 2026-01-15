@@ -19,42 +19,30 @@ use crate::{
     StageRef, types::MpscSender,
 };
 use std::any::Any;
-use std::{
-    fmt,
-    future::Future,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{fmt, future::Future};
 use tokio::sync::mpsc;
 
-/// A unique identifier for a scheduled effect.
-#[derive(Debug, Clone, Copy, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-pub struct ScheduleId(Instant, u64);
-
-/// FIXME: we need to implement a factory for schedule ids to avoid global mutable state
-impl PartialEq for ScheduleId {
-    fn eq(&self, other: &Self) -> bool {
-        self.1 == 0 || other.1 == 0 || (self.0 == other.0 && self.1 == other.1)
-    }
-}
+/// A time specifying when an effect should be executed.
+/// The identifier (u64) specifies the precise effect to execute at that time in a map of
+/// scheduled effects maintained by the runtime (whether simulation or tokio).
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, serde::Serialize, serde::Deserialize,
+)]
+pub struct ScheduleId(u64, Instant);
 
 impl ScheduleId {
-    pub(crate) fn new(instant: Instant) -> Self {
-        static COUNTER: AtomicU64 = AtomicU64::new(1);
-        Self(instant, COUNTER.fetch_add(1, Ordering::Relaxed))
-    }
-
-    pub fn fake() -> Self {
-        Self(Instant::now(), 0)
+    pub(crate) fn new(id: u64, instant: Instant) -> Self {
+        Self(id, instant)
     }
 
     pub fn time(&self) -> Instant {
-        self.0
+        self.1
     }
 }
 
 impl fmt::Display for ScheduleId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "at {}: {}", self.0, self.1)
+        write!(f, "id {} at {}", self.0, self.1)
     }
 }
 

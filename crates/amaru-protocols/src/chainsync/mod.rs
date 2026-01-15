@@ -80,7 +80,7 @@ mod register {
             },
         )
         .await;
-        eff.contramap(&chainsync, "chainsync_bytes", Inputs::Local)
+        eff.contramap(&chainsync, "chainsync_handler", Inputs::Local)
             .await
     }
 

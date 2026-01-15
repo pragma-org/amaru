@@ -25,7 +25,8 @@ use crate::simulation::Transition;
 use crate::stage_ref::StageStateRef;
 use crate::trace_buffer::TraceBuffer;
 use crate::{
-    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BoxFuture, EPOCH, Effects, Instant, Name, ScheduleIds, SendData, Sender, StageBuildRef,
+    StageGraph, StageRef,
     effect::{StageEffect, StageResponse},
     effect_box::EffectBox,
     resources::Resources,
@@ -39,6 +40,7 @@ use futures_util::{FutureExt, StreamExt};
 use parking_lot::Mutex;
 use std::any::Any;
 use std::future::poll_fn;
+use std::time::Duration;
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -67,6 +69,7 @@ struct TokioInner {
     handles: Mutex<Vec<JoinHandle<()>>>,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
+    schedule_ids: ScheduleIds,
     mailbox_size: usize,
     stage_counter: Mutex<usize>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
@@ -79,6 +82,7 @@ impl TokioInner {
             handles: Default::default(),
             clock: Arc::new(TokioClock),
             resources: Resources::default(),
+            schedule_ids: ScheduleIds::default(),
             mailbox_size: 10,
             stage_counter: Mutex::new(0usize),
             trace_buffer: TraceBuffer::new_shared(0, 0),
@@ -155,6 +159,44 @@ impl TokioBuilder {
         self.inner.trace_buffer = trace_buffer;
         self
     }
+
+    pub fn with_schedule_ids(mut self, schedule_ids: ScheduleIds) -> Self {
+        self.inner.schedule_ids = schedule_ids;
+        self
+    }
+
+    pub fn with_epoch_clock(mut self) -> Self {
+        self.inner.clock = Arc::new(EpochClock::new());
+        self
+    }
+}
+
+struct EpochClock {
+    offset: Mutex<Option<Duration>>,
+}
+
+impl EpochClock {
+    fn new() -> Self {
+        Self {
+            offset: Mutex::new(None),
+        }
+    }
+}
+
+impl Clock for EpochClock {
+    fn now(&self) -> Instant {
+        let mut offset = self.offset.lock();
+        if let Some(offset) = *offset {
+            Instant::now() - offset
+        } else {
+            let now = Instant::now();
+            let since_epoch = now.saturating_since(*EPOCH);
+            *offset = Some(since_epoch);
+            now - since_epoch
+        }
+    }
+
+    fn advance_to(&self, _instant: Instant) {}
 }
 
 type RefAux = (Receiver<Box<dyn SendData>>, TransitionFactory);
@@ -181,9 +223,10 @@ impl StageGraph for TokioBuilder {
         let me = StageRef::new(name.clone());
         let clock = self.inner.clock.clone();
         let resources = self.inner.resources.clone();
+        let schedule_ids = self.inner.schedule_ids.clone();
         let trace_buffer = self.inner.trace_buffer.clone();
         let ff = Box::new(move |effect| {
-            let eff = Effects::new(me, effect, clock, resources, trace_buffer);
+            let eff = Effects::new(me, effect, clock, resources, schedule_ids, trace_buffer);
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = state.cast::<St>().expect("internal state type error");
                 let msg = msg.cast::<Msg>().expect("internal message type error");

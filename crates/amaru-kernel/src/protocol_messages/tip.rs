@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::{HeaderHash, Point, protocol_messages::block_height::BlockHeight};
+use amaru_minicbor_extra::check_tagged_array_length;
 use amaru_slot_arithmetic::Slot;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 use std::fmt;
@@ -23,6 +24,10 @@ use std::fmt;
 pub struct Tip(Point, BlockHeight);
 
 impl Tip {
+    pub fn origin() -> Self {
+        Self(Point::Origin, BlockHeight::from(0))
+    }
+
     pub fn new(point: Point, block_height: BlockHeight) -> Self {
         Self(point, block_height)
     }
@@ -66,10 +71,27 @@ impl Encode<()> for Tip {
 
 impl<'b> Decode<'b, ()> for Tip {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
-        d.array()?;
+        let len = d.array()?;
+        check_tagged_array_length(0, len, 2)?;
         let point = d.decode()?;
         let block_num = d.decode()?;
-
         Ok(Tip(point, block_num))
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::*;
+    use crate::prop_cbor_roundtrip;
+    use crate::protocol_messages::block_height::tests::any_block_height;
+    use crate::protocol_messages::point::tests::any_point;
+    use proptest::prop_compose;
+
+    prop_cbor_roundtrip!(Tip, any_tip());
+
+    prop_compose! {
+        pub fn any_tip()(point in any_point(), block_height in any_block_height()) -> Tip {
+            Tip::new(point, block_height)
+        }
     }
 }

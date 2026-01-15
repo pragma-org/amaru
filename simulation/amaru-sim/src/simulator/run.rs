@@ -31,7 +31,7 @@ use amaru_consensus::consensus::{
     stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
 };
 use amaru_kernel::Hash;
-use amaru_kernel::consensus_events::ChainSyncEvent;
+use amaru_kernel::consensus_events::{ChainSyncEvent, default_block};
 use amaru_kernel::protocol_messages::tip::Tip;
 use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
 use amaru_kernel::{BlockHeader, IsHeader};
@@ -50,6 +50,7 @@ use pure_stage::simulation::RandStdRng;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::trace_buffer::TraceEntry;
 use pure_stage::{Instant, Receiver, StageGraph, StageRef, trace_buffer::TraceBuffer};
+use std::ops::Deref;
 use std::{
     sync::{
         Arc,
@@ -175,18 +176,20 @@ pub fn spawn_node(
         },
     );
 
-    // FIXME: switch simulation to tracking network bytes
+    // TODO: switch simulation to tracking network bytes
     let manager = network.stage("manager", async |_, msg: ManagerMessage, eff| match msg {
         ManagerMessage::AddPeer(_) => {}
         ManagerMessage::RemovePeer(_) => {}
         ManagerMessage::Connect(_) => {}
-        ManagerMessage::ConnectionDied(_, _) => {}
+        ManagerMessage::ConnectionDied(_) => {}
         ManagerMessage::FetchBlocks { cr, .. } => {
-            // we just need to return a non-empty block to proceed with the simulation
+            // We need to return a non-empty block to proceed with the simulation.
+            // That block needs to be the same that is deserialized by default with the default_block() function
+            // used with the ValidateBlockEvent deserializer, otherwise the replay test will fail.
             eff.send(
                 &cr,
                 Blocks {
-                    blocks: vec![vec![1]],
+                    blocks: vec![default_block().deref().to_vec()],
                 },
             )
             .await;
@@ -194,7 +197,7 @@ pub fn spawn_node(
     });
     let manager = network.wire_up(manager, ());
 
-    let our_tip = Tip::new(Point::Origin, 0.into());
+    let our_tip = Tip::origin();
     let receive_header_ref =
         build_stage_graph(select_chain, our_tip, manager.without_state(), network);
 
@@ -284,7 +287,7 @@ fn make_chain_selector(
 /// Property: at the end of the simulation, the chain built from the history of messages received
 /// downstream must match one of the best chains built directly from messages coming from upstream peers.
 ///
-/// FIXME: at some point we should implement a deterministic tie breaker when multiple best chains exist
+/// TODO: at some point we should implement a deterministic tie breaker when multiple best chains exist
 /// based on the VRF key of the received headers.
 fn chain_property() -> impl Fn(&History<ChainSyncMessage>, &GeneratedActions) -> Result<(), String>
 {

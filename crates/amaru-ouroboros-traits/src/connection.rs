@@ -24,33 +24,25 @@ use std::{
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// FIXME: we need to implement a factory for connection ids to avoid global mutable state
 #[derive(
-    Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Copy,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub struct ConnectionId(u64);
 
-#[cfg(not(target_arch = "riscv32"))]
-static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-#[cfg(target_arch = "riscv32")]
-static COUNTER: parking_lot::Mutex<u64> = parking_lot::Mutex::new(0);
-
-#[expect(clippy::new_without_default)]
 impl ConnectionId {
-    pub fn new() -> Self {
-        #[cfg(not(target_arch = "riscv32"))]
-        {
-            Self(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-        }
-
-        #[cfg(target_arch = "riscv32")]
-        {
-            let mut guard = COUNTER.lock();
-            let id = *guard;
-            *guard += 1;
-            Self(id)
-        }
+    /// Get the next ConnectionId, wrapping on overflow (which should not happen given we are using u64)
+    pub fn next(&self) -> Self {
+        Self(self.0.overflowing_add(1).0)
     }
 }
 

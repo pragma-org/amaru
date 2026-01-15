@@ -115,8 +115,9 @@ impl ProtocolState<Initiator> for State {
     type WireMsg = Message;
     type Action = InitiatorAction;
     type Out = InitiatorResult;
+    type Error = Void;
 
-    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         // On init, trigger the first KeepAlive send via the StageState to set timers in motion
         Ok((
             outcome().result(InitiatorResult {
@@ -129,7 +130,7 @@ impl ProtocolState<Initiator> for State {
     fn network(
         &self,
         input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use State::*;
 
         Ok(match (self, input) {
@@ -140,7 +141,10 @@ impl ProtocolState<Initiator> for State {
         })
     }
 
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
+    fn local(
+        &self,
+        input: Self::Action,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         use State::*;
 
         Ok(match (self, input) {

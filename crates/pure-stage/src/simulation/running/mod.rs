@@ -57,6 +57,7 @@ use std::{
 use tokio::{runtime::Handle, select, sync::watch};
 
 mod resume;
+mod scheduled_runnables;
 
 /// A handle to a running [`SimulationBuilder`](crate::effect_box::SimulationBuilder).
 ///
@@ -77,10 +78,11 @@ pub struct SimulationRunning {
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
     runnable: VecDeque<(Name, StageResponse)>,
-    scheduled: BTreeMap<ScheduleId, Box<dyn FnOnce(&mut SimulationRunning) + Send + 'static>>,
+    scheduled: ScheduledRunnables,
     mailbox_size: usize,
     overrides: Vec<OverrideExternalEffect>,
     breakpoints: Vec<(Name, Box<dyn Fn(&Effect) -> bool + Send + 'static>)>,
+    schedule_ids: ScheduleIds,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     eval_strategy: Box<dyn EvalStrategy>,
     terminate: watch::Sender<bool>,
@@ -97,6 +99,7 @@ impl SimulationRunning {
         clock: Arc<dyn Clock + Send + Sync>,
         resources: Resources,
         mailbox_size: usize,
+        schedule_ids: ScheduleIds,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
         eval_strategy: Box<dyn EvalStrategy>,
     ) -> Self {
@@ -109,10 +112,11 @@ impl SimulationRunning {
             clock,
             resources,
             runnable: VecDeque::new(),
-            scheduled: BTreeMap::new(),
+            scheduled: ScheduledRunnables::new(),
             mailbox_size,
             overrides: Vec::new(),
             breakpoints: Vec::new(),
+            schedule_ids,
             trace_buffer,
             eval_strategy,
             terminate,
@@ -196,38 +200,27 @@ impl SimulationRunning {
     /// Returns `true` if wakeups were performed, `false` if there are no more wakeups or
     /// the clock was advanced to the given `max_time`.
     pub fn skip_to_next_wakeup(&mut self, max_time: Option<Instant>) -> bool {
-        let Some((id, _)) = self.scheduled.first_key_value() else {
-            if let Some(time) = max_time {
-                self.clock.advance_to(time);
-                self.trace_buffer.lock().push_clock(time);
-            }
-            return false;
-        };
+        let initial_scheduled_nb = self.scheduled.len();
 
-        // only advance as far as allowed
-        let time = id.time();
-        let time = time.min(max_time.unwrap_or(time));
-
-        self.clock.advance_to(time);
-        self.trace_buffer.lock().push_clock(time);
-
-        let mut performed_wakeups = false;
-
-        // this won't find a match if max_time was hit
-        while matches!(self.scheduled.first_key_value(), Some((id, _)) if id.time() == time) {
-            let (_id, wakeup) = self
-                .scheduled
-                .first_entry()
-                .expect("peeked, so must exist")
-                .remove_entry();
-            wakeup(self);
-            performed_wakeups = true;
+        // Get the runnables that can be woken up until max_time (everything if None)
+        // and run them.
+        // The last wakeup time becomes the new simulation time.
+        let (wakeups, new_time) = self.scheduled.wakeup(max_time);
+        if let Some(new_time) = new_time {
+            self.clock.advance_to(new_time);
+            self.trace_buffer.lock().push_clock(new_time);
         }
-        performed_wakeups
+
+        for w in wakeups {
+            w(self);
+        }
+
+        // return true if any wakeups were performed
+        self.scheduled.len() != initial_scheduled_nb
     }
 
     pub fn next_wakeup(&self) -> Option<Instant> {
-        self.scheduled.first_key_value().map(|(id, _)| id.time())
+        self.scheduled.next_wakeup_time()
     }
 
     fn schedule_wakeup(
@@ -239,7 +232,7 @@ impl SimulationRunning {
             id.time() > self.clock.now(),
             "cannot schedule wakeup now or in the past"
         );
-        self.scheduled.insert(id, Box::new(wakeup));
+        self.scheduled.schedule(id, Box::new(wakeup));
     }
 
     /// Place messages in the given stage’s mailbox, but don’t resume it.
@@ -331,6 +324,7 @@ impl SimulationRunning {
 
         let effect = poll_stage(
             &self.trace_buffer,
+            &self.schedule_ids,
             data,
             name,
             response,
@@ -488,7 +482,7 @@ impl SimulationRunning {
         }
     }
 
-    // FIXME: shouldn’t this have a clock ceiling?
+    // TODO: shouldn’t this have a clock ceiling?
     pub fn run_one_step(&mut self, rt: &Handle) -> Option<Blocked> {
         self.receive_inputs();
         match self.run_effect() {
@@ -702,7 +696,7 @@ impl SimulationRunning {
             }
             Effect::Wait { at_stage, duration } => {
                 let now = self.clock.now();
-                let id = ScheduleId::new(now + duration);
+                let id = self.schedule_ids.next_at(now + duration);
                 self.schedule_wakeup(id, move |sim| {
                     let Some(data) = sim.stages.get_mut(&at_stage) else {
                         tracing::warn!(name = %at_stage, "stage was terminated, skipping wait effect delivery");
@@ -894,7 +888,7 @@ impl SimulationRunning {
         at_stage: Name,
         reason: TerminationReason,
     ) -> Option<(Name, Result<Box<dyn SendData>, Name>)> {
-        // FIXME:
+        // TODO(network):
         // - add kill switch to scheduled external effects to terminate them
         // - record source stage for scheduled messages to remove them
 
@@ -1444,6 +1438,8 @@ mod override_external_effect {
         }
     }
 }
+use crate::effect::ScheduleIds;
+use crate::simulation::running::scheduled_runnables::ScheduledRunnables;
 use override_external_effect::OverrideExternalEffect;
 pub use override_external_effect::OverrideResult;
 
@@ -1483,7 +1479,7 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
             }),
             StageEffect::Receive => {}
             StageEffect::Wait(..) => sleep.push(k.clone()),
-            StageEffect::Call(_, _, CallExtra::Scheduled(id)) if sim.scheduled.contains_key(id) => {
+            StageEffect::Call(_, _, CallExtra::Scheduled(id)) if sim.scheduled.contains(id) => {
                 sleep.push(k.clone())
             }
             _ => busy.push(k.clone()),
@@ -1514,6 +1510,7 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
 /// The `response` is the input with which the stage is resumed.
 pub(crate) fn poll_stage(
     trace_buffer: &Arc<Mutex<TraceBuffer>>,
+    schedule_ids: &ScheduleIds,
     data: &mut StageData,
     name: Name,
     response: StageResponse,
@@ -1545,7 +1542,7 @@ pub(crate) fn poll_stage(
                 panic!("stage `{name}` returned without awaiting any tracked effect")
             }
         };
-        let (wait_effect, effect) = stage_effect.split(name.clone(), now);
+        let (wait_effect, effect) = stage_effect.split(name.clone(), schedule_ids, now);
         if !matches!(wait_effect, StageEffect::Terminate) {
             data.waiting = Some(wait_effect);
         }

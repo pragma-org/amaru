@@ -26,7 +26,12 @@ use crate::trace_buffer::{TraceBuffer, find_next_external_resume, find_next_exte
 use cbor4ii::{core::Value, serde::from_slice};
 use futures_util::FutureExt;
 use parking_lot::Mutex;
+#[cfg(target_arch = "riscv32")]
+use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
+#[cfg(not(target_arch = "riscv32"))]
+use std::sync::atomic::AtomicU64;
+
 use std::{
     any::{Any, type_name},
     fmt::Debug,
@@ -51,6 +56,7 @@ pub struct Effects<M> {
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
+    schedule_ids: ScheduleIds,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
 }
 
@@ -59,6 +65,7 @@ impl<M> Clone for Effects<M> {
         Self {
             me: self.me.clone(),
             effect: self.effect.clone(),
+            schedule_ids: self.schedule_ids.clone(),
             clock: self.clock.clone(),
             resources: self.resources.clone(),
             trace_buffer: self.trace_buffer.clone(),
@@ -81,11 +88,13 @@ impl<M: SendData> Effects<M> {
         effect: EffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
         resources: Resources,
+        schedule_ids: ScheduleIds,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
     ) -> Self {
         Self {
             me,
             effect,
+            schedule_ids,
             clock,
             resources,
             trace_buffer,
@@ -105,6 +114,46 @@ impl<M: SendData> Effects<M> {
     /// message to the current stage. For owned access, see [`me()`](Self::me).
     pub fn me_ref(&self) -> &StageRef<M> {
         &self.me
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ScheduleIds {
+    #[cfg(not(target_arch = "riscv32"))]
+    counter: Arc<AtomicU64>,
+    #[cfg(target_arch = "riscv32")]
+    counter: Arc<parking_lot::Mutex<u64>>,
+}
+
+impl Default for ScheduleIds {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ScheduleIds {
+    pub fn new() -> Self {
+        Self {
+            #[cfg(not(target_arch = "riscv32"))]
+            counter: Arc::new(AtomicU64::new(0)),
+            #[cfg(target_arch = "riscv32")]
+            counter: Arc::new(parking_lot::Mutex::new(0)),
+        }
+    }
+
+    pub fn next_at(&self, instant: Instant) -> ScheduleId {
+        #[cfg(not(target_arch = "riscv32"))]
+        let id = self
+            .counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(target_arch = "riscv32")]
+        let id = {
+            let mut guard = self.counter.lock();
+            let id = *guard;
+            *guard += 1;
+            id
+        };
+        ScheduleId::new(id, instant)
     }
 }
 
@@ -203,7 +252,7 @@ impl<M> Effects<M> {
     where
         M: SendData,
     {
-        let id = ScheduleId::new(when);
+        let id = self.schedule_ids.next_at(when);
         airlock_effect(
             &self.effect,
             StageEffect::Schedule(Box::new(msg), id),
@@ -348,9 +397,10 @@ impl<M> Effects<M> {
         let resources = self.resources.clone();
         let me = StageRef::new(name.clone());
         let trace_buffer = self.trace_buffer.clone();
+        let schedule_ids = self.schedule_ids.clone();
 
         let transition = move |effect: EffectBox| {
-            let eff = Effects::new(me, effect, clock, resources, trace_buffer);
+            let eff = Effects::new(me, effect, clock, resources, schedule_ids, trace_buffer);
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = state.cast::<St>().expect("internal state type error");
                 let msg = msg
@@ -729,7 +779,12 @@ impl StageEffect<Box<dyn SendData>> {
     /// Split this effect from the stage into two parts:
     /// - the marker we remember in the running simulation
     /// - the effect we emit to the outside world
-    pub(crate) fn split(self, at_name: Name, now: Instant) -> (StageEffect<()>, Effect) {
+    pub(crate) fn split(
+        self,
+        at_name: Name,
+        schedule_ids: &ScheduleIds,
+        now: Instant,
+    ) -> (StageEffect<()>, Effect) {
         #[expect(clippy::panic)]
         match self {
             StageEffect::Receive => (StageEffect::Receive, Effect::Receive { at_stage: at_name }),
@@ -746,7 +801,7 @@ impl StageEffect<Box<dyn SendData>> {
                 )
             }
             StageEffect::Call(name, duration, msg) => {
-                let id = ScheduleId::new(now + duration);
+                let id = schedule_ids.next_at(now + duration);
                 let CallExtra::CallFn(msg) = msg else {
                     panic!("expected CallFn, got {:?}", msg);
                 };
@@ -1096,18 +1151,22 @@ impl Effect {
     }
 
     /// Construct a schedule effect.
-    pub fn schedule(at_stage: impl AsRef<str>, msg: Box<dyn SendData>) -> Self {
+    pub fn schedule(
+        at_stage: impl AsRef<str>,
+        msg: Box<dyn SendData>,
+        schedule_id: &ScheduleId,
+    ) -> Self {
         Self::Schedule {
             at_stage: Name::from(at_stage.as_ref()),
             msg,
-            id: ScheduleId::fake(),
+            id: *schedule_id,
         }
     }
 
-    pub fn cancel(at_stage: impl AsRef<str>) -> Self {
+    pub fn cancel(at_stage: impl AsRef<str>, schedule_id: &ScheduleId) -> Self {
         Self::CancelSchedule {
             at_stage: Name::from(at_stage.as_ref()),
-            id: ScheduleId::fake(),
+            id: *schedule_id,
         }
     }
 

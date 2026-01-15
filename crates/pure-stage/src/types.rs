@@ -194,6 +194,12 @@ impl PartialEq for dyn SendData {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum Void {}
 
+impl Display for Void {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> fmt::Result {
+        match *self {}
+    }
+}
+
 /// A unique identifier for a stage in the simulation.
 ///
 /// This is used to identify stages in the simulation, and is used in messages sent to other stages.
@@ -511,7 +517,9 @@ mod test {
     #[test]
     fn try_in_stage_result() {
         let trace = TraceBuffer::new_shared(100, 1_000_000);
-        let mut network = SimulationBuilder::default().with_trace_buffer(trace.clone());
+        let mut network = SimulationBuilder::default()
+            .with_trace_buffer(trace.clone())
+            .with_epoch_clock();
         let stage = network.stage("stage", async |_: u32, msg: Result<u32, u32>, eff| {
             msg.or_terminate(&eff, async |error| {
                 eff.wait(Duration::from_secs(error.into())).await;

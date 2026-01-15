@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Point;
+use amaru_kernel::{Point, check_tagged_array_length};
 use minicbor::{Decode, Decoder, Encode, Encoder, data::IanaTag, decode, encode};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -66,29 +66,104 @@ impl Encode<()> for Message {
 
 impl<'b> Decode<'b, ()> for Message {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
-        d.array()?;
+        let len = d.array()?;
         let label = d.u16()?;
 
         match label {
             0 => {
+                check_tagged_array_length(0, len, 3)?;
                 let from = d.decode()?;
                 let through = d.decode()?;
                 Ok(Message::RequestRange { from, through })
             }
-            1 => Ok(Message::ClientDone),
-            2 => Ok(Message::StartBatch),
-            3 => Ok(Message::NoBlocks),
+            1 => {
+                check_tagged_array_length(1, len, 1)?;
+                Ok(Message::ClientDone)
+            }
+            2 => {
+                check_tagged_array_length(2, len, 1)?;
+                Ok(Message::StartBatch)
+            }
+            3 => {
+                check_tagged_array_length(3, len, 1)?;
+                Ok(Message::NoBlocks)
+            }
             4 => {
-                d.tag()?;
+                check_tagged_array_length(4, len, 2)?;
+                let tag = d.tag()?;
+                if tag != IanaTag::Cbor.tag() {
+                    return Err(decode::Error::message(format!(
+                        "unexpected tag for Block: expected {}, got {}",
+                        IanaTag::Cbor.tag(),
+                        tag
+                    )));
+                }
+
                 let body = d.bytes()?;
                 Ok(Message::Block {
                     body: Vec::from(body),
                 })
             }
-            5 => Ok(Message::BatchDone),
+            5 => {
+                check_tagged_array_length(5, len, 1)?;
+                Ok(Message::BatchDone)
+            }
             _ => Err(decode::Error::message(
                 "unknown variant for blockfetch message",
             )),
         }
+    }
+}
+
+/// Roundtrip property tests for blockfetch messages.
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use amaru_kernel::prop_cbor_roundtrip;
+    use amaru_kernel::protocol_messages::point::tests::any_point;
+    use proptest::prelude::*;
+    use proptest::prop_compose;
+
+    prop_cbor_roundtrip!(Message, any_message());
+
+    // HELPERS
+
+    fn block_message() -> impl Strategy<Value = Message> {
+        Just(Message::Block {
+            body: vec![0u8; 128],
+        })
+    }
+
+    fn no_blocks_message() -> impl Strategy<Value = Message> {
+        Just(Message::NoBlocks)
+    }
+
+    fn batch_done_message() -> impl Strategy<Value = Message> {
+        Just(Message::BatchDone)
+    }
+
+    fn start_batch_message() -> impl Strategy<Value = Message> {
+        Just(Message::StartBatch)
+    }
+
+    fn client_done_message() -> impl Strategy<Value = Message> {
+        Just(Message::ClientDone)
+    }
+
+    prop_compose! {
+        fn request_range_message()(from in any_point(), through in any_point()) -> Message {
+            Message::RequestRange {from, through}
+        }
+    }
+
+    pub fn any_message() -> impl Strategy<Value = Message> {
+        prop_oneof![
+            1 => block_message(),
+            3 => no_blocks_message(),
+            3 => start_batch_message(),
+            3 => batch_done_message(),
+            3 => client_done_message(),
+            3 => request_range_message(),
+        ]
     }
 }

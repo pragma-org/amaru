@@ -23,7 +23,7 @@ pure-stage.workspace = true
 serde.workspace = true
 tracing.workspace = true
 
-amaru-kernel.workspace = true
+amaru-kernel = { "workspace" = true, features = ["test-utils"] }
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
 

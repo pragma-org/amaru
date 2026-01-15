@@ -235,15 +235,16 @@ impl ProtocolState<Responder> for ResponderState {
     type WireMsg = Message;
     type Action = ResponderAction;
     type Out = ResponderResult;
+    type Error = Void;
 
-    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok((outcome().want_next(), *self))
     }
 
     fn network(
         &self,
         input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use ResponderState::*;
 
         Ok(match (self, input) {
@@ -262,7 +263,10 @@ impl ProtocolState<Responder> for ResponderState {
         })
     }
 
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
+    fn local(
+        &self,
+        input: Self::Action,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         use ResponderState::*;
 
         Ok(match (self, input) {
@@ -321,7 +325,6 @@ impl ProtocolState<Responder> for ResponderState {
 mod tests {
     use super::*;
     use crate::{chainsync::initiator::InitiatorState, protocol::ProtoSpec};
-    use amaru_kernel::protocol_messages::block_height::BlockHeight;
 
     #[test]
     fn test_responder_protocol() {
@@ -335,22 +338,10 @@ mod tests {
         let idle = |send_rollback: bool| Idle { send_rollback };
         let can_await = |send_rollback: bool| CanAwait { send_rollback };
         let find_intersect = || FindIntersect(vec![Point::Origin]);
-        let intersect_found =
-            || IntersectFound(Point::Origin, Tip::new(Point::Origin, BlockHeight::new(0)));
-        let intersect_not_found =
-            || IntersectNotFound(Tip::new(Point::Origin, BlockHeight::new(0)));
-        let roll_forward = || {
-            RollForward(
-                HeaderContent {
-                    variant: 6,
-                    byron_prefix: None,
-                    cbor: vec![],
-                },
-                Tip::new(Point::Origin, BlockHeight::new(0)),
-            )
-        };
-        let roll_backward =
-            || RollBackward(Point::Origin, Tip::new(Point::Origin, BlockHeight::new(0)));
+        let intersect_found = || IntersectFound(Point::Origin, Tip::origin());
+        let intersect_not_found = || IntersectNotFound(Tip::origin());
+        let roll_forward = || RollForward(HeaderContent::make_v6(vec![]), Tip::origin());
+        let roll_backward = || RollBackward(Point::Origin, Tip::origin());
 
         let mut spec = ProtoSpec::default();
         spec.init(idle(false), find_intersect(), Intersect);

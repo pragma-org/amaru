@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::Tx;
 use amaru_ouroboros_traits::{TxId, TxSubmissionMempool};
-use pallas_primitives::conway::Tx;
 use std::sync::Arc;
 
 /// Check that all the given transactions are currently present in the given mempool.

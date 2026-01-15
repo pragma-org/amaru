@@ -15,6 +15,7 @@
 use crate::protocol_messages::{
     version_data::VersionData, version_number::VersionNumber, version_table::VersionTable,
 };
+use amaru_minicbor_extra::check_tagged_array_length;
 use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
@@ -70,27 +71,73 @@ impl Encode<()> for RefuseReason {
 
 impl<'b> Decode<'b, ()> for RefuseReason {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
-        d.array()?;
+        let len = d.array()?;
 
         match d.u16()? {
             0 => {
+                check_tagged_array_length(0, len, 2)?;
                 let versions = d.array_iter::<VersionNumber>()?;
                 let versions = versions.collect::<Result<_, _>>()?;
                 Ok(RefuseReason::VersionMismatch(versions))
             }
             1 => {
+                check_tagged_array_length(1, len, 3)?;
                 let version = d.decode()?;
                 let msg = d.str()?;
 
                 Ok(RefuseReason::HandshakeDecodeError(version, msg.to_string()))
             }
             2 => {
+                check_tagged_array_length(2, len, 3)?;
                 let version = d.decode()?;
                 let msg = d.str()?;
 
                 Ok(RefuseReason::Refused(version, msg.to_string()))
             }
             _ => Err(decode::Error::message("unknown variant for refusereason")),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::*;
+    use crate::prop_cbor_roundtrip;
+    use crate::protocol_messages::version_number::tests::any_version_number;
+    use proptest::prelude::*;
+    use proptest::prop_compose;
+
+    prop_cbor_roundtrip!(RefuseReason, any_refuse_reason());
+
+    prop_compose! {
+        pub fn any_handshake_decode_error_reason()(version_number in any_version_number(), message in any::<String>()) -> RefuseReason {
+            RefuseReason::HandshakeDecodeError(version_number, message)
+        }
+    }
+
+    prop_compose! {
+        pub fn any_refused_reason()(version_number in any_version_number(), message in any::<String>()) -> RefuseReason {
+            RefuseReason::Refused(version_number, message)
+        }
+    }
+
+    prop_compose! {
+        pub fn any_version_mismatch_reason()(versions in proptest::collection::vec(any_version_number(), 1..3)) -> RefuseReason {
+            RefuseReason::VersionMismatch(versions)
+        }
+    }
+
+    pub fn any_refuse_reason() -> impl Strategy<Value = RefuseReason> {
+        prop_oneof![
+            1 => any_version_mismatch_reason(),
+            1 => any_handshake_decode_error_reason(),
+            1 => any_refused_reason(),
+        ]
+    }
+
+    prop_compose! {
+        pub fn any_byron_prefix()(b1 in any::<u8>(), b2 in any::<u64>()) -> (u8, u64) {
+            (b1, b2)
         }
     }
 }

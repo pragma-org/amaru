@@ -37,7 +37,7 @@ indicatif.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
 
-mithril-client = { workspace = true, optional = true}
+mithril-client = { workspace = true, optional = true }
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry-semantic-conventions.workspace = true
@@ -67,6 +67,7 @@ tracing.workspace = true
 amaru-consensus = { workspace = true, features = [] }
 amaru-kernel = { workspace = true, features = ["tracing"] }
 amaru-ledger.workspace = true
+amaru-mempool.workspace = true
 amaru-network.workspace = true
 amaru-stores.workspace = true
 amaru-ouroboros.workspace = true

@@ -192,7 +192,7 @@ pub enum ValidateBlockEvent {
     },
 }
 
-fn default_block() -> RawBlock {
+pub fn default_block() -> RawBlock {
     RawBlock::from(Vec::new().as_slice())
 }
 

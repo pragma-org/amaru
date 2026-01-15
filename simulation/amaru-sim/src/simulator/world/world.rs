@@ -164,7 +164,7 @@ impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
                 }
 
                 let no_more_messages = outgoing_messages.is_empty();
-                // FIXME: use a better arrival time for outgoing messages
+                // TODO: use a better arrival time for outgoing messages
                 self.process_outgoing(
                     Instant::at_offset(Duration::from_millis(100)),
                     outgoing_messages,

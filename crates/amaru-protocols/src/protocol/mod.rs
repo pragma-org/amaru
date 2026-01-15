@@ -30,7 +30,7 @@ pub enum Input<L, R> {
     Remote(R),
 }
 
-// FIXME find right value
+// TODO(network) find right value
 pub const NETWORK_SEND_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(serde::Serialize, serde::Deserialize)]

@@ -84,3 +84,22 @@ impl<'b, C> Decode<'b, C> for NetworkMagic {
         u64::decode(d, ctx).map(NetworkMagic)
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::*;
+    use crate::prop_cbor_roundtrip;
+    use proptest::prelude::{Just, Strategy};
+    use proptest::prop_oneof;
+
+    prop_cbor_roundtrip!(NetworkMagic, any_network_magic());
+
+    pub fn any_network_magic() -> impl Strategy<Value = NetworkMagic> {
+        prop_oneof![
+            1 => Just(NetworkMagic::MAINNET),
+            1 => Just(NetworkMagic::PREVIEW),
+            1 => Just(NetworkMagic::PREPROD),
+            1 => Just(NetworkMagic::TESTNET),
+        ]
+    }
+}

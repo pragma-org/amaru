@@ -13,7 +13,7 @@
 // limitations under the License.
 
 mod initiator;
-mod messages;
+pub(crate) mod messages;
 mod responder;
 
 use crate::mux::{Frame, MuxMessage};

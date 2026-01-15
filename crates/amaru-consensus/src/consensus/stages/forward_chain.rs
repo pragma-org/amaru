@@ -16,9 +16,9 @@ use crate::consensus::effects::NetworkOps;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
 use crate::consensus::span::HasSpan;
+use amaru_kernel::IsHeader;
 use amaru_kernel::consensus_events::BlockValidationResult;
 use amaru_kernel::protocol_messages::tip::Tip;
-use amaru_kernel::{IsHeader, Point};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Instrument, error, trace};
@@ -44,7 +44,7 @@ pub fn stage(
                 assert_eq!(header.block_height(), our_tip.block_height() + 1);
                 match header.parent() {
                     Some(parent) => assert_eq!(parent, our_tip.hash()),
-                    None => assert_eq!(our_tip, Tip::new(Point::Origin, 0.into())),
+                    None => assert_eq!(our_tip, Tip::origin()),
                 }
                 our_tip = header.tip();
                 trace!(

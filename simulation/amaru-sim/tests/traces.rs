@@ -89,64 +89,34 @@ fn run_simulator_with_traces() {
     assert_spans_trees(
         execute,
         vec![json!(
-        {
-          "name": "handle_msg",
-          "children": [
-            {
-              "name": "receiver-1"
-            },
-            {
-              "name": "receive_header-2"
-            },
-            {
-              "name": "chain_sync.receive_header",
-              "children": [
-                {
-                  "name": "chain_sync.decode_header"
-                }
-              ]
-            },
-            {
-              "name": "track_peers-3"
-            },
-            {
-              "name": "chain_sync.track_peers"
-            },
-            {
-              "name": "validate_header-4"
-            },
-            {
-              "name": "chain_sync.validate_header"
-            },
-            {
-              "name": "fetch_block-5"
-            },
-            {
-              "name": "diffusion.fetch_block"
-            },
-            {
-              "name": "validate_block-6"
-            },
-            {
-              "name": "chain_sync.validate_block"
-            },
-            {
-              "name": "select_chain-7"
-            },
-            {
-              "name": "chain_sync.select_chain"
-            },
-            {
-              "name": "forward_chain-8"
-            },
-            {
-              "name": "diffusion.forward_chain"
-            },
-            {
-              "name": "processing_errors-10"
-            }
-          ]
-        }
-         )],
+          {
+            "name": "handle_msg",
+            "children": [
+              {
+                "name": "chain_sync.receive_header",
+                "children": [
+                  {
+                    "name": "chain_sync.decode_header"
+                  }
+                ]
+              },
+              {
+                "name": "chain_sync.validate_header"
+              },
+              {
+                "name": "diffusion.fetch_block"
+              },
+              {
+                "name": "chain_sync.validate_block"
+              },
+              {
+                "name": "chain_sync.select_chain"
+              },
+              {
+                "name": "diffusion.forward_chain"
+              }
+            ]
+          }
+        )],
     );
 }

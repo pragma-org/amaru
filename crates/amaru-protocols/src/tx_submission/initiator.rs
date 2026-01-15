@@ -122,15 +122,16 @@ impl ProtocolState<Initiator> for State {
     type WireMsg = Message;
     type Action = InitiatorAction;
     type Out = InitiatorResult;
+    type Error = ProtocolError;
 
-    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok((outcome().send(Message::Init).want_next(), State::Idle))
     }
 
     fn network(
         &self,
         input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out>, Self)> {
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok(match (self, input) {
             (State::Idle, Message::RequestTxIdsBlocking(ack, req)) => {
                 tracing::trace!(ack=%ack, req=%req, "received RequestTxIdsBlocking");
@@ -165,7 +166,10 @@ impl ProtocolState<Initiator> for State {
         })
     }
 
-    fn local(&self, action: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void>, Self)> {
+    fn local(
+        &self,
+        action: Self::Action,
+    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         Ok(match (self, action) {
             (State::TxIdsBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => (
                 outcome().send(Message::ReplyTxIds(tx_ids)).want_next(),
@@ -182,6 +186,7 @@ impl ProtocolState<Initiator> for State {
             (State::TxIdsBlocking, InitiatorAction::Done) => {
                 (outcome().send(Message::Done), State::Done)
             }
+            (_, InitiatorAction::Error(e)) => (outcome().terminate_with(e), State::Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
