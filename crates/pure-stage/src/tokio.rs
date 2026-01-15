@@ -25,8 +25,8 @@ use crate::simulation::Transition;
 use crate::stage_ref::StageStateRef;
 use crate::trace_buffer::TraceBuffer;
 use crate::{
-    BoxFuture, Effects, Instant, Name, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph,
-    StageRef,
+    BoxFuture, EPOCH, Effects, Instant, Name, ScheduleIds, SendData, Sender, StageBuildRef,
+    StageGraph, StageRef,
     effect::{StageEffect, StageResponse},
     effect_box::EffectBox,
     resources::Resources,
@@ -40,6 +40,7 @@ use futures_util::{FutureExt, StreamExt};
 use parking_lot::Mutex;
 use std::any::Any;
 use std::future::poll_fn;
+use std::time::Duration;
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -163,6 +164,39 @@ impl TokioBuilder {
         self.inner.schedule_ids = schedule_ids;
         self
     }
+
+    pub fn with_epoch_clock(mut self) -> Self {
+        self.inner.clock = Arc::new(EpochClock::new());
+        self
+    }
+}
+
+struct EpochClock {
+    offset: Mutex<Option<Duration>>,
+}
+
+impl EpochClock {
+    fn new() -> Self {
+        Self {
+            offset: Mutex::new(None),
+        }
+    }
+}
+
+impl Clock for EpochClock {
+    fn now(&self) -> Instant {
+        let mut offset = self.offset.lock();
+        if let Some(offset) = *offset {
+            Instant::now() - offset
+        } else {
+            let now = Instant::now();
+            let since_epoch = now.saturating_since(*EPOCH);
+            *offset = Some(since_epoch);
+            now - since_epoch
+        }
+    }
+
+    fn advance_to(&self, _instant: Instant) {}
 }
 
 type RefAux = (Receiver<Box<dyn SendData>>, TransitionFactory);

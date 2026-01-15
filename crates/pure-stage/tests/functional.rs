@@ -96,7 +96,8 @@ fn run_tokio(graph: impl Fn(&mut TokioBuilder)) -> Vec<E> {
 
     let mut network = TokioBuilder::default()
         .with_trace_buffer(trace_buffer.clone())
-        .with_schedule_ids(ScheduleIds::default());
+        .with_schedule_ids(ScheduleIds::default())
+        .with_epoch_clock();
     graph(&mut network);
 
     let sim = network.run(rt.handle().clone());
@@ -306,6 +307,7 @@ fn scheduling() {
             E::input("trigger-1", sdv(3u32)),
             E::resume("trigger-1", Resp::Unit),
             E::suspend(Eff::terminate("trigger-1")),
+            E::terminated("trigger-1", TerminationReason::Voluntary),
         ]
     };
 
