@@ -32,7 +32,7 @@ An exception to this are _destructive options_ (e.g. `--force`) which must
 always be passed explicitly to avoid catastrophic situations.
 </details>
 
-<details><summary><strong>2. Use a common prefix for envionment variables (e.g. <code>AMARU_</code>).</strong></summary>
+<details><summary><strong>2. Use a common prefix for environment variables (e.g. <code>AMARU_</code>).</strong></summary>
 
 Amaru nor Cardano aren't (yet?) an industry standard. Many names used across
 options are ambiguous and may conflict with other tools used in the same
