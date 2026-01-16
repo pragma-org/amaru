@@ -19,23 +19,24 @@
     clippy::expect_used
 )]
 
-#[cfg(test)]
-use crate::simulation::SimulationBuilder;
 use crate::{
     BLACKHOLE_NAME, BoxFuture, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources,
     ScheduleId, SendData, StageRef, StageResponse,
     adapter::{Adapter, StageOrAdapter, find_recipient},
-    effect::{CallExtra, CanSupervise, StageEffect},
+    effect::{CallExtra, CanSupervise, ScheduleIds, StageEffect},
     effect_box::EffectBox,
     simulation::{
         blocked::{Blocked, SendBlock},
         inputs::Inputs,
         random::EvalStrategy,
-        running::resume::{
-            resume_add_stage_internal, resume_call_internal, resume_call_send_internal,
-            resume_cancel_schedule_internal, resume_clock_internal, resume_contramap_internal,
-            resume_external_internal, resume_receive_internal, resume_schedule_internal,
-            resume_send_internal, resume_wait_internal, resume_wire_stage_internal,
+        running::{
+            resume::{
+                resume_add_stage_internal, resume_call_internal, resume_call_send_internal,
+                resume_cancel_schedule_internal, resume_clock_internal, resume_contramap_internal,
+                resume_external_internal, resume_receive_internal, resume_schedule_internal,
+                resume_send_internal, resume_wait_internal, resume_wire_stage_internal,
+            },
+            scheduled_runnables::ScheduledRunnables,
         },
         state::{StageData, StageState},
     },
@@ -47,6 +48,8 @@ use crate::{
 };
 use either::Either::{Left, Right};
 use futures_util::{StreamExt, stream::FuturesUnordered};
+use override_external_effect::OverrideExternalEffect;
+pub use override_external_effect::OverrideResult;
 use parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -1438,10 +1441,6 @@ mod override_external_effect {
         }
     }
 }
-use crate::effect::ScheduleIds;
-use crate::simulation::running::scheduled_runnables::ScheduledRunnables;
-use override_external_effect::OverrideExternalEffect;
-pub use override_external_effect::OverrideResult;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InputsResult {
@@ -1604,7 +1603,7 @@ fn simulation_invariants() {
     #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
     struct Msg(Option<StageRef<()>>);
 
-    let mut network = SimulationBuilder::default();
+    let mut network = crate::simulation::SimulationBuilder::default();
     let stage = network.stage("stage", async |_state, _msg: Msg, eff| {
         eff.send(&eff.me(), Msg(None)).await;
         eff.clock().await;

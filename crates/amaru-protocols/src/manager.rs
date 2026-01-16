@@ -28,7 +28,12 @@ use std::{collections::BTreeMap, time::Duration};
 pub enum ManagerMessage {
     AddPeer(Peer),
     /// Internal message sent from the connection stage only!
+    ///
+    /// Must contain the connection ID so that we can then close the actual socket;
+    /// the `peers` entry could already have been removed by RemovePeer.
+    // TODO move to separate message type
     ConnectionDied(Peer, ConnectionId),
+    // TODO move to separate message type
     Connect(Peer),
     RemovePeer(Peer),
     FetchBlocks {
@@ -50,7 +55,8 @@ pub struct Manager {
 enum ConnectionState {
     Scheduled,
     Connected(ConnectionId, StageRef<ConnectionMessage>),
-    Disconnecting(ConnectionId),
+    // Does not contain the connection ID because that will be received in the ConnectionDied message.
+    Disconnecting,
 }
 
 impl Manager {
@@ -63,6 +69,12 @@ impl Manager {
     }
 }
 
+/// The manager stage is responsible for managing the connections to the peers.
+///
+/// The semantics of the operations are as follows:
+/// - AddPeer: add a peer to the manager unless that peer is already added
+/// - RemovePeer: remove a peer from the manager, which will terminate a connection if currently connected
+/// A peer can be added right after being removed even though the socket will be closed asynchronously.
 pub async fn stage(
     mut manager: Manager,
     msg: ManagerMessage,
@@ -70,14 +82,23 @@ pub async fn stage(
 ) -> Manager {
     match msg {
         ManagerMessage::AddPeer(peer) => {
-            if manager.peers.contains_key(&peer) {
-                tracing::info!(%peer, "peer already added");
-                return manager;
+            match manager.peers.get_mut(&peer) {
+                Some(ConnectionState::Connected(..) | ConnectionState::Scheduled) => {
+                    tracing::info!(%peer, "discarding connection request, already connected or scheduled");
+                    return manager;
+                }
+                Some(s @ ConnectionState::Disconnecting) => {
+                    tracing::info!(%peer, "adding peer while still disconnecting");
+                    // old connection stage will report ConnectionDied which will close the socket
+                    *s = ConnectionState::Scheduled;
+                }
+                None => {
+                    tracing::info!(%peer, "adding peer");
+                    manager
+                        .peers
+                        .insert(peer.clone(), ConnectionState::Scheduled);
+                }
             }
-            tracing::info!(%peer, "adding peer");
-            manager
-                .peers
-                .insert(peer.clone(), ConnectionState::Scheduled);
             eff.send(eff.me_ref(), ManagerMessage::Connect(peer)).await;
         }
         ManagerMessage::Connect(peer) => {
@@ -88,7 +109,7 @@ pub async fn stage(
                     return manager;
                 }
                 Some(entry @ ConnectionState::Scheduled) => entry,
-                Some(ConnectionState::Disconnecting(..)) => {
+                Some(ConnectionState::Disconnecting) => {
                     tracing::debug!(%peer, "discarding connection request, already disconnecting");
                     return manager;
                 }
@@ -140,11 +161,11 @@ pub async fn stage(
                 return manager;
             };
             match entry {
-                ConnectionState::Connected(conn_id, connection) => {
+                ConnectionState::Connected(_conn_id, connection) => {
                     eff.send(connection, ConnectionMessage::Disconnect).await;
-                    *entry = ConnectionState::Disconnecting(*conn_id);
+                    *entry = ConnectionState::Disconnecting;
                 }
-                ConnectionState::Scheduled | ConnectionState::Disconnecting(..) => {
+                ConnectionState::Scheduled | ConnectionState::Disconnecting => {
                     tracing::info!(%peer, "removing currently disconnected peer");
                     manager.peers.remove(&peer);
                 }
@@ -159,17 +180,20 @@ pub async fn stage(
                 return manager;
             };
             match peer_state {
+                ConnectionState::Connected(conn_id_new, ..) if *conn_id_new != conn_id => {
+                    tracing::debug!(%peer, "previously terminated connection closed");
+                }
                 ConnectionState::Connected(..) => {
-                    tracing::info!(%peer, "disconnected from peer, scheduling reconnect");
+                    tracing::info!(%peer, "connection died, scheduling reconnect");
                     eff.schedule_after(ManagerMessage::Connect(peer), Duration::from_secs(10))
                         .await;
                     *peer_state = ConnectionState::Scheduled;
                 }
                 ConnectionState::Scheduled => {
-                    tracing::debug!(%peer, "connection died, peer already scheduled");
+                    tracing::debug!(%peer, "connection died, reconnect already scheduled");
                     return manager;
                 }
-                ConnectionState::Disconnecting(..) => {
+                ConnectionState::Disconnecting => {
                     tracing::debug!(%peer, "peer terminated after removal");
                     manager.peers.remove(&peer);
                     return manager;
