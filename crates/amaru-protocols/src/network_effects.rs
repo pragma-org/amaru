@@ -15,6 +15,7 @@
 use amaru_kernel::bytes::NonEmptyBytes;
 use amaru_ouroboros::{ConnectionId, ConnectionResource, ToSocketAddrs};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use std::net::SocketAddr;
 use std::{num::NonZeroUsize, time::Duration};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
@@ -27,6 +28,10 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
 }
 
 pub trait NetworkOps {
+    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, Result<(), String>>;
+
+    fn accept(&self, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, String>>;
+
     fn connect(
         &self,
         addr: ToSocketAddrs,
@@ -54,6 +59,14 @@ impl<'a, T> Network<'a, T> {
 }
 
 impl<T> NetworkOps for Network<'_, T> {
+    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, Result<(), String>> {
+        self.0.external(BindEffect { addr })
+    }
+
+    fn accept(&self, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, String>> {
+        self.0.external(AcceptEffect { timeout })
+    }
+
     fn connect(
         &self,
         addr: ToSocketAddrs,
@@ -81,6 +94,58 @@ impl<T> NetworkOps for Network<'_, T> {
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, Result<(), String>> {
         self.0.external(CloseEffect { conn })
     }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BindEffect {
+    pub addr: SocketAddr,
+}
+
+impl ExternalEffect for BindEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let resource = resources
+                .get::<ConnectionResource>()
+                .expect("BindEffect requires a ConnectionResource")
+                .clone();
+            resource
+                .bind(self.addr)
+                .await
+                .map_err(|e| format!("failed to bind to {:?}: {:#}", self.addr, e))
+        })
+    }
+}
+
+impl ExternalEffectAPI for BindEffect {
+    type Response = Result<(), String>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AcceptEffect {
+    pub timeout: Duration,
+}
+
+impl ExternalEffect for AcceptEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let resource = resources
+                .get::<ConnectionResource>()
+                .expect("AcceptEffect requires a ConnectionResource")
+                .clone();
+            resource.accept(self.timeout).await.map_err(|e| {
+                format!(
+                    "failed to accept a connection to the TCP listener within {:?}: {:#}",
+                    self.timeout, e
+                )
+            })
+        })
+    }
+}
+
+impl ExternalEffectAPI for AcceptEffect {
+    type Response = Result<ConnectionId, String>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

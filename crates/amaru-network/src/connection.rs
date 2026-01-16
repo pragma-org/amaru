@@ -22,7 +22,7 @@ use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
-        TcpStream,
+        TcpListener, TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
     sync::Mutex as AsyncMutex,
@@ -30,8 +30,31 @@ use tokio::{
 use tracing::Instrument;
 
 pub struct Connection {
+    peer_addr: SocketAddr,
     reader: Arc<AsyncMutex<(OwnedReadHalf, BytesMut)>>,
     writer: Arc<AsyncMutex<OwnedWriteHalf>>,
+}
+
+impl Connection {
+    pub fn new(
+        peer_addr: SocketAddr,
+        reader: OwnedReadHalf,
+        writer: OwnedWriteHalf,
+        read_buf_size: usize,
+    ) -> Self {
+        Self {
+            peer_addr,
+            reader: Arc::new(AsyncMutex::new((
+                reader,
+                BytesMut::with_capacity(read_buf_size),
+            ))),
+            writer: Arc::new(AsyncMutex::new(writer)),
+        }
+    }
+
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.peer_addr
+    }
 }
 
 struct Connections {
@@ -72,6 +95,7 @@ impl Connections {
 pub struct TokioConnections {
     connections: Arc<Mutex<Connections>>,
     read_buf_size: usize,
+    listener: Arc<AsyncMutex<Option<TcpListener>>>,
 }
 
 impl TokioConnections {
@@ -79,6 +103,7 @@ impl TokioConnections {
         Self {
             connections: Arc::new(Mutex::new(Connections::new())),
             read_buf_size,
+            listener: Arc::new(AsyncMutex::new(None)),
         }
     }
 }
@@ -94,17 +119,83 @@ async fn connect(
         .into_split();
     tracing::debug!(?addr, "connected");
     let mut connections = resource.lock();
-    let id = connections.add_connection(Connection {
-        reader: Arc::new(AsyncMutex::new((
-            reader,
-            BytesMut::with_capacity(read_buf_size),
-        ))),
-        writer: Arc::new(AsyncMutex::new(writer)),
-    });
+    let id = connections.add_connection(Connection::new(
+        reader.peer_addr()?,
+        reader,
+        writer,
+        read_buf_size,
+    ));
     Ok(id)
 }
 
+impl TokioConnections {
+    /// Accept a single incoming connection for tests
+    pub fn listen(
+        &self,
+        addr: SocketAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+        let this = self.clone();
+        Box::pin(
+            async move {
+                this.bind(addr).await?;
+                this.accept(timeout).await
+            }
+            .instrument(tracing::debug_span!("listen", %addr)),
+        )
+    }
+}
+
 impl ConnectionProvider for TokioConnections {
+    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<()>> {
+        let listener = self.listener.clone();
+        Box::pin(
+            async move {
+                let mut guard = listener.lock().await;
+                if guard.is_some() {
+                    return Err(std::io::Error::other(
+                        "listener already created; cannot bind multiple times",
+                    ));
+                }
+                let bound = TcpListener::bind(addr).await?;
+                tracing::debug!(%addr, "listening");
+                *guard = Some(bound);
+                Ok(())
+            }
+            .instrument(tracing::debug_span!("bind_listener", %addr)),
+        )
+    }
+
+    fn accept(&self, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+        let listener = self.listener.clone();
+        let resource = self.connections.clone();
+        let read_buf_size = self.read_buf_size;
+        Box::pin(
+            async move {
+                let guard = listener.lock().await;
+                let l = guard.as_ref().ok_or_else(|| {
+                    std::io::Error::other("listener not bound; call bind() first")
+                })?;
+
+                let (stream, peer_addr) = tokio::time::timeout(timeout, l.accept()).await??;
+                drop(guard);
+
+                let (reader, writer) = stream.into_split();
+                tracing::debug!(%peer_addr, "accepted connection");
+
+                let mut connections = resource.lock();
+                let id = connections.add_connection(Connection::new(
+                    peer_addr,
+                    reader,
+                    writer,
+                    read_buf_size,
+                ));
+                Ok(id)
+            }
+            .instrument(tracing::debug_span!("accept")),
+        )
+    }
+
     fn connect(
         &self,
         addr: Vec<SocketAddr>,
@@ -210,5 +301,99 @@ impl ConnectionProvider for TokioConnections {
             }
             .instrument(tracing::trace_span!("close", %conn)),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::Bytes;
+    use tokio::task::JoinHandle;
+
+    #[tokio::test]
+    async fn connect_to_a_server() -> std::io::Result<()> {
+        // Start a TCP listener that echoes "pong" when it receives "ping".
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let addr = listener.local_addr()?;
+        let server: JoinHandle<std::io::Result<()>> = tokio::spawn(async move {
+            let (mut stream, _peer) = listener.accept().await?;
+
+            let mut buf = [0u8; 4];
+            stream.read_exact(&mut buf).await?;
+            assert_eq!(&buf, b"ping");
+
+            stream.write_all(b"pong").await?;
+            Ok(())
+        });
+
+        // Use TokioConnections to connect to the listener.
+        let connections = TokioConnections::new(1024);
+        let connection_id = connections
+            .connect(vec![addr], Duration::from_secs(1))
+            .await?;
+
+        connections.send(connection_id, non_empty(b"ping")).await?;
+        let reply = connections
+            .recv(connection_id, NonZeroUsize::new(4).expect("non-zero"))
+            .await?;
+        assert_eq!(reply.as_ref(), b"pong");
+
+        connections.close(connection_id).await?;
+        server.await.expect("server task panicked")?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bind_and_accept_a_client_connection() -> std::io::Result<()> {
+        // Create a TokioConnections instance and bind a TCP listener
+        // to an ephemeral port.
+        let connections = TokioConnections::new(1024);
+
+        connections
+            .bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+            .await?;
+
+        let addr = {
+            let guard = connections.listener.lock().await;
+            guard
+                .as_ref()
+                .expect("listener must be bound")
+                .local_addr()?
+        };
+
+        // Start a client that connects to the listener and
+        // sends "hello", expecting "world" in response.
+        let client: JoinHandle<std::io::Result<()>> = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await?;
+            stream.write_all(b"hello").await?;
+
+            let mut buf = [0u8; 5];
+            stream.read_exact(&mut buf).await?;
+            assert_eq!(&buf, b"world");
+
+            Ok(())
+        });
+
+        // Receive "hello" from the client and respond with "world".
+        let connection_id = connections.accept(Duration::from_secs(1)).await?;
+        let result = connections
+            .recv(connection_id, NonZeroUsize::new(5).expect("non-zero"))
+            .await?;
+        assert_eq!(result.as_ref(), b"hello");
+
+        connections.send(connection_id, non_empty(b"world")).await?;
+        connections.close(connection_id).await?;
+
+        client.await.expect("client task panicked")?;
+        Ok(())
+    }
+
+    // HELPERS
+
+    fn non_empty(data: &'static [u8]) -> NonEmptyBytes {
+        Bytes::from_static(data)
+            .try_into()
+            .expect("test data must be non-empty")
     }
 }

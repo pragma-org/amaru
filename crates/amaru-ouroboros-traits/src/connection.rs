@@ -120,6 +120,10 @@ impl From<SocketAddrV6> for ToSocketAddrs {
 pub type ConnectionResource = Arc<dyn ConnectionProvider>;
 
 pub trait ConnectionProvider: Send + Sync + 'static {
+    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<()>>;
+
+    fn accept(&self, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
+
     fn connect(
         &self,
         addr: Vec<SocketAddr>,
