@@ -14,7 +14,7 @@
 
 use crate::simulation::SimulationRunning;
 use crate::{Instant, ScheduleId};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// A collection of scheduled runnables.
 /// It maintains an order based on the scheduled time in order to efficiently retrieve the next runnables
@@ -22,7 +22,6 @@ use std::collections::{BTreeMap, BTreeSet};
 /// It also has a method to remove runnables based on their ScheduleId which is used when cancelling scheduled tasks.
 pub struct ScheduledRunnables {
     by_id: BTreeMap<ScheduleId, Runnable>,
-    by_time: BTreeMap<Instant, BTreeSet<ScheduleId>>,
 }
 
 type Runnable = Box<dyn FnOnce(&mut SimulationRunning) + Send + 'static>;
@@ -31,11 +30,11 @@ impl ScheduledRunnables {
     pub fn new() -> Self {
         Self {
             by_id: BTreeMap::new(),
-            by_time: BTreeMap::new(),
         }
     }
 
     /// Return the number of scheduled runnables.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.by_id.len()
     }
@@ -47,22 +46,27 @@ impl ScheduledRunnables {
 
     /// Return the set of runnables at the first available time that is less than or equal to `max_time`.
     /// Also return the wakeup time for those runnables or max_time if no runnables can be returned.
-    pub fn wakeup(&mut self, max_time: Option<Instant>) -> (Vec<Runnable>, Option<Instant>) {
-        let ids: BTreeSet<ScheduleId> = self
-            .by_time
+    pub fn wakeup(&mut self, max_time: Option<Instant>) -> Option<(Instant, Runnable)> {
+        let id = self
+            .by_id
             .first_key_value()
-            .filter(|(k, _)| max_time.map(|t| *k <= &t).unwrap_or(true))
-            .map(|(_, ids)| ids.clone())
-            .unwrap_or_default();
+            .and_then(|(id, _r)| max_time.iter().all(|t| id.time() <= *t).then_some(*id))?;
+        let runnable = self.by_id.remove(&id)?;
+        Some((id.time(), runnable))
+    }
 
-        let wakeup_time = ids.last().map(|id| id.time()).or(max_time);
+    #[cfg(test)]
+    pub fn isochronous_wakeups(
+        &mut self,
+        max_time: Option<Instant>,
+    ) -> (Vec<Runnable>, Option<Instant>) {
         let mut wakeups = Vec::new();
-        for id in ids {
-            if let Some(runnable) = self.remove(&id) {
-                wakeups.push(runnable);
-            }
+        let mut time = max_time;
+        while let Some((t, r)) = self.wakeup(time) {
+            wakeups.push(r);
+            time = Some(t);
         }
-        (wakeups, wakeup_time)
+        (wakeups, time)
     }
 
     /// Add a new runnable with its ScheduleId.
@@ -72,31 +76,17 @@ impl ScheduledRunnables {
         runnable: Box<dyn FnOnce(&mut SimulationRunning) + Send + 'static>,
     ) {
         self.by_id.insert(id, runnable);
-        self.by_time.entry(id.time()).or_default().insert(id);
     }
 
     /// Return the next wakeup time of the scheduled runnables.
     pub fn next_wakeup_time(&self) -> Option<Instant> {
-        self.by_time.first_key_value().map(|(k, _)| *k)
+        self.by_id.first_key_value().map(|(k, _)| k.time())
     }
 
     /// Remove a scheduled runnable by its ScheduleId.
     /// Return the runnable if it was found, None otherwise.
     pub fn remove(&mut self, id: &ScheduleId) -> Option<Runnable> {
-        match self.by_id.remove(id) {
-            Some(runnable) => {
-                let time = id.time();
-                if let Some(set) = self.by_time.get_mut(&time) {
-                    set.remove(id);
-                    if set.is_empty() {
-                        // Remove the empty bucket.
-                        self.by_time.remove(&time);
-                    }
-                }
-                Some(runnable)
-            }
-            None => None,
-        }
+        self.by_id.remove(id)
     }
 }
 
@@ -149,7 +139,7 @@ mod tests {
         schedule(&mut sr, id3);
         schedule(&mut sr, id4);
 
-        let (wakeups, returned_time) = sr.wakeup(None);
+        let (wakeups, returned_time) = sr.isochronous_wakeups(None);
 
         assert_eq!(wakeups.len(), 2);
         assert_eq!(returned_time, Some(t2));
@@ -179,7 +169,7 @@ mod tests {
         schedule(&mut sr, id3);
         schedule(&mut sr, id4);
 
-        let (wakeups, returned_time) = sr.wakeup(Some(max_time));
+        let (wakeups, returned_time) = sr.isochronous_wakeups(Some(max_time));
 
         assert_eq!(wakeups.len(), 2);
         assert_eq!(returned_time, Some(t2));
@@ -208,7 +198,7 @@ mod tests {
         schedule(&mut sr, id3);
         schedule(&mut sr, id4);
 
-        let (wakeups, returned_time) = sr.wakeup(Some(base));
+        let (wakeups, returned_time) = sr.isochronous_wakeups(Some(base));
 
         assert!(wakeups.is_empty());
         assert_eq!(returned_time, Some(base));

@@ -202,24 +202,28 @@ impl SimulationRunning {
     ///
     /// Returns `true` if wakeups were performed, `false` if there are no more wakeups or
     /// the clock was advanced to the given `max_time`.
-    pub fn skip_to_next_wakeup(&mut self, max_time: Option<Instant>) -> bool {
-        let initial_scheduled_nb = self.scheduled.len();
-
+    pub fn skip_to_next_wakeup(&mut self, mut max_time: Option<Instant>) -> bool {
         // Get the runnables that can be woken up until max_time (everything if None)
         // and run them.
         // The last wakeup time becomes the new simulation time.
-        let (wakeups, new_time) = self.scheduled.wakeup(max_time);
-        if let Some(new_time) = new_time {
-            self.clock.advance_to(new_time);
-            self.trace_buffer.lock().push_clock(new_time);
+        let mut tasks_run = false;
+        while let Some((t, r)) = self.scheduled.wakeup(max_time) {
+            if self.clock.now() < t {
+                self.clock.advance_to(t);
+                self.trace_buffer.lock().push_clock(t);
+            }
+            // limit further wakeups to the same time, i.e. the clock only advances once within this method
+            max_time = Some(t);
+            r(self);
+            tasks_run = true;
         }
 
-        for w in wakeups {
-            w(self);
+        if !tasks_run && let Some(t) = max_time {
+            self.clock.advance_to(t);
+            self.trace_buffer.lock().push_clock(t);
         }
 
-        // return true if any wakeups were performed
-        self.scheduled.len() != initial_scheduled_nb
+        tasks_run
     }
 
     pub fn next_wakeup(&self) -> Option<Instant> {

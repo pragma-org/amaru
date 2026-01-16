@@ -25,18 +25,20 @@ use tokio::sync::mpsc;
 /// A time specifying when an effect should be executed.
 /// The identifier (u64) specifies the precise effect to execute at that time in a map of
 /// scheduled effects maintained by the runtime (whether simulation or tokio).
+///
+/// It is important to note that ScheduleId is ordered by time first, then by id.
 #[derive(
     Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, serde::Serialize, serde::Deserialize,
 )]
-pub struct ScheduleId(u64, Instant);
+pub struct ScheduleId(Instant, u64);
 
 impl ScheduleId {
     pub(crate) fn new(id: u64, instant: Instant) -> Self {
-        Self(id, instant)
+        Self(instant, id)
     }
 
     pub fn time(&self) -> Instant {
-        self.1
+        self.0
     }
 }
 
