@@ -24,42 +24,54 @@ use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Path to the CBOR snapshot. The snapshot can be obtained from the Haskell
-    /// cardano-node, using the `DebugEpochState` command, serialised as CBOR.
+    /// Path of the ledger on-disk storage.
+    #[arg(
+        long,
+        value_name = amaru::value_names::DIRECTORY,
+        env = amaru::env_vars::LEDGER_DIR,
+    )]
+    ledger_dir: Option<PathBuf>,
+
+    /// Network the snapshots are imported for.
+    #[arg(
+        long,
+        value_name = amaru::value_names::NETWORK,
+        env = amaru::env_vars::NETWORK,
+        default_value_t = DEFAULT_NETWORK,
+    )]
+    network: NetworkName,
+
+    /// Path to a CBOR snapshot. Can be repeated for importing multiple snapshot files.
+    ///
+    /// Snapshot can be obtained from the Haskell cardano-node, using the `DebugEpochState`
+    /// command, serialised as CBOR.
     ///
     /// The snapshot must be named after the point on-chain it is reflecting, as
     ///
-    /// `  {SLOT}.{BLOCK_HEADER_HASH}.cbor`
+    ///   `{SLOT}.{BLOCK_HEADER_HASH}.cbor`
     ///
     /// For example:
     ///
     ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
-    ///
-    /// Can be repeated multiple times for multiple snapshots.
-    #[arg(long, value_name = "FILE", env = "AMARU_SNAPSHOT", verbatim_doc_comment, num_args(0..))]
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::SNAPSHOT,
+        num_args(0..),
+        verbatim_doc_comment,
+    )]
     snapshot: Vec<PathBuf>,
 
     /// Path to a directory containing multiple CBOR snapshots to import.
     ///
-    /// If not provided, defaults to a per-network snapshots directory based on the network name.
-    #[arg(long, value_name = "DIR", env = "AMARU_SNAPSHOTS_DIR")]
-    snapshot_dir: Option<PathBuf>,
-
-    /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
-    ledger_dir: Option<PathBuf>,
-
-    /// Network the snapshots are imported from.
-    ///
-    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet_<magic>' where
-    /// `magic` is a 32-bits unsigned value denoting a particular testnet.
+    /// When omitted, defaults to a per-network snapshots directory based on the network name.
     #[arg(
         long,
-        value_name = "NETWORK",
-        env = "AMARU_NETWORK",
-        default_value_t = DEFAULT_NETWORK,
+        value_name = amaru::value_names::DIRECTORY,
+        env = amaru::env_vars::SNAPSHOTS_DIR,
+        conflicts_with = "snapshot",
     )]
-    network: NetworkName,
+    snapshot_dir: Option<PathBuf>,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -67,8 +79,16 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .ledger_dir
         .unwrap_or_else(|| default_ledger_dir(args.network).into());
 
-    info!(network = %args.network, ledger_dir=%ledger_dir.to_string_lossy(), snapshot=?args.snapshot, snapshot_dir=%args.snapshot_dir.clone().unwrap_or_default().to_string_lossy(),
-          "Running command import-ledger-state",
+    info!(
+        _command = "import-ledger-state",
+        ledger_dir = %ledger_dir.to_string_lossy(),
+        network = %args.network,
+        snapshot = ?args.snapshot,
+        snapshot_dir = %args.snapshot_dir
+            .clone()
+            .unwrap_or_default()
+            .to_string_lossy(),
+        "running",
     );
 
     if !args.snapshot.is_empty() {

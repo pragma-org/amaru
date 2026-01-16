@@ -12,23 +12,54 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::{DEFAULT_NETWORK, default_ledger_dir};
+use amaru_kernel::network::NetworkName;
 use amaru_ledger::state::MIN_LEDGER_SNAPSHOTS;
 use clap::Parser;
 use std::{fs, io, path::PathBuf};
+use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// The path to the chain database to reset
-    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
-    ledger_dir: PathBuf,
-
-    /// The epoch to reset to;
-    #[arg(long)]
+    /// The epoch to reset to
+    #[arg(
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::EPOCH,
+    )]
     epoch: u64,
+
+    /// The path to the ledger database to reset
+    #[arg(
+        long,
+        value_name = amaru::value_names::DIRECTORY,
+        env = amaru::env_vars::LEDGER_DIR,
+    )]
+    ledger_dir: Option<PathBuf>,
+
+    /// Network of the underlying chain database.
+    #[arg(
+        long,
+        value_name = amaru::value_names::NETWORK,
+        env = amaru::env_vars::NETWORK,
+        default_value_t = DEFAULT_NETWORK,
+    )]
+    network: NetworkName,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let folders = get_ledger_db_snapshots(&args.ledger_dir)?;
+    let ledger_dir = args
+        .ledger_dir
+        .unwrap_or_else(|| default_ledger_dir(args.network).into());
+
+    info!(
+        _command = "reset-to-epoch",
+        epoch = %args.epoch,
+        ledger_dir = %ledger_dir.to_string_lossy(),
+        network = %args.network,
+        "running",
+    );
+
+    let folders = get_ledger_db_snapshots(&ledger_dir)?;
 
     check_safe_to_reset(args.epoch, &folders)?;
 
@@ -60,7 +91,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         unreachable!("invariant violated: check_safe_to_reset should have guaranteed that pentultimate_epoch gets assigned");
     });
 
-    copy_dir_recursive(&pentultimate_epoch, &args.ledger_dir.join("live"))?;
+    copy_dir_recursive(&pentultimate_epoch, &ledger_dir.join("live"))?;
 
     Ok(())
 }

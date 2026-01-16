@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::observability::setup_observability;
-use amaru::panic::panic_handler;
+use amaru::{observability::setup_observability, panic::panic_handler};
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::sync::LazyLock;
@@ -41,25 +40,19 @@ static VERSION: LazyLock<String> = LazyLock::new(|| {
 enum Command {
     /// Bootstrap the node with needed data.
     ///
-    /// This command simplifies the process of bootstrapping an Amaru
-    /// node for a given network.
+    /// This command simplifies the process of bootstrapping an Amaru node for any given well-known network:
     ///
-    /// In its current form, given a network name, a target directory
-    /// and possibly a peer to connect to, it will lookup for
-    /// bootstrap configuration files in `data/${network name}/`
-    /// directory to download snapshots, import those snapshots into
-    /// the ledger, import nonces, and import headers.
+    ///   - mainnet
+    ///   - preprod
+    ///   - preview
+    ///
+    /// It is a combination of the following fine-grained steps:
+    ///
+    ///   - import-ledger-state
+    ///   - import-headers
+    ///   - import-nonces
+    #[clap(verbatim_doc_comment)]
     Bootstrap(cmd::bootstrap::Args),
-
-    FetchChainHeaders(cmd::fetch_chain_headers::Args),
-
-    /// Run the node in all its glory.
-    #[command(alias = "daemon")]
-    Run(cmd::run::Args),
-
-    /// Import the ledger state from a CBOR export produced by a Haskell node.
-    #[clap(alias = "import")]
-    ImportLedgerState(cmd::import_ledger_state::Args),
 
     /// Convert ledger state as produced by Haskell node into data suitable
     /// for amaru.
@@ -74,14 +67,8 @@ enum Command {
     /// * The`Nonces` from the `HeaderState` which are written to a `nonces.json` file.
     ConvertLedgerState(cmd::convert_ledger_state::Args),
 
-    /// Import block headers
-    #[clap(alias = "import-chain-db")]
-    ImportHeaders(cmd::import_headers::Args),
-
-    /// Import VRF nonces intermediate states
-    ImportNonces(cmd::import_nonces::Args),
-
     /// Dump the content of the chain database for troubleshooting purposes.
+    ///
     /// This command dumps the _whole_ content of the chain database in a human-readable format:
     ///  - Headers (hash + hex-encoded body)
     ///  - Parent-child relationships between headers
@@ -91,13 +78,32 @@ enum Command {
     ///
     DumpChainDB(cmd::dump_chain_db::Args),
 
-    /// Migrate the Chain Database to the current version.
+    /// Fetch specified headers
+    FetchChainHeaders(cmd::fetch_chain_headers::Args),
+
+    /// Import block headers
+    #[clap(alias = "import-chain-db")]
+    ImportHeaders(cmd::import_headers::Args),
+
+    /// Import the ledger state from a CBOR export produced by a Haskell node.
+    #[clap(alias = "import")]
+    ImportLedgerState(cmd::import_ledger_state::Args),
+
+    /// Import VRF nonces intermediate states
+    ImportNonces(cmd::import_nonces::Args),
+
+    /// Migrate the chain database to the current version.
+    ///
     /// This command is only relevant when one upgrades Amaru to a newer version that
     /// requires changes in the database format.
     MigrateChainDB(cmd::migrate_chain_db::Args),
 
     /// Reset the ledger database to the beginning of a specific epoch
     ResetToEpoch(cmd::reset_to_epoch::Args),
+
+    /// Run the node in all its glory.
+    #[command(alias = "daemon")]
+    Run(cmd::run::Args),
 }
 
 #[derive(Debug, Parser)]
