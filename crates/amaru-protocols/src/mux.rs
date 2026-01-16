@@ -801,7 +801,7 @@ mod tests {
         let drop_guard = TraceBuffer::drop_guard(&trace_buffer);
         let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
         let mux = network.stage("mux", super::stage);
-        let conn_id = ConnectionId::default();
+        let conn_id = ConnectionId::initial();
         let mux = network.wire_up(
             mux,
             State::new(

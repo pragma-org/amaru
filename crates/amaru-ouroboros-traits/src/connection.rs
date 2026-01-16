@@ -25,17 +25,7 @@ use std::{
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(
-    Debug,
-    Default,
-    PartialEq,
-    Eq,
-    Hash,
-    Clone,
-    Copy,
-    PartialOrd,
-    Ord,
-    serde::Serialize,
-    serde::Deserialize,
+    Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct ConnectionId(u64);
 
@@ -43,6 +33,10 @@ impl ConnectionId {
     /// Get the next ConnectionId, wrapping on overflow (which should not happen given we are using u64)
     pub fn next(&self) -> Self {
         Self(self.0.wrapping_add(1))
+    }
+
+    pub fn initial() -> Self {
+        Self(0)
     }
 }
 

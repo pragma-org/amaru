@@ -49,7 +49,7 @@ impl Connections {
         let id = if let Some((&last_id, _)) = self.connections.iter().next_back() {
             last_id.next()
         } else {
-            ConnectionId::default()
+            ConnectionId::initial()
         };
         self.insert(id, connection);
         id
