@@ -104,8 +104,10 @@ fn automatic() {
         .assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 4, 7]);
 
+    let trace = trace_buffer.lock().hydrate_without_timestamps();
+
     const EXPECTED: &[&str] = &[
-        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(1), Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"extra\"), Bool(false))])]) } }",
+        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(1), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
         "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
         "Input { stage: Name(\"basic-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(1) } }",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
@@ -117,7 +119,7 @@ fn automatic() {
         "Resume { stage: Name(\"output-2\"), response: Unit }",
         "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(2)), (Text(\"sender\"), Map([]))]) } } })",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
-        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(2), Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"extra\"), Bool(false))])]) } }",
+        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(2), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
         "Input { stage: Name(\"basic-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(2) } }",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
         "Suspend(Wait { at_stage: Name(\"basic-1\"), duration: 10s })",
@@ -130,7 +132,7 @@ fn automatic() {
         "Resume { stage: Name(\"output-2\"), response: Unit }",
         "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(4)), (Text(\"sender\"), Map([]))]) } } })",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
-        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(4), Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"extra\"), Bool(false))])]) } }",
+        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(4), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
         "Input { stage: Name(\"basic-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(3) } }",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
         "Suspend(Wait { at_stage: Name(\"basic-1\"), duration: 10s })",
@@ -143,12 +145,10 @@ fn automatic() {
         "Resume { stage: Name(\"output-2\"), response: Unit }",
         "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(7)), (Text(\"sender\"), Map([]))]) } } })",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
-        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(7), Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"extra\"), Bool(false))])]) } }",
+        "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(7), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
         "Resume { stage: Name(\"output-2\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
         "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
     ];
-
-    let trace = trace_buffer.lock().hydrate_without_timestamps();
 
     pretty_assertions::assert_eq!(
         trace.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>(),

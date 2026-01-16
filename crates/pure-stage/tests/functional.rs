@@ -21,7 +21,6 @@ use pure_stage::{
     tokio::TokioBuilder,
     trace_buffer::{TerminationReason, TraceBuffer, TraceEntry as E},
 };
-use std::sync::Arc;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::runtime::Runtime;
 
@@ -114,9 +113,6 @@ fn run_tokio(graph: impl Fn(&mut TokioBuilder)) -> Vec<E> {
 fn sr<T>(name: &str) -> StageRef<T> {
     StageRef::named_for_tests(name)
 }
-fn src<T>(name: &str) -> StageRef<T> {
-    StageRef::named_for_tests(name).with_extra_for_tests(Arc::new(()))
-}
 fn sdv<T: SendData>(value: T) -> Box<dyn SendData> {
     SendDataValue::boxed(&value)
 }
@@ -197,10 +193,10 @@ fn call_then_terminate() {
             "trigger-2",
             "callee-1",
             dur(1000),
-            sdv(CallMsg(5u32, src::<u32>("trigger-2"))),
+            sdv(CallMsg(5u32, sr::<u32>("trigger-2"))),
         )),
         E::state("callee-1", sdv(())),
-        E::input("callee-1", sdv(CallMsg(5u32, src::<u32>("trigger-2")))),
+        E::input("callee-1", sdv(CallMsg(5u32, sr::<u32>("trigger-2")))),
         E::resume("callee-1", Resp::Unit),
         E::suspend(Eff::send("callee-1", "trigger-2", true, sdv(10u32))),
         E::resume("trigger-2", Resp::CallResponse(sdv(10u32))),
@@ -570,10 +566,10 @@ fn caller_already_terminated() {
             "caller-2",
             "callee-3",
             dur(1000),
-            sdv(src::<u32>("caller-2")),
+            sdv(sr::<u32>("caller-2")),
         )),
         E::state("callee-3", sdv(sr::<StageRef<u32>>("parent-4"))),
-        E::input("callee-3", sdv(src::<u32>("caller-2"))),
+        E::input("callee-3", sdv(sr::<u32>("caller-2"))),
         E::resume("callee-3", Resp::Unit),
         E::suspend(Eff::send("callee-3", "caller-2", true, sdv(5u32))),
         E::resume("callee-3", Resp::Unit),
@@ -581,9 +577,9 @@ fn caller_already_terminated() {
             "callee-3",
             "parent-4",
             false,
-            sdv(src::<u32>("caller-2")),
+            sdv(sr::<u32>("caller-2")),
         )),
-        E::input("trigger-1", sdv(Msg::Ref(src::<u32>("caller-2")))),
+        E::input("trigger-1", sdv(Msg::Ref(sr::<u32>("caller-2")))),
         E::resume("trigger-1", Resp::Unit),
         E::state("trigger-1", sdv(src::<u32>("caller-2"))),
         E::input("trigger-1", sdv(Msg::Super)),
