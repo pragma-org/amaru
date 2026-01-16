@@ -74,6 +74,7 @@ impl Manager {
 /// The semantics of the operations are as follows:
 /// - AddPeer: add a peer to the manager unless that peer is already added
 /// - RemovePeer: remove a peer from the manager, which will terminate a connection if currently connected
+///
 /// A peer can be added right after being removed even though the socket will be closed asynchronously.
 pub async fn stage(
     mut manager: Manager,

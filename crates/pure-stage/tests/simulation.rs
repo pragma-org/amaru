@@ -686,7 +686,6 @@ fn create_stage_within_stage() {
                 from: parent.name().clone(),
                 to: child_ref.name().clone(),
                 msg: SendDataValue::boxed(&42u32),
-                call: false
             }),
             TraceEntry::input(child_ref.name(), SendDataValue::boxed(&42u32)),
             TraceEntry::resume(child_ref.name(), StageResponse::Unit),
@@ -694,7 +693,6 @@ fn create_stage_within_stage() {
                 from: child_ref.name().clone(),
                 to: output.name().clone(),
                 msg: SendDataValue::boxed(&42u32),
-                call: false
             }),
             TraceEntry::input(output.name(), SendDataValue::boxed(&42u32)),
             TraceEntry::resume(parent.name(), StageResponse::Unit),

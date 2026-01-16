@@ -102,20 +102,17 @@ pub fn resume_send_internal(
     data: &mut StageData,
     run: &mut dyn FnMut(Name, StageResponse),
     to: Name,
-    call: bool,
 ) -> anyhow::Result<Option<ScheduleId>> {
     let waiting_for = data
         .waiting
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
-    if !matches!(waiting_for, StageEffect::Send(name, call2, _msg) if name == &to && call2.is_some() == call)
-    {
+    if !matches!(waiting_for, StageEffect::Send(name, call2, _msg) if name == &to) {
         anyhow::bail!(
-            "stage `{}` was not waiting for a send effect to `{}`/{}, but {:?}",
+            "stage `{}` was not waiting for a send effect to `{}`, but {:?}",
             data.name,
             to,
-            call,
             waiting_for
         )
     }

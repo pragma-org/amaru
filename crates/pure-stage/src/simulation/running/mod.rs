@@ -592,94 +592,95 @@ impl SimulationRunning {
                         self.runnable.push_back((name, response));
                     },
                     to.clone(),
-                    false,
                 )
                 .expect("call is always runnable");
             }
-            Effect::Send { from, to, call, .. } if to.is_empty() => {
+            Effect::Send { from, to, .. } if to.is_empty() => {
                 tracing::info!(stage = %from, "message send to blackhole dropped");
                 let data_from = self
                     .stages
                     .get_mut(&from)
                     .log_termination(&from)?
                     .assert_stage("which cannot emit send effects");
-                resume_send_internal(data_from, run, to.clone(), call)
-                    .expect("call is always runnable");
+                resume_send_internal(data_from, run, to.clone()).expect("call is always runnable");
             }
-            Effect::Send {
-                from,
-                to,
-                call: false,
-                msg,
-            } => {
-                let mb = self.mailbox_size;
-                let resume = match deliver_message(&mut self.stages, mb, to.clone(), msg) {
-                    DeliverMessageResult::Delivered(data_to) => {
-                        // `to` may not be suspended on receive, so failure to resume is okay
-                        let name = data_to.name.clone();
-                        if let Err(err) = resume_receive_internal(self, &name) {
-                            tracing::warn!(%from, %to, ?err, "cannot deliver send, shutting down simulation");
-                            let terminated = err
-                                .downcast::<resume::UnsupervisedChildTermination>()
-                                .map(|e| e.0)
-                                .unwrap_or(name);
-                            return Some(Blocked::Terminated(terminated));
-                        }
-                        Some(from)
-                    }
-                    DeliverMessageResult::Full(data_to, send_data) => {
-                        data_to.senders.push_back((from, send_data));
-                        None
-                    }
-                    DeliverMessageResult::NotFound => {
-                        tracing::warn!(stage = %to, "message send to terminated stage dropped");
-                        Some(from)
-                    }
-                };
-                if let Some(from) = resume {
+            Effect::Send { from, to, msg } => {
+                let is_call = self
+                    .stages
+                    .get(&from)
+                    .map(|d| {
+                        matches!(
+                            d,
+                            StageOrAdapter::Stage(StageData {
+                                waiting: Some(StageEffect::Send(_, Some(_), _)),
+                                ..
+                            })
+                        )
+                    })
+                    .unwrap_or_default();
+                if is_call {
+                    // sending stage is always resumed
                     let data_from = self
                         .stages
                         .get_mut(&from)
+                        // if the stage was killed while waiting for its turn in sending this response
+                        // then the response is simply dropped and the call may time out
                         .log_termination(&from)?
-                        .assert_stage("which cannot have sent");
-                    resume_send_internal(
-                        data_from,
-                        &mut |name, response| {
-                            tracing::debug!(%name, ?response, "enqueuing stage");
-                            self.runnable.push_back((name, response));
-                        },
-                        to.clone(),
-                        false,
-                    )
-                    .expect("call is always runnable");
+                        .assert_stage("which cannot receive send effects");
+                    let id = resume_send_internal(data_from, run, to.clone())
+                        .expect("call is always runnable");
+                    if let Some(id) = id {
+                        self.scheduled.remove(&id);
+                    }
+                    let data_to = self
+                        .stages
+                        .get_mut(&to)
+                        .log_termination(&to)?
+                        .assert_stage("which cannot call");
+                    // call response races with other responses and timeout, so failure to resume is okay
+                    resume_call_internal(data_to, run, id, msg).ok();
+                } else {
+                    let mb = self.mailbox_size;
+                    let resume = match deliver_message(&mut self.stages, mb, to.clone(), msg) {
+                        DeliverMessageResult::Delivered(data_to) => {
+                            // `to` may not be suspended on receive, so failure to resume is okay
+                            let name = data_to.name.clone();
+                            if let Err(err) = resume_receive_internal(self, &name) {
+                                tracing::warn!(%from, %to, ?err, "cannot deliver send, shutting down simulation");
+                                let terminated = err
+                                    .downcast::<resume::UnsupervisedChildTermination>()
+                                    .map(|e| e.0)
+                                    .unwrap_or(name);
+                                return Some(Blocked::Terminated(terminated));
+                            }
+                            Some(from)
+                        }
+                        DeliverMessageResult::Full(data_to, send_data) => {
+                            data_to.senders.push_back((from, send_data));
+                            None
+                        }
+                        DeliverMessageResult::NotFound => {
+                            tracing::warn!(stage = %to, "message send to terminated stage dropped");
+                            Some(from)
+                        }
+                    };
+                    if let Some(from) = resume {
+                        let data_from = self
+                            .stages
+                            .get_mut(&from)
+                            .log_termination(&from)?
+                            .assert_stage("which cannot have sent");
+                        resume_send_internal(
+                            data_from,
+                            &mut |name, response| {
+                                tracing::debug!(%name, ?response, "enqueuing stage");
+                                self.runnable.push_back((name, response));
+                            },
+                            to.clone(),
+                        )
+                        .expect("call is always runnable");
+                    }
                 }
-            }
-            Effect::Send {
-                from,
-                to,
-                call: true,
-                msg,
-            } => {
-                // sending stage is always resumed
-                let data_from = self
-                    .stages
-                    .get_mut(&from)
-                    // if the stage was killed while waiting for its turn in sending this response
-                    // then the response is simply dropped and the call may time out
-                    .log_termination(&from)?
-                    .assert_stage("which cannot receive send effects");
-                let id = resume_send_internal(data_from, run, to.clone(), true)
-                    .expect("call is always runnable");
-                if let Some(id) = id {
-                    self.scheduled.remove(&id);
-                }
-                let data_to = self
-                    .stages
-                    .get_mut(&to)
-                    .log_termination(&to)?
-                    .assert_stage("which cannot call");
-                // call response races with other responses and timeout, so failure to resume is okay
-                resume_call_internal(data_to, run, id, msg).ok();
             }
             Effect::Call {
                 from,
@@ -923,7 +924,7 @@ impl SimulationRunning {
                 .stages
                 .get_mut(&waiting)
                 .assert_stage("which cannot send");
-            if let Err(err) = resume_send_internal(data, run, at_stage.clone(), false) {
+            if let Err(err) = resume_send_internal(data, run, at_stage.clone()) {
                 tracing::error!(from = %waiting, to = %at_stage, %err, "failed to resume send");
                 continue;
             };
@@ -1044,7 +1045,6 @@ impl SimulationRunning {
                 self.runnable.push_back((name, response));
             },
             to.name().clone(),
-            to.extra().is_some(),
         )?;
 
         if let Some(id) = id

@@ -307,7 +307,6 @@ enum EffectRef<'a> {
     Send {
         from: &'a Name,
         to: &'a Name,
-        call: bool,
         msg: &'a dyn SendData,
     },
     Call {
@@ -360,10 +359,9 @@ impl<'a> EffectRef<'a> {
     fn from(at_stage: &'a Name, effect: &'a StageEffect<Box<dyn SendData>>) -> Option<Self> {
         Some(match effect {
             StageEffect::Receive => EffectRef::Receive { at_stage },
-            StageEffect::Send(to, call, msg) => EffectRef::Send {
+            StageEffect::Send(to, _call, msg) => EffectRef::Send {
                 from: at_stage,
                 to,
-                call: call.is_some(),
                 msg: &**msg,
             },
             StageEffect::Call(..) => return None,

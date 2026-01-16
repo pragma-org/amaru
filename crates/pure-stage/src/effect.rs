@@ -788,18 +788,14 @@ impl StageEffect<Box<dyn SendData>> {
         #[expect(clippy::panic)]
         match self {
             StageEffect::Receive => (StageEffect::Receive, Effect::Receive { at_stage: at_name }),
-            StageEffect::Send(name, call, msg) => {
-                let is_call = call.is_some();
-                (
-                    StageEffect::Send(name.clone(), call, ()),
-                    Effect::Send {
-                        from: at_name,
-                        to: name,
-                        call: is_call,
-                        msg,
-                    },
-                )
-            }
+            StageEffect::Send(name, call, msg) => (
+                StageEffect::Send(name.clone(), call, ()),
+                Effect::Send {
+                    from: at_name,
+                    to: name,
+                    msg,
+                },
+            ),
             StageEffect::Call(name, duration, msg) => {
                 let id = schedule_ids.next_at(now + duration);
                 let CallExtra::CallFn(msg) = msg else {
@@ -895,7 +891,6 @@ pub enum Effect {
     Send {
         from: Name,
         to: Name,
-        call: bool,
         #[serde(with = "crate::serde::serialize_send_data")]
         msg: Box<dyn SendData>,
     },
@@ -957,17 +952,11 @@ impl Effect {
                 "type": "receive",
                 "at_stage": at_stage,
             }),
-            Effect::Send {
-                from,
-                to,
-                call,
-                msg,
-            } => {
+            Effect::Send { from, to, msg } => {
                 serde_json::json!({
                     "type": "send",
                     "from": from,
                     "to": to,
-                    "call": format!("{:?}", call),
                     "msg": format!("{msg}"),
                 })
             }
@@ -1054,13 +1043,8 @@ impl Display for Effect {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Effect::Receive { at_stage } => write!(f, "receive {at_stage}"),
-            Effect::Send {
-                from,
-                to,
-                call,
-                msg,
-            } => {
-                write!(f, "send {from} -> {to}: {call:?} {msg}",)
+            Effect::Send { from, to, msg } => {
+                write!(f, "send {from} -> {to}: {msg}",)
             }
             Effect::Call {
                 from,
@@ -1106,16 +1090,10 @@ impl Display for Effect {
 #[expect(clippy::wildcard_enum_match_arm, clippy::panic)]
 impl Effect {
     /// Construct a send effect.
-    pub fn send(
-        from: impl AsRef<str>,
-        to: impl AsRef<str>,
-        call: bool,
-        msg: Box<dyn SendData>,
-    ) -> Self {
+    pub fn send(from: impl AsRef<str>, to: impl AsRef<str>, msg: Box<dyn SendData>) -> Self {
         Self::Send {
             from: Name::from(from.as_ref()),
             to: Name::from(to.as_ref()),
-            call,
             msg,
         }
     }
@@ -1264,14 +1242,10 @@ impl Effect {
         let at_stage = at_stage.as_ref();
         let target = target.as_ref();
         match self {
-            Effect::Send {
-                from,
-                to,
-                call: _,
-                msg: m,
-            } if from == at_stage.name()
-                && to == target.name()
-                && (&**m as &dyn Any).downcast_ref::<Msg2>().unwrap() == &msg => {}
+            Effect::Send { from, to, msg: m }
+                if from == at_stage.name()
+                    && to == target.name()
+                    && (&**m as &dyn Any).downcast_ref::<Msg2>().unwrap() == &msg => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Send from `{}` to `{}` with msg {msg:?}",
                 at_stage.name(),
@@ -1464,18 +1438,12 @@ impl PartialEq for Effect {
                 } => at_stage == other_at_stage,
                 _ => false,
             },
-            Effect::Send {
-                from,
-                to,
-                call,
-                msg,
-            } => match other {
+            Effect::Send { from, to, msg } => match other {
                 Effect::Send {
                     from: other_from,
                     to: other_to,
-                    call: other_call,
                     msg: other_msg,
-                } => from == other_from && to == other_to && call == other_call && msg == other_msg,
+                } => from == other_from && to == other_to && msg == other_msg,
                 _ => false,
             },
             Effect::Call {
