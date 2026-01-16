@@ -28,7 +28,7 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
 }
 
 pub trait NetworkOps {
-    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, Result<(), String>>;
+    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, Result<SocketAddr, String>>;
 
     fn accept(&self, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, String>>;
 
@@ -37,16 +37,19 @@ pub trait NetworkOps {
         addr: ToSocketAddrs,
         timeout: Duration,
     ) -> BoxFuture<'static, Result<ConnectionId, String>>;
+
     fn send(
         &self,
         conn: ConnectionId,
         data: NonEmptyBytes,
     ) -> BoxFuture<'static, Result<(), String>>;
+
     fn recv(
         &self,
         conn: ConnectionId,
         bytes: NonZeroUsize,
     ) -> BoxFuture<'static, Result<NonEmptyBytes, String>>;
+
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, Result<(), String>>;
 }
 
@@ -59,7 +62,7 @@ impl<'a, T> Network<'a, T> {
 }
 
 impl<T> NetworkOps for Network<'_, T> {
-    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, Result<(), String>> {
+    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, Result<SocketAddr, String>> {
         self.0.external(BindEffect { addr })
     }
 
@@ -118,7 +121,7 @@ impl ExternalEffect for BindEffect {
 }
 
 impl ExternalEffectAPI for BindEffect {
-    type Response = Result<(), String>;
+    type Response = Result<SocketAddr, String>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

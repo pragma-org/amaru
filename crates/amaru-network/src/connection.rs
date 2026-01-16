@@ -147,7 +147,7 @@ impl TokioConnections {
 }
 
 impl ConnectionProvider for TokioConnections {
-    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<()>> {
+    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
         let listener = self.listener.clone();
         Box::pin(
             async move {
@@ -158,9 +158,10 @@ impl ConnectionProvider for TokioConnections {
                     ));
                 }
                 let bound = TcpListener::bind(addr).await?;
+                let addr = bound.local_addr()?;
                 tracing::debug!(%addr, "listening");
                 *guard = Some(bound);
-                Ok(())
+                Ok(addr)
             }
             .instrument(tracing::debug_span!("bind_listener", %addr)),
         )
