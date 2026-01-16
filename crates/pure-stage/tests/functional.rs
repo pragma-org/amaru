@@ -162,6 +162,8 @@ fn call_then_terminate() {
     #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
     struct CallMsg(u32, StageRef<u32>);
 
+    let _guard = pure_stage::register_data_deserializer::<CallMsg>();
+
     logging();
     fn graph(builder: &mut impl StageGraph) {
         let callee = builder.stage("callee", async |_: (), msg: CallMsg, eff| {
@@ -193,10 +195,10 @@ fn call_then_terminate() {
             "trigger-2",
             "callee-1",
             dur(1000),
-            sdv(CallMsg(5u32, sr::<u32>("trigger-2"))),
+            b(CallMsg(5u32, sr::<u32>("trigger-2"))),
         )),
         E::state("callee-1", sdv(())),
-        E::input("callee-1", sdv(CallMsg(5u32, sr::<u32>("trigger-2")))),
+        E::input("callee-1", b(CallMsg(5u32, sr::<u32>("trigger-2")))),
         E::resume("callee-1", Resp::Unit),
         E::suspend(Eff::send("callee-1", "trigger-2", true, sdv(10u32))),
         E::resume("trigger-2", Resp::CallResponse(sdv(10u32))),
@@ -481,6 +483,9 @@ fn caller_already_terminated() {
         Ref(StageRef<u32>),
     }
 
+    let _guard = pure_stage::register_data_deserializer::<Msg>();
+    let _guard = pure_stage::register_data_deserializer::<StageRef<u32>>();
+
     logging();
     fn graph(builder: &mut impl StageGraph) {
         let trigger = builder.stage(
@@ -528,8 +533,8 @@ fn caller_already_terminated() {
     }
 
     let expected = [
-        E::state("trigger-1", sdv(sr::<u32>(""))),
-        E::input("trigger-1", sdv(Msg::Start)),
+        E::state("trigger-1", b(sr::<u32>(""))),
+        E::input("trigger-1", b(Msg::Start)),
         E::resume("trigger-1", Resp::Unit),
         E::suspend(Eff::add_stage("trigger-1", "caller")),
         E::resume("trigger-1", Resp::AddStageResponse(n("caller-2"))),
@@ -537,7 +542,7 @@ fn caller_already_terminated() {
             "trigger-1",
             "caller-2",
             sdv(()),
-            Some(sdv(Msg::Super)),
+            Some(b(Msg::Super)),
         )),
         E::resume("trigger-1", Resp::Unit),
         E::suspend(Eff::add_stage("trigger-1", "callee")),
@@ -558,7 +563,7 @@ fn caller_already_terminated() {
             sdv(sr::<StageRef<u32>>("callee-3")),
         )),
         E::resume("trigger-1", Resp::Unit),
-        E::state("trigger-1", sdv(sr::<u32>(""))),
+        E::state("trigger-1", b(sr::<u32>(""))),
         E::state("caller-2", sdv(())),
         E::input("caller-2", sdv(sr::<StageRef<u32>>("callee-3"))),
         E::resume("caller-2", Resp::Unit),
@@ -566,10 +571,10 @@ fn caller_already_terminated() {
             "caller-2",
             "callee-3",
             dur(1000),
-            sdv(sr::<u32>("caller-2")),
+            b(sr::<u32>("caller-2")),
         )),
         E::state("callee-3", sdv(sr::<StageRef<u32>>("parent-4"))),
-        E::input("callee-3", sdv(sr::<u32>("caller-2"))),
+        E::input("callee-3", b(sr::<u32>("caller-2"))),
         E::resume("callee-3", Resp::Unit),
         E::suspend(Eff::send("callee-3", "caller-2", true, sdv(5u32))),
         E::resume("callee-3", Resp::Unit),
@@ -577,12 +582,12 @@ fn caller_already_terminated() {
             "callee-3",
             "parent-4",
             false,
-            sdv(sr::<u32>("caller-2")),
+            b(sr::<u32>("caller-2")),
         )),
-        E::input("trigger-1", sdv(Msg::Ref(sr::<u32>("caller-2")))),
+        E::input("trigger-1", b(Msg::Ref(sr::<u32>("caller-2")))),
         E::resume("trigger-1", Resp::Unit),
-        E::state("trigger-1", sdv(src::<u32>("caller-2"))),
-        E::input("trigger-1", sdv(Msg::Super)),
+        E::state("trigger-1", b(sr::<u32>("caller-2"))),
+        E::input("trigger-1", b(Msg::Super)),
         E::resume("trigger-1", Resp::Unit),
         E::suspend(Eff::send("trigger-1", "caller-2", true, sdv(6u32))),
         E::resume("trigger-1", Resp::Unit),

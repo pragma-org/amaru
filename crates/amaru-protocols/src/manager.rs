@@ -191,12 +191,10 @@ pub async fn stage(
                 }
                 ConnectionState::Scheduled => {
                     tracing::debug!(%peer, "connection died, reconnect already scheduled");
-                    return manager;
                 }
                 ConnectionState::Disconnecting => {
                     tracing::debug!(%peer, "peer terminated after removal");
                     manager.peers.remove(&peer);
-                    return manager;
                 }
             }
         }
