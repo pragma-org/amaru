@@ -267,8 +267,8 @@ fn scheduling() {
                         // A large enough delay ensures that those delays won't be effectively passed
                         // when we effectively schedule them with the tokio runtime.
                         // Otherwise they might trigger in the wrong expected order.
-                        eff.schedule_after(3, dur(500)).await;
-                        let id = eff.schedule_after(2, dur(200)).await;
+                        eff.schedule_after(3, dur(2000)).await;
+                        let id = eff.schedule_after(2, dur(1600)).await;
                         eff.schedule_after(1, dur(100)).await;
                         Some(id)
                     }
@@ -286,8 +286,8 @@ fn scheduling() {
         builder.preload(trigger, [0]).unwrap();
     }
     let schedule_ids = ScheduleIds::default();
-    let schedule_id_1 = schedule_ids.next_at(Instant::at_offset(dur(500)));
-    let schedule_id_2 = schedule_ids.next_at(Instant::at_offset(dur(200)));
+    let schedule_id_1 = schedule_ids.next_at(Instant::at_offset(dur(2000)));
+    let schedule_id_2 = schedule_ids.next_at(Instant::at_offset(dur(1600)));
     let schedule_id_3 = schedule_ids.next_at(Instant::at_offset(dur(100)));
 
     let expected = {
