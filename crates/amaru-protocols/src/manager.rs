@@ -35,6 +35,8 @@ pub enum ManagerMessage {
     ConnectionDied(Peer, ConnectionId),
     // TODO move to separate message type
     Connect(Peer),
+    Accept,
+    Accepted(Peer, ConnectionId),
     RemovePeer(Peer),
     FetchBlocks {
         peer: Peer,
@@ -155,6 +157,55 @@ pub async fn stage(
                 .await;
             eff.send(&connection, ConnectionMessage::Initialize).await;
             *entry = ConnectionState::Connected(conn_id, connection);
+        }
+        ManagerMessage::Accept => {
+            if Network::new(&eff)
+                .accept(Duration::from_secs(1))
+                .await
+                .is_err()
+            {
+                eff.schedule_after(ManagerMessage::Accept, Duration::from_secs(1))
+                    .await;
+                return manager;
+            }
+            eff.send(eff.me_ref(), ManagerMessage::Accept).await;
+        }
+        ManagerMessage::Accepted(peer, conn_id) => {
+            match manager.peers.get_mut(&peer) {
+                Some(ConnectionState::Connected(..)) => {
+                    tracing::debug!(%peer, "discarding connection request, already connected");
+                    return manager;
+                }
+                // TODO: not sure about the scheduled case
+                Some(ConnectionState::Disconnecting | ConnectionState::Scheduled) => {
+                    tracing::debug!(%peer, "discarding connection request, already disconnecting");
+                    return manager;
+                }
+                None => {}
+            };
+            let connection = eff
+                .stage(format!("{conn_id}-{peer}"), connection::stage)
+                .await;
+            let connection = eff.supervise(
+                connection,
+                ManagerMessage::ConnectionDied(peer.clone(), conn_id),
+            );
+            let connection = eff
+                .wire_up(
+                    connection,
+                    connection::Connection::new(
+                        peer.clone(),
+                        conn_id,
+                        Role::Initiator,
+                        manager.magic,
+                        manager.chain_sync.clone(),
+                    ),
+                )
+                .await;
+            eff.send(&connection, ConnectionMessage::Initialize).await;
+            manager
+                .peers
+                .insert(peer, ConnectionState::Connected(conn_id, connection));
         }
         ManagerMessage::RemovePeer(peer) => {
             let Some(entry) = manager.peers.get_mut(&peer) else {

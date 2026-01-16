@@ -26,3 +26,6 @@ pub mod network_effects;
 pub mod protocol;
 pub mod store_effects;
 pub mod tx_submission;
+
+#[cfg(test)]
+mod tests;

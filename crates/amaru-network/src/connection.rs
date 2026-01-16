@@ -14,10 +14,11 @@
 
 use crate::socket_addr::resolve;
 use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_kernel::peer::Peer;
 use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use bytes::{Buf, BytesMut};
 use parking_lot::Mutex;
-use pure_stage::BoxFuture;
+use pure_stage::{BoxFuture, Sender};
 use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -96,6 +97,7 @@ pub struct TokioConnections {
     connections: Arc<Mutex<Connections>>,
     read_buf_size: usize,
     listener: Arc<AsyncMutex<Option<TcpListener>>>,
+    accept_sender: Option<Sender<(Peer, ConnectionId)>>,
 }
 
 impl TokioConnections {
@@ -104,7 +106,13 @@ impl TokioConnections {
             connections: Arc::new(Mutex::new(Connections::new())),
             read_buf_size,
             listener: Arc::new(AsyncMutex::new(None)),
+            accept_sender: None,
         }
+    }
+
+    pub fn with_accept_sender(mut self, accept_sender: Sender<(Peer, ConnectionId)>) -> Self {
+        self.accept_sender = Some(accept_sender);
+        self
     }
 }
 
@@ -126,24 +134,6 @@ async fn connect(
         read_buf_size,
     ));
     Ok(id)
-}
-
-impl TokioConnections {
-    /// Accept a single incoming connection for tests
-    pub fn listen(
-        &self,
-        addr: SocketAddr,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        let this = self.clone();
-        Box::pin(
-            async move {
-                this.bind(addr).await?;
-                this.accept(timeout).await
-            }
-            .instrument(tracing::debug_span!("listen", %addr)),
-        )
-    }
 }
 
 impl ConnectionProvider for TokioConnections {
@@ -171,6 +161,7 @@ impl ConnectionProvider for TokioConnections {
         let listener = self.listener.clone();
         let resource = self.connections.clone();
         let read_buf_size = self.read_buf_size;
+        let accept_sender = self.accept_sender.clone();
         Box::pin(
             async move {
                 let guard = listener.lock().await;
@@ -183,14 +174,22 @@ impl ConnectionProvider for TokioConnections {
 
                 let (reader, writer) = stream.into_split();
                 tracing::debug!(%peer_addr, "accepted connection");
+                let id = {
+                    let mut connections = resource.lock();
+                    connections.add_connection(Connection::new(
+                        peer_addr,
+                        reader,
+                        writer,
+                        read_buf_size,
+                    ))
+                };
 
-                let mut connections = resource.lock();
-                let id = connections.add_connection(Connection::new(
-                    peer_addr,
-                    reader,
-                    writer,
-                    read_buf_size,
-                ));
+                if let Some(sender) = accept_sender {
+                    let peer = Peer::new(peer_addr.to_string().as_str());
+                    sender.send((peer, id.clone())).await.map_err(|_| {
+                        std::io::Error::other("failed to send accepted connection to accept stage")
+                    })?;
+                }
                 Ok(id)
             }
             .instrument(tracing::debug_span!("accept")),
