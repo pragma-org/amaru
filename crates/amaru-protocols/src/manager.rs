@@ -28,7 +28,7 @@ use std::{collections::BTreeMap, time::Duration};
 pub enum ManagerMessage {
     AddPeer(Peer),
     /// Internal message sent from the connection stage only!
-    ConnectionDied(Peer),
+    ConnectionDied(Peer, ConnectionId),
     Connect(Peer),
     RemovePeer(Peer),
     FetchBlocks {
@@ -115,8 +115,10 @@ pub async fn stage(
             let connection = eff
                 .stage(format!("{conn_id}-{peer}"), connection::stage)
                 .await;
-            let connection =
-                eff.supervise(connection, ManagerMessage::ConnectionDied(peer.clone()));
+            let connection = eff.supervise(
+                connection,
+                ManagerMessage::ConnectionDied(peer.clone(), conn_id),
+            );
             let connection = eff
                 .wire_up(
                     connection,
@@ -148,16 +150,16 @@ pub async fn stage(
                 }
             }
         }
-        ManagerMessage::ConnectionDied(peer) => {
+        ManagerMessage::ConnectionDied(peer, conn_id) => {
+            if let Err(err) = Network::new(&eff).close(conn_id).await {
+                tracing::error!(?err, %peer, "failed to close connection");
+            }
             let Some(peer_state) = manager.peers.get_mut(&peer) else {
                 tracing::debug!(%peer, "connection died, peer already removed");
                 return manager;
             };
             match peer_state {
-                ConnectionState::Connected(connection_id, ..) => {
-                    if let Err(err) = Network::new(&eff).close(*connection_id).await {
-                        tracing::error!(?err, %peer, "failed to close connection");
-                    }
+                ConnectionState::Connected(..) => {
                     tracing::info!(%peer, "disconnected from peer, scheduling reconnect");
                     eff.schedule_after(ManagerMessage::Connect(peer), Duration::from_secs(10))
                         .await;
@@ -167,10 +169,7 @@ pub async fn stage(
                     tracing::debug!(%peer, "connection died, peer already scheduled");
                     return manager;
                 }
-                ConnectionState::Disconnecting(connection_id) => {
-                    if let Err(err) = Network::new(&eff).close(*connection_id).await {
-                        tracing::error!(?err, %peer, "failed to close connection");
-                    }
+                ConnectionState::Disconnecting(..) => {
                     tracing::debug!(%peer, "peer terminated after removal");
                     manager.peers.remove(&peer);
                     return manager;
