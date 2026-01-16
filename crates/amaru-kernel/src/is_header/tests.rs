@@ -52,10 +52,25 @@ pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<BlockHeader>> {
     prop::collection::vec(any_header(), n).prop_map(make_headers())
 }
 
+/// Create a list of arbitrary headers starting from a root with the specified hash, and where chain[i] is the parent of chain[i+1]
+pub fn any_headers_chain_with_root(
+    n: usize,
+    header_hash: HeaderHash,
+) -> impl Strategy<Value = Vec<BlockHeader>> {
+    prop::collection::vec(any_header(), n).prop_map(make_headers_with_root_hash(Some(header_hash)))
+}
+
 /// Given a list of headers, set their block_number, slot and parent fields to form a valid chain
 fn make_headers() -> impl Fn(Vec<BlockHeader>) -> Vec<BlockHeader> {
-    |headers| {
-        let mut parent = None;
+    make_headers_with_root_hash(None)
+}
+
+/// Given a list of headers, set their block_number, slot and parent fields to form a valid chain
+fn make_headers_with_root_hash(
+    header_hash: Option<HeaderHash>,
+) -> impl Fn(Vec<BlockHeader>) -> Vec<BlockHeader> {
+    move |headers| {
+        let mut parent = header_hash;
         headers
             .into_iter()
             .enumerate()

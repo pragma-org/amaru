@@ -58,7 +58,7 @@ use crate::protocol::{
 };
 use crate::tx_submission::{Blocking, Message, ProtocolError, State};
 use ProtocolError::*;
-use amaru_kernel::Tx;
+use amaru_kernel::{Tx, display_collection};
 use amaru_ouroboros::{MempoolSeqNo, TxSubmissionMempool};
 use amaru_ouroboros_traits::TxId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -134,7 +134,7 @@ impl ProtocolState<Initiator> for State {
     ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok(match (self, input) {
             (State::Idle, Message::RequestTxIdsBlocking(ack, req)) => {
-                tracing::trace!(ack=%ack, req=%req, "received RequestTxIdsBlocking");
+                tracing::debug!(%ack, %req, "received RequestTxIdsBlocking");
                 (
                     outcome().result(InitiatorResult::RequestTxIds {
                         ack,
@@ -145,7 +145,7 @@ impl ProtocolState<Initiator> for State {
                 )
             }
             (State::Idle, Message::RequestTxIdsNonBlocking(ack, req)) => {
-                tracing::trace!(ack=%ack, req=%req, "received RequestTxIdsNonBlocking");
+                tracing::debug!(%ack, %req, "received RequestTxIdsNonBlocking");
                 (
                     outcome().result(InitiatorResult::RequestTxIds {
                         ack,
@@ -156,7 +156,7 @@ impl ProtocolState<Initiator> for State {
                 )
             }
             (State::Idle, Message::RequestTxs(tx_ids)) => {
-                tracing::trace!(tx_ids_nb = tx_ids.len(), "received RequestTxs");
+                tracing::debug!(tx_ids_nb = tx_ids.len(), "received RequestTxs");
                 (
                     outcome().result(InitiatorResult::RequestTxs(tx_ids)),
                     State::Txs,
@@ -278,7 +278,7 @@ impl TxSubmissionInitiator {
         req: u16,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         // check the ack and req values
-        tracing::trace!(?ack, ?req, "received RequestTxIdsBlocking");
+        tracing::debug!(%ack, %req, "received RequestTxIdsBlocking");
         if req == 0 {
             return protocol_error(NoTxIdsRequested);
         };
@@ -308,7 +308,7 @@ impl TxSubmissionInitiator {
         req: u16,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         // check the ack and req values
-        tracing::trace!(?ack, ?req, "received RequestTxIdsNonBlocking");
+        tracing::debug!(%ack, %req, "received RequestTxIdsNonBlocking");
         if ack == 0 && req == 0 {
             return protocol_error(NoAckOrReqTxIdsRequested);
         }
@@ -331,7 +331,7 @@ impl TxSubmissionInitiator {
         mempool: &dyn TxSubmissionMempool<Tx>,
         tx_ids: Vec<TxId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
-        tracing::trace!(?tx_ids, "received RequestTxs");
+        tracing::debug!(tx_ids = display_collection(&tx_ids), "received RequestTxs");
         if tx_ids.is_empty() {
             return protocol_error(NoTxsRequested);
         }

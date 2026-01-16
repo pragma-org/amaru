@@ -203,10 +203,14 @@ async fn do_initialize(
         .contramap(&handshake, "handshake_bytes", Inputs::Network)
         .await;
 
+    let protocol = match role {
+        Role::Initiator => PROTO_HANDSHAKE.erase(),
+        Role::Responder => PROTO_HANDSHAKE.responder().erase(),
+    };
     eff.send(
         &muxer,
         MuxMessage::Register {
-            protocol: PROTO_HANDSHAKE.erase(),
+            protocol,
             frame: mux::Frame::OneCborItem,
             handler,
             max_buffer: 5760,
