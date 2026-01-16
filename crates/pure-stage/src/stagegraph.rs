@@ -44,7 +44,7 @@ impl ScheduleId {
 
 impl fmt::Display for ScheduleId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "id {} at {}", self.0, self.1)
+        write!(f, "id {} at {}", self.1, self.0)
     }
 }
 

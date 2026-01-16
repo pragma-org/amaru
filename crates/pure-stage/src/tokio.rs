@@ -338,53 +338,72 @@ async fn run_stage_boxed(
         tb.lock().push_terminated_aborted(&stage_name)
     });
 
-    'outer: loop {
-        inner.trace_buffer.lock().push_state(&stage_name, &state);
+    let mut msgs = Vec::new();
 
-        let msg = loop {
-            tokio::select! { biased;
-                Some(res) = timers.next(), if !timers.is_empty() => match res {
-                    PriorityMessage::Scheduled(msg, id) => {
-                        cancellation.remove(&id);
-                        break msg;
+    inner.trace_buffer.lock().push_state(&stage_name, &state);
+
+    'outer: loop {
+        let poll_timers = !timers.is_empty();
+        // if multiple timers have fired since the last poll, we need them all so that we can deliver them in order
+        let mut timer_chunks = (&mut timers).ready_chunks(1000);
+
+        tokio::select! { biased;
+            Some(res) = timer_chunks.next(), if poll_timers => {
+                let mut scheduled = Vec::new();
+                for msg in res {
+                    match msg {
+                        PriorityMessage::Scheduled(msg, id) => {
+                            cancellation.remove(&id);
+                            scheduled.push((id, msg));
+                        }
+                        PriorityMessage::TimerCancelled(_id) => {}
+                        PriorityMessage::Tombstone(msg) => msgs.push(msg),
                     }
-                    PriorityMessage::TimerCancelled(_id) => continue,
-                    PriorityMessage::Tombstone(msg) => break msg,
-                },
-                Some(msg) = rx.recv() => break msg,
-                else => {
-                    tracing::error!(%stage_name, "stage sender dropped");
+                }
+                // ensure that earliest timer is delivered first
+                scheduled.sort_by_key(|(id, _)| *id);
+                for (_id, msg) in scheduled {
+                    msgs.push(msg);
+                }
+            }
+            Some(msg) = rx.recv() => msgs.push(msg),
+            else => {
+                tracing::error!(%stage_name, "stage sender dropped");
+                break;
+            }
+        }
+
+        for msg in msgs.drain(..) {
+            if let Ok(CanSupervise(child)) = msg.cast_ref::<CanSupervise>() {
+                tracing::debug!(
+                    "stage `{stage_name}` terminates because of an unsupervised child termination"
+                );
+                tb.lock().push_terminated_supervision(&stage_name, child);
+                break 'outer;
+            }
+
+            inner.trace_buffer.lock().push_input(&stage_name, &msg);
+
+            let f = (transition)(state, msg);
+            let result = interpreter(
+                &inner,
+                &effect,
+                &stage_name,
+                &mut timers,
+                &mut cancellation,
+                f,
+            )
+            .await;
+            match result {
+                Some(st) => state = st,
+                None => {
+                    tracing::info!(%stage_name, "terminated");
+                    tb.lock().push_terminated_voluntary(&stage_name);
                     break 'outer;
                 }
             }
-        };
-        if let Ok(CanSupervise(child)) = msg.cast_ref::<CanSupervise>() {
-            tracing::debug!(
-                "stage `{stage_name}` terminates because of an unsupervised child termination"
-            );
-            tb.lock().push_terminated_supervision(&stage_name, child);
-            break;
-        }
 
-        inner.trace_buffer.lock().push_input(&stage_name, &msg);
-
-        let f = (transition)(state, msg);
-        let result = interpreter(
-            &inner,
-            &effect,
-            &stage_name,
-            &mut timers,
-            &mut cancellation,
-            f,
-        )
-        .await;
-        match result {
-            Some(st) => state = st,
-            None => {
-                tracing::info!(%stage_name, "terminated");
-                tb.lock().push_terminated_voluntary(&stage_name);
-                break;
-            }
+            inner.trace_buffer.lock().push_state(&stage_name, &state);
         }
     }
 

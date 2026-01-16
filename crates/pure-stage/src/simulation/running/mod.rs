@@ -235,10 +235,6 @@ impl SimulationRunning {
         id: ScheduleId,
         wakeup: impl FnOnce(&mut SimulationRunning) + Send + 'static,
     ) {
-        assert!(
-            id.time() > self.clock.now(),
-            "cannot schedule wakeup now or in the past"
-        );
         self.scheduled.schedule(id, Box::new(wakeup));
     }
 
