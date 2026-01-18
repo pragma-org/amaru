@@ -21,27 +21,16 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
-use pallas_addresses::{
-    byron::{AddrAttrProperty, AddressPayload},
-    *,
-};
-use pallas_primitives::conway::{MintedPostAlonzoTransactionOutput, RedeemerTag};
-use sha3::{Digest as _, Sha3_256};
-use std::{
-    array::TryFromSliceError,
-    borrow::Cow,
-    cmp::Ordering,
-    collections::BTreeMap,
-    fmt::{self, Debug, Formatter},
-    ops::Deref,
-    sync::Arc,
-};
-
+use crate::string_utils::ListToString;
 pub use amaru_minicbor_extra::*;
 pub use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 pub use pallas_addresses::{
-    Address, Error as AddressError, Network, ShelleyAddress, ShelleyDelegationPart,
-    ShelleyPaymentPart, StakeAddress, StakePayload, byron::AddrType,
+    byron::AddrType, Address, Error as AddressError, Network, ShelleyAddress,
+    ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakePayload,
+};
+use pallas_addresses::{
+    byron::{AddrAttrProperty, AddressPayload},
+    *,
 };
 pub use pallas_codec::{
     minicbor as cbor,
@@ -51,8 +40,8 @@ pub use pallas_crypto::{
     hash::{Hash, Hasher},
     key::ed25519,
 };
+use pallas_primitives::conway::{MintedPostAlonzoTransactionOutput, RedeemerTag};
 pub use pallas_primitives::{
-    DnsName, Fragment, IPv4, IPv6, Port,
     alonzo::{TransactionOutput as AlonzoTransactionOutput, Value as AlonzoValue},
     babbage::{Header, MintedHeader, PseudoHeader},
     conway::{
@@ -70,10 +59,21 @@ pub use pallas_primitives::{
         TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure,
         VotingProcedures as PallasVotingProcedures, VrfKeyhash, WitnessSet,
     },
+    DnsName, Fragment, IPv4, IPv6, Port,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
 pub use sha3;
+use sha3::{Digest as _, Sha3_256};
+use std::{
+    array::TryFromSliceError,
+    borrow::Cow,
+    cmp::Ordering,
+    collections::BTreeMap,
+    fmt::{self, Debug, Formatter},
+    ops::Deref,
+    sync::Arc,
+};
 
 pub use account::*;
 pub mod account;
@@ -91,6 +91,9 @@ pub use ballot_id::*;
 pub mod ballot_id;
 
 pub mod bytes;
+
+pub mod block;
+pub use block::*;
 
 pub use certificate_pointer::*;
 pub mod certificate_pointer;
@@ -183,18 +186,13 @@ pub use transaction::*;
 pub mod transaction_body;
 pub use transaction_body::*;
 
-pub mod block;
-pub use block::*;
-
-pub mod witness_set;
-pub use witness_set::*;
-
-use crate::string_utils::ListToString;
 pub use transaction_pointer::*;
-
 pub mod transaction_pointer;
 
 pub mod vote;
+
+pub mod witness_set;
+pub use witness_set::*;
 
 pub mod macros;
 pub mod serde_utils;
@@ -215,7 +213,7 @@ pub mod tests {
         transaction_pointer::tests::*, vote::tests::*,
     };
     use proptest::prelude::*;
-    use rand::{SeedableRng, prelude::StdRng};
+    use rand::{prelude::StdRng, SeedableRng};
 
     prop_compose! {
         pub fn any_key_hash()(bytes in any::<[u8; 28]>()) -> Hash<28> {
