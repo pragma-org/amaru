@@ -368,13 +368,13 @@ where
 impl<const VER: u8, K, V> ToPlutusData<VER> for NonEmptyKeyValuePairs<K, V>
 where
     PlutusVersion<VER>: IsKnownPlutusVersion,
-    K: ToPlutusData<VER> + Clone,
+    K: ToPlutusData<VER> + Clone + Eq,
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         Ok(PlutusData::Map(KeyValuePairs::Def(
             self.iter()
-                .map(|(key, value)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
+                .map(|(key, value): &(K, V)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,
         )))
     }

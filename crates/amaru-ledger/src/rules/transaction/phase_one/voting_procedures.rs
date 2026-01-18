@@ -21,7 +21,9 @@ use std::collections::BTreeMap;
 
 pub(crate) fn execute<C>(
     context: &mut C,
-    voting_procedures: Option<Vec<(Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>)>>,
+    voting_procedures: Option<
+        NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>,
+    >,
 ) where
     C: WitnessSlice + ProposalsSlice,
 {
@@ -95,16 +97,16 @@ mod tests {
     fn voting_procedures(
         (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
     ) {
+        let voting_procedures = std::mem::take(&mut tx.unwrap().voting_procedures);
+
         assert_trace(
             || {
                 let mut validation_context =
                     AssertValidationContext::from(AssertPreparationContext {
                         utxo: BTreeMap::new(),
                     });
-                super::execute(
-                    &mut validation_context,
-                    tx.voting_procedures.as_deref().cloned(),
-                )
+
+                super::execute(&mut validation_context, voting_procedures)
             },
             expected_traces,
         );

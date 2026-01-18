@@ -27,8 +27,10 @@ static TAG_SET: u64 = 258;
 
 /// A read-only non-empty set: unique set of values with at least one element.
 ///
-/// Note: we use an underlying `Vec` to keep the order of elements unchanged from any deserialised
-/// value.
+/// Note: we use an underlying `Vec` to
+///
+/// - keep the order of elements unchanged from original values;
+/// - lower requirements on `T`.
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Serialize, Deserialize)]
 pub struct NonEmptySet<T: Eq>(Vec<T>);
 
@@ -67,9 +69,9 @@ impl<T: Eq> From<NonEmptySet<KeepRaw<'_, T>>> for NonEmptySet<T> {
     }
 }
 
-impl<T: Eq> AsRef<Vec<T>> for NonEmptySet<T> {
-    fn as_ref(&self) -> &Vec<T> {
-        &self.0
+impl<T: Eq> AsRef<[T]> for NonEmptySet<T> {
+    fn as_ref(&self) -> &[T] {
+        self.0.deref()
     }
 }
 
@@ -113,7 +115,7 @@ where
 
         let vec: Vec<T> = d.decode_with(ctx)?;
 
-        Self::try_from(vec).map_err(|e| Error::message(e.to_string()))
+        Self::try_from(vec).map_err(Error::message)
     }
 }
 
@@ -143,13 +145,13 @@ pub enum IntoNonEmptySetError {
 /// 2. We want to preserve the underlying order when possible;
 ///
 /// Pre-condition: the slice is NOT empty.
-fn has_duplicate<T: Eq>(xs: &[T]) -> bool {
+pub(crate) fn has_duplicate<T: Eq>(xs: &[T]) -> bool {
     let last = xs.len() - 1;
 
     for i in 0..last {
-        let x = &xs[i];
-        for y in xs.iter().take(last + 1).skip(i + 1) {
-            if x == y {
+        let x1 = &xs[i];
+        for x2 in xs.iter().take(last + 1).skip(i + 1) {
+            if x1 == x2 {
                 return true;
             }
         }

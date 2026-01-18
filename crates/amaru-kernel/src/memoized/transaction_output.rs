@@ -305,11 +305,9 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(
 
                 let policy_id: PolicyId = Hash::from(policy_id.as_slice());
 
-                let pairs = NonEmptyKeyValuePairs::from_vec(converted_assets)
-                    .ok_or(serde::de::Error::custom(format!(
-                        "empty asset bundle: {policy_id}"
-                    )))?
-                    .to_pallas();
+                let pairs = NonEmptyKeyValuePairs::try_from(converted_assets)
+                    .map_err(|e| serde::de::Error::custom(format!("invalid asset bundle: {e}")))?
+                    .as_pallas();
 
                 converted_multiasset.push((policy_id, pairs));
             }

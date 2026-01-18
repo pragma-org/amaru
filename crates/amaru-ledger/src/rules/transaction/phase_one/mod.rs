@@ -196,10 +196,7 @@ where
         mem::take(&mut transaction_body.proposal_procedures).map(|xs| xs.to_vec()),
     );
 
-    voting_procedures::execute(
-        context,
-        mem::take(&mut transaction_body.voting_procedures).map(|xs| xs.to_vec()),
-    );
+    voting_procedures::execute(context, mem::take(&mut transaction_body.voting_procedures));
 
     vkey_witness::execute(
         context,
