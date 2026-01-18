@@ -235,7 +235,7 @@ mod tests {
                 super::execute(
                     &mut validation_context,
                     &tx.inputs,
-                    tx.reference_inputs.as_deref().map(|vec| vec.as_slice()),
+                    tx.reference_inputs.as_deref(),
                 )
             },
             expected_traces,

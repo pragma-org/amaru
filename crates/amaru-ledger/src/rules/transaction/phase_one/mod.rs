@@ -127,19 +127,13 @@ where
     inputs::execute(
         context,
         transaction_body.inputs.deref(),
-        transaction_body
-            .reference_inputs
-            .as_deref()
-            .map(|vec| vec.as_slice()),
+        transaction_body.reference_inputs.as_deref(),
     )?;
 
     if transaction_witness_set.redeemer.is_some() {
         collateral::execute(
             context,
-            transaction_body
-                .collateral
-                .as_deref()
-                .map(|vec| vec.as_slice()),
+            transaction_body.collateral.as_deref(),
             transaction_body.collateral_return.as_ref(),
             transaction_body.total_collateral,
             transaction_body.fee,

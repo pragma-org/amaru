@@ -14,93 +14,76 @@
 
 use crate::{
     Deref, KeepRaw,
-    cbor::{Decode, Encode, data::Tag, data::Type, decode::Error},
+    cbor::{
+        Decode, Encode,
+        data::{Tag, Type},
+        decode::Error,
+    },
 };
-
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 static TAG_SET: u64 = 258;
 
-/// Non-empty Set
+/// A read-only non-empty set: unique set of values with at least one element.
 ///
-/// Optional 258 tag (until era after Conway, at which point is it required)
-/// with a vec of items which should contain no duplicates
+/// Note: we use an underlying `Vec` to keep the order of elements unchanged from any deserialised
+/// value.
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Serialize, Deserialize)]
-pub struct NonEmptySet<T>(Vec<T>);
+pub struct NonEmptySet<T: Eq>(Vec<T>);
 
-impl<T> NonEmptySet<T> {
-    pub fn to_vec(self) -> Vec<T> {
-        self.0
-    }
-
-    pub fn from_vec(x: Vec<T>) -> Option<Self> {
-        if x.is_empty() { None } else { Some(Self(x)) }
+impl<T: Eq> From<NonEmptySet<T>> for Vec<T> {
+    fn from(set: NonEmptySet<T>) -> Self {
+        set.0
     }
 }
 
-impl<T> Deref for NonEmptySet<T> {
-    type Target = Vec<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl<T: Eq + Ord> From<NonEmptySet<T>> for BTreeSet<T> {
+    fn from(set: NonEmptySet<T>) -> Self {
+        BTreeSet::from_iter(Vec::from(set))
     }
 }
 
-impl<T> TryFrom<Vec<T>> for NonEmptySet<T> {
-    type Error = Vec<T>;
+impl<T: Eq> TryFrom<Vec<T>> for NonEmptySet<T> {
+    type Error = IntoNonEmptySetError;
 
-    fn try_from(value: Vec<T>) -> Result<Self, Self::Error> {
-        if value.is_empty() {
-            Err(value)
-        } else {
-            Ok(NonEmptySet(value))
+    fn try_from(vec: Vec<T>) -> Result<Self, Self::Error> {
+        if vec.is_empty() {
+            return Err(Self::Error::Empty);
         }
+
+        if has_duplicate(vec.as_slice()) {
+            return Err(Self::Error::HasDuplicate);
+        }
+
+        Ok(Self(vec))
     }
 }
 
-impl<T> From<NonEmptySet<KeepRaw<'_, T>>> for NonEmptySet<T> {
+impl<T: Eq> From<NonEmptySet<KeepRaw<'_, T>>> for NonEmptySet<T> {
     fn from(value: NonEmptySet<KeepRaw<'_, T>>) -> Self {
         let inner = value.0.into_iter().map(|x| x.unwrap()).collect();
         Self(inner)
     }
 }
 
-impl<'a, T> IntoIterator for &'a NonEmptySet<T> {
-    type Item = &'a T;
-    type IntoIter = std::slice::Iter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+impl<T: Eq> AsRef<Vec<T>> for NonEmptySet<T> {
+    fn as_ref(&self) -> &Vec<T> {
+        &self.0
     }
 }
 
-impl<'b, C, T> minicbor::decode::Decode<'b, C> for NonEmptySet<T>
-where
-    T: Decode<'b, C>,
-{
-    fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        // decode optional set tag (this will be required in era following Conway)
-        if d.datatype()? == Type::Tag {
-            let found_tag = d.tag()?;
+impl<T: Eq> Deref for NonEmptySet<T> {
+    type Target = [T];
 
-            if found_tag != Tag::new(TAG_SET) {
-                return Err(Error::message(format!("Unrecognised tag: {found_tag:?}")));
-            }
-        }
-
-        let inner: Vec<T> = d.decode_with(ctx)?;
-
-        if inner.is_empty() {
-            return Err(Error::message("decoding empty set as NonEmptySet"));
-        }
-
-        Ok(Self(inner))
+    fn deref(&self) -> &Self::Target {
+        self.0.as_slice()
     }
 }
 
 impl<C, T> minicbor::encode::Encode<C> for NonEmptySet<T>
 where
-    T: Encode<C>,
+    T: Eq + Encode<C>,
 {
     fn encode<W: minicbor::encode::Write>(
         &self,
@@ -108,8 +91,148 @@ where
         ctx: &mut C,
     ) -> Result<(), minicbor::encode::Error<W::Error>> {
         e.tag(Tag::new(TAG_SET))?;
-        e.encode_with(&self.0, ctx)?;
-
+        e.encode_with(self.deref(), ctx)?;
         Ok(())
+    }
+}
+
+impl<'b, C, T> minicbor::decode::Decode<'b, C> for NonEmptySet<T>
+where
+    T: Eq + Decode<'b, C>,
+{
+    fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        // optional set tag (this will be required in era following Conway)
+        if d.datatype()? == Type::Tag {
+            let found_tag = d.tag()?;
+            if found_tag != Tag::new(TAG_SET) {
+                return Err(Error::message(format!(
+                    "unrecognised tag; expected={TAG_SET}, found={found_tag}"
+                )));
+            }
+        }
+
+        let vec: Vec<T> = d.decode_with(ctx)?;
+
+        Self::try_from(vec).map_err(|e| Error::message(e.to_string()))
+    }
+}
+
+// ----------------------------------------------------------------------------
+// IntoNonEmptySetError
+// ----------------------------------------------------------------------------
+
+/// Errors that may occur when constructing a NonEmptySet.
+#[derive(Debug, thiserror::Error)]
+pub enum IntoNonEmptySetError {
+    #[error("empty set when expected at least one element")]
+    Empty,
+    #[error("found duplicate elements when converting collection to a set")]
+    HasDuplicate,
+}
+
+// ----------------------------------------------------------------------------
+// Internals
+// ----------------------------------------------------------------------------
+
+/// Check whether a slice contains duplicate relying only on the `Eq` instance and minimizing
+/// allocation. The check is still in O(n*log(n)).
+///
+/// We do not use HashSet or BTreeSet for mainly two reasons:
+///
+/// 1. They introduce additional requirements on `T` (Hash in one case, and Ord on the other).
+/// 2. We want to preserve the underlying order when possible;
+///
+/// Pre-condition: the slice is NOT empty.
+fn has_duplicate<T: Eq>(xs: &[T]) -> bool {
+    let last = xs.len() - 1;
+
+    for i in 0..last {
+        let x = &xs[i];
+        for y in xs.iter().take(last + 1).skip(i + 1) {
+            if x == y {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NonEmptySet, has_duplicate};
+    use amaru_minicbor_extra::{from_cbor_no_leftovers, to_cbor};
+    use proptest::{collection, prelude::*};
+    use std::{collections::BTreeSet, ops::Deref};
+    use test_case::test_case;
+
+    #[test]
+    fn has_duplicate_empty() {
+        assert!(matches!(
+            std::panic::catch_unwind(|| {
+                let slice: &[u8] = &[];
+                has_duplicate(slice)
+            }),
+            Err(..)
+        ))
+    }
+
+    #[test_case(&[1], false)]
+    #[test_case(&[1, 1], true)]
+    #[test_case(&[1, 2, 3, 4, 5], false)]
+    #[test_case(&[1, 2, 2, 4, 5], true)]
+    #[test_case(&[1, 2, 3, 4, 4], true)]
+    #[test_case(&[3, 1, 4, 2, 3], true)]
+    fn has_duplicate_non_empty(slice: &[u8], result: bool) {
+        assert!(has_duplicate(slice) == result, "{slice:?}");
+    }
+
+    proptest! {
+        #[test]
+        fn roundtrip_encode_decode(elems in collection::vec(any::<u8>(), 1..100)) {
+            let set: Vec<u8> = BTreeSet::from_iter(elems).into_iter().collect();
+            let non_empty_set: NonEmptySet<u8> = NonEmptySet::try_from(set).unwrap();
+            assert_eq!(
+                from_cbor_no_leftovers::<NonEmptySet<u8>>(to_cbor(&non_empty_set).as_slice()).unwrap(),
+                non_empty_set,
+            )
+        }
+    }
+
+    #[test_case("D901028101", &[1], true; "tagged singleton")]
+    #[test_case("8101", &[1], false; "singleton")]
+    #[test_case("D901029F010203FF", &[1,2,3], false; "tagged indef array")]
+    #[test_case("9F010203FF", &[1,2,3], false; "indef array")]
+    #[test_case("D9010283040102", &[4, 1, 2], true; "tagged def array")]
+    #[test_case("83040102", &[4, 1, 2], false; "def array")]
+    fn from_cbor_success(s: &str, expected: &[u8], expected_roundtrip: bool) {
+        let original_bytes = hex::decode(s).unwrap();
+        match from_cbor_no_leftovers::<NonEmptySet<u8>>(original_bytes.as_slice()) {
+            Ok(set) => {
+                assert_eq!(set.deref(), expected);
+                let bytes = to_cbor(&set);
+                assert_eq!(
+                    bytes == original_bytes,
+                    expected_roundtrip,
+                    "bytes={}, original_bytes={s}, expected_roundtrip={expected_roundtrip}",
+                    hex::encode(&bytes),
+                );
+            }
+            Err(err) => panic!("{err}"),
+        }
+    }
+
+    #[test_case("D9010280"; "empty tagged set")]
+    #[test_case("D901028401010203"; "tagged with duplicates")]
+    #[test_case("80"; "empty set")]
+    #[test_case("83010201"; "with duplicates")]
+    #[test_case("D90102A10102"; "not an array")]
+    #[test_case("D9010282010203"; "leftovers")]
+    #[test_case("D81B8101"; "unknown tag")]
+    fn from_cbor_failures(s: &str) {
+        assert!(matches!(
+            from_cbor_no_leftovers::<NonEmptySet<u8>>(hex::decode(s).unwrap().as_slice()),
+            Err(..),
+        ));
     }
 }

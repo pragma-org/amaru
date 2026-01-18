@@ -16,7 +16,6 @@ use crate::{
     Deref, KeyValuePairs,
     cbor::{Decode, Encode, decode::Error},
 };
-
 use serde::{Deserialize, Serialize};
 
 /// Custom collection to ensure ordered pairs of values (non-empty)

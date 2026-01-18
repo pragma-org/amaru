@@ -102,7 +102,7 @@ where
         .as_ref()
         .map(|reference_inputs| {
             reference_inputs
-                .into_iter()
+                .iter()
                 .map(|input| {
                     Ok((
                         input.clone(),

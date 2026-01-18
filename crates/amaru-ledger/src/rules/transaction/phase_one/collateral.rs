@@ -368,7 +368,7 @@ mod tests {
     ) -> Result<(), InvalidCollateral> {
         super::execute(
             &mut ctx,
-            tx.collateral.as_deref().map(|vec| vec.as_slice()),
+            tx.collateral.as_deref(),
             tx.collateral_return.as_ref(),
             tx.total_collateral,
             tx.fee,

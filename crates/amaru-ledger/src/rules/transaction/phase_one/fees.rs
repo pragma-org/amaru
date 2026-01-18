@@ -32,7 +32,7 @@ pub(crate) fn execute<C>(
     context: &mut C,
     is_valid: bool,
     fees: Lovelace,
-    collateral: Option<&Vec<TransactionInput>>,
+    collateral: Option<&[TransactionInput]>,
     collateral_return: Option<&MintedTransactionOutput<'_>>,
 ) -> Result<(), InvalidFees>
 where
@@ -43,18 +43,18 @@ where
         return Ok(());
     }
 
-    let total_collateral = collateral
-        .map(|x| x.as_slice())
-        .unwrap_or(&[])
-        .iter()
-        .enumerate()
-        .try_fold(0, |total, (position, input)| {
-            let output = context
-                .lookup(input)
-                .ok_or(InvalidFees::UnknownCollateralInput { position })?;
+    let total_collateral =
+        collateral
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+            .try_fold(0, |total, (position, input)| {
+                let output = context
+                    .lookup(input)
+                    .ok_or(InvalidFees::UnknownCollateralInput { position })?;
 
-            Ok(total + output.lovelace())
-        })?;
+                Ok(total + output.lovelace())
+            })?;
 
     let collateral_return = collateral_return.map(|o| o.lovelace()).unwrap_or_default();
 

@@ -235,7 +235,6 @@ where
         transaction
             .required_signers
             .as_deref()
-            .map(|x| x.as_slice())
             .unwrap_or(&[])
             .iter()
             .for_each(|vk_hash| {

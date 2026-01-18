@@ -48,17 +48,11 @@ pub fn prepare_block<'block>(
     block.transaction_bodies.iter().for_each(|transaction| {
         let inputs = transaction.inputs.iter();
 
-        let collaterals = transaction
-            .collateral
-            .as_deref()
-            .map(|xs| xs.as_slice())
-            .unwrap_or(&[])
-            .iter();
+        let collaterals = transaction.collateral.as_deref().unwrap_or(&[]).iter();
 
         let reference_inputs = transaction
             .reference_inputs
             .as_deref()
-            .map(|xs| xs.as_slice())
             .unwrap_or(&[])
             .iter();
 
