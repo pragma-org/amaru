@@ -16,6 +16,7 @@ use crate::chainsync::ChainSyncInitiatorMsg;
 use crate::manager::{Manager, ManagerMessage};
 use crate::protocol::Role;
 use crate::store_effects::{ResourceHeaderStore, Store};
+use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
 use crate::{chainsync, manager};
 use amaru_kernel::is_header::tests::{any_headers_chain_with_root, make_header, run};
 use amaru_kernel::peer::Peer;
@@ -30,7 +31,7 @@ use amaru_ouroboros_traits::can_validate_blocks::mock::{
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, ConnectionId, ConnectionProvider, ConnectionResource,
-    ResourceMempool,
+    ResourceMempool, TxId,
 };
 use pallas_primitives::babbage::{Header, MintedHeader};
 use pallas_primitives::conway::Tx;
@@ -51,20 +52,30 @@ async fn test_connect_initiator_responder() -> anyhow::Result<()> {
 
     let port = get_listening_port(&responder).await?;
     let responder_chain_store = responder.resources().get::<ResourceHeaderStore>()?.clone();
+    let responder_mempool = responder.resources().get::<ResourceMempool<Tx>>()?.clone();
 
     let initiator = start_initiator(Some(port)).await?;
     let initiator_chain_store = initiator.resources().get::<ResourceHeaderStore>()?.clone();
+    let initiator_mempool = initiator.resources().get::<ResourceMempool<Tx>>()?.clone();
 
     tokio::select! {
         res = responder.join() => anyhow::bail!("responder terminated unexpectedly: {res:?}"),
         res = initiator.join() => anyhow::bail!("initiator terminated unexpectedly: {res:?}"),
-        _ = tokio::time::sleep(Duration::from_secs(3)) => {
-            tracing::info!("initiator/responder exchange ran for too long");
+        _ = tokio::time::sleep(Duration::from_secs(5)) => {
         }
     }
+
+    // Verify that the 2 nodes have the same best chain
     assert_eq!(
         initiator_chain_store.get_best_chain_hash(),
         responder_chain_store.get_best_chain_hash()
+    );
+
+    // Verify that the 2 nodes have the same transactions
+    let tx_ids = get_tx_ids();
+    assert_eq!(
+        responder_mempool.get_txs_for_ids(tx_ids.as_slice()),
+        initiator_mempool.get_txs_for_ids(tx_ids.as_slice())
     );
 
     Ok(())
@@ -253,7 +264,9 @@ fn add_resources(
     connections: TokioConnections,
 ) -> anyhow::Result<()> {
     let chain_store = Arc::new(InMemConsensusStore::default());
+    let mempool = Arc::new(InMemoryMempool::default());
     initialize_chain_store(chain_store.clone(), role)?;
+    initialize_mempool(mempool.clone(), role)?;
     network
         .resources()
         .put::<ResourceHeaderStore>(chain_store.clone());
@@ -266,9 +279,7 @@ fn add_resources(
     network
         .resources()
         .put::<ConnectionResource>(Arc::new(connections));
-    network
-        .resources()
-        .put::<ResourceMempool<Tx>>(Arc::new(InMemoryMempool::default()));
+    network.resources().put::<ResourceMempool<Tx>>(mempool);
     Ok(())
 }
 
@@ -294,4 +305,20 @@ fn initialize_chain_store(
         chain_store.set_best_chain_hash(&header.hash())?;
     }
     Ok(())
+}
+
+const TXS_NB: u64 = 10;
+
+fn initialize_mempool(mempool: Arc<InMemoryMempool<Tx>>, role: Role) -> anyhow::Result<()> {
+    let tx_count = if role == Role::Initiator { TXS_NB } else { 0 };
+    create_transactions_in_mempool(mempool.clone(), tx_count);
+    Ok(())
+}
+
+/// By construction we return the same tx ids as the ones created in the function above
+fn get_tx_ids() -> Vec<TxId> {
+    create_transactions(TXS_NB)
+        .into_iter()
+        .map(|tx| TxId::from(&tx))
+        .collect()
 }

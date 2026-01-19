@@ -354,6 +354,7 @@ impl TxSubmissionResponder {
             self.inflight_fetch_set.remove(&requested_id);
             match mempool.validate_transaction(tx.clone()) {
                 Ok(_) => {
+                    tracing::debug!("insert transaction {} into the mempool", requested_id);
                     mempool.insert(tx, origin.clone())?;
                 }
                 Err(e) => {
