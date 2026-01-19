@@ -15,12 +15,12 @@
 use crate::chainsync::ChainSyncInitiatorMsg;
 use crate::manager::{Manager, ManagerMessage};
 use crate::protocol::Role;
-use crate::store_effects::ResourceHeaderStore;
+use crate::store_effects::{ResourceHeaderStore, Store};
 use crate::{chainsync, manager};
 use amaru_kernel::is_header::tests::{any_headers_chain_with_root, make_header, run};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, cbor};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::can_validate_blocks::CanValidateHeaders;
@@ -32,6 +32,7 @@ use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, ConnectionId, ConnectionProvider, ConnectionResource,
     ResourceMempool,
 };
+use pallas_primitives::babbage::{Header, MintedHeader};
 use pallas_primitives::conway::Tx;
 use pure_stage::tokio::{TokioBuilder, TokioRunning};
 use pure_stage::{Effects, StageGraph, StageRef};
@@ -44,16 +45,68 @@ use tokio::time::timeout;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::test]
-#[ignore]
-async fn connect_initiator() -> anyhow::Result<()> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_test_writer()
-        .try_init();
+async fn test_connect_initiator_responder() -> anyhow::Result<()> {
+    setup_logging(true);
+    let responder: TokioRunning = start_responder().await?;
 
+    let port = get_listening_port(&responder).await?;
+    let responder_chain_store = responder.resources().get::<ResourceHeaderStore>()?.clone();
+
+    let initiator = start_initiator(Some(port)).await?;
+    let initiator_chain_store = initiator.resources().get::<ResourceHeaderStore>()?.clone();
+
+    tokio::select! {
+        res = responder.join() => anyhow::bail!("responder terminated unexpectedly: {res:?}"),
+        res = initiator.join() => anyhow::bail!("initiator terminated unexpectedly: {res:?}"),
+        _ = tokio::time::sleep(Duration::from_secs(3)) => {
+            tracing::info!("initiator/responder exchange ran for too long");
+        }
+    }
+    assert_eq!(
+        initiator_chain_store.get_best_chain_hash(),
+        responder_chain_store.get_best_chain_hash()
+    );
+
+    Ok(())
+}
+
+/// Create and start a responder node that listens for incoming connections on a free port found at
+/// runtime.
+async fn start_responder() -> anyhow::Result<TokioRunning> {
+    tracing::info!("Creating the responder");
+    let mut responder_network = TokioBuilder::default();
+    let responder_manager = Manager::new(NetworkMagic::PREPROD, StageRef::blackhole());
+    let responder_stage = responder_network.stage("responder", manager::stage);
+    let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
+    let accept_stage = responder_network.stage("accept", accept_stage);
+    let responder_sender = responder_network.input(&responder_stage);
+    let accept_stage = responder_network.wire_up(accept_stage, responder_stage.without_state());
+    let accept_sender = responder_network.input(accept_stage);
+    // Create a connection that notifies the accept stage about new connections
+    let responder_connections = TokioConnections::new(65535).with_accept_sender(accept_sender);
+    let peer_addr = responder_connections
+        .bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+        .await?;
+    add_resources(
+        &mut responder_network,
+        Role::Responder,
+        responder_connections,
+    )?;
+    tracing::info!("Responder listening on {}", peer_addr);
+
+    tracing::info!("Start the responder");
+    let running_responder = responder_network.run(Handle::current());
+    responder_sender.send(ManagerMessage::Accept).await.unwrap();
+    Ok(running_responder)
+}
+
+/// Create and start an initiator node that connects to the given port.
+/// ChainSync events are sent to a stage that stores them in the in-memory store without further processing.
+async fn start_initiator(port: Option<u16>) -> anyhow::Result<TokioRunning> {
     tracing::info!("Creating the initiator");
+    let port = port.unwrap_or(3005);
     let peer = Peer::new(
-        SocketAddr::from(([127, 0, 0, 1], 3005))
+        SocketAddr::from(([127, 0, 0, 1], port))
             .to_string()
             .as_str(),
     );
@@ -78,73 +131,33 @@ async fn connect_initiator() -> anyhow::Result<()> {
         .await
         .unwrap();
 
-    wait_for(running_initiator, Duration::from_secs(2000)).await?;
+    Ok(running_initiator)
+}
+
+/// If needed the initiator can be started alone for debugging purposes
+#[tokio::test]
+#[ignore]
+async fn connect_initiator() -> anyhow::Result<()> {
+    setup_logging(true);
+    let running = start_initiator(None).await?;
+    wait_for(running.join(), Duration::from_secs(2000)).await?;
     Ok(())
 }
 
-async fn chainsync_stage(_: (), msg: ChainSyncInitiatorMsg, eff: Effects<ChainSyncInitiatorMsg>) {
-    use crate::chainsync::InitiatorResult::*;
-    match msg.msg {
-        Initialize => {
-            tracing::info!(peer = %msg.peer,"initializing chainsync");
-        }
-        IntersectFound(point, tip) => {
-            tracing::info!(peer = %msg.peer, ?point, ?tip, "intersect found");
-        }
-        IntersectNotFound(tip) => {
-            tracing::info!(peer = %msg.peer, ?tip, "intersect not found");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::Done)
-                .await;
-        }
-        RollForward(header_content, tip) => {
-            tracing::info!(peer = %msg.peer, variant = header_content.variant,
-                byron_prefix = ?header_content.byron_prefix, ?tip, "roll forward");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
-                .await;
-        }
-        RollBackward(point, tip) => {
-            tracing::info!(peer = %msg.peer, ?point, ?tip, "roll backward");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
-                .await;
-        }
-    }
-}
-
+/// If needed the responder can be started alone for debugging purposes
 #[tokio::test]
 #[ignore]
 async fn connect_responder() -> anyhow::Result<()> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_test_writer()
-        .try_init();
-
-    tracing::info!("Creating the responder");
-    let mut responder_network = TokioBuilder::default();
-    let responder_manager = Manager::new(NetworkMagic::PREPROD, StageRef::blackhole());
-    let responder_stage = responder_network.stage("responder", manager::stage);
-    let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
-    let accept_stage = responder_network.stage("accept", accept_stage);
-    let responder_sender = responder_network.input(&responder_stage);
-    let accept_stage = responder_network.wire_up(accept_stage, responder_stage.without_state());
-    let accept_sender = responder_network.input(accept_stage);
-    // Create a connection that notifies the accept stage about new connections
-    let responder_connections = TokioConnections::new(65535).with_accept_sender(accept_sender);
-    let peer_addr = responder_connections
-        .bind(SocketAddr::from(([127, 0, 0, 1], 3005)))
-        .await?;
-    add_resources(
-        &mut responder_network,
-        Role::Responder,
-        responder_connections,
-    )?;
-    tracing::info!("Responder listening on {}", peer_addr);
-
-    tracing::info!("Start the responder");
-    let running_responder = responder_network.run(Handle::current());
-    responder_sender.send(ManagerMessage::Accept).await.unwrap();
-
-    wait_for(running_responder, Duration::from_secs(2000)).await?;
+    setup_logging(true);
+    let running = start_responder().await?;
+    wait_for(running.join(), Duration::from_secs(2000)).await?;
     Ok(())
+}
+
+/// Return the port that this node is currently listening on
+async fn get_listening_port(running: &TokioRunning) -> anyhow::Result<u16> {
+    let tokio_connections = running.resources().get::<ConnectionResource>()?.clone();
+    Ok(tokio_connections.listening_port().await?)
 }
 
 /// Create a stage that accepts incoming connections and notifies the manager
@@ -164,8 +177,62 @@ pub async fn accept_stage(
     manager_stage
 }
 
-async fn wait_for(running_responder: TokioRunning, duration: Duration) -> anyhow::Result<()> {
-    match timeout(duration, running_responder.join()).await {
+// HELPERS
+
+/// Log to the console (enable logs with the RUST_LOG env var, for example RUST_LOG=info)
+fn setup_logging(enable: bool) {
+    if !enable {
+        return;
+    };
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+}
+
+/// This is a ChainSync stage that just logs the events
+async fn chainsync_stage(_: (), msg: ChainSyncInitiatorMsg, eff: Effects<ChainSyncInitiatorMsg>) {
+    use crate::chainsync::InitiatorResult::*;
+    match msg.msg {
+        Initialize => {
+            tracing::info!(peer = %msg.peer,"initializing chainsync");
+        }
+        IntersectFound(point, tip) => {
+            tracing::info!(peer = %msg.peer, ?point, ?tip, "intersect found");
+        }
+        IntersectNotFound(tip) => {
+            tracing::info!(peer = %msg.peer, ?tip, "intersect not found");
+            eff.send(&msg.handler, chainsync::InitiatorMessage::Done)
+                .await;
+        }
+        RollForward(header_content, tip) => {
+            let minted_header: MintedHeader<'_> =
+                cbor::decode(header_content.cbor.as_slice()).unwrap();
+            let header = Header::from(minted_header);
+            let block_header = BlockHeader::from(header);
+            let header_hash = block_header.hash();
+            let store = Store::new(eff.clone());
+            store.store_header(&block_header).unwrap();
+            store.set_best_chain_hash(&header_hash).unwrap();
+
+            tracing::info!(peer = %msg.peer, hash = header_hash.to_string(), ?tip, "roll forward");
+            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
+                .await;
+        }
+        RollBackward(point, tip) => {
+            tracing::info!(peer = %msg.peer, ?point, ?tip, "roll backward");
+            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
+                .await;
+        }
+    }
+}
+
+/// This function can timeout the execution of a manager after a given duration.
+async fn wait_for<F>(running: F, duration: Duration) -> anyhow::Result<()>
+where
+    F: IntoFuture,
+{
+    match timeout(duration, running).await {
         Ok(_) => anyhow::bail!("test should have timed out"),
         Err(_) => {
             tracing::info!("test timed out as expected");
@@ -174,9 +241,12 @@ async fn wait_for(running_responder: TokioRunning, duration: Duration) -> anyhow
     Ok(())
 }
 
+/// Resource type definitions
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 
+/// Add resources for each role.
+/// In particular set up an in-memory chain store with different chain lengths for the initiator and responder.
 fn add_resources(
     network: &mut TokioBuilder,
     role: Role,
@@ -202,12 +272,13 @@ fn add_resources(
     Ok(())
 }
 
+/// Initialize the chain store with a chain of headers.
+/// The responder chain is longer than the initiator chain to force the initiator to catch up.
 fn initialize_chain_store(
     chain_store: Arc<InMemConsensusStore<BlockHeader>>,
     role: Role,
 ) -> anyhow::Result<()> {
     // Use the same root header for both initiator and responder
-    // but make the initiator chain shorter to force it to catch up to the responder
     let origin_hash: HeaderHash = amaru_kernel::Hash::from_str(
         "4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301",
     )?;
@@ -218,7 +289,7 @@ fn initialize_chain_store(
     headers.insert(0, root_header);
 
     for header in headers.iter() {
-        chain_store.store_header(&header)?;
+        chain_store.store_header(header)?;
         chain_store.roll_forward_chain(&header.point())?;
         chain_store.set_best_chain_hash(&header.hash())?;
     }

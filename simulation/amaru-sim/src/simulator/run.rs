@@ -194,6 +194,8 @@ pub fn spawn_node(
             )
             .await;
         }
+        ManagerMessage::Accept => {}
+        ManagerMessage::Accepted(_, _) => {}
     });
     let manager = network.wire_up(manager, ());
 

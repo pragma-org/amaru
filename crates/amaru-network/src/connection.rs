@@ -157,6 +157,20 @@ impl ConnectionProvider for TokioConnections {
         )
     }
 
+    fn listening_port(&self) -> BoxFuture<'static, std::io::Result<u16>> {
+        let listener = self.listener.clone();
+        Box::pin(
+            async move {
+                let guard = listener.lock().await;
+                let l = guard.as_ref().ok_or_else(|| {
+                    std::io::Error::other("listener not bound; call bind() first")
+                })?;
+                Ok(l.local_addr()?.port())
+            }
+            .instrument(tracing::debug_span!("listening_port")),
+        )
+    }
+
     fn accept(&self, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
         let listener = self.listener.clone();
         let resource = self.connections.clone();
@@ -186,7 +200,7 @@ impl ConnectionProvider for TokioConnections {
 
                 if let Some(sender) = accept_sender {
                     let peer = Peer::new(peer_addr.to_string().as_str());
-                    sender.send((peer, id.clone())).await.map_err(|_| {
+                    sender.send((peer, id)).await.map_err(|_| {
                         std::io::Error::other("failed to send accepted connection to accept stage")
                     })?;
                 }

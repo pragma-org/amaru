@@ -71,11 +71,11 @@ impl<T> ReadOnlyChainStore<BlockHeader> for Store<T> {
     }
 
     fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
-        self.external_sync(LoadFromBestChainEffect::new(point.clone()))
+        self.external_sync(LoadFromBestChainEffect::new(*point))
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
-        self.external_sync(NextBestChainEffect::new(point.clone()))
+        self.external_sync(NextBestChainEffect::new(*point))
     }
 }
 

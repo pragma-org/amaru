@@ -122,6 +122,8 @@ pub type ConnectionResource = Arc<dyn ConnectionProvider>;
 pub trait ConnectionProvider: Send + Sync + 'static {
     fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>>;
 
+    fn listening_port(&self) -> BoxFuture<'static, std::io::Result<u16>>;
+
     fn accept(&self, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
 
     fn connect(
