@@ -196,7 +196,7 @@ pub async fn stage(
                     connection::Connection::new(
                         peer.clone(),
                         conn_id,
-                        Role::Initiator,
+                        Role::Responder,
                         manager.magic,
                         manager.chain_sync.clone(),
                     ),
