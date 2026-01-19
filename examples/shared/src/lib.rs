@@ -17,7 +17,7 @@ use amaru_kernel::{
     network::NetworkName,
     protocol_parameters::{self, GlobalParameters},
     to_cbor, ArenaPool, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock,
-    Network, Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+    Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
 };
 use amaru_ledger::{
     context,
@@ -65,8 +65,8 @@ pub fn forward_ledger(raw_block: &str) {
     .unwrap();
 
     let point = Point::Specific(
-        block.header.header_body.slot,
-        Hasher::<256>::hash(block.header.raw_cbor()).to_vec(),
+        block.header.header_body.slot.into(),
+        Hasher::<256>::hash(&block.header.raw_cbor()),
     );
 
     let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);

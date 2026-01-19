@@ -12,19 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Point as KernelPoint;
+use amaru_kernel::{Point as KernelPoint, Slot};
 use pallas_network::miniprotocols::Point as NetworkPoint;
 
 pub fn to_network_point(point: KernelPoint) -> NetworkPoint {
     match point {
         KernelPoint::Origin => NetworkPoint::Origin,
-        KernelPoint::Specific(slot, hash) => NetworkPoint::Specific(slot, hash),
+        KernelPoint::Specific(slot, hash) => NetworkPoint::Specific(slot.as_u64(), hash.to_vec()),
     }
 }
 
 pub fn from_network_point(point: &NetworkPoint) -> KernelPoint {
     match point {
         NetworkPoint::Origin => KernelPoint::Origin,
-        NetworkPoint::Specific(slot, hash) => KernelPoint::Specific(*slot, hash.clone()),
+        NetworkPoint::Specific(slot, hash) => {
+            KernelPoint::Specific(Slot::from(*slot), From::from(hash.as_slice()))
+        }
     }
 }

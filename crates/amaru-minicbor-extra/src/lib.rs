@@ -13,18 +13,23 @@
 // limitations under the License.
 
 use minicbor as cbor;
-use std::convert::Infallible;
+use std::cell::RefCell;
 
 pub use decode::*;
 pub mod decode;
 
-#[expect(clippy::unwrap_used)]
 /// Encode any serialisable value `T` into bytes.
 pub fn to_cbor<T: cbor::Encode<()>>(value: &T) -> Vec<u8> {
-    let mut buffer = Vec::new();
-    let result: Result<(), cbor::encode::Error<Infallible>> = cbor::encode(value, &mut buffer);
-    result.unwrap(); // Infallible
-    buffer
+    thread_local! {
+        static BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    }
+    BUFFER.with_borrow_mut(|buffer| {
+        #[expect(clippy::expect_used)]
+        cbor::encode(value, &mut *buffer).expect("serialization should not fail");
+        let ret = buffer.as_slice().to_vec();
+        buffer.clear();
+        ret
+    })
 }
 
 /// Decode raw bytes into a structured type `T`, assuming no context.

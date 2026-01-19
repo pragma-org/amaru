@@ -18,20 +18,29 @@
 //! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
 
 use crate::adapter::{Adapter, StageOrAdapter, find_recipient};
+use crate::drop_guard::DropGuard;
+use crate::effect::{CallExtra, CallTimeout, CanSupervise, TransitionFactory};
+use crate::serde::NoDebug;
 use crate::simulation::Transition;
-use crate::stage_name;
 use crate::stage_ref::StageStateRef;
 use crate::trace_buffer::TraceBuffer;
 use crate::{
-    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BoxFuture, EPOCH, Effects, Instant, Name, ScheduleIds, SendData, Sender, StageBuildRef,
+    StageGraph, StageRef,
     effect::{StageEffect, StageResponse},
     effect_box::EffectBox,
     resources::Resources,
     stagegraph::StageGraphRunning,
     time::Clock,
 };
+use crate::{ScheduleId, stage_name};
 use either::Either::{Left, Right};
+use futures_util::stream::FuturesUnordered;
+use futures_util::{FutureExt, StreamExt};
 use parking_lot::Mutex;
+use std::any::Any;
+use std::future::poll_fn;
+use std::time::Duration;
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -39,6 +48,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll, Waker},
 };
+use tokio::sync::oneshot;
 use tokio::{
     runtime::Handle,
     sync::{
@@ -59,21 +69,21 @@ struct TokioInner {
     handles: Mutex<Vec<JoinHandle<()>>>,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
+    schedule_ids: ScheduleIds,
     mailbox_size: usize,
-    termination: watch::Sender<bool>,
     stage_counter: Mutex<usize>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
 }
 
 impl TokioInner {
-    fn new(termination: watch::Sender<bool>) -> Self {
+    fn new() -> Self {
         Self {
             senders: Default::default(),
             handles: Default::default(),
             clock: Arc::new(TokioClock),
             resources: Resources::default(),
+            schedule_ids: ScheduleIds::default(),
             mailbox_size: 10,
-            termination,
             stage_counter: Mutex::new(0usize),
             trace_buffer: TraceBuffer::new_shared(0, 0),
         }
@@ -97,14 +107,16 @@ pub struct TokioBuilder {
     tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, ()>>>,
     inner: TokioInner,
     termination: watch::Receiver<bool>,
+    termination_tx: watch::Sender<bool>,
 }
 
 impl Default for TokioBuilder {
     fn default() -> Self {
-        let (termination, termination_rx) = watch::channel(false);
+        let (termination_tx, termination_rx) = watch::channel(false);
         Self {
             tasks: Default::default(),
-            inner: TokioInner::new(termination),
+            inner: TokioInner::new(),
+            termination_tx,
             termination: termination_rx,
         }
     }
@@ -116,6 +128,7 @@ impl TokioBuilder {
             tasks,
             inner,
             termination,
+            termination_tx: _, // only statically spawned stages can terminate the network
         } = self;
         let inner = Arc::new(inner);
         let handles = tasks
@@ -129,26 +142,72 @@ impl TokioBuilder {
         let inner2 = inner.clone();
         rt.spawn(async move {
             termination2.wait_for(|x| *x).await.ok();
-            for handle in inner2.handles.lock().iter() {
+            let handles = inner2.handles.lock();
+            tracing::info!(
+                stages = handles.len(),
+                "termination signal received, shutting down stages"
+            );
+            for handle in handles.iter() {
                 handle.abort();
             }
         });
 
         TokioRunning { inner, termination }
     }
+
+    pub fn with_trace_buffer(mut self, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Self {
+        self.inner.trace_buffer = trace_buffer;
+        self
+    }
+
+    pub fn with_schedule_ids(mut self, schedule_ids: ScheduleIds) -> Self {
+        self.inner.schedule_ids = schedule_ids;
+        self
+    }
+
+    pub fn with_epoch_clock(mut self) -> Self {
+        self.inner.clock = Arc::new(EpochClock::new());
+        self
+    }
 }
 
-impl StageGraph for TokioBuilder {
-    type RefAux<Msg, State> = (
-        Receiver<Box<dyn SendData>>,
-        Box<dyn FnMut(State, Msg, Effects<Msg>) -> BoxFuture<'static, State> + 'static + Send>,
-    );
+struct EpochClock {
+    offset: Mutex<Option<Duration>>,
+}
 
+impl EpochClock {
+    fn new() -> Self {
+        Self {
+            offset: Mutex::new(None),
+        }
+    }
+}
+
+impl Clock for EpochClock {
+    fn now(&self) -> Instant {
+        let mut offset = self.offset.lock();
+        if let Some(offset) = *offset {
+            Instant::now() - offset
+        } else {
+            let now = Instant::now();
+            let since_epoch = now.saturating_since(*EPOCH);
+            *offset = Some(since_epoch);
+            now - since_epoch
+        }
+    }
+
+    fn advance_to(&self, _instant: Instant) {}
+}
+
+type RefAux = (Receiver<Box<dyn SendData>>, TransitionFactory);
+
+impl StageGraph for TokioBuilder {
+    #[expect(clippy::expect_used)]
     fn stage<Msg: SendData, St: SendData, F, Fut>(
         &mut self,
         name: impl AsRef<str>,
         mut f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
+    ) -> StageBuildRef<Msg, St, Box<dyn Any + Send>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
@@ -160,29 +219,50 @@ impl StageGraph for TokioBuilder {
             .senders
             .lock()
             .insert(name.clone(), StageOrAdapter::Stage(tx));
+
+        let me = StageRef::new(name.clone());
+        let clock = self.inner.clock.clone();
+        let resources = self.inner.resources.clone();
+        let schedule_ids = self.inner.schedule_ids.clone();
+        let trace_buffer = self.inner.trace_buffer.clone();
+        let ff = Box::new(move |effect| {
+            let eff = Effects::new(me, effect, clock, resources, schedule_ids, trace_buffer);
+            Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
+                let state = state.cast::<St>().expect("internal state type error");
+                let msg = msg.cast::<Msg>().expect("internal message type error");
+                let state = f(*state, *msg, eff.clone());
+                Box::pin(async move { Box::new(state.await) as Box<dyn SendData> })
+                    as BoxFuture<'static, Box<dyn SendData>>
+            }) as Transition
+        });
+        let network: RefAux = (rx, ff);
+
         StageBuildRef {
             name,
-            network: (
-                rx,
-                Box::new(move |state, msg, eff| Box::pin(f(state, msg, eff))),
-            ),
+            network: Box::new(network),
             _ph: PhantomData,
         }
     }
 
+    #[expect(clippy::expect_used)]
     fn wire_up<Msg: SendData, St: SendData>(
         &mut self,
-        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        stage: StageBuildRef<Msg, St, Box<dyn Any + Send>>,
         state: St,
     ) -> StageStateRef<Msg, St> {
-        let StageBuildRef {
-            name,
-            network: (rx, ff),
-            _ph,
-        } = stage;
+        let StageBuildRef { name, network, _ph } = stage;
+        let (rx, ff) = *network
+            .downcast::<RefAux>()
+            .expect("internal network type error");
         let stage_name = name.clone();
+        let state = Box::new(state);
+        let termination_tx = self.termination_tx.clone();
         self.tasks.push(Box::new(move |inner| {
-            Box::pin(run_stage(state, rx, ff, stage_name, inner))
+            let stage = run_stage_boxed(state, rx, ff, stage_name, inner);
+            Box::pin(async move {
+                stage.await;
+                termination_tx.send_replace(true);
+            })
         }));
         StageStateRef::new(name)
     }
@@ -231,72 +311,111 @@ impl StageGraph for TokioBuilder {
     }
 }
 
-async fn run_stage<Msg: SendData, St: SendData>(
-    mut state: St,
-    mut rx: Receiver<Box<dyn SendData + 'static>>,
-    mut ff: Box<
-        dyn FnMut(
-                St,
-                Msg,
-                Effects<Msg>,
-            ) -> std::pin::Pin<Box<dyn Future<Output = St> + Send + 'static>>
-            + Send,
-    >,
-    stage_name: Name,
-    inner: Arc<TokioInner>,
-) {
-    let me = StageRef::new(stage_name.clone());
-    let effect = Arc::new(Mutex::new(None));
-    let effects = Effects::new(
-        me,
-        effect.clone(),
-        inner.clock.clone(),
-        inner.resources.clone(),
-        inner.trace_buffer.clone(),
-    );
-    while let Some(msg) = rx.recv().await {
-        let result = interpreter(
-            &inner,
-            &effect,
-            &stage_name,
-            ff(
-                state,
-                #[expect(clippy::expect_used)]
-                *msg.cast::<Msg>().expect("internal message type error"),
-                effects.clone(),
-            ),
-        )
-        .await;
-        match result {
-            Some(st) => state = st,
-            None => {
-                tracing::info!(%stage_name, "terminated");
-                inner.termination.send_replace(true);
-                break;
-            }
-        }
-    }
+enum PriorityMessage {
+    Scheduled(Box<dyn SendData>, ScheduleId, watch::Receiver<bool>),
+    TimerCancelled(ScheduleId),
+    Tombstone(Box<dyn SendData>),
 }
 
 async fn run_stage_boxed(
     mut state: Box<dyn SendData>,
     mut rx: Receiver<Box<dyn SendData + 'static>>,
-    mut transition: Transition,
-    effect: EffectBox,
+    transition: TransitionFactory,
     stage_name: Name,
     inner: Arc<TokioInner>,
 ) {
-    while let Some(msg) = rx.recv().await {
-        let result = interpreter(&inner, &effect, &stage_name, (transition)(state, msg)).await;
-        match result {
-            Some(st) => state = st,
-            None => {
-                tracing::info!(%stage_name, "terminated");
-                inner.termination.send_replace(true);
+    tracing::debug!("running stage `{stage_name}`");
+
+    let effect = Arc::new(Mutex::new(None));
+    let mut transition = transition(effect.clone());
+
+    // this also contains tasks tracking the termination of spawned stages, which when dropped
+    // will terminate those spawned stages
+    let mut timers = FuturesUnordered::<BoxFuture<'static, PriorityMessage>>::new();
+    let mut cancel_senders = BTreeMap::<ScheduleId, watch::Sender<bool>>::new();
+
+    let tb = DropGuard::new(inner.trace_buffer.clone(), |tb| {
+        // ensure that Aborted is traced when this Future is dropped
+        tb.lock().push_terminated_aborted(&stage_name)
+    });
+
+    let mut msgs = Vec::new();
+
+    inner.trace_buffer.lock().push_state(&stage_name, &state);
+
+    'outer: loop {
+        let poll_timers = !timers.is_empty();
+        // if multiple timers have fired since the last poll, we need them all so that we can deliver them in order
+        let mut timer_chunks = (&mut timers).ready_chunks(1000);
+
+        tokio::select! { biased;
+            Some(res) = timer_chunks.next(), if poll_timers => {
+                let mut scheduled = Vec::new();
+                for msg in res {
+                    match msg {
+                        PriorityMessage::Scheduled(msg, id, cancelation) => {
+                            scheduled.push((id, msg, cancelation));
+                        }
+                        PriorityMessage::TimerCancelled(_id) => {}
+                        PriorityMessage::Tombstone(msg) => msgs.push((msg, None)),
+                    }
+                }
+                // ensure that earliest timer is delivered first
+                scheduled.sort_by_key(|(id, _, _)| *id);
+                for (id, msg, cancelation) in scheduled {
+                    msgs.push((msg, Some((id, cancelation))));
+                }
+            }
+            Some(msg) = rx.recv() => msgs.push((msg, None)),
+            else => {
+                tracing::error!(%stage_name, "stage sender dropped");
                 break;
             }
         }
+
+        for (msg, cancelation) in msgs.drain(..) {
+            if let Some((id, canceled)) = cancelation {
+                cancel_senders.remove(&id);
+                if *canceled.borrow() {
+                    // cancellation happened after the timer fired but before the message was delivered
+                    continue;
+                }
+            }
+
+            if let Ok(CanSupervise(child)) = msg.cast_ref::<CanSupervise>() {
+                tracing::debug!(
+                    "stage `{stage_name}` terminates because of an unsupervised child termination"
+                );
+                tb.lock().push_terminated_supervision(&stage_name, child);
+                break 'outer;
+            }
+
+            inner.trace_buffer.lock().push_input(&stage_name, &msg);
+
+            let f = (transition)(state, msg);
+            let result = interpreter(
+                &inner,
+                &effect,
+                &stage_name,
+                &mut timers,
+                &mut cancel_senders,
+                f,
+            )
+            .await;
+            match result {
+                Some(st) => state = st,
+                None => {
+                    tracing::info!(%stage_name, "terminated");
+                    tb.lock().push_terminated_voluntary(&stage_name);
+                    break 'outer;
+                }
+            }
+
+            inner.trace_buffer.lock().push_state(&stage_name, &state);
+        }
     }
+
+    DropGuard::into_inner(tb);
 }
 
 #[expect(clippy::expect_used, clippy::panic)]
@@ -319,17 +438,23 @@ fn mk_sender<Msg: SendData>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg
     }))
 }
 
+type StageRefExtra = Mutex<Option<oneshot::Sender<Box<dyn SendData>>>>;
+
 // clippy is lying, changing to async fn does not work.
 #[expect(clippy::manual_async_fn)]
-fn interpreter<St>(
+fn interpreter(
     inner: &Arc<TokioInner>,
     effect: &EffectBox,
     name: &Name,
-    mut stage: BoxFuture<'static, St>,
-) -> impl Future<Output = Option<St>> + Send {
+    timers: &mut FuturesUnordered<BoxFuture<'static, PriorityMessage>>,
+    cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
+    mut stage: BoxFuture<'static, Box<dyn SendData>>,
+) -> impl Future<Output = Option<Box<dyn SendData>>> + Send {
     // trying to write this as an async fn fails with inscrutable compile errors, it seems
     // that rustc has some issue with this particular pattern
     async move {
+        let tb = || inner.trace_buffer.lock();
+        tb().push_resume(name, &StageResponse::Unit);
         loop {
             let poll = stage.as_mut().poll(&mut Context::from_waker(Waker::noop()));
             if let Poll::Ready(state) = poll {
@@ -341,6 +466,9 @@ fn interpreter<St>(
             let Some(Left(eff)) = effect.lock().take() else {
                 panic!("stage `{name}` used .await on something that was not a stage effect");
             };
+            // this does not push the Call effect because getting the message consumes it
+            tb().push_suspend_ref(name, &eff);
+
             let resp = match eff {
                 StageEffect::Receive => {
                     #[expect(clippy::panic)]
@@ -348,63 +476,61 @@ fn interpreter<St>(
                         panic!("effect Receive cannot be explicitly awaited (stage `{name}`)")
                     }
                 }
-                StageEffect::Send(target, msg, call) => {
-                    if target.as_str().is_empty() {
-                        if let Some((duration, _, _)) = call {
-                            tracing::warn!(stage = %name, "call to blackhole stage dropped");
-                            tokio::time::sleep(duration).await;
-                            StageResponse::CallTimeout
-                        } else {
-                            tracing::warn!(stage = %name, "message send to blackhole stage dropped");
-                            StageResponse::Unit
-                        }
-                    } else {
-                        let (tx, msg) = {
-                            let mut senders = inner.senders.lock();
-                            #[expect(clippy::expect_used)]
-                            let (tx, msg) = find_recipient(&mut senders, target.clone(), Some(msg))
-                                .expect("stage ref contained unknown name");
-                            (tx.clone(), msg)
-                        };
-                        let Ok(_) = tx.send(msg).await else {
-                            tracing::warn!(
-                                "message send failed from stage `{name}` to stage `{target}`"
-                            );
-                            return None;
-                        };
-                        if let Some((d, rx, _id)) = call {
-                            tokio::time::timeout(d, rx)
-                                .await
-                                .ok()
-                                .and_then(|r| r.ok())
-                                .map(StageResponse::CallResponse)
-                                .unwrap_or(StageResponse::CallTimeout)
-                        } else {
-                            StageResponse::Unit
-                        }
+                StageEffect::Send(target, ..) if target.is_empty() => {
+                    tracing::warn!(stage = %name, "message send to blackhole stage dropped");
+                    StageResponse::Unit
+                }
+                StageEffect::Send(_target, Some(call), msg) => {
+                    #[expect(clippy::expect_used)]
+                    let sender = call
+                        .downcast_ref::<StageRefExtra>()
+                        .expect("expected CallExtra");
+                    if let Some(sender) = sender.lock().take() {
+                        sender.send(msg).ok();
+                    }
+                    StageResponse::Unit
+                }
+                StageEffect::Send(target, None, msg) => {
+                    let (tx, msg) = {
+                        let mut senders = inner.senders.lock();
+                        #[expect(clippy::expect_used)]
+                        let (tx, msg) = find_recipient(&mut senders, target.clone(), Some(msg))
+                            .expect("stage ref contained unknown name");
+                        (tx.clone(), msg)
+                    };
+                    tx.send(msg).await.ok();
+                    StageResponse::Unit
+                }
+                StageEffect::Call(target, duration, msg) => {
+                    #[expect(clippy::panic)]
+                    let CallExtra::CallFn(NoDebug(msg)) = msg else {
+                        panic!("expected CallFn, got {:?}", msg);
+                    };
+                    let (tx_response, rx) = oneshot::channel();
+                    // it is important to use the type alias StageRefExtra here, otherwise the
+                    // compiler would accept any type that implements Send + Sync + 'static
+                    let sender = StageRefExtra::new(Some(tx_response));
+                    let msg = (msg)(name.clone(), Arc::new(sender));
+
+                    tb().push_suspend_call(name, &target, duration, &*msg);
+
+                    let (tx_call, msg) = {
+                        let mut senders = inner.senders.lock();
+                        #[expect(clippy::expect_used)]
+                        let (tx, msg) = find_recipient(&mut senders, target.clone(), Some(msg))
+                            .expect("stage ref contained unknown name");
+                        (tx.clone(), msg)
+                    };
+                    tx_call.send(msg).await.ok();
+                    match tokio::time::timeout(duration, rx).await {
+                        Ok(Ok(msg)) => StageResponse::CallResponse(msg),
+                        _ => StageResponse::CallResponse(Box::new(CallTimeout)),
                     }
                 }
                 StageEffect::Clock => StageResponse::ClockResponse(now()),
                 StageEffect::Wait(duration) => {
                     tokio::time::sleep(duration).await;
                     StageResponse::WaitResponse(now())
-                }
-                StageEffect::Call(..) => {
-                    #[expect(clippy::panic)]
-                    {
-                        panic!("StageEffect::Call cannot be explicitly awaited (stage `{name}`")
-                    }
-                }
-                StageEffect::Respond(target, _call_id, deadline, sender, msg) => {
-                    if let Err(msg) = sender.send(msg) {
-                        tracing::warn!(
-                            "response to {} was dropped: {:?} (deadline: {})",
-                            target,
-                            msg,
-                            deadline.pretty(now())
-                        );
-                    }
-                    StageResponse::Unit
                 }
                 StageEffect::External(effect) => {
                     tracing::debug!("stage `{name}` external effect: {:?}", effect);
@@ -419,25 +545,73 @@ fn interpreter<St>(
                     let name = stage_name(&mut inner.stage_counter.lock(), name.as_str());
                     StageResponse::AddStageResponse(name)
                 }
-                StageEffect::WireStage(name, transition, initial_state) => {
+                StageEffect::WireStage(name, transition, initial_state, tombstone) => {
                     tracing::debug!("stage `{name}` wired");
                     let (tx, rx) = mpsc::channel(inner.mailbox_size);
                     inner
                         .senders
                         .lock()
                         .insert(name.clone(), StageOrAdapter::Stage(tx));
-                    let effect = Arc::new(Mutex::new(None));
-                    inner.handles.lock().push(tokio::spawn(run_stage_boxed(
+                    let stage = run_stage_boxed(
                         initial_state,
                         rx,
-                        (transition.into_inner())(effect.clone()),
-                        effect,
-                        name,
+                        transition.into_inner(),
+                        name.clone(),
                         inner.clone(),
-                    )));
+                    );
+                    let handle = tokio::spawn(stage);
+                    // need to construct DropGuard before pushing into the FuturesUnordered to avoid Future being dropped
+                    // before the guard is established
+                    let mut handle = DropGuard::new(handle, |handle| handle.abort());
+                    timers.push(Box::pin(async move {
+                        if let Err(err) = (&mut *handle).await {
+                            tracing::error!("stage `{name}` failed: {}", err);
+                        }
+                        PriorityMessage::Tombstone(tombstone)
+                    }));
                     StageResponse::Unit
                 }
+                StageEffect::Contramap {
+                    original,
+                    new_name,
+                    transform,
+                } => {
+                    tracing::debug!("contramap {original} -> {new_name}");
+                    let name = stage_name(&mut inner.stage_counter.lock(), new_name.as_str());
+                    inner.senders.lock().insert(
+                        name.clone(),
+                        StageOrAdapter::Adapter(Adapter {
+                            name: name.clone(),
+                            target: original,
+                            transform: transform.into_inner(),
+                        }),
+                    );
+                    StageResponse::ContramapResponse(name)
+                }
+                StageEffect::Schedule(msg, id) => {
+                    let when = id.time();
+                    let sleep = tokio::time::sleep_until(when.to_tokio());
+                    let (tx, mut rx) = watch::channel(false);
+                    cancel_senders.insert(id, tx);
+                    timers.push(Box::pin(async move {
+                        let rx2 = rx.clone();
+                        tokio::select! { biased;
+                            _ = rx.wait_for(|x| *x) => PriorityMessage::TimerCancelled(id),
+                            _ = sleep => PriorityMessage::Scheduled(msg, id, rx2),
+                        }
+                    }));
+                    StageResponse::Unit
+                }
+                StageEffect::CancelSchedule(id) => {
+                    if let Some(tx) = cancel_senders.remove(&id) {
+                        tx.send_replace(true);
+                        StageResponse::CancelScheduleResponse(true)
+                    } else {
+                        StageResponse::CancelScheduleResponse(false)
+                    }
+                }
             };
+            tb().push_resume(name, &resp);
             *effect.lock() = Some(Right(resp));
         }
     }
@@ -463,12 +637,27 @@ impl TokioRunning {
     }
 
     pub async fn join(self) {
-        let handles = std::mem::take(&mut *self.inner.handles.lock());
-        for handle in handles {
-            handle.await.unwrap_or_else(|err| {
-                tracing::error!("stage task failed: {:?}", err);
+        poll_fn(move |cx| {
+            let mut handles = self.inner.handles.lock();
+            handles.retain_mut(|h| {
+                if let Poll::Ready(res) = h.poll_unpin(cx) {
+                    match res {
+                        Ok(_) => tracing::info!("stage task completed"),
+                        Err(err) if err.is_cancelled() => tracing::info!("stage task cancelled"),
+                        Err(err) => tracing::error!("stage task failed: {:?}", err),
+                    }
+                    false
+                } else {
+                    true
+                }
             });
-        }
+            if handles.is_empty() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
     }
 
     pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {

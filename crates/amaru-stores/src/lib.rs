@@ -203,7 +203,7 @@ pub mod tests {
         ));
 
         let slot = any_slot().new_tree(runner).unwrap().current();
-        let point = Point::Specific(slot.into(), Hash::from([0u8; 32]).to_vec());
+        let point = Point::Specific(slot, Hash::from([0u8; 32]));
         let slot_leader = any_pool_id().new_tree(runner).unwrap().current();
 
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();

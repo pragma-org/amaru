@@ -26,7 +26,7 @@ use std::{cell::RefCell, fmt};
 /// Helper type to wrap futures/functions/etc. and thus avoid having to handroll
 /// a `Debug` implementation for a type containing the wrapped value.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NoDebug<T>(T);
+pub struct NoDebug<T>(pub T);
 impl<T> NoDebug<T> {
     pub fn new(t: T) -> Self {
         Self(t)
@@ -81,6 +81,10 @@ pub mod serialize_error {
         Ok(anyhow::Error::msg(s))
     }
 }
+
+/// A trait to allow keeping collections of deserializer guards.
+pub trait DeserializerGuard {}
+pub type DeserializerGuards = Vec<Box<dyn DeserializerGuard>>;
 
 enum Field {
     Typetag,
@@ -154,6 +158,7 @@ pub mod serialize_send_data {
         deserializer.deserialize_struct("SendData", &["typetag", "value"], Visitor)
     }
 
+    /// TODO(network): needs proper docs
     pub fn register_data_deserializer<T: SendData + serde::de::DeserializeOwned>() -> DropGuard {
         let name = type_name::<T>();
         TYPES.with_borrow_mut(|types| {
@@ -169,6 +174,12 @@ pub mod serialize_send_data {
     }
 
     pub struct DropGuard(&'static str);
+    impl DeserializerGuard for DropGuard {}
+    impl DropGuard {
+        pub fn boxed(self) -> Box<dyn DeserializerGuard> {
+            Box::new(self)
+        }
+    }
 
     impl Drop for DropGuard {
         fn drop(&mut self) {
@@ -519,6 +530,12 @@ pub mod serialize_external_effect {
     }
 
     pub struct DropGuard(&'static str);
+    impl DeserializerGuard for DropGuard {}
+    impl DropGuard {
+        pub fn boxed(self) -> Box<dyn DeserializerGuard> {
+            Box::new(self)
+        }
+    }
 
     impl Drop for DropGuard {
         fn drop(&mut self) {

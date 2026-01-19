@@ -15,6 +15,7 @@
 #![deny(clippy::future_not_send)]
 
 mod adapter;
+pub mod drop_guard;
 mod effect;
 mod effect_box;
 mod logging;
@@ -33,19 +34,19 @@ mod types;
 pub mod simulation;
 
 pub use effect::{
-    Effect, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, StageResponse,
-    UnknownExternalEffect,
+    Effect, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, ScheduleIds,
+    StageResponse, UnknownExternalEffect,
 };
 pub use output::OutputEffect;
 pub use receiver::Receiver;
 pub use resources::Resources;
 pub use sender::Sender;
 pub use serde::{
-    serialize_external_effect::register_effect_deserializer,
+    DeserializerGuard, DeserializerGuards, serialize_external_effect::register_effect_deserializer,
     serialize_send_data::register_data_deserializer,
 };
 pub use stage_ref::{StageBuildRef, StageRef};
-pub use stagegraph::{CallId, CallRef, StageGraph, StageGraphRunning, stage_name};
+pub use stagegraph::{ScheduleId, StageGraph, StageGraphRunning, stage_name};
 pub use time::{Clock, EPOCH, Instant};
-pub use types::{BoxFuture, Name, SendData, TryInStage};
+pub use types::{BLACKHOLE_NAME, BoxFuture, Name, SendData, TryInStage, Void, err, warn};
 pub use typetag;

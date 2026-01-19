@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::effects::FetchBlockEffect;
-use amaru_consensus::consensus::errors::ConsensusError;
 use amaru_sim::simulator::TEST_DATA_DIR;
 use amaru_sim::simulator::{
     Args, GeneratedEntries, NodeConfig, SimulateConfig, generate_entries, run::spawn_node,
 };
 use amaru_tracing_json::assert_spans_trees;
 use pure_stage::Instant;
-use pure_stage::simulation::running::OverrideResult;
 use pure_stage::simulation::{RandStdRng, SimulationBuilder};
 use rand::SeedableRng;
 use rand::prelude::StdRng;
@@ -79,11 +76,8 @@ fn run_simulator_with_traces() {
 
     let execute = || {
         let mut network = SimulationBuilder::default();
-        let (input, _, _) = spawn_node("n1".to_string(), node_config.clone(), &mut network, &rt);
+        let (input, _, _) = spawn_node("n1".to_string(), node_config.clone(), &mut network);
         let mut running = network.run();
-        running.override_external_effect(usize::MAX, |_eff: Box<FetchBlockEffect>| {
-            OverrideResult::Handled(Box::new(Ok::<Vec<u8>, ConsensusError>(vec![])))
-        });
         info_span!("handle_msg").in_scope(|| {
             running.enqueue_msg(&input, [msg]);
             running
@@ -95,64 +89,34 @@ fn run_simulator_with_traces() {
     assert_spans_trees(
         execute,
         vec![json!(
-        {
-          "name": "handle_msg",
-          "children": [
-            {
-              "name": "receiver-1"
-            },
-            {
-              "name": "receive_header-2"
-            },
-            {
-              "name": "chain_sync.receive_header",
-              "children": [
-                {
-                  "name": "chain_sync.decode_header"
-                }
-              ]
-            },
-            {
-              "name": "track_peers-3"
-            },
-            {
-              "name": "chain_sync.track_peers"
-            },
-            {
-              "name": "validate_header-4"
-            },
-            {
-              "name": "chain_sync.validate_header"
-            },
-            {
-              "name": "fetch_block-5"
-            },
-            {
-              "name": "diffusion.fetch_block"
-            },
-            {
-              "name": "validate_block-6"
-            },
-            {
-              "name": "chain_sync.validate_block"
-            },
-            {
-              "name": "select_chain-7"
-            },
-            {
-              "name": "chain_sync.select_chain"
-            },
-            {
-              "name": "forward_chain-8"
-            },
-            {
-              "name": "diffusion.forward_chain"
-            },
-            {
-              "name": "processing_errors-10"
-            }
-          ]
-        }
-         )],
+          {
+            "name": "handle_msg",
+            "children": [
+              {
+                "name": "chain_sync.receive_header",
+                "children": [
+                  {
+                    "name": "chain_sync.decode_header"
+                  }
+                ]
+              },
+              {
+                "name": "chain_sync.validate_header"
+              },
+              {
+                "name": "diffusion.fetch_block"
+              },
+              {
+                "name": "chain_sync.validate_block"
+              },
+              {
+                "name": "chain_sync.select_chain"
+              },
+              {
+                "name": "diffusion.forward_chain"
+              }
+            ]
+          }
+        )],
     );
 }

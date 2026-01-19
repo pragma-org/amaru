@@ -22,7 +22,11 @@ pub mod exit;
 pub mod metrics;
 pub mod observability;
 pub mod panic;
-pub mod point;
+
+/// Sync pipeline
+///
+/// The sync pipeline is responsible for fetching blocks from the upstream node and
+/// applying them to the local chain.
 pub mod stages;
 
 pub const SNAPSHOTS_DIR: &str = "snapshots";

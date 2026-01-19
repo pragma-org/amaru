@@ -104,11 +104,11 @@ impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
     }
 
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
-        self.external_sync(RollForwardChainEffect::new(point.clone()))
+        self.external_sync(RollForwardChainEffect::new(*point))
     }
 
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
-        self.external_sync(RollBackChainEffect::new(point.clone()))
+        self.external_sync(RollBackChainEffect::new(*point))
     }
 }
 

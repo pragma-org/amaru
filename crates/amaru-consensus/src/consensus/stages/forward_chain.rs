@@ -16,20 +16,16 @@ use crate::consensus::effects::NetworkOps;
 use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
 use crate::consensus::span::HasSpan;
-use crate::consensus::tip::{AsHeaderTip, HeaderTip};
+use amaru_kernel::IsHeader;
 use amaru_kernel::consensus_events::BlockValidationResult;
-use amaru_kernel::{IsHeader, Point};
+use amaru_kernel::protocol_messages::tip::Tip;
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Instrument, error, trace};
 
 pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 
-type State = (
-    HeaderTip,
-    StageRef<ValidationFailed>,
-    StageRef<ProcessingFailed>,
-);
+type State = (Tip, StageRef<ValidationFailed>, StageRef<ProcessingFailed>);
 
 /// The forward chain stage forwards the headers of validated blocks to downstream peers, via the
 /// `ForwardEventEffect`. The current node tip is maintained in order to double check that the header
@@ -48,9 +44,9 @@ pub fn stage(
                 assert_eq!(header.block_height(), our_tip.block_height() + 1);
                 match header.parent() {
                     Some(parent) => assert_eq!(parent, our_tip.hash()),
-                    None => assert_eq!(our_tip, HeaderTip::new(Point::Origin, 0)),
+                    None => assert_eq!(our_tip, Tip::origin()),
                 }
-                our_tip = header.as_header_tip();
+                our_tip = header.tip();
                 trace!(
                     target: EVENT_TARGET,
                     point = %header.point(),
@@ -83,10 +79,10 @@ pub fn stage(
                     "diffusion.forward_chain.rolled_back_to"
                 );
 
-                our_tip = rollback_header.as_header_tip();
+                our_tip = rollback_header.tip();
                 if let Err(e) = eff
                     .network()
-                    .send_backward_event(peer.clone(), rollback_header.as_header_tip())
+                    .send_backward_event(peer.clone(), rollback_header.tip())
                     .await
                 {
                     error!(

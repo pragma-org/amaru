@@ -28,7 +28,9 @@ use std::{
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy};
 
-#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize, Default)]
+#[derive(
+    Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize, Deserialize, Default,
+)]
 #[repr(transparent)]
 pub struct Slot(u64);
 
@@ -55,6 +57,10 @@ impl Slot {
     fn offset_by(&self, slots_elapsed: u64) -> Slot {
         Slot(self.0 + slots_elapsed)
     }
+
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
 }
 
 impl From<u64> for Slot {
@@ -66,6 +72,14 @@ impl From<u64> for Slot {
 impl From<Slot> for u64 {
     fn from(slot: Slot) -> u64 {
         slot.0
+    }
+}
+
+impl Add<u64> for Slot {
+    type Output = Self;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        Slot(self.0 + rhs)
     }
 }
 

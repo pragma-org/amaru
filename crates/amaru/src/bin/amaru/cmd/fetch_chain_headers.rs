@@ -144,11 +144,8 @@ pub(crate) async fn fetch_headers(
     max: usize,
 ) -> Result<(), Box<dyn Error>> {
     let peer_client = connect_to_peer(peer_address, &network).await?;
-    let mut client = ChainSyncClient::new(
-        Peer::new(peer_address),
-        peer_client.chainsync,
-        vec![point.clone()],
-    );
+    let mut client =
+        ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point]);
     client.find_intersection().await?;
 
     let mut count = 0;
@@ -259,7 +256,7 @@ fn handle_response(
                 progress.tick(1)
             }
 
-            if *count >= max || slot == tip_slot {
+            if *count >= max || slot.as_u64() == tip_slot {
                 Ok(Stop)
             } else {
                 Ok(Continue)

@@ -165,7 +165,7 @@ pub struct AnchoredVolatileState {
 impl VolatileState {
     pub fn anchor(self, point: &Point, issuer: PoolId) -> AnchoredVolatileState {
         AnchoredVolatileState {
-            anchor: (point.clone(), issuer),
+            anchor: (*point, issuer),
             state: self,
         }
     }

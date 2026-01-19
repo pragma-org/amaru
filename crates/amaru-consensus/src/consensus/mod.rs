@@ -18,6 +18,5 @@ pub mod headers_tree;
 pub mod span;
 pub mod stages;
 pub mod store;
-pub mod tip;
 
 pub const EVENT_TARGET: &str = "amaru::consensus";

@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod block_height;
 pub mod handshake;
 pub mod network_magic;
+pub mod point;
+pub mod tip;
 pub mod version_data;
 pub mod version_number;
+pub mod version_table;

@@ -36,7 +36,8 @@
 //!
 
 use crate::{
-    Clock, Name, Resources, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BLACKHOLE_NAME, Clock, Name, Resources, ScheduleIds, SendData, Sender, StageBuildRef,
+    StageGraph, StageRef,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     effect::{Effects, StageEffect},
     effect_box::EffectBox,
@@ -54,6 +55,7 @@ use crate::{
 
 use parking_lot::Mutex;
 use std::{
+    any::Any,
     collections::{BTreeMap, VecDeque},
     future::Future,
     marker::PhantomData,
@@ -113,6 +115,7 @@ pub struct SimulationBuilder {
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
+    schedule_ids: ScheduleIds,
     mailbox_size: usize,
     inputs: Inputs,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
@@ -127,6 +130,16 @@ impl SimulationBuilder {
 
     pub fn with_trace_buffer(mut self, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Self {
         self.trace_buffer = trace_buffer;
+        self
+    }
+
+    pub fn with_epoch_clock(mut self) -> Self {
+        self.clock = Arc::new(AtomicU64::new(0));
+        self
+    }
+
+    pub fn with_schedule_ids(mut self, schedule_ids: ScheduleIds) -> Self {
+        self.schedule_ids = schedule_ids;
         self
     }
 
@@ -152,10 +165,13 @@ impl SimulationBuilder {
                     StageData {
                         name,
                         mailbox: data.mailbox,
+                        tombstones: VecDeque::new(),
                         state,
                         transition: data.transition,
                         waiting: Some(StageEffect::Receive),
                         senders: VecDeque::new(),
+                        supervised_by: BLACKHOLE_NAME.clone(),
+                        tombstone: None,
                     },
                 ))
             })
@@ -172,6 +188,7 @@ impl SimulationBuilder {
             resources,
             mailbox_size,
             inputs,
+            schedule_ids,
             trace_buffer,
             eval_strategy,
         } = self;
@@ -203,10 +220,13 @@ impl SimulationBuilder {
             let data = StageOrAdapter::Stage(StageData {
                 name: name.clone(),
                 mailbox,
+                tombstones: VecDeque::new(),
                 state,
                 transition,
                 waiting: Some(StageEffect::Receive),
                 senders: VecDeque::new(),
+                supervised_by: BLACKHOLE_NAME.clone(),
+                tombstone: None,
             });
             stages.insert(name, data);
         }
@@ -217,6 +237,7 @@ impl SimulationBuilder {
             clock,
             resources,
             mailbox_size,
+            schedule_ids,
             trace_buffer,
             eval_strategy,
         )
@@ -235,6 +256,7 @@ impl Default for SimulationBuilder {
             resources: Resources::default(),
             mailbox_size: 10,
             inputs: Inputs::new(10),
+            schedule_ids: ScheduleIds::new(),
             // default is a TraceBuffer that drops all messages
             trace_buffer: Arc::new(Mutex::new(TraceBuffer::new(0, 0))),
             eval_strategy: Box::new(Fifo),
@@ -243,13 +265,11 @@ impl Default for SimulationBuilder {
 }
 
 impl StageGraph for SimulationBuilder {
-    type RefAux<Msg, State> = ();
-
     fn stage<Msg, St, F, Fut>(
         &mut self,
         name: impl AsRef<str>,
         mut f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
+    ) -> StageBuildRef<Msg, St, Box<dyn Any + Send>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
@@ -264,6 +284,7 @@ impl StageGraph for SimulationBuilder {
             self.effect.clone(),
             self.clock.clone(),
             self.resources.clone(),
+            self.schedule_ids.clone(),
             self.trace_buffer.clone(),
         );
         let transition: Transition =
@@ -293,19 +314,19 @@ impl StageGraph for SimulationBuilder {
 
         StageBuildRef {
             name,
-            network: (),
+            network: Box::new(()),
             _ph: PhantomData,
         }
     }
 
     fn wire_up<Msg: SendData, St: SendData>(
         &mut self,
-        stage: crate::StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        stage: crate::StageBuildRef<Msg, St, Box<dyn Any + Send>>,
         state: St,
     ) -> StageStateRef<Msg, St> {
         let StageBuildRef {
             name,
-            network: (),
+            network: _,
             _ph,
         } = stage;
 

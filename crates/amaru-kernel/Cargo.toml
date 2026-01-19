@@ -21,6 +21,7 @@ tracing = ["amaru-minicbor-extra/tracing"]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
 bech32.workspace = true
+bytes = { workspace = true, features = ["serde"] }
 hex.workspace = true
 itertools.workspace = true
 minicbor.workspace = true
@@ -41,7 +42,7 @@ tracing.workspace = true
 proptest = { workspace = true, optional = true }
 
 # FIXME RK: figure out exact WASM story to properly solve this
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { workspace = true, features = ["wasm_js"] }
 
 bumpalo.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
@@ -51,6 +52,7 @@ amaru-minicbor-extra.workspace = true
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 proptest.workspace = true
+rand.workspace = true
 test-case.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐

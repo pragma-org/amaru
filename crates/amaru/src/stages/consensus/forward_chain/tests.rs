@@ -15,6 +15,7 @@
 use super::chain_follower::tests::ChainStoreExt;
 use super::test_infra::{ClientMsg, FORK_47, LOST_47, TIP_47, TestChainForwarder, WINNER_47, hash};
 use crate::stages::AsTip;
+use crate::stages::consensus::forward_chain::to_pallas_tip;
 use amaru_kernel::IsHeader;
 use amaru_kernel::Point;
 use amaru_network::point::to_network_point;
@@ -36,14 +37,14 @@ async fn test_chain_sync() {
         .clone();
     assert_eq!(point, Some(chain_forwarder.store.get_point(FORK_47)));
     assert_eq!(tip.0, to_network_point(lost.point()));
-    assert_eq!(tip.1, lost.block_height());
+    assert_eq!(tip.1, lost.block_height().as_u64());
 
     let headers = client.recv_until_await().await;
     assert_eq!(
         headers,
         vec![ClientMsg::Backward(
             to_network_point(header142.point()),
-            lost.as_tip()
+            to_pallas_tip(lost.as_tip())
         )]
     );
 
@@ -58,15 +59,18 @@ async fn test_chain_sync() {
         // out tip comes out as chain[6] here because previously client.recv_until_await already
         // asked for the next op, which means the Backward got sent before the Forward
         // updated the `our_tip` pointer
-        ClientMsg::Backward(to_network_point(header142.point()), chain[6].as_tip())
+        ClientMsg::Backward(
+            to_network_point(header142.point()),
+            to_pallas_tip(chain[6].as_tip())
+        )
     );
 
     let headers = client.recv_until_await().await;
     assert_eq!(
         headers,
         vec![
-            ClientMsg::Forward(chain[7].clone(), chain[8].as_tip()),
-            ClientMsg::Forward(chain[8].clone(), chain[8].as_tip()),
+            ClientMsg::Forward(chain[7].clone(), to_pallas_tip(chain[8].as_tip())),
+            ClientMsg::Forward(chain[8].clone(), to_pallas_tip(chain[8].as_tip())),
         ]
     );
 }
@@ -88,11 +92,14 @@ async fn test_sync_optimising_rollback() {
     assert_eq!(
         msgs,
         [
-            ClientMsg::Backward(to_network_point(Point::Origin), lost.as_tip()),
-            ClientMsg::Forward(chain[0].clone(), lost.as_tip()),
-            ClientMsg::Forward(chain[1].clone(), lost.as_tip()),
-            ClientMsg::Forward(chain[2].clone(), lost.as_tip()),
-            ClientMsg::Forward(chain[3].clone(), lost.as_tip()),
+            ClientMsg::Backward(
+                to_network_point(Point::Origin),
+                to_pallas_tip(lost.as_tip())
+            ),
+            ClientMsg::Forward(chain[0].clone(), to_pallas_tip(lost.as_tip())),
+            ClientMsg::Forward(chain[1].clone(), to_pallas_tip(lost.as_tip())),
+            ClientMsg::Forward(chain[2].clone(), to_pallas_tip(lost.as_tip())),
+            ClientMsg::Forward(chain[3].clone(), to_pallas_tip(lost.as_tip())),
         ]
     );
 
@@ -105,12 +112,12 @@ async fn test_sync_optimising_rollback() {
     assert_eq!(
         msgs,
         [
-            ClientMsg::Forward(chain[4].clone(), chain[9].as_tip()),
-            ClientMsg::Forward(chain[5].clone(), chain[9].as_tip()),
-            ClientMsg::Forward(chain[6].clone(), chain[9].as_tip()),
-            ClientMsg::Forward(chain[7].clone(), chain[9].as_tip()),
-            ClientMsg::Forward(chain[8].clone(), chain[9].as_tip()),
-            ClientMsg::Forward(chain[9].clone(), chain[9].as_tip()),
+            ClientMsg::Forward(chain[4].clone(), to_pallas_tip(chain[9].as_tip())),
+            ClientMsg::Forward(chain[5].clone(), to_pallas_tip(chain[9].as_tip())),
+            ClientMsg::Forward(chain[6].clone(), to_pallas_tip(chain[9].as_tip())),
+            ClientMsg::Forward(chain[7].clone(), to_pallas_tip(chain[9].as_tip())),
+            ClientMsg::Forward(chain[8].clone(), to_pallas_tip(chain[9].as_tip())),
+            ClientMsg::Forward(chain[9].clone(), to_pallas_tip(chain[9].as_tip())),
         ]
     );
 }

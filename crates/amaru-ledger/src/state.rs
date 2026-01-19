@@ -649,7 +649,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 let density = self.chain_density(point);
 
                 let metrics = LedgerMetrics {
-                    block_height: *block_height,
+                    block_height: block_height.as_u64(),
                     txs_processed,
                     slot,
                     slot_in_epoch,
@@ -680,9 +680,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             return Ok(());
         }
 
-        self.volatile.rollback_to(to, |point| {
-            BackwardError::UnknownRollbackPoint(point.clone())
-        })
+        self.volatile
+            .rollback_to(to, |point| BackwardError::UnknownRollbackPoint(*point))
     }
     /// Calculate chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
     /// If the `Point` is older than the oldest block in the volatileDB, density is 0

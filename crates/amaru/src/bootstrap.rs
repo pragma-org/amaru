@@ -402,7 +402,7 @@ mod tests {
         let hash: HeaderHash =
             Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")
                 .unwrap();
-        let point = Point::Specific(56073562, hash.to_vec());
+        let point = Point::Specific(56073562.into(), hash);
 
         let history = make_era_history(&dir, &point, NetworkName::Testnet(14))
             .expect("fail to make era history");

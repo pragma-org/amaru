@@ -73,7 +73,7 @@ pub fn stage(
             } => {
                 let msg = ValidateHeaderEvent::Rollback {
                     peer: peer.clone(),
-                    rollback_point: rollback_point.clone(),
+                    rollback_point: *rollback_point,
                     span: span.clone(),
                 };
                 eff.base().send(&downstream, msg).await;

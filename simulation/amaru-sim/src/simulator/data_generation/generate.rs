@@ -21,7 +21,6 @@ use amaru_consensus::consensus::headers_tree::data_generation::{
     Action, GeneratedActions, any_select_chains_from_tree, any_tree_of_headers, transpose,
 };
 use amaru_kernel::{IsHeader, Point, is_header::tests::run_with_rng, peer::Peer, to_cbor};
-use amaru_slot_arithmetic::Slot;
 use pure_stage::Instant;
 use pure_stage::simulation::RandStdRng;
 use rand::Rng;
@@ -188,7 +187,7 @@ impl From<Entry<ChainSyncMessage>> for GeneratedEntry {
 /// Generates a sequence of chain sync entries based on random actions from peers on a tree of
 /// headers generated with a specified depth.
 ///
-/// FIXME: since we are generating data with a `proptest` strategy the simulation framework can not
+/// TODO: since we are generating data with a `proptest` strategy the simulation framework can not
 /// for now shrink the list of actions generated here. This means that if a test fails the generated data
 /// will not be minimized to find a smaller failing case. The generation is deterministic though based on the
 /// RNG passed as a parameter.
@@ -255,7 +254,7 @@ fn make_entries_for_peer(
         let message = match &action {
             Action::RollForward { header, .. } => ChainSyncMessage::Fwd {
                 msg_id: msg_id as u64,
-                slot: Slot::from(header.slot()),
+                slot: header.slot(),
                 hash: Bytes {
                     bytes: header.hash().to_vec(),
                 },

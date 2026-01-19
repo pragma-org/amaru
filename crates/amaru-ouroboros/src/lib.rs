@@ -18,7 +18,8 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_math::math;
-pub use pallas_primitives::conway::{OperationalCert, VrfCert};
+pub use pallas_primitives::VrfCert;
+pub use pallas_primitives::conway::OperationalCert;
 
 pub mod kes;
 pub mod praos;

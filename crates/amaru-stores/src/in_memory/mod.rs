@@ -94,7 +94,6 @@ impl ReadStore for MemoryStore {
     fn tip(&self) -> Result<Point, StoreError> {
         self.tip
             .borrow()
-            .clone()
             .ok_or_else(|| StoreError::Internal("tip not yet set".into()))
     }
 
@@ -675,7 +674,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         >,
         withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
     ) -> Result<(), amaru_ledger::store::StoreError> {
-        let current_tip = self.store.tip.borrow().clone();
+        let current_tip = *self.store.tip.borrow();
 
         match (point, current_tip) {
             (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
@@ -684,14 +683,14 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
             }
             _ => {
                 // Update tip
-                *self.store.tip.borrow_mut() = Some(point.clone());
+                *self.store.tip.borrow_mut() = Some(*point);
 
                 // Add issuer to new slot row
                 if let Point::Specific(slot, _) = point
                     && let Some(issuer) = issuer
                 {
                     self.store.slots.borrow_mut().insert(
-                        Slot::from(*slot),
+                        *slot,
                         amaru_ledger::store::columns::slots::Row::new(*issuer),
                     );
                 }

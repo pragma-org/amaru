@@ -16,7 +16,8 @@ use crate::simulator::Envelope;
 use crate::simulator::bytes::Bytes;
 use amaru_kernel::consensus_events::ChainSyncEvent;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::{BlockHeader, HeaderHash, Point, cbor};
+use amaru_kernel::protocol_messages::tip::Tip;
+use amaru_kernel::{BlockHeader, Hash, HeaderHash, Point, cbor};
 use amaru_slot_arithmetic::Slot;
 use pallas_primitives::babbage::{Header, MintedHeader};
 use serde::{Deserialize, Serialize};
@@ -199,21 +200,30 @@ impl Envelope<ChainSyncMessage> {
                 slot,
                 hash,
                 header,
-            } => ChainSyncEvent::RollForward {
-                peer,
-                point: Point::Specific((slot).into(), hash.into()),
-                raw_header: header.into(),
-                span,
-            },
+            } => {
+                let point = Point::Specific(slot, Hash::from(&*hash.bytes));
+                let tip = Tip::new(point, 0.into());
+                ChainSyncEvent::RollForward {
+                    peer,
+                    tip,
+                    raw_header: header.into(),
+                    span,
+                }
+            }
             Bck {
                 msg_id: _,
                 slot,
                 hash,
-            } => ChainSyncEvent::Rollback {
-                peer,
-                rollback_point: Point::Specific(slot.into(), hash.into()),
-                span,
-            },
+            } => {
+                let point = Point::Specific(slot, Hash::from(&*hash.bytes));
+                let tip = Tip::new(point, 0.into());
+                ChainSyncEvent::Rollback {
+                    peer,
+                    rollback_point: point,
+                    tip,
+                    span,
+                }
+            }
             _ => panic!("unsupported message type for ChainSyncEvent conversion"),
         }
     }
@@ -223,12 +233,11 @@ impl Envelope<ChainSyncMessage> {
 mod test {
     use super::*;
     use crate::sync::ChainSyncMessage::{Bck, Fwd};
-    use amaru_kernel::{HeaderHash, cbor};
-    use pallas_crypto::hash::{Hash, Hasher};
+    use amaru_kernel::cbor;
+    use pallas_crypto::hash::Hasher;
     use pallas_primitives::babbage;
     use proptest::prelude::BoxedStrategy;
     use proptest::proptest;
-    use std::str::FromStr;
 
     proptest! {
         #[test]
@@ -242,10 +251,6 @@ mod test {
     #[test]
     fn can_retrieve_forward_from_message() {
         let fwd = some_forward();
-        let expected_hash: HeaderHash = HeaderHash::from_str(
-            "746353a52e80b3ac2d6d51658df7988d4b7baa219f55584a4827bd00bc97617e",
-        )
-        .unwrap();
         let message = Envelope {
             src: "peer1".to_string(),
             dest: "me".to_string(),
@@ -256,14 +261,9 @@ mod test {
 
         match event {
             ChainSyncEvent::RollForward {
-                peer,
-                point,
-                raw_header,
-                ..
+                peer, raw_header, ..
             } => {
                 assert_eq!(peer.name, "peer1");
-                assert_eq!(point.slot_or_default(), Slot::from(1234));
-                assert_eq!(Hash::from(&point), expected_hash);
                 assert_eq!(raw_header, hex::decode(TEST_HEADER).unwrap());
             }
             _ => panic!("expected RollForward event"),

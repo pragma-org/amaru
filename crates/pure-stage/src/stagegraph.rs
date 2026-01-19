@@ -12,110 +12,39 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::Instant;
 use crate::stage_ref::StageStateRef;
 use crate::{
-    BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
-    StageBuildRef, StageRef, types::MpscSender,
+    BoxFuture, Effects, Name, OutputEffect, Receiver, Resources, SendData, Sender, StageBuildRef,
+    StageRef, types::MpscSender,
 };
-use std::{
-    fmt::Debug,
-    future::Future,
-    marker::PhantomData,
-    sync::atomic::{AtomicU64, Ordering},
-};
-use tokio::sync::{mpsc, oneshot};
+use std::any::Any;
+use std::{fmt, future::Future};
+use tokio::sync::mpsc;
 
-/// A unique identifier for a call effect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct CallId(u64);
-
-impl CallId {
-    pub(crate) fn new() -> Self {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn from_u64(u: u64) -> Self {
-        Self(u)
-    }
-}
-
-/// The response channel for a call effect.
+/// A time specifying when an effect should be executed.
+/// The identifier (u64) specifies the precise effect to execute at that time in a map of
+/// scheduled effects maintained by the runtime (whether simulation or tokio).
 ///
-/// In order to respond to the calling stage, use [`Effects::respond`].
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct CallRef<Resp: SendData> {
-    pub(crate) target: Name,
-    pub(crate) id: CallId,
-    pub(crate) deadline: Instant,
-    #[serde(skip, default = "dummy_response")]
-    pub(crate) response: oneshot::Sender<Box<dyn SendData>>,
-    #[serde(skip)]
-    pub(crate) _ph: PhantomData<Resp>,
-}
+/// It is important to note that ScheduleId is ordered by time first, then by id.
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, serde::Serialize, serde::Deserialize,
+)]
+pub struct ScheduleId(Instant, u64);
 
-// FIXME: will need to inject deserialization context to reconstruct a channel
-fn dummy_response() -> oneshot::Sender<Box<dyn SendData>> {
-    oneshot::channel().0
-}
+impl ScheduleId {
+    pub(crate) fn new(id: u64, instant: Instant) -> Self {
+        Self(instant, id)
+    }
 
-impl<Resp: SendData + PartialEq> PartialEq for CallRef<Resp> {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+    pub fn time(&self) -> Instant {
+        self.0
     }
 }
 
-impl<Resp: SendData> Debug for CallRef<Resp> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CallRef")
-            .field("target", &self.target)
-            .field("id", &self.id)
-            .field("deadline", &self.deadline)
-            .finish()
-    }
-}
-
-impl<Resp: SendData> CallRef<Resp> {
-    /// Create a dummy that compares equal to its original but doesn’t actually work.
-    ///
-    /// This is useful within test procedures to retain a properly typed reference
-    /// that can be used as argument to [`assert_respond`](crate::Effect::assert_respond)
-    /// and [`resume_respond`](crate::effect_box::SimulationRunning::resume_respond).
-    pub fn dummy(&self) -> Self {
-        Self {
-            target: self.target.clone(),
-            id: self.id,
-            deadline: self.deadline,
-            response: oneshot::channel().0,
-            _ph: PhantomData,
-        }
-    }
-
-    /// Test facility for creating a fake call reference.
-    pub fn fake(target: impl AsRef<str>, id: u64, deadline: Instant) -> Self {
-        Self {
-            target: target.as_ref().into(),
-            id: CallId(id),
-            deadline,
-            response: oneshot::channel().0,
-            _ph: PhantomData,
-        }
-    }
-
-    /// Create a dummy channel for testing purposes.
-    pub fn channel(deadline: Instant) -> (Self, oneshot::Receiver<Box<dyn SendData>>) {
-        let (tx, rx) = oneshot::channel();
-        (
-            Self {
-                target: Name::from("dummy"),
-                id: CallId::new(),
-                deadline,
-                response: tx,
-                _ph: PhantomData,
-            },
-            rx,
-        )
+impl fmt::Display for ScheduleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "id {} at {}", self.1, self.0)
     }
 }
 
@@ -155,8 +84,6 @@ impl<Resp: SendData> CallRef<Resp> {
 /// let mut running = network.run(rt.handle().clone());
 /// ```
 pub trait StageGraph {
-    type RefAux<Msg, State>;
-
     /// Create a stage from an asynchronous transition function (state × message → state) and
     /// an initial state.
     ///
@@ -184,7 +111,7 @@ pub trait StageGraph {
         &mut self,
         name: impl AsRef<str>,
         f: F,
-    ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
+    ) -> StageBuildRef<Msg, St, Box<dyn Any + Send>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
@@ -194,7 +121,7 @@ pub trait StageGraph {
     /// Finalize the given stage by providing its initial state.
     fn wire_up<Msg, St>(
         &mut self,
-        stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
+        stage: StageBuildRef<Msg, St, Box<dyn Any + Send>>,
         state: St,
     ) -> StageStateRef<Msg, St>
     where
