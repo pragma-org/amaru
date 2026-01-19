@@ -312,7 +312,7 @@ impl StageGraph for TokioBuilder {
 }
 
 enum PriorityMessage {
-    Scheduled(Box<dyn SendData>, ScheduleId),
+    Scheduled(Box<dyn SendData>, ScheduleId, watch::Receiver<bool>),
     TimerCancelled(ScheduleId),
     Tombstone(Box<dyn SendData>),
 }
@@ -332,9 +332,10 @@ async fn run_stage_boxed(
     // this also contains tasks tracking the termination of spawned stages, which when dropped
     // will terminate those spawned stages
     let mut timers = FuturesUnordered::<BoxFuture<'static, PriorityMessage>>::new();
-    let mut cancellation = BTreeMap::<ScheduleId, oneshot::Sender<()>>::new();
+    let mut cancel_senders = BTreeMap::<ScheduleId, watch::Sender<bool>>::new();
 
     let tb = DropGuard::new(inner.trace_buffer.clone(), |tb| {
+        // ensure that Aborted is traced when this Future is dropped
         tb.lock().push_terminated_aborted(&stage_name)
     });
 
@@ -352,28 +353,35 @@ async fn run_stage_boxed(
                 let mut scheduled = Vec::new();
                 for msg in res {
                     match msg {
-                        PriorityMessage::Scheduled(msg, id) => {
-                            cancellation.remove(&id);
-                            scheduled.push((id, msg));
+                        PriorityMessage::Scheduled(msg, id, cancelation) => {
+                            scheduled.push((id, msg, cancelation));
                         }
                         PriorityMessage::TimerCancelled(_id) => {}
-                        PriorityMessage::Tombstone(msg) => msgs.push(msg),
+                        PriorityMessage::Tombstone(msg) => msgs.push((msg, None)),
                     }
                 }
                 // ensure that earliest timer is delivered first
-                scheduled.sort_by_key(|(id, _)| *id);
-                for (_id, msg) in scheduled {
-                    msgs.push(msg);
+                scheduled.sort_by_key(|(id, _, _)| *id);
+                for (id, msg, cancelation) in scheduled {
+                    msgs.push((msg, Some((id, cancelation))));
                 }
             }
-            Some(msg) = rx.recv() => msgs.push(msg),
+            Some(msg) = rx.recv() => msgs.push((msg, None)),
             else => {
                 tracing::error!(%stage_name, "stage sender dropped");
                 break;
             }
         }
 
-        for msg in msgs.drain(..) {
+        for (msg, cancelation) in msgs.drain(..) {
+            if let Some((id, canceled)) = cancelation {
+                cancel_senders.remove(&id);
+                if *canceled.borrow() {
+                    // cancellation happened after the timer fired but before the message was delivered
+                    continue;
+                }
+            }
+
             if let Ok(CanSupervise(child)) = msg.cast_ref::<CanSupervise>() {
                 tracing::debug!(
                     "stage `{stage_name}` terminates because of an unsupervised child termination"
@@ -390,7 +398,7 @@ async fn run_stage_boxed(
                 &effect,
                 &stage_name,
                 &mut timers,
-                &mut cancellation,
+                &mut cancel_senders,
                 f,
             )
             .await;
@@ -439,7 +447,7 @@ fn interpreter(
     effect: &EffectBox,
     name: &Name,
     timers: &mut FuturesUnordered<BoxFuture<'static, PriorityMessage>>,
-    cancellation: &mut BTreeMap<ScheduleId, oneshot::Sender<()>>,
+    cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
     mut stage: BoxFuture<'static, Box<dyn SendData>>,
 ) -> impl Future<Output = Option<Box<dyn SendData>>> + Send {
     // trying to write this as an async fn fails with inscrutable compile errors, it seems
@@ -583,19 +591,20 @@ fn interpreter(
                 StageEffect::Schedule(msg, id) => {
                     let when = id.time();
                     let sleep = tokio::time::sleep_until(when.to_tokio());
-                    let (tx, rx) = oneshot::channel();
-                    cancellation.insert(id, tx);
+                    let (tx, mut rx) = watch::channel(false);
+                    cancel_senders.insert(id, tx);
                     timers.push(Box::pin(async move {
+                        let rx2 = rx.clone();
                         tokio::select! { biased;
-                            _ = rx => PriorityMessage::TimerCancelled(id),
-                            _ = sleep => PriorityMessage::Scheduled(msg, id),
+                            _ = rx.wait_for(|x| *x) => PriorityMessage::TimerCancelled(id),
+                            _ = sleep => PriorityMessage::Scheduled(msg, id, rx2),
                         }
                     }));
                     StageResponse::Unit
                 }
                 StageEffect::CancelSchedule(id) => {
-                    if let Some(tx) = cancellation.remove(&id) {
-                        tx.send(()).ok();
+                    if let Some(tx) = cancel_senders.remove(&id) {
+                        tx.send_replace(true);
                         StageResponse::CancelScheduleResponse(true)
                     } else {
                         StageResponse::CancelScheduleResponse(false)
