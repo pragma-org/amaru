@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_kernel::peer::Peer;
 use amaru_ouroboros::{ConnectionId, ConnectionResource, ToSocketAddrs};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::net::SocketAddr;
@@ -32,7 +33,8 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
 pub trait NetworkOps {
     fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, Result<SocketAddr, String>>;
 
-    fn accept(&self, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, String>>;
+    fn accept(&self, timeout: Duration)
+    -> BoxFuture<'static, Result<(Peer, ConnectionId), String>>;
 
     fn connect(
         &self,
@@ -68,7 +70,10 @@ impl<T> NetworkOps for Network<'_, T> {
         self.0.external(ListenEffect { addr })
     }
 
-    fn accept(&self, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, String>> {
+    fn accept(
+        &self,
+        timeout: Duration,
+    ) -> BoxFuture<'static, Result<(Peer, ConnectionId), String>> {
         self.0.external(AcceptEffect { timeout })
     }
 
@@ -150,7 +155,7 @@ impl ExternalEffect for AcceptEffect {
 }
 
 impl ExternalEffectAPI for AcceptEffect {
-    type Response = Result<ConnectionId, String>;
+    type Response = Result<(Peer, ConnectionId), String>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

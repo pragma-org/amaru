@@ -16,11 +16,13 @@ use crate::socket_addr::resolve;
 use amaru_kernel::bytes::NonEmptyBytes;
 use amaru_kernel::peer::Peer;
 use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
+use async_channel::{Receiver, Sender};
 use bytes::{Buf, BytesMut};
 use parking_lot::Mutex;
-use pure_stage::{BoxFuture, Sender};
+use pure_stage::BoxFuture;
 use socket2::{Domain, Socket, Type};
 use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -96,7 +98,17 @@ pub struct TokioConnections {
     connections: Arc<Mutex<Connections>>,
     read_buf_size: usize,
     listener: Arc<AsyncMutex<Option<TcpListener>>>,
-    accept_sender: Option<Sender<(Peer, ConnectionId)>>,
+    pending_tx: Arc<AsyncMutex<Option<Sender<PendingAccept>>>>,
+    pending_rx: Arc<AsyncMutex<Option<Receiver<PendingAccept>>>>,
+    accept_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+}
+
+impl Drop for TokioConnections {
+    fn drop(&mut self) {
+        if let Some(h) = self.accept_task.lock().take() {
+            h.abort();
+        }
+    }
 }
 
 impl TokioConnections {
@@ -105,13 +117,10 @@ impl TokioConnections {
             connections: Arc::new(Mutex::new(Connections::new())),
             read_buf_size,
             listener: Arc::new(AsyncMutex::new(None)),
-            accept_sender: None,
+            pending_tx: Arc::new(AsyncMutex::new(None)),
+            pending_rx: Arc::new(AsyncMutex::new(None)),
+            accept_task: Arc::new(Mutex::new(None)),
         }
-    }
-
-    pub fn with_accept_sender(mut self, accept_sender: Sender<(Peer, ConnectionId)>) -> Self {
-        self.accept_sender = Some(accept_sender);
-        self
     }
 }
 
@@ -131,52 +140,102 @@ async fn connect(
 impl ConnectionProvider for TokioConnections {
     fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
         let listener = self.listener.clone();
+        let pending_tx = self.pending_tx.clone();
+        let pending_rx = self.pending_rx.clone();
+        let accept_task = self.accept_task.clone();
+
         Box::pin(
             async move {
-                let mut guard = listener.lock().await;
-                if guard.is_some() {
+                // Ensure listen is called once.
+                let mut lg = listener.lock().await;
+                if lg.is_some() {
                     return Err(std::io::Error::other(
                         "listener already created; cannot bind multiple times",
                     ));
                 }
+
+                // Bind the listener with SO_REUSEADDR and create the TCP socket with SO_NODELAY.
                 let bound = bind_address(addr)?;
-                let addr = bound.local_addr()?;
-                tracing::debug!(%addr, "listening");
-                *guard = Some(bound);
-                Ok(addr)
+                let local = bound.local_addr()?;
+                tracing::debug!(%local, "listening");
+
+                // Create a bounded MPMC channel for accepted sockets.
+                let (tx, rx) = async_channel::bounded::<PendingAccept>(128);
+
+                *pending_tx.lock().await = Some(tx.clone());
+                *pending_rx.lock().await = Some(rx);
+                *lg = Some(bound);
+
+                // The accept loop task tries to accept incoming connections and sends them
+                // into the channel. If the channel is full, it will back-pressure the accept calls
+                let listener_clone = listener.clone();
+                let task = tokio::spawn(
+                    async move {
+                        loop {
+                            // Acquire listener for accept; keep lock scope tight.
+                            let (stream, peer_addr) = {
+                                let guard = listener_clone.lock().await;
+                                let l = match guard.as_ref() {
+                                    Some(l) => l,
+                                    None => break, // listener removed/shutdown
+                                };
+                                match l.accept().await {
+                                    Ok((s, a)) => (s, a),
+                                    Err(_) => break,
+                                }
+                            };
+
+                            if tx.send(PendingAccept { stream, peer_addr }).await.is_err() {
+                                // Stop the loop if the receiver has been dropped.
+                                break;
+                            }
+                        }
+                    }
+                    .instrument(tracing::debug_span!("accept_loop", %local)),
+                );
+
+                *accept_task.lock() = Some(task);
+
+                Ok(local)
             }
-            .instrument(tracing::debug_span!("bind_listener", %addr)),
+            .instrument(tracing::debug_span!("listen", %addr)),
         )
     }
 
-    fn accept(&self, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        let listener = self.listener.clone();
-        let resource = self.connections.clone();
+    fn accept(
+        &self,
+        timeout: Duration,
+    ) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
+        let pending_rx = self.pending_rx.clone();
+        let connections = self.connections.clone();
         let read_buf_size = self.read_buf_size;
-        let accept_sender = self.accept_sender.clone();
+
         Box::pin(
             async move {
-                let guard = listener.lock().await;
-                let l = guard.as_ref().ok_or_else(|| {
-                    std::io::Error::other("listener not bound; call bind() first")
-                })?;
+                let rx = {
+                    let guard = pending_rx.lock().await;
+                    guard
+                        .as_ref()
+                        .ok_or_else(|| {
+                            std::io::Error::other("listener not bound; call listen() first")
+                        })?
+                        .clone()
+                };
 
-                let (stream, peer_addr) = tokio::time::timeout(timeout, l.accept()).await??;
-                drop(guard);
+                let PendingAccept { stream, peer_addr } = tokio::time::timeout(timeout, rx.recv())
+                    .await
+                    .map_err(|_| {
+                        std::io::Error::new(std::io::ErrorKind::TimedOut, "accept timed out")
+                    })?
+                    .map_err(|_| std::io::Error::other("accept loop stopped"))?;
 
                 tracing::debug!(%peer_addr, "accepted connection");
                 let id = {
-                    let mut connections = resource.lock();
-                    connections.add_connection(Connection::new(stream, read_buf_size)?)
+                    let mut guard = connections.lock();
+                    guard.add_connection(Connection::new(stream, read_buf_size)?)
                 };
 
-                if let Some(sender) = accept_sender {
-                    let peer = Peer::new(peer_addr.to_string().as_str());
-                    sender.send((peer, id)).await.map_err(|_| {
-                        std::io::Error::other("failed to send accepted connection to accept stage")
-                    })?;
-                }
-                Ok(id)
+                Ok((Peer::from_addr(&peer_addr), id))
             }
             .instrument(tracing::debug_span!("accept")),
         )
@@ -290,6 +349,13 @@ impl ConnectionProvider for TokioConnections {
     }
 }
 
+/// Local sruct holding a pending accepted connection
+/// until it is picked up by and accept call and added to the list of connections.
+struct PendingAccept {
+    stream: TcpStream,
+    peer_addr: SocketAddr,
+}
+
 /// Binds a TCP listener to the specified address with
 /// `SO_REUSEADDR` (and `SO_REUSEPORT` on Linux) enabled.
 fn bind_address(addr: SocketAddr) -> std::io::Result<TcpListener> {
@@ -327,9 +393,9 @@ mod tests {
         let server: JoinHandle<std::io::Result<()>> = tokio::spawn(async move {
             let (mut stream, _peer) = listener.accept().await?;
 
-            let mut buf = String::new();
-            stream.read_to_string(&mut buf).await?;
-            assert_eq!(&buf, "ping");
+            let mut buf = [0u8; 4];
+            stream.read_exact(&mut buf).await?;
+            assert_eq!(&buf, b"ping");
 
             stream.write_all(b"pong").await?;
             Ok(())
@@ -340,10 +406,9 @@ mod tests {
         let connection_id = connections
             .connect(vec![addr], Duration::from_secs(1))
             .await?;
-
         connections.send(connection_id, non_empty(b"ping")).await?;
         let reply = connections
-            .recv(connection_id, NonZeroUsize::new(4).expect("non-zero"))
+            .recv(connection_id, const { NonZeroUsize::new(4).unwrap() })
             .await?;
         assert_eq!(reply.as_ref(), b"pong");
 
@@ -377,7 +442,7 @@ mod tests {
         });
 
         // Receive "hello" from the client and respond with "world".
-        let connection_id = connections.accept(Duration::from_secs(1)).await?;
+        let connection_id = connections.accept(Duration::from_secs(1)).await?.1;
         let result = connections
             .recv(connection_id, const { NonZeroUsize::new(5).unwrap() })
             .await?;

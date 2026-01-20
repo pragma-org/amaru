@@ -35,7 +35,6 @@ pub enum ManagerMessage {
     ConnectionDied(Peer, ConnectionId),
     // TODO move to separate message type
     Connect(Peer),
-    Accept,
     Accepted(Peer, ConnectionId),
     RemovePeer(Peer),
     FetchBlocks {
@@ -157,18 +156,6 @@ pub async fn stage(
                 .await;
             eff.send(&connection, ConnectionMessage::Initialize).await;
             *entry = ConnectionState::Connected(conn_id, connection);
-        }
-        ManagerMessage::Accept => {
-            if Network::new(&eff)
-                .accept(Duration::from_secs(1))
-                .await
-                .is_err()
-            {
-                eff.schedule_after(ManagerMessage::Accept, Duration::from_secs(1))
-                    .await;
-                return manager;
-            }
-            eff.send(eff.me_ref(), ManagerMessage::Accept).await;
         }
         ManagerMessage::Accepted(peer, conn_id) => {
             match manager.peers.get(&peer) {

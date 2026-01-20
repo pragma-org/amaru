@@ -18,6 +18,7 @@ resolver = "2"
 # External dependencies
 acto = { version = "0.8.0", features = ["tokio"] }
 anyhow = "1.0.100"
+async-channel = "2.5.0"
 async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 async-trait = "0.1.83"
 assert-json-diff = "2.0.2"

@@ -14,6 +14,7 @@
 
 use crate::chainsync::ChainSyncInitiatorMsg;
 use crate::manager::{Manager, ManagerMessage};
+use crate::network_effects::{Network, NetworkOps};
 use crate::protocol::Role;
 use crate::store_effects::{ResourceHeaderStore, Store};
 use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
@@ -30,13 +31,13 @@ use amaru_ouroboros_traits::can_validate_blocks::mock::{
 };
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, ChainStore, ConnectionId, ConnectionProvider, ConnectionResource,
-    ResourceMempool, TxId,
+    CanValidateBlocks, ChainStore, ConnectionProvider, ConnectionResource, ResourceMempool, TxId,
 };
 use pallas_primitives::babbage::{Header, MintedHeader};
 use pallas_primitives::conway::Tx;
 use pure_stage::tokio::{TokioBuilder, TokioRunning};
 use pure_stage::{Effects, StageGraph, StageRef};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -89,14 +90,15 @@ async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr)> {
 
     let responder_stage = responder_network.stage("responder", manager::stage);
     let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
-    let responder_sender = responder_network.input(&responder_stage);
 
     let accept_stage = responder_network.stage("accept", accept_stage);
     let accept_stage = responder_network.wire_up(accept_stage, responder_stage.without_state());
-    let accept_sender = responder_network.input(accept_stage);
+    responder_network
+        .preload(accept_stage, [PullAccept])
+        .unwrap();
 
     // Create a connection that notifies the accept stage about new connections
-    let responder_connections = TokioConnections::new(65535).with_accept_sender(accept_sender);
+    let responder_connections = TokioConnections::new(65535);
     let peer_addr = responder_connections
         .listen(SocketAddr::from(([127, 0, 0, 1], 0)))
         .await?;
@@ -109,7 +111,6 @@ async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr)> {
 
     tracing::info!("Start the responder");
     let running_responder = responder_network.run(Handle::current());
-    responder_sender.send(ManagerMessage::Accept).await.unwrap();
     Ok((running_responder, peer_addr))
 }
 
@@ -168,20 +169,25 @@ async fn connect_responder() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct PullAccept;
+
 /// Create a stage that accepts incoming connections and notifies the manager
 /// about them. This can not be implemented using contramap because we need to
 /// create a sender for that stage and this is not possible with an adapted stage.
 pub async fn accept_stage(
     manager_stage: StageRef<ManagerMessage>,
-    msg: (Peer, ConnectionId),
-    eff: Effects<(Peer, ConnectionId)>,
+    _msg: PullAccept,
+    eff: Effects<PullAccept>,
 ) -> StageRef<ManagerMessage> {
-    let (peer, connection_id) = msg;
-    eff.send(
-        &manager_stage,
-        ManagerMessage::Accepted(peer, connection_id),
-    )
-    .await;
+    if let Ok((peer, connection_id)) = Network::new(&eff).accept(Duration::from_secs(5)).await {
+        eff.send(
+            &manager_stage,
+            ManagerMessage::Accepted(peer, connection_id),
+        )
+        .await;
+    }
+    eff.send(&eff.me(), PullAccept).await;
     manager_stage
 }
 

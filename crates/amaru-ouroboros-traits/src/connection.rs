@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_kernel::peer::Peer;
 use std::{
     fmt,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
@@ -122,7 +123,10 @@ pub type ConnectionResource = Arc<dyn ConnectionProvider>;
 pub trait ConnectionProvider: Send + Sync + 'static {
     fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>>;
 
-    fn accept(&self, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
+    fn accept(
+        &self,
+        timeout: Duration,
+    ) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>>;
 
     fn connect(
         &self,
