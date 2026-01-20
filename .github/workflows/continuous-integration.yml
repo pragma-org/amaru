@@ -200,13 +200,13 @@ jobs:
           - name: preprod
             magic: 1
             target_epoch: 182
-            default-timeout-light-run: 15
+            default-timeout-light-run: 30
             default-timeout-full-run: 60
           - name: preview
             magic: 2
             target_epoch: 680
             tests-may-fail: true
-            default-timeout-light-run: 15
+            default-timeout-light-run: 30
             default-timeout-full-run: 120
         cardano_node_version: [10.5.3]
     env:
