@@ -20,6 +20,15 @@ use crate::{
     cbor::{Encode, data::Type},
 };
 
+/// A multi-era transaction body. This type is meant to represent all transaction body in eras that
+/// we may encounter.
+///
+///
+// NOTE: Obsolete fields from previous eras:
+//
+// 6: governance updates, prior to Conway.
+// 10: has somewhat never existed, or existed but was removed without having been used.
+// 12: same
 #[derive(Encode, Debug, PartialEq, Clone)]
 #[cbor(map)]
 pub struct PseudoTransactionBody<T1> {
@@ -33,7 +42,7 @@ pub struct PseudoTransactionBody<T1> {
     pub fee: Coin,
 
     #[n(3)]
-    pub ttl: Option<u64>,
+    pub validity_interval_end: Option<u64>,
 
     #[n(4)]
     pub certificates: Option<NonEmptySet<Certificate>>,
@@ -71,12 +80,11 @@ pub struct PseudoTransactionBody<T1> {
     #[n(18)]
     pub reference_inputs: Option<NonEmptySet<TransactionInput>>,
 
-    // -- NEW IN CONWAY
     #[n(19)]
-    pub voting_procedures: Option<VotingProcedures>,
+    pub votes: Option<VotingProcedures>,
 
     #[n(20)]
-    pub proposal_procedures: Option<NonEmptySet<ProposalProcedure>>,
+    pub proposals: Option<NonEmptySet<ProposalProcedure>>,
 
     #[n(21)]
     pub treasury_value: Option<Coin>,
@@ -133,8 +141,8 @@ where
             Ok(TxBodyField::Fee(coin))
         }
         3 => {
-            let ttl = d.decode_with(ctx)?;
-            Ok(TxBodyField::Ttl(ttl))
+            let validity_interval_end = d.decode_with(ctx)?;
+            Ok(TxBodyField::Ttl(validity_interval_end))
         }
         4 => {
             let certificates = d.decode_with(ctx)?;
@@ -185,12 +193,12 @@ where
             Ok(TxBodyField::ReferenceInputs(reference_inputs))
         }
         19 => {
-            let voting_procedures = d.decode_with(ctx)?;
-            Ok(TxBodyField::VotingProcedures(voting_procedures))
+            let votes = d.decode_with(ctx)?;
+            Ok(TxBodyField::VotingProcedures(votes))
         }
         20 => {
-            let proposal_procedures = d.decode_with(ctx)?;
-            Ok(TxBodyField::ProposalProcedures(proposal_procedures))
+            let proposals = d.decode_with(ctx)?;
+            Ok(TxBodyField::ProposalProcedures(proposals))
         }
         21 => {
             let treasury_value = d.decode_with(ctx)?;
@@ -256,7 +264,7 @@ fn make_basic_tx_body<T1>(
         inputs,
         outputs,
         fee,
-        ttl: None,
+        validity_interval_end: None,
         certificates: None,
         withdrawals: None,
         auxiliary_data_hash: None,
@@ -269,8 +277,8 @@ fn make_basic_tx_body<T1>(
         collateral_return: None,
         total_collateral: None,
         reference_inputs: None,
-        voting_procedures: None,
-        proposal_procedures: None,
+        votes: None,
+        proposals: None,
         treasury_value: None,
         donation: None,
     }
@@ -295,7 +303,7 @@ where
             txbody.fee = f;
         }
         (3, TxBodyField::Ttl(t)) => {
-            txbody.ttl = t;
+            txbody.validity_interval_end = t;
         }
         (4, TxBodyField::Certificates(c)) => {
             txbody.certificates = c;
@@ -334,10 +342,10 @@ where
             txbody.reference_inputs = r;
         }
         (19, TxBodyField::VotingProcedures(v)) => {
-            txbody.voting_procedures = v;
+            txbody.votes = v;
         }
         (20, TxBodyField::ProposalProcedures(p)) => {
-            txbody.proposal_procedures = p;
+            txbody.proposals = p;
         }
         (21, TxBodyField::TreasuryValue(t)) => {
             txbody.treasury_value = t;
@@ -427,7 +435,7 @@ impl<'a> From<MintedTransactionBody<'a>> for TransactionBody {
             inputs: value.inputs,
             outputs: value.outputs.into_iter().map(|x| x.into()).collect(),
             fee: value.fee,
-            ttl: value.ttl,
+            validity_interval_end: value.validity_interval_end,
             certificates: value.certificates,
             withdrawals: value.withdrawals,
             auxiliary_data_hash: value.auxiliary_data_hash,
@@ -440,8 +448,8 @@ impl<'a> From<MintedTransactionBody<'a>> for TransactionBody {
             collateral_return: value.collateral_return.map(|x| x.into()),
             total_collateral: value.total_collateral,
             reference_inputs: value.reference_inputs,
-            voting_procedures: value.voting_procedures,
-            proposal_procedures: value.proposal_procedures,
+            votes: value.votes,
+            proposals: value.proposals,
             treasury_value: value.treasury_value,
             donation: value.donation,
         }
