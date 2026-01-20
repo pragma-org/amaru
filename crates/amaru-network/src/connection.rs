@@ -373,17 +373,9 @@ mod tests {
         // to an ephemeral port.
         let connections = TokioConnections::new(1024);
 
-        connections
+        let addr = connections
             .bind(SocketAddr::from(([127, 0, 0, 1], 0)))
             .await?;
-
-        let addr = {
-            let guard = connections.listener.lock().await;
-            guard
-                .as_ref()
-                .expect("listener must be bound")
-                .local_addr()?
-        };
 
         // Start a client that connects to the listener and
         // sends "hello", expecting "world" in response.
