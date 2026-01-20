@@ -20,7 +20,7 @@ parking_lot.workspace = true
 pure-stage.workspace = true
 socket2.workspace = true
 thiserror.workspace = true
-tokio = { "workspace" = true, features = ["net"] }
+tokio = { workspace = true, features = ["net"] }
 tracing.workspace = true
 
 amaru-kernel.workspace = true
