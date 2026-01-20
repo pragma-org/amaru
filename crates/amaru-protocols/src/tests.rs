@@ -120,7 +120,7 @@ async fn start_initiator(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<
     let addr = addr
         .into()
         .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3000)));
-    let peer = Peer::new(addr.to_string().as_str());
+    let peer = Peer::from_addr(&addr);
     let mut initiator_network = TokioBuilder::default();
 
     let chainsync_stage = initiator_network.stage("chainsync", test_chainsync_stage);

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::fmt::Display;
+use std::net::SocketAddr;
 
 /// A single peer in the network, with a unique identifier.
 #[derive(
@@ -32,6 +33,12 @@ impl Peer {
     pub fn new(name: &str) -> Peer {
         Peer {
             name: name.to_string(),
+        }
+    }
+
+    pub fn from_addr(addr: &SocketAddr) -> Peer {
+        Peer {
+            name: addr.to_string(),
         }
     }
 }
