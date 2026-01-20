@@ -17,6 +17,7 @@ use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFaile
 use crate::consensus::span::HasSpan;
 use amaru_kernel::consensus_events::{ValidateBlockEvent, ValidateHeaderEvent};
 use amaru_kernel::{IsHeader, RawBlock};
+use amaru_observability::consensus::diffusion::FETCH_BLOCK;
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
 use std::time::Duration;
@@ -36,7 +37,7 @@ pub fn stage(
     msg: ValidateHeaderEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "diffusion.fetch_block");
+    let span = tracing::trace_span!(parent: msg.span(), FETCH_BLOCK);
     async move {
         match msg {
             ValidateHeaderEvent::Validated { peer, header, span } => {

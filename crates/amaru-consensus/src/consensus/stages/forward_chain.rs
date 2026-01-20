@@ -19,6 +19,7 @@ use crate::consensus::span::HasSpan;
 use amaru_kernel::IsHeader;
 use amaru_kernel::consensus_events::BlockValidationResult;
 use amaru_kernel::protocol_messages::tip::Tip;
+use amaru_observability::consensus::diffusion::FORWARD_CHAIN;
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Instrument, error, trace};
@@ -35,7 +36,7 @@ pub fn stage(
     msg: BlockValidationResult,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "diffusion.forward_chain");
+    let span = tracing::trace_span!(parent: msg.span(), FORWARD_CHAIN);
     async move {
         let (mut our_tip, validation_errors, processing_errors) = state;
         match msg {

@@ -81,6 +81,7 @@ dependencies = [
  "amaru-mempool",
  "amaru-metrics",
  "amaru-network",
+ "amaru-observability",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-progress-bar",
@@ -263,8 +264,8 @@ name = "amaru-network"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
- "amaru-observability",
  "amaru-mempool",
+ "amaru-observability",
  "amaru-ouroboros",
  "bytes",
  "hex",

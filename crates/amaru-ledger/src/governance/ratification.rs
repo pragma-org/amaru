@@ -22,6 +22,7 @@ use amaru_kernel::{
     Ballot, ComparableProposalId, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
     PoolId, StakeCredential, UnitInterval, Vote, Voter, protocol_parameters::ProtocolParameters,
 };
+use amaru_observability::ledger::{ENACTING, RATIFYING};
 use num::Zero;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -333,7 +334,7 @@ impl<'distr> RatificationContext<'distr> {
 
     fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
         info_span!(
-            "enacting",
+            ENACTING,
             "proposal.id" = id.to_compact_string(),
             "proposal.kind" = proposal.display_kind(),
             "proposals.pruned" = field::Empty,
@@ -343,7 +344,7 @@ impl<'distr> RatificationContext<'distr> {
     fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
         if matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)) {
             trace_span!(
-                "ratifying",
+                RATIFYING,
                 "proposal.id" = id.to_compact_string(),
                 "proposal.kind" = proposal.display_kind(),
                 "required_threshold.committee" = field::Empty,
@@ -364,7 +365,7 @@ impl<'distr> RatificationContext<'distr> {
             )
         } else {
             debug_span!(
-                "ratifying",
+                RATIFYING,
                 "proposal.id" = id.to_compact_string(),
                 "proposal.kind" = proposal.display_kind(),
                 "required_threshold.committee" = field::Empty,

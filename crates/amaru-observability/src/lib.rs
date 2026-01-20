@@ -1,7 +1,23 @@
+pub const OPENING_CHAIN_DB: &str = "opening chain db";
+pub const MIGRATING_DATABASE: &str = "migrating database";
+
 pub mod consensus {
+
+    pub mod diffusion {
+        pub const FETCH_BLOCK: &str = "diffusion.fetch_block";
+        pub const FORWARD_CHAIN: &str = "diffusion.forward_chain";
+        pub const CHAIN_SYNC: &str = "diffusion.chain_sync";
+        pub const CHAIN_SYNC_WAIT: &str = "diffusion.chain_sync.wait";
+    }
 
     pub mod chain_sync {
         pub const DECODE_HEADER: &str = "chain_sync.decode_header";
+        pub const RECEIVE_HEADER: &str = "chain_sync.receive_header";
+        pub const RECEIVE_HEADER_DECODE_FAILED: &str = "chain_sync.receive_header.decode_failed";
+        pub const SELECT_CHAIN: &str = "chain_sync.select_chain";
+        pub const TRACK_PEERS: &str = "chain_sync.track_peers";
+        pub const VALIDATE_BLOCK: &str = "chain_sync.validate_block";
+        pub const VALIDATE_HEADER: &str = "chain_sync.validate_header";
     }
 
     pub mod validate_header {
@@ -29,6 +45,8 @@ pub mod ledger {
     pub const TICK_POOL: &str = "tick.pool";
     pub const TICK_PROPOSALS: &str = "tick.proposals";
     pub const RATIFICATION_CONTEXT_NEW: &str = "ratification.context.new";
+    pub const ENACTING: &str = "enacting";
+    pub const RATIFYING: &str = "ratifying";
 }
 
 pub mod network {

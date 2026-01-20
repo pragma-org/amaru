@@ -15,6 +15,7 @@
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_consensus::StoreError;
 use amaru_kernel::network::NetworkName;
+use amaru_observability::{MIGRATING_DATABASE, OPENING_CHAIN_DB};
 use amaru_stores::rocksdb::{
     RocksDbConfig,
     consensus::{check_db_version, migrate_db, util::open_db},
@@ -58,7 +59,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     );
 
     Ok(
-        info_span!("opening chain db", path = %config.dir.display()).in_scope(|| {
+        info_span!(OPENING_CHAIN_DB, path = %config.dir.display()).in_scope(|| {
             let (_, db) = open_db(&config)?;
             match check_db_version(&db) {
                 Ok(()) => {
@@ -66,7 +67,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     Ok(())
                 }
                 Err(StoreError::IncompatibleChainStoreVersions { stored, current }) => {
-                    info_span!("migrating database", from = stored, to = current)
+                    info_span!(MIGRATING_DATABASE, from = stored, to = current)
                         .in_scope(|| migrate_db(&db))?;
                     Ok(())
                 }

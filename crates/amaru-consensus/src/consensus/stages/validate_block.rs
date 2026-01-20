@@ -17,6 +17,7 @@ use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFaile
 use crate::consensus::span::HasSpan;
 use amaru_kernel::IsHeader;
 use amaru_kernel::consensus_events::{DecodedChainSyncEvent, ValidateBlockEvent};
+use amaru_observability::consensus::chain_sync::VALIDATE_BLOCK;
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Instrument, Span, error};
@@ -33,7 +34,7 @@ pub fn stage(
     msg: ValidateBlockEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.validate_block");
+    let span = tracing::trace_span!(parent: msg.span(), VALIDATE_BLOCK);
     async move {
         match msg {
             ValidateBlockEvent::Validated {
