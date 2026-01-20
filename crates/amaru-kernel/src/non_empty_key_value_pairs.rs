@@ -114,6 +114,8 @@ where
     fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
         let mut inner = Vec::new();
 
+        let position = d.position();
+
         heterogeneous_map(
             d,
             &mut inner,
@@ -137,7 +139,7 @@ where
 
         // Ensure non-empty.
         if inner.is_empty() {
-            return Err(Error::message(IntoNonEmptyKeyValuePairsError::Empty));
+            return Err(Error::message(IntoNonEmptyKeyValuePairsError::Empty).at(position));
         }
 
         Ok(Self(inner))
@@ -150,7 +152,7 @@ where
 
 #[derive(Debug, thiserror::Error)]
 pub enum IntoNonEmptyKeyValuePairsError {
-    #[error("empty map when expected at least one key/value pair")]
+    #[error("empty map when expecting at least one key/value pair")]
     Empty,
     #[error("found duplicate keys when converting collection to a key/value map")]
     HasDuplicate,

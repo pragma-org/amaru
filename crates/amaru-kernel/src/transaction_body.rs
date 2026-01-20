@@ -350,6 +350,19 @@ where
     Ok(())
 }
 
+// NOTE: Multi-era transaction decoding.
+//
+// Parsing of transactions must be done according to a specific era, and the exact decoding
+// rules may vary per era.
+//
+// The following decoder assumes Conway as an era since that's all we support at the moment.
+// Yet, this means that we will end up rejected perfectly well-formed transactions from other
+// eras.
+//
+// For example, empty but present fields were generally allowed prior to Conway.
+//
+// Ultimately, we have to suppose multi-era decoders, and promote transactions into a common
+// model.
 impl<'b, T1, C> minicbor::Decode<'b, C> for PseudoTransactionBody<T1>
 where
     T1: Clone + Debug + minicbor::Decode<'b, C>,
@@ -441,144 +454,110 @@ pub fn get_original_hash<'a, T>(thing: &KeepRaw<'a, T>) -> pallas_crypto::hash::
 
 #[cfg(test)]
 mod tests {
-    mod tests_transaction {
-        use super::super::TransactionBody;
+    use super::TransactionBody;
+    use crate::cbor;
+    use test_case::test_case;
 
-        // A simple tx with just inputs, outputs, and fee. Address is not well-formed,
-        // since the 00 header implies both a payment part and a staking part
-        // are present.
-        #[test]
-        fn decode_simple_tx() {
-            let tx_bytes = hex::decode("a300828258206767676767676767676767676767676767676767676767676767676767676767008258206767676767676767676767676767676767676767676767676767676767676767000200018182581c000000000000000000000000000000000000000000000000000000001a04000000").unwrap();
-            let tx: TransactionBody = minicbor::decode(&tx_bytes).unwrap();
-            let tx: TransactionBody = tx;
-            assert_eq!(tx.fee, 0);
-        }
+    macro_rules! fixture {
+        ($id:expr) => {{
+            $crate::try_include_cbor!(concat!(
+                "decode_transaction_body/conway/",
+                $id,
+                "/sample.cbor",
+            ))
+        }};
+    }
 
-        // The decoder for ConwayTxBodyRaw rejects transaction bodies missing inputs,
-        // outputs, or fee
-        #[test]
-        fn reject_empty_tx() {
-            let tx_bytes = hex::decode("a0").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: inputs, outputs, and fee fields are required".to_owned())
-            );
-        }
+    #[test_case(
+        fixture!("70beb79b18459ff5b826ebeea82ecf566ab79e166ff5749f761ed402ad459466");
+        "simple input -> output payout"
+    )]
+    #[test_case(
+        fixture!("c20c7e395ef81d8a6172510408446afc240d533bff18f9dca905e78187c2bcd8");
+        "null fees"
+    )]
 
-        // Single input, no outputs, fee present but zero
-        #[test]
-        fn reject_tx_missing_outputs() {
-            let tx_bytes = hex::decode("a200818258200000000000000000000000000000000000000000000000000000000000000008090200").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: inputs, outputs, and fee fields are required".to_owned())
-            );
-        }
+    fn decode_wellformed(result: Result<TransactionBody, cbor::decode::Error>) {
+        assert!(dbg!(result).is_ok());
+    }
 
-        // Single input, single output, no fee
-        #[test]
-        fn reject_tx_missing_fee() {
-            let tx_bytes = hex::decode("a20081825820000000000000000000000000000000000000000000000000000000000000000809018182581c000000000000000000000000000000000000000000000000000000001affffffff").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: inputs, outputs, and fee fields are required".to_owned())
-            );
-        }
-
-        #[test]
-        fn reject_empty_present_mint() {
-            let tx_bytes = hex::decode("a400828258206767676767676767676767676767676767676767676767676767676767676767008258206767676767676767676767676767676767676767676767676767676767676767000200018182581c000000000000000000000000000000000000000000000000000000001a0400000009a0").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: mint must not be empty".to_owned())
-            );
-        }
-
-        #[test]
-        fn reject_empty_present_certs() {
-            let tx_bytes = hex::decode("a400828258206767676767676767676767676767676767676767676767676767676767676767008258206767676767676767676767676767676767676767676767676767676767676767000200018182581c000000000000000000000000000000000000000000000000000000001a040000000480").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: decoding empty set as NonEmptySet".to_owned())
-            );
-        }
-
-        #[test]
-        fn reject_empty_present_withdrawals() {
-            let tx_bytes = hex::decode("a400828258206767676767676767676767676767676767676767676767676767676767676767008258206767676767676767676767676767676767676767676767676767676767676767000200018182581c000000000000000000000000000000000000000000000000000000001a0400000005a0").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: decoding empty map as NonEmptyKeyValuePairs".to_owned())
-            );
-        }
-
-        #[test]
-        fn reject_empty_present_collateral_inputs() {
-            let tx_bytes = hex::decode("a400828258206767676767676767676767676767676767676767676767676767676767676767008258206767676767676767676767676767676767676767676767676767676767676767000200018182581c000000000000000000000000000000000000000000000000000000001a040000000d80").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: decoding empty set as NonEmptySet".to_owned())
-            );
-        }
-
-        #[test]
-        fn reject_empty_present_required_signers() {
-            let tx_bytes = hex::decode("a400828258206767676767676767676767676767676767676767676767676767676767676767008258206767676767676767676767676767676767676767676767676767676767676767000200018182581c000000000000000000000000000000000000000000000000000000001a040000000e80").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: decoding empty set as NonEmptySet".to_owned())
-            );
-        }
-
-        #[test]
-        fn reject_empty_present_voting_procedures() {
-            let tx_bytes = hex::decode("a400828258206767676767676767676767676767676767676767676767676767676767676767008258206767676767676767676767676767676767676767676767676767676767676767000200018182581c000000000000000000000000000000000000000000000000000000001a0400000013a0").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: decoding empty map as NonEmptyKeyValuePairs".to_owned())
-            );
-        }
-
-        #[test]
-        fn reject_empty_present_proposal_procedures() {
-            let tx_bytes = hex::decode("a400828258206767676767676767676767676767676767676767676767676767676767676767008258206767676767676767676767676767676767676767676767676767676767676767000200018182581c000000000000000000000000000000000000000000000000000000001a040000001480").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: decoding empty set as NonEmptySet".to_owned())
-            );
-        }
-
-        #[test]
-        fn reject_empty_present_donation() {
-            let tx_bytes = hex::decode("a400828258206767676767676767676767676767676767676767676767676767676767676767008258206767676767676767676767676767676767676767676767676767676767676767000200018182581c000000000000000000000000000000000000000000000000000000001a040000001600").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: decoding 0 as PositiveCoin".to_owned())
-            );
-        }
-
-        // The haskell node's decoder for ConwayTxBodyRaw uses SparseKeyed which
-        // rejects maps containing duplicates (see `decodeSparse` definition)
-        #[test]
-        fn reject_duplicate_keys() {
-            let tx_bytes = hex::decode("a40081825820000000000000000000000000000000000000000000000000000000000000000809018182581c000000000000000000000000000000000000000000000000000000001affffffff02010201").unwrap();
-            let tx: Result<TransactionBody, _> = minicbor::decode(&tx_bytes);
-            assert_eq!(
-                tx.map_err(|e| e.to_string()),
-                Err("decode error: duplicate txbody entries for key 2".to_owned())
-            );
-        }
+    #[test_case(
+        fixture!("9d34025191e23c5996e20c2c0d1718f5cb1d9c4a37a5cb153cbd03c66b59128f"),
+        "decode error: inputs, outputs, and fee fields are required";
+        "missing fees"
+    )]
+    #[test_case(
+        fixture!("b563891d222561e435b475632a3bdcca58cc3c8ec80ab6b51e0a5c96b6a35e1b"),
+        "decode error: inputs, outputs, and fee fields are required";
+        "missing outputs"
+    )]
+    #[test_case(
+        fixture!("c5f2d5b7e9b8f615c52296e04b3050cf35ad4e8a457a25adaeb2a933de1bf624"),
+        "decode error at position 81: empty set when expecting at least one element";
+        "empty certificates"
+    )]
+    #[test_case(
+        fixture!("3b5478c6446496b6ff71c738c83fbf251841dd45cda074b0ac935b1428a52f66"),
+        "unexpected type map at position 81: expected array";
+        "malformed certificates"
+    )]
+    #[test_case(
+        fixture!("5123113da4c8e2829748dbcd913ac69f572516836731810c2fc1f8b86351bfee"),
+        "decode error at position 87: empty map when expecting at least one key/value pair";
+        "empty votes"
+    )]
+    #[test_case(
+        fixture!("6c6596eda4e61f6f294b522c17f3c9fb6fbddcfac0e55af88ddc96747b3e0478"),
+        "unexpected type array at position 87: expected map";
+        "malformed votes"
+    )]
+    #[test_case(
+        fixture!("402a8a9024d4160928e574c73aa66c66d92f9856c3fa2392242f7a92b8e9c347"),
+        "decode error: mint must not be empty";
+        "empty mint"
+    )]
+    #[test_case(
+        fixture!("48d5440656ceefda1ac25506dcd175e77a486113733a89e48a5a2f401d2cbfda"),
+        "decode error at position 87: empty set when expecting at least one element";
+        "empty collateral inputs"
+    )]
+    #[test_case(
+        fixture!("5cbed05f218d893dac6d9af847aa7429576019a1314b633e3fde55cb74e43be1"),
+        "decode error at position 87: empty set when expecting at least one element";
+        "empty required signers"
+    )]
+    #[test_case(
+        fixture!("71d780bdcc0cf8d1a8dafc6641797d46f1be835be6dd63b2b4bb5651df808d79"),
+        "decode error at position 81: empty map when expecting at least one key/value pair";
+        "empty withdrawals"
+    )]
+    #[test_case(
+        fixture!("477981b76e218802d5ce8c673abefe0b4031f09b0be5283a5b577ca109671771"),
+        "decode error at position 87: empty set when expecting at least one element";
+        "empty proposals"
+    )]
+    #[test_case(
+        fixture!("675954a2fe5ad3638a360902a4c7307a598d6e13b977279df640a663023c14bd"),
+        "decode error: decoding 0 as PositiveCoin";
+        "null donation"
+    )]
+    #[test_case(
+        fixture!("d36a2619a672494604e11bb447cbcf5231e9f2ba25c2169177edc941bd50ad6c"),
+        "decode error: inputs, outputs, and fee fields are required";
+        "empty body"
+    )]
+    #[test_case(
+        fixture!("5280ac2b10897dd26c9d7377ae681a6ea1dc3eec197563ab5bf3ab7907e0e709"),
+        "decode error: duplicate txbody entries for key 2";
+        "duplicate fields keys"
+    )]
+    fn decode_malformed(
+        result: Result<TransactionBody, cbor::decode::Error>,
+        expected_error: &str,
+    ) {
+        assert_eq!(
+            result.map_err(|e| e.to_string()),
+            Err(expected_error.to_string())
+        );
     }
 }

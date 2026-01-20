@@ -105,17 +105,18 @@ where
     fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
         // optional set tag (this will be required in era following Conway)
         if d.datatype()? == Type::Tag {
+            let expected_tag = Tag::new(TAG_SET);
             let found_tag = d.tag()?;
-            if found_tag != Tag::new(TAG_SET) {
-                return Err(Error::message(format!(
-                    "unrecognised tag; expected={TAG_SET}, found={found_tag}"
-                )));
+            if found_tag != expected_tag {
+                return Err(Error::tag_mismatch(expected_tag));
             }
         }
 
+        let position = d.position();
+
         let vec: Vec<T> = d.decode_with(ctx)?;
 
-        Self::try_from(vec).map_err(Error::message)
+        Self::try_from(vec).map_err(|e| Error::message(e).at(position))
     }
 }
 
@@ -126,7 +127,7 @@ where
 /// Errors that may occur when constructing a NonEmptySet.
 #[derive(Debug, thiserror::Error)]
 pub enum IntoNonEmptySetError {
-    #[error("empty set when expected at least one element")]
+    #[error("empty set when expecting at least one element")]
     Empty,
     #[error("found duplicate elements when converting collection to a set")]
     HasDuplicate,

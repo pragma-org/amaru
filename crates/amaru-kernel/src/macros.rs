@@ -77,17 +77,24 @@ macro_rules! hash {
     }};
 }
 
-/// Includes and deserialize a CBOR-encoded test data file. The file must located under the
-/// project's tests/data folder, relative to the project's Cargo.toml.
+/// Like 'include_cbor!', but do not panic when failing to decode. Return a Result instead.
 #[macro_export]
-macro_rules! include_cbor {
+macro_rules! try_include_cbor {
     ($filepath:expr) => {
         $crate::cbor::decode(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/tests/data/",
             $filepath,
         )))
-        .expect(concat!("invalid cbor file: ", $filepath))
+    };
+}
+
+/// Includes and deserialize a CBOR-encoded test data file. The file must located under the
+/// project's tests/data folder, relative to the project's Cargo.toml.
+#[macro_export]
+macro_rules! include_cbor {
+    ($filepath:expr) => {
+        $crate::try_include_cbor!($filepath).expect(concat!("invalid cbor file: ", $filepath))
     };
 }
 
