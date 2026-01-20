@@ -15,6 +15,9 @@
 pub mod migration;
 pub mod util;
 
+use amaru_observability::stores::consensus::{
+    ROLL_FORWARD_CHAIN, ROLLBACK_CHAIN, STORE_BLOCK, STORE_HEADER,
+};
 pub use migration::*;
 
 use amaru_kernel::{
@@ -376,7 +379,7 @@ use std::fmt::Debug;
 impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     #[instrument(level = Level::TRACE,
                  skip_all,
-                 name = "consensus.store.store_header",
+                 name = STORE_HEADER,
                  fields(hash = %header.hash()))]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();
@@ -406,7 +409,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
 
     #[instrument(level = Level::TRACE,
                  skip_all,
-                 name = "consensus.store.store_block",
+                 name = STORE_BLOCK,
                  fields(hash = %hash))]
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
         self.db
@@ -434,7 +437,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
 
     #[instrument(level = Level::TRACE,
                  skip_all,
-                 name = "consensus.store.roll_forward_chain",
+                 name = ROLL_FORWARD_CHAIN,
                  fields(hash = %point.hash(),
                         slot = %point.slot_or_default()))]
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
@@ -443,7 +446,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
 
     #[instrument(level = Level::TRACE,
                  skip_all,
-                 name = "consensus.store.rollback_chain",
+                 name = ROLLBACK_CHAIN,
                  fields(hash = %point.hash(),
                         slot = %point.slot_or_default()))]
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {

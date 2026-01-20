@@ -19,6 +19,7 @@ use amaru_kernel::{
     stake_credential_hash,
 };
 use amaru_ledger::store::{StoreError, columns::unsafe_decode};
+use amaru_observability::stores::DREPS_DELEGATION_REMOVE;
 use std::collections::BTreeSet;
 use tracing::{Level, debug, instrument, warn};
 
@@ -124,7 +125,7 @@ pub fn remove<DB>(
 /// for that drep.
 #[instrument(
     level = Level::DEBUG,
-    name = "dreps_delegations.remove",
+    name = DREPS_DELEGATION_REMOVE,
     skip_all,
     fields(
         drep.hash = %stake_credential_hash(drep),

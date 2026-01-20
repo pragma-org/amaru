@@ -26,6 +26,10 @@ use amaru_kernel::{
     TransactionInput, Vote, Voter, VoterType, serde_utils, stake_credential_hash,
     voter_credential_hash,
 };
+use amaru_observability::ledger::{
+    ADD_FEES, REQUIRE_BOOTSTRAP_WITNESS, REQUIRE_SCRIPT_WITNESS, REQUIRE_VKEY_WITNESS, VOTE,
+    WITHDRAW_FROM,
+};
 use amaru_slot_arithmetic::Epoch;
 use core::mem;
 use std::collections::{BTreeMap, BTreeSet};
@@ -120,7 +124,7 @@ impl PotsSlice for AssertValidationContext {
             fee = %_fees,
         )
         skip_all,
-        name = "add_fees"
+        name = ADD_FEES
     )]
     fn add_fees(&mut self, _fees: Lovelace) {}
 }
@@ -193,7 +197,7 @@ impl AccountsSlice for AssertValidationContext {
             credential.hash = %stake_credential_hash(&credential),
         )
         skip_all,
-        name = "withdraw_from"
+        name = WITHDRAW_FROM
     )]
     fn withdraw_from(&mut self, credential: StakeCredential) {
         // We don't actually do any VolatileState updates here
@@ -261,7 +265,7 @@ impl ProposalsSlice for AssertValidationContext {
             credential.hash = %voter_credential_hash(&_voter),
         )
         skip_all,
-        name = "vote"
+        name = VOTE
     )]
     fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {
     }
@@ -274,7 +278,7 @@ impl WitnessSlice for AssertValidationContext {
             hash = %vkey_hash
         )
         skip_all,
-        name = "require_vkey_witness"
+        name = REQUIRE_VKEY_WITNESS
     )]
     fn require_vkey_witness(&mut self, vkey_hash: AddrKeyhash) {
         self.required_signers.insert(vkey_hash);
@@ -287,7 +291,7 @@ impl WitnessSlice for AssertValidationContext {
             hash = %script.hash
         )
         skip_all,
-        name = "require_script_witness"
+        name = REQUIRE_SCRIPT_WITNESS
     )]
     fn require_script_witness(&mut self, script: RequiredScript) {
         self.required_scripts.insert(script);
@@ -307,7 +311,7 @@ impl WitnessSlice for AssertValidationContext {
             bootstrap_witness.hash = %root,
         )
         skip_all,
-        name = "require_bootstrap_witness"
+        name = REQUIRE_BOOTSTRAP_WITNESS
     )]
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
         self.required_bootstrap_roots.insert(root);

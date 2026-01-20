@@ -23,6 +23,7 @@ use amaru_kernel::{
     OriginalHash, TransactionId, TransactionPointer, network::NetworkName,
     protocol_parameters::ProtocolParameters,
 };
+use amaru_observability::ledger::VALIDATE_BLOCK;
 use amaru_slot_arithmetic::Slot;
 use std::{
     fmt::{self, Display},
@@ -170,7 +171,7 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
     }
 }
 
-#[instrument(level = Level::TRACE, skip_all, name="ledger.validate_block")]
+#[instrument(level = Level::TRACE, skip_all, name=VALIDATE_BLOCK)]
 pub fn execute<C, S: From<C>>(
     context: &mut C,
     arena_pool: &ArenaPool,

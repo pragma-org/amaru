@@ -135,6 +135,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-mempool",
  "amaru-metrics",
+ "amaru-observability",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-protocols",
@@ -207,6 +208,7 @@ dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-metrics",
+ "amaru-observability",
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "amaru-progress-bar",
@@ -261,6 +263,7 @@ name = "amaru-network"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-observability",
  "amaru-mempool",
  "amaru-ouroboros",
  "bytes",
@@ -275,6 +278,10 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
 ]
+
+[[package]]
+name = "amaru-observability"
+version = "0.1.0"
 
 [[package]]
 name = "amaru-ouroboros"
@@ -421,6 +428,7 @@ dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",
+ "amaru-observability",
  "amaru-ouroboros-traits",
  "amaru-slot-arithmetic",
  "hex",

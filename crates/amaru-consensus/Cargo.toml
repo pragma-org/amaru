@@ -36,6 +36,7 @@ tracing.workspace = true
 tracing-opentelemetry.workspace = true
 
 amaru-kernel.workspace = true
+amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
 amaru-mempool.workspace = true
 amaru-metrics.workspace = true
@@ -52,8 +53,8 @@ serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 amaru-kernel = { workspace = true, features = ["test-utils"] }
-amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
+amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
 amaru-stores.workspace = true
 
 [target.'cfg(unix)'.dependencies]

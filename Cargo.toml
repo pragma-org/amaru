@@ -95,6 +95,7 @@ amaru-mempool = { path = "crates/amaru-mempool" }
 amaru-metrics = { path = "crates/amaru-metrics" }
 amaru-minicbor-extra = { path = "crates/amaru-minicbor-extra" }
 amaru-network = { path = "crates/amaru-network" }
+amaru-observability = { path = "crates/amaru-observability" }
 amaru-ouroboros = { path = "crates/amaru-ouroboros" }
 amaru-ouroboros-traits = { path = "crates/amaru-ouroboros-traits" }
 amaru-plutus = { path = "crates/amaru-plutus" }

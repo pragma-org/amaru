@@ -14,6 +14,7 @@
 
 use crate::point::{from_network_point, to_network_point};
 use amaru_kernel::{Point, peer::Peer};
+use amaru_observability::network::chainsync_client::FIND_INTERSECTION;
 use pallas_network::miniprotocols::chainsync::{Client, ClientError, HeaderContent, NextResponse};
 use pallas_traverse::MultiEraHeader;
 use tracing::{Level, instrument};
@@ -58,7 +59,7 @@ impl ChainSyncClient {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "chainsync_client.find_intersection",
+        name = FIND_INTERSECTION,
         fields(
             peer = self.peer.name,
             intersection.slot = %self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default(),

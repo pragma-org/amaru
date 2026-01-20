@@ -19,6 +19,7 @@ use crate::consensus::store::PraosChainStore;
 use amaru_kernel::IsHeader;
 use amaru_kernel::consensus_events::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use amaru_kernel::{BlockHeader, Nonce, protocol_parameters::ConsensusParameters, to_cbor};
+use amaru_observability::consensus::validate_header::{EVOLVE_NONCE, VALIDATE};
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::can_validate_blocks::{CanValidateHeaders, HeaderValidationError};
 use amaru_ouroboros_traits::{ChainStore, HasStakeDistribution, Praos};
@@ -127,7 +128,7 @@ impl ValidateHeader {
 
     #[instrument(
         level = Level::TRACE,
-        name = "validate_header.evolve_nonce",
+        name = EVOLVE_NONCE,
         skip_all,
         fields(hash = %header.hash()),
     )]
@@ -139,7 +140,7 @@ impl ValidateHeader {
 
     #[instrument(
         level = Level::TRACE,
-        name = "validate_header.validate",
+        name = VALIDATE,
         skip_all,
         fields(issuer.key = %header.header_body().issuer_vkey)
     )]

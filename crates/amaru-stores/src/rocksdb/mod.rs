@@ -28,6 +28,7 @@ use amaru_ledger::{
     },
     summary::Pots,
 };
+use amaru_observability::stores::SNAPSHOT;
 use amaru_slot_arithmetic::Epoch;
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode,
@@ -283,7 +284,7 @@ impl Snapshot for RocksDBSnapshot {
 impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
-    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch)
+    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = SNAPSHOT, skip_all, fields(epoch)
     )]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());

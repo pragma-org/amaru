@@ -41,6 +41,13 @@ use amaru_kernel::{
     stake_credential_hash,
 };
 use amaru_metrics::ledger::LedgerMetrics;
+use amaru_observability::{
+    ledger::{
+        CREATE_VALIDATION_CONTEXT, RATIFICATION_CONTEXT_NEW, RESET_BLOCKS_COUNT, RESET_FEES,
+        ROLL_BACKWARD, STATE_RESOLVE_INPUTS, TICK_POOL, TICK_PROPOSALS,
+    },
+    stores::consensus::ROLL_FORWARD_CHAIN,
+};
 use amaru_ouroboros_traits::{
     HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError,
 };
@@ -493,7 +500,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     #[expect(clippy::unwrap_used)]
-    #[instrument(level = Level::TRACE, skip_all, name="state.resolve_inputs", fields(resolved_from_context, resolved_from_volatile, resolved_from_db)
+    #[instrument(level = Level::TRACE, skip_all, name=STATE_RESOLVE_INPUTS, fields(resolved_from_context, resolved_from_volatile, resolved_from_db)
     )]
     pub fn resolve_inputs<'a>(
         &'_ self,
@@ -552,7 +559,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name="ledger.create_validation_context",
+        name=CREATE_VALIDATION_CONTEXT,
         fields(
             block_body_hash = %block.header.header_body.block_body_hash,
             block_number = block.header.header_body.block_number,
@@ -598,7 +605,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "ledger.roll_forward",
+        name = ROLL_FORWARD_CHAIN,
     )]
     pub fn roll_forward(
         &mut self,
@@ -671,7 +678,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "ledger.roll_backward",
+        name = ROLL_BACKWARD,
     )]
     pub fn rollback_to(&mut self, to: &Point) -> Result<(), BackwardError> {
         // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
@@ -828,7 +835,7 @@ fn begin_epoch<'store>(
 #[instrument(
     level = Level::TRACE,
     target = EVENT_TARGET,
-    name = "reset.fees",
+    name = RESET_FEES,
     skip_all,
 )]
 pub fn reset_fees<'store>(db: &impl TransactionalContext<'store>) -> Result<(), StoreError> {
@@ -840,7 +847,7 @@ pub fn reset_fees<'store>(db: &impl TransactionalContext<'store>) -> Result<(), 
 #[instrument(
     level = Level::TRACE,
     target = EVENT_TARGET,
-    name = "reset.blocks_count",
+    name = RESET_BLOCKS_COUNT,
     skip_all,
 )]
 pub fn reset_blocks_count<'store>(
@@ -882,7 +889,7 @@ pub fn refund_many<'store>(
     Ok(())
 }
 
-#[instrument(level = Level::INFO, name = "tick.pool", skip_all)]
+#[instrument(level = Level::INFO, name = TICK_POOL, skip_all)]
 pub fn tick_pools<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
@@ -908,7 +915,7 @@ pub fn tick_pools<'store>(
 
 #[instrument(
     level = Level::INFO,
-    name = "tick.proposals",
+    name = TICK_PROPOSALS,
     skip_all,
     fields(
         proposals.count = proposals.len(),
@@ -991,7 +998,7 @@ pub fn tick_proposals<'store>(
     Ok(ctx.protocol_parameters)
 }
 
-#[instrument(level = Level::INFO, name = "ratification.context.new", skip_all)]
+#[instrument(level = Level::INFO, name = RATIFICATION_CONTEXT_NEW, skip_all)]
 fn new_ratification_context<'distr>(
     snapshot: impl Snapshot,
     stake_distribution: StakeDistributionView<'distr>,

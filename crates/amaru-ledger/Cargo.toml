@@ -30,6 +30,7 @@ async-trait.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
 amaru-iter-borrow.workspace = true
+amaru-observability.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-progress-bar.workspace = true
 amaru-slot-arithmetic.workspace = true

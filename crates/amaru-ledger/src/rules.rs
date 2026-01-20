@@ -14,6 +14,7 @@
 
 use crate::context::PreparationContext;
 use amaru_kernel::{Bytes, MintedBlock, cbor, ed25519, into_sized_array};
+use amaru_observability::ledger::{PARSE_BLOCK, PREPARE_BLOCK};
 use std::{array::TryFromSliceError, fmt, fmt::Display};
 use thiserror::Error;
 use tracing::{Level, instrument};
@@ -40,7 +41,7 @@ impl<T: Display> Display for WithPosition<T> {
     }
 }
 
-#[instrument(level = Level::TRACE, skip_all, name="ledger.prepare_block")]
+#[instrument(level = Level::TRACE, skip_all, name=PREPARE_BLOCK)]
 pub fn prepare_block<'block>(
     context: &mut impl PreparationContext<'block>,
     block: &'block MintedBlock<'_>,
@@ -69,7 +70,7 @@ pub fn prepare_block<'block>(
     });
 }
 
-#[instrument(level = Level::TRACE, skip_all, name = "ledger.parse_block", fields(block.size = bytes.len()))]
+#[instrument(level = Level::TRACE, skip_all, name = PARSE_BLOCK, fields(block.size = bytes.len()))]
 pub fn parse_block(bytes: &[u8]) -> Result<MintedBlock<'_>, cbor::decode::Error> {
     let (_, block): (u16, MintedBlock<'_>) = cbor::decode(bytes)?;
     Ok(block)

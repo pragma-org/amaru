@@ -37,7 +37,7 @@ use tokio::{
     io::BufReader,
 };
 use tokio_util::io::StreamReader;
-use tracing::{Level, info, instrument};
+use tracing::info;
 
 use crate::{get_bootstrap_file, get_bootstrap_headers};
 
@@ -230,7 +230,6 @@ pub async fn import_nonces(
 }
 
 #[allow(clippy::unwrap_used)]
-#[instrument(level = Level::INFO, name = "import_headers", skip_all)]
 pub async fn import_headers_for_network(
     chain_dir: &PathBuf,
     headers: Vec<Vec<u8>>,
