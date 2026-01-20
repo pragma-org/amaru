@@ -48,13 +48,12 @@ use tracing_subscriber::EnvFilter;
 #[tokio::test]
 async fn test_connect_initiator_responder() -> anyhow::Result<()> {
     setup_logging(true);
-    let responder: TokioRunning = start_responder().await?;
+    let (responder, addr) = start_responder().await?;
 
-    let port = get_listening_port(&responder).await?;
     let responder_chain_store = responder.resources().get::<ResourceHeaderStore>()?.clone();
     let responder_mempool = responder.resources().get::<ResourceMempool<Tx>>()?.clone();
 
-    let initiator = start_initiator(Some(port)).await?;
+    let initiator = start_initiator(addr).await?;
     let initiator_chain_store = initiator.resources().get::<ResourceHeaderStore>()?.clone();
     let initiator_mempool = initiator.resources().get::<ResourceMempool<Tx>>()?.clone();
 
@@ -82,8 +81,8 @@ async fn test_connect_initiator_responder() -> anyhow::Result<()> {
 }
 
 /// Create and start a responder node that listens for incoming connections on a free port found at
-/// runtime.
-async fn start_responder() -> anyhow::Result<TokioRunning> {
+/// runtime. Return the address it is listening on.
+async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr)> {
     tracing::info!("Creating the responder");
     let mut responder_network = TokioBuilder::default();
     let responder_manager = Manager::new(NetworkMagic::PREPROD, StageRef::blackhole());
@@ -99,7 +98,7 @@ async fn start_responder() -> anyhow::Result<TokioRunning> {
     // Create a connection that notifies the accept stage about new connections
     let responder_connections = TokioConnections::new(65535).with_accept_sender(accept_sender);
     let peer_addr = responder_connections
-        .bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+        .listen(SocketAddr::from(([127, 0, 0, 1], 0)))
         .await?;
     add_resources(
         &mut responder_network,
@@ -111,19 +110,17 @@ async fn start_responder() -> anyhow::Result<TokioRunning> {
     tracing::info!("Start the responder");
     let running_responder = responder_network.run(Handle::current());
     responder_sender.send(ManagerMessage::Accept).await.unwrap();
-    Ok(running_responder)
+    Ok((running_responder, peer_addr))
 }
 
 /// Create and start an initiator node that connects to the given port.
 /// ChainSync events are sent to a stage that stores them in the in-memory store without further processing.
-async fn start_initiator(port: Option<u16>) -> anyhow::Result<TokioRunning> {
+async fn start_initiator(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<TokioRunning> {
     tracing::info!("Creating the initiator");
-    let port = port.unwrap_or(3005);
-    let peer = Peer::new(
-        SocketAddr::from(([127, 0, 0, 1], port))
-            .to_string()
-            .as_str(),
-    );
+    let addr = addr
+        .into()
+        .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3000)));
+    let peer = Peer::new(addr.to_string().as_str());
     let mut initiator_network = TokioBuilder::default();
 
     let chainsync_stage = initiator_network.stage("chainsync", test_chainsync_stage);
@@ -166,15 +163,9 @@ async fn connect_initiator() -> anyhow::Result<()> {
 #[ignore]
 async fn connect_responder() -> anyhow::Result<()> {
     setup_logging(true);
-    let running = start_responder().await?;
+    let running = start_responder().await?.0;
     wait_for(running.join(), Duration::from_secs(2000)).await?;
     Ok(())
-}
-
-/// Return the port that this node is currently listening on
-async fn get_listening_port(running: &TokioRunning) -> anyhow::Result<u16> {
-    let tokio_connections = running.resources().get::<ConnectionResource>()?.clone();
-    Ok(tokio_connections.listening_port().await?)
 }
 
 /// Create a stage that accepts incoming connections and notifies the manager

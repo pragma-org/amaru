@@ -129,7 +129,7 @@ async fn connect(
 }
 
 impl ConnectionProvider for TokioConnections {
-    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
+    fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
         let listener = self.listener.clone();
         Box::pin(
             async move {
@@ -146,20 +146,6 @@ impl ConnectionProvider for TokioConnections {
                 Ok(addr)
             }
             .instrument(tracing::debug_span!("bind_listener", %addr)),
-        )
-    }
-
-    fn listening_port(&self) -> BoxFuture<'static, std::io::Result<u16>> {
-        let listener = self.listener.clone();
-        Box::pin(
-            async move {
-                let guard = listener.lock().await;
-                let l = guard.as_ref().ok_or_else(|| {
-                    std::io::Error::other("listener not bound; call bind() first")
-                })?;
-                Ok(l.local_addr()?.port())
-            }
-            .instrument(tracing::debug_span!("listening_port")),
         )
     }
 
@@ -374,7 +360,7 @@ mod tests {
         let connections = TokioConnections::new(1024);
 
         let addr = connections
-            .bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+            .listen(SocketAddr::from(([127, 0, 0, 1], 0)))
             .await?;
 
         // Start a client that connects to the listener and

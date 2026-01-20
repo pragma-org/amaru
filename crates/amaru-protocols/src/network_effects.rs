@@ -28,7 +28,7 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
 }
 
 pub trait NetworkOps {
-    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, Result<SocketAddr, String>>;
+    fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, Result<SocketAddr, String>>;
 
     fn accept(&self, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, String>>;
 
@@ -62,8 +62,8 @@ impl<'a, T> Network<'a, T> {
 }
 
 impl<T> NetworkOps for Network<'_, T> {
-    fn bind(&self, addr: SocketAddr) -> BoxFuture<'static, Result<SocketAddr, String>> {
-        self.0.external(BindEffect { addr })
+    fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, Result<SocketAddr, String>> {
+        self.0.external(ListenEffect { addr })
     }
 
     fn accept(&self, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, String>> {
@@ -100,27 +100,27 @@ impl<T> NetworkOps for Network<'_, T> {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct BindEffect {
+pub struct ListenEffect {
     pub addr: SocketAddr,
 }
 
-impl ExternalEffect for BindEffect {
+impl ExternalEffect for ListenEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
             let resource = resources
                 .get::<ConnectionResource>()
-                .expect("BindEffect requires a ConnectionResource")
+                .expect("ListenEffect requires a ConnectionResource")
                 .clone();
             resource
-                .bind(self.addr)
+                .listen(self.addr)
                 .await
                 .map_err(|e| format!("failed to bind to {:?}: {:#}", self.addr, e))
         })
     }
 }
 
-impl ExternalEffectAPI for BindEffect {
+impl ExternalEffectAPI for ListenEffect {
     type Response = Result<SocketAddr, String>;
 }
 
