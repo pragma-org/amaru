@@ -270,6 +270,7 @@ dependencies = [
  "parking_lot",
  "proptest",
  "pure-stage",
+ "socket2 0.6.1",
  "thiserror 2.0.17",
  "tokio",
  "tracing",

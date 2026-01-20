@@ -19,6 +19,7 @@ use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use bytes::{Buf, BytesMut};
 use parking_lot::Mutex;
 use pure_stage::{BoxFuture, Sender};
+use socket2::{Domain, Socket, Type};
 use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -38,6 +39,7 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(tcp_stream: TcpStream, read_buf_size: usize) -> std::io::Result<Self> {
+        tcp_stream.set_nodelay(true)?;
         let (reader, writer) = tcp_stream.into_split();
         let peer_addr = reader.peer_addr()?;
         Ok(Self {
@@ -137,7 +139,7 @@ impl ConnectionProvider for TokioConnections {
                         "listener already created; cannot bind multiple times",
                     ));
                 }
-                let bound = TcpListener::bind(addr).await?;
+                let bound = bind_address(addr)?;
                 let addr = bound.local_addr()?;
                 tracing::debug!(%addr, "listening");
                 *guard = Some(bound);
@@ -300,6 +302,29 @@ impl ConnectionProvider for TokioConnections {
             .instrument(tracing::trace_span!("close", %conn)),
         )
     }
+}
+
+/// Binds a TCP listener to the specified address with
+/// `SO_REUSEADDR` (and `SO_REUSEPORT` on Linux) enabled.
+fn bind_address(addr: SocketAddr) -> std::io::Result<TcpListener> {
+    let domain = match addr {
+        SocketAddr::V4(_) => Domain::IPV4,
+        SocketAddr::V6(_) => Domain::IPV6,
+    };
+
+    let socket = Socket::new(domain, Type::STREAM, None)?;
+
+    // This makes sure that ports can be reused immediately after the program exits.
+    socket.set_reuse_address(true)?;
+
+    #[cfg(target_os = "linux")]
+    socket.set_reuse_port(true)?;
+
+    socket.bind(&addr.into())?;
+    socket.listen(1024)?;
+
+    socket.set_nonblocking(true)?;
+    TcpListener::from_std(socket.into())
 }
 
 #[cfg(test)]
