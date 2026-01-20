@@ -20,6 +20,8 @@ use std::{num::NonZeroUsize, time::Duration};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
     vec![
+        pure_stage::register_data_deserializer::<ListenEffect>().boxed(),
+        pure_stage::register_data_deserializer::<AcceptEffect>().boxed(),
         pure_stage::register_data_deserializer::<ConnectEffect>().boxed(),
         pure_stage::register_data_deserializer::<SendEffect>().boxed(),
         pure_stage::register_data_deserializer::<RecvEffect>().boxed(),
