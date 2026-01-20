@@ -263,6 +263,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-mempool",
  "amaru-ouroboros",
+ "anyhow",
  "bytes",
  "hex",
  "pallas-network",

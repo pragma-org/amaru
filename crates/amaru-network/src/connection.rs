@@ -334,7 +334,7 @@ mod tests {
     use tokio::task::JoinHandle;
 
     #[tokio::test]
-    async fn connect_to_a_server() -> std::io::Result<()> {
+    async fn connect_to_a_server() -> anyhow::Result<()> {
         // Start a TCP listener that echoes "pong" when it receives "ping".
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let addr = listener.local_addr()?;
@@ -368,7 +368,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bind_and_accept_a_client_connection() -> std::io::Result<()> {
+    async fn bind_and_accept_a_client_connection() -> anyhow::Result<()> {
         // Create a TokioConnections instance and bind a TCP listener
         // to an ephemeral port.
         let connections = TokioConnections::new(1024);

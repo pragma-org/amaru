@@ -27,6 +27,7 @@ amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
 
 [dev-dependencies]
+anyhow.workspace = true
 amaru-mempool.workspace = true
 hex.workspace = true
 proptest.workspace = true
