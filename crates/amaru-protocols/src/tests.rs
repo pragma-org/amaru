@@ -87,12 +87,15 @@ async fn start_responder() -> anyhow::Result<TokioRunning> {
     tracing::info!("Creating the responder");
     let mut responder_network = TokioBuilder::default();
     let responder_manager = Manager::new(NetworkMagic::PREPROD, StageRef::blackhole());
+
     let responder_stage = responder_network.stage("responder", manager::stage);
     let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
-    let accept_stage = responder_network.stage("accept", accept_stage);
     let responder_sender = responder_network.input(&responder_stage);
+
+    let accept_stage = responder_network.stage("accept", accept_stage);
     let accept_stage = responder_network.wire_up(accept_stage, responder_stage.without_state());
     let accept_sender = responder_network.input(accept_stage);
+
     // Create a connection that notifies the accept stage about new connections
     let responder_connections = TokioConnections::new(65535).with_accept_sender(accept_sender);
     let peer_addr = responder_connections
@@ -122,12 +125,15 @@ async fn start_initiator(port: Option<u16>) -> anyhow::Result<TokioRunning> {
             .as_str(),
     );
     let mut initiator_network = TokioBuilder::default();
-    let chainsync = initiator_network.stage("chainsync", chainsync_stage);
-    let chainsync = initiator_network.wire_up(chainsync, ());
-    let initiator_manager = Manager::new(NetworkMagic::PREPROD, chainsync.without_state());
+
+    let chainsync_stage = initiator_network.stage("chainsync", test_chainsync_stage);
+    let chainsync_stage = initiator_network.wire_up(chainsync_stage, ());
+
+    let initiator_manager = Manager::new(NetworkMagic::PREPROD, chainsync_stage.without_state());
     let initiator_stage = initiator_network.stage("initiator", manager::stage);
     let initiator_stage = initiator_network.wire_up(initiator_stage, initiator_manager);
     let initiator_sender = initiator_network.input(initiator_stage);
+
     let initiator_connections = TokioConnections::new(65535);
     add_resources(
         &mut initiator_network,
@@ -202,7 +208,11 @@ fn setup_logging(enable: bool) {
 }
 
 /// This is a ChainSync stage that just logs the events
-async fn chainsync_stage(_: (), msg: ChainSyncInitiatorMsg, eff: Effects<ChainSyncInitiatorMsg>) {
+async fn test_chainsync_stage(
+    _: (),
+    msg: ChainSyncInitiatorMsg,
+    eff: Effects<ChainSyncInitiatorMsg>,
+) {
     use crate::chainsync::InitiatorResult::*;
     match msg.msg {
         Initialize => {
