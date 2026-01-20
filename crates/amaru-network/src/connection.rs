@@ -393,7 +393,7 @@ mod tests {
         // Receive "hello" from the client and respond with "world".
         let connection_id = connections.accept(Duration::from_secs(1)).await?;
         let result = connections
-            .recv(connection_id, NonZeroUsize::new(5).expect("non-zero"))
+            .recv(connection_id, const { NonZeroUsize::new(5).unwrap() })
             .await?;
         assert_eq!(result.as_ref(), b"hello");
 
