@@ -341,9 +341,9 @@ mod tests {
         let server: JoinHandle<std::io::Result<()>> = tokio::spawn(async move {
             let (mut stream, _peer) = listener.accept().await?;
 
-            let mut buf = [0u8; 4];
-            stream.read_exact(&mut buf).await?;
-            assert_eq!(&buf, b"ping");
+            let mut buf = String::new();
+            stream.read_to_string(&mut buf).await?;
+            assert_eq!(&buf, "ping");
 
             stream.write_all(b"pong").await?;
             Ok(())
@@ -383,9 +383,9 @@ mod tests {
             let mut stream = TcpStream::connect(addr).await?;
             stream.write_all(b"hello").await?;
 
-            let mut buf = [0u8; 5];
-            stream.read_exact(&mut buf).await?;
-            assert_eq!(&buf, b"world");
+            let mut buf = String::new();
+            stream.read_to_string(&mut buf).await?;
+            assert_eq!(&buf, "world");
 
             Ok(())
         });
