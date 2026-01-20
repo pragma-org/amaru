@@ -171,7 +171,7 @@ pub async fn stage(
             eff.send(eff.me_ref(), ManagerMessage::Accept).await;
         }
         ManagerMessage::Accepted(peer, conn_id) => {
-            match manager.peers.get_mut(&peer) {
+            match manager.peers.get(&peer) {
                 Some(ConnectionState::Connected(..)) => {
                     tracing::debug!(%peer, "discarding connection request, already connected");
                     return manager;
