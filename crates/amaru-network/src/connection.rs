@@ -37,20 +37,17 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(
-        peer_addr: SocketAddr,
-        reader: OwnedReadHalf,
-        writer: OwnedWriteHalf,
-        read_buf_size: usize,
-    ) -> Self {
-        Self {
+    pub fn new(tcp_stream: TcpStream, read_buf_size: usize) -> std::io::Result<Self> {
+        let (reader, writer) = tcp_stream.into_split();
+        let peer_addr = reader.peer_addr()?;
+        Ok(Self {
             peer_addr,
             reader: Arc::new(AsyncMutex::new((
                 reader,
                 BytesMut::with_capacity(read_buf_size),
             ))),
             writer: Arc::new(AsyncMutex::new(writer)),
-        }
+        })
     }
 
     pub fn peer_addr(&self) -> SocketAddr {
@@ -122,17 +119,10 @@ async fn connect(
     read_buf_size: usize,
     timeout: Duration,
 ) -> std::io::Result<ConnectionId> {
-    let (reader, writer) = tokio::time::timeout(timeout, TcpStream::connect(&*addr))
-        .await??
-        .into_split();
+    let stream = tokio::time::timeout(timeout, TcpStream::connect(&*addr)).await??;
     tracing::debug!(?addr, "connected");
     let mut connections = resource.lock();
-    let id = connections.add_connection(Connection::new(
-        reader.peer_addr()?,
-        reader,
-        writer,
-        read_buf_size,
-    ));
+    let id = connections.add_connection(Connection::new(stream, read_buf_size)?);
     Ok(id)
 }
 
@@ -186,16 +176,10 @@ impl ConnectionProvider for TokioConnections {
                 let (stream, peer_addr) = tokio::time::timeout(timeout, l.accept()).await??;
                 drop(guard);
 
-                let (reader, writer) = stream.into_split();
                 tracing::debug!(%peer_addr, "accepted connection");
                 let id = {
                     let mut connections = resource.lock();
-                    connections.add_connection(Connection::new(
-                        peer_addr,
-                        reader,
-                        writer,
-                        read_buf_size,
-                    ))
+                    connections.add_connection(Connection::new(stream, read_buf_size)?)
                 };
 
                 if let Some(sender) = accept_sender {
