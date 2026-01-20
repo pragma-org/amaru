@@ -181,7 +181,7 @@ pub fn spawn_node(
         ManagerMessage::AddPeer(_) => {}
         ManagerMessage::RemovePeer(_) => {}
         ManagerMessage::Connect(_) => {}
-        ManagerMessage::ConnectionDied(_, _) => {}
+        ManagerMessage::ConnectionDied(_, _, _) => {}
         ManagerMessage::FetchBlocks { cr, .. } => {
             // We need to return a non-empty block to proceed with the simulation.
             // That block needs to be the same that is deserialized by default with the default_block() function
