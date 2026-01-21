@@ -391,7 +391,7 @@ pub mod tests {
             todo!()
         }
 
-        fn load_block(&self, _hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+        fn load_block(&self, _hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
             todo!()
         }
 

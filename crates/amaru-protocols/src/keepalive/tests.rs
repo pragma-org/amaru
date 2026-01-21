@@ -17,9 +17,10 @@ use crate::{
     network_effects::create_connection,
     protocol::Role,
 };
-use amaru_kernel::{NetworkMagic, Peer};
+use amaru_kernel::{NetworkMagic, NetworkName, Peer};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::ConnectionResource;
+use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use std::{sync::Arc, time::Duration};
 use tokio::{runtime::Runtime, time::timeout};
@@ -46,6 +47,7 @@ fn test_keepalive_with_node() {
         .resources()
         .put::<ConnectionResource>(Arc::new(conn));
 
+    let era_history: &EraHistory = NetworkName::Preprod.into();
     let connection = network.stage("connection", connection::stage);
     let connection = network.wire_up(
         connection,
@@ -55,6 +57,7 @@ fn test_keepalive_with_node() {
             Role::Initiator,
             NetworkMagic::for_testing(),
             StageRef::blackhole(),
+            Arc::new(era_history.clone()),
         ),
     );
     network

@@ -38,7 +38,7 @@ where
     /// `Point`, if it exists.
     fn next_best_chain(&self, point: &Point) -> Option<Point>;
 
-    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError>;
+    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
     fn has_header(&self, hash: &HeaderHash) -> bool;
 
@@ -62,14 +62,19 @@ where
     }
 
     /// Return the ancestors of the header, including the header itself.
-    /// Stop at the anchor of the tree.
+    /// Stop if the followed chain reaches past the anchor.
     fn ancestors<'a>(&'a self, start: H) -> Box<dyn Iterator<Item = H> + 'a>
     where
         H: 'a,
     {
         let anchor = self.get_anchor_hash();
+        let anchor_point = match self.load_header(&anchor) {
+            Some(header) => header.point(),
+            None => Point::Origin,
+        };
+
         Box::new(successors(Some(start), move |h| {
-            if h.hash() == anchor {
+            if h.slot() <= anchor_point.slot_or_default() {
                 None
             } else {
                 h.parent().and_then(|p| self.load_header(&p))
@@ -125,7 +130,7 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
         self.as_ref().get_best_chain_hash()
     }
 
-    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         self.as_ref().load_block(hash)
     }
 
@@ -172,7 +177,6 @@ pub enum StoreError {
     WriteError { error: String },
     ReadError { error: String },
     OpenError { error: String },
-    NotFound { hash: HeaderHash },
     IncompatibleChainStoreVersions { stored: u16, current: u16 },
 }
 
@@ -182,7 +186,6 @@ impl Display for StoreError {
             StoreError::WriteError { error } => write!(f, "WriteError: {}", error),
             StoreError::ReadError { error } => write!(f, "ReadError: {}", error),
             StoreError::OpenError { error } => write!(f, "OpenError: {}", error),
-            StoreError::NotFound { hash } => write!(f, "NotFound: {}", hash),
             StoreError::IncompatibleChainStoreVersions { stored, current } => write!(
                 f,
                 "Incompatible DB Versions: found {}, expected {}",

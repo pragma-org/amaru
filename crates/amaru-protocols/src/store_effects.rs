@@ -56,7 +56,7 @@ impl<T> ReadOnlyChainStore<BlockHeader> for Store<T> {
         self.external_sync(GetBestChainHashEffect::new())
     }
 
-    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         self.external_sync(LoadBlockEffect::new(*hash))
     }
 
@@ -495,7 +495,7 @@ impl ExternalEffect for LoadBlockEffect {
 }
 
 impl ExternalEffectAPI for LoadBlockEffect {
-    type Response = Result<RawBlock, StoreError>;
+    type Response = Result<Option<RawBlock>, StoreError>;
 }
 
 impl ExternalEffectSync for LoadBlockEffect {}

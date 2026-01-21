@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, Slot, Tip, cbor,
+    BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, Slot, Tip,
+    cbor::{self},
     size::HEADER,
 };
 use std::{
@@ -99,7 +100,7 @@ impl PartialOrd for BlockHeader {
 
 impl Ord for BlockHeader {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.hash.cmp(&other.hash())
+        self.point().cmp(&other.point())
     }
 }
 

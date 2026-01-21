@@ -53,6 +53,7 @@ pub mod memoized;
 pub mod metadatum;
 pub mod native_script;
 pub mod network;
+pub mod network_block;
 pub mod network_id;
 pub mod network_magic;
 pub mod network_name;

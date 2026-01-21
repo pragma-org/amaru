@@ -22,12 +22,12 @@ use crate::{
 };
 use amaru_kernel::{Peer, Point};
 use amaru_ouroboros::ConnectionId;
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-
+use pure_stage::{DeserializerGuards, Effects, StageRef};
+use std::sync::Arc;
 // Re-export types
 pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks, initiator};
 pub use messages::Message;
-pub use responder::{BlockFetchResponder, responder};
+pub use responder::{BlockFetchResponder, StreamBlocks, responder};
 
 pub fn spec<R: RoleT>() -> ProtoSpec<State, Message, R>
 where
@@ -44,7 +44,7 @@ where
     let client_done = || Message::ClientDone;
     let batch_done = || Message::BatchDone;
     let start_batch = || Message::StartBatch;
-    let block = || Message::Block { body: vec![] };
+    let block = || Message::Block { body: vec![1] };
 
     spec.init(Idle, client_done(), Done);
     spec.init(Idle, request_range(), Busy);
@@ -79,13 +79,14 @@ pub async fn register_blockfetch_initiator<M>(
     muxer: &StageRef<MuxMessage>,
     peer: Peer,
     conn_id: ConnectionId,
+    era_history: Arc<amaru_slot_arithmetic::EraHistory>,
     eff: &Effects<M>,
 ) -> StageRef<BlockFetchMessage> {
     use crate::protocol::PROTO_N2N_BLOCK_FETCH;
     let blockfetch = eff
         .wire_up(
             eff.stage("blockfetch", initiator()).await,
-            BlockFetchInitiator::new(muxer.clone(), peer, conn_id),
+            BlockFetchInitiator::new(muxer.clone(), peer, conn_id, era_history.clone()),
         )
         .await;
     eff.send(
@@ -107,7 +108,7 @@ pub async fn register_blockfetch_initiator<M>(
 pub async fn register_blockfetch_responder<M>(
     muxer: &StageRef<MuxMessage>,
     eff: &Effects<M>,
-) -> StageRef<Void> {
+) -> StageRef<StreamBlocks> {
     use crate::protocol::PROTO_N2N_BLOCK_FETCH;
     let blockfetch = eff
         .wire_up(

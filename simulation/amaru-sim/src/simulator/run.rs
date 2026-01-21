@@ -25,7 +25,7 @@ use amaru_consensus::{
         ForwardEvent, ForwardEventListener, ResourceBlockValidation, ResourceForwardEventListener,
         ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
     },
-    events::{ChainSyncEvent, default_block},
+    events::ChainSyncEvent,
     headers_tree::{
         HeadersTreeState,
         data_generation::{Chain, GeneratedActions},
@@ -35,6 +35,7 @@ use amaru_consensus::{
         select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
     },
 };
+use amaru_kernel::cardano::network_block::NetworkBlock;
 use amaru_kernel::{
     BlockHeader, GlobalParameters, Hash, IsHeader, NetworkName, Peer, Point, Tip, to_cbor,
     utils::string::{ListDebug, ListToString, ListsToString},
@@ -52,7 +53,6 @@ use pure_stage::{
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use std::{
-    ops::Deref,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -185,12 +185,12 @@ pub fn spawn_node(
         ManagerMessage::ConnectionDied(_, _, _) => {}
         ManagerMessage::FetchBlocks { cr, .. } => {
             // We need to return a non-empty block to proceed with the simulation.
-            // That block needs to be the same that is deserialized by default with the default_block() function
+            // That block needs to be the same that is deserialized by default with the NetworkBlock::fake() function
             // used with the ValidateBlockEvent deserializer, otherwise the replay test will fail.
             eff.send(
                 &cr,
                 Blocks {
-                    blocks: vec![default_block().deref().to_vec()],
+                    blocks: vec![NetworkBlock::fake()],
                 },
             )
             .await;

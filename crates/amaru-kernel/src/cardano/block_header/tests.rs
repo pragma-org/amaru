@@ -53,35 +53,33 @@ pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<BlockHeader>> {
 /// Create a list of arbitrary headers starting from a root with the specified hash, and where chain[i] is the parent of chain[i+1]
 pub fn any_headers_chain_with_root(
     n: usize,
-    header_hash: HeaderHash,
+    point: Point,
 ) -> impl Strategy<Value = Vec<BlockHeader>> {
-    prop::collection::vec(any_header(), n).prop_map(make_headers_with_root_hash(Some(header_hash)))
+    prop::collection::vec(any_header(), n).prop_map(make_headers_with_root_point(Some(point)))
 }
 
 /// Given a list of headers, set their block_number, slot and parent fields to form a valid chain
 fn make_headers() -> impl Fn(Vec<BlockHeader>) -> Vec<BlockHeader> {
-    make_headers_with_root_hash(None)
+    make_headers_with_root_point(None)
 }
 
 /// Given a list of headers, set their block_number, slot and parent fields to form a valid chain
-fn make_headers_with_root_hash(
-    header_hash: Option<HeaderHash>,
+/// The returned headers increase their block number and slot by 1 at each step, starting from the given root point
+fn make_headers_with_root_point(
+    point: Option<Point>,
 ) -> impl Fn(Vec<BlockHeader>) -> Vec<BlockHeader> {
     move |headers| {
-        let mut parent = header_hash;
+        let mut parent = point.unwrap_or(Point::Origin);
         headers
             .into_iter()
-            .enumerate()
             .map({
-                |(i, h)| {
+                |h| {
                     let mut header = h.header().clone();
-                    // NOTE: by convention, chain numbering starts at 1. There can't be a block 0
-                    // nor a block forged at slot 0
-                    header.header_body.block_number = (i + 1) as u64;
-                    header.header_body.slot = (i + 1) as u64;
-                    header.header_body.prev_hash = parent;
+                    header.header_body.slot = (parent.slot_or_default() + 1).as_u64();
+                    header.header_body.block_number = header.header_body.slot;
+                    header.header_body.prev_hash = Some(parent.hash());
                     let block_header = BlockHeader::from(header);
-                    parent = Some(block_header.hash());
+                    parent = block_header.point();
                     block_header
                 }
             })

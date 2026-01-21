@@ -18,11 +18,12 @@ use crate::{
     protocol::Role,
     store_effects::ResourceHeaderStore,
 };
-use amaru_kernel::{NetworkMagic, Peer, Transaction};
+use amaru_kernel::{NetworkMagic, NetworkName, Peer, Transaction};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ConnectionResource, in_memory_consensus_store::InMemConsensusStore};
 use amaru_ouroboros_traits::ResourceMempool;
+use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use std::{sync::Arc, time::Duration};
 use tokio::{runtime::Handle, time::timeout};
@@ -57,6 +58,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
         .resources()
         .put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
 
+    let era_history: &EraHistory = NetworkName::Preprod.into();
     let connection = network.stage("connection", connection::stage);
     let connection = network.wire_up(
         connection,
@@ -66,6 +68,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
             Role::Initiator,
             NetworkMagic::for_testing(),
             StageRef::blackhole(),
+            Arc::new(era_history.clone()),
         ),
     );
     network

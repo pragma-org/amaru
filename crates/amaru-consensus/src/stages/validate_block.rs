@@ -49,7 +49,7 @@ pub fn stage(
 
                 match eff
                     .ledger()
-                    .validate_block(&peer, &point, block, Span::current().context())
+                    .validate_block(&peer, &point, block.raw_block(), Span::current().context())
                     .await
                 {
                     Ok(Ok(metrics)) => {

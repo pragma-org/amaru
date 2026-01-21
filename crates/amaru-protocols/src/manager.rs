@@ -22,6 +22,7 @@ use crate::{
 use amaru_kernel::{NetworkMagic, Peer, Point};
 use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
 use pure_stage::{Effects, StageRef};
+use std::sync::Arc;
 use std::{collections::BTreeMap, time::Duration};
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -50,6 +51,7 @@ pub struct Manager {
     peers: BTreeMap<Peer, ConnectionState>,
     magic: NetworkMagic,
     chain_sync: StageRef<ChainSyncInitiatorMsg>,
+    era_history: Arc<amaru_slot_arithmetic::EraHistory>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -61,11 +63,16 @@ enum ConnectionState {
 }
 
 impl Manager {
-    pub fn new(magic: NetworkMagic, chain_sync: StageRef<ChainSyncInitiatorMsg>) -> Self {
+    pub fn new(
+        magic: NetworkMagic,
+        chain_sync: StageRef<ChainSyncInitiatorMsg>,
+        era_history: Arc<amaru_slot_arithmetic::EraHistory>,
+    ) -> Self {
         Self {
             peers: BTreeMap::new(),
             magic,
             chain_sync,
+            era_history: era_history.clone(),
         }
     }
 }
@@ -258,6 +265,7 @@ async fn start_connection_stage(
                 role,
                 manager.magic,
                 manager.chain_sync.clone(),
+                manager.era_history.clone(),
             ),
         )
         .await;

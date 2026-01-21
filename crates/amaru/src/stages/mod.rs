@@ -233,7 +233,11 @@ pub async fn build_and_run_network(
 
     let manager = network.wire_up(
         manager,
-        Manager::new(config.network_magic, pull_stage.without_state()),
+        Manager::new(
+            config.network_magic,
+            pull_stage.without_state(),
+            Arc::new(era_history.clone()),
+        ),
     );
     for peer in &peers {
         let Ok(_) = network.preload(&manager, [manager::ManagerMessage::AddPeer(peer.clone())])
