@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::blockfetch::{
-    self, BlockFetchMessage, Blocks, register_blockfetch_initiator, register_blockfetch_responder,
+    self, BlockFetchMessage, BlockStreaming, Blocks, register_blockfetch_initiator,
+    register_blockfetch_responder,
 };
 use crate::chainsync::{
     self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder,
@@ -105,7 +106,7 @@ struct StateResponder {
     handshake: StageRef<Inputs<Void>>,
     keepalive: StageRef<HandlerMessage>,
     tx_submission: StageRef<HandlerMessage>,
-    blockfetch_responder: StageRef<Void>,
+    blockfetch_responder: StageRef<BlockStreaming>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

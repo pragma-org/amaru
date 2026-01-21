@@ -22,7 +22,7 @@ use crate::{chainsync, manager};
 use amaru_kernel::is_header::tests::{any_headers_chain_with_root, make_header, run};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, cbor};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, RawBlock, cbor};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::can_validate_blocks::CanValidateHeaders;
@@ -36,7 +36,7 @@ use amaru_ouroboros_traits::{
 use pallas_primitives::babbage::{Header, MintedHeader};
 use pallas_primitives::conway::Tx;
 use pure_stage::tokio::{TokioBuilder, TokioRunning};
-use pure_stage::{Effects, StageGraph, StageRef};
+use pure_stage::{Effects, StageGraph, StageRef, TryInStage};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -61,7 +61,7 @@ async fn test_connect_initiator_responder() -> anyhow::Result<()> {
     tokio::select! {
         res = responder.join() => anyhow::bail!("responder terminated unexpectedly: {res:?}"),
         res = initiator.join() => anyhow::bail!("initiator terminated unexpectedly: {res:?}"),
-        _ = tokio::time::sleep(Duration::from_secs(5)) => {
+        _ = tokio::time::sleep(Duration::from_secs(500)) => {
         }
     }
 
@@ -70,6 +70,11 @@ async fn test_connect_initiator_responder() -> anyhow::Result<()> {
         initiator_chain_store.get_best_chain_hash(),
         responder_chain_store.get_best_chain_hash()
     );
+
+    // Verify that the 2 nodes have the same blocks
+    let initiator_blocks = get_blocks(initiator_chain_store);
+    let responder_blocks = get_blocks(responder_chain_store);
+    assert_eq!(initiator_blocks, responder_blocks,);
 
     // Verify that the 2 nodes have the same transactions
     let tx_ids = get_tx_ids();
@@ -124,11 +129,13 @@ async fn start_initiator(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<
     let peer = Peer::from_addr(&addr);
     let mut initiator_network = TokioBuilder::default();
 
-    let chainsync_stage = initiator_network.stage("chainsync", test_chainsync_stage);
-    let chainsync_stage = initiator_network.wire_up(chainsync_stage, ());
-
-    let initiator_manager = Manager::new(NetworkMagic::PREPROD, chainsync_stage.without_state());
+    // create stages
     let initiator_stage = initiator_network.stage("initiator", manager::stage);
+    let chainsync_stage = initiator_network.stage("chainsync", test_chainsync_stage);
+
+    // wire up stages
+    let chainsync_stage = initiator_network.wire_up(chainsync_stage, initiator_stage.sender());
+    let initiator_manager = Manager::new(NetworkMagic::PREPROD, chainsync_stage.without_state());
     let initiator_stage = initiator_network.wire_up(initiator_stage, initiator_manager);
     let initiator_sender = initiator_network.input(initiator_stage);
 
@@ -206,10 +213,10 @@ fn setup_logging(enable: bool) {
 
 /// This is a ChainSync stage that just logs the events
 async fn test_chainsync_stage(
-    _: (),
+    manager: StageRef<ManagerMessage>,
     msg: ChainSyncInitiatorMsg,
     eff: Effects<ChainSyncInitiatorMsg>,
-) {
+) -> StageRef<ManagerMessage> {
     use crate::chainsync::InitiatorResult::*;
     match msg.msg {
         Initialize => {
@@ -230,10 +237,30 @@ async fn test_chainsync_stage(
             let block_header = BlockHeader::from(header);
             let header_hash = block_header.hash();
             let store = Store::new(eff.clone());
+            let peer = msg.peer;
+            tracing::info!(%peer, hash = header_hash.to_string(), ?tip, "roll forward");
+
+            // store the header, update the best chain, fetch and store the block
             store.store_header(&block_header).unwrap();
             store.set_best_chain_hash(&header_hash).unwrap();
+            let point = block_header.point();
+            let blocks = eff
+                .call(&manager, Duration::from_secs(200), move |cr| {
+                    ManagerMessage::FetchBlocks {
+                        peer,
+                        from: point,
+                        through: point,
+                        cr,
+                    }
+                })
+                .await
+                .or_terminate(&eff, async |_| tracing::error!("failed to fetch blocks"))
+                .await;
+            for block in blocks.blocks.iter() {
+                let block = RawBlock::from(block.as_slice());
+                store.store_block(&header_hash, &block).unwrap();
+            }
 
-            tracing::info!(peer = %msg.peer, hash = header_hash.to_string(), ?tip, "roll forward");
             eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
                 .await;
         }
@@ -243,6 +270,7 @@ async fn test_chainsync_stage(
                 .await;
         }
     }
+    manager
 }
 
 /// This function can timeout the execution of a manager after a given duration.
@@ -310,8 +338,30 @@ fn initialize_chain_store(
         chain_store.store_header(header)?;
         chain_store.roll_forward_chain(&header.point())?;
         chain_store.set_best_chain_hash(&header.hash())?;
+        // add a block for each header
+        chain_store.store_block(&header.hash(), &RawBlock::from([1u8, 2, 3].as_slice()))?;
     }
     Ok(())
+}
+
+/// Retrieve all blocks from the chain store starting from the best chain tip down to the root.
+fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<RawBlock> {
+    let mut blocks = Vec::new();
+    let mut current_hash = store.get_best_chain_hash();
+    while let Ok(block) = store.load_block(&current_hash) {
+        blocks.push(block);
+        if let Some(header) = store.load_header(&current_hash) {
+            if let Some(parent_hash) = header.parent_hash() {
+                current_hash = parent_hash;
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    blocks.reverse();
+    blocks
 }
 
 const TXS_NB: u64 = 10;

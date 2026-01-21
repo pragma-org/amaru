@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::store_effects::Store;
 use crate::{
     blockfetch::{State, messages::Message},
     mux::MuxMessage,
@@ -21,6 +22,7 @@ use crate::{
     },
 };
 use amaru_kernel::Point;
+use amaru_ouroboros_traits::ReadOnlyChainStore;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -42,26 +44,51 @@ impl BlockFetchResponder {
     }
 }
 
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum BlockStreaming {
+    SendBlock(Vec<u8>),
+    Done,
+}
+
 impl StageState<State, Responder> for BlockFetchResponder {
-    type LocalIn = Void;
+    type LocalIn = BlockStreaming;
 
     async fn local(
         self,
         _proto: &State,
         input: Self::LocalIn,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        match input {}
+        match input {
+            BlockStreaming::SendBlock(block) => {
+                eff.send(eff.me_ref(), Inputs::Local(BlockStreaming::Done))
+                    .await;
+                Ok((Some(ResponderAction::Block(block)), self))
+            }
+            BlockStreaming::Done => Ok((Some(ResponderAction::BatchDone), self)),
+        }
     }
 
     async fn network(
         self,
         _proto: &State,
         input: ResponderResult,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
-            ResponderResult::RequestRange { .. } => Ok((Some(ResponderAction::NoBlocks), self)),
+            ResponderResult::RequestRange { from, .. } => {
+                let store = Store::new(eff.clone());
+                if let Ok(block) = store.load_block(&from.hash()) {
+                    eff.send(
+                        eff.me_ref(),
+                        Inputs::Local(BlockStreaming::SendBlock(block.to_vec())),
+                    )
+                    .await;
+                    Ok((Some(ResponderAction::StartBatch), self))
+                } else {
+                    Ok((Some(ResponderAction::NoBlocks), self))
+                }
+            }
             ResponderResult::Done => Ok((None, self)),
         }
     }
