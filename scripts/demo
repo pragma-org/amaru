@@ -26,7 +26,7 @@ fi
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 
 AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-traces run | \
-  tee /dev/tty | \
+  tee /dev/stderr | \
   grep exit | \
   while read -r line; do
     EVENT=$(jq -r '.fields.message' <<< "$line" 2>/dev/null)
