@@ -92,6 +92,29 @@ where
             Box::new(vec![*hash].into_iter())
         }
     }
+
+    /// Get the range of headers from `from_inclusive` to `to_inclusive`.
+    fn get_range(&self, from_inclusive: &HeaderHash, to_inclusive: &HeaderHash) -> Vec<HeaderHash> {
+        let mut headers = vec![];
+        let mut current_hash = *to_inclusive;
+        while current_hash != *from_inclusive {
+            if let Some(header) = self.load_header(&current_hash) {
+                headers.push(header.hash());
+                if let Some(parent) = header.parent() {
+                    current_hash = parent;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        if let Some(header) = self.load_header(&current_hash) {
+            headers.push(header.hash());
+        }
+        headers.reverse();
+        headers
+    }
 }
 
 /// A chain store interface that exposes diagnostic methods to load raw data.

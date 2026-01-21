@@ -826,6 +826,32 @@ pub mod test {
         });
     }
 
+    #[test]
+    fn get_range_returns_a_list_of_linked_header_hashes() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+
+            // getting the range from 0 to 5 should return the first 6 headers
+            // inclusive of both ends.
+            let result = store.get_range(&chain[0].hash(), &chain[5].hash());
+            assert_eq!(
+                result,
+                vec![
+                    chain[0].hash(),
+                    chain[1].hash(),
+                    chain[2].hash(),
+                    chain[3].hash(),
+                    chain[4].hash(),
+                    chain[5].hash()
+                ]
+            );
+
+            let another_chain = run(any_headers_chain(10));
+            let result = store.get_range(&another_chain[0].hash(), &another_chain[5].hash());
+            assert_eq!(result, Vec::<HeaderHash>::default());
+        });
+    }
+
     // MIGRATIONS
 
     #[test]

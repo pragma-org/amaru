@@ -622,6 +622,7 @@ fn now() -> Instant {
 }
 
 /// Handle to the running stages.
+#[derive(Clone)]
 #[must_use = "this handle needs to be either joined or aborted"]
 pub struct TokioRunning {
     inner: Arc<TokioInner>,

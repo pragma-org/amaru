@@ -263,7 +263,7 @@ async fn handle_msg(
             muxer
                 .received(timestamp, proto_id.opposite(), bytes.into(), eff)
                 .await
-                .with_context(|| format!("reading message for protocol {}", proto_id))?;
+                .with_context(|| format!("reading network message for protocol {}", proto_id))?;
             eff.send(reader, Read).await;
             Ok(())
         }
