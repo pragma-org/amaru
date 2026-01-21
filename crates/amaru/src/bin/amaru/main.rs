@@ -121,7 +121,7 @@ struct Cli {
     with_json_traces: bool,
 }
 
-#[tokio::main]
+#[tokio::main(worker_threads = 8)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
 

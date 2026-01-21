@@ -40,8 +40,10 @@ pub async fn stage(
             tracker.caught_up(&msg.peer);
         }
         RollForward(header_content, tip) => {
-            tracing::info!(peer = %msg.peer, variant = header_content.variant,
+            tracing::debug!(peer = %msg.peer, variant = header_content.variant,
                 byron_prefix = ?header_content.byron_prefix, ?tip, "roll forward");
+            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
+                .await;
             eff.send(
                 &downstream,
                 ChainSyncEvent::RollForward {
@@ -52,11 +54,11 @@ pub async fn stage(
                 },
             )
             .await;
-            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
-                .await;
         }
         RollBackward(point, tip) => {
-            tracing::info!(peer = %msg.peer, ?point, ?tip, "roll backward");
+            tracing::debug!(peer = %msg.peer, ?point, ?tip, "roll backward");
+            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
+                .await;
             eff.send(
                 &downstream,
                 ChainSyncEvent::Rollback {
@@ -67,8 +69,6 @@ pub async fn stage(
                 },
             )
             .await;
-            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
-                .await;
         }
     }
 

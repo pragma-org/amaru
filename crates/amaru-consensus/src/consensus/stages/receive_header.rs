@@ -16,18 +16,35 @@ use crate::consensus::effects::{BaseOps, ConsensusOps};
 use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
 use crate::consensus::span::HasSpan;
 use amaru_kernel::consensus_events::{ChainSyncEvent, DecodedChainSyncEvent};
-use amaru_kernel::{BlockHeader, Header, MintedHeader, cbor};
+use amaru_kernel::{BlockHeader, Header, IsHeader, MintedHeader, cbor};
 use pure_stage::StageRef;
 use tracing::{Instrument, Level, instrument};
 
-type State = (
-    StageRef<DecodedChainSyncEvent>,
-    StageRef<ValidationFailed>,
-    StageRef<ProcessingFailed>,
-);
+#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct State {
+    downstream: StageRef<DecodedChainSyncEvent>,
+    failures: StageRef<ValidationFailed>,
+    errors: StageRef<ProcessingFailed>,
+    recv_count: u64,
+}
+
+impl State {
+    pub fn new(
+        downstream: StageRef<DecodedChainSyncEvent>,
+        failures: StageRef<ValidationFailed>,
+        errors: StageRef<ProcessingFailed>,
+    ) -> Self {
+        Self {
+            downstream,
+            failures,
+            errors,
+            recv_count: 0,
+        }
+    }
+}
 
 pub fn stage(
-    (downstream, failures, errors): State,
+    mut state: State,
     msg: ChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
@@ -38,7 +55,7 @@ pub fn stage(
                 peer,
                 raw_header,
                 span,
-                ..
+                tip,
             } => {
                 // TODO: check the point vs the deserialized header point and invalidate if they don't match
                 // then simplify and don't pass the point separately
@@ -48,23 +65,30 @@ pub fn stage(
                         tracing::error!(%error, %peer,
                             "chain_sync.receive_header.decode_failed");
                         eff.base()
-                            .send(&failures, ValidationFailed::new(&peer, error))
+                            .send(&state.failures, ValidationFailed::new(&peer, error))
                             .await;
-                        return (downstream, failures, errors);
+                        return state;
                     }
                 };
+
+                state.recv_count += 1;
+                if header.point() == tip.point() {
+                    tracing::info!(%peer, point = ?header.point(), "received header");
+                } else if state.recv_count & 0xff == 0 {
+                    tracing::info!(%peer, point = ?header.point(), ?tip, recv_count = %state.recv_count, "received header (catching up)");
+                }
 
                 let result = eff.store().store_header(&header);
                 if let Err(error) = result {
                     eff.base()
-                        .send(&errors, ProcessingFailed::new(&peer, error.into()))
+                        .send(&state.errors, ProcessingFailed::new(&peer, error.into()))
                         .await;
-                    return (downstream, failures, errors);
+                    return state;
                 };
 
                 eff.base()
                     .send(
-                        &downstream,
+                        &state.downstream,
                         DecodedChainSyncEvent::RollForward { peer, header, span },
                     )
                     .await;
@@ -73,17 +97,18 @@ pub fn stage(
                 peer,
                 rollback_point,
                 span,
-                ..
+                tip,
             } => {
+                tracing::info!(%peer, point = ?rollback_point, ?tip, "received rollback");
                 let msg = DecodedChainSyncEvent::Rollback {
                     peer,
                     rollback_point,
                     span,
                 };
-                eff.base().send(&downstream, msg).await
+                eff.base().send(&state.downstream, msg).await
             }
         }
-        (downstream, failures, errors)
+        state
     }
     .instrument(span)
 }
@@ -219,6 +244,6 @@ mod tests {
         let downstream: StageRef<DecodedChainSyncEvent> = StageRef::named_for_tests("downstream");
         let failures: StageRef<ValidationFailed> = StageRef::named_for_tests("failures");
         let errors: StageRef<ProcessingFailed> = StageRef::named_for_tests("errors");
-        (downstream, failures, errors)
+        State::new(downstream, failures, errors)
     }
 }
