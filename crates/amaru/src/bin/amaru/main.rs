@@ -119,6 +119,9 @@ struct Cli {
 
     #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
+
+    #[clap(long, action, env("AMARU_COLOR"))]
+    color: Option<bool>,
 }
 
 #[tokio::main(worker_threads = 8)]
@@ -130,13 +133,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get_matches();
     let args = <Cli as FromArgMatches>::from_arg_matches(&matches)?;
 
+    let (metrics, teardown) =
+        setup_observability(args.with_open_telemetry, args.with_json_traces, args.color);
+
     info!(
         with_open_telemetry = args.with_open_telemetry,
         with_json_traces = args.with_json_traces,
         "Started with global arguments"
     );
-
-    let (metrics, teardown) = setup_observability(args.with_open_telemetry, args.with_json_traces);
 
     let result = match args.command {
         Command::Run(args) => cmd::run::run(args, metrics).await,

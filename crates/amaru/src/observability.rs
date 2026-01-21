@@ -109,12 +109,12 @@ impl TracingSubscriber<Registry> {
         }
     }
 
-    pub fn init(self) {
+    pub fn init(self, color: Option<bool>) {
         let (default_filter, warning) = new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
 
         let log_format = || {
             tracing_subscriber::fmt::format()
-                .with_ansi(io::stderr().is_terminal())
+                .with_ansi(color.unwrap_or(io::stderr().is_terminal()))
                 .compact()
         };
         let log_writer = || io::stderr as fn() -> io::Stderr;
@@ -320,6 +320,7 @@ fn new_default_filter(var: &str, default: &str) -> (EnvFilter, DelayedWarning) {
 pub fn setup_observability(
     with_open_telemetry: bool,
     with_json_traces: bool,
+    color: Option<bool>,
 ) -> (
     Option<SdkMeterProvider>,
     Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
@@ -338,7 +339,7 @@ pub fn setup_observability(
         None
     };
 
-    subscriber.init();
+    subscriber.init(color);
 
     // NOTE: Both warnings are bound to the same ENV var, so `.or` prevents from logging it twice.
     if let Some(notify) = warning_otlp.or(warning_json) {

@@ -76,6 +76,8 @@ pub fn stage(
                     tracing::info!(%peer, point = ?header.point(), "received header");
                 } else if state.recv_count & 0xff == 0 {
                     tracing::info!(%peer, point = ?header.point(), ?tip, recv_count = %state.recv_count, "received header (catching up)");
+                } else {
+                    tracing::debug!(%peer, point = ?header.point(), ?tip, recv_count = %state.recv_count, "received header (catching up)");
                 }
 
                 let result = eff.store().store_header(&header);
