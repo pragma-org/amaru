@@ -25,16 +25,18 @@ fi
 
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 
-AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-traces run | while read line; do
-  echo "$line"
-  EVENT=$(jq -r '.fields.message' <<< "$line" 2>/dev/null)
-  SPAN=$(jq -r '.span.name' <<< "$line" 2>/dev/null)
-  if [ "$EVENT" = "exit" ] && [ "$SPAN" = "epoch_transition" ]; then
-    EPOCH=$(jq -r '.span.into' <<< "$line" 2>/dev/null)
-    if [ "$EPOCH" -eq "$TARGET_EPOCH" ]; then
-      echo "Target epoch reached, stopping the process."
-      pkill -INT -P $$
-      break
+AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-traces run | \
+  tee /dev/tty | \
+  grep exit | \
+  while read -r line; do
+    EVENT=$(jq -r '.fields.message' <<< "$line" 2>/dev/null)
+    SPAN=$(jq -r '.span.name' <<< "$line" 2>/dev/null)
+    if [ "$EVENT" = "exit" ] && [ "$SPAN" = "epoch_transition" ]; then
+      EPOCH=$(jq -r '.span.into' <<< "$line" 2>/dev/null)
+      if [ "$EPOCH" -eq "$TARGET_EPOCH" ]; then
+        echo "Target epoch reached, stopping the process."
+        pkill -INT -P $$
+        break
+      fi
     fi
-  fi
-done
+  done
