@@ -20,12 +20,12 @@ use crate::mux::{Frame, MuxMessage};
 use crate::protocol::{Inputs, ProtoSpec, ProtocolState, RoleT};
 use amaru_kernel::{Point, peer::Peer};
 use amaru_ouroboros::ConnectionId;
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use pure_stage::{DeserializerGuards, Effects, StageRef};
 
 // Re-export types
 pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks, initiator};
 pub use messages::Message;
-pub use responder::{BlockFetchResponder, responder};
+pub use responder::{BlockFetchResponder, BlockStreaming, responder};
 
 pub fn spec<R: RoleT>() -> ProtoSpec<State, Message, R>
 where
@@ -105,7 +105,7 @@ pub async fn register_blockfetch_initiator<M>(
 pub async fn register_blockfetch_responder<M>(
     muxer: &StageRef<MuxMessage>,
     eff: &Effects<M>,
-) -> StageRef<Void> {
+) -> StageRef<BlockStreaming> {
     use crate::protocol::PROTO_N2N_BLOCK_FETCH;
     let blockfetch = eff
         .wire_up(

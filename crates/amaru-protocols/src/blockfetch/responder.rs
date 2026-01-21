@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::store_effects::Store;
 use crate::{
     blockfetch::{State, messages::Message},
     mux::MuxMessage,
@@ -20,8 +21,10 @@ use crate::{
         miniprotocol, outcome,
     },
 };
-use amaru_kernel::Point;
+use amaru_kernel::{HeaderHash, Point, RawBlock};
+use amaru_ouroboros_traits::{ReadOnlyChainStore, StoreError};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use std::collections::VecDeque;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<BlockFetchResponder>().boxed()]
@@ -34,34 +37,101 @@ pub fn responder() -> Miniprotocol<State, BlockFetchResponder, Responder> {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockFetchResponder {
     muxer: StageRef<MuxMessage>,
+    current_range: VecDeque<HeaderHash>,
 }
 
 impl BlockFetchResponder {
     pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (State::Idle, Self { muxer })
+        (
+            State::Idle,
+            Self {
+                muxer,
+                current_range: VecDeque::default(),
+            },
+        )
+    }
+
+    /// Load the first available block in the current range, if any.
+    /// Returns None if no blocks are found.
+    /// Each time we attempt to fetch a block we pop its point from the current_range.
+    async fn load_first_block(
+        &mut self,
+        eff: &Effects<Inputs<BlockStreaming>>,
+    ) -> Option<RawBlock> {
+        let store = Store::new(eff.clone());
+
+        while let Some(from) = self.current_range.pop_front() {
+            match store.load_block(&from) {
+                Ok(block) => return Some(block),
+                Err(StoreError::NotFound { .. }) => {
+                    continue;
+                }
+                Err(e) => {
+                    tracing::error!(hash = %from, error = %e, "error loading block");
+                    return eff.terminate().await;
+                }
+            }
+        }
+        None
     }
 }
 
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum BlockStreaming {
+    SendBlock(Vec<u8>),
+    Done,
+}
+
 impl StageState<State, Responder> for BlockFetchResponder {
-    type LocalIn = Void;
+    type LocalIn = BlockStreaming;
 
     async fn local(
-        self,
+        mut self,
         _proto: &State,
         input: Self::LocalIn,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        match input {}
+        match input {
+            BlockStreaming::SendBlock(block) => {
+                // Load the next block and send it if there is one
+                if let Some(block) = self.load_first_block(eff).await {
+                    eff.send(
+                        eff.me_ref(),
+                        Inputs::Local(BlockStreaming::SendBlock(block.to_vec())),
+                    )
+                    .await;
+                } else {
+                    eff.send(eff.me_ref(), Inputs::Local(BlockStreaming::Done))
+                        .await;
+                }
+                Ok((Some(ResponderAction::Block(block)), self))
+            }
+            BlockStreaming::Done => Ok((Some(ResponderAction::BatchDone), self)),
+        }
     }
 
     async fn network(
-        self,
+        mut self,
         _proto: &State,
         input: ResponderResult,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
-            ResponderResult::RequestRange { .. } => Ok((Some(ResponderAction::NoBlocks), self)),
+            ResponderResult::RequestRange { from, through } => {
+                let store = Store::new(eff.clone());
+                let range = store.get_range(&from.hash(), &through.hash());
+                self.current_range = VecDeque::from(range);
+                if let Some(block) = self.load_first_block(eff).await {
+                    eff.send(
+                        eff.me_ref(),
+                        Inputs::Local(BlockStreaming::SendBlock(block.to_vec())),
+                    )
+                    .await;
+                    Ok((Some(ResponderAction::StartBatch), self))
+                } else {
+                    Ok((Some(ResponderAction::NoBlocks), self))
+                }
+            }
             ResponderResult::Done => Ok((None, self)),
         }
     }
