@@ -663,6 +663,10 @@ impl TokioRunning {
     pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {
         &self.inner.trace_buffer
     }
+
+    pub fn resources(&self) -> &Resources {
+        &self.inner.resources
+    }
 }
 
 impl StageGraphRunning for TokioRunning {

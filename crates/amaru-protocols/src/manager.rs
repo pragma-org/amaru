@@ -32,9 +32,10 @@ pub enum ManagerMessage {
     /// Must contain the connection ID so that we can then close the actual socket;
     /// the `peers` entry could already have been removed by RemovePeer.
     // TODO move to separate message type
-    ConnectionDied(Peer, ConnectionId),
+    ConnectionDied(Peer, ConnectionId, Role),
     // TODO move to separate message type
     Connect(Peer),
+    Accepted(Peer, ConnectionId),
     RemovePeer(Peer),
     FetchBlocks {
         peer: Peer,
@@ -134,27 +135,28 @@ pub async fn stage(
                 }
             };
             tracing::info!(?conn_id, %peer, "connected to peer");
-            let connection = eff
-                .stage(format!("{conn_id}-{peer}"), connection::stage)
-                .await;
-            let connection = eff.supervise(
-                connection,
-                ManagerMessage::ConnectionDied(peer.clone(), conn_id),
-            );
-            let connection = eff
-                .wire_up(
-                    connection,
-                    connection::Connection::new(
-                        peer.clone(),
-                        conn_id,
-                        Role::Initiator,
-                        manager.magic,
-                        manager.chain_sync.clone(),
-                    ),
-                )
-                .await;
-            eff.send(&connection, ConnectionMessage::Initialize).await;
-            *entry = ConnectionState::Connected(conn_id, connection);
+            start_connection_stage(&mut manager, &eff, peer, conn_id, Role::Initiator).await;
+        }
+        ManagerMessage::Accepted(peer, conn_id) => {
+            match manager.peers.get(&peer) {
+                Some(ConnectionState::Connected(..)) => {
+                    tracing::debug!(%peer, "already connected. Closing the newly accepted connection");
+                    close_connection(&eff, &peer, conn_id).await;
+                    return manager;
+                }
+                Some(ConnectionState::Disconnecting) => {
+                    tracing::debug!(%peer, "already disconnecting, the previous connection will be closed with ConnectionDied, the newly accepted connection will be closed now");
+                    close_connection(&eff, &peer, conn_id).await;
+                    return manager;
+                }
+                Some(ConnectionState::Scheduled) => {
+                    unreachable!(
+                        "Accepted peers are initiators. They will schedule reconnections on their side so this case cannot happen."
+                    )
+                }
+                None => {}
+            };
+            start_connection_stage(&mut manager, &eff, peer, conn_id, Role::Responder).await;
         }
         ManagerMessage::RemovePeer(peer) => {
             let Some(entry) = manager.peers.get_mut(&peer) else {
@@ -172,10 +174,8 @@ pub async fn stage(
                 }
             }
         }
-        ManagerMessage::ConnectionDied(peer, conn_id) => {
-            if let Err(err) = Network::new(&eff).close(conn_id).await {
-                tracing::error!(?err, %peer, "failed to close connection");
-            }
+        ManagerMessage::ConnectionDied(peer, conn_id, role) => {
+            close_connection(&eff, &peer, conn_id).await;
             let Some(peer_state) = manager.peers.get_mut(&peer) else {
                 tracing::debug!(%peer, "connection died, peer already removed");
                 return manager;
@@ -185,13 +185,19 @@ pub async fn stage(
                     tracing::debug!(%peer, "previously terminated connection closed");
                 }
                 ConnectionState::Connected(..) => {
-                    tracing::info!(%peer, "connection died, scheduling reconnect");
-                    eff.schedule_after(ManagerMessage::Connect(peer), Duration::from_secs(10))
-                        .await;
-                    *peer_state = ConnectionState::Scheduled;
+                    // Only reconnect on the initiator side
+                    if role == Role::Initiator {
+                        tracing::info!(%peer, "initiator connection died, scheduling reconnect");
+                        eff.schedule_after(ManagerMessage::Connect(peer), Duration::from_secs(10))
+                            .await;
+                        *peer_state = ConnectionState::Scheduled;
+                    } else {
+                        tracing::info!(%peer, "responder connection died, removing peer");
+                        manager.peers.remove(&peer);
+                    }
                 }
                 ConnectionState::Scheduled => {
-                    tracing::debug!(%peer, "connection died, reconnect already scheduled");
+                    tracing::debug!(%peer, "initiator connection died, reconnect already scheduled");
                 }
                 ConnectionState::Disconnecting => {
                     tracing::debug!(%peer, "peer terminated after removal");
@@ -219,4 +225,44 @@ pub async fn stage(
         }
     }
     manager
+}
+
+/// Close the connection and log any errors.
+async fn close_connection(eff: &Effects<ManagerMessage>, peer: &Peer, conn_id: ConnectionId) {
+    if let Err(err) = Network::new(eff).close(conn_id).await {
+        tracing::error!(?err, %peer, "failed to close connection");
+    }
+}
+
+/// Start a stage to handle the connection lifecycle.
+async fn start_connection_stage(
+    manager: &mut Manager,
+    eff: &Effects<ManagerMessage>,
+    peer: Peer,
+    conn_id: ConnectionId,
+    role: Role,
+) {
+    let connection = eff
+        .stage(format!("{conn_id}-{peer}"), connection::stage)
+        .await;
+    let connection = eff.supervise(
+        connection,
+        ManagerMessage::ConnectionDied(peer.clone(), conn_id, role),
+    );
+    let connection = eff
+        .wire_up(
+            connection,
+            connection::Connection::new(
+                peer.clone(),
+                conn_id,
+                role,
+                manager.magic,
+                manager.chain_sync.clone(),
+            ),
+        )
+        .await;
+    eff.send(&connection, ConnectionMessage::Initialize).await;
+    manager
+        .peers
+        .insert(peer, ConnectionState::Connected(conn_id, connection));
 }

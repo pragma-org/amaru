@@ -116,7 +116,7 @@ pub async fn register_blockfetch_responder<M>(
     eff.send(
         muxer,
         MuxMessage::Register {
-            protocol: PROTO_N2N_BLOCK_FETCH.erase(),
+            protocol: PROTO_N2N_BLOCK_FETCH.responder().erase(),
             frame: Frame::OneCborItem,
             handler: eff
                 .contramap(&blockfetch, "blockfetch_bytes", Inputs::Network)

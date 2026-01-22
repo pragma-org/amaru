@@ -13,7 +13,6 @@
 // limitations under the License.
 
 mod assertions;
-mod faulty_tx_validator;
 mod sized_mempool;
 mod system_test;
 mod test_data;
