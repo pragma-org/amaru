@@ -199,7 +199,7 @@ jobs:
         network:
           - name: preprod
             magic: 1
-            target_epoch: 182
+            target_epoch: 176
             default-timeout-light-run: 15
             default-timeout-full-run: 60
           - name: preview
@@ -265,7 +265,6 @@ jobs:
           # Make sure to export all env variables for subsequent steps
           echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
           echo "TIMEOUT_RUN=$TIMEOUT_RUN" >> "$GITHUB_ENV"
-
 
       - name: Support longpaths
         run: git config --system core.longpaths true

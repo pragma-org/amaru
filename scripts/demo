@@ -39,4 +39,8 @@ AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-trace
         break
       fi
     fi
-  done
+  done | \
+  while read -r line; do echo "$line"; LINES="$LINES${LINES:+\n}$line"; done
+
+# return value needs to reflect whether target epoch was reached
+grep -q "Target epoch reached" <<< "$LINES"
