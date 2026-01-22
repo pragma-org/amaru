@@ -27,7 +27,7 @@ echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 cargo build --profile $BUILD_PROFILE --bin amaru
 
 function run() {
-  /bin/sh -c "echo exitPID=\$\$; exec ./target/$BUILD_PROFILE/amaru --with-json-traces run"
+  /bin/sh -c "echo exitPID=\$\$; exec cargo run --profile $BUILD_PROFILE -- --with-json-traces run"
 }
 
 export AMARU_TRACE="amaru=info"
