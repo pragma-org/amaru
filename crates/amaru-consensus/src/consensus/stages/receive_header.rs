@@ -17,6 +17,9 @@ use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFaile
 use crate::consensus::span::HasSpan;
 use amaru_kernel::consensus_events::{ChainSyncEvent, DecodedChainSyncEvent};
 use amaru_kernel::{BlockHeader, Header, MintedHeader, cbor};
+use amaru_observability::consensus::chain_sync::{
+    DECODE_HEADER, RECEIVE_HEADER, RECEIVE_HEADER_DECODE_FAILED,
+};
 use pure_stage::StageRef;
 use tracing::{Instrument, Level, instrument};
 
@@ -31,7 +34,7 @@ pub fn stage(
     msg: ChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.receive_header");
+    let span = tracing::trace_span!(parent: msg.span(), RECEIVE_HEADER);
     async move {
         match msg {
             ChainSyncEvent::RollForward {
@@ -46,7 +49,7 @@ pub fn stage(
                     Ok(header) => header,
                     Err(error) => {
                         tracing::error!(%error, %peer,
-                            "chain_sync.receive_header.decode_failed");
+                            RECEIVE_HEADER_DECODE_FAILED);
                         eff.base()
                             .send(&failures, ValidationFailed::new(&peer, error))
                             .await;
@@ -91,7 +94,7 @@ pub fn stage(
 #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "chain_sync.decode_header",
+        name = DECODE_HEADER,
 )]
 pub fn decode_header(raw_header: &[u8]) -> Result<BlockHeader, ConsensusError> {
     let minted_header: MintedHeader<'_> =
