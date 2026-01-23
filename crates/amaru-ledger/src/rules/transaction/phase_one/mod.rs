@@ -14,9 +14,8 @@
 
 use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
-    AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet,
-    TransactionInput, TransactionPointer, get_original_hash, network::NetworkName,
-    protocol_parameters::ProtocolParameters,
+    AuxiliaryDataHash, EraHistory, MintedWitnessSet, TransactionBody, TransactionInput,
+    TransactionPointer, network::NetworkName, protocol_parameters::ProtocolParameters,
 };
 use core::mem;
 use std::{fmt, ops::Deref};
@@ -94,16 +93,14 @@ pub fn execute<C>(
     governance_activity: &GovernanceActivity,
     pointer: TransactionPointer,
     is_valid: bool,
-    transaction_body: KeepRaw<'_, MintedTransactionBody<'_>>,
+    mut transaction_body: TransactionBody,
     transaction_witness_set: &MintedWitnessSet<'_>,
     transaction_auxiliary_data_hash: Option<AuxiliaryDataHash>,
 ) -> Result<Vec<TransactionInput>, PhaseOneError>
 where
     C: ValidationContext + fmt::Debug,
 {
-    let transaction_id = get_original_hash(&transaction_body);
-
-    let mut transaction_body = transaction_body.unwrap();
+    let transaction_id = transaction_body.id();
 
     metadata::execute(&transaction_body, transaction_auxiliary_data_hash)?;
 
@@ -193,10 +190,10 @@ where
     proposals::execute(
         context,
         (transaction_id, pointer),
-        mem::take(&mut transaction_body.proposal_procedures).map(|xs| xs.to_vec()),
+        mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
     );
 
-    voting_procedures::execute(context, mem::take(&mut transaction_body.voting_procedures));
+    voting_procedures::execute(context, mem::take(&mut transaction_body.votes));
 
     vkey_witness::execute(
         context,

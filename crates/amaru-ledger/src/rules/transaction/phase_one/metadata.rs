@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AuxiliaryDataHash, Bytes, Hash, MintedTransactionBody};
+use amaru_kernel::{AuxiliaryDataHash, Bytes, Hash, TransactionBody};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -31,7 +31,7 @@ pub enum InvalidTransactionMetadata {
 }
 
 pub fn execute(
-    transaction: &MintedTransactionBody<'_>,
+    transaction: &TransactionBody,
     auxiliary_data_hash: Option<AuxiliaryDataHash>,
 ) -> Result<(), InvalidTransactionMetadata> {
     match (
@@ -63,7 +63,7 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use super::InvalidTransactionMetadata;
-    use amaru_kernel::{AuxiliaryData, Hasher, KeepRaw, MintedTransactionBody, include_cbor};
+    use amaru_kernel::{AuxiliaryData, Hasher, KeepRaw, TransactionBody, include_cbor};
     use test_case::test_case;
 
     macro_rules! fixture_tx {
@@ -122,10 +122,7 @@ mod tests {
         "missing auxiliary data"
     )]
     fn test_metadata(
-        (transaction, auxiliary_data): (
-            MintedTransactionBody<'_>,
-            Option<KeepRaw<'_, AuxiliaryData>>,
-        ),
+        (transaction, auxiliary_data): (TransactionBody, Option<KeepRaw<'_, AuxiliaryData>>),
     ) -> Result<(), InvalidTransactionMetadata> {
         super::execute(
             &transaction,

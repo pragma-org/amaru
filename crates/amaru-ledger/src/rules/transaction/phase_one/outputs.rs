@@ -17,9 +17,8 @@ use crate::{
     rules::{WithPosition, format_vec},
 };
 use amaru_kernel::{
-    HasAddress, HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput,
-    MintedTransactionOutput, Network, TransactionInput, protocol_parameters::ProtocolParameters,
-    to_network_id,
+    HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput, Network, TransactionInput,
+    protocol_parameters::ProtocolParameters, to_network_id,
 };
 use thiserror::Error;
 
@@ -58,7 +57,7 @@ pub fn execute<C>(
     context: &mut C,
     protocol_parameters: &ProtocolParameters,
     network: &Network,
-    outputs: Vec<MintedTransactionOutput<'_>>,
+    outputs: Vec<MemoizedTransactionOutput>,
     construct_utxo: impl Fn(u64) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
@@ -72,29 +71,20 @@ where
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
-        match MemoizedTransactionOutput::try_from(output) {
-            Ok(output) => {
-                // FIXME: This line is wrong. According to the Haskell source code, we should only count
-                // supplemental datums for outputs (regardless of whether transaction fails or not).
-                //
-                // In particular, any datum present in a collateral return does NOT count towards the
-                // allowed supplemental datums.
-                //
-                // However, I am not fixing this now, because we have no test covering the case whatsoever.
-                // At the moment, that line can actually be fully removed without making any test fail.
-                if let MemoizedDatum::Hash(hash) = &output.datum {
-                    context.allow_supplemental_datum(*hash);
-                }
+        // FIXME: This line is wrong. According to the Haskell source code, we should only count
+        // supplemental datums for outputs (regardless of whether transaction fails or not).
+        //
+        // In particular, any datum present in a collateral return does NOT count towards the
+        // allowed supplemental datums.
+        //
+        // However, I am not fixing this now, because we have no test covering the case whatsoever.
+        // At the moment, that line can actually be fully removed without making any test fail.
+        if let MemoizedDatum::Hash(hash) = &output.datum {
+            context.allow_supplemental_datum(*hash);
+        }
 
-                if let Some(input) = construct_utxo(position as u64) {
-                    context.produce(input, output);
-                }
-            }
-            Err(err) => {
-                let element =
-                    InvalidOutput::UncategorizedError(format!("failed to convert output: {err}"));
-                invalid_outputs.push(WithPosition { position, element });
-            }
+        if let Some(input) = construct_utxo(position as u64) {
+            context.produce(input, output);
         }
     }
 
@@ -106,14 +96,10 @@ where
 }
 
 fn validate_network(
-    output: &MintedTransactionOutput<'_>,
+    output: &MemoizedTransactionOutput,
     expected_network: &Network,
 ) -> Result<(), InvalidOutput> {
-    let address = output
-        .address()
-        .map_err(|e| InvalidOutput::UncategorizedError(e.to_string()))?;
-
-    let given_network = address.has_network();
+    let given_network = output.address.has_network();
 
     if &given_network != expected_network {
         Err(InvalidOutput::WrongNetwork {
@@ -131,7 +117,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use amaru_kernel::{
-        MintedTransactionBody, Network, include_cbor, protocol_parameters::ProtocolParameters,
+        Network, TransactionBody, include_cbor, protocol_parameters::ProtocolParameters,
     };
     use test_case::test_case;
 
@@ -214,7 +200,7 @@ mod tests {
     )]
     #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "valid-byron"); "valid byron")]
     fn outputs(
-        (tx, protocol_parameters): (MintedTransactionBody<'_>, ProtocolParameters),
+        (tx, protocol_parameters): (TransactionBody, ProtocolParameters),
     ) -> Result<(), InvalidOutputs> {
         let mut context = AssertValidationContext::from(AssertPreparationContext {
             utxo: BTreeMap::new(),

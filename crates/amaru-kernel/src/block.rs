@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    AuxiliaryData, KeepRaw, MintedTransactionBody, MintedWitnessSet, TransactionBody, WitnessSet,
+    AuxiliaryData, KeepRaw, MintedWitnessSet, TransactionBody, WitnessSet,
     cbor::{Decode, Encode},
 };
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,7 @@ pub type Block =
 /// way, we make sure that the resulting hash matches what exists on-chain.
 pub type MintedBlock<'b> = PseudoBlock<
     KeepRaw<'b, pallas_primitives::babbage::MintedHeader<'b>>,
-    KeepRaw<'b, MintedTransactionBody<'b>>,
+    TransactionBody,
     KeepRaw<'b, MintedWitnessSet<'b>>,
     KeepRaw<'b, AuxiliaryData>,
 >;
@@ -61,12 +61,7 @@ impl<'b> From<MintedBlock<'b>> for Block {
         Block {
             header: x.header.unwrap().into(),
             transaction_bodies: pallas_primitives::MaybeIndefArray::Def(
-                x.transaction_bodies
-                    .iter()
-                    .cloned()
-                    .map(|x| x.unwrap())
-                    .map(TransactionBody::from)
-                    .collect(),
+                x.transaction_bodies.iter().cloned().collect(),
             ),
             transaction_witness_sets: pallas_primitives::MaybeIndefArray::Def(
                 x.transaction_witness_sets

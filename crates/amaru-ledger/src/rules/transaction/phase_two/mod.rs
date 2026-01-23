@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::TransactionBody;
 use core::fmt;
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    ArenaPool, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet,
-    TransactionInputAdapter, TransactionPointer, cbor, get_original_hash, network::NetworkName,
-    protocol_parameters::ProtocolParameters, to_cbor,
+    ArenaPool, EraHistory, MintedWitnessSet, TransactionInputAdapter, TransactionPointer, cbor,
+    network::NetworkName, protocol_parameters::ProtocolParameters, to_cbor,
 };
 use amaru_plutus::{
     script_context::{Script, TxInfo, TxInfoTranslationError, Utxos},
@@ -73,7 +73,7 @@ pub fn execute<C>(
     era_history: &EraHistory,
     pointer: TransactionPointer,
     is_valid: bool,
-    transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
+    transaction_body: &TransactionBody,
     transaction_witness_set: &MintedWitnessSet<'_>,
 ) -> Result<(), PhaseTwoError>
 where
@@ -123,7 +123,7 @@ where
     let tx_info = TxInfo::new(
         transaction_body,
         transaction_witness_set,
-        &get_original_hash(transaction_body),
+        transaction_body.id(),
         &utxos,
         &pointer.slot,
         *network,

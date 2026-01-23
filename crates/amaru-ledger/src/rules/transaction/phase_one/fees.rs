@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::context::{PotsSlice, UtxoSlice};
-use amaru_kernel::{HasLovelace, Lovelace, MintedTransactionOutput, TransactionInput};
+use amaru_kernel::{HasLovelace, Lovelace, MemoizedTransactionOutput, TransactionInput};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidFees {
@@ -33,7 +33,7 @@ pub(crate) fn execute<C>(
     is_valid: bool,
     fees: Lovelace,
     collateral: Option<&[TransactionInput]>,
-    collateral_return: Option<&MintedTransactionOutput<'_>>,
+    collateral_return: Option<&MemoizedTransactionOutput>,
 ) -> Result<(), InvalidFees>
 where
     C: UtxoSlice + PotsSlice,
@@ -75,7 +75,7 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
     };
-    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -123,7 +123,7 @@ mod tests {
     fn fees(
         (ctx, tx, expected_traces, is_valid): (
             AssertPreparationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
+            TransactionBody,
             Vec<json::Value>,
             bool,
         ),

@@ -15,8 +15,8 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use amaru_kernel::{
-        AnyCbor, AuxiliaryData, Bytes, Epoch, EraHistory, Hasher, KeepRaw, MintedTransactionBody,
-        MintedTx, MintedWitnessSet, TransactionPointer, cbor, network::NetworkName,
+        AnyCbor, AuxiliaryData, Bytes, Epoch, EraHistory, Hasher, KeepRaw, MintedTx,
+        MintedWitnessSet, TransactionPointer, cbor, network::NetworkName,
         protocol_parameters::ProtocolParameters,
     };
     use amaru_ledger::{
@@ -220,8 +220,7 @@ pub mod tests {
             };
             let tx: MintedTx<'_> = cbor::decode(tx_bytes.as_slice())?;
 
-            let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
-            let tx_witness_set: MintedWitnessSet<'_> = tx.transaction_witness_set.deref().clone();
+            let tx_witness_set: MintedWitnessSet<'_> = tx.witness_set.deref().clone();
             let tx_auxiliary_data =
                 Into::<Option<KeepRaw<'_, AuxiliaryData>>>::into(tx.auxiliary_data.clone())
                     .map(|aux_data| Hasher::<256>::hash(aux_data.raw_cbor()));
@@ -242,7 +241,7 @@ pub mod tests {
                 &governance_activity,
                 pointer,
                 true,
-                tx_body,
+                tx.body,
                 &tx_witness_set,
                 tx_auxiliary_data,
             );

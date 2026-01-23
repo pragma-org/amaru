@@ -20,7 +20,7 @@ use super::InvalidBlockDetails;
 /// The validation of the bounds happens in the networking layer
 pub fn block_body_size_valid(block: &MintedBlock<'_>) -> Result<(), InvalidBlockDetails> {
     let block_header = &block.header.header_body;
-    let bh_size = block_header.block_body_size as usize;
+    let bh_size = block_header.block_body_size;
     let actual_block_size = calculate_block_body_size(block);
 
     if bh_size != actual_block_size {
@@ -34,11 +34,26 @@ pub fn block_body_size_valid(block: &MintedBlock<'_>) -> Result<(), InvalidBlock
 }
 
 // FIXME: Do not re-serialize block here, but rely on the original bytes.
-fn calculate_block_body_size(block: &MintedBlock<'_>) -> usize {
-    to_cbor(&block.transaction_bodies).len()
-        + to_cbor(&block.transaction_witness_sets).len()
-        + to_cbor(&block.auxiliary_data_set).len()
-        + to_cbor(&block.invalid_transactions).len()
+fn calculate_block_body_size(block: &MintedBlock<'_>) -> u64 {
+    let cbor_array_overhead = |n: u64| match n {
+        n if n < 24 => 1,
+        n if n < 256 => 2,
+        n if n < 65536 => 3,
+        n if n < 4294967296 => 5,
+        _ => 9,
+    };
+
+    let (mut size_of_transactions, count_transactions) = block
+        .transaction_bodies
+        .iter()
+        .fold((0, 0), |(acc, n), body| (acc + body.len(), n + 1));
+
+    size_of_transactions += cbor_array_overhead(count_transactions);
+
+    size_of_transactions
+        + (to_cbor(&block.transaction_witness_sets).len() as u64)
+        + (to_cbor(&block.auxiliary_data_set).len() as u64)
+        + (to_cbor(&block.invalid_transactions).len() as u64)
 }
 
 #[cfg(test)]

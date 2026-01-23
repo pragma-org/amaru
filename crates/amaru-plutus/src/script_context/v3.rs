@@ -640,9 +640,7 @@ mod tests {
         *,
     };
     use crate::script_context::Redeemers;
-    use amaru_kernel::{
-        MintedTx, PROTOCOL_VERSION_10, get_original_hash, network::NetworkName, to_cbor,
-    };
+    use amaru_kernel::{MintedTx, PROTOCOL_VERSION_10, network::NetworkName, to_cbor};
     use test_case::test_case;
 
     macro_rules! fixture {
@@ -671,7 +669,7 @@ mod tests {
 
         let redeemers = Redeemers::iter_from(
             transaction
-                .transaction_witness_set
+                .witness_set
                 .redeemer
                 .as_ref()
                 .expect("no redeemers provided")
@@ -682,9 +680,9 @@ mod tests {
             .map(|redeemer| {
                 let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
-                    &transaction.transaction_body,
-                    &transaction.transaction_witness_set,
-                    &get_original_hash(&transaction.transaction_body),
+                    &transaction.body,
+                    &transaction.witness_set,
+                    transaction.body.id(),
                     &utxos,
                     &0.into(),
                     network,

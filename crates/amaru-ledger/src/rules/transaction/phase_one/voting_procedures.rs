@@ -63,7 +63,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
-    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -94,10 +94,8 @@ mod tests {
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "drep-script"); "DRep Script")]
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "spo-key"); "SPO Key")]
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "mix"); "mix of roles, unsorted")]
-    fn voting_procedures(
-        (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
-    ) {
-        let voting_procedures = std::mem::take(&mut tx.unwrap().voting_procedures);
+    fn voting_procedures((mut tx, expected_traces): (TransactionBody, Vec<json::Value>)) {
+        let voting_procedures = std::mem::take(&mut tx.votes);
 
         assert_trace(
             || {

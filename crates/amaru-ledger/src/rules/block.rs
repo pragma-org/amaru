@@ -20,7 +20,7 @@ use crate::{
 };
 use amaru_kernel::{
     ArenaPool, AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hasher, HeaderHash, MintedBlock,
-    TransactionId, TransactionPointer, get_original_hash, network::NetworkName,
+    TransactionId, TransactionPointer, network::NetworkName,
     protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Slot;
@@ -46,8 +46,8 @@ pub enum TransactionInvalid {
 #[derive(Debug)]
 pub enum InvalidBlockDetails {
     BlockSizeMismatch {
-        supplied: usize,
-        actual: usize,
+        supplied: u64,
+        actual: u64,
     },
     TooManyExUnits {
         provided: ExUnits,
@@ -211,7 +211,7 @@ where
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
     for (i, transaction) in (0u32..).zip(transactions.into_iter()) {
-        let transaction_hash = get_original_hash(&transaction);
+        let transaction_hash = transaction.id();
 
         let is_valid = !failed_transactions.has(i);
 

@@ -13,12 +13,18 @@
 // limitations under the License.
 
 use crate::{
-    BTreeMap, Bytes, Certificate, Coin, Debug, Hash, KeepRaw, MintedTransactionOutput, Multiasset,
-    NetworkId, NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin,
+    AssetName, Bytes, Certificate, Coin, Debug, Hash, Hasher, MemoizedTransactionOutput, NetworkId,
+    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PolicyId, PositiveCoin,
     Proposal as ProposalProcedure, RequiredSigners, RewardAccount, Set, TransactionInput,
-    TransactionOutput, VotingProcedures,
-    cbor::{Encode, data::Type},
+    VotingProcedures,
+    cbor::{self},
 };
+use amaru_minicbor_extra::heterogeneous_map;
+use std::mem;
+
+pub static DEFAULT_HASH: [u8; TransactionBody::HASH_SIZE] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
 
 /// A multi-era transaction body. This type is meant to represent all transaction body in eras that
 /// we may encounter.
@@ -29,14 +35,20 @@ use crate::{
 // 6: governance updates, prior to Conway.
 // 10: has somewhat never existed, or existed but was removed without having been used.
 // 12: same
-#[derive(Encode, Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, cbor::Encode)]
 #[cbor(map)]
-pub struct PseudoTransactionBody<T1> {
+pub struct TransactionBody {
+    #[cbor(skip)]
+    hash: Hash<{ Self::HASH_SIZE }>,
+
+    #[cbor(skip)]
+    original_size: u64,
+
     #[n(0)]
     pub inputs: Set<TransactionInput>,
 
     #[n(1)]
-    pub outputs: Vec<T1>,
+    pub outputs: Vec<MemoizedTransactionOutput>,
 
     #[n(2)]
     pub fee: Coin,
@@ -57,7 +69,7 @@ pub struct PseudoTransactionBody<T1> {
     pub validity_interval_start: Option<u64>,
 
     #[n(9)]
-    pub mint: Option<Multiasset<NonZeroInt>>,
+    pub mint: Option<NonEmptyKeyValuePairs<PolicyId, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>,
 
     #[n(11)]
     pub script_data_hash: Option<Hash<32>>,
@@ -72,7 +84,7 @@ pub struct PseudoTransactionBody<T1> {
     pub network_id: Option<NetworkId>,
 
     #[n(16)]
-    pub collateral_return: Option<T1>,
+    pub collateral_return: Option<MemoizedTransactionOutput>,
 
     #[n(17)]
     pub total_collateral: Option<Coin>,
@@ -93,269 +105,49 @@ pub struct PseudoTransactionBody<T1> {
     pub donation: Option<PositiveCoin>,
 }
 
-pub type TransactionBody = PseudoTransactionBody<TransactionOutput>;
+impl TransactionBody {
+    // Hash digest size, in bytes.,
+    pub const HASH_SIZE: usize = 32;
 
-#[derive(Clone, Debug)]
-enum TxBodyField<T1> {
-    Inputs(Set<TransactionInput>),
-    Outputs(Vec<T1>),
-    Fee(Coin),
-    Ttl(Option<u64>),
-    Certificates(Option<NonEmptySet<Certificate>>),
-    Withdrawals(Option<NonEmptyKeyValuePairs<RewardAccount, Coin>>),
-    AuxiliaryDataHash(Option<Bytes>),
-    ValidityIntervalStart(Option<u64>),
-    Mint(Option<Multiasset<NonZeroInt>>),
-    ScriptDataHash(Option<Hash<32>>),
-    Collateral(Option<NonEmptySet<TransactionInput>>),
-    RequiredSigners(Option<RequiredSigners>),
-    NetworkId(Option<NetworkId>),
-    CollateralReturn(Option<T1>),
-    TotalCollateral(Option<Coin>),
-    ReferenceInputs(Option<NonEmptySet<TransactionInput>>),
-    VotingProcedures(Option<VotingProcedures>),
-    ProposalProcedures(Option<NonEmptySet<ProposalProcedure>>),
-    TreasuryValue(Option<Coin>),
-    Donation(Option<PositiveCoin>),
-}
+    /// The original id (i.e. blake2b-256 hash digest) of the transaction body. Note that the hash
+    /// computed from the original bytes and memoized; it is not re-computed from re-serialised
+    /// data.
+    pub fn id(&self) -> Hash<{ Self::HASH_SIZE }> {
+        self.hash
+    }
 
-fn decode_tx_body_field<'b, T1, C>(
-    d: &mut minicbor::Decoder<'b>,
-    k: u64,
-    ctx: &mut C,
-) -> Result<TxBodyField<T1>, minicbor::decode::Error>
-where
-    T1: minicbor::Decode<'b, C>,
-{
-    match k {
-        0 => {
-            let inputs = d.decode_with(ctx)?;
-            Ok(TxBodyField::Inputs(inputs))
-        }
-        1 => {
-            let outputs = d.decode_with(ctx)?;
-            Ok(TxBodyField::Outputs(outputs))
-        }
-        2 => {
-            let coin = d.decode_with(ctx)?;
-            Ok(TxBodyField::Fee(coin))
-        }
-        3 => {
-            let validity_interval_end = d.decode_with(ctx)?;
-            Ok(TxBodyField::Ttl(validity_interval_end))
-        }
-        4 => {
-            let certificates = d.decode_with(ctx)?;
-            Ok(TxBodyField::Certificates(certificates))
-        }
-        5 => {
-            let withdrawals = d.decode_with(ctx)?;
-            Ok(TxBodyField::Withdrawals(withdrawals))
-        }
-        7 => {
-            let auxiliary_data_hash = d.decode_with(ctx)?;
-            Ok(TxBodyField::AuxiliaryDataHash(auxiliary_data_hash))
-        }
-        8 => {
-            let validity_interval_start = d.decode_with(ctx)?;
-            Ok(TxBodyField::ValidityIntervalStart(validity_interval_start))
-        }
-        9 => {
-            let mint = d.decode_with(ctx)?;
-            Ok(TxBodyField::Mint(mint))
-        }
-        11 => {
-            let script_data_hash = d.decode_with(ctx)?;
-            Ok(TxBodyField::ScriptDataHash(script_data_hash))
-        }
-        13 => {
-            let collateral = d.decode_with(ctx)?;
-            Ok(TxBodyField::Collateral(collateral))
-        }
-        14 => {
-            let required_signers = d.decode_with(ctx)?;
-            Ok(TxBodyField::RequiredSigners(required_signers))
-        }
-        15 => {
-            let network_id = d.decode_with(ctx)?;
-            Ok(TxBodyField::NetworkId(network_id))
-        }
-        16 => {
-            let collateral_return = d.decode_with(ctx)?;
-            Ok(TxBodyField::CollateralReturn(collateral_return))
-        }
-        17 => {
-            let total_collateral = d.decode_with(ctx)?;
-            Ok(TxBodyField::TotalCollateral(total_collateral))
-        }
-        18 => {
-            let reference_inputs = d.decode_with(ctx)?;
-            Ok(TxBodyField::ReferenceInputs(reference_inputs))
-        }
-        19 => {
-            let votes = d.decode_with(ctx)?;
-            Ok(TxBodyField::VotingProcedures(votes))
-        }
-        20 => {
-            let proposals = d.decode_with(ctx)?;
-            Ok(TxBodyField::ProposalProcedures(proposals))
-        }
-        21 => {
-            let treasury_value = d.decode_with(ctx)?;
-            Ok(TxBodyField::TreasuryValue(treasury_value))
-        }
-        22 => {
-            let donation = d.decode_with(ctx)?;
-            Ok(TxBodyField::Donation(donation))
-        }
-        k => Err(minicbor::decode::Error::message(format!(
-            "Unknown txbody field key {}",
-            k
-        ))),
+    pub fn len(&self) -> u64 {
+        self.original_size
     }
 }
 
-struct TxBodyFields<T1> {
-    entries: BTreeMap<u64, Vec<TxBodyField<T1>>>,
-}
-
-impl<'b, T1, C> minicbor::Decode<'b, C> for TxBodyFields<T1>
-where
-    T1: Clone + minicbor::Decode<'b, C>,
-{
-    fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        let mut entries = BTreeMap::new();
-        let map_size = d.map()?;
-        match map_size {
-            None => loop {
-                let ty = d.datatype()?;
-                if ty == Type::Break {
-                    d.skip()?;
-                    break;
-                }
-                let k = d.u64()?;
-                let v = decode_tx_body_field(d, k, ctx)?;
-                entries
-                    .entry(k)
-                    .and_modify(|ar: &mut Vec<TxBodyField<T1>>| ar.push(v.clone()))
-                    .or_insert(vec![v]);
-            },
-            Some(n) => {
-                for _ in 0..n {
-                    let k = d.u64()?;
-                    let v = decode_tx_body_field(d, k, ctx)?;
-                    entries
-                        .entry(k)
-                        .and_modify(|ar: &mut Vec<TxBodyField<T1>>| ar.push(v.clone()))
-                        .or_insert(vec![v]);
-                }
-            }
+impl Default for TransactionBody {
+    fn default() -> Self {
+        Self {
+            hash: Hash::new(DEFAULT_HASH),
+            original_size: 0,
+            inputs: Set::from(vec![]),
+            outputs: vec![],
+            fee: 0,
+            validity_interval_end: None,
+            certificates: None,
+            withdrawals: None,
+            auxiliary_data_hash: None,
+            validity_interval_start: None,
+            mint: None,
+            script_data_hash: None,
+            collateral: None,
+            required_signers: None,
+            network_id: None,
+            collateral_return: None,
+            total_collateral: None,
+            reference_inputs: None,
+            votes: None,
+            proposals: None,
+            treasury_value: None,
+            donation: None,
         }
-        Ok(TxBodyFields { entries })
     }
-}
-
-fn make_basic_tx_body<T1>(
-    inputs: Set<TransactionInput>,
-    outputs: Vec<T1>,
-    fee: Coin,
-) -> PseudoTransactionBody<T1> {
-    PseudoTransactionBody {
-        inputs,
-        outputs,
-        fee,
-        validity_interval_end: None,
-        certificates: None,
-        withdrawals: None,
-        auxiliary_data_hash: None,
-        validity_interval_start: None,
-        mint: None,
-        script_data_hash: None,
-        collateral: None,
-        required_signers: None,
-        network_id: None,
-        collateral_return: None,
-        total_collateral: None,
-        reference_inputs: None,
-        votes: None,
-        proposals: None,
-        treasury_value: None,
-        donation: None,
-    }
-}
-
-fn set_tx_body_field<T1>(
-    txbody: &mut PseudoTransactionBody<T1>,
-    index: u64,
-    field: TxBodyField<T1>,
-) -> Result<(), String>
-where
-    T1: Debug,
-{
-    match (index, field) {
-        (0, TxBodyField::Inputs(i)) => {
-            txbody.inputs = i;
-        }
-        (1, TxBodyField::Outputs(o)) => {
-            txbody.outputs = o;
-        }
-        (2, TxBodyField::Fee(f)) => {
-            txbody.fee = f;
-        }
-        (3, TxBodyField::Ttl(t)) => {
-            txbody.validity_interval_end = t;
-        }
-        (4, TxBodyField::Certificates(c)) => {
-            txbody.certificates = c;
-        }
-        (5, TxBodyField::Withdrawals(w)) => {
-            txbody.withdrawals = w;
-        }
-        (7, TxBodyField::AuxiliaryDataHash(a)) => {
-            txbody.auxiliary_data_hash = a;
-        }
-        (8, TxBodyField::ValidityIntervalStart(v)) => {
-            txbody.validity_interval_start = v;
-        }
-        (9, TxBodyField::Mint(m)) => {
-            txbody.mint = m;
-        }
-        (11, TxBodyField::ScriptDataHash(s)) => {
-            txbody.script_data_hash = s;
-        }
-        (13, TxBodyField::Collateral(c)) => {
-            txbody.collateral = c;
-        }
-        (14, TxBodyField::RequiredSigners(r)) => {
-            txbody.required_signers = r;
-        }
-        (15, TxBodyField::NetworkId(n)) => {
-            txbody.network_id = n;
-        }
-        (16, TxBodyField::CollateralReturn(c)) => {
-            txbody.collateral_return = c;
-        }
-        (17, TxBodyField::TotalCollateral(t)) => {
-            txbody.total_collateral = t;
-        }
-        (18, TxBodyField::ReferenceInputs(r)) => {
-            txbody.reference_inputs = r;
-        }
-        (19, TxBodyField::VotingProcedures(v)) => {
-            txbody.votes = v;
-        }
-        (20, TxBodyField::ProposalProcedures(p)) => {
-            txbody.proposals = p;
-        }
-        (21, TxBodyField::TreasuryValue(t)) => {
-            txbody.treasury_value = t;
-        }
-        (22, TxBodyField::Donation(d)) => {
-            txbody.donation = d;
-        }
-        (ix, f) => return Err(format!("Wrong index {} for txbody field {:?}", ix, f)),
-    }
-    Ok(())
 }
 
 // NOTE: Multi-era transaction decoding.
@@ -371,93 +163,107 @@ where
 //
 // Ultimately, we have to suppose multi-era decoders, and promote transactions into a common
 // model.
-impl<'b, T1, C> minicbor::Decode<'b, C> for PseudoTransactionBody<T1>
-where
-    T1: Clone + Debug + minicbor::Decode<'b, C>,
-{
-    fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        let fields: TxBodyFields<T1> = d.decode_with(ctx)?;
-        let entries = fields.entries;
-        let inputs = entries.get(&0).and_then(|v| v.first());
-        let outputs = entries.get(&1).and_then(|v| v.first());
-        let fee = entries.get(&2).and_then(|v| v.first());
-        let mut tx_body = match (inputs, outputs, fee) {
-            (
-                Some(TxBodyField::Inputs(inputs)),
-                Some(TxBodyField::Outputs(outputs)),
-                Some(TxBodyField::Fee(fee)),
-            ) => make_basic_tx_body(inputs.clone(), outputs.clone(), *fee),
-            _ => {
-                return Err(minicbor::decode::Error::message(
-                    "inputs, outputs, and fee fields are required",
-                ));
-            }
-        };
-        for (key, val) in entries {
-            if val.len() > 1 {
-                return Err(minicbor::decode::Error::message(format!(
-                    "duplicate txbody entries for key {}",
-                    key
-                )));
-            }
-            match val.first() {
-                Some(first) => {
-                    let result = set_tx_body_field(&mut tx_body, key, first.clone());
-                    if let Err(e) = result {
-                        return Err(minicbor::decode::Error::message(format!(
-                            "could not set txbody field: {}",
-                            e
-                        )));
+impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        #[derive(Default)]
+        struct RequiredFields {
+            inputs: Option<Set<TransactionInput>>,
+            outputs: Option<Vec<MemoizedTransactionOutput>>,
+            fee: Option<Coin>,
+        }
+
+        #[derive(Default)]
+        struct State {
+            optional: TransactionBody,
+            required: RequiredFields,
+        }
+
+        let original_bytes = d.input();
+        let start_position = d.position();
+
+        let mut state = State::default();
+
+        heterogeneous_map(
+            d,
+            &mut state,
+            |d| d.u64(),
+            |d, st, k| {
+                match k {
+                    0 => blanket(&mut st.required.inputs, k, d, ctx)?,
+                    1 => blanket(&mut st.required.outputs, k, d, ctx)?,
+                    2 => blanket(&mut st.required.fee, k, d, ctx)?,
+                    3 => blanket(&mut st.optional.validity_interval_end, k, d, ctx)?,
+                    4 => blanket(&mut st.optional.certificates, k, d, ctx)?,
+                    5 => blanket(&mut st.optional.withdrawals, k, d, ctx)?,
+                    // 6: governance updates, obsolete in Conway
+                    7 => blanket(&mut st.optional.auxiliary_data_hash, k, d, ctx)?,
+                    8 => blanket(&mut st.optional.validity_interval_start, k, d, ctx)?,
+                    9 => blanket(&mut st.optional.mint, k, d, ctx)?,
+                    // 10: there's no 10, has never been used.
+                    11 => blanket(&mut st.optional.script_data_hash, k, d, ctx)?,
+                    // 12: there's no 12, has never been used.
+                    13 => blanket(&mut st.optional.collateral, k, d, ctx)?,
+                    14 => blanket(&mut st.optional.required_signers, k, d, ctx)?,
+                    15 => blanket(&mut st.optional.network_id, k, d, ctx)?,
+                    16 => blanket(&mut st.optional.collateral_return, k, d, ctx)?,
+                    17 => blanket(&mut st.optional.total_collateral, k, d, ctx)?,
+                    18 => blanket(&mut st.optional.reference_inputs, k, d, ctx)?,
+                    19 => blanket(&mut st.optional.votes, k, d, ctx)?,
+                    20 => blanket(&mut st.optional.proposals, k, d, ctx)?,
+                    21 => blanket(&mut st.optional.treasury_value, k, d, ctx)?,
+                    22 => blanket(&mut st.optional.donation, k, d, ctx)?,
+                    _ => {
+                        let position = d.position();
+                        return Err(cbor::decode::Error::message(format!(
+                            "unrecognised field key: {k}"
+                        ))
+                        .at(position));
                     }
-                }
-                None => {
-                    // This is impossible because we always initialize TxBodyFields entries with
-                    // singleton arrays. Could maybe use a NonEmpty Vec type to eliminate this
-                    // branch
-                    return Err(minicbor::decode::Error::message(
-                        "TxBodyFields entry was empty",
-                    ));
-                }
-            }
-        }
-        if tx_body.mint.as_ref().is_some_and(|x| x.is_empty()) {
-            return Err(minicbor::decode::Error::message("mint must not be empty"));
-        }
-        Ok(tx_body)
+                };
+
+                Ok(())
+            },
+        )?;
+
+        let end_position = d.position();
+
+        Ok(TransactionBody {
+            hash: Hasher::<{ TransactionBody::HASH_SIZE * 8 }>::hash(
+                &original_bytes[start_position..end_position],
+            ),
+            original_size: (end_position - start_position) as u64, // from usize
+            inputs: expect_field(mem::take(&mut state.required.inputs), 0, "inputs")?,
+            outputs: expect_field(mem::take(&mut state.required.outputs), 1, "outputs")?,
+            fee: expect_field(mem::take(&mut state.required.fee), 2, "fee")?,
+            ..state.optional
+        })
     }
 }
 
-pub type MintedTransactionBody<'a> = PseudoTransactionBody<MintedTransactionOutput<'a>>;
-
-impl<'a> From<MintedTransactionBody<'a>> for TransactionBody {
-    fn from(value: MintedTransactionBody<'a>) -> Self {
-        Self {
-            inputs: value.inputs,
-            outputs: value.outputs.into_iter().map(|x| x.into()).collect(),
-            fee: value.fee,
-            validity_interval_end: value.validity_interval_end,
-            certificates: value.certificates,
-            withdrawals: value.withdrawals,
-            auxiliary_data_hash: value.auxiliary_data_hash,
-            validity_interval_start: value.validity_interval_start,
-            mint: value.mint,
-            script_data_hash: value.script_data_hash,
-            collateral: value.collateral,
-            required_signers: value.required_signers,
-            network_id: value.network_id,
-            collateral_return: value.collateral_return.map(|x| x.into()),
-            total_collateral: value.total_collateral,
-            reference_inputs: value.reference_inputs,
-            votes: value.votes,
-            proposals: value.proposals,
-            treasury_value: value.treasury_value,
-            donation: value.donation,
-        }
+fn blanket<'d, C, T>(
+    field: &mut Option<T>,
+    k: u64,
+    d: &mut cbor::Decoder<'d>,
+    ctx: &mut C,
+) -> Result<(), cbor::decode::Error>
+where
+    T: cbor::Decode<'d, C>,
+{
+    if field.is_some() {
+        return Err(cbor::decode::Error::message(format!(
+            "duplicate field entry with key {k}"
+        )));
     }
+
+    *field = Some(d.decode_with(ctx)?);
+
+    Ok(())
 }
 
-pub fn get_original_hash<'a, T>(thing: &KeepRaw<'a, T>) -> pallas_crypto::hash::Hash<32> {
-    pallas_crypto::hash::Hasher::<256>::hash(thing.raw_cbor())
+fn expect_field<T>(decoded: Option<T>, key: u64, name: &str) -> Result<T, cbor::decode::Error> {
+    decoded.ok_or(cbor::decode::Error::message(format!(
+        "missing expected field '{name}' at key {key}"
+    )))
 }
 
 #[cfg(test)]
@@ -467,9 +273,21 @@ mod tests {
     use test_case::test_case;
 
     macro_rules! fixture {
-        ($id:expr) => {{
+        // Allowed eras
+        ("conway", $id:expr) => { fixture!(@inner "conway", $id) };
+
+        // Catch-all: invalid era
+        ($era:literal, $id:expr) => {
+            compile_error!(
+                "invalid era: expected one of: \"conway\""
+            );
+        };
+
+        (@inner $era:literal, $id:expr) => {{
             $crate::try_include_cbor!(concat!(
-                "decode_transaction_body/conway/",
+                "decode_transaction_body/",
+                $era,
+                "/",
                 $id,
                 "/sample.cbor",
             ))
@@ -477,86 +295,96 @@ mod tests {
     }
 
     #[test_case(
-        fixture!("70beb79b18459ff5b826ebeea82ecf566ab79e166ff5749f761ed402ad459466");
+        fixture!("conway", "70beb79b18459ff5b826ebeea82ecf566ab79e166ff5749f761ed402ad459466"), 86;
         "simple input -> output payout"
     )]
     #[test_case(
-        fixture!("c20c7e395ef81d8a6172510408446afc240d533bff18f9dca905e78187c2bcd8");
-        "null fees"
+        fixture!("conway", "950bde838976daf2f0019ac6cc5a995e86d99f5ff1b2ffddaaa9ef44b558e4db"), 48;
+        "present but empty inputs set"
     )]
-
-    fn decode_wellformed(result: Result<TransactionBody, cbor::decode::Error>) {
-        assert!(dbg!(result).is_ok());
+    #[test_case(
+        fixture!("conway", "ab17a2693346d625ea9afd9bdb9f9b357e60533b3e4cb7576e2c117b94d1c180"), 49;
+        "present but empty outputs set"
+    )]
+    #[test_case(
+        fixture!("conway", "c20c7e395ef81d8a6172510408446afc240d533bff18f9dca905e78187c2bcd8"), 80;
+        "null fee"
+    )]
+    fn decode_wellformed(result: Result<TransactionBody, cbor::decode::Error>, expected_size: u64) {
+        match result {
+            Err(err) => panic!("{err}"),
+            Ok(body) => assert_eq!(body.len(), expected_size),
+        }
     }
 
     #[test_case(
-        fixture!("9d34025191e23c5996e20c2c0d1718f5cb1d9c4a37a5cb153cbd03c66b59128f"),
-        "decode error: inputs, outputs, and fee fields are required";
-        "missing fees"
+        fixture!("conway", "d36a2619a672494604e11bb447cbcf5231e9f2ba25c2169177edc941bd50ad6c"),
+        "decode error: missing expected field 'inputs' at key 0";
+        "empty body"
     )]
     #[test_case(
-        fixture!("b563891d222561e435b475632a3bdcca58cc3c8ec80ab6b51e0a5c96b6a35e1b"),
-        "decode error: inputs, outputs, and fee fields are required";
+        fixture!("conway", "b563891d222561e435b475632a3bdcca58cc3c8ec80ab6b51e0a5c96b6a35e1b"),
+        "decode error: missing expected field 'outputs' at key 1";
         "missing outputs"
     )]
     #[test_case(
-        fixture!("c5f2d5b7e9b8f615c52296e04b3050cf35ad4e8a457a25adaeb2a933de1bf624"),
+        fixture!("conway", "9d34025191e23c5996e20c2c0d1718f5cb1d9c4a37a5cb153cbd03c66b59128f"),
+        "decode error: missing expected field 'fee' at key 2";
+        "missing fee"
+    )]
+    #[test_case(
+        fixture!("conway", "c5f2d5b7e9b8f615c52296e04b3050cf35ad4e8a457a25adaeb2a933de1bf624"),
         "decode error at position 81: empty set when expecting at least one element";
         "empty certificates"
     )]
     #[test_case(
-        fixture!("3b5478c6446496b6ff71c738c83fbf251841dd45cda074b0ac935b1428a52f66"),
+        fixture!("conway", "3b5478c6446496b6ff71c738c83fbf251841dd45cda074b0ac935b1428a52f66"),
         "unexpected type map at position 81: expected array";
         "malformed certificates"
     )]
     #[test_case(
-        fixture!("5123113da4c8e2829748dbcd913ac69f572516836731810c2fc1f8b86351bfee"),
+        fixture!("conway", "5123113da4c8e2829748dbcd913ac69f572516836731810c2fc1f8b86351bfee"),
         "decode error at position 87: empty map when expecting at least one key/value pair";
         "empty votes"
     )]
     #[test_case(
-        fixture!("6c6596eda4e61f6f294b522c17f3c9fb6fbddcfac0e55af88ddc96747b3e0478"),
+        fixture!("conway", "6c6596eda4e61f6f294b522c17f3c9fb6fbddcfac0e55af88ddc96747b3e0478"),
         "unexpected type array at position 87: expected map";
         "malformed votes"
     )]
     #[test_case(
-        fixture!("402a8a9024d4160928e574c73aa66c66d92f9856c3fa2392242f7a92b8e9c347"),
-        "decode error: mint must not be empty";
+        fixture!("conway", "402a8a9024d4160928e574c73aa66c66d92f9856c3fa2392242f7a92b8e9c347"),
+        "decode error at position 81: empty map when expecting at least one key/value pair";
         "empty mint"
     )]
     #[test_case(
-        fixture!("48d5440656ceefda1ac25506dcd175e77a486113733a89e48a5a2f401d2cbfda"),
+        fixture!("conway", "48d5440656ceefda1ac25506dcd175e77a486113733a89e48a5a2f401d2cbfda"),
         "decode error at position 87: empty set when expecting at least one element";
         "empty collateral inputs"
     )]
     #[test_case(
-        fixture!("5cbed05f218d893dac6d9af847aa7429576019a1314b633e3fde55cb74e43be1"),
+        fixture!("conway", "5cbed05f218d893dac6d9af847aa7429576019a1314b633e3fde55cb74e43be1"),
         "decode error at position 87: empty set when expecting at least one element";
         "empty required signers"
     )]
     #[test_case(
-        fixture!("71d780bdcc0cf8d1a8dafc6641797d46f1be835be6dd63b2b4bb5651df808d79"),
+        fixture!("conway", "71d780bdcc0cf8d1a8dafc6641797d46f1be835be6dd63b2b4bb5651df808d79"),
         "decode error at position 81: empty map when expecting at least one key/value pair";
         "empty withdrawals"
     )]
     #[test_case(
-        fixture!("477981b76e218802d5ce8c673abefe0b4031f09b0be5283a5b577ca109671771"),
+        fixture!("conway", "477981b76e218802d5ce8c673abefe0b4031f09b0be5283a5b577ca109671771"),
         "decode error at position 87: empty set when expecting at least one element";
         "empty proposals"
     )]
     #[test_case(
-        fixture!("675954a2fe5ad3638a360902a4c7307a598d6e13b977279df640a663023c14bd"),
+        fixture!("conway", "675954a2fe5ad3638a360902a4c7307a598d6e13b977279df640a663023c14bd"),
         "decode error: decoding 0 as PositiveCoin";
         "null donation"
     )]
     #[test_case(
-        fixture!("d36a2619a672494604e11bb447cbcf5231e9f2ba25c2169177edc941bd50ad6c"),
-        "decode error: inputs, outputs, and fee fields are required";
-        "empty body"
-    )]
-    #[test_case(
-        fixture!("5280ac2b10897dd26c9d7377ae681a6ea1dc3eec197563ab5bf3ab7907e0e709"),
-        "decode error: duplicate txbody entries for key 2";
+        fixture!("conway", "5280ac2b10897dd26c9d7377ae681a6ea1dc3eec197563ab5bf3ab7907e0e709"),
+        "decode error: duplicate field entry with key 2";
         "duplicate fields keys"
     )]
     fn decode_malformed(

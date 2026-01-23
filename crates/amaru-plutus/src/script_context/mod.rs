@@ -16,15 +16,15 @@ use amaru_kernel::{
     AddrKeyhash, Address, AddressError, AlonzoValue, AssetName, Bytes, CborWrap,
     Certificate as PallasCertificate, ComputeHash, DatumHash, EraHistory, ExUnits, HasOwnership,
     HasScriptHash, Hash, KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript,
-    MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef, MintedTransactionBody,
-    MintedTransactionOutput, MintedWitnessSet, NativeScript, Network,
-    NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, Nullable, OrderedRedeemer,
-    PlutusData, PlutusScript, PolicyId, Proposal, ProposalIdAdapter, ProtocolVersion, PseudoScript,
-    Redeemer, Redeemers as PallasRedeemers, RequiredSigners as PallasRequiredSigners,
-    RewardAccount, ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload,
-    TransactionId, TransactionInput, TransactionInputAdapter, Vote, Voter,
-    VotingProcedures as PallasVotingProcedures, network::NetworkName,
-    protocol_parameters::GlobalParameters,
+    MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef, MintedTransactionOutput,
+    MintedWitnessSet, NativeScript, Network, NonEmptyKeyValuePairs,
+    NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, Nullable,
+    OrderedRedeemer, PlutusData, PlutusScript, PolicyId, Proposal, ProposalIdAdapter,
+    ProtocolVersion, PseudoScript, Redeemer, Redeemers as PallasRedeemers,
+    RequiredSigners as PallasRequiredSigners, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
+    StakeCredential, StakePayload, TransactionBody, TransactionId, TransactionInput,
+    TransactionInputAdapter, Vote, Voter, VotingProcedures as PallasVotingProcedures,
+    network::NetworkName, protocol_parameters::GlobalParameters,
 };
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 use itertools::Itertools;
@@ -208,9 +208,9 @@ impl<'a> TxInfo<'a> {
     /// Version-specific errors will arise during serialization.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        tx: &'a MintedTransactionBody<'_>,
+        tx: &'a TransactionBody,
         witness_set: &'a MintedWitnessSet<'_>,
-        tx_id: &Hash<32>,
+        tx_id: Hash<32>,
         utxos: &'a Utxos,
         slot: &Slot,
         network: NetworkName,
@@ -229,8 +229,8 @@ impl<'a> TxInfo<'a> {
         let outputs = tx
             .outputs
             .iter()
-            .map(TransactionOutput::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(TransactionOutput::from)
+            .collect::<Vec<_>>();
 
         let mint = tx.mint.as_ref().map(Mint::from).unwrap_or_default();
 
@@ -256,7 +256,7 @@ impl<'a> TxInfo<'a> {
 
         let valid_range = TimeRange::new(
             tx.validity_interval_start.map(Slot::from),
-            tx.ttl.map(Slot::from),
+            tx.validity_interval_end.map(Slot::from),
             slot,
             era_history,
             network,
@@ -269,16 +269,12 @@ impl<'a> TxInfo<'a> {
             .unwrap_or_default();
 
         let proposal_procedures: Vec<_> = tx
-            .proposal_procedures
+            .proposals
             .as_ref()
             .map(|proposals| proposals.iter().collect())
             .unwrap_or_default();
 
-        let votes = tx
-            .voting_procedures
-            .as_ref()
-            .map(Votes::from)
-            .unwrap_or_default();
+        let votes = tx.votes.as_ref().map(Votes::from).unwrap_or_default();
 
         if let Some(plutus_v1_scripts) = witness_set.plutus_v1_script.as_ref() {
             plutus_v1_scripts.iter().for_each(|script| {
@@ -353,7 +349,7 @@ impl<'a> TxInfo<'a> {
             signatories,
             redeemers,
             data: datums,
-            id: *tx_id,
+            id: tx_id,
             votes,
             proposal_procedures,
             current_treasury_amount: tx.treasury_value,
@@ -929,8 +925,20 @@ impl<'a> TryFrom<&'a MintedTransactionOutput<'a>> for TransactionOutput<'a> {
 #[derive(Debug, Default)]
 pub struct Mint<'a>(pub BTreeMap<Hash<28>, BTreeMap<Cow<'a, AssetName>, i64>>);
 
-impl<'a> From<&'a amaru_kernel::Mint> for Mint<'a> {
-    fn from(value: &'a amaru_kernel::Mint) -> Self {
+impl<'a>
+    From<
+        &'a amaru_kernel::NonEmptyKeyValuePairs<
+            PolicyId,
+            NonEmptyKeyValuePairs<AssetName, NonZeroInt>,
+        >,
+    > for Mint<'a>
+{
+    fn from(
+        value: &'a amaru_kernel::NonEmptyKeyValuePairs<
+            PolicyId,
+            NonEmptyKeyValuePairs<AssetName, NonZeroInt>,
+        >,
+    ) -> Self {
         let mints = value
             .iter()
             .map(|(policy, multiasset)| {
