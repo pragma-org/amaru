@@ -101,7 +101,7 @@ pub fn stage(
                     .await
                 {
                     error!(?err, %rollback_point, "chain_sync.validate_block.rollback_failed");
-                    eff.base().send(&processing_errors, err).await;
+                    eff.base().send(&validation_errors, err).await;
                 } else {
                     eff.base()
                         .send(

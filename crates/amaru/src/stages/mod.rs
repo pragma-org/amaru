@@ -57,6 +57,7 @@ use pure_stage::{
     StageGraph,
     tokio::{TokioBuilder, TokioRunning},
 };
+use std::time::Duration;
 use std::{
     fmt::{Debug, Display},
     path::PathBuf,
@@ -236,7 +237,11 @@ pub async fn build_and_run_network(
 
     let manager = network.wire_up(
         manager,
-        Manager::new(config.network_magic, pull_stage.without_state()),
+        Manager::new(
+            config.network_magic,
+            Duration::from_secs(10),
+            pull_stage.without_state(),
+        ),
     );
     for peer in &peers {
         let Ok(_) = network.preload(&manager, [manager::ManagerMessage::AddPeer(peer.clone())])

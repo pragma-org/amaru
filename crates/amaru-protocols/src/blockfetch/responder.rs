@@ -102,7 +102,9 @@ impl PointsRange {
                     Some((network_block, self))
                 }
                 Err(StoreError::NotFound { hash }) => {
-                    panic!("block not found in best chain range {hash}")
+                    panic!(
+                        "block not found in best chain range {hash} (from: {from:?}, through: {through:?})"
+                    )
                 }
                 Err(other) => panic!("{other:?}"),
             },
