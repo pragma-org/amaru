@@ -54,6 +54,7 @@ use pure_stage::{
     StageGraph,
     tokio::{TokioBuilder, TokioRunning},
 };
+use std::time::Duration;
 use std::{
     fmt::{Debug, Display},
     path::PathBuf,
@@ -235,6 +236,7 @@ pub async fn build_and_run_network(
         manager,
         Manager::new(
             config.network_magic,
+            Duration::from_secs(10),
             pull_stage.without_state(),
             Arc::new(era_history.clone()),
         ),

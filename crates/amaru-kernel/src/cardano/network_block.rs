@@ -17,12 +17,15 @@ use amaru_minicbor_extra::to_cbor;
 use std::fmt::{Debug, Formatter};
 use std::sync::LazyLock;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests;
-
-#[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
-
+/// A network block contains:
+///  - An era tag identifying the Cardano era of the block, which determines its exact encoding.
+///  - The block itself, encoded in CBOR format as per the Cardano network protocol.
+///
+/// From a `NetworkBlock` we can obtain:
+///
+///  - The raw CBOR bytes of the block, wrapped in a `RawBlock`.
+///  - The decoded `Block` structure, by decoding the inner CBOR bytes.
+///  - The decoded `BlockHeader`, by decoding only the header part of the inner CBOR bytes.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct NetworkBlock {
     era_tag: u16,
@@ -125,6 +128,12 @@ impl TryFrom<RawBlock> for NetworkBlock {
         minicbor::decode(&value)
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
 
 #[cfg(test)]
 mod network_block_tests {

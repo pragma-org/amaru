@@ -50,6 +50,7 @@ pub enum ManagerMessage {
 pub struct Manager {
     peers: BTreeMap<Peer, ConnectionState>,
     magic: NetworkMagic,
+    connection_timeout: Duration,
     chain_sync: StageRef<ChainSyncInitiatorMsg>,
     era_history: Arc<amaru_slot_arithmetic::EraHistory>,
 }
@@ -65,12 +66,14 @@ enum ConnectionState {
 impl Manager {
     pub fn new(
         magic: NetworkMagic,
+        connection_timeout: Duration,
         chain_sync: StageRef<ChainSyncInitiatorMsg>,
         era_history: Arc<amaru_slot_arithmetic::EraHistory>,
     ) -> Self {
         Self {
             peers: BTreeMap::new(),
             magic,
+            connection_timeout,
             chain_sync,
             era_history,
         }
@@ -129,13 +132,13 @@ pub async fn stage(
             };
             let addr = ToSocketAddrs::String(peer.to_string());
             let conn_id = match Network::new(&eff)
-                .connect(addr, Duration::from_secs(10))
+                .connect(addr, manager.connection_timeout)
                 .await
             {
                 Ok(conn_id) => conn_id,
                 Err(err) => {
-                    tracing::error!(?err, %peer, "failed to connect to peer");
-                    eff.schedule_after(ManagerMessage::Connect(peer), Duration::from_secs(10))
+                    tracing::error!(?err, %peer, reconnecting_in=?manager.connection_timeout, "failed to connect to peer. Scheduling reconnect");
+                    eff.schedule_after(ManagerMessage::Connect(peer), manager.connection_timeout)
                         .await;
                     assert_eq!(*entry, ConnectionState::Scheduled);
                     return manager;
@@ -194,9 +197,12 @@ pub async fn stage(
                 ConnectionState::Connected(..) => {
                     // Only reconnect on the initiator side
                     if role == Role::Initiator {
-                        tracing::info!(%peer, "initiator connection died, scheduling reconnect");
-                        eff.schedule_after(ManagerMessage::Connect(peer), Duration::from_secs(10))
-                            .await;
+                        tracing::info!(%peer, reconnecting_in=?manager.connection_timeout, "initiator connection died, scheduling reconnect");
+                        eff.schedule_after(
+                            ManagerMessage::Connect(peer),
+                            manager.connection_timeout,
+                        )
+                        .await;
                         *peer_state = ConnectionState::Scheduled;
                     } else {
                         tracing::info!(%peer, "responder connection died, removing peer");

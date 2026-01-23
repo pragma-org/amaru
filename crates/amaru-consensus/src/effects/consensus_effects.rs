@@ -106,7 +106,7 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::errors::ProcessingFailed;
+    use crate::errors::{ProcessingFailed, ValidationFailed};
     use amaru_kernel::{Block, Peer, Point, PoolId, Tip};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics};
@@ -211,7 +211,7 @@ pub mod tests {
             _peer: &Peer,
             _point: &Point,
             _ctx: opentelemetry::Context,
-        ) -> BoxFuture<'static, anyhow::Result<(), ProcessingFailed>> {
+        ) -> BoxFuture<'static, anyhow::Result<(), ValidationFailed>> {
             Box::pin(async { Ok(()) })
         }
     }

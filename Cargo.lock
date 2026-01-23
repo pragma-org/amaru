@@ -357,6 +357,7 @@ dependencies = [
  "proptest",
  "pure-stage",
  "serde",
+ "socket2 0.6.1",
  "tokio",
  "tracing",
  "tracing-subscriber",
