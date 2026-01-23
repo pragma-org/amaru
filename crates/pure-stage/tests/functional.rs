@@ -364,8 +364,6 @@ fn supervision() {
                         .await;
                     let a = eff.supervise(a, 2);
                     let a = eff.wire_up(a, ()).await;
-                    // set the supervision cascade in motion
-                    eff.send(&a, 20).await;
 
                     // second one we don't supervise, whose termination will terminate us
                     let b = eff
@@ -375,10 +373,22 @@ fn supervision() {
 
                     // third which will be aborted by our termination
                     let c = eff
-                        .stage("c", async |_: (), _: u32, eff| eff.terminate().await)
+                        .stage("c", async |parent: StageRef<u32>, _: u32, eff| {
+                            eff.send(&parent, 42).await;
+                            parent
+                        })
                         .await;
-                    eff.wire_up(c, ()).await;
+                    let c = eff.wire_up(c, eff.me()).await;
 
+                    // need to make sure that "c" is running before we start the real test
+                    eff.send(&c, 42).await;
+
+                    (a, b)
+                }
+                42 => {
+                    // "c" is up and running, so send to "a" which will terminate and send us 2, upon which we
+                    // send to "b" which will terminate without supervision, aborting "c"
+                    eff.send(&a, 20).await;
                     (a, b)
                 }
                 2 => {
@@ -428,8 +438,6 @@ fn supervision() {
         E::suspend(Eff::wire_stage("child-2", "a-3", sdv(()), Some(sdv(2u32)))),
         E::state("a-3", sdv(())),
         E::resume("child-2", Resp::Unit),
-        E::suspend(Eff::send("child-2", "a-3", sdv(20u32))),
-        E::resume("child-2", Resp::Unit),
         E::suspend(Eff::add_stage("child-2", "b")),
         E::resume("child-2", Resp::AddStageResponse(n("b-4"))),
         E::suspend(Eff::wire_stage("child-2", "b-4", sdv(()), None)),
@@ -437,8 +445,31 @@ fn supervision() {
         E::resume("child-2", Resp::Unit),
         E::suspend(Eff::add_stage("child-2", "c")),
         E::resume("child-2", Resp::AddStageResponse(n("c-5"))),
-        E::suspend(Eff::wire_stage("child-2", "c-5", sdv(()), None)),
-        E::state("c-5", sdv(())),
+        E::suspend(Eff::wire_stage(
+            "child-2",
+            "c-5",
+            sdv(sr::<u32>("child-2")),
+            None,
+        )),
+        E::resume("child-2", Resp::Unit),
+        E::suspend(Eff::send("child-2", "c-5", sdv(42u32))),
+        E::state("c-5", sdv(sr::<u32>("child-2"))),
+        E::input("c-5", sdv(42u32)),
+        E::resume("c-5", Resp::Unit),
+        E::suspend(Eff::send("c-5", "child-2", sdv(42u32))),
+        E::resume("c-5", Resp::Unit),
+        E::state("c-5", sdv(sr::<u32>("child-2"))),
+        E::resume("child-2", Resp::Unit),
+        E::state(
+            "child-2",
+            sdv((
+                StageRef::<u32>::named_for_tests("a-3"),
+                StageRef::<u32>::named_for_tests("b-4"),
+            )),
+        ),
+        E::input("child-2", sdv(42u32)),
+        E::resume("child-2", Resp::Unit),
+        E::suspend(Eff::send("child-2", "a-3", sdv(20u32))),
         E::resume("child-2", Resp::Unit),
         E::state(
             "child-2",

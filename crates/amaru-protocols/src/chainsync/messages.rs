@@ -24,7 +24,7 @@ pub fn register_deserializers() -> DeserializerGuards {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Ord, PartialOrd)]
 pub enum Message {
-    RequestNext,
+    RequestNext(u8),
     AwaitReply,
     RollForward(HeaderContent, Tip),
     RollBackward(Point, Tip),
@@ -62,8 +62,10 @@ impl Encode<()> for Message {
         _ctx: &mut (),
     ) -> Result<(), encode::Error<W::Error>> {
         match self {
-            Message::RequestNext => {
-                e.array(1)?.u16(0)?;
+            Message::RequestNext(n) => {
+                for _ in 0..*n {
+                    e.array(1)?.u16(0)?;
+                }
                 Ok(())
             }
             Message::AwaitReply => {
@@ -117,7 +119,7 @@ impl<'b> Decode<'b, ()> for Message {
         match label {
             0 => {
                 check_tagged_array_length(0, len, 1)?;
-                Ok(Message::RequestNext)
+                Ok(Message::RequestNext(1))
             }
             1 => {
                 check_tagged_array_length(1, len, 1)?;
@@ -265,7 +267,7 @@ mod tests {
     }
 
     fn request_next_message() -> impl Strategy<Value = Message> {
-        Just(Message::RequestNext)
+        Just(Message::RequestNext(1))
     }
 
     fn await_reply_message() -> impl Strategy<Value = Message> {

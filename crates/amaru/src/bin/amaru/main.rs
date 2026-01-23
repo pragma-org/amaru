@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::{observability::setup_observability, panic::panic_handler};
+use amaru::{
+    observability::{Color, setup_observability},
+    panic::panic_handler,
+};
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::sync::LazyLock;
@@ -119,9 +122,15 @@ struct Cli {
 
     #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
+
+    #[clap(long, action, env("AMARU_COLOR"))]
+    color: Option<Color>,
 }
 
-#[tokio::main]
+// TODO(rkuhn): properly measure and design the Tokio runtime setup we need.
+// (probably one runtime for network with 1-2 threads, one for CPU-bound tasks according to parallelism,
+// one for running the consensus pipeline incl. Store access with 2+ threads)
+#[tokio::main(worker_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
 
@@ -130,13 +139,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get_matches();
     let args = <Cli as FromArgMatches>::from_arg_matches(&matches)?;
 
+    let (metrics, teardown) = setup_observability(
+        args.with_open_telemetry,
+        args.with_json_traces,
+        Color::is_enabled(args.color),
+    );
+
     info!(
         with_open_telemetry = args.with_open_telemetry,
         with_json_traces = args.with_json_traces,
         "Started with global arguments"
     );
-
-    let (metrics, teardown) = setup_observability(args.with_open_telemetry, args.with_json_traces);
 
     let result = match args.command {
         Command::Run(args) => cmd::run::run(args, metrics).await,

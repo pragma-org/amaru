@@ -119,7 +119,7 @@ pub fn build_stage_graph(
     );
     let receive_header_stage = network.wire_up(
         receive_header_stage,
-        (
+        receive_header::State::new(
             validate_header_stage.without_state(),
             validation_errors_stage.without_state(),
             processing_errors_stage.without_state(),

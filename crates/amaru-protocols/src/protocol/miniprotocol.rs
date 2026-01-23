@@ -178,7 +178,7 @@ where
                             .await;
                         proto
                             .network(wire_msg)
-                            .or_terminate(&eff, err("failed to step protocol state"))
+                            .or_terminate(&eff, err("failed to step protocol state (network)"))
                             .await
                     } else {
                         proto
@@ -212,7 +212,7 @@ where
                     let (action, s) = stage
                         .local(&proto, local, &eff)
                         .await
-                        .or_terminate(&eff, err("failed to step stage state"))
+                        .or_terminate(&eff, err("failed to step stage state (local)"))
                         .await;
                     stage = s;
                     action
@@ -221,7 +221,7 @@ where
                     let (action, s) = stage
                         .network(&proto, network, &eff)
                         .await
-                        .or_terminate(&eff, err("failed to step stage state"))
+                        .or_terminate(&eff, err("failed to step stage state (network)"))
                         .await;
                     stage = s;
                     action
@@ -233,7 +233,7 @@ where
             if let Some(action) = action {
                 let (outcome, s) = proto
                     .local(action)
-                    .or_terminate(&eff, err("failed to step protocol state"))
+                    .or_terminate(&eff, err("failed to step protocol state (local)"))
                     .await;
                 proto = s;
                 if let Some(e) = outcome.terminate_with {
