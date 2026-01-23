@@ -12,41 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    AuxiliaryData, Debug, KeepRaw, MintedWitnessSet, Nullable, TransactionBody, WitnessSet,
-    cbor::{Decode, Encode},
-};
+use crate::{AuxiliaryData, Debug, TransactionBody, WitnessSet};
 
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct PseudoTx<T2, T3>
-where
-    T2: std::clone::Clone,
-    T3: std::clone::Clone,
-{
-    #[n(0)]
+// TODO:
+//
+// This type is currently mostly unused; transactions in blocks have their constituents separated
+// (i.e. seggregated witnesses). This type would however come in handy as soon as start accepting
+// transactions from an external API.
+//
+// In which case, it'll become interesting to think about what public API we wanna expose. Exposing
+// all fields an internals doesn't sound like a good idea and will likely break people's code
+// (including ours) over time.
+#[derive(Debug)]
+pub struct Transaction {
     pub body: TransactionBody,
-
-    #[n(1)]
-    pub witness_set: T2,
-
-    #[n(2)]
-    pub success: bool,
-
-    #[n(3)]
-    pub auxiliary_data: Nullable<T3>,
-}
-
-pub type Tx = PseudoTx<WitnessSet, AuxiliaryData>;
-
-pub type MintedTx<'b> = PseudoTx<KeepRaw<'b, MintedWitnessSet<'b>>, KeepRaw<'b, AuxiliaryData>>;
-
-impl<'b> From<MintedTx<'b>> for Tx {
-    fn from(x: MintedTx<'b>) -> Self {
-        Tx {
-            body: x.body,
-            witness_set: x.witness_set.unwrap().into(),
-            success: x.success,
-            auxiliary_data: x.auxiliary_data.map(|x| x.unwrap()),
-        }
-    }
+    pub witnesses: WitnessSet,
+    pub is_expected_valid: bool,
+    pub auxiliary_data: Option<AuxiliaryData>,
 }
