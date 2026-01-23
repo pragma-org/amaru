@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::{observability::setup_observability, panic::panic_handler};
+use amaru::{
+    observability::{Color, setup_observability},
+    panic::panic_handler,
+};
 use clap::{Parser, Subcommand};
 use tracing::info;
 
@@ -43,7 +46,7 @@ struct Cli {
     with_json_traces: bool,
 
     #[clap(long, action, env("AMARU_COLOR"))]
-    color: Option<bool>,
+    color: Option<Color>,
 }
 
 #[tokio::main]
@@ -58,8 +61,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Started with global arguments"
     );
 
-    let (_metrics, teardown) =
-        setup_observability(args.with_open_telemetry, args.with_json_traces, args.color);
+    let (_metrics, teardown) = setup_observability(
+        args.with_open_telemetry,
+        args.with_json_traces,
+        Color::is_enabled(args.color),
+    );
 
     let result = match args.command {
         Command::Sync(args) => cmd::sync::run(args).await,

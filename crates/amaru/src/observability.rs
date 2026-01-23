@@ -20,6 +20,7 @@ use std::{
     env::VarError,
     error::Error,
     io::{self, IsTerminal},
+    str::FromStr,
 };
 use tracing::{info, warn};
 use tracing_subscriber::{
@@ -109,14 +110,10 @@ impl TracingSubscriber<Registry> {
         }
     }
 
-    pub fn init(self, color: Option<bool>) {
+    pub fn init(self, color: bool) {
         let (default_filter, warning) = new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
 
-        let log_format = || {
-            tracing_subscriber::fmt::format()
-                .with_ansi(color.unwrap_or(io::stderr().is_terminal()))
-                .compact()
-        };
+        let log_format = || tracing_subscriber::fmt::format().with_ansi(color).compact();
         let log_writer = || io::stderr as fn() -> io::Stderr;
         let log_events = || FmtSpan::CLOSE;
         let log_filter = || default_filter;
@@ -320,7 +317,7 @@ fn new_default_filter(var: &str, default: &str) -> (EnvFilter, DelayedWarning) {
 pub fn setup_observability(
     with_open_telemetry: bool,
     with_json_traces: bool,
-    color: Option<bool>,
+    color: bool,
 ) -> (
     Option<SdkMeterProvider>,
     Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
@@ -347,4 +344,38 @@ pub fn setup_observability(
     }
 
     (metrics, teardown)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Color {
+    Never,
+    Always,
+    Auto,
+}
+impl FromStr for Color {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "never" => Ok(Color::Never),
+            "always" => Ok(Color::Always),
+            "auto" => Ok(Color::Auto),
+            _ => Err("valid color settings are 'never', 'always' or 'auto'"),
+        }
+    }
+}
+impl Color {
+    pub fn is_enabled(this: Option<Self>) -> bool {
+        match this {
+            Some(Color::Never) => false,
+            Some(Color::Always) => true,
+            Some(Color::Auto) => std::io::stderr().is_terminal(),
+            None => {
+                if std::env::var("NO_COLOR").iter().any(|s| !s.is_empty()) {
+                    false
+                } else {
+                    std::io::stderr().is_terminal()
+                }
+            }
+        }
+    }
 }
