@@ -25,8 +25,8 @@ use crate::string_utils::ListToString;
 pub use amaru_minicbor_extra::*;
 pub use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 pub use pallas_addresses::{
-    byron::AddrType, Address, Error as AddressError, Network, ShelleyAddress,
-    ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakePayload,
+    Address, Error as AddressError, Network, ShelleyAddress, ShelleyDelegationPart,
+    ShelleyPaymentPart, StakeAddress, StakePayload, byron::AddrType,
 };
 use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
@@ -42,24 +42,23 @@ pub use pallas_crypto::{
 };
 use pallas_primitives::conway::{MintedPostAlonzoTransactionOutput, RedeemerTag};
 pub use pallas_primitives::{
+    DnsName, Fragment, IPv4, IPv6, Port,
     alonzo::{TransactionOutput as AlonzoTransactionOutput, Value as AlonzoValue},
     babbage::{Header, MintedHeader, PseudoHeader},
     conway::{
-        AddrKeyhash, AssetName, AuxiliaryData, BigInt, Block, BootstrapWitness, Certificate, Coin,
+        AddrKeyhash, AssetName, AuxiliaryData, BigInt, BootstrapWitness, Certificate, Coin,
         Constitution, Constr, CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash,
         DatumOption, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId, HeaderBody,
-        KeepRaw, Language, MaybeIndefArray, Mint, MintedBlock, MintedDatumOption, MintedScriptRef,
-        MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
-        NativeScript, NetworkId, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonZeroInt,
-        PlutusData, PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds, PositiveCoin,
-        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners as PallasRequiredSigners,
-        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure,
-        VotingProcedures as PallasVotingProcedures, VrfKeyhash, WitnessSet,
+        KeepRaw, Language, MaybeIndefArray, Mint, MintedDatumOption, MintedScriptRef,
+        MintedTransactionOutput, Multiasset, NativeScript, NetworkId,
+        NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonZeroInt, PlutusData, PlutusScript,
+        PolicyId, PoolMetadata, PoolVotingThresholds, PositiveCoin, PostAlonzoTransactionOutput,
+        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
+        PseudoTransactionOutput, RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey,
+        Relay, RequiredSigners as PallasRequiredSigners, RewardAccount, ScriptHash, ScriptRef,
+        StakeCredential, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Vote, Voter, VotingProcedure, VotingProcedures as PallasVotingProcedures, VrfKeyhash,
     },
-    DnsName, Fragment, IPv4, IPv6, Port,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
@@ -120,6 +119,8 @@ pub use ignore_eq::IgnoreEq;
 
 pub mod is_header;
 pub use is_header::*;
+
+pub mod key_value_pairs;
 
 pub use memoized::*;
 pub mod memoized;
@@ -213,7 +214,7 @@ pub mod tests {
         transaction_pointer::tests::*, vote::tests::*,
     };
     use proptest::prelude::*;
-    use rand::{prelude::StdRng, SeedableRng};
+    use rand::{SeedableRng, prelude::StdRng};
 
     prop_compose! {
         pub fn any_key_hash()(bytes in any::<[u8; 28]>()) -> Hash<28> {
@@ -274,6 +275,14 @@ pub const HEADER_HASH_SIZE: usize = 32;
 
 pub const ORIGIN_HASH: HeaderHash = Hash::new([0; HEADER_HASH_SIZE]);
 
+pub static DEFAULT_HASH28: [u8; 28] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+
+pub static DEFAULT_HASH32: [u8; 32] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
 
@@ -282,8 +291,6 @@ pub type Lovelace = u64;
 pub type EpochInterval = u64;
 
 pub type ScriptPurpose = RedeemerTag;
-
-pub type AuxiliaryDataHash = Hash<32>;
 
 /// Cheaply cloneable block bytes
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
@@ -646,55 +653,6 @@ pub fn voter_credential_hash(credential: &Voter) -> Hash<28> {
 // Scripts
 // ----------------------------------------------------------------------------
 
-/// Collect provided scripts and compute each ScriptHash in a witness set
-pub fn get_provided_scripts(
-    witness_set: &MintedWitnessSet<'_>,
-) -> BTreeMap<ScriptHash, ScriptKind> {
-    let mut provided_scripts = BTreeMap::new();
-
-    if let Some(native_scripts) = witness_set.native_script.as_ref() {
-        provided_scripts.extend(
-            native_scripts
-                .iter()
-                .map(|native_script| (native_script.script_hash(), ScriptKind::Native)),
-        )
-    };
-
-    fn collect_plutus_scripts<const VERSION: usize>(
-        accum: &mut BTreeMap<ScriptHash, ScriptKind>,
-        scripts: Option<&NonEmptySet<PlutusScript<VERSION>>>,
-        kind: ScriptKind,
-    ) {
-        if let Some(plutus_scripts) = scripts {
-            accum.extend(
-                plutus_scripts
-                    .iter()
-                    .map(|script| (script.script_hash(), kind)),
-            )
-        }
-    }
-
-    collect_plutus_scripts(
-        &mut provided_scripts,
-        witness_set.plutus_v1_script.as_ref(),
-        ScriptKind::PlutusV1,
-    );
-
-    collect_plutus_scripts(
-        &mut provided_scripts,
-        witness_set.plutus_v2_script.as_ref(),
-        ScriptKind::PlutusV2,
-    );
-
-    collect_plutus_scripts(
-        &mut provided_scripts,
-        witness_set.plutus_v3_script.as_ref(),
-        ScriptKind::PlutusV3,
-    );
-
-    provided_scripts
-}
-
 pub fn display_collection<T>(collection: impl IntoIterator<Item = T>) -> String
 where
     T: std::fmt::Display,
@@ -1004,17 +962,16 @@ pub trait HasExUnits {
     fn ex_units(&self) -> Vec<&ExUnits>;
 }
 
-impl HasExUnits for MintedBlock<'_> {
+impl HasExUnits for Block {
     fn ex_units(&self) -> Vec<&ExUnits> {
-        self.transaction_witness_sets.iter().fold(
-            Vec::new(),
-            |mut acc: Vec<&ExUnits>, witness_set| {
-                if let Some(witnesses) = witness_set.redeemer.as_deref() {
+        self.transaction_witnesses
+            .iter()
+            .fold(Vec::new(), |mut acc: Vec<&ExUnits>, witness_set| {
+                if let Some(witnesses) = &witness_set.redeemer {
                     acc.extend(witnesses.redeemers().values().map(|(ex_units, _)| ex_units));
                 }
                 acc
-            },
-        )
+            })
     }
 }
 

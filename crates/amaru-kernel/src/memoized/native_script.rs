@@ -16,7 +16,7 @@ use crate::{Bytes, KeepRaw, NativeScript, from_cbor, memoized::blanket_try_from_
 
 use crate::cbor;
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(try_from = "&str")]
 pub struct MemoizedNativeScript {
     original_bytes: Bytes,
@@ -91,6 +91,18 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedNativeScript {
             original_bytes,
             expr,
         })
+    }
+}
+
+impl<C> cbor::Encode<C> for MemoizedNativeScript {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.writer_mut()
+            .write_all(&self.original_bytes[..])
+            .map_err(cbor::encode::Error::write)
     }
 }
 

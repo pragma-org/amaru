@@ -15,16 +15,16 @@
 use amaru_kernel::{
     AddrKeyhash, Address, AddressError, AlonzoValue, AssetName, Bytes, CborWrap,
     Certificate as PallasCertificate, ComputeHash, DatumHash, EraHistory, ExUnits, HasOwnership,
-    HasScriptHash, Hash, KeepRaw, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedScript,
-    MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef, MintedTransactionOutput,
-    MintedWitnessSet, NativeScript, Network, NonEmptyKeyValuePairs,
-    NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, Nullable,
-    OrderedRedeemer, PlutusData, PlutusScript, PolicyId, Proposal, ProposalIdAdapter,
-    ProtocolVersion, PseudoScript, Redeemer, Redeemers as PallasRedeemers,
-    RequiredSigners as PallasRequiredSigners, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
-    StakeCredential, StakePayload, TransactionBody, TransactionId, TransactionInput,
-    TransactionInputAdapter, Vote, Voter, VotingProcedures as PallasVotingProcedures,
-    network::NetworkName, protocol_parameters::GlobalParameters,
+    HasScriptHash, Hash, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedPlutusData,
+    MemoizedScript, MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef, NativeScript,
+    Network, NonEmptyKeyValuePairs, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs,
+    NonEmptySet, NonZeroInt, Nullable, OrderedRedeemer, PlutusData, PlutusScript, PolicyId,
+    Proposal, ProposalIdAdapter, ProtocolVersion, PseudoScript, Redeemer,
+    Redeemers as PallasRedeemers, RequiredSigners as PallasRequiredSigners, RewardAccount,
+    ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload, TransactionBody,
+    TransactionId, TransactionInput, TransactionInputAdapter, Vote, Voter,
+    VotingProcedures as PallasVotingProcedures, WitnessSet, network::NetworkName,
+    protocol_parameters::GlobalParameters,
 };
 use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 use itertools::Itertools;
@@ -209,7 +209,7 @@ impl<'a> TxInfo<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tx: &'a TransactionBody,
-        witness_set: &'a MintedWitnessSet<'_>,
+        witness_set: &'a WitnessSet,
         tx_id: Hash<32>,
         utxos: &'a Utxos,
         slot: &Slot,
@@ -304,7 +304,7 @@ impl<'a> TxInfo<'a> {
                 .redeemer
                 .as_ref()
                 .map(|redeemers| {
-                    Redeemers::iter_from(redeemers.deref())
+                    Redeemers::iter_from(redeemers)
                         .enumerate()
                         .map(|(ix, redeemer)| {
                             let purpose = ScriptPurpose::builder(
@@ -896,30 +896,30 @@ pub enum TransactionOutputError {
     InvalidValue(#[from] AlonzoValueError),
 }
 
-impl<'a> TryFrom<&'a MintedTransactionOutput<'a>> for TransactionOutput<'a> {
-    type Error = TransactionOutputError;
-
-    fn try_from(
-        output: &'a MintedTransactionOutput<'a>,
-    ) -> Result<TransactionOutput<'a>, Self::Error> {
-        match output {
-            MintedTransactionOutput::Legacy(output) => Ok(TransactionOutput {
-                is_legacy: true,
-                address: Cow::Owned(Address::from_bytes(&output.address)?),
-                value: (&output.amount).try_into()?,
-                datum: output.datum_hash.as_ref().into(),
-                script: None,
-            }),
-            MintedTransactionOutput::PostAlonzo(output) => Ok(TransactionOutput {
-                is_legacy: false,
-                address: Cow::Owned(Address::from_bytes(&output.address)?),
-                value: (&output.value).into(),
-                script: output.script_ref.as_ref().map(Script::from),
-                datum: output.datum_option.as_ref().into(),
-            }),
-        }
-    }
-}
+// impl<'a> TryFrom<&'a MintedTransactionOutput<'a>> for TransactionOutput<'a> {
+//     type Error = TransactionOutputError;
+//
+//     fn try_from(
+//         output: &'a MintedTransactionOutput<'a>,
+//     ) -> Result<TransactionOutput<'a>, Self::Error> {
+//         match output {
+//             MintedTransactionOutput::Legacy(output) => Ok(TransactionOutput {
+//                 is_legacy: true,
+//                 address: Cow::Owned(Address::from_bytes(&output.address)?),
+//                 value: (&output.amount).try_into()?,
+//                 datum: output.datum_hash.as_ref().into(),
+//                 script: None,
+//             }),
+//             MintedTransactionOutput::PostAlonzo(output) => Ok(TransactionOutput {
+//                 is_legacy: false,
+//                 address: Cow::Owned(Address::from_bytes(&output.address)?),
+//                 value: (&output.value).into(),
+//                 script: output.script_ref.as_ref().map(Script::from),
+//                 datum: output.datum_option.as_ref().into(),
+//             }),
+//         }
+//     }
+// }
 
 #[doc(hidden)]
 #[derive(Debug, Default)]
@@ -1071,12 +1071,12 @@ impl TryFrom<&PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdraw
 #[derive(Default)]
 pub struct Datums<'a>(pub BTreeMap<DatumHash, &'a PlutusData>);
 
-impl<'a> From<&'a NonEmptySet<KeepRaw<'_, PlutusData>>> for Datums<'a> {
-    fn from(plutus_data: &'a NonEmptySet<KeepRaw<'_, PlutusData>>) -> Self {
+impl<'a> From<&'a NonEmptySet<MemoizedPlutusData>> for Datums<'a> {
+    fn from(plutus_data: &'a NonEmptySet<MemoizedPlutusData>) -> Self {
         Self(
             plutus_data
                 .iter()
-                .map(|data| (data.compute_hash(), data.deref()))
+                .map(|data| (data.hash(), data.as_ref()))
                 .collect(),
         )
     }

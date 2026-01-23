@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AuxiliaryData, Debug, TransactionBody, WitnessSet};
+use crate::{AuxiliaryData, Debug, TransactionBody, WitnessSet, cbor};
 
 // TODO:
 //
@@ -23,10 +23,14 @@ use crate::{AuxiliaryData, Debug, TransactionBody, WitnessSet};
 // In which case, it'll become interesting to think about what public API we wanna expose. Exposing
 // all fields an internals doesn't sound like a good idea and will likely break people's code
 // (including ours) over time.
-#[derive(Debug)]
+#[derive(Debug, cbor::Decode)]
 pub struct Transaction {
+    #[n(0)]
     pub body: TransactionBody,
+    #[n(1)]
     pub witnesses: WitnessSet,
+    #[n(2)]
     pub is_expected_valid: bool,
+    #[n(3)]
     pub auxiliary_data: Option<AuxiliaryData>,
 }

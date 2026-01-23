@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::TransactionBody;
+use amaru_kernel::{TransactionBody, WitnessSet};
 use core::fmt;
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    ArenaPool, EraHistory, MintedWitnessSet, TransactionInputAdapter, TransactionPointer, cbor,
-    network::NetworkName, protocol_parameters::ProtocolParameters, to_cbor,
+    ArenaPool, EraHistory, TransactionInputAdapter, TransactionPointer, cbor, network::NetworkName,
+    protocol_parameters::ProtocolParameters, to_cbor,
 };
 use amaru_plutus::{
     script_context::{Script, TxInfo, TxInfoTranslationError, Utxos},
@@ -74,7 +74,7 @@ pub fn execute<C>(
     pointer: TransactionPointer,
     is_valid: bool,
     transaction_body: &TransactionBody,
-    transaction_witness_set: &MintedWitnessSet<'_>,
+    transaction_witness_set: &WitnessSet,
 ) -> Result<(), PhaseTwoError>
 where
     C: UtxoSlice + fmt::Debug,

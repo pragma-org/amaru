@@ -281,7 +281,7 @@ mod tests {
         *,
     };
     use crate::script_context::Redeemers;
-    use amaru_kernel::{MintedTx, PROTOCOL_VERSION_10, network::NetworkName, to_cbor};
+    use amaru_kernel::{PROTOCOL_VERSION_10, Transaction, network::NetworkName, to_cbor};
     use std::ops::Deref;
     use test_case::test_case;
 
@@ -303,16 +303,15 @@ mod tests {
         // this should probably be encoded in the TestVector itself
         let network = NetworkName::Preprod;
 
-        let transaction: MintedTx<'_> =
+        let transaction: Transaction =
             minicbor::decode(&test_vector.input.transaction_bytes).unwrap();
 
         let redeemers = Redeemers::iter_from(
             transaction
-                .witness_set
+                .witnesses
                 .redeemer
                 .as_ref()
-                .expect("no redeemers provided")
-                .deref(),
+                .expect("no redeemers provided"),
         );
 
         let produced_contexts = redeemers
@@ -320,7 +319,7 @@ mod tests {
                 let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
                     &transaction.body,
-                    &transaction.witness_set,
+                    &transaction.witnesses,
                     transaction.body.id(),
                     &utxos,
                     &0.into(),

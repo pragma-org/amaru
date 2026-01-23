@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::context::PreparationContext;
-use amaru_kernel::{Bytes, MintedBlock, cbor, ed25519, into_sized_array};
+use amaru_kernel::{Block, Bytes, cbor, ed25519, into_sized_array};
 use std::{array::TryFromSliceError, fmt, fmt::Display};
 use thiserror::Error;
 use tracing::{Level, instrument};
@@ -41,10 +41,7 @@ impl<T: Display> Display for WithPosition<T> {
 }
 
 #[instrument(level = Level::TRACE, skip_all, name="ledger.prepare_block")]
-pub fn prepare_block<'block>(
-    context: &mut impl PreparationContext<'block>,
-    block: &'block MintedBlock<'_>,
-) {
+pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a Block) {
     block.transaction_bodies.iter().for_each(|transaction| {
         let inputs = transaction.inputs.iter();
 
@@ -64,8 +61,8 @@ pub fn prepare_block<'block>(
 }
 
 #[instrument(level = Level::TRACE, skip_all, name = "ledger.parse_block", fields(block.size = bytes.len()))]
-pub fn parse_block(bytes: &[u8]) -> Result<MintedBlock<'_>, cbor::decode::Error> {
-    let (_, block): (u16, MintedBlock<'_>) = cbor::decode(bytes)?;
+pub fn parse_block(bytes: &[u8]) -> Result<Block, cbor::decode::Error> {
+    let (_, block): (u16, Block) = cbor::decode(bytes)?;
     Ok(block)
 }
 
@@ -185,7 +182,7 @@ pub(crate) mod tests {
             &GovernanceActivity {
                 consecutive_dormant_epochs: 0,
             },
-            &block,
+            block,
         );
 
         assert!(matches!(results, BlockValidation::Valid(())));
@@ -218,7 +215,7 @@ pub(crate) mod tests {
             &GovernanceActivity {
                 consecutive_dormant_epochs: 0,
             },
-            &block,
+            block,
         );
 
         assert!(matches!(

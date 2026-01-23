@@ -126,10 +126,7 @@ mod tests {
         context::assert::AssertValidationContext,
         rules::{InvalidEd25519Signature, WithPosition, tests::fixture_context},
     };
-    use amaru_kernel::{
-        KeepRaw, MintedWitnessSet, TransactionBody, WitnessSet, hash, include_cbor, include_json,
-        json,
-    };
+    use amaru_kernel::{TransactionBody, WitnessSet, hash, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -283,7 +280,7 @@ mod tests {
         (mut ctx, tx, witness_set, expected_traces): (
             AssertValidationContext,
             TransactionBody,
-            KeepRaw<'_, MintedWitnessSet<'_>>,
+            WitnessSet,
             Vec<json::Value>,
         ),
     ) -> Result<(), InvalidVKeyWitness> {

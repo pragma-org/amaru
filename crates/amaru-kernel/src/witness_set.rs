@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use crate::{
-    Debug, KeepRaw, NonEmptySet,
+    BootstrapWitness, Debug, HasScriptHash, MemoizedNativeScript, MemoizedPlutusData, NonEmptySet,
+    PlutusScript, ScriptHash, ScriptKind,
     cbor::{Decode, Encode},
 };
 use serde::{Deserialize, Serialize};
-
-pub use pallas_primitives::alonzo::BootstrapWitness;
+use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Encode, Decode, Debug, PartialEq, Clone)]
 #[cbor(map)]
@@ -27,7 +27,7 @@ pub struct WitnessSet {
     pub vkeywitness: Option<NonEmptySet<pallas_primitives::conway::VKeyWitness>>,
 
     #[n(1)]
-    pub native_script: Option<NonEmptySet<pallas_primitives::conway::NativeScript>>,
+    pub native_script: Option<NonEmptySet<MemoizedNativeScript>>,
 
     #[n(2)]
     pub bootstrap_witness: Option<NonEmptySet<BootstrapWitness>>,
@@ -36,7 +36,7 @@ pub struct WitnessSet {
     pub plutus_v1_script: Option<NonEmptySet<pallas_primitives::conway::PlutusScript<1>>>,
 
     #[n(4)]
-    pub plutus_data: Option<NonEmptySet<pallas_primitives::conway::PlutusData>>,
+    pub plutus_data: Option<NonEmptySet<MemoizedPlutusData>>,
 
     #[n(5)]
     pub redeemer: Option<pallas_primitives::conway::Redeemers>,
@@ -48,45 +48,56 @@ pub struct WitnessSet {
     pub plutus_v3_script: Option<NonEmptySet<pallas_primitives::conway::PlutusScript<3>>>,
 }
 
-#[derive(Encode, Decode, Debug, PartialEq, Clone)]
-#[cbor(map)]
-pub struct MintedWitnessSet<'b> {
-    #[n(0)]
-    pub vkeywitness: Option<NonEmptySet<pallas_primitives::conway::VKeyWitness>>,
+impl WitnessSet {
+    /// Collect provided scripts and compute each ScriptHash in a witness set
+    pub fn get_provided_scripts(&self) -> BTreeMap<ScriptHash, ScriptKind> {
+        let mut provided_scripts = BTreeMap::new();
 
-    #[n(1)]
-    pub native_script: Option<NonEmptySet<KeepRaw<'b, pallas_primitives::conway::NativeScript>>>,
+        if let Some(native_scripts) = self.native_script.as_ref() {
+            provided_scripts.extend(
+                native_scripts
+                    .iter()
+                    .map(|native_script| (native_script.script_hash(), ScriptKind::Native)),
+            )
+        };
 
-    #[n(2)]
-    pub bootstrap_witness: Option<NonEmptySet<BootstrapWitness>>,
+        collect_plutus_scripts(
+            &mut provided_scripts,
+            self.plutus_v1_script.as_ref(),
+            ScriptKind::PlutusV1,
+        );
 
-    #[n(3)]
-    pub plutus_v1_script: Option<NonEmptySet<pallas_primitives::conway::PlutusScript<1>>>,
+        collect_plutus_scripts(
+            &mut provided_scripts,
+            self.plutus_v2_script.as_ref(),
+            ScriptKind::PlutusV2,
+        );
 
-    #[b(4)]
-    pub plutus_data: Option<NonEmptySet<KeepRaw<'b, pallas_primitives::conway::PlutusData>>>,
+        collect_plutus_scripts(
+            &mut provided_scripts,
+            self.plutus_v3_script.as_ref(),
+            ScriptKind::PlutusV3,
+        );
 
-    #[n(5)]
-    pub redeemer: Option<KeepRaw<'b, pallas_primitives::conway::Redeemers>>,
-
-    #[n(6)]
-    pub plutus_v2_script: Option<NonEmptySet<pallas_primitives::conway::PlutusScript<2>>>,
-
-    #[n(7)]
-    pub plutus_v3_script: Option<NonEmptySet<pallas_primitives::conway::PlutusScript<3>>>,
+        provided_scripts
+    }
 }
 
-impl<'b> From<MintedWitnessSet<'b>> for WitnessSet {
-    fn from(x: MintedWitnessSet<'b>) -> Self {
-        WitnessSet {
-            vkeywitness: x.vkeywitness,
-            native_script: x.native_script.map(Into::into),
-            bootstrap_witness: x.bootstrap_witness,
-            plutus_v1_script: x.plutus_v1_script,
-            plutus_data: x.plutus_data.map(Into::into),
-            redeemer: x.redeemer.map(|x| x.unwrap()),
-            plutus_v2_script: x.plutus_v2_script,
-            plutus_v3_script: x.plutus_v3_script,
-        }
+// ----------------------------------------------------------------------------
+// Internals
+// ----------------------------------------------------------------------------
+
+/// A helper function, generic in the script VERSION, for collecting scripts from witnesses.
+fn collect_plutus_scripts<const VERSION: usize>(
+    accum: &mut BTreeMap<ScriptHash, ScriptKind>,
+    scripts: Option<&NonEmptySet<PlutusScript<VERSION>>>,
+    kind: ScriptKind,
+) {
+    if let Some(plutus_scripts) = scripts {
+        accum.extend(
+            plutus_scripts
+                .iter()
+                .map(|script| (script.script_hash(), kind)),
+        )
     }
 }

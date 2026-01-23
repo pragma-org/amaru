@@ -14,9 +14,8 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    DatumHash, HasRedeemers, MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemerKey,
-    RequiredScript, ScriptHash, ScriptKind, ScriptPurpose, display_collection,
-    get_provided_scripts, script_purpose_to_string,
+    DatumHash, HasRedeemers, MemoizedDatum, RedeemerKey, RequiredScript, ScriptHash, ScriptKind,
+    ScriptPurpose, WitnessSet, display_collection, script_purpose_to_string,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -61,7 +60,7 @@ pub enum InvalidScripts {
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
-pub fn execute<C>(context: &mut C, witness_set: &MintedWitnessSet<'_>) -> Result<(), InvalidScripts>
+pub fn execute<C>(context: &mut C, witness_set: &WitnessSet) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice + fmt::Debug,
 {
@@ -87,7 +86,7 @@ where
 
     let mut extra_redeemers = Vec::new();
 
-    if let Some(provided_redemeers) = witness_set.redeemer.as_deref().map(HasRedeemers::redeemers) {
+    if let Some(provided_redemeers) = witness_set.redeemer.as_ref().map(HasRedeemers::redeemers) {
         provided_redemeers.keys().for_each(|provided| {
             if let Some(index) = required_redeemers
                 .iter()
@@ -186,14 +185,14 @@ fn partition_scripts(
 
 // TODO: Should live in Pallas.
 /// Collect all datum hash digests found in the witness set.
-fn datum_hashes(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<DatumHash> {
+fn datum_hashes(witness_set: &WitnessSet) -> BTreeSet<DatumHash> {
     witness_set
         .plutus_data
         .as_deref()
         .map(|datums| {
             datums
                 .iter()
-                .map(|datum| datum.original_hash())
+                .map(|datum| datum.hash())
                 .collect::<BTreeSet<_>>()
         })
         .unwrap_or_default()
@@ -202,7 +201,7 @@ fn datum_hashes(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<DatumHash> {
 fn collect_provided_scripts<'a, C>(
     context: &'a mut C,
     required: &BTreeSet<&ScriptHash>,
-    witness_set: &'a MintedWitnessSet<'_>,
+    witness_set: &'a WitnessSet,
 ) -> BTreeMap<ScriptHash, ScriptKind>
 where
     C: WitnessSlice,
@@ -219,7 +218,8 @@ where
             }
         });
 
-    get_provided_scripts(witness_set)
+    witness_set
+        .get_provided_scripts()
         .into_iter()
         .chain(referenced)
         .collect()
@@ -357,7 +357,7 @@ fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> 
 #[cfg(test)]
 mod tests {
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-    use amaru_kernel::{MintedWitnessSet, include_cbor, include_json};
+    use amaru_kernel::{WitnessSet, include_cbor, include_json};
     use test_case::test_case;
 
     use super::InvalidScripts;
@@ -420,7 +420,7 @@ mod tests {
     )]
     #[test_case(fixture!("83036e0c9851c1df44157a8407b1daa34f25549e0644f432e655bd80b0429eba"); "duplicate redeemers")]
     fn test_scripts(
-        (mut ctx, witness_set): (AssertValidationContext, MintedWitnessSet<'_>),
+        (mut ctx, witness_set): (AssertValidationContext, WitnessSet),
     ) -> Result<(), InvalidScripts> {
         super::execute(&mut ctx, &witness_set)
     }

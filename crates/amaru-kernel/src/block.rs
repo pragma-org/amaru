@@ -13,72 +13,130 @@
 // limitations under the License.
 
 use crate::{
-    AuxiliaryData, KeepRaw, MintedWitnessSet, TransactionBody, WitnessSet,
-    cbor::{Decode, Encode},
+    AuxiliaryData, Hash, Hasher, Header, Transaction, TransactionBody, WitnessSet, cbor,
+    heterogeneous_array,
 };
-use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Serialize, Deserialize, Encode, Decode, Debug, PartialEq, Clone)]
-pub struct PseudoBlock<T1, T2, T3, T4>
-where
-    T4: std::clone::Clone,
-{
+#[derive(Debug, Clone, PartialEq, cbor::Encode)]
+pub struct Block {
+    #[cbor(skip)]
+    original_body_size: u64,
+
+    #[cbor(skip)]
+    original_header_size: u64,
+
+    #[cbor(skip)]
+    header_hash: Hash<32>,
+
     #[n(0)]
-    pub header: T1,
+    pub header: Header,
 
     #[b(1)]
-    pub transaction_bodies: pallas_primitives::MaybeIndefArray<T2>,
+    pub transaction_bodies: Vec<TransactionBody>,
 
     #[n(2)]
-    pub transaction_witness_sets: pallas_primitives::MaybeIndefArray<T3>,
+    pub transaction_witnesses: Vec<WitnessSet>,
 
     #[n(3)]
-    pub auxiliary_data_set:
-        pallas_primitives::KeyValuePairs<pallas_primitives::TransactionIndex, T4>,
+    pub auxiliary_data: BTreeMap<u32, AuxiliaryData>,
 
     #[n(4)]
-    pub invalid_transactions:
-        Option<pallas_primitives::MaybeIndefArray<pallas_primitives::TransactionIndex>>,
+    pub invalid_transactions: Option<BTreeSet<u32>>,
 }
 
-pub type Block =
-    PseudoBlock<pallas_primitives::babbage::Header, TransactionBody, WitnessSet, AuxiliaryData>;
+impl Block {
+    /// Get the size in bytes of the serialised block.
+    pub fn body_len(&self) -> u64 {
+        self.original_body_size
+    }
 
-/// A memory representation of an already minted block
-///
-/// This structure is analogous to [Block], but it allows to retrieve the
-/// original CBOR bytes for each structure that might require hashing. In this
-/// way, we make sure that the resulting hash matches what exists on-chain.
-pub type MintedBlock<'b> = PseudoBlock<
-    KeepRaw<'b, pallas_primitives::babbage::MintedHeader<'b>>,
-    TransactionBody,
-    KeepRaw<'b, MintedWitnessSet<'b>>,
-    KeepRaw<'b, AuxiliaryData>,
->;
+    /// Get the size in bytes of the serialised block's header
+    pub fn header_len(&self) -> u64 {
+        self.original_header_size
+    }
 
-impl<'b> From<MintedBlock<'b>> for Block {
-    fn from(x: MintedBlock<'b>) -> Self {
-        Block {
-            header: x.header.unwrap().into(),
-            transaction_bodies: pallas_primitives::MaybeIndefArray::Def(
-                x.transaction_bodies.iter().cloned().collect(),
-            ),
-            transaction_witness_sets: pallas_primitives::MaybeIndefArray::Def(
-                x.transaction_witness_sets
-                    .iter()
-                    .cloned()
-                    .map(|x| x.unwrap())
-                    .map(WitnessSet::from)
-                    .collect(),
-            ),
-            auxiliary_data_set: x
-                .auxiliary_data_set
-                .to_vec()
-                .into_iter()
-                .map(|(k, v)| (k, v.unwrap()))
-                .collect::<Vec<_>>()
-                .into(),
-            invalid_transactions: x.invalid_transactions,
-        }
+    pub fn header_hash(&self) -> Hash<32> {
+        self.header_hash
+    }
+}
+
+impl IntoIterator for Block {
+    type Item = (u32, Transaction);
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(mut self) -> Self::IntoIter {
+        (0u32..)
+            .zip(self.transaction_bodies)
+            .zip(self.transaction_witnesses)
+            .map(|((i, body), witnesses)| {
+                let is_expected_valid = !self
+                    .invalid_transactions
+                    .as_ref()
+                    .map(|set| set.contains(&i))
+                    .unwrap_or(false);
+
+                // TODO: Do not re-hash here, but get the hash while parsing.
+                let auxiliary_data: Option<AuxiliaryData> = self.auxiliary_data.remove(&i);
+
+                (
+                    i,
+                    Transaction {
+                        body,
+                        witnesses,
+                        is_expected_valid,
+                        auxiliary_data,
+                    },
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+}
+
+// FIXME: Constraints & multi-era decoding
+//
+// There are various decoding rules that aren't enforced but that should be; for example (and
+// non-exhaustively):
+//
+// - indices are constrained by the maximum number of elements in each arrays
+// - there must be exactly the same number of witnesses and bodies
+// - ...
+//
+// Also, we will likely require multi-era decoding too here. Even if we don't expect blocks from
+// previous eras in normal operation (albeit, to be confirmed...), we will require to re-validate
+// that a given chain is indeed at least well-formed, and that means drilling through headers to
+// ensure they form a chain. So at least *some level* of multi-era decoding is necessary.
+impl<'b, C> cbor::Decode<'b, C> for Block {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let original_bytes = d.input();
+        let start_position = d.position();
+
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(5)?;
+
+            let header = d.decode_with(ctx)?;
+            let end_position_header = d.position();
+
+            let transaction_bodies = d.decode_with(ctx)?;
+            let transaction_witnesses = d.decode_with(ctx)?;
+            let auxiliary_data = d.decode_with(ctx)?;
+            let invalid_transactions = d.decode_with(ctx)?;
+
+            let end_position = d.position();
+
+            Ok(Block {
+                original_body_size: (end_position - end_position_header) as u64, // from usize
+                original_header_size: (end_position_header - start_position) as u64, // from usize
+                header_hash: Hasher::<256>::hash(
+                    &original_bytes[start_position..end_position_header],
+                ),
+                header,
+                transaction_bodies,
+                transaction_witnesses,
+                auxiliary_data,
+                invalid_transactions,
+            })
+        })
     }
 }
