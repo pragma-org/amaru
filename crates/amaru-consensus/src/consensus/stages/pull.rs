@@ -31,17 +31,17 @@ pub async fn stage(
             tracker.add_peer(msg.peer);
         }
         IntersectFound(point, tip) => {
-            tracing::info!(peer = %msg.peer, ?point, ?tip, "intersect found");
+            tracing::info!(peer = %msg.peer, %point, tip_point = %tip.point(), "intersect found");
         }
         IntersectNotFound(tip) => {
-            tracing::info!(peer = %msg.peer, ?tip, "intersect not found");
+            tracing::info!(peer = %msg.peer, tip_point = %tip.point(), "intersect not found");
             eff.send(&msg.handler, chainsync::InitiatorMessage::Done)
                 .await;
             tracker.caught_up(&msg.peer);
         }
         RollForward(header_content, tip) => {
             tracing::debug!(peer = %msg.peer, variant = header_content.variant,
-                byron_prefix = ?header_content.byron_prefix, ?tip, "roll forward");
+                byron_prefix = ?header_content.byron_prefix, tip_point = %tip.point(), "roll forward");
             eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
                 .await;
             eff.send(
@@ -56,7 +56,7 @@ pub async fn stage(
             .await;
         }
         RollBackward(point, tip) => {
-            tracing::debug!(peer = %msg.peer, ?point, ?tip, "roll backward");
+            tracing::debug!(peer = %msg.peer, %point, tip_point = %tip.point(), "roll backward");
             eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
                 .await;
             eff.send(
