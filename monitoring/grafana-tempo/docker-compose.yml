@@ -13,8 +13,9 @@ services:
   prometheus:
     image: prom/prometheus:v3.0.1
     command:
-      [ "--web.enable-otlp-receiver"
-      , "--config.file=/etc/prometheus/prometheus.yml"
+      [
+        "--web.enable-otlp-receiver",
+        "--config.file=/etc/prometheus/prometheus.yml",
       ]
     volumes:
       - "./prometheus.yml:/etc/prometheus/prometheus.yml"
@@ -22,14 +23,13 @@ services:
       - "9090:9090"
 
   tempo:
-    image: grafana/tempo:latest
+    image: grafana/tempo:2.9.1
     ports:
       - "3200:3200" # Tempo UI (default HTTP port)
     volumes:
       - "./tempo.yml:/etc/tempo/tempo.yml"
-    command:
-      [ "-config.file=/etc/tempo/tempo.yml"
-      ]
+      - "tempo-data:/var/tempo"
+    command: ["-config.file=/etc/tempo/tempo.yml"]
 
   grafana:
     image: grafana/grafana:latest
@@ -42,3 +42,6 @@ services:
       - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
     ports:
       - "80:3000"
+
+volumes:
+  tempo-data:

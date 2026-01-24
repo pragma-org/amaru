@@ -452,7 +452,10 @@ fn interpreter(
         let tb = || inner.trace_buffer.lock();
         tb().push_resume(name, &StageResponse::Unit);
         loop {
-            let poll = stage.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+            let poll = {
+                let _span = tracing::trace_span!("stage.poll", stage = %name).entered();
+                stage.as_mut().poll(&mut Context::from_waker(Waker::noop()))
+            };
             if let Poll::Ready(state) = poll {
                 return Some(state);
             }
