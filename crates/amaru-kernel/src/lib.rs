@@ -46,16 +46,16 @@ pub use pallas_primitives::{
     alonzo::{TransactionOutput as AlonzoTransactionOutput, Value as AlonzoValue},
     babbage::{Header, MintedHeader, PseudoHeader},
     conway::{
-        AddrKeyhash, AssetName, AuxiliaryData, BigInt, BootstrapWitness, Certificate, Coin,
-        Constitution, Constr, CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash,
-        DatumOption, ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId, HeaderBody,
-        KeepRaw, Language, MaybeIndefArray, Mint, MintedDatumOption, MintedScriptRef,
-        MintedTransactionOutput, Multiasset, NativeScript, NetworkId,
-        NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonZeroInt, PlutusData, PlutusScript,
-        PolicyId, PoolMetadata, PoolVotingThresholds, PositiveCoin, PostAlonzoTransactionOutput,
-        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
-        PseudoTransactionOutput, RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey,
-        Relay, RequiredSigners as PallasRequiredSigners, RewardAccount, ScriptHash, ScriptRef,
+        AddrKeyhash, AssetName, BigInt, BootstrapWitness, Certificate, Coin, Constitution, Constr,
+        CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash, DatumOption, ExUnitPrices,
+        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, Language,
+        MaybeIndefArray, Mint, MintedDatumOption, MintedScriptRef, MintedTransactionOutput,
+        Multiasset, NativeScript, NetworkId, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs,
+        NonZeroInt, PlutusData, PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds,
+        PositiveCoin, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
+        ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
+        RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay,
+        RequiredSigners as PallasRequiredSigners, RewardAccount, ScriptHash, ScriptRef,
         StakeCredential, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
         Vote, Voter, VotingProcedure, VotingProcedures as PallasVotingProcedures, VrfKeyhash,
     },
@@ -79,6 +79,9 @@ pub mod account;
 
 pub use anchor::Anchor;
 pub mod anchor;
+
+pub use auxiliary_data::AuxiliaryData;
+pub mod auxiliary_data;
 
 pub use borrowed_datum::*;
 pub mod borrowed_datum;
@@ -129,6 +132,9 @@ pub mod network;
 
 pub mod ordered_redeemer;
 pub use ordered_redeemer::*;
+
+pub mod metadatum;
+pub use metadatum::Metadatum;
 
 pub mod non_empty_key_value_pairs;
 pub use non_empty_key_value_pairs::NonEmptyKeyValuePairs;

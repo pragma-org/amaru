@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use minicbor as cbor;
+use minicbor::{self as cbor, data::Tag};
 use std::cell::RefCell;
 
 pub use decode::*;
 pub mod decode;
+
+/// The IANA Tag 259: <https://github.com/shanewholloway/js-cbor-codec/blob/master/docs/CBOR-259-spec--explicit-maps.md>
+pub static CBOR_TAG_MAP_259: Tag = Tag::new(259);
 
 /// Encode any serialisable value `T` into bytes.
 pub fn to_cbor<T: cbor::Encode<()>>(value: &T) -> Vec<u8> {

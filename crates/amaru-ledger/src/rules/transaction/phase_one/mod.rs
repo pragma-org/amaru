@@ -14,8 +14,8 @@
 
 use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
-    AuxiliaryDataHash, EraHistory, TransactionBody, TransactionInput, TransactionPointer,
-    WitnessSet, network::NetworkName, protocol_parameters::ProtocolParameters,
+    AuxiliaryData, EraHistory, TransactionBody, TransactionInput, TransactionPointer, WitnessSet,
+    network::NetworkName, protocol_parameters::ProtocolParameters,
 };
 use core::mem;
 use std::{fmt, ops::Deref};
@@ -95,14 +95,14 @@ pub fn execute<C>(
     is_valid: bool,
     mut transaction_body: TransactionBody,
     transaction_witness_set: &WitnessSet,
-    transaction_auxiliary_data_hash: Option<AuxiliaryDataHash>,
+    transaction_auxiliary_data: Option<&AuxiliaryData>,
 ) -> Result<Vec<TransactionInput>, PhaseOneError>
 where
     C: ValidationContext + fmt::Debug,
 {
     let transaction_id = transaction_body.id();
 
-    metadata::execute(&transaction_body, transaction_auxiliary_data_hash)?;
+    metadata::execute(&transaction_body, transaction_auxiliary_data)?;
 
     certificates::execute(
         context,

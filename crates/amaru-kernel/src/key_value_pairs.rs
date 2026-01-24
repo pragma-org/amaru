@@ -29,6 +29,12 @@ use std::collections::BTreeMap;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct KeyValuePairs<K: Eq, V>(Vec<(K, V)>);
 
+impl<K: Eq, V> Default for KeyValuePairs<K, V> {
+    fn default() -> Self {
+        Self(Vec::default())
+    }
+}
+
 impl<K: Eq + Clone, V: Clone> KeyValuePairs<K, V> {
     // TODO: Temporary conversion method to Pallas primitive. Remove when no longer needed.
     pub fn as_pallas(self) -> pallas_primitives::KeyValuePairs<K, V> {

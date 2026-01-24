@@ -232,7 +232,7 @@ where
             transaction.is_expected_valid,
             transaction.body.clone(),
             &transaction.witnesses,
-            None, // TEMPORARY
+            transaction.auxiliary_data.as_ref(),
         ) {
             Ok(inputs) => inputs,
             Err(err) => {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AuxiliaryDataHash, Bytes, Hash, TransactionBody};
+use amaru_kernel::{AuxiliaryData, Bytes, Hash, TransactionBody};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -21,7 +21,7 @@ pub enum InvalidTransactionMetadata {
     MissingTransactionMetadata(Bytes),
 
     #[error("missing auxiliary data hash: metadata hash {0}")]
-    MissingTransactionAuxiliaryDataHash(Hash<32>),
+    MissingTransactionAuxiliaryDataHash(Hash<{ AuxiliaryData::HASH_SIZE }>),
 
     #[error("metadata hash mismatch: supplied {supplied} expected {expected}")]
     ConflictingMetadataHash {
@@ -32,11 +32,11 @@ pub enum InvalidTransactionMetadata {
 
 pub fn execute(
     transaction: &TransactionBody,
-    auxiliary_data_hash: Option<AuxiliaryDataHash>,
+    auxiliary_data: Option<&AuxiliaryData>,
 ) -> Result<(), InvalidTransactionMetadata> {
     match (
         transaction.auxiliary_data_hash.as_ref(),
-        auxiliary_data_hash,
+        auxiliary_data.map(|aux| aux.hash()),
     ) {
         (None, None) => Ok(()),
         (None, Some(hash)) => {
@@ -63,7 +63,7 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use super::InvalidTransactionMetadata;
-    use amaru_kernel::{AuxiliaryData, Hasher, KeepRaw, TransactionBody, include_cbor};
+    use amaru_kernel::{AuxiliaryData, TransactionBody, include_cbor};
     use test_case::test_case;
 
     macro_rules! fixture_tx {
@@ -122,11 +122,8 @@ mod tests {
         "missing auxiliary data"
     )]
     fn test_metadata(
-        (transaction, auxiliary_data): (TransactionBody, Option<KeepRaw<'_, AuxiliaryData>>),
+        (transaction, auxiliary_data): (TransactionBody, Option<AuxiliaryData>),
     ) -> Result<(), InvalidTransactionMetadata> {
-        super::execute(
-            &transaction,
-            auxiliary_data.map(|aux| Hasher::<256>::hash(aux.raw_cbor())),
-        )
+        super::execute(&transaction, auxiliary_data.as_ref())
     }
 }

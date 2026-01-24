@@ -13,18 +13,14 @@
 // limitations under the License.
 
 use crate::{
-    AssetName, Bytes, Certificate, Coin, Debug, Hash, Hasher, MemoizedTransactionOutput, NetworkId,
-    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PolicyId, PositiveCoin,
+    AssetName, Bytes, Certificate, Coin, DEFAULT_HASH32, Hash, Hasher, MemoizedTransactionOutput,
+    NetworkId, NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PolicyId, PositiveCoin,
     Proposal as ProposalProcedure, RequiredSigners, RewardAccount, Set, TransactionInput,
     VotingProcedures,
     cbor::{self},
 };
 use amaru_minicbor_extra::heterogeneous_map;
 use std::mem;
-
-pub static DEFAULT_HASH: [u8; TransactionBody::HASH_SIZE] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
 
 /// A multi-era transaction body. This type is meant to represent all transaction body in eras that
 /// we may encounter.
@@ -106,7 +102,7 @@ pub struct TransactionBody {
 }
 
 impl TransactionBody {
-    // Hash digest size, in bytes.,
+    // Hash digest size, in bytes.
     pub const HASH_SIZE: usize = 32;
 
     /// The original id (i.e. blake2b-256 hash digest) of the transaction body. Note that the hash
@@ -125,7 +121,7 @@ impl TransactionBody {
 impl Default for TransactionBody {
     fn default() -> Self {
         Self {
-            hash: Hash::new(DEFAULT_HASH),
+            hash: Hash::new(DEFAULT_HASH32),
             original_size: 0,
             inputs: Set::from(vec![]),
             outputs: vec![],

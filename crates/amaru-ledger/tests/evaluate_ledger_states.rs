@@ -221,9 +221,7 @@ pub mod tests {
 
             let tx_witness_set: WitnessSet = tx.witnesses.clone();
 
-            // TEMPORARY
-            // let tx_auxiliary_data = Into::<Option<AuxiliaryData>>::into(tx.auxiliary_data.clone())
-            //     .map(|aux_data| Hasher::<256>::hash(aux_data.raw_cbor()));
+            let tx_auxiliary_data = tx.auxiliary_data.as_ref();
 
             let pointer = TransactionPointer {
                 slot: slot.into(),
@@ -243,7 +241,7 @@ pub mod tests {
                 true,
                 tx.body,
                 &tx_witness_set,
-                None,
+                tx_auxiliary_data,
             );
 
             match result {
