@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{BaseOps, ConsensusOps, MetricsOps};
-use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
-use crate::consensus::span::HasSpan;
+use crate::effects::{BaseOps, ConsensusOps, MetricsOps};
+use crate::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
+use crate::span::HasSpan;
 use amaru_kernel::IsHeader;
 use amaru_kernel::consensus_events::{DecodedChainSyncEvent, ValidateBlockEvent};
 use anyhow::anyhow;

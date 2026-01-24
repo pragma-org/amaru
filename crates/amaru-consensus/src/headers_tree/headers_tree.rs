@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
+use crate::{
     errors::{ConsensusError, ConsensusError::UnknownPoint, InvalidHeaderParentData},
     headers_tree::{
         HeadersTreeDisplay,
@@ -693,7 +693,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::{
+    use crate::{
         headers_tree::data_generation::{SelectionResult::Forward, *},
         stages::select_chain::{Fork, ForwardChainSelection::SwitchToFork},
     };

@@ -17,7 +17,7 @@ use crate::simulator::bytes::Bytes;
 use crate::simulator::data_generation::base_generators::generate_arrival_times;
 use crate::simulator::{Entry, NodeConfig};
 use crate::sync::ChainSyncMessage;
-use amaru_consensus::consensus::headers_tree::data_generation::{
+use amaru_consensus::headers_tree::data_generation::{
     Action, GeneratedActions, any_select_chains_from_tree, any_tree_of_headers, transpose,
 };
 use amaru_kernel::{IsHeader, Point, is_header::tests::run_with_rng, peer::Peer, to_cbor};

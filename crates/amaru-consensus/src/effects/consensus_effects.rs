@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{
+use crate::effects::{
     Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps, Store,
     metrics_effects::{Metrics, MetricsOps},
 };
@@ -106,7 +106,7 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::consensus::errors::ProcessingFailed;
+    use crate::errors::ProcessingFailed;
     use amaru_kernel::peer::Peer;
     use amaru_kernel::protocol_messages::tip::Tip;
     use amaru_kernel::{Point, PoolId, RawBlock};

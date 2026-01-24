@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
-    EVENT_TARGET,
+use crate::{
     effects::{BaseOps, ConsensusOps},
     errors::{ConsensusError, ValidationFailed},
     headers_tree::{HeadersTree, HeadersTreeState},
@@ -97,11 +96,11 @@ impl SelectChain {
                 rollback_header,
                 fork,
             }) => {
-                debug!(target: EVENT_TARGET, rollback_point = %rollback_header.point(), length = fork.len(), "roll_forward.switch_to_fork");
+                debug!(rollback_point = %rollback_header.point(), length = fork.len(), "roll_forward.switch_to_fork");
                 SelectChain::switch_to_fork(peer, rollback_header.point(), fork, span)
             }
             ForwardChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, "roll_forward.no_change");
+                trace!("roll_forward.no_change");
                 vec![]
             }
         };
@@ -128,7 +127,7 @@ impl SelectChain {
                 rollback_header,
                 fork,
             }) => {
-                info!(target: EVENT_TARGET, rollback_point = %rollback_header.point(), length = fork.len(), "rollback.switch_to_fork");
+                info!(rollback_point = %rollback_header.point(), length = fork.len(), "rollback.switch_to_fork");
                 Ok(SelectChain::switch_to_fork(
                     peer,
                     rollback_header.point(),
@@ -137,7 +136,7 @@ impl SelectChain {
                 ))
             }
             RollbackChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, "rollback.no_change");
+                trace!("rollback.no_change");
                 Ok(vec![])
             }
             RollbackChainSelection::RollbackBeyondLimit {
@@ -367,11 +366,9 @@ pub fn stage(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::errors::InvalidHeaderParentData;
-    use crate::consensus::headers_tree::Tracker::{Me, SomePeer};
-    use crate::consensus::{
-        effects::mock_consensus_ops, errors::ValidationFailed, headers_tree::Tracker,
-    };
+    use crate::errors::InvalidHeaderParentData;
+    use crate::headers_tree::Tracker::{Me, SomePeer};
+    use crate::{effects::mock_consensus_ops, errors::ValidationFailed, headers_tree::Tracker};
     use amaru_kernel::is_header::tests::{any_headers_chain, run};
     use amaru_kernel::peer::Peer;
     use pure_stage::StageRef;

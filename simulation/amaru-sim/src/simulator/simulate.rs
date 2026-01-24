@@ -30,7 +30,7 @@ use crate::simulator::world::{Entry, NodeHandle};
 pub(crate) use crate::simulator::world::{History, World};
 use crate::simulator::{Args, GeneratedEntries, NodeConfig};
 use crate::sync::ChainSyncMessage;
-use amaru_consensus::consensus::headers_tree::data_generation::{Action, GeneratedActions};
+use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions};
 use amaru_kernel::string_utils::ListToString;
 use anyhow::anyhow;
 use parking_lot::Mutex;

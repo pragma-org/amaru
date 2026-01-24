@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::headers_tree::tree::Tree;
-use crate::consensus::headers_tree::{HeadersTree, HeadersTreeState};
+use crate::headers_tree::tree::Tree;
+use crate::headers_tree::{HeadersTree, HeadersTreeState};
 use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{HeaderHash, IsHeader};
 use std::fmt::{Debug, Display, Formatter};
