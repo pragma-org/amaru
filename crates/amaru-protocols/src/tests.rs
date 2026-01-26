@@ -151,7 +151,6 @@ async fn wait_for_termination(
 }
 
 /// Verify that both nodes have the same state: same best chain, same blocks, same transactions.
-#[track_caller]
 fn check_state(initiator: TokioRunning, responder: TokioRunning) -> anyhow::Result<()> {
     let responder_chain_store = responder.resources().get::<ResourceHeaderStore>()?.clone();
     let responder_mempool = responder.resources().get::<ResourceMempool<Tx>>()?.clone();
@@ -167,8 +166,8 @@ fn check_state(initiator: TokioRunning, responder: TokioRunning) -> anyhow::Resu
 
     // Verify that the 2 nodes have the same blocks headers
     // This makes it easier to spot differences in case of failure, before comparing full blocks.
-    let initiator_block_headers = get_block_headers(initiator_chain_store.clone());
-    let responder_block_headers = get_block_headers(responder_chain_store.clone());
+    let initiator_block_headers = initiator_chain_store.retrieve_best_chain();
+    let responder_block_headers = responder_chain_store.retrieve_best_chain();
     assert_eq!(initiator_block_headers, responder_block_headers);
 
     let initiator_blocks = get_blocks(initiator_chain_store);
@@ -317,7 +316,7 @@ async fn test_chainsync_stage(
                 let from = *state.blocks_to_fetch.first().unwrap();
                 let through = *state.blocks_to_fetch.last().unwrap();
                 let blocks = eff
-                    .call(&state.manager, Duration::from_secs(200), move |cr| {
+                    .call(&state.manager, Duration::from_secs(1), move |cr| {
                         ManagerMessage::FetchBlocks {
                             peer,
                             from,
@@ -455,31 +454,15 @@ fn initialize_chain_store(
 
 /// Retrieve all blocks from the chain store starting from the best chain tip down to the root.
 fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<Block> {
-    let mut blocks = Vec::new();
-    let mut current_hash = Some(store.get_best_chain_hash());
-    tracing::info!(
-        "Retrieving blocks from store starting at {:?}",
-        current_hash
-    );
-
-    while let Some(hash) = current_hash {
-        if let Ok(block) = store.load_block(&hash) {
-            blocks.push(cbor::decode(block.deref()).unwrap());
-        };
-        if let Some(header) = store.load_header(&hash) {
-            current_hash = header.parent_hash();
-        } else {
-            current_hash = None;
-        }
-    }
-    blocks.reverse();
-    blocks
-}
-
-fn get_block_headers(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<HeaderHash> {
-    get_blocks(store)
+    store
+        .retrieve_best_chain()
         .iter()
-        .map(|b| BlockHeader::from(b.header.clone()).hash())
+        .filter_map(|h| {
+            store
+                .load_block(h)
+                .ok()
+                .map(|b| cbor::decode(b.deref()).unwrap())
+        })
         .collect()
 }
 
