@@ -14,6 +14,9 @@ on:
       timeout:
         description: "Override timeout for snapshot tests"
         required: false
+      demo_trace_level:
+        description: "Override AMARU_TRACE (leave empty for default)"
+        required: false
   push:
     branches: ["main"]
   pull_request:
@@ -29,7 +32,7 @@ env:
     ~/.cargo/git/db/
     target/
   INPUT_TIMEOUT: ${{ github.event.inputs.timeout }}
-  INPUT_DEMO_TARGET_EPOCH: ${{ github.event.inputs.demo_target_epoch }}
+  AMARU_TRACE: ${{ github.event.inputs.demo_trace_level }}
 
 jobs:
   build:
