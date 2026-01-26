@@ -14,6 +14,7 @@
 
 use crate::chainsync::ChainSyncInitiatorMsg;
 use crate::manager::{Manager, ManagerMessage};
+use crate::mempool_effects::MemoryPool;
 use crate::network_effects::{Network, NetworkOps};
 use crate::protocol::Role;
 use crate::store_effects::{ResourceHeaderStore, Store};
@@ -32,11 +33,12 @@ use amaru_ouroboros_traits::can_validate_blocks::mock::{
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, ConnectionProvider, ConnectionResource, ResourceMempool, TxId,
+    TxSubmissionMempool,
 };
 use pallas_primitives::babbage::{Header, MintedHeader};
 use pallas_primitives::conway::{Block, MintedBlock, Tx};
 use pure_stage::tokio::{TokioBuilder, TokioRunning};
-use pure_stage::{Effects, StageGraph, StageRef, TryInStage, Void};
+use pure_stage::{Effects, StageGraph, StageRef, TryInStage};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::ops::Deref;
@@ -44,7 +46,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Handle;
-use tokio::time::timeout;
+use tokio::sync::Notify;
 use tracing_subscriber::EnvFilter;
 
 /// This test simulates a connection between an initiator and a responder over TCP.
@@ -53,17 +55,17 @@ use tracing_subscriber::EnvFilter;
 #[tokio::test]
 async fn test_connect_initiator_responder() -> anyhow::Result<()> {
     setup_logging(true);
-    let (responder, addr) = start_responder().await?;
-    let initiator = start_initiator(addr).await?;
+    let (responder, addr, responder_done) = start_responder().await?;
+    let (initiator, initiator_done) = start_initiator(addr).await?;
 
-    wait_for_termination(&responder, &initiator).await?;
+    wait_for_termination(responder_done, initiator_done).await?;
     check_state(initiator, responder)?;
     Ok(())
 }
 
 /// Create and start a responder node that listens for incoming connections on a free port found at
 /// runtime. Return the address it is listening on.
-async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr)> {
+async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr, Arc<Notify>)> {
     tracing::info!("Creating the responder");
     let mut responder_network = TokioBuilder::default();
     let responder_manager = Manager::new(NetworkMagic::PREPROD, StageRef::blackhole());
@@ -72,7 +74,11 @@ async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr)> {
     let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
 
     let accept_stage = responder_network.stage("accept", accept_stage);
-    let accept_stage = responder_network.wire_up(accept_stage, responder_stage.without_state());
+    let notify = Arc::new(Notify::new());
+    let accept_stage = responder_network.wire_up(
+        accept_stage,
+        AcceptState::new(responder_stage.without_state(), notify.clone()),
+    );
     responder_network
         .preload(accept_stage, [PullAccept])
         .unwrap();
@@ -91,12 +97,14 @@ async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr)> {
 
     tracing::info!("Start the responder");
     let running_responder = responder_network.run(Handle::current());
-    Ok((running_responder, peer_addr))
+    Ok((running_responder, peer_addr, notify))
 }
 
 /// Create and start an initiator node that connects to the given port.
 /// ChainSync events are sent to a stage that stores them in the in-memory store without further processing.
-async fn start_initiator(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<TokioRunning> {
+async fn start_initiator(
+    addr: impl Into<Option<SocketAddr>>,
+) -> anyhow::Result<(TokioRunning, Arc<Notify>)> {
     tracing::info!("Creating the initiator");
     let addr = addr
         .into()
@@ -109,9 +117,10 @@ async fn start_initiator(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<
     let chainsync_stage = initiator_network.stage("chainsync", test_chainsync_stage);
 
     // wire up stages
+    let notify = Arc::new(Notify::new());
     let chainsync_stage = initiator_network.wire_up(
         chainsync_stage,
-        ChainSyncStageState::new(initiator_stage.sender()),
+        ChainSyncStageState::new(initiator_stage.sender(), notify.clone()),
     );
     let initiator_manager = Manager::new(NetworkMagic::PREPROD, chainsync_stage.without_state());
     let initiator_stage = initiator_network.wire_up(initiator_stage, initiator_manager);
@@ -131,22 +140,19 @@ async fn start_initiator(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<
         .await
         .unwrap();
 
-    Ok(running_initiator)
+    Ok((running_initiator, notify))
 }
 
-/// Wait for the initiator to terminate on its own when it has received all expected blocks.
-/// Timeout after a few seconds if that's not the case
+/// Wait until both nodes signal that they are done.
+/// We timeout after 5 seconds to avoid hanging tests. If the test times out it will fail later when checking the state.
 async fn wait_for_termination(
-    initiator: &TokioRunning,
-    responder: &TokioRunning,
+    responder_done: Arc<Notify>,
+    initiator_done: Arc<Notify>,
 ) -> anyhow::Result<()> {
-    tokio::time::timeout(Duration::from_secs(3), async {
-        tokio::select! {
-            _ = responder.clone().join() => (),
-            _ = initiator.clone().join() => (),
-        }
+    let _ = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(responder_done.notified(), initiator_done.notified());
     })
-    .await?;
+    .await;
     Ok(())
 }
 
@@ -183,41 +189,60 @@ fn check_state(initiator: TokioRunning, responder: TokioRunning) -> anyhow::Resu
     Ok(())
 }
 
-/// If needed the initiator can be started alone for debugging purposes
-#[tokio::test]
-#[ignore]
-async fn connect_initiator() -> anyhow::Result<()> {
-    setup_logging(true);
-    let running = start_initiator(None).await?;
-    wait_for(running.join(), Duration::from_secs(2000)).await?;
-    Ok(())
-}
-
-/// If needed the responder can be started alone for debugging purposes
-#[tokio::test]
-#[ignore]
-async fn connect_responder() -> anyhow::Result<()> {
-    setup_logging(true);
-    let running = start_responder().await?.0;
-    wait_for(running.join(), Duration::from_secs(2000)).await?;
-    Ok(())
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PullAccept;
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AcceptState {
+    manager_stage: StageRef<ManagerMessage>,
+    #[serde(skip)]
+    notify: Arc<Notify>,
+}
+
+impl PartialEq for AcceptState {
+    fn eq(&self, other: &Self) -> bool {
+        self.manager_stage == other.manager_stage
+    }
+}
+
+impl Eq for AcceptState {}
+
+impl AcceptState {
+    fn new(manager_stage: StageRef<ManagerMessage>, notify: Arc<Notify>) -> Self {
+        Self {
+            manager_stage,
+            notify,
+        }
+    }
+}
 
 /// Create a stage that accepts incoming connections and notifies the manager
 /// about them. This can not be implemented using contramap because we need to
 /// create a sender for that stage and this is not possible with an adapted stage.
 pub async fn accept_stage(
-    manager_stage: StageRef<ManagerMessage>,
+    state: AcceptState,
     _msg: PullAccept,
     eff: Effects<PullAccept>,
-) -> StageRef<ManagerMessage> {
+) -> AcceptState {
+    tracing::info!("pull accept");
+    // Terminate if the mempool already has all expected transactions
+    let mempool = MemoryPool::new(eff.clone());
+    let expected_tx_ids = get_tx_ids();
+    let txs = mempool.get_txs_for_ids(expected_tx_ids.as_slice());
+    if txs.len() == expected_tx_ids.len() {
+        tracing::info!("all txs retrieved, done");
+        state.notify.notify_waiters();
+    } else {
+        tracing::info!(
+            "still missing txs {}, continuing",
+            expected_tx_ids.len() - txs.len()
+        );
+    }
+
     match Network::new(&eff).accept().await {
         Ok((peer, connection_id)) => {
             eff.send(
-                &manager_stage,
+                &state.manager_stage,
                 ManagerMessage::Accepted(peer, connection_id),
             )
             .await;
@@ -227,8 +252,9 @@ pub async fn accept_stage(
             return eff.terminate().await;
         }
     }
-    eff.send(&eff.me(), PullAccept).await;
-    manager_stage
+    eff.schedule_after(PullAccept, Duration::from_millis(100))
+        .await;
+    state
 }
 
 // HELPERS
@@ -247,17 +273,30 @@ fn setup_logging(enable: bool) {
 /// State for the ChainSync stage
 /// The stage batches block fetch requests to test the manager's block fetch capabilities with the Message::RequestRange variant.
 /// We accumulate the next points to fetch in this state and keep track of the total number of requested blocks.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ChainSyncStageState {
     manager: StageRef<ManagerMessage>,
+    #[serde(skip)]
+    notify: Arc<Notify>,
     blocks_to_fetch: Vec<Point>,
     total_requested_blocks: usize,
 }
 
+impl PartialEq for ChainSyncStageState {
+    fn eq(&self, other: &Self) -> bool {
+        self.manager == other.manager
+            && self.blocks_to_fetch == other.blocks_to_fetch
+            && self.total_requested_blocks == other.total_requested_blocks
+    }
+}
+
+impl Eq for ChainSyncStageState {}
+
 impl ChainSyncStageState {
-    fn new(manager: StageRef<ManagerMessage>) -> Self {
+    fn new(manager: StageRef<ManagerMessage>, notify: Arc<Notify>) -> Self {
         Self {
             manager,
+            notify,
             blocks_to_fetch: Vec::new(),
             total_requested_blocks: 0,
         }
@@ -348,9 +387,7 @@ async fn test_chainsync_stage(
 
             if state.total_requested_blocks == RESPONDER_BLOCKS_NB - 1 {
                 tracing::info!("all blocks retrieved, done");
-                eff.terminate::<Void>().await;
-                // eff.send(&msg.handler, chainsync::InitiatorMessage::Done)
-                //     .await;
+                state.notify.notify_waiters();
             } else {
                 eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
                     .await;
@@ -364,20 +401,6 @@ async fn test_chainsync_stage(
         }
     }
     state
-}
-
-/// This function can timeout the execution of a manager after a given duration.
-async fn wait_for<F>(running: F, duration: Duration) -> anyhow::Result<()>
-where
-    F: IntoFuture,
-{
-    match timeout(duration, running).await {
-        Ok(_) => anyhow::bail!("test should have timed out"),
-        Err(_) => {
-            tracing::info!("test timed out as expected");
-        }
-    };
-    Ok(())
 }
 
 /// Resource type definitions
