@@ -179,7 +179,7 @@ fn check_state(initiator: TokioRunning, responder: TokioRunning) -> anyhow::Resu
 
     let initiator_blocks = get_blocks(initiator_chain_store);
     let responder_blocks = get_blocks(responder_chain_store);
-    // assert_eq!(initiator_blocks.len(), responder_blocks.len());
+
     assert_eq!(
         initiator_blocks,
         responder_blocks,
@@ -386,9 +386,18 @@ async fn test_chainsync_stage(
                 state.total_requested_blocks += state.blocks_to_fetch.len();
                 // store the fetched blocks with their corresponding headers.
                 tracing::info!("retrieved {} blocks", blocks.blocks.len());
-                for block in blocks.blocks {
+                for block_bytes in blocks.blocks {
+                    // Blocks come in network format: [era_tag, stored_block]
+                    // We need to extract the stored block first
+                    let mut decoder = cbor::Decoder::new(block_bytes.as_slice());
+                    decoder.array().expect("expected array");
+                    decoder.u16().expect("expected era tag"); // Skip era tag
+
+                    // Now we're positioned at the stored block bytes
+                    let stored_block_bytes = &block_bytes.as_slice()[decoder.position()..];
+
                     // Check that the block can be decoded
-                    let block: Block = cbor::decode(block.as_slice())
+                    let block: Block = cbor::decode(stored_block_bytes)
                         .expect("Failed to parse Conway3.block bytes");
                     let header_point = BlockHeader::from(block.header.clone()).point();
                     tracing::info!("storing block {:?}", header_point);

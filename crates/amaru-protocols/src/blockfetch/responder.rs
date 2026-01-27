@@ -21,7 +21,7 @@ use crate::{
         miniprotocol, outcome,
     },
 };
-use amaru_kernel::{BlockHeader, Point, RawBlock};
+use amaru_kernel::{BlockHeader, Point, RawBlock, cbor};
 use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
@@ -49,6 +49,34 @@ pub enum PointsRange {
     Empty,
 }
 
+/// Wrap a stored format block in network format by adding the era tag wrapper.
+/// Network format: [era_tag: u16, stored_block]
+/// This converts blocks from database format to the format expected by the block fetch protocol.
+#[expect(clippy::expect_used)]
+fn wrap_in_network_format(stored_block: &RawBlock) -> RawBlock {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    }
+
+    BUFFER.with_borrow_mut(|buffer| {
+        let mut encoder = cbor::Encoder::new(&mut *buffer);
+        // Encode just the wrapper: [era_tag, ...]
+        encoder.array(2).expect("failed to encode outer array");
+        encoder
+            .u16(amaru_kernel::CONWAY_ERA_TAG)
+            .expect("failed to encode era tag");
+
+        // Now append the stored block bytes (which is already valid CBOR)
+        buffer.extend_from_slice(stored_block);
+
+        let ret = RawBlock::from(buffer.as_slice());
+        buffer.clear();
+        ret
+    })
+}
+
 impl PointsRange {
     /// Load the first available block in the current range, if any.
     /// The block is expected to be found since we must be using a valid range.
@@ -69,7 +97,9 @@ impl PointsRange {
                     } else {
                         return None;
                     }
-                    Some((block, self))
+                    // Wrap stored format block in network format before sending
+                    let network_block = wrap_in_network_format(&block);
+                    Some((network_block, self))
                 }
                 Err(StoreError::NotFound { hash }) => {
                     panic!("block not found in best chain range {hash}")
@@ -85,7 +115,9 @@ impl PointsRange {
                             } else {
                                 self = PointsRange::Fork(rest.to_vec());
                             }
-                            Some((block, self))
+                            // Wrap stored format block in network format before sending
+                            let network_block = wrap_in_network_format(&block);
+                            Some((network_block, self))
                         }
                         Err(StoreError::NotFound { .. }) => None,
                         Err(other) => panic!("{other:?}"),

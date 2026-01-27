@@ -13,19 +13,16 @@
 // limitations under the License.
 
 use crate::{
-    HEADER_HASH_SIZE, Hasher, Header, HeaderBody, HeaderHash, MintedHeader, Point,
-    cbor::{self, Decode, Decoder, Encode, Encoder, encode::Write},
-    protocol_messages::{block_height::BlockHeight, tip::Tip},
+    HEADER_HASH_SIZE, Hasher, HeaderHash, MintedHeader, Point, cbor,
+    protocol_messages::block_height::BlockHeight,
 };
 use amaru_slot_arithmetic::Slot;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::{
-    cmp::Ordering,
-    fmt::{self, Debug, Display, Formatter},
-};
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests;
+
+mod block_header;
+pub use block_header::BlockHeader;
 
 /// Interface to a header for the purpose of chain selection.
 pub trait IsHeader: cbor::Encode<()> + Sized {
@@ -57,143 +54,6 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
     // 2. Use a panic
     // 3. Fix Pallas' leader_vrf_output to return a Hash<32> instead of a Vec.
     fn extended_vrf_nonce_output(&self) -> Vec<u8>;
-}
-
-/// This header type encapsulates a header and its hash to avoid recomputing
-#[derive(PartialEq, Eq, Clone)]
-pub struct BlockHeader {
-    header: Header,
-    hash: HeaderHash,
-}
-
-impl Display for BlockHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(&format!(
-            "{}. {}{}",
-            self.slot(),
-            self.hash(),
-            self.parent_hash()
-                .map(|p| format!(" ({p})"))
-                .unwrap_or_default()
-        ))?;
-        Ok(())
-    }
-}
-
-/// We serialize both the hash and the header, but we use serde's flattening
-/// to avoid nesting the header inside another object.
-impl Serialize for BlockHeader {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        #[derive(Serialize)]
-        struct BlockHeaderSer<'a> {
-            hash: &'a HeaderHash,
-            #[serde(flatten)]
-            header: &'a Header,
-        }
-
-        let helper = BlockHeaderSer {
-            hash: &self.hash,
-            header: &self.header,
-        };
-
-        helper.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for BlockHeader {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let header = Header::deserialize(deserializer)?;
-        Ok(BlockHeader::from(header))
-    }
-}
-
-impl Debug for BlockHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BlockHeader")
-            .field("hash", &hex::encode(self.hash()))
-            .field("slot", &self.slot().as_u64())
-            .field("parent", &self.parent().map(hex::encode))
-            .finish()
-    }
-}
-
-impl PartialOrd for BlockHeader {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BlockHeader {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.hash.cmp(&other.hash())
-    }
-}
-
-impl core::hash::Hash for BlockHeader {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.hash.hash(state);
-    }
-}
-
-impl BlockHeader {
-    /// Create a new BlockHeader from a Header and its precomputed hash
-    /// Note: The hash is not verified to match the header!
-    #[cfg(feature = "test-utils")]
-    pub fn new(header: Header, hash: HeaderHash) -> Self {
-        Self { header, hash }
-    }
-
-    pub fn header(&self) -> &Header {
-        &self.header
-    }
-
-    pub fn header_body(&self) -> &HeaderBody {
-        &self.header.header_body
-    }
-
-    pub fn parent_hash(&self) -> Option<HeaderHash> {
-        self.header.header_body.prev_hash
-    }
-
-    fn recompute_hash(&mut self) {
-        self.hash = Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(&self.header);
-    }
-
-    pub fn tip(&self) -> Tip {
-        Tip::new(self.point(), self.block_height())
-    }
-}
-
-impl<C> Encode<C> for BlockHeader {
-    fn encode<W: Write>(
-        &self,
-        e: &mut Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        self.header.encode(e, ctx)
-    }
-}
-
-impl<'b, C> Decode<'b, C> for BlockHeader {
-    fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        let header = Header::decode(d, ctx)?;
-        Ok(BlockHeader::from(header))
-    }
-}
-
-impl From<Header> for BlockHeader {
-    fn from(header: Header) -> Self {
-        let hash = Point::Origin.hash();
-        let mut block_header = Self { header, hash };
-        block_header.recompute_hash();
-        block_header
-    }
 }
 
 /// Concrete Conway-era compatible `Header` implementation.
