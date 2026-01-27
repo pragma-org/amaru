@@ -877,6 +877,19 @@ pub mod test {
         });
     }
 
+    #[test]
+    fn ancestors_points_returns_none_when_older_than_anchor() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            store.set_anchor_hash(&chain[3].hash()).unwrap();
+            let from = chain[1].point();
+            let to = chain[5].point();
+            let result = store.ancestors_points(&from, &to);
+
+            // Should return None because the ancestry walk breaks before reaching from_inclusive
+            assert_eq!(result, None);
+        });
+    }
     // MIGRATIONS
 
     #[test]
