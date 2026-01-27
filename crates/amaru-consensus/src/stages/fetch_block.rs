@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
-use crate::consensus::span::HasSpan;
+use crate::effects::{BaseOps, ConsensusOps};
+use crate::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
+use crate::span::HasSpan;
 use amaru_kernel::consensus_events::{ValidateBlockEvent, ValidateHeaderEvent};
 use amaru_kernel::{IsHeader, RawBlock};
 use amaru_protocols::manager::ManagerMessage;
@@ -109,8 +109,8 @@ pub fn stage(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::effects::mock_consensus_ops;
-    use crate::consensus::errors::ValidationFailed;
+    use crate::effects::mock_consensus_ops;
+    use crate::errors::ValidationFailed;
     use amaru_kernel::is_header::tests::{any_header, run};
     use amaru_kernel::peer::Peer;
     use amaru_protocols::blockfetch::Blocks;

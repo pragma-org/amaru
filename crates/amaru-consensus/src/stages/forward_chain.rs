@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::NetworkOps;
-use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
-use crate::consensus::span::HasSpan;
+use crate::effects::NetworkOps;
+use crate::effects::{BaseOps, ConsensusOps};
+use crate::errors::{ProcessingFailed, ValidationFailed};
+use crate::span::HasSpan;
 use amaru_kernel::IsHeader;
 use amaru_kernel::consensus_events::BlockValidationResult;
 use amaru_kernel::protocol_messages::tip::Tip;

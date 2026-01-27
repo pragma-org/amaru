@@ -20,9 +20,9 @@ use crate::simulator::{
 };
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
-use amaru_consensus::consensus::headers_tree::data_generation::{Chain, GeneratedActions};
-use amaru_consensus::consensus::stages::pull::SyncTracker;
-use amaru_consensus::consensus::{
+use amaru_consensus::headers_tree::data_generation::{Chain, GeneratedActions};
+use amaru_consensus::stages::pull::SyncTracker;
+use amaru_consensus::{
     effects::{
         ForwardEvent, ForwardEventListener, ResourceBlockValidation, ResourceForwardEventListener,
         ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,

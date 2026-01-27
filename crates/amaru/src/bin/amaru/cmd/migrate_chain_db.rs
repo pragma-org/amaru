@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
-use amaru_consensus::StoreError;
 use amaru_kernel::network::NetworkName;
+use amaru_ouroboros_traits::StoreError;
 use amaru_stores::rocksdb::{
     RocksDbConfig,
     consensus::{check_db_version, migrate_db, util::open_db},

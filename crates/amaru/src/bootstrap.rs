@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use crate::{default_initial_nonces, default_snapshots_dir};
-use amaru_consensus::{ChainStore, Nonces};
 use amaru_kernel::{
     BlockHeader, EraHistory, Hash, HeaderHash, IsHeader, Nonce, Point, from_cbor,
     network::NetworkName,
@@ -22,6 +21,7 @@ use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
+use amaru_ouroboros_traits::{ChainStore, Nonces};
 use amaru_progress_bar::new_terminal_progress_bar;
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use async_compression::tokio::bufread::GzipDecoder;

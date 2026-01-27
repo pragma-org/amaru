@@ -27,6 +27,8 @@ connectors:
     metrics_flush_interval: 1s
     resource_metrics_key_attributes:
       - service.name
+    dimensions:
+      - name: stage
 
 extensions:
   health_check:

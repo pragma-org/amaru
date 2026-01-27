@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ConsensusError, ValidationFailed};
-use crate::consensus::span::HasSpan;
-use crate::consensus::store::PraosChainStore;
+use crate::effects::{BaseOps, ConsensusOps};
+use crate::errors::{ConsensusError, ValidationFailed};
+use crate::span::HasSpan;
+use crate::store::PraosChainStore;
 use amaru_kernel::IsHeader;
 use amaru_kernel::consensus_events::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use amaru_kernel::{BlockHeader, Nonce, protocol_parameters::ConsensusParameters, to_cbor};
@@ -176,9 +176,8 @@ impl CanValidateHeaders for ValidateHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus;
-    use crate::consensus::effects::MockLedgerOps;
-    use crate::consensus::errors::ConsensusError::NoncesError;
+    use crate::effects::MockLedgerOps;
+    use crate::errors::ConsensusError::NoncesError;
     use amaru_kernel::Point;
     use amaru_kernel::is_header::tests::{any_header_with_some_parent, run};
     use amaru_kernel::network::NetworkName;
@@ -207,7 +206,7 @@ mod tests {
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
-            NoncesError(consensus::store::NoncesError::UnknownParent { .. }) => {
+            NoncesError(crate::store::NoncesError::UnknownParent { .. }) => {
                 // Expected error
             }
             other => panic!("Expected NoncesError with UnknownParent, got: {:?}", other),
@@ -230,7 +229,7 @@ mod tests {
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
-            NoncesError(consensus::store::NoncesError::UnknownParent { parent, .. })
+            NoncesError(crate::store::NoncesError::UnknownParent { parent, .. })
                 if Some(parent) == header.parent() =>
             {
                 // Expected error

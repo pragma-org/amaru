@@ -14,11 +14,11 @@
 
 use crate::stages::AsTip;
 use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
-use amaru_consensus::ReadOnlyChainStore;
 use amaru_kernel::protocol_messages::tip::Tip;
 use amaru_kernel::{IsHeader, Point};
 use amaru_network::point::{from_network_point, to_network_point};
 use amaru_ouroboros_traits::ChainStore;
+use amaru_ouroboros_traits::ReadOnlyChainStore;
 use pallas_network::miniprotocols::chainsync::Tip as PallasTip;
 use std::collections::VecDeque;
 use std::fmt;

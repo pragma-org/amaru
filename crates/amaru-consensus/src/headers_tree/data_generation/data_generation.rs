@@ -20,9 +20,9 @@
 //!
 //!
 
-use crate::consensus::headers_tree::HeadersTree;
-use crate::consensus::headers_tree::data_generation::Chain;
-use crate::consensus::headers_tree::tree::Tree;
+use crate::headers_tree::HeadersTree;
+use crate::headers_tree::data_generation::Chain;
+use crate::headers_tree::tree::Tree;
 use amaru_kernel::is_header::tests::make_header;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{BlockHeader, Bytes, HEADER_HASH_SIZE, Header, HeaderHash, IsHeader};
