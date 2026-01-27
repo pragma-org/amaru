@@ -827,31 +827,55 @@ pub mod test {
     }
 
     #[test]
-    fn get_range_returns_a_list_of_linked_header_hashes() {
+    fn ancestors_points_returns_single_point_when_from_equals_to() {
         with_db(|store| {
             let chain = populate_db(store.clone());
-
-            // getting the range from 0 to 5 should return the first 6 headers
-            // inclusive of both ends.
-            let result = store.get_range(&chain[0].hash(), &chain[5].hash());
-            assert_eq!(
-                result,
-                vec![
-                    chain[0].hash(),
-                    chain[1].hash(),
-                    chain[2].hash(),
-                    chain[3].hash(),
-                    chain[4].hash(),
-                    chain[5].hash()
-                ]
-            );
-
-            let another_chain = run(any_headers_chain(10));
-            let result = store.get_range(&another_chain[0].hash(), &another_chain[5].hash());
-            assert_eq!(result, Vec::<HeaderHash>::default());
+            let point = chain[3].point();
+            let result = store.ancestors_points(&point, &point);
+            assert_eq!(result, Some(vec![point]));
         });
     }
 
+    #[test]
+    fn ancestors_points_returns_ancestors_between_from_and_to_inclusive() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            let from = chain[2].point();
+            let to = chain[5].point();
+            let result = store.ancestors_points(&from, &to);
+            let expected = vec![
+                chain[5].point(),
+                chain[4].point(),
+                chain[3].point(),
+                chain[2].point(),
+            ];
+            assert_eq!(result, Some(expected));
+        });
+    }
+
+    #[test]
+    fn ancestors_points_returns_none_when_to_not_loaded() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            let unknown_chain = run(any_headers_chain(1));
+            let unknown_point = unknown_chain[0].point();
+            let result = store.ancestors_points(&chain[0].point(), &unknown_point);
+            assert_eq!(result, None);
+        });
+    }
+
+    #[test]
+    fn ancestors_points_returns_none_when_from_before_anchor() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            // Set the anchor to a mid-chain point, so earlier points are before the anchor
+            store.set_anchor_hash(&chain[3].hash()).unwrap();
+            let from = chain[1].point();
+            let to = chain[5].point();
+            let result = store.ancestors_points(&from, &to);
+            assert_eq!(result, None);
+        });
+    }
     // MIGRATIONS
 
     #[test]

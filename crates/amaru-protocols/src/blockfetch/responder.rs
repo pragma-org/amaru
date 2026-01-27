@@ -21,10 +21,9 @@ use crate::{
         miniprotocol, outcome,
     },
 };
-use amaru_kernel::{HeaderHash, Point, RawBlock};
-use amaru_ouroboros_traits::{ReadOnlyChainStore, StoreError};
+use amaru_kernel::{BlockHeader, Point, RawBlock};
+use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use std::collections::VecDeque;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<BlockFetchResponder>().boxed()]
@@ -37,48 +36,114 @@ pub fn responder() -> Miniprotocol<State, BlockFetchResponder, Responder> {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockFetchResponder {
     muxer: StageRef<MuxMessage>,
-    current_range: VecDeque<HeaderHash>,
+}
+
+/// This data type represents a range of points to fetch blocks for.
+/// It can represent either a range along the best chain (from `from` to `through` inclusive),
+/// or a list of points representing a fork. The main difference is that the points in a fork cannot
+/// go beyond the current best chain anchor.
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+pub enum PointsRange {
+    BestChain { from: Point, through: Point },
+    Fork(Vec<Point>),
+    Empty,
+}
+
+impl PointsRange {
+    /// Load the first available block in the current range, if any.
+    /// The block is expected to be found since we must be using a valid range.
+    /// Each time we attempt to fetch a block we pop its point from the current_range.
+    #[expect(clippy::panic)]
+    async fn next_block<T>(mut self, effects: Effects<T>) -> Option<(RawBlock, PointsRange)> {
+        let store = Store::new(effects);
+        match self {
+            PointsRange::BestChain { from, through } => match store.load_block(&from.hash()) {
+                Ok(block) => {
+                    if from == through {
+                        self = PointsRange::Empty;
+                    } else if let Some(next) = store.next_best_chain(&from) {
+                        self = PointsRange::BestChain {
+                            from: next,
+                            through,
+                        }
+                    } else {
+                        return None;
+                    }
+                    Some((block, self))
+                }
+                Err(StoreError::NotFound { .. }) => None,
+                Err(other) => panic!("{other:?}"),
+            },
+            PointsRange::Fork(points) => {
+                if let Some((from, rest)) = points.split_first() {
+                    match store.load_block(&from.hash()) {
+                        Ok(block) => {
+                            if rest.is_empty() {
+                                self = PointsRange::Empty;
+                            } else {
+                                self = PointsRange::Fork(rest.to_vec());
+                            }
+                            Some((block, self))
+                        }
+                        Err(StoreError::NotFound { .. }) => None,
+                        Err(other) => panic!("{other:?}"),
+                    }
+                } else {
+                    None
+                }
+            }
+            PointsRange::Empty => None,
+        }
+    }
+
+    /// Return a points range:
+    ///  - A BestChain range if both `from` and `through` are on the best chain and from <= through.
+    ///  - A Fork range `from` and `through` exist in the store and anchor <= from <= through.
+    pub fn request_range(
+        store: &dyn ChainStore<BlockHeader>,
+        from: Point,
+        through: Point,
+    ) -> Option<PointsRange> {
+        // Check if both 'from' and 'through' points are on the best chain.
+        if store.load_from_best_chain(&through).is_some() {
+            if store.load_from_best_chain(&from).is_some() {
+                // make sure that from <= through
+                if from > through {
+                    tracing::debug!(%from, %through, "requested range is invalid: from > through");
+                    None
+                } else {
+                    let range = PointsRange::BestChain { from, through };
+                    Some(range)
+                }
+            } else {
+                tracing::debug!(%from, %through, "both points must be on the best chain");
+                None
+            }
+        } else {
+            // Otherwise the range must on a fork
+            tracing::debug!(%from, "requested 'from' point is not on the best chain");
+
+            if let Some(points) = store.ancestors_points(&from, &through) {
+                Some(PointsRange::Fork(points))
+            } else {
+                tracing::debug!(%from, %through, "no common ancestor found in the requested range");
+                None
+            }
+        }
+    }
 }
 
 impl BlockFetchResponder {
     pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (
-            State::Idle,
-            Self {
-                muxer,
-                current_range: VecDeque::default(),
-            },
-        )
-    }
-
-    /// Load the first available block in the current range, if any.
-    /// Returns None if no blocks are found.
-    /// Each time we attempt to fetch a block we pop its point from the current_range.
-    async fn load_first_block(
-        &mut self,
-        eff: &Effects<Inputs<BlockStreaming>>,
-    ) -> Option<RawBlock> {
-        let store = Store::new(eff.clone());
-
-        while let Some(from) = self.current_range.pop_front() {
-            match store.load_block(&from) {
-                Ok(block) => return Some(block),
-                Err(StoreError::NotFound { .. }) => {
-                    continue;
-                }
-                Err(e) => {
-                    tracing::error!(hash = %from, error = %e, "error loading block");
-                    return eff.terminate().await;
-                }
-            }
-        }
-        None
+        (State::Idle, Self { muxer })
     }
 }
 
+/// Local message for streaming blocks.
+/// It is either done or it contains a range of points to fetch the next block from.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BlockStreaming {
-    SendBlock(Vec<u8>),
+    NextBlock(PointsRange),
     Done,
 }
 
@@ -86,32 +151,36 @@ impl StageState<State, Responder> for BlockFetchResponder {
     type LocalIn = BlockStreaming;
 
     async fn local(
-        mut self,
+        self,
         _proto: &State,
         input: Self::LocalIn,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
-            BlockStreaming::SendBlock(block) => {
-                // Load the next block and send it if there is one
-                if let Some(block) = self.load_first_block(eff).await {
+            BlockStreaming::NextBlock(points_range) => {
+                // Load the next block and:
+                //  - Return it if found to the protocol stage .
+                //  - Iterate with a local message containing the updated points range.
+                if let Some((block, points_range)) = points_range.next_block(eff.clone()).await {
                     eff.send(
                         eff.me_ref(),
-                        Inputs::Local(BlockStreaming::SendBlock(block.to_vec())),
+                        Inputs::Local(BlockStreaming::NextBlock(points_range)),
                     )
                     .await;
+                    Ok((Some(ResponderAction::Block(block.to_vec())), self))
                 } else {
+                    // No more blocks to send, finish the batch.
                     eff.send(eff.me_ref(), Inputs::Local(BlockStreaming::Done))
                         .await;
+                    Ok((None, self))
                 }
-                Ok((Some(ResponderAction::Block(block)), self))
             }
             BlockStreaming::Done => Ok((Some(ResponderAction::BatchDone), self)),
         }
     }
 
     async fn network(
-        mut self,
+        self,
         _proto: &State,
         input: ResponderResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
@@ -119,12 +188,10 @@ impl StageState<State, Responder> for BlockFetchResponder {
         match input {
             ResponderResult::RequestRange { from, through } => {
                 let store = Store::new(eff.clone());
-                let range = store.get_range(&from.hash(), &through.hash());
-                self.current_range = VecDeque::from(range);
-                if let Some(block) = self.load_first_block(eff).await {
+                if let Some(points_range) = PointsRange::request_range(&store, from, through) {
                     eff.send(
                         eff.me_ref(),
-                        Inputs::Local(BlockStreaming::SendBlock(block.to_vec())),
+                        Inputs::Local(BlockStreaming::NextBlock(points_range)),
                     )
                     .await;
                     Ok((Some(ResponderAction::StartBatch), self))
@@ -210,6 +277,12 @@ pub enum ResponderResult {
 pub mod tests {
     use super::*;
     use crate::protocol::Responder;
+    use amaru_kernel::is_header::tests::{any_header_with_parent, any_headers_chain, run};
+    use amaru_kernel::tests::random_hash;
+    use amaru_kernel::{BlockHeader, IsHeader};
+    use amaru_ouroboros_traits::ChainStore;
+    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+    use std::sync::Arc;
 
     #[test]
     #[expect(clippy::wildcard_enum_match_arm)]
@@ -221,5 +294,91 @@ pub mod tests {
             Message::BatchDone => Some(ResponderAction::BatchDone),
             _ => None,
         });
+    }
+
+    #[test]
+    fn request_range_best_chain_valid() {
+        let (store, headers) = make_store_with_chain(5);
+        let from = headers[1].point();
+        let through = headers[3].point();
+        let range = PointsRange::request_range(&*store, from, through);
+        assert_eq!(range, Some(PointsRange::BestChain { from, through }));
+    }
+
+    #[test]
+    fn request_range_best_chain_invalid_order() {
+        let (store, headers) = make_store_with_chain(4);
+        let from = headers[3].point();
+        let through = headers[1].point();
+        let range = PointsRange::request_range(&*store, from, through);
+        assert_eq!(range, None);
+    }
+
+    #[test]
+    fn request_range_from_not_on_best_chain() {
+        let (store, headers) = make_store_with_chain(6);
+        // a header not on the best chain
+        let foreign = run(any_header_with_parent(headers[2].hash()));
+        store.store_header(&foreign).unwrap();
+        let from = foreign.point();
+        let through = headers[3].point();
+        let range = PointsRange::request_range(&*store, from, through);
+        assert_eq!(range, None);
+    }
+
+    #[test]
+    fn request_range_fork_success() {
+        let (store, headers) = make_store_with_chain(6);
+        let from = headers[2].point();
+        // Create a fork from 'from'
+        let via = run(any_header_with_parent(from.hash()));
+        let through = run(any_header_with_parent(via.hash()));
+        store.store_header(&via).unwrap();
+        store.store_header(&through).unwrap();
+        let range = PointsRange::request_range(&*store, from, through.point());
+        assert_eq!(
+            range,
+            Some(PointsRange::Fork(vec![through.point(), via.point(), from]))
+        );
+    }
+
+    #[test]
+    fn request_range_fork_no_common_ancestor() {
+        let (store, headers) = make_store_with_chain(5);
+        // a header whose parent is not in the store
+        let foreign = run(any_header_with_parent(random_hash()));
+        let from = headers[1].point();
+        let through = foreign.point();
+        let range = PointsRange::request_range(&*store, from, through);
+        assert_eq!(range, None);
+    }
+
+    #[test]
+    fn request_range_fork_too_old() {
+        let (store, headers) = make_store_with_chain(6);
+        let from = headers[2].point();
+        // Create a fork from 'from' but beyond the anchor
+        let via = run(any_header_with_parent(from.hash()));
+        let through = run(any_header_with_parent(via.hash()));
+        store.store_header(&via).unwrap();
+        store.set_anchor_hash(&via.hash()).unwrap();
+        store.store_header(&through).unwrap();
+        let range = PointsRange::request_range(&*store, from, through.point());
+        assert_eq!(range, None);
+    }
+
+    // HELPERS
+
+    fn make_store_with_chain(
+        n: usize,
+    ) -> (Arc<InMemConsensusStore<BlockHeader>>, Vec<BlockHeader>) {
+        let headers: Vec<BlockHeader> = run(any_headers_chain(n));
+        let store = Arc::new(InMemConsensusStore::new());
+        for h in &headers {
+            store.store_header(h).unwrap();
+            store.roll_forward_chain(&h.point()).unwrap();
+            store.set_best_chain_hash(&h.hash()).unwrap();
+        }
+        (store, headers)
     }
 }

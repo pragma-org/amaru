@@ -93,27 +93,25 @@ where
         }
     }
 
-    /// Get the range of headers from `from_inclusive` to `to_inclusive`.
-    fn get_range(&self, from_inclusive: &HeaderHash, to_inclusive: &HeaderHash) -> Vec<HeaderHash> {
-        let mut headers = vec![];
-        let mut current_hash = *to_inclusive;
-        while current_hash != *from_inclusive {
-            if let Some(header) = self.load_header(&current_hash) {
-                headers.push(header.hash());
-                if let Some(parent) = header.parent() {
-                    current_hash = parent;
-                } else {
+    /// Return all ancestor points from `to_inclusive` to `from_inclusive`, including both.
+    /// Return None if `from_inclusive` is not an ancestor of `to_inclusive` or if the anchor is reached first.
+    fn ancestors_points(&self, from_inclusive: &Point, to_inclusive: &Point) -> Option<Vec<Point>> {
+        if let Some(header) = self.load_header(&to_inclusive.hash()) {
+            let anchor = self.get_anchor_hash();
+            let mut result = vec![];
+            for h in self.ancestors(header) {
+                result.push(h.point());
+                if &h.point() == from_inclusive {
                     break;
                 }
-            } else {
-                break;
+                if h.hash() == anchor {
+                    return None;
+                }
             }
+            Some(result)
+        } else {
+            None
         }
-        if let Some(header) = self.load_header(&current_hash) {
-            headers.push(header.hash());
-        }
-        headers.reverse();
-        headers
     }
 }
 
