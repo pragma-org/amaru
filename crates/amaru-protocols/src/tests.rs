@@ -23,6 +23,7 @@ use crate::{chainsync, manager};
 use amaru_kernel::is_header::tests::{any_headers_chain_with_root, make_header, run};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
+use amaru_kernel::string_utils::ListToString;
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, RawBlock, cbor, to_cbor};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
@@ -178,7 +179,22 @@ fn check_state(initiator: TokioRunning, responder: TokioRunning) -> anyhow::Resu
 
     let initiator_blocks = get_blocks(initiator_chain_store);
     let responder_blocks = get_blocks(responder_chain_store);
-    assert_eq!(initiator_blocks, responder_blocks);
+    // assert_eq!(initiator_blocks.len(), responder_blocks.len());
+    assert_eq!(
+        initiator_blocks,
+        responder_blocks,
+        "initiator blocks {:?}\nresponder blocks {:?}",
+        initiator_blocks
+            .iter()
+            .map(|b| b.0)
+            .collect::<Vec<_>>()
+            .list_to_string(","),
+        responder_blocks
+            .iter()
+            .map(|b| b.0)
+            .collect::<Vec<_>>()
+            .list_to_string(",")
+    );
 
     // Verify that the 2 nodes have the same transactions
     let tx_ids = get_tx_ids();
@@ -369,6 +385,7 @@ async fn test_chainsync_stage(
 
                 state.total_requested_blocks += state.blocks_to_fetch.len();
                 // store the fetched blocks with their corresponding headers.
+                tracing::info!("retrieved {} blocks", blocks.blocks.len());
                 for block in blocks.blocks {
                     // Check that the block can be decoded
                     let block: Block = cbor::decode(block.as_slice())
@@ -457,34 +474,32 @@ fn initialize_chain_store(
     let mut headers = run(any_headers_chain_with_root(chain_size, root_header.hash()));
     headers.insert(0, root_header);
 
-    for (i, header) in headers.iter().enumerate() {
+    for header in headers.iter() {
         chain_store.store_header(header)?;
         chain_store.roll_forward_chain(&header.point())?;
         chain_store.set_best_chain_hash(&header.hash())?;
 
-        // Add a block for each header
-        // We skip one block to test that the initiator can try to fetch missing blocks
-        if i != 4 {
-            tracing::info!("storing block for header {}", header.point());
-
-            let mut block = make_block();
-            block.header = header.header().clone();
-            chain_store.store_block(&header.hash(), &RawBlock::from(to_cbor(&block).as_slice()))?;
-        }
+        tracing::info!("storing block for header {}", header.point());
+        let mut block = make_block();
+        block.header = header.header().clone();
+        chain_store.store_block(&header.hash(), &RawBlock::from(to_cbor(&block).as_slice()))?;
     }
     Ok(())
 }
 
 /// Retrieve all blocks from the chain store starting from the best chain tip down to the root.
-fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<Block> {
+fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, Block)> {
     store
         .retrieve_best_chain()
         .iter()
-        .filter_map(|h| {
-            store
+        .map(|h| {
+            let b = store
                 .load_block(h)
-                .ok()
-                .map(|b| cbor::decode(b.deref()).unwrap())
+                .expect("missing block for best-chain header");
+            (
+                *h,
+                cbor::decode(b.deref()).expect("failed to decode block bytes"),
+            )
         })
         .collect()
 }

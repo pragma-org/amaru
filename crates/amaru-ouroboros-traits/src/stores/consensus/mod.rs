@@ -63,14 +63,20 @@ where
     }
 
     /// Return the ancestors of the header, including the header itself.
-    /// Stop at the anchor of the tree.
+    /// Stop if the followed chain reaches past the anchor.
+    #[expect(clippy::panic)] // Anchor header must exist in store
     fn ancestors<'a>(&'a self, start: H) -> Box<dyn Iterator<Item = H> + 'a>
     where
         H: 'a,
     {
         let anchor = self.get_anchor_hash();
+        let anchor_point = match self.load_header(&anchor) {
+            Some(header) => header.point(),
+            None => panic!("Anchor header not found in chain store"),
+        };
+
         Box::new(successors(Some(start), move |h| {
-            if h.hash() == anchor {
+            if h.slot() <= anchor_point.slot_or_default() {
                 None
             } else {
                 h.parent().and_then(|p| self.load_header(&p))
@@ -93,27 +99,21 @@ where
         }
     }
 
-    /// Get the range of headers from `from_inclusive` to `to_inclusive`.
-    fn get_range(&self, from_inclusive: &HeaderHash, to_inclusive: &HeaderHash) -> Vec<HeaderHash> {
-        let mut headers = vec![];
-        let mut current_hash = *to_inclusive;
-        while current_hash != *from_inclusive {
-            if let Some(header) = self.load_header(&current_hash) {
-                headers.push(header.hash());
-                if let Some(parent) = header.parent() {
-                    current_hash = parent;
-                } else {
-                    break;
+    /// Return all ancestor points from `to_inclusive` to `from_inclusive`, including both points.
+    /// Return None if `from_inclusive` is not an ancestor of `to_inclusive` (up to the anchor slot).
+    fn ancestors_points(&self, from_inclusive: &Point, to_inclusive: &Point) -> Option<Vec<Point>> {
+        if let Some(header) = self.load_header(&to_inclusive.hash()) {
+            let mut result = vec![];
+            for h in self.ancestors(header) {
+                result.push(h.point());
+                if &h.point() == from_inclusive {
+                    return Some(result);
                 }
-            } else {
-                break;
             }
+            None
+        } else {
+            None
         }
-        if let Some(header) = self.load_header(&current_hash) {
-            headers.push(header.hash());
-        }
-        headers.reverse();
-        headers
     }
 }
 
