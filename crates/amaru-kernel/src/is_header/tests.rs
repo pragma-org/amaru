@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::*;
+use pallas_primitives::conway::{Header, HeaderBody};
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::{Config, RngSeed, TestRunner};

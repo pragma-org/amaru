@@ -115,7 +115,7 @@ pub mod ignore_eq;
 pub use ignore_eq::IgnoreEq;
 
 pub mod is_header;
-pub use is_header::*;
+pub use is_header::{BlockHeader, IsHeader};
 
 pub use memoized::*;
 pub mod memoized;
@@ -256,6 +256,10 @@ pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
 pub const HEADER_HASH_SIZE: usize = 32;
 
 pub const ORIGIN_HASH: HeaderHash = Hash::new([0; HEADER_HASH_SIZE]);
+
+/// Conway era tag used in network format blocks.
+/// Network format: [era_tag: u16, block_data]
+pub const CONWAY_ERA_TAG: u16 = 7;
 
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
