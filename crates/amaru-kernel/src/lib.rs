@@ -49,15 +49,15 @@ pub use pallas_primitives::{
         AddrKeyhash, AssetName, BigInt, BootstrapWitness, Certificate, Coin, Constitution, Constr,
         CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash, DatumOption, ExUnitPrices,
         ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, Language,
-        MaybeIndefArray, Mint, MintedDatumOption, MintedScriptRef, MintedTransactionOutput,
-        Multiasset, NativeScript, NetworkId, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs,
-        NonZeroInt, PlutusData, PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds,
-        PositiveCoin, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
-        ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
-        RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay,
-        RequiredSigners as PallasRequiredSigners, RewardAccount, ScriptHash, ScriptRef,
-        StakeCredential, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
-        Vote, Voter, VotingProcedure, VotingProcedures as PallasVotingProcedures, VrfKeyhash,
+        MaybeIndefArray, Mint, MintedDatumOption, MintedScriptRef, Multiasset, NativeScript,
+        NetworkId, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonZeroInt, PlutusData,
+        PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds, PositiveCoin,
+        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
+        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners as PallasRequiredSigners,
+        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionInput, TransactionOutput,
+        Tx, UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure,
+        VotingProcedures as PallasVotingProcedures, VrfKeyhash,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -486,15 +486,6 @@ impl HasLovelace for TransactionOutput {
         match self {
             TransactionOutput::Legacy(legacy) => legacy.amount.lovelace(),
             TransactionOutput::PostAlonzo(modern) => modern.value.lovelace(),
-        }
-    }
-}
-
-impl HasLovelace for MintedTransactionOutput<'_> {
-    fn lovelace(&self) -> Lovelace {
-        match self {
-            PseudoTransactionOutput::Legacy(legacy) => legacy.amount.lovelace(),
-            PseudoTransactionOutput::PostAlonzo(modern) => modern.value.lovelace(),
         }
     }
 }

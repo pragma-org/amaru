@@ -13,9 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    Address, AlonzoValue, AssetName, KeyValuePairs, Legacy, Lovelace, MemoizedDatum,
-    MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs, ScriptHash, Value, cbor,
-    decode_script, from_minted_script,
+    Address, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, Value, cbor,
+    decode_script,
     script::{PlaceholderScript, encode_script, serialize_memoized_script},
 };
 use amaru_minicbor_extra::{decode_break, heterogeneous_map, missing_field, unexpected_field};
@@ -173,75 +172,7 @@ impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
     }
 }
 
-impl<'a> TryFrom<MintedTransactionOutput<'a>> for MemoizedTransactionOutput {
-    type Error = String;
-
-    fn try_from(
-        output: MintedTransactionOutput<'a>,
-    ) -> Result<MemoizedTransactionOutput, Self::Error> {
-        match output {
-            MintedTransactionOutput::Legacy(output) => Ok(MemoizedTransactionOutput {
-                is_legacy: true,
-                address: Address::from_bytes(&output.address)
-                    .map_err(|e| format!("invalid address: {e:?}"))?,
-                value: from_legacy_value(output.amount)?,
-                datum: MemoizedDatum::from(output.datum_hash),
-                script: None,
-            }),
-            MintedTransactionOutput::PostAlonzo(output) => Ok(MemoizedTransactionOutput {
-                is_legacy: false,
-                address: Address::from_bytes(&output.address)
-                    .map_err(|e| format!("invalid address: {e:?}"))?,
-                value: output.value,
-                datum: MemoizedDatum::from(output.datum_option),
-                script: output.script_ref.map(from_minted_script),
-            }),
-        }
-    }
-}
-
 // --------------------------------------------------------------------- Helpers
-
-fn from_legacy_value(value: AlonzoValue) -> Result<Value, String> {
-    let from_tokens = |tokens: KeyValuePairs<AssetName, Lovelace>| {
-        pallas_primitives::NonEmptyKeyValuePairs::try_from(
-            tokens
-                .to_vec()
-                .into_iter()
-                .map(|(asset_name, quantity)| {
-                    Ok((
-                        asset_name,
-                        quantity
-                            .try_into()
-                            .map_err(|e| format!("invalid quantity in legacy output: {e}"))?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, String>>()?,
-        )
-        .map_err(|_| "empty tokens under a policy?".to_string())
-    };
-
-    match value {
-        AlonzoValue::Coin(coin) => Ok(Value::Coin(coin)),
-        AlonzoValue::Multiasset(coin, assets) if assets.is_empty() => Ok(Value::Coin(coin)),
-        AlonzoValue::Multiasset(coin, assets) => {
-            let from_assets =
-                |assets: KeyValuePairs<ScriptHash, KeyValuePairs<AssetName, Lovelace>>| {
-                    pallas_primitives::NonEmptyKeyValuePairs::try_from(
-                        assets
-                            .to_vec()
-                            .into_iter()
-                            .map(|(policy_id, tokens)| Ok((policy_id, from_tokens(tokens)?)))
-                            .collect::<Result<Vec<_>, String>>()?,
-                    )
-                    .map_err(|_| "assets cannot be empty due to pattern-guard".to_string())
-                };
-
-            let pairs: pallas_primitives::NonEmptyKeyValuePairs<_, _> = from_assets(assets)?;
-            Ok(Value::Multiasset(coin, pairs))
-        }
-    }
-}
 
 fn serialize_address<S: serde::ser::Serializer>(
     addr: &Address,
