@@ -19,7 +19,7 @@ use crate::{
     network_effects::{Network, NetworkOps},
     protocol::Role,
 };
-use amaru_kernel::{Point, peer::Peer, protocol_messages::network_magic::NetworkMagic};
+use amaru_kernel::{NetworkMagic, Peer, Point};
 use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
 use pure_stage::{Effects, StageRef};
 use std::{collections::BTreeMap, time::Duration};

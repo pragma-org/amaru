@@ -44,15 +44,14 @@ Summarizing:
                                       └─────────────────────────┘
 */
 
-use amaru_kernel::{Hash, HeaderHash, IsHeader, Nonce, cbor};
-use amaru_slot_arithmetic::Epoch;
+use amaru_kernel::{Epoch, HeaderHash, IsHeader, Nonce, cbor};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Nonces {
     pub active: Nonce,
     pub evolving: Nonce,
     pub candidate: Nonce,
-    pub tail: Hash<32>,
+    pub tail: HeaderHash,
     pub epoch: Epoch,
 }
 

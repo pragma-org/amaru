@@ -33,14 +33,14 @@ clap.workspace = true
 flate2.workspace = true
 futures-util.workspace = true
 hex.workspace = true
+include_dir = { workspace = true, features = ["glob"] }
 indicatif.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
-
 mithril-client = { workspace = true, optional = true }
 opentelemetry-otlp.workspace = true
-opentelemetry.workspace = true
 opentelemetry-semantic-conventions.workspace = true
+opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
 pallas-hardano.workspace = true
 pallas-network.workspace = true
@@ -72,12 +72,12 @@ amaru-network.workspace = true
 amaru-stores.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
+amaru-plutus.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-protocols.workspace = true
 amaru-slot-arithmetic.workspace = true
 amaru-metrics.workspace = true
 pure-stage.workspace = true
-include_dir = { workspace = true, features = ["glob"] }
 
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.10.2"

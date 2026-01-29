@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::check_tagged_array_length;
-use amaru_kernel::protocol_messages::{
+use crate::protocol_messages::{
     handshake::RefuseReason, version_number::VersionNumber, version_table::VersionTable,
 };
-use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
+use amaru_kernel::cbor;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -30,16 +29,16 @@ where
     QueryReply(VersionTable<D>),
 }
 
-impl<D> Encode<()> for Message<D>
+impl<D> cbor::Encode<()> for Message<D>
 where
-    D: fmt::Debug + Clone + Encode<VersionNumber>,
-    VersionTable<D>: Encode<()>,
+    D: fmt::Debug + Clone + cbor::Encode<VersionNumber>,
+    VersionTable<D>: cbor::Encode<()>,
 {
-    fn encode<W: encode::Write>(
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         _ctx: &mut (),
-    ) -> Result<(), encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
             Message::Propose(version_table) => {
                 e.array(2)?.u16(0)?;
@@ -65,38 +64,38 @@ where
     }
 }
 
-impl<'b, D> Decode<'b, ()> for Message<D>
+impl<'b, D> cbor::Decode<'b, ()> for Message<D>
 where
-    D: Decode<'b, VersionNumber> + fmt::Debug + Clone,
-    VersionTable<D>: Decode<'b, ()>,
+    D: cbor::Decode<'b, VersionNumber> + fmt::Debug + Clone,
+    VersionTable<D>: cbor::Decode<'b, ()>,
 {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
         let len = d.array()?;
 
         match d.u16()? {
             0 => {
-                check_tagged_array_length(0, len, 2)?;
+                cbor::check_tagged_array_length(0, len, 2)?;
                 let version_table = d.decode()?;
                 Ok(Message::Propose(version_table))
             }
             1 => {
-                check_tagged_array_length(1, len, 3)?;
+                cbor::check_tagged_array_length(1, len, 3)?;
                 let version_number = d.decode()?;
                 let mut ctx = version_number;
                 let version_data = d.decode_with(&mut ctx)?;
                 Ok(Message::Accept(version_number, version_data))
             }
             2 => {
-                check_tagged_array_length(2, len, 2)?;
+                cbor::check_tagged_array_length(2, len, 2)?;
                 let reason: RefuseReason = d.decode()?;
                 Ok(Message::Refuse(reason))
             }
             3 => {
-                check_tagged_array_length(3, len, 2)?;
+                cbor::check_tagged_array_length(3, len, 2)?;
                 let version_table = d.decode()?;
                 Ok(Message::QueryReply(version_table))
             }
-            n => Err(decode::Error::message(format!(
+            n => Err(cbor::decode::Error::message(format!(
                 "unknown variant for handshake message: {}",
                 n,
             ))),
@@ -106,17 +105,19 @@ where
 
 /// Roundtrip property tests for handshake messages.
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::handshake::messages::Message::*;
+    use crate::{
+        handshake::messages::Message::*,
+        protocol_messages::{
+            handshake::tests::any_refuse_reason,
+            version_data::{VersionData, tests::any_version_data},
+            version_number::tests::any_version_number,
+            version_table::tests::any_version_table,
+        },
+    };
     use amaru_kernel::prop_cbor_roundtrip;
-    use amaru_kernel::protocol_messages::handshake::tests::any_refuse_reason;
-    use amaru_kernel::protocol_messages::version_data::VersionData;
-    use amaru_kernel::protocol_messages::version_data::tests::any_version_data;
-    use amaru_kernel::protocol_messages::version_number::tests::any_version_number;
-    use amaru_kernel::protocol_messages::version_table::tests::any_version_table;
-    use proptest::prelude::*;
-    use proptest::prop_compose;
+    use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(Message<VersionData>, any_message());
 

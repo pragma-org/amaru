@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::TEST_DATA_DIR;
 use amaru_sim::simulator::{
-    Args, GeneratedEntries, NodeConfig, SimulateConfig, generate_entries, run::spawn_node,
+    Args, GeneratedEntries, NodeConfig, SimulateConfig, TEST_DATA_DIR, generate_entries,
+    run::spawn_node,
 };
 use amaru_tracing_json::assert_spans_trees;
-use pure_stage::Instant;
-use pure_stage::simulation::{RandStdRng, SimulationBuilder};
-use rand::SeedableRng;
-use rand::prelude::StdRng;
+use pure_stage::{
+    Instant,
+    simulation::{RandStdRng, SimulationBuilder},
+};
+use rand::{SeedableRng, prelude::StdRng};
 use serde_json::json;
 use std::time::Duration;
 use tokio::runtime::Runtime;

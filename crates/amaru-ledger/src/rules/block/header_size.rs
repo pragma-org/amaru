@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::protocol_parameters::ProtocolParameters;
-
 use super::InvalidBlockDetails;
+use amaru_kernel::ProtocolParameters;
 
 pub fn block_header_size_valid(
     actual_header_size: u64,
@@ -56,7 +55,7 @@ mod tests {
         assert!(matches!(
             block_header_size_valid(
                 block.header_len(),
-                &amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS
+                &amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS
             ),
             Ok(())
         ))

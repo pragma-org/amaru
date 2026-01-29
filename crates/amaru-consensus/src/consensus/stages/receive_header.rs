@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
-use crate::consensus::span::HasSpan;
-use amaru_kernel::consensus_events::{ChainSyncEvent, DecodedChainSyncEvent};
-use amaru_kernel::{BlockHeader, Header, IsHeader, MintedHeader, cbor};
+use crate::consensus::{
+    effects::{BaseOps, ConsensusOps},
+    errors::{ConsensusError, ProcessingFailed, ValidationFailed},
+    events::{ChainSyncEvent, DecodedChainSyncEvent},
+    span::HasSpan,
+};
+use amaru_kernel::{BlockHeader, IsHeader, from_cbor_no_leftovers};
 use pure_stage::StageRef;
 use tracing::{Instrument, Level, instrument};
 
@@ -121,25 +123,17 @@ pub fn stage(
         name = "chain_sync.decode_header",
 )]
 pub fn decode_header(raw_header: &[u8]) -> Result<BlockHeader, ConsensusError> {
-    let minted_header: MintedHeader<'_> =
-        cbor::decode(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
-            header: raw_header.into(),
-            reason: reason.to_string(),
-        })?;
-
-    let header = Header::from(minted_header);
-    Ok(BlockHeader::from(header))
+    from_cbor_no_leftovers(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
+        header: raw_header.into(),
+        reason: reason.to_string(),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::effects::mock_consensus_ops;
-    use crate::consensus::errors::ValidationFailed;
-    use amaru_kernel::is_header::tests::{any_header, run};
-    use amaru_kernel::peer::Peer;
-    use amaru_kernel::protocol_messages::tip::Tip;
-    use amaru_kernel::{IsHeader, Point};
+    use crate::consensus::{effects::mock_consensus_ops, errors::ValidationFailed};
+    use amaru_kernel::{IsHeader, Peer, Point, Tip, any_header, cbor, utils::tests::run_strategy};
     use amaru_ouroboros::ChainStore;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
@@ -148,7 +142,7 @@ mod tests {
     #[tokio::test]
     async fn a_header_that_can_be_decoded_is_sent_downstream() -> anyhow::Result<()> {
         let peer = Peer::new("name");
-        let header = run(any_header());
+        let header = run_strategy(any_header());
         let message = ChainSyncEvent::RollForward {
             peer: peer.clone(),
             tip: header.tip(),
@@ -203,7 +197,7 @@ mod tests {
 
     #[tokio::test]
     async fn rollback_is_just_sent_downstream() -> anyhow::Result<()> {
-        let header = run(any_header());
+        let header = run_strategy(any_header());
         let peer = Peer::new("name");
         let span = Span::current();
         let message = ChainSyncEvent::Rollback {
@@ -234,7 +228,7 @@ mod tests {
 
     #[test]
     fn decode_header_on_generated_header() {
-        let header = run(any_header());
+        let header = run_strategy(any_header());
         let raw_header = cbor::to_vec(header.clone()).unwrap();
         let decoded = decode_header(&raw_header).unwrap();
         assert_eq!(header, decoded);

@@ -12,21 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeSet, VecDeque};
-use std::fmt::Display;
-
-use crate::mempool_effects::MemoryPool;
-use crate::mux::MuxMessage;
-use crate::protocol::{
-    Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState,
-    miniprotocol, outcome,
+use crate::{
+    mempool_effects::MemoryPool,
+    mux::MuxMessage,
+    protocol::{
+        Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState,
+        miniprotocol, outcome,
+    },
+    tx_submission::{Blocking, Message, ProtocolError, ResponderParams, State},
 };
-use crate::tx_submission::{Blocking, Message, ProtocolError, ResponderParams, State};
 use ProtocolError::*;
-use amaru_kernel::Tx;
+use amaru_kernel::Transaction;
 use amaru_ouroboros::TxSubmissionMempool;
 use amaru_ouroboros_traits::{TxId, TxOrigin};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use std::{
+    collections::{BTreeSet, VecDeque},
+    fmt::Display,
+};
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<TxSubmissionResponder>().boxed()]
@@ -54,7 +57,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         input: ResponderResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        let mempool: &dyn TxSubmissionMempool<Tx> = &MemoryPool::new(eff.clone());
+        let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
 
         let action = match input {
             ResponderResult::Init => {
@@ -143,7 +146,7 @@ impl ProtocolState<Responder> for State {
 pub enum ResponderResult {
     Init,
     ReplyTxIds(Vec<(TxId, u32)>),
-    ReplyTxs(Vec<Tx>),
+    ReplyTxs(Vec<Transaction>),
     Done,
 }
 
@@ -198,7 +201,7 @@ impl TxSubmissionResponder {
 
     fn initialize_state(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Tx>,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
     ) -> Option<ResponderAction> {
         let (ack, req, blocking) = self.request_tx_ids(mempool);
         Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
@@ -206,7 +209,7 @@ impl TxSubmissionResponder {
 
     fn process_tx_ids_reply(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Tx>,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
         tx_ids: Vec<(TxId, u32)>,
     ) -> anyhow::Result<Option<ResponderAction>> {
         if self.window.len() + tx_ids.len() > self.params.max_window.into() {
@@ -233,8 +236,8 @@ impl TxSubmissionResponder {
 
     fn process_txs_reply(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Tx>,
-        txs: Vec<Tx>,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
+        txs: Vec<Transaction>,
         origin: TxOrigin,
     ) -> anyhow::Result<Option<ResponderAction>> {
         if txs.len() > self.params.fetch_batch.into() {
@@ -274,7 +277,10 @@ impl TxSubmissionResponder {
     /// Prepare a request for tx ids, acknowledging already processed ones
     /// and requesting as many as fit in the window.
     #[allow(clippy::expect_used)]
-    fn request_tx_ids(&mut self, mempool: &dyn TxSubmissionMempool<Tx>) -> (u16, u16, Blocking) {
+    fn request_tx_ids(
+        &mut self,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
+    ) -> (u16, u16, Blocking) {
         // Acknowledge everything we’ve already processed.
         let mut ack = 0_u16;
 
@@ -345,8 +351,8 @@ impl TxSubmissionResponder {
     /// Process received txs, validating and inserting them into the mempool.
     fn received_txs(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Tx>,
-        txs: Vec<Tx>,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
+        txs: Vec<Transaction>,
         origin: TxOrigin,
     ) -> anyhow::Result<()> {
         for tx in txs {
@@ -410,9 +416,8 @@ impl Display for ResponderAction {
 mod tests {
 
     use super::*;
-    use crate::tx_submission::assert_actions_eq;
-    use crate::tx_submission::tests::create_transactions;
-    use amaru_kernel::Tx;
+    use crate::tx_submission::{assert_actions_eq, tests::create_transactions};
+    use amaru_kernel::Transaction;
     use amaru_mempool::strategies::InMemoryMempool;
     use std::sync::Arc;
 
@@ -549,7 +554,7 @@ mod tests {
     // HELPERS
 
     async fn run_stage(
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<Vec<ResponderAction>> {
         let (actions, _responder) = run_stage_and_return_state(mempool, results).await?;
@@ -557,7 +562,7 @@ mod tests {
     }
 
     async fn run_stage_and_return_state(
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
         run_stage_and_return_state_with(
@@ -575,7 +580,7 @@ mod tests {
 
     async fn run_stage_and_return_state_with(
         mut responder: TxSubmissionResponder,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
         let mut actions = vec![];
@@ -606,11 +611,11 @@ mod tests {
         ResponderResult::Done
     }
 
-    fn reply_tx_ids(txs: &[Tx], ids: &[usize]) -> ResponderResult {
+    fn reply_tx_ids(txs: &[Transaction], ids: &[usize]) -> ResponderResult {
         ResponderResult::ReplyTxIds(ids.iter().map(|id| (TxId::from(&txs[*id]), 50)).collect())
     }
 
-    fn reply_txs(txs: &[Tx], ids: &[usize]) -> ResponderResult {
+    fn reply_txs(txs: &[Transaction], ids: &[usize]) -> ResponderResult {
         ResponderResult::ReplyTxs(ids.iter().map(|id| txs[*id].clone()).collect())
     }
 
@@ -618,7 +623,7 @@ mod tests {
         ResponderAction::SendRequestTxIds { ack, req, blocking }
     }
 
-    fn request_txs(txs: &[Tx], ids: &[usize]) -> ResponderAction {
+    fn request_txs(txs: &[Transaction], ids: &[usize]) -> ResponderAction {
         ResponderAction::SendRequestTxs(ids.iter().map(|id| TxId::from(&txs[*id])).collect())
     }
 

@@ -17,13 +17,13 @@ use crate::{
     mux::{self, MuxMessage},
     network_effects::create_connection,
     protocol::{Inputs, PROTO_HANDSHAKE},
+    protocol_messages::{
+        version_data::{PEER_SHARING_DISABLED, VersionData},
+        version_number::VersionNumber,
+        version_table::VersionTable,
+    },
 };
-use amaru_kernel::protocol_messages::{
-    network_magic::NetworkMagic,
-    version_data::{PEER_SHARING_DISABLED, VersionData},
-    version_number::VersionNumber,
-    version_table::VersionTable,
-};
+use amaru_kernel::NetworkMagic;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::ConnectionResource;
 use futures_util::StreamExt;

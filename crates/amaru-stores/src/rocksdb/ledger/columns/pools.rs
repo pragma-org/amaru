@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
+use amaru_kernel::Epoch;
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -20,7 +21,6 @@ use amaru_ledger::store::{
         unsafe_decode,
     },
 };
-use amaru_slot_arithmetic::Epoch;
 use rocksdb::{DBPinnableSlice, Transaction};
 use tracing::error;
 

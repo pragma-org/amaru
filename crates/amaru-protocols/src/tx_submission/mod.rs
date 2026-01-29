@@ -30,9 +30,11 @@ mod tests;
 #[cfg(test)]
 pub use tests::*;
 
-use crate::connection::ConnectionMessage;
-use crate::mux;
-use crate::protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT};
+use crate::{
+    connection::ConnectionMessage,
+    mux,
+    protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT},
+};
 use amaru_ouroboros::TxOrigin;
 use pure_stage::{Effects, StageRef, Void};
 

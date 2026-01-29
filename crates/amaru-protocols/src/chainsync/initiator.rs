@@ -21,7 +21,7 @@ use crate::{
     },
     store_effects::Store,
 };
-use amaru_kernel::{BlockHeader, ORIGIN_HASH, Point, peer::Peer, protocol_messages::tip::Tip};
+use amaru_kernel::{BlockHeader, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
@@ -286,8 +286,7 @@ pub mod tests {
     use crate::protocol::ProtoSpec;
     use InitiatorState::*;
     use Message::*;
-    use amaru_kernel::is_header::tests::make_header;
-    use amaru_kernel::{HeaderHash, RawBlock, Slot};
+    use amaru_kernel::{Hash, HeaderHash, RawBlock, Slot, make_header, size::HEADER};
     use amaru_ouroboros_traits::{Nonces, StoreError};
 
     pub fn spec() -> ProtoSpec<InitiatorState, Message, Initiator> {
@@ -344,18 +343,18 @@ pub mod tests {
     impl Default for MockChainStoreForIntersectPoints {
         fn default() -> Self {
             Self {
-                best_point: Point::Specific(Slot::from(100), HeaderHash::new([100u8; 32])),
+                best_point: Point::Specific(Slot::from(100), Hash::new([100u8; HEADER])),
             }
         }
     }
 
     #[expect(clippy::todo)]
     impl ReadOnlyChainStore<BlockHeader> for MockChainStoreForIntersectPoints {
-        fn get_best_chain_hash(&self) -> amaru_kernel::Hash<32> {
+        fn get_best_chain_hash(&self) -> HeaderHash {
             self.best_point.hash()
         }
 
-        fn load_header(&self, _hash: &amaru_kernel::Hash<32>) -> Option<BlockHeader> {
+        fn load_header(&self, _hash: &HeaderHash) -> Option<BlockHeader> {
             Some(BlockHeader::new(
                 make_header(1, self.best_point.slot_or_default().into(), None),
                 self.best_point.hash(),
@@ -368,7 +367,7 @@ pub mod tests {
         {
             let mut ancestor_block_headers = vec![];
             for slot in 0..100 {
-                let header_hash = HeaderHash::new([slot as u8; 32]);
+                let header_hash = Hash::new([slot as u8; HEADER]);
                 let block_header = BlockHeader::new(make_header(1, slot, None), header_hash);
                 ancestor_block_headers.push(block_header);
             }

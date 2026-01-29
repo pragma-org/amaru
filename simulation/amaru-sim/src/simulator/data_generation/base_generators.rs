@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use pure_stage::Instant;
-use rand::Rng;
-use rand::prelude::StdRng;
+use rand::{Rng, prelude::StdRng};
 use rand_distr::{Distribution, LogNormal};
 use std::time::Duration;
 
@@ -99,8 +98,7 @@ mod tests {
     use pure_stage::Instant;
     use rand::SeedableRng;
     use rand_distr::Exp;
-    use std::collections::BTreeMap;
-    use std::time::Duration;
+    use std::{collections::BTreeMap, time::Duration};
 
     #[test]
     fn test_generate_u8() {

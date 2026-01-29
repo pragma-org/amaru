@@ -20,17 +20,14 @@
 //!
 //!
 
-use crate::consensus::headers_tree::HeadersTree;
-use crate::consensus::headers_tree::data_generation::Chain;
-use crate::consensus::headers_tree::tree::Tree;
-use amaru_kernel::is_header::tests::make_header;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::{BlockHeader, Bytes, HEADER_HASH_SIZE, Header, HeaderHash, IsHeader};
+use crate::consensus::headers_tree::{HeadersTree, data_generation::Chain, tree::Tree};
+use amaru_kernel::{
+    BlockHeader, Bytes, Header, HeaderHash, IsHeader, Peer, make_header, size::HEADER,
+};
 use amaru_ouroboros::ChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use proptest::prelude::Strategy;
-use rand::prelude::StdRng;
-use rand::{Rng, RngCore, SeedableRng};
+use rand::{Rng, RngCore, SeedableRng, prelude::StdRng};
 use std::sync::Arc;
 
 /// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
@@ -259,7 +256,7 @@ fn generate_header(
 ) -> BlockHeader {
     let mut header: Header = make_header(block, slot, parent);
     // introduce some randomness in the header so that the hash is not predictable
-    header.body_signature = Bytes::from(random_bytes_with_rng(HEADER_HASH_SIZE, rng));
+    header.body_signature = Bytes::from(random_bytes_with_rng(HEADER, rng));
     BlockHeader::from(header)
 }
 

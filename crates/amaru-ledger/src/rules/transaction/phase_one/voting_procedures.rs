@@ -14,8 +14,8 @@
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
-    HasStakeCredential, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript,
-    ScriptPurpose, StakeCredential, Voter, VotingProcedure,
+    HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript, ScriptPurpose,
+    StakeCredential, Voter, VotingProcedure,
 };
 use std::collections::BTreeMap;
 
@@ -34,7 +34,7 @@ pub(crate) fn execute<C>(
             .into_iter()
             .enumerate()
             .for_each(|(index, (voter, votes))| {
-                match voter.stake_credential() {
+                match voter.owner() {
                     StakeCredential::ScriptHash(hash) => {
                         context.require_script_witness(RequiredScript {
                             hash,

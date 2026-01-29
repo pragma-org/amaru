@@ -17,7 +17,8 @@ use crate::{
     rules::TransactionField,
 };
 use amaru_kernel::{
-    Address, HasOwnership, Lovelace, MemoizedDatum, RequiredScript, RewardAccount, ScriptPurpose,
+    Lovelace, MemoizedDatum, RequiredScript, RewardAccount, ScriptPurpose,
+    stake_credential_from_reward_account,
 };
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -44,14 +45,13 @@ where
             .into_iter()
             .enumerate()
             .map(|(position, (bytes, st))| {
-                let credential = Address::from_bytes(&bytes)
-                    .ok()
-                    .and_then(|account| account.credential())
-                    .ok_or_else(|| InvalidWithdrawals::MalformedRewardAccount {
+                let credential = stake_credential_from_reward_account(&bytes).ok_or_else(|| {
+                    InvalidWithdrawals::MalformedRewardAccount {
                         bytes: bytes.to_vec(),
                         context: TransactionField::Withdrawals,
                         position,
-                    })?;
+                    }
+                })?;
 
                 Ok((credential, st))
             })

@@ -14,8 +14,8 @@
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
-    MemoizedDatum, Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash,
-    ScriptPurpose, TransactionId, TransactionPointer,
+    Hash, MemoizedDatum, Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript,
+    ScriptPurpose, TransactionId, TransactionPointer, size::SCRIPT,
 };
 
 pub(crate) fn execute<C>(
@@ -47,21 +47,19 @@ pub(crate) fn execute<C>(
     }
 }
 
-fn get_proposal_script_hash(proposal: &Proposal) -> Option<ScriptHash> {
+fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
+    use amaru_kernel::GovernanceAction::*;
+
     match proposal.gov_action {
-        amaru_kernel::GovAction::ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => {
-            Some(gov_proposal_hash)
-        }
-        amaru_kernel::GovAction::TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => {
-            Some(gov_proposal_hash)
-        }
-        amaru_kernel::GovAction::ParameterChange(..)
-        | amaru_kernel::GovAction::HardForkInitiation(..)
-        | amaru_kernel::GovAction::TreasuryWithdrawals(..)
-        | amaru_kernel::GovAction::NoConfidence(_)
-        | amaru_kernel::GovAction::UpdateCommittee(..)
-        | amaru_kernel::GovAction::NewConstitution(..)
-        | amaru_kernel::GovAction::Information => None,
+        ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+        TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+        ParameterChange(..)
+        | HardForkInitiation(..)
+        | TreasuryWithdrawals(..)
+        | NoConfidence(_)
+        | UpdateCommittee(..)
+        | NewConstitution(..)
+        | Information => None,
     }
 }
 

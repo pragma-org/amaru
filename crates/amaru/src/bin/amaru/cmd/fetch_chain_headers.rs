@@ -14,7 +14,7 @@
 
 use crate::cmd::{WorkerError, connect_to_peer};
 use amaru::{DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, bootstrap::BootstrapError, get_bootstrap_file};
-use amaru_kernel::{BlockHeader, IsHeader, Point, from_cbor, network::NetworkName, peer::Peer};
+use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Peer, Point, from_cbor};
 use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
 use clap::{ArgAction, Parser};

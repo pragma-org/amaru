@@ -17,8 +17,8 @@ use crate::rocksdb::{
     dreps_delegations,
 };
 use amaru_kernel::{
-    CertificatePointer, DRep, Lovelace, PROTOCOL_VERSION_9, ProtocolVersion, StakeCredential,
-    StakeCredentialType, stake_credential_hash,
+    AsHash, CertificatePointer, DRep, Lovelace, PROTOCOL_VERSION_9, ProtocolVersion,
+    StakeCredential, StakeCredentialKind,
 };
 use amaru_ledger::{
     state::diff_bind::Resettable,
@@ -101,8 +101,8 @@ pub fn reset_delegation<DB>(
                 debug!(
                     unregistered.at = %unregistered_at,
                     redelegated.since = %delegated_since,
-                    delegator.type = %StakeCredentialType::from(&credential),
-                    delegator.hash = %stake_credential_hash(&credential),
+                    delegator.type = %StakeCredentialKind::from(&credential),
+                    delegator.hash = %credential.as_hash(),
                     "delegator has already re-delegated; ignoring previous drep de-registration",
                 );
             } else {
@@ -254,8 +254,8 @@ pub fn set<DB>(
 
     debug!(
         target: EVENT_TARGET,
-        type = %StakeCredentialType::from(credential),
-        account = %stake_credential_hash(credential),
+        type = %StakeCredentialKind::from(credential),
+        account = %credential.as_hash(),
         "set.no_account",
     );
 

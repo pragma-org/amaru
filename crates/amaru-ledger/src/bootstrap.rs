@@ -22,12 +22,10 @@ use crate::{
 use amaru_kernel::{
     Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution,
     DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    ProposalState, Reward, ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput,
-    TransactionPointer, UnitInterval, Vote, Voter, cbor, heterogeneous_array,
-    lazy::LazyDecoder,
-    network::NetworkName,
-    protocol_parameters::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters},
+    MemoizedTransactionOutput, NetworkName, PREPROD_INITIAL_PROTOCOL_PARAMETERS, Point, PoolId,
+    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, ProtocolParameters,
+    RationalNumber, Reward, Set, Slot, StakeCredential, StrictMaybe, TransactionInput,
+    TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
 };
 use amaru_progress_bar::ProgressBar;
 use std::{
@@ -465,7 +463,7 @@ fn import_utxo(
     let estimated_size = size.unwrap_or(match network {
         NetworkName::Mainnet => 11_000_000,
         NetworkName::Preview => 1_500_000,
-        NetworkName::Preprod => 1_000_000,
+        NetworkName::Preprod => 1_500_000,
         NetworkName::Testnet(..) => 1,
     });
 
@@ -944,7 +942,7 @@ fn import_constitution(
     info!(
         anchor = constitution.anchor.url,
         guardrails = Option::from(constitution.guardrail_script.clone())
-            .map(|s: ScriptHash| s.to_string().chars().take(8).collect())
+            .map(|s: Hash<28>| s.to_string().chars().take(8).collect())
             .unwrap_or_else(|| "none".to_string()),
         "constitution"
     );
@@ -1124,7 +1122,7 @@ struct GovActionState {
 
 impl<'d, C> cbor::decode::Decode<'d, C> for GovActionState {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        heterogeneous_array(d, |d, assert_len| {
+        cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(7)?;
             Ok(GovActionState {
                 id: d.decode_with(ctx)?,
@@ -1148,7 +1146,7 @@ enum ConstitutionalCommitteeAuthorization {
 
 impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        heterogeneous_array(d, |d, assert_len| match d.u8()? {
+        cbor::heterogeneous_array(d, |d, assert_len| match d.u8()? {
             0 => {
                 assert_len(2)?;
                 Ok(Self::DelegatedToHotCredential(d.decode_with(ctx)?))
@@ -1168,12 +1166,12 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization
 #[derive(Debug)]
 struct ConstitutionalCommittee {
     members: BTreeMap<StakeCredential, Epoch>,
-    threshold: UnitInterval,
+    threshold: RationalNumber,
 }
 
 impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        heterogeneous_array(d, |d, assert_len| {
+        cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
             Ok(ConstitutionalCommittee {
                 members: d.decode_with(ctx)?,

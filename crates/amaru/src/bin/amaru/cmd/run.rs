@@ -19,7 +19,7 @@ use amaru::{
     metrics::track_system_metrics,
     stages::{Config, MaxExtraLedgerSnapshots, StoreType, build_and_run_network},
 };
-use amaru_kernel::network::NetworkName;
+use amaru_kernel::NetworkName;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;

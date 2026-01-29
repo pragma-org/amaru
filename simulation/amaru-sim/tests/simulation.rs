@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::TEST_DATA_DIR;
-use amaru_sim::simulator::run::{replay, run};
-use amaru_sim::simulator::{Args, NodeConfig, SimulateConfig};
+use amaru_sim::simulator::{
+    Args, NodeConfig, SimulateConfig, TEST_DATA_DIR,
+    run::{replay, run},
+};
 use anyhow::anyhow;
-use pure_stage::Instant;
-use pure_stage::serde::from_cbor;
-use pure_stage::trace_buffer::TraceEntry;
-use std::fmt::{Display, Formatter};
-use std::path::Path;
-use std::str::FromStr;
-use std::{env, fs};
+use pure_stage::{Instant, serde::from_cbor, trace_buffer::TraceEntry};
+use std::{
+    env,
+    fmt::{Display, Formatter},
+    fs,
+    path::Path,
+    str::FromStr,
+};
 use tracing_subscriber::EnvFilter;
 
 mod traces;

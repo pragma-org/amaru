@@ -14,9 +14,9 @@
 
 use crate::drop_guard::DropGuard;
 use parking_lot::Mutex;
-use std::cell::RefCell;
-use std::fmt::{Display, Formatter};
 use std::{
+    cell::RefCell,
+    fmt::{Display, Formatter},
     sync::{
         LazyLock,
         atomic::{AtomicU64, Ordering},

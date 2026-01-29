@@ -24,19 +24,17 @@ use crate::consensus::{
         RollbackChainSelection::RollbackBeyondLimit,
     },
 };
-use amaru_kernel::{
-    HeaderHash, IsHeader, ORIGIN_HASH, Point, peer::Peer, string_utils::ListToString,
-};
+use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, utils::string::ListToString};
 use amaru_ouroboros_traits::ChainStore;
-#[cfg(any(test, feature = "test-utils"))]
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Debug, Display, Formatter},
     sync::Arc,
 };
+
+#[cfg(any(test, feature = "test-utils"))]
+use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 
 /// This data type stores the chains of headers known from different peers:
 ///
@@ -62,7 +60,7 @@ impl<H> HeadersTree<H> {
 }
 
 /// Transient state of the headers tree with peers and max length
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[derive(Clone, Debug, Eq, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct HeadersTreeState {
     max_length: usize,
     peers: BTreeMap<Tracker, Vec<HeaderHash>>,
@@ -127,7 +125,9 @@ impl HeadersTreeState {
 /// We use Me to keep track of the best known chain, either when there are no peers yet,
 /// or when the best chain is being switched to a fork. In that case we want to wait until we
 /// have built the new best chain locally before we send Rollback + RollForward events downstream.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default, serde::Serialize, serde::Deserialize,
+)]
 pub(crate) enum Tracker {
     #[default]
     Me,
@@ -698,10 +698,11 @@ mod tests {
         stages::select_chain::{Fork, ForwardChainSelection::SwitchToFork},
     };
     use amaru_kernel::{
-        BlockHeader,
-        is_header::tests::{any_header_with_parent, run},
-        string_utils::{ListDebug, ListsToString},
-        tests::random_hash,
+        BlockHeader, any_header_hash, any_header_with_parent,
+        utils::{
+            string::{ListDebug, ListsToString},
+            tests::run_strategy,
+        },
     };
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use proptest::proptest;
@@ -762,7 +763,10 @@ mod tests {
         let mut tree = create_headers_tree(5);
 
         let peer = Peer::new("alice");
-        assert!(tree.initialize_peer(&peer, &random_hash()).is_err());
+        assert!(
+            tree.initialize_peer(&peer, &run_strategy(any_header_hash()))
+                .is_err()
+        );
     }
 
     #[test]
@@ -1248,7 +1252,7 @@ mod tests {
         let added_headers = rollforward_from(&mut tree, header1, &bob, 4); // 4 added headers
 
         // alice catches up but bob is still the best
-        let next_header_alice = run(any_header_with_parent(headers[4].hash()));
+        let next_header_alice = run_strategy(any_header_with_parent(headers[4].hash()));
         store.store_header(&next_header_alice).unwrap();
         let result = tree
             .select_roll_forward(&alice, &next_header_alice)
@@ -1256,7 +1260,7 @@ mod tests {
         assert_eq!(result, ForwardChainSelection::NoChange);
 
         // alice becomes the best again
-        let next_header_alice = run(any_header_with_parent(next_header_alice.hash()));
+        let next_header_alice = run_strategy(any_header_with_parent(next_header_alice.hash()));
         store.store_header(&next_header_alice).unwrap();
         let result = tree
             .select_roll_forward(&alice, &next_header_alice)
@@ -1264,13 +1268,14 @@ mod tests {
         assert!(matches!(dbg!(result), SwitchToFork(_)));
 
         // bob catches up to alice, but alice stays the best
-        let next_header_bob = run(any_header_with_parent(added_headers.last().unwrap().hash()));
+        let next_header_bob =
+            run_strategy(any_header_with_parent(added_headers.last().unwrap().hash()));
         store.store_header(&next_header_bob).unwrap();
         let result = tree.select_roll_forward(&bob, &next_header_bob).unwrap();
         assert_eq!(result, ForwardChainSelection::NoChange);
 
         // bob becomes the best again
-        let next_header_bob = run(any_header_with_parent(next_header_bob.hash()));
+        let next_header_bob = run_strategy(any_header_with_parent(next_header_bob.hash()));
         store.store_header(&next_header_bob).unwrap();
         let result = tree.select_roll_forward(&bob, &next_header_bob).unwrap();
         assert!(matches!(dbg!(result), SwitchToFork(_)));

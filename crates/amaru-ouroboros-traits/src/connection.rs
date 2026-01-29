@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::bytes::NonEmptyBytes;
-use amaru_kernel::peer::Peer;
+use amaru_kernel::{NonEmptyBytes, Peer};
 use std::{
     fmt,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},

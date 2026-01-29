@@ -14,13 +14,14 @@
 
 use crate::simulator::Envelope;
 use anyhow::anyhow;
-use pure_stage::simulation::running::SimulationRunning;
-use pure_stage::{Receiver, StageRef};
+use pure_stage::{Receiver, StageRef, simulation::running::SimulationRunning};
 use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Display};
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::{
+    fmt::{Debug, Display},
+    io::{BufRead, BufReader, Write},
+    path::Path,
+    process::{Command, Stdio},
+};
 use tokio::runtime::Handle;
 use tracing::{info_span, trace};
 

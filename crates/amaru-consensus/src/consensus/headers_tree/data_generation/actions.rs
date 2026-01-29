@@ -20,11 +20,10 @@
 //!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<BlockHeader>` of a given depth.
 //!
 
-use crate::consensus::headers_tree::HeadersTreeDisplay;
 use crate::consensus::{
     errors::ConsensusError,
     headers_tree::{
-        HeadersTree,
+        HeadersTree, HeadersTreeDisplay,
         Tracker::{self, Me, SomePeer},
         data_generation::{
             GeneratedTree,
@@ -38,21 +37,17 @@ use crate::consensus::{
         RollbackChainSelection::{self, RollbackBeyondLimit},
     },
 };
-use amaru_kernel::string_utils::ListsToString;
 use amaru_kernel::{
-    BlockHeader, HEADER_HASH_SIZE, HeaderHash, IsHeader, Point, is_header::tests::make_header,
-    peer::Peer, string_utils::ListToString,
+    BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, make_header,
+    size::HEADER,
+    utils::string::{ListToString, ListsToString},
 };
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use hex::FromHexError;
-use pallas_crypto::hash::Hash;
 use proptest::prelude::Strategy;
-use rand::prelude::SmallRng;
-use rand::{Rng, SeedableRng};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::BTreeSet;
+use rand::{Rng, SeedableRng, prelude::SmallRng};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt::{Debug, Display, Formatter},
     sync::Arc,
 };
@@ -94,7 +89,7 @@ impl Action {
 
 struct SimplifiedHeader(BlockHeader);
 
-impl Serialize for SimplifiedHeader {
+impl serde::Serialize for SimplifiedHeader {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -112,12 +107,12 @@ impl Serialize for SimplifiedHeader {
     }
 }
 
-impl<'de> Deserialize<'de> for SimplifiedHeader {
+impl<'de> serde::Deserialize<'de> for SimplifiedHeader {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
+        #[derive(serde::Deserialize)]
         struct SimplifiedHeaderHelper {
             hash: String,
             block: u64,
@@ -142,15 +137,15 @@ impl<'de> Deserialize<'de> for SimplifiedHeader {
 
 fn decode_hash(s: &str) -> Result<HeaderHash, FromHexError> {
     let bytes = hex::decode(s)?;
-    let mut arr = [0u8; HEADER_HASH_SIZE];
+    let mut arr = [0u8; HEADER];
     arr.copy_from_slice(&bytes);
     Ok(Hash::from(arr))
 }
 
-impl Serialize for Action {
+impl serde::Serialize for Action {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
         match self {
             Action::RollForward { peer, header } => ActionHelper::RollForward {
@@ -170,7 +165,7 @@ impl Serialize for Action {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 enum ActionHelper {
     RollForward {
         peer: String,
@@ -186,10 +181,10 @@ enum ActionHelper {
     },
 }
 
-impl<'de> Deserialize<'de> for Action {
+impl<'de> serde::Deserialize<'de> for Action {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
         let helper = ActionHelper::deserialize(deserializer)?;
         match helper {
@@ -238,12 +233,12 @@ impl Action {
 }
 
 /// Serialize a point with an hex string for the header hash
-fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {
+fn serialize_point<S: serde::Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&point.to_string())
 }
 
 /// Deserialize a point from the string format above
-fn deserialize_point<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Point, D::Error> {
+fn deserialize_point<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Point, D::Error> {
     let bytes: &str = serde::Deserialize::deserialize(deserializer)?;
     Point::try_from(bytes).map_err(serde::de::Error::custom)
 }

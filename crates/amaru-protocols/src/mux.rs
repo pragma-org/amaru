@@ -16,7 +16,7 @@ use crate::{
     network_effects::{Network, NetworkOps},
     protocol::{Erased, ProtocolId, RoleT},
 };
-use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_kernel::NonEmptyBytes;
 use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};

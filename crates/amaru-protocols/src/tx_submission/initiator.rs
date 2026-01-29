@@ -50,15 +50,17 @@
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
 
-use crate::mempool_effects::MemoryPool;
-use crate::mux::MuxMessage;
-use crate::protocol::{
-    Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState,
-    miniprotocol, outcome,
+use crate::{
+    mempool_effects::MemoryPool,
+    mux::MuxMessage,
+    protocol::{
+        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState,
+        miniprotocol, outcome,
+    },
+    tx_submission::{Blocking, Message, ProtocolError, State},
 };
-use crate::tx_submission::{Blocking, Message, ProtocolError, State};
 use ProtocolError::*;
-use amaru_kernel::{Tx, display_collection};
+use amaru_kernel::{Transaction, utils::string::display_collection};
 use amaru_ouroboros::{MempoolSeqNo, TxSubmissionMempool};
 use amaru_ouroboros_traits::TxId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -95,7 +97,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         input: InitiatorResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        let mempool: &dyn TxSubmissionMempool<Tx> = &MemoryPool::new(eff.clone());
+        let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
 
         let action = match input {
             InitiatorResult::RequestTxIds {
@@ -195,7 +197,7 @@ impl ProtocolState<Initiator> for State {
 #[derive(Debug, PartialEq, Eq)]
 pub enum InitiatorAction {
     SendReplyTxIds(Vec<(TxId, u32)>),
-    SendReplyTxs(Vec<Tx>),
+    SendReplyTxs(Vec<Transaction>),
     Error(ProtocolError),
     Done,
 }
@@ -273,7 +275,7 @@ impl TxSubmissionInitiator {
 
     async fn request_tx_ids_blocking(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Tx>,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
         ack: u16,
         req: u16,
     ) -> anyhow::Result<Option<InitiatorAction>> {
@@ -303,7 +305,7 @@ impl TxSubmissionInitiator {
 
     fn request_tx_ids_non_blocking(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Tx>,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
         ack: u16,
         req: u16,
     ) -> anyhow::Result<Option<InitiatorAction>> {
@@ -328,7 +330,7 @@ impl TxSubmissionInitiator {
 
     fn request_txs(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Tx>,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
         tx_ids: Vec<TxId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         tracing::debug!(tx_ids = display_collection(&tx_ids), "received RequestTxs");
@@ -734,7 +736,7 @@ mod tests {
     // HELPERS
 
     async fn run_stage(
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<Vec<InitiatorAction>> {
         let (actions, _initiator) = run_stage_and_return_state(mempool, results).await?;
@@ -742,7 +744,7 @@ mod tests {
     }
 
     async fn run_stage_and_return_state(
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         run_stage_and_return_state_with(
@@ -755,7 +757,7 @@ mod tests {
 
     async fn run_stage_and_return_state_with(
         mut initiator: TxSubmissionInitiator,
-        mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         let mut actions = vec![];
@@ -771,7 +773,7 @@ mod tests {
     async fn step(
         initiator: &mut TxSubmissionInitiator,
         input: InitiatorResult,
-        mempool: &dyn TxSubmissionMempool<Tx>,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         let action = match input {
             InitiatorResult::RequestTxIds {
@@ -789,11 +791,16 @@ mod tests {
         Ok(action)
     }
 
-    fn reply_tx_ids(txs: &[Tx], ids: &[usize]) -> InitiatorAction {
-        InitiatorAction::SendReplyTxIds(ids.iter().map(|id| (TxId::from(&txs[*id]), 50)).collect())
+    fn reply_tx_ids(txs: &[Transaction], ids: &[usize]) -> InitiatorAction {
+        let default_transaction_size = 49;
+        InitiatorAction::SendReplyTxIds(
+            ids.iter()
+                .map(|id| (TxId::from(&txs[*id]), default_transaction_size))
+                .collect(),
+        )
     }
 
-    fn reply_txs(txs: &[Tx], ids: &[usize]) -> InitiatorAction {
+    fn reply_txs(txs: &[Transaction], ids: &[usize]) -> InitiatorAction {
         InitiatorAction::SendReplyTxs(ids.iter().map(|id| txs[*id].clone()).collect())
     }
 
@@ -801,7 +808,7 @@ mod tests {
         InitiatorResult::RequestTxIds { ack, req, blocking }
     }
 
-    fn request_txs(txs: &[Tx], ids: &[usize]) -> InitiatorResult {
+    fn request_txs(txs: &[Transaction], ids: &[usize]) -> InitiatorResult {
         InitiatorResult::RequestTxs(ids.iter().map(|id| TxId::from(&txs[*id])).collect())
     }
 

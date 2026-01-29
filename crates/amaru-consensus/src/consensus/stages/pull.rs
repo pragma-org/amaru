@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{consensus_events::ChainSyncEvent, peer::Peer};
+use crate::consensus::events::ChainSyncEvent;
+use amaru_kernel::Peer;
 use amaru_protocols::chainsync::{self, ChainSyncInitiatorMsg};
 use pure_stage::{Effects, StageRef};
 use std::collections::BTreeSet;

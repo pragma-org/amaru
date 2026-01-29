@@ -1,0 +1,377 @@
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::{
+    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs,
+    PlaceholderScript, PositiveCoin, ShelleyDelegationPart, StakeCredential, Value, cbor,
+    decode_script, encode_script, serialize_memoized_script, size::CREDENTIAL,
+};
+use pallas_primitives::conway::Multiasset;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct MemoizedTransactionOutput {
+    #[serde(skip)]
+    pub is_legacy: bool,
+
+    #[serde(serialize_with = "serialize_address")]
+    #[serde(deserialize_with = "deserialize_address")]
+    pub address: Address,
+
+    #[serde(serialize_with = "serialize_value")]
+    #[serde(deserialize_with = "deserialize_value")]
+    pub value: Value,
+
+    pub datum: MemoizedDatum,
+
+    #[serde(serialize_with = "serialize_script")]
+    #[serde(deserialize_with = "deserialize_script")]
+    pub script: Option<MemoizedScript>,
+}
+
+impl MemoizedTransactionOutput {
+    pub fn delegate(&self) -> Option<StakeCredential> {
+        match &self.address {
+            Address::Shelley(shelley) => match shelley.delegation() {
+                ShelleyDelegationPart::Key(key) => Some(StakeCredential::AddrKeyhash(*key)),
+                ShelleyDelegationPart::Script(script) => Some(StakeCredential::ScriptHash(*script)),
+                ShelleyDelegationPart::Pointer(..) | ShelleyDelegationPart::Null => None,
+            },
+            Address::Byron(..) => None,
+            Address::Stake(..) => unreachable!("stake address inside output?"),
+        }
+    }
+}
+
+impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let data_type = d.datatype()?;
+
+        if matches!(data_type, cbor::Type::MapIndef | cbor::Type::Map) {
+            decode_modern_output(d, ctx)
+        } else if matches!(data_type, cbor::Type::ArrayIndef | cbor::Type::Array) {
+            decode_legacy_output(d, ctx)
+        } else {
+            Err(cbor::decode::Error::type_mismatch(data_type))
+        }
+    }
+}
+
+fn decode_legacy_output<C>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
+    let len = d.array()?;
+
+    Ok(MemoizedTransactionOutput {
+        is_legacy: true,
+        address: decode_address(d.bytes()?)?,
+        value: d.decode_with(ctx)?,
+        datum: match len {
+            Some(2) => MemoizedDatum::None,
+            Some(3) => d.decode_with::<_, Legacy<_>>(ctx)?.0,
+            Some(_) => {
+                return Err(cbor::decode::Error::message(format!(
+                    "expected legacy transaction output array length of 2 or 3, got {len:?}",
+                )));
+            }
+            None => {
+                if cbor::decode_break(d, len)? {
+                    MemoizedDatum::None
+                } else {
+                    let datum: Legacy<MemoizedDatum> = d.decode_with(ctx)?;
+                    if !cbor::decode_break(d, len)? {
+                        return Err(cbor::decode::Error::message(
+                            "expected break after legacy transaction output datum",
+                        ));
+                    }
+                    datum.0
+                }
+            }
+        },
+        script: None,
+    })
+}
+
+fn decode_modern_output<C>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
+    let (address, value, datum, script) = cbor::heterogeneous_map(
+        d,
+        (None, None, MemoizedDatum::None, None),
+        |d| d.u8(),
+        |d, state, field| {
+            match field {
+                0 => state.0 = Some(decode_address(d.bytes()?)?),
+                1 => state.1 = Some(d.decode_with(ctx)?),
+                2 => state.2 = d.decode_with(ctx)?,
+                3 => state.3 = Some(decode_script(d, ctx)?),
+                _ => return cbor::unexpected_field::<MemoizedTransactionOutput, _>(field),
+            }
+            Ok(())
+        },
+    )?;
+
+    Ok(MemoizedTransactionOutput {
+        is_legacy: false,
+        address: address
+            .ok_or_else(|| cbor::missing_field::<MemoizedTransactionOutput, Address>(0))?,
+        value: value.ok_or_else(|| cbor::missing_field::<MemoizedTransactionOutput, Value>(1))?,
+        datum,
+        script,
+    })
+}
+
+fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
+    Address::from_bytes(address_bytes)
+        .map_err(|e| cbor::decode::Error::message(format!("invalid address: {e:?}")))
+}
+
+impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        if self.is_legacy {
+            e.begin_array()?;
+            e.bytes(&self.address.to_vec())?;
+            e.encode_with(&self.value, ctx)?;
+            match self.datum {
+                MemoizedDatum::None => (),
+                MemoizedDatum::Hash(hash) => {
+                    e.bytes(&hash[..])?;
+                }
+                MemoizedDatum::Inline(..) => unreachable!("legacy output with inline datum ?!"),
+            }
+            e.end()?;
+        } else {
+            e.begin_map()?;
+
+            e.u8(0)?;
+            e.bytes(&self.address.to_vec())?;
+
+            e.u8(1)?;
+            e.encode_with(&self.value, ctx)?;
+
+            if !matches!(&self.datum, &MemoizedDatum::None) {
+                e.u8(2)?;
+            }
+            e.encode_with(&self.datum, ctx)?;
+
+            match &self.script {
+                None => (),
+                Some(script) => {
+                    e.u8(3)?;
+                    encode_script(script, e)?;
+                }
+            }
+
+            e.end()?;
+        }
+
+        Ok(())
+    }
+}
+
+// --------------------------------------------------------------------- Helpers
+
+fn serialize_address<S: serde::ser::Serializer>(
+    addr: &Address,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&addr.to_hex())
+}
+
+fn deserialize_address<'de, D: serde::de::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Address, D::Error> {
+    let bytes: &str = serde::Deserialize::deserialize(deserializer)?;
+    Address::from_hex(bytes).map_err(serde::de::Error::custom)
+}
+
+// FIXME: Eventually allow serializing complete values, not just coins.
+fn serialize_value<S: serde::ser::Serializer>(
+    value: &Value,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match value {
+        Value::Coin(coin) => serializer.serialize_u64(*coin),
+        Value::Multiasset(coin, _) => serializer.serialize_u64(*coin),
+    }
+}
+
+fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Value, D::Error> {
+    #[derive(serde::Deserialize)]
+    enum ValueHelper {
+        Coin(u64),
+        Multiasset(u64, Vec<(String, Vec<(String, u64)>)>),
+    }
+
+    let helper: ValueHelper = serde::Deserialize::deserialize(deserializer)?;
+
+    match helper {
+        ValueHelper::Coin(coin) => Ok(Value::Coin(coin)),
+        ValueHelper::Multiasset(coin, multiasset_data) => {
+            let mut converted_multiasset = Vec::new();
+
+            for (policy_id, assets) in multiasset_data {
+                let policy_id = hex::decode(&policy_id).map_err(|_| {
+                    serde::de::Error::custom(format!("invalid hex string: {policy_id}"))
+                })?;
+
+                let mut converted_assets = Vec::new();
+                for (asset_name, quantity) in assets {
+                    let asset_name = hex::decode(&asset_name).map_err(|_| {
+                        serde::de::Error::custom(format!("invalid hex string: {asset_name}"))
+                    })?;
+
+                    converted_assets.push((
+                        Bytes::from(asset_name),
+                        quantity.try_into().map_err(|_| {
+                            serde::de::Error::custom(format!("invalid quantity value: {quantity}"))
+                        })?,
+                    ));
+                }
+
+                let policy_id: Hash<CREDENTIAL> = Hash::from(policy_id.as_slice());
+
+                let pairs = NonEmptyKeyValuePairs::try_from(converted_assets)
+                    .map_err(|e| serde::de::Error::custom(format!("invalid asset bundle: {e}")))?
+                    .as_pallas();
+
+                converted_multiasset.push((policy_id, pairs));
+            }
+
+            let multiasset: Multiasset<PositiveCoin> =
+                Multiasset::from_vec(converted_multiasset)
+                    .ok_or(serde::de::Error::custom("empty multiasset"))?;
+            Ok(Value::Multiasset(coin, multiasset))
+        }
+    }
+}
+
+pub fn serialize_script<S: serde::ser::Serializer>(
+    opt: &Option<MemoizedScript>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match opt {
+        None => serializer.serialize_none(),
+        Some(script) => serialize_memoized_script(script, serializer),
+    }
+}
+
+pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<MemoizedScript>, D::Error> {
+    match serde::Deserialize::deserialize(deserializer)? {
+        None::<PlaceholderScript> => Ok(None),
+        Some(placeholder) => Ok(Some(
+            MemoizedScript::try_from(placeholder).map_err(serde::de::Error::custom)?,
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Hash,
+        cbor::{self, Encode},
+    };
+
+    #[test]
+    fn test_encode_decode_output_with_datum_hash() {
+        let hash_bytes = [1u8; 32];
+        let datum_hash = Hash::<32>::from(hash_bytes);
+
+        let datum = MemoizedDatum::Hash(datum_hash);
+
+        let original = MemoizedTransactionOutput {
+            is_legacy: false,
+            address: Address::from_hex(
+                "61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335",
+            )
+            .unwrap(),
+            value: Value::Coin(1500000),
+            datum,
+            script: None,
+        };
+
+        let mut encoder = cbor::Encoder::new(Vec::new());
+        let mut ctx = ();
+        original.encode(&mut encoder, &mut ctx).unwrap();
+        let encoded_bytes = encoder.writer().clone();
+
+        let mut decoder = cbor::Decoder::new(&encoded_bytes);
+        let decoded: MemoizedTransactionOutput = decoder.decode_with(&mut ctx).unwrap();
+
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_encode_decode_output_with_datum_hash_legacy() {
+        let hash_bytes = [1u8; 32];
+        let datum_hash = Hash::<32>::from(hash_bytes);
+
+        let datum = MemoizedDatum::Hash(datum_hash);
+
+        let original = MemoizedTransactionOutput {
+            is_legacy: true,
+            address: Address::from_hex(
+                "61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335",
+            )
+            .unwrap(),
+            value: Value::Coin(1500000),
+            datum,
+            script: None,
+        };
+
+        let mut encoder = cbor::Encoder::new(Vec::new());
+        let mut ctx = ();
+        original.encode(&mut encoder, &mut ctx).unwrap();
+        let encoded_bytes = encoder.writer().clone();
+
+        let mut decoder = cbor::Decoder::new(&encoded_bytes);
+        let decoded: MemoizedTransactionOutput = decoder.decode_with(&mut ctx).unwrap();
+
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_encode_decode_output_no_datum_no_script() {
+        let original = MemoizedTransactionOutput {
+            is_legacy: false,
+            address: Address::from_hex(
+                "61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335",
+            )
+            .unwrap(),
+            value: Value::Coin(1500000),
+            datum: MemoizedDatum::None,
+            script: None,
+        };
+
+        let mut encoder = cbor::Encoder::new(Vec::new());
+        let mut ctx = ();
+        original.encode(&mut encoder, &mut ctx).unwrap();
+        let encoded_bytes = encoder.writer().clone();
+
+        let mut decoder = cbor::Decoder::new(&encoded_bytes);
+        let decoded: MemoizedTransactionOutput = decoder.decode_with(&mut ctx).unwrap();
+
+        assert_eq!(original, decoded);
+    }
+}

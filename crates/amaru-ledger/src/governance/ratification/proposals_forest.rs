@@ -19,10 +19,9 @@ use super::{
 };
 use crate::{store::columns::proposals, summary::into_safe_ratio};
 use amaru_kernel::{
-    ComparableProposalId, Constitution, Epoch, EraHistory, GovAction, Lovelace, Nullable,
-    ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolVersion,
+    ComparableProposalId, Constitution, Epoch, EraHistory, GovernanceAction, Lovelace, Nullable,
+    ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion,
     display_protocol_parameters_update, expect_stake_credential,
-    protocol_parameters::ProtocolParameters,
 };
 use std::{
     cmp::Ordering,
@@ -144,9 +143,9 @@ impl ProposalsForest {
         era_history: &'_ EraHistory,
         id: ComparableProposalId,
         proposed_in: ProposalPointer,
-        proposal: GovAction,
+        proposal: GovernanceAction,
     ) -> Result<(), ProposalsInsertError<ComparableProposalId>> {
-        use amaru_kernel::GovAction::*;
+        use amaru_kernel::GovernanceAction::*;
 
         let id = Rc::new(id);
 
@@ -820,23 +819,23 @@ fn priority_insert(
 mod tests {
     use super::ProposalsForest;
     use crate::governance::ratification::{
-        CommitteeUpdate, OrphanProposal, ProposalEnum, ProposalsRootsRc,
-        tests::{
-            ERA_HISTORY, MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH, any_committee_update,
-            any_proposal_enum,
-        },
+        CommitteeUpdate, OrphanProposal, ProposalEnum, ProposalsRootsRc, any_committee_update,
+        any_proposal_enum,
+        tests::{ERA_HISTORY, MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH},
     };
     use amaru_kernel::{
-        ComparableProposalId, Epoch, GovAction, KeyValuePairs, Lovelace, Nullable, ProposalId,
-        ProposalPointer, RationalNumber, Set,
-        protocol_parameters::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters},
-        tests::{
-            any_comparable_proposal_id, any_constitution, any_gov_action, any_proposal_pointer,
-            any_protocol_params_update, any_protocol_version, any_reward_account,
-        },
+        ComparableProposalId, Epoch, GovernanceAction, KeyValuePairs, Lovelace, Nullable,
+        PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProposalId, ProposalPointer, ProtocolParameters,
+        RationalNumber, Set, any_comparable_proposal_id, any_constitution, any_gov_action,
+        any_proposal_pointer, any_protocol_params_update, any_protocol_version, any_reward_account,
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
-    use std::{cmp::Ordering, collections::BTreeSet, rc::Rc, sync::LazyLock};
+    use std::{
+        cmp::Ordering,
+        collections::{BTreeMap, BTreeSet},
+        rc::Rc,
+        sync::LazyLock,
+    };
 
     const MAX_TREE_SIZE: usize = 8;
 
@@ -1198,7 +1197,7 @@ mod tests {
                 ids[lo..hi].into(),
                 any_protocol_params_update(),
                 |parent, update| {
-                    GovAction::ParameterChange(parent, Box::new(update), Nullable::Null)
+                    GovernanceAction::ParameterChange(parent, Box::new(update), Nullable::Null)
                 },
             );
 
@@ -1206,14 +1205,14 @@ mod tests {
             let any_hard_fork_tree = any_proposals_tree(
                 ids[lo..hi].into(),
                 any_protocol_version(),
-                GovAction::HardForkInitiation,
+                GovernanceAction::HardForkInitiation,
             );
 
             let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
             let any_constitution_tree = any_proposals_tree(
                 ids[lo..hi].into(),
                 any_constitution(),
-                GovAction::NewConstitution,
+                GovernanceAction::NewConstitution,
             );
 
             let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
@@ -1223,20 +1222,20 @@ mod tests {
                     (MIN_ARBITRARY_EPOCH..MAX_ARBITRARY_EPOCH).prop_map(Epoch::from),
                 ),
                 |parent, update| match update {
-                    CommitteeUpdate::NoConfidence => GovAction::NoConfidence(parent),
+                    CommitteeUpdate::NoConfidence => GovernanceAction::NoConfidence(parent),
                     CommitteeUpdate::ChangeMembers {
                         threshold,
                         added,
                         removed,
-                    } => GovAction::UpdateCommittee(
+                    } => GovernanceAction::UpdateCommittee(
                         parent,
                         Set::from(removed.into_iter().collect::<Vec<_>>()),
                         KeyValuePairs::from(
                             added
                                 .into_iter()
                                 .map(|(k, v)| (k, u64::from(v)))
-                                .collect::<Vec<(_, _)>>(),
-                        ),
+                                .collect::<BTreeMap<_, _>>(),
+                        ).as_pallas(),
                         #[expect(clippy::unwrap_used)]
                         RationalNumber {
                             numerator: threshold.numer().try_into().unwrap(),
@@ -1258,7 +1257,7 @@ mod tests {
                             .zip(pointers)
                             .zip(orphans)
                             .map(|((id, pointer), action)| (id.as_ref().clone(), pointer, action))
-                            .collect::<Vec<(ComparableProposalId, ProposalPointer, GovAction)>>()
+                            .collect::<Vec<(ComparableProposalId, ProposalPointer, GovernanceAction)>>()
                     },
                 );
 
@@ -1337,14 +1336,14 @@ mod tests {
     fn any_proposals_tree<Arg: 'static>(
         ids: Vec<Rc<ComparableProposalId>>,
         any_action_arg: impl Strategy<Value = Arg>,
-        into_action: impl Fn(Nullable<ProposalId>, Arg) -> GovAction,
+        into_action: impl Fn(Nullable<ProposalId>, Arg) -> GovernanceAction,
     ) -> impl Strategy<
         Value = (
             // An optional root
             Option<Rc<ComparableProposalId>>,
-            // A sequence of proposals (a.k.a GovAction) and the epoch in which they've been
+            // A sequence of proposals (a.k.a GovernanceAction) and the epoch in which they've been
             // proposed.
-            Vec<(ComparableProposalId, ProposalPointer, GovAction)>,
+            Vec<(ComparableProposalId, ProposalPointer, GovernanceAction)>,
         ),
     > {
         // We generate indices for the
@@ -1387,15 +1386,19 @@ mod tests {
             })
     }
 
-    fn any_orphan_action() -> impl Strategy<Value = GovAction> {
+    fn any_orphan_action() -> impl Strategy<Value = GovernanceAction> {
         prop_oneof![
-            1 => Just(GovAction::Information),
+            1 => Just(GovernanceAction::Information),
             4 =>
-                collection::vec(
-                    (any_reward_account(), any::<Lovelace>()),
+                collection::btree_map(
+                    any_reward_account(),
+                    any::<Lovelace>(),
                     1..3
                 ).prop_map(|kvs|
-                    GovAction::TreasuryWithdrawals(KeyValuePairs::from(kvs), Nullable::Null)
+                    GovernanceAction::TreasuryWithdrawals(
+                        KeyValuePairs::from(kvs).as_pallas(),
+                        Nullable::Null
+                    )
                 ),
         ]
     }
@@ -1405,9 +1408,9 @@ mod tests {
 
     fn possible_parents(
         forest: &ProposalsForest,
-        action: &GovAction,
+        action: &GovernanceAction,
     ) -> Vec<Option<Rc<ComparableProposalId>>> {
-        use super::{GovAction::*, ProposalEnum::*};
+        use super::{GovernanceAction::*, ProposalEnum::*};
 
         let root = match action {
             ParameterChange(..) => vec![forest.roots().protocol_parameters],
@@ -1441,8 +1444,8 @@ mod tests {
     }
 
     // Overwrite the parent of the given governance action
-    fn set_parent(action: GovAction, parent: Nullable<ProposalId>) -> GovAction {
-        use GovAction::*;
+    fn set_parent(action: GovernanceAction, parent: Nullable<ProposalId>) -> GovernanceAction {
+        use GovernanceAction::*;
         match action {
             Information | TreasuryWithdrawals(..) => action,
             NoConfidence(_) => NoConfidence(parent),

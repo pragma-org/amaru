@@ -15,8 +15,8 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use amaru_kernel::{
-        AnyCbor, Bytes, Epoch, EraHistory, Transaction, TransactionPointer, WitnessSet, cbor,
-        network::NetworkName, protocol_parameters::ProtocolParameters,
+        Bytes, Epoch, EraHistory, NetworkName, ProtocolParameters, Transaction, TransactionPointer,
+        WitnessSet, cbor, cbor as minicbor,
     };
     use amaru_ledger::{
         self, context::DefaultValidationContext, rules::transaction, store::GovernanceActivity,
@@ -64,11 +64,11 @@ pub mod tests {
     #[allow(dead_code)]
     struct TestVector {
         #[n(0)]
-        config: AnyCbor,
+        config: cbor::Any,
         #[n(1)]
-        initial_state: AnyCbor,
+        initial_state: cbor::Any,
         #[n(2)]
-        final_state: AnyCbor,
+        final_state: cbor::Any,
         #[n(3)]
         events: Vec<TestVectorEvent>,
         #[n(4)]

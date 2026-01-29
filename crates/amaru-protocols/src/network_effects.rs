@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::bytes::NonEmptyBytes;
-use amaru_kernel::peer::Peer;
+use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_ouroboros::{ConnectionId, ConnectionResource, ToSocketAddrs};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
-use std::net::SocketAddr;
-use std::{num::NonZeroUsize, time::Duration};
+use std::{net::SocketAddr, num::NonZeroUsize, time::Duration};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
     vec![

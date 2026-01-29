@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::Args;
-use amaru_sim::simulator::run::run;
+use amaru_sim::simulator::{Args, run::run};
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 

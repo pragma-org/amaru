@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::consensus::forward_chain::client_protocol::{
-    ClientMsg, ClientOp, ClientProtocolMsg, client_protocols,
+use crate::stages::consensus::forward_chain::{
+    client_protocol::{ClientMsg, ClientOp, ClientProtocolMsg, client_protocols},
+    to_pallas_tip,
 };
-use crate::stages::consensus::forward_chain::to_pallas_tip;
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
 use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_kernel::{BlockHeader, IsHeader};
@@ -23,11 +23,11 @@ use amaru_network::point::to_network_point;
 use amaru_ouroboros_traits::ChainStore;
 use async_trait::async_trait;
 use pallas_network::{facades::PeerServer, miniprotocols::chainsync::Tip};
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::sync::Mutex;
-use tokio::net::TcpListener;
-use tokio::runtime::Handle;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
+use tokio::{net::TcpListener, runtime::Handle};
 
 pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 

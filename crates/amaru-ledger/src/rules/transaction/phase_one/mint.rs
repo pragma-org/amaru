@@ -14,13 +14,15 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AssetName, MemoizedDatum, NonEmptyKeyValuePairs, NonZeroInt, PolicyId, RequiredScript,
-    ScriptPurpose,
+    AssetName, Hash, MemoizedDatum, NonEmptyKeyValuePairs, NonZeroInt, RequiredScript,
+    ScriptPurpose, size::SCRIPT,
 };
 
 pub fn execute<C>(
     context: &mut C,
-    mint: Option<&NonEmptyKeyValuePairs<PolicyId, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>,
+    mint: Option<
+        &NonEmptyKeyValuePairs<Hash<SCRIPT>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>,
+    >,
 ) where
     C: UtxoSlice + WitnessSlice,
 {

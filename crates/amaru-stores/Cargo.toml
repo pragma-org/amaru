@@ -23,7 +23,6 @@ rand = { workspace = true, optional = true }
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-iter-borrow.workspace = true
-amaru-slot-arithmetic.workspace = true
 amaru-ouroboros-traits = { workspace = true, features = [] }
 
 [dev-dependencies]

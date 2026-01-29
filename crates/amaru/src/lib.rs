@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::bootstrap::{BootstrapError, InitialNonces};
-use amaru_kernel::network::NetworkName;
+use amaru_kernel::NetworkName;
 use include_dir::{Dir, include_dir};
 use std::{error::Error, path::PathBuf};
 

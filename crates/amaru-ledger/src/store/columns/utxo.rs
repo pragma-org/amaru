@@ -26,10 +26,8 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 pub mod tests {
     use super::*;
     use amaru_kernel::{
-        Address, Bytes, Constr, Hash, Int, MaybeIndefArray, MemoizedDatum, MemoizedPlutusData,
-        MemoizedScript, Network, PlutusData, PlutusScript, PostAlonzoTransactionOutput,
-        PseudoTransactionOutput, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
-        Value as KernelValue,
+        Bytes, Constr, Hash, Int, MaybeIndefArray, MemoizedDatum, MemoizedPlutusData,
+        MemoizedScript, PlutusData, PlutusScript, any_shelley_address,
     };
     use proptest::{option, prelude::*};
 
@@ -45,19 +43,6 @@ pub mod tests {
         }
     }
 
-    pub fn any_pseudo_transaction_output()
-    -> impl Strategy<Value = PseudoTransactionOutput<PostAlonzoTransactionOutput>> {
-        any::<u64>().prop_map(|amount| {
-            let inner = PostAlonzoTransactionOutput {
-                address: Bytes::from(vec![0u8; 32]),
-                value: KernelValue::Coin(amount),
-                datum_option: None,
-                script_ref: None,
-            };
-            PseudoTransactionOutput::PostAlonzo(inner)
-        })
-    }
-
     pub fn any_memoized_plutus_script() -> impl Strategy<Value = MemoizedScript> {
         prop_oneof![
             prop::collection::vec(any::<u8>(), 1..128).prop_map(|bytes| {
@@ -70,31 +55,6 @@ pub mod tests {
                 MemoizedScript::PlutusV3Script(PlutusScript::<3>(Bytes::from(bytes)))
             }),
         ]
-    }
-
-    fn any_hash28() -> impl Strategy<Value = Hash<28>> {
-        prop::collection::vec(any::<u8>(), 28).prop_map(|v| {
-            let mut bytes = [0u8; 28];
-            bytes.copy_from_slice(&v);
-            Hash::new(bytes)
-        })
-    }
-
-    pub fn any_shelley_address() -> impl Strategy<Value = Address> {
-        (any::<bool>(), any_hash28(), any_hash28()).prop_map(
-            |(is_mainnet, payment_hash, delegation_hash)| {
-                let network = if is_mainnet {
-                    Network::Mainnet
-                } else {
-                    Network::Testnet
-                };
-
-                let payment = ShelleyPaymentPart::Key(payment_hash);
-                let delegation = ShelleyDelegationPart::Key(delegation_hash);
-
-                Address::Shelley(ShelleyAddress::new(network, payment, delegation))
-            },
-        )
     }
 
     pub fn any_value() -> impl Strategy<Value = amaru_kernel::Value> {

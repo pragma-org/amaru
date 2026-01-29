@@ -13,14 +13,14 @@
 // limitations under the License.
 
 use crate::CanValidateTransactions;
-use amaru_kernel::cbor::{Decode, Decoder, Encode, Encoder, decode, encode};
-use amaru_kernel::peer::Peer;
-use amaru_kernel::{Hash, Hasher};
+use amaru_kernel::{Hash, Hasher, Peer, TransactionId, cbor, size::TRANSACTION_BODY};
 use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::fmt::{Display, Formatter};
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{
+    fmt,
+    fmt::{Display, Formatter},
+    pin::Pin,
+    sync::Arc,
+};
 
 /// An simple mempool interface to:
 ///
@@ -152,22 +152,22 @@ pub enum TxOrigin {
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
-pub struct TxId(Hash<32>);
+pub struct TxId(TransactionId);
 
-impl Encode<()> for TxId {
-    fn encode<W: encode::Write>(
+impl cbor::Encode<()> for TxId {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         _ctx: &mut (),
-    ) -> Result<(), encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.encode(self.0)?;
         Ok(())
     }
 }
 
-impl<'b> Decode<'b, ()> for TxId {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
-        let hash = Hash::<32>::decode(d, _ctx)?;
+impl<'b> cbor::Decode<'b, ()> for TxId {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
+        let hash = Hash::<TRANSACTION_BODY>::decode(d, _ctx)?;
         Ok(TxId(hash))
     }
 }
@@ -183,12 +183,12 @@ impl TxId {
 }
 
 impl TxId {
-    pub fn new(hash: Hash<32>) -> Self {
+    pub fn new(hash: Hash<TRANSACTION_BODY>) -> Self {
         TxId(hash)
     }
 
-    pub fn from<Tx: Encode<()>>(tx: &Tx) -> Self {
-        TxId(Hasher::<{ 32 * 8 }>::hash_cbor(tx))
+    pub fn from<Tx: cbor::Encode<()>>(tx: &Tx) -> Self {
+        TxId(Hasher::<{ TRANSACTION_BODY * 8 }>::hash_cbor(tx))
     }
 }
 

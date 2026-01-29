@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::consensus_events::{
+use crate::consensus::events::{
     BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, Tracked, ValidateBlockEvent,
     ValidateHeaderEvent,
 };

@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{ComparableProposalId, Proposal, ProposalPointer, cbor};
-use amaru_slot_arithmetic::Epoch;
+use amaru_kernel::{ComparableProposalId, Epoch, Proposal, ProposalPointer, cbor};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
 
@@ -60,10 +59,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use amaru_kernel::{
-        prop_cbor_roundtrip,
-        tests::{any_proposal, any_proposal_pointer},
-    };
+    use amaru_kernel::{any_proposal, any_proposal_pointer, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
 
     #[cfg(not(target_os = "windows"))]

@@ -21,8 +21,10 @@ use crate::{
     time::Clock,
 };
 
-use crate::simulation::Transition;
-use crate::trace_buffer::{TraceBuffer, find_next_external_resume, find_next_external_suspend};
+use crate::{
+    simulation::Transition,
+    trace_buffer::{TraceBuffer, find_next_external_resume, find_next_external_suspend},
+};
 use cbor4ii::{core::Value, serde::from_slice};
 use futures_util::FutureExt;
 use parking_lot::Mutex;
@@ -34,15 +36,12 @@ use std::sync::atomic::AtomicU64;
 
 use std::{
     any::{Any, type_name},
-    fmt::Debug,
+    borrow::Borrow,
+    fmt::{Debug, Display, Formatter},
     future,
     marker::PhantomData,
     sync::Arc,
     time::Duration,
-};
-use std::{
-    borrow::Borrow,
-    fmt::{Display, Formatter},
 };
 
 /// A handle for performing effects on the current stage.

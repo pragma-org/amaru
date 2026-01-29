@@ -14,13 +14,12 @@
 
 use crate::cmd::new_block_validator;
 use amaru::{default_data_dir, default_ledger_dir};
-use amaru_kernel::{Hasher, network::NetworkName};
+use amaru_kernel::{Hasher, NetworkName, cbor};
 use amaru_network::point::to_network_point;
 use async_trait::async_trait;
 use clap::Parser;
 use flate2::{Compression, write::GzEncoder};
 use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
-use minicbor::Decoder;
 use mithril_client::{
     ClientBuilder, MessageBuilder,
     cardano_database_client::{DownloadUnpackOptions, ImmutableFileRange},
@@ -346,17 +345,17 @@ pub struct ParsedHeader {
 }
 
 fn extract_raw_cbor_value<'a>(
-    dec: &mut Decoder<'a>,
+    dec: &mut cbor::Decoder<'a>,
     input: &'a [u8],
-) -> Result<&'a [u8], minicbor::decode::Error> {
+) -> Result<&'a [u8], cbor::decode::Error> {
     let start = dec.position();
     dec.skip()?;
     let end = dec.position();
     Ok(&input[start..end])
 }
 
-pub fn parse_header_slot_and_hash(input: &[u8]) -> Result<ParsedHeader, minicbor::decode::Error> {
-    let mut dec: Decoder<'_> = Decoder::new(input);
+pub fn parse_header_slot_and_hash(input: &[u8]) -> Result<ParsedHeader, cbor::decode::Error> {
+    let mut dec: cbor::Decoder<'_> = cbor::Decoder::new(input);
 
     dec.array()?;
     dec.u8()?;
@@ -364,7 +363,7 @@ pub fn parse_header_slot_and_hash(input: &[u8]) -> Result<ParsedHeader, minicbor
     let header_body_cbor = extract_raw_cbor_value(&mut dec, input)?;
 
     let header_hash = *Hasher::<256>::hash(header_body_cbor);
-    let mut body = Decoder::new(header_body_cbor);
+    let mut body = cbor::Decoder::new(header_body_cbor);
 
     body.array()?;
     body.array()?;
@@ -418,7 +417,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 let name = format!("{}.{}.cbor", parsed.slot, hex::encode(parsed.header_hash));
                 Ok((name, cbor))
             })
-            .collect::<Result<BTreeMap<String, &Vec<u8>>, minicbor::decode::Error>>()?;
+            .collect::<Result<BTreeMap<String, &Vec<u8>>, cbor::decode::Error>>()?;
         let dir = package_blocks(&network, &map)?;
         info!("Created {}", dir);
     }

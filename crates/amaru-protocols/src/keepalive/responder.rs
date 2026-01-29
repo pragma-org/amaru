@@ -124,10 +124,10 @@ pub struct ResponderResult {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::keepalive::State;
-    use crate::keepalive::messages::Message;
-    use crate::keepalive::responder::ResponderAction;
-    use crate::protocol::Responder;
+    use crate::{
+        keepalive::{State, messages::Message, responder::ResponderAction},
+        protocol::Responder,
+    };
 
     #[test]
     fn test_responder_protocol() {

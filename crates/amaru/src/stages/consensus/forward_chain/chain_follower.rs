@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::AsTip;
-use crate::stages::consensus::forward_chain::client_protocol::{ClientOp, hash_point};
+use crate::stages::{
+    AsTip,
+    consensus::forward_chain::client_protocol::{ClientOp, hash_point},
+};
 use amaru_consensus::ReadOnlyChainStore;
-use amaru_kernel::protocol_messages::tip::Tip;
-use amaru_kernel::{IsHeader, Point};
+use amaru_kernel::{IsHeader, Point, Tip};
 use amaru_network::point::{from_network_point, to_network_point};
 use amaru_ouroboros_traits::ChainStore;
 use pallas_network::miniprotocols::chainsync::Tip as PallasTip;
-use std::collections::VecDeque;
-use std::fmt;
-use std::sync::Arc;
+use std::{collections::VecDeque, fmt, sync::Arc};
 use tracing::{trace, warn};
 
 /// A structure that maintains state to follow the best chain for a given client.
@@ -219,22 +218,25 @@ impl<H: IsHeader + Clone + Send> ChainFollower<H> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::stages::AsTip;
-    use crate::stages::consensus::forward_chain::chain_follower::ChainFollower;
-    use crate::stages::consensus::forward_chain::client_protocol::ClientOp;
-    use crate::stages::consensus::forward_chain::test_infra::{
-        CHAIN_47, FIRST_HEADER, FORK_47, LOST_47, TIP_47, WINNER_47, hash, mk_in_memory_store,
+    use crate::stages::{
+        AsTip,
+        consensus::forward_chain::{
+            chain_follower::ChainFollower,
+            client_protocol::ClientOp,
+            test_infra::{
+                CHAIN_47, FIRST_HEADER, FORK_47, LOST_47, TIP_47, WINNER_47, hash,
+                mk_in_memory_store,
+            },
+            to_pallas_tip,
+        },
     };
-    use crate::stages::consensus::forward_chain::to_pallas_tip;
-    use amaru_kernel::is_header::tests::{any_header_with_parent, run};
-    use amaru_kernel::protocol_messages::block_height::BlockHeight;
-    use amaru_kernel::{BlockHeader, IsHeader};
-    use amaru_kernel::{Hash, HeaderHash};
-    use amaru_network::point::from_network_point;
-    use amaru_network::point::to_network_point;
+    use amaru_kernel::{
+        BlockHeader, BlockHeight, Hash, HeaderHash, IsHeader, any_header_with_parent,
+        utils::tests::run_strategy,
+    };
+    use amaru_network::point::{from_network_point, to_network_point};
     use amaru_ouroboros_traits::ChainStore;
-    use pallas_network::miniprotocols::Point;
-    use pallas_network::miniprotocols::chainsync::Tip;
+    use pallas_network::miniprotocols::{Point, chainsync::Tip};
     use std::sync::Arc;
 
     #[test]
@@ -336,7 +338,7 @@ pub(crate) mod tests {
     #[test]
     fn next_op_returns_none_given_current_intersection_has_no_child_while_behind_anchor() {
         let store = mk_in_memory_store(CHAIN_47);
-        let next_header = run(any_header_with_parent(Hash::from(
+        let next_header = run_strategy(any_header_with_parent(Hash::from(
             hex::decode(TIP_47).unwrap().as_slice(),
         )));
         store
@@ -360,10 +362,10 @@ pub(crate) mod tests {
     #[should_panic(expected = "Store invariant violated")]
     fn next_op_returns_none_given_it_fails_to_load_child_header() {
         let store = mk_in_memory_store(CHAIN_47);
-        let unstored_header = run(any_header_with_parent(Hash::from(
+        let unstored_header = run_strategy(any_header_with_parent(Hash::from(
             hex::decode(TIP_47).unwrap().as_slice(),
         )));
-        let anchor_header = run(any_header_with_parent(unstored_header.hash()));
+        let anchor_header = run_strategy(any_header_with_parent(unstored_header.hash()));
         store
             .store_header(&anchor_header)
             .expect("should store future header");

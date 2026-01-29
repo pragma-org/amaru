@@ -118,10 +118,9 @@ use crate::{
 };
 use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
 use amaru_kernel::{
-    Hash, Lovelace, PoolId, StakeCredential, expect_stake_credential,
-    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, StakeCredential,
+    expect_stake_credential,
 };
-use amaru_slot_arithmetic::Epoch;
 use num::{
     BigUint,
     traits::{One, Zero},
@@ -274,7 +273,7 @@ impl PoolState {
         total_stake: Lovelace,
     ) -> Lovelace {
         // NOTE: It may be tempting when seeing the call-site of this function to refactor member
-        // to take a `Hash<28>` instead of a `StakeCredential` directly to make this more uniform.
+        // to take a `Hash<CREDENTIAL>` instead of a `StakeCredential` directly to make this more uniform.
         //
         // BUT, we know that `owners` cannot be scripts, and a script that would have the same hash
         // as a public key (which is technically near impossible, but still...) would be wrongly
@@ -561,7 +560,7 @@ impl RewardsSummary {
     /// Count blocks produced by pools, returning the total count and map indexed by poolid.
     fn count_blocks(db: &impl Snapshot) -> Result<(u64, BTreeMap<PoolId, u64>), StoreError> {
         let mut total: u64 = 0;
-        let mut per_pool: BTreeMap<Hash<28>, u64> = BTreeMap::new();
+        let mut per_pool: BTreeMap<PoolId, u64> = BTreeMap::new();
 
         let block_issuers = db.iter_block_issuers()?.map(|(_, issuer)| issuer);
         block_issuers.for_each(|issuer| {

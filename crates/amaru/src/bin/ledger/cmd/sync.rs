@@ -16,10 +16,8 @@ use crate::cmd::new_block_validator;
 use amaru::{DEFAULT_NETWORK, default_chain_dir, default_data_dir, default_ledger_dir};
 use amaru_consensus::consensus::store::PraosChainStore;
 use amaru_kernel::{
-    BlockHeader, EraHistory, Hash, Point, RawBlock,
-    network::NetworkName,
-    protocol_parameters::{ConsensusParameters, GlobalParameters},
-    to_cbor,
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point,
+    RawBlock, to_cbor,
 };
 use amaru_ledger::{block_validator::BlockValidator, rules::parse_block};
 use amaru_ouroboros::praos::header;
@@ -28,7 +26,6 @@ use amaru_stores::rocksdb::{
     RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore,
 };
 use anyhow::anyhow;
-use clap::Parser;
 use flate2::read::GzDecoder;
 use rayon::prelude::*;
 use std::{
@@ -42,7 +39,7 @@ use std::{
 use tar::Archive;
 use tracing::info;
 
-#[derive(Debug, Parser)]
+#[derive(Debug, clap::Parser)]
 pub struct Args {
     /// The target network to choose from.
     ///

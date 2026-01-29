@@ -12,20 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Envelope;
-use crate::simulator::bytes::Bytes;
-use amaru_kernel::consensus_events::ChainSyncEvent;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::protocol_messages::tip::Tip;
-use amaru_kernel::{BlockHeader, Hash, HeaderHash, Point, cbor};
-use amaru_slot_arithmetic::Slot;
+use crate::simulator::{Envelope, bytes::Bytes};
+use amaru_consensus::consensus::events::ChainSyncEvent;
+use amaru_kernel::{BlockHeader, Hash, HeaderHash, Peer, Point, Slot, Tip, cbor, size::HEADER};
 use pallas_primitives::babbage::{Header, MintedHeader};
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt,
+    fmt::{Display, Formatter},
+};
 use tracing::Span;
 
-#[derive(Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChainSyncMessage {
     Init {
@@ -76,8 +73,8 @@ impl ChainSyncMessage {
     /// Attempt to decode a header hash from a `Fwd` or `Bck` message.
     pub fn header_hash(&self) -> Option<HeaderHash> {
         match self {
-            ChainSyncMessage::Fwd { hash, .. } => Some(HeaderHash::from(hash.bytes.as_slice())),
-            ChainSyncMessage::Bck { hash, .. } => Some(HeaderHash::from(hash.bytes.as_slice())),
+            ChainSyncMessage::Fwd { hash, .. } => Some(Hash::<HEADER>::from(hash.bytes.as_slice())),
+            ChainSyncMessage::Bck { hash, .. } => Some(Hash::<HEADER>::from(hash.bytes.as_slice())),
             _ => None,
         }
     }
@@ -236,8 +233,7 @@ mod test {
     use amaru_kernel::cbor;
     use pallas_crypto::hash::Hasher;
     use pallas_primitives::babbage;
-    use proptest::prelude::BoxedStrategy;
-    use proptest::proptest;
+    use proptest::{prelude::BoxedStrategy, proptest};
 
     proptest! {
         #[test]

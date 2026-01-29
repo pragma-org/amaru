@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru::{DEFAULT_NETWORK, bootstrap::import_nonces, default_chain_dir, default_initial_nonces};
-use amaru_kernel::network::NetworkName;
+use amaru_kernel::NetworkName;
 use clap::Parser;
 use std::path::PathBuf;
 use tracing::info;

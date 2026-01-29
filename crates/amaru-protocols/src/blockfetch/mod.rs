@@ -16,9 +16,11 @@ mod initiator;
 pub(crate) mod messages;
 mod responder;
 
-use crate::mux::{Frame, MuxMessage};
-use crate::protocol::{Inputs, ProtoSpec, ProtocolState, RoleT};
-use amaru_kernel::{Point, peer::Peer};
+use crate::{
+    mux::{Frame, MuxMessage},
+    protocol::{Inputs, ProtoSpec, ProtocolState, RoleT},
+};
+use amaru_kernel::{Peer, Point};
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 

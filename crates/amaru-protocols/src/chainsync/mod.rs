@@ -51,7 +51,7 @@ mod register {
         mux::{Frame, MuxMessage},
         protocol::{Inputs, PROTO_N2N_CHAIN_SYNC},
     };
-    use amaru_kernel::{peer::Peer, protocol_messages::tip::Tip};
+    use amaru_kernel::{Peer, Tip};
     use amaru_ouroboros::ConnectionId;
     use pure_stage::{Effects, StageRef};
 

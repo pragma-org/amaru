@@ -14,12 +14,12 @@
 
 use crate::{
     context::WitnessSlice,
-    rules::{
-        InvalidEd25519Signature, TransactionField, WithPosition, format_vec,
-        verify_ed25519_signature,
-    },
+    rules::{TransactionField, WithPosition},
 };
-use amaru_kernel::{BootstrapWitness, Hash, Hasher, TransactionId, VKeyWitness, to_root};
+use amaru_kernel::{
+    AsHash, BootstrapWitness, Hash, Hasher, InvalidEd25519Signature, TransactionId, VKeyWitness,
+    size::KEY, utils::string::display_collection, verify_ed25519_signature,
+};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
@@ -27,15 +27,15 @@ use thiserror::Error;
 pub enum InvalidVKeyWitness {
     #[error(
         "missing required signatures for keys or roots: [{}]",
-        format_vec(missing_keys_or_roots)
+        display_collection(missing_keys_or_roots)
     )]
     MissingRequiredKeysOrRoots {
-        missing_keys_or_roots: Vec<Hash<28>>,
+        missing_keys_or_roots: Vec<Hash<KEY>>,
     },
 
     #[error(
         "invalid verification key witnesses: [{}]",
-        format_vec(invalid_witnesses)
+        display_collection(invalid_witnesses)
     )]
     InvalidSignatures {
         invalid_witnesses: Vec<WithPosition<InvalidEd25519Signature>>,
@@ -66,7 +66,7 @@ pub fn execute(
         provided_keys_or_roots.insert(Hasher::<224>::hash(&witness.vkey));
     });
     bootstrap_witnesses.iter().for_each(|witness| {
-        provided_keys_or_roots.insert(to_root(witness));
+        provided_keys_or_roots.insert(witness.as_hash());
     });
 
     let mut required_keys_or_roots = context.required_signers();
@@ -124,9 +124,12 @@ mod tests {
     use super::*;
     use crate::{
         context::assert::AssertValidationContext,
-        rules::{InvalidEd25519Signature, WithPosition, tests::fixture_context},
+        rules::{WithPosition, tests::fixture_context},
     };
-    use amaru_kernel::{TransactionBody, WitnessSet, hash, include_cbor, include_json, json};
+    use amaru_kernel::{
+        InvalidEd25519Signature, TransactionBody, WitnessSet, hash, include_cbor, include_json,
+        json,
+    };
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -274,7 +277,7 @@ mod tests {
             position: 0,
             element: InvalidEd25519Signature::InvalidSignatureSize { ..}});
         "Invalid Signatures: Invalid Signature Size")]
-    // InvalidKeySize is enforced by the validation context type (Hash<28>).
+    // InvalidKeySize is enforced by the validation context type (Hash<KEY>).
     // If the key in the signature is the wrong length, the execute function will fail with MissingRequiredWitness
     fn bootstrap_witness(
         (mut ctx, tx, witness_set, expected_traces): (

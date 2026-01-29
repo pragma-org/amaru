@@ -16,7 +16,7 @@ use crate::consensus::effects::{
     Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps, Store,
     metrics_effects::{Metrics, MetricsOps},
 };
-use amaru_kernel::{BlockHeader, Tx};
+use amaru_kernel::{BlockHeader, Transaction};
 use amaru_ouroboros_traits::{ChainStore, TxSubmissionMempool};
 use amaru_protocols::mempool_effects::MemoryPool;
 use pure_stage::{Effects, SendData};
@@ -30,7 +30,7 @@ pub trait ConsensusOps: Send + Sync + Clone {
     fn network(&self) -> impl NetworkOps;
     /// Return a TxSubmissionMempool implementation to access mempool operations, like get_tx to retrieve a transaction
     /// from the mempool.
-    fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Tx>>;
+    fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Transaction>>;
     /// Return a LedgerOps implementation to access ledger operations, considering that it is a sub-system
     /// external to consensus.
     fn ledger(&self) -> Arc<dyn LedgerOps>;
@@ -55,7 +55,7 @@ impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
         Arc::new(Store::new(self.effects.clone()))
     }
 
-    pub fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Tx>> {
+    pub fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Transaction>> {
         Arc::new(MemoryPool::new(self.effects.clone()))
     }
 
@@ -81,7 +81,7 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
         self.store()
     }
 
-    fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Tx>> {
+    fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Transaction>> {
         self.mempool()
     }
 
@@ -107,33 +107,28 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
 pub mod tests {
     use super::*;
     use crate::consensus::errors::ProcessingFailed;
-    use amaru_kernel::peer::Peer;
-    use amaru_kernel::protocol_messages::tip::Tip;
-    use amaru_kernel::{Point, PoolId, RawBlock};
+    use amaru_kernel::{Peer, Point, PoolId, RawBlock, Tip};
     use amaru_mempool::strategies::InMemoryMempool;
-    use amaru_metrics::MetricsEvent;
-    use amaru_metrics::ledger::LedgerMetrics;
+    use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics};
     use amaru_ouroboros::has_stake_distribution::GetPoolError;
-    use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
-    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use amaru_ouroboros_traits::{
         BlockValidationError, HasStakeDistribution, PoolSummary, TxSubmissionMempool,
+        can_validate_blocks::HeaderValidationError, in_memory_consensus_store::InMemConsensusStore,
     };
     use amaru_protocols::blockfetch::Blocks;
     use amaru_slot_arithmetic::Slot;
     use parking_lot::Mutex;
-    use pure_stage::serde::{from_cbor, to_cbor};
-    use pure_stage::{BoxFuture, Instant, StageRef};
+    use pure_stage::{
+        BoxFuture, Instant, StageRef,
+        serde::{from_cbor, to_cbor},
+    };
     use serde::de::DeserializeOwned;
-    use std::collections::BTreeMap;
-    use std::future::ready;
-    use std::sync::Arc;
-    use std::time::Duration;
+    use std::{collections::BTreeMap, future::ready, sync::Arc, time::Duration};
 
     #[derive(Clone)]
     pub struct MockConsensusOps {
         pub mock_store: InMemConsensusStore<BlockHeader>,
-        pub mock_mempool: Arc<dyn TxSubmissionMempool<Tx>>,
+        pub mock_mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
         pub mock_network: MockNetworkOps,
         pub mock_ledger: MockLedgerOps,
         pub mock_base: MockBaseOps,
@@ -150,7 +145,7 @@ pub mod tests {
             self.mock_network.clone()
         }
 
-        fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Tx>> {
+        fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Transaction>> {
             self.mock_mempool.clone()
         }
 

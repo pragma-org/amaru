@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock};
+use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, Point, RawBlock};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -61,8 +61,8 @@ impl<H> InMemConsensusStoreInner<H> {
             nonces: BTreeMap::new(),
             headers: BTreeMap::new(),
             parent_child_relationship: BTreeMap::new(),
-            anchor: ORIGIN_HASH,
-            best_chain: ORIGIN_HASH,
+            anchor: NULL_HASH32,
+            best_chain: NULL_HASH32,
             blocks: BTreeMap::new(),
             chain: Vec::new(),
         }

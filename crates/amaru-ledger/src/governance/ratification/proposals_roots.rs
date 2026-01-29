@@ -87,9 +87,12 @@ impl<'d, C> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ComparableProp
 // ----------------------------------------------------------------------------
 
 #[cfg(any(test, feature = "test-utils"))]
-pub mod tests {
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
     use super::ProposalsRoots;
-    use amaru_kernel::{prop_cbor_roundtrip, tests::any_comparable_proposal_id};
+    use amaru_kernel::{any_comparable_proposal_id, prop_cbor_roundtrip};
     use proptest::{option, prop_compose};
 
     prop_cbor_roundtrip!(ProposalsRoots, any_proposals_roots());

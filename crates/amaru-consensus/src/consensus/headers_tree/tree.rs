@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::HeaderHash;
-use amaru_kernel::IsHeader;
-use std::collections::BTreeMap;
-use std::fmt::{Debug, Display, Formatter};
+use amaru_kernel::{HeaderHash, IsHeader};
+use std::{
+    collections::BTreeMap,
+    fmt::{Debug, Display, Formatter},
+};
 
 /// This tree structure implements parent-child relationships between nodes of type `H`.
 #[derive(Clone, PartialEq, Eq)]
