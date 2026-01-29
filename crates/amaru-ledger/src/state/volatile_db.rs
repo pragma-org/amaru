@@ -96,25 +96,33 @@ impl VolatileDB {
         point: &Point,
         on_unknown_point: impl Fn(&Point) -> E,
     ) -> Result<(), E> {
+        let target_slot = point.slot_or_default();
+
+        // Check upfront if the target point is beyond the sequence
+        if let Some(last) = self.sequence.back()
+            && last.anchor.0.slot_or_default() < target_slot
+        {
+            return Err(on_unknown_point(point));
+        }
+
         self.cache = VolatileCache::default();
 
+        // Keep all elements with slot <= target_slot
         let mut ix = 0;
         for diff in self.sequence.iter() {
-            if diff.anchor.0.slot_or_default() <= point.slot_or_default() {
+            if diff.anchor.0.slot_or_default() <= target_slot {
                 // TODO: See NOTE on VolatileDB regarding the .clone()
                 self.cache.merge(diff.state.utxo.clone());
                 ix += 1;
+            } else {
+                break;
             }
         }
 
-        if ix >= self.sequence.len() {
-            Err(on_unknown_point(point))
-        } else {
-            self.sequence.resize_with(ix, || {
-                unreachable!("ix is necessarly strictly smaller than the length")
-            });
-            Ok(())
-        }
+        self.sequence.resize_with(ix, || {
+            unreachable!("ix cannot exceed sequence length due to the loop break")
+        });
+        Ok(())
     }
 }
 
@@ -395,4 +403,114 @@ fn add_proposals(
             }
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use amaru_kernel::{Hash, Point, Slot};
+
+    #[test]
+    fn test_rollback_to_point_before_sequence_clears_all() {
+        // Create a VolatileDB with three states at slots 10, 20, 30
+        let mut db = create_volatile_db();
+
+        // Rollback to slot 5 (before the first element at slot 10)
+        // This represents rolling back to a point in the stable DB
+        let rollback_point = Point::Specific(Slot::from(5), Hash::new([0u8; 32]));
+
+        let result = db.rollback_to(&rollback_point, |_| "Point not found");
+
+        // This should succeed and clear all volatile changes
+        // (rolling back to stable DB discards all volatile state)
+        assert!(result.is_ok());
+        assert_eq!(db.len(), 0, "All volatile changes should be discarded");
+    }
+
+    #[test]
+    fn test_rollback_to_exact_last_element_should_succeed() {
+        // Create a VolatileDB with three states at slots 10, 20, 30
+        let mut db = create_volatile_db();
+
+        // Rollback to slot 30 (the last element)
+        let rollback_point = Point::Specific(Slot::from(30), Hash::new([0u8; 32]));
+
+        // This should succeed, keeping all 3 elements
+        let result = db.rollback_to(&rollback_point, |_| "Point not found");
+
+        assert!(
+            result.is_ok(),
+            "Rolling back to the exact slot of the last element should succeed"
+        );
+        assert_eq!(db.len(), 3, "All elements should be retained");
+    }
+
+    #[test]
+    fn test_rollback_to_middle_element_succeeds() {
+        // Create a VolatileDB with three states at slots 10, 20, 30
+        let mut db = create_volatile_db();
+
+        // Rollback to slot 20 (middle element)
+        let rollback_point = Point::Specific(Slot::from(20), Hash::new([0u8; 32]));
+
+        let result = db.rollback_to(&rollback_point, |_| "Point not found");
+
+        // This should succeed
+        assert!(result.is_ok());
+        assert_eq!(db.len(), 2, "Should keep elements at slots 10 and 20");
+    }
+
+    #[test]
+    fn test_rollback_to_point_after_sequence_fails() {
+        // Create a VolatileDB with three states at slots 10, 20, 30
+        let mut db = create_volatile_db();
+
+        // Try to rollback to slot 40 (after the sequence)
+        let rollback_point = Point::Specific(Slot::from(40), Hash::new([0u8; 32]));
+
+        let result = db.rollback_to(&rollback_point, |_| "Point not found");
+
+        // This should fail
+        assert!(
+            result.is_err(),
+            "Rolling back to a point after the sequence should fail"
+        );
+    }
+
+    #[test]
+    fn test_rollback_to_slot_between_elements_succeeds() {
+        // Create a VolatileDB with three states at slots 10, 20, 30
+        let mut db = create_volatile_db();
+
+        // Rollback to slot 25 (between 20 and 30)
+        let rollback_point = Point::Specific(Slot::from(25), Hash::new([0u8; 32]));
+
+        let result = db.rollback_to(&rollback_point, |_| "Point not found");
+
+        // This should succeed and keep elements at slots 10 and 20
+        assert!(result.is_ok());
+        assert_eq!(db.len(), 2, "Should keep elements at slots 10 and 20");
+    }
+
+    // HELPERS
+
+    fn create_test_state(slot: u64, pool_id: u8) -> AnchoredVolatileState {
+        let point = Point::Specific(Slot::from(slot), Hash::new([0u8; 32]));
+        let pool = Hash::new([pool_id; 28]);
+
+        AnchoredVolatileState {
+            anchor: (point, pool),
+            state: VolatileState::default(),
+        }
+    }
+
+    fn create_volatile_db() -> VolatileDB {
+        let mut db = VolatileDB::default();
+        db.push_back(create_test_state(10, 1));
+        db.push_back(create_test_state(20, 2));
+        db.push_back(create_test_state(30, 3));
+
+        assert_eq!(db.len(), 3);
+        db
+    }
 }
