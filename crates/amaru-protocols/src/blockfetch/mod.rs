@@ -94,7 +94,7 @@ pub async fn register_blockfetch_initiator<M>(
             handler: eff
                 .contramap(&blockfetch, "blockfetch_bytes", Inputs::Network)
                 .await,
-            max_buffer: 25000000,
+            max_buffer: 2_500_000,
         },
     )
     .await;
@@ -121,7 +121,7 @@ pub async fn register_blockfetch_responder<M>(
             handler: eff
                 .contramap(&blockfetch, "blockfetch_bytes", Inputs::Network)
                 .await,
-            max_buffer: 25000000,
+            max_buffer: 2_500_000,
         },
     )
     .await;
