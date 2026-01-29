@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::context::{PotsSlice, UtxoSlice};
-use amaru_kernel::{HasLovelace, Lovelace, MintedTransactionOutput, TransactionInput};
+use amaru_kernel::{HasLovelace, Lovelace, MemoizedTransactionOutput, TransactionInput};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidFees {
@@ -32,8 +32,8 @@ pub(crate) fn execute<C>(
     context: &mut C,
     is_valid: bool,
     fees: Lovelace,
-    collateral: Option<&Vec<TransactionInput>>,
-    collateral_return: Option<&MintedTransactionOutput<'_>>,
+    collateral: Option<&[TransactionInput]>,
+    collateral_return: Option<&MemoizedTransactionOutput>,
 ) -> Result<(), InvalidFees>
 where
     C: UtxoSlice + PotsSlice,
@@ -43,18 +43,18 @@ where
         return Ok(());
     }
 
-    let total_collateral = collateral
-        .map(|x| x.as_slice())
-        .unwrap_or(&[])
-        .iter()
-        .enumerate()
-        .try_fold(0, |total, (position, input)| {
-            let output = context
-                .lookup(input)
-                .ok_or(InvalidFees::UnknownCollateralInput { position })?;
+    let total_collateral =
+        collateral
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+            .try_fold(0, |total, (position, input)| {
+                let output = context
+                    .lookup(input)
+                    .ok_or(InvalidFees::UnknownCollateralInput { position })?;
 
-            Ok(total + output.lovelace())
-        })?;
+                Ok(total + output.lovelace())
+            })?;
 
     let collateral_return = collateral_return.map(|o| o.lovelace()).unwrap_or_default();
 
@@ -75,7 +75,7 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
     };
-    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -123,7 +123,7 @@ mod tests {
     fn fees(
         (ctx, tx, expected_traces, is_valid): (
             AssertPreparationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
+            TransactionBody,
             Vec<json::Value>,
             bool,
         ),

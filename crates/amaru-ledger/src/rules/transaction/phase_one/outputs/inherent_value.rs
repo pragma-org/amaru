@@ -14,12 +14,12 @@
 
 use super::InvalidOutput;
 use amaru_kernel::{
-    HasLovelace, MintedTransactionOutput, protocol_parameters::ProtocolParameters, to_cbor,
+    HasLovelace, MemoizedTransactionOutput, protocol_parameters::ProtocolParameters, to_cbor,
 };
 
 pub fn execute(
     protocol_parameters: &ProtocolParameters,
-    output: &MintedTransactionOutput<'_>,
+    output: &MemoizedTransactionOutput,
 ) -> Result<(), InvalidOutput> {
     // This conversion is safe with no loss of information
     // FIXME: do not re-serialize here
@@ -34,12 +34,10 @@ pub fn execute(
     }
 
     let max_value_size = protocol_parameters.max_value_size;
-    let given_val_size = match output {
-        amaru_kernel::PseudoTransactionOutput::Legacy(output) => to_cbor(&output.amount).len(),
-        amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => to_cbor(&output.value).len(),
-    };
+    // FIXME: Memoize original value size, and avoid re-serializing.
+    let given_val_size = to_cbor(&output.value).len();
 
-    // This conversion is safe becuase max_value_size will never be big enough to cause a problem
+    // This conversion is safe because max_value_size will never be big enough to cause a problem
     if given_val_size > max_value_size as usize {
         return Err(InvalidOutput::ValueTooLarge {
             maximum_size: max_value_size as usize,

@@ -43,6 +43,9 @@ pub fn decode_break<'d>(
 // ----------------------------------------------------------------------------
 
 /// Decode any heterogeneous CBOR array, irrespective of whether they're indefinite or definite.
+///
+/// FIXME: Allow callers to check that the length is not static, but simply matches what is
+/// advertised; e.g. using Option<u64> as a callback.
 pub fn heterogeneous_array<'d, A>(
     d: &mut cbor::Decoder<'d>,
     elems: impl FnOnce(

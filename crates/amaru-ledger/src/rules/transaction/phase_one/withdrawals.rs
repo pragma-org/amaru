@@ -86,7 +86,7 @@ mod test {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::TransactionField,
     };
-    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -130,7 +130,7 @@ mod test {
             if  position == 0 && bytes == vec![0x00, 0x00] && matches!(context, TransactionField::Withdrawals);
         "Malformed Reward Account")]
     fn valid_withdrawal(
-        (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
+        (tx, expected_traces): (TransactionBody, Vec<json::Value>),
     ) -> Result<(), InvalidWithdrawals> {
         assert_trace(
             || {
@@ -138,7 +138,7 @@ mod test {
                     utxo: Default::default(),
                 });
 
-                super::execute(&mut context, tx.withdrawals.clone().map(|xs| xs.to_vec()))
+                super::execute(&mut context, tx.withdrawals.map(|xs| xs.to_vec()))
             },
             expected_traces,
         )

@@ -16,8 +16,8 @@ use amaru_kernel::{
     cbor, from_cbor,
     network::NetworkName,
     protocol_parameters::{self, GlobalParameters},
-    to_cbor, ArenaPool, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock,
-    Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+    to_cbor, ArenaPool, Block, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, Point,
+    PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
 };
 use amaru_ledger::{
     context,
@@ -28,7 +28,7 @@ use amaru_ledger::{
 use amaru_stores::in_memory::MemoryStore;
 use std::collections::BTreeMap;
 
-type BlockWrapper<'b> = (u16, MintedBlock<'b>);
+type BlockWrapper<'b> = (u16, Block);
 
 pub const RAW_BLOCK_CONWAY_1: &str = include_str!("../assets/conway1.block");
 pub const RAW_BLOCK_CONWAY_3: &str = include_str!("../assets/conway3.block");
@@ -39,7 +39,7 @@ pub fn forward_ledger(raw_block: &str) {
     let network = NetworkName::Preprod;
     let era_history: &EraHistory = network.into();
 
-    let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
+    let (_era, block): BlockWrapper = cbor::decode(&bytes).unwrap();
 
     let global_parameters: &GlobalParameters = network.into();
 
@@ -64,10 +64,7 @@ pub fn forward_ledger(raw_block: &str) {
     )
     .unwrap();
 
-    let point = Point::Specific(
-        block.header.header_body.slot.into(),
-        Hasher::<256>::hash(&block.header.raw_cbor()),
-    );
+    let point = Point::Specific(block.header.header_body.slot.into(), block.header_hash());
 
     let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
 
@@ -116,7 +113,7 @@ pub fn forward_ledger(raw_block: &str) {
         &GovernanceActivity {
             consecutive_dormant_epochs: 0,
         },
-        &block,
+        block,
     ) {
         panic!("Failed to validate block")
     };

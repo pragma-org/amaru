@@ -52,8 +52,8 @@ pub enum InvalidVKeyWitness {
 pub fn execute(
     context: &mut impl WitnessSlice,
     transaction_id: TransactionId,
-    bootstrap_witnesses: Option<&Vec<BootstrapWitness>>,
-    vkey_witnesses: Option<&Vec<VKeyWitness>>,
+    bootstrap_witnesses: Option<&[BootstrapWitness]>,
+    vkey_witnesses: Option<&[VKeyWitness]>,
 ) -> Result<(), InvalidVKeyWitness> {
     let empty_vec = vec![];
     let vkey_witnesses = vkey_witnesses.unwrap_or(&empty_vec);
@@ -126,10 +126,7 @@ mod tests {
         context::assert::AssertValidationContext,
         rules::{InvalidEd25519Signature, WithPosition, tests::fixture_context},
     };
-    use amaru_kernel::{
-        KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash, WitnessSet, hash,
-        include_cbor, include_json, json,
-    };
+    use amaru_kernel::{TransactionBody, WitnessSet, hash, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -282,17 +279,16 @@ mod tests {
     fn bootstrap_witness(
         (mut ctx, tx, witness_set, expected_traces): (
             AssertValidationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
-            KeepRaw<'_, MintedWitnessSet<'_>>,
+            TransactionBody,
+            WitnessSet,
             Vec<json::Value>,
         ),
     ) -> Result<(), InvalidVKeyWitness> {
         assert_trace(
             || {
-                let transaction_id = tx.original_hash();
                 super::execute(
                     &mut ctx,
-                    transaction_id,
+                    tx.id(),
                     witness_set.bootstrap_witness.as_deref(),
                     witness_set.vkeywitness.as_deref(),
                 )

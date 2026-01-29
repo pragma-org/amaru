@@ -155,7 +155,7 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
     };
-    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -223,11 +223,7 @@ mod tests {
         "unknown reference input"
     )]
     fn inputs(
-        (ctx, tx, expected_traces): (
-            AssertPreparationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
-            Vec<json::Value>,
-        ),
+        (ctx, tx, expected_traces): (AssertPreparationContext, TransactionBody, Vec<json::Value>),
     ) -> Result<(), InvalidInputs> {
         assert_trace(
             move || {
@@ -235,7 +231,7 @@ mod tests {
                 super::execute(
                     &mut validation_context,
                     &tx.inputs,
-                    tx.reference_inputs.as_deref().map(|vec| vec.as_slice()),
+                    tx.reference_inputs.as_deref(),
                 )
             },
             expected_traces,

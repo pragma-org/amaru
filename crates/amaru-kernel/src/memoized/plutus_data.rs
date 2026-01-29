@@ -98,11 +98,30 @@ impl TryFrom<Vec<u8>> for MemoizedPlutusData {
     }
 }
 
+impl<'b, C> cbor::Decode<'b, C> for MemoizedPlutusData {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let keep_raw: KeepRaw<'b, PlutusData> = d.decode_with(ctx)?;
+        Ok(Self::from(keep_raw))
+    }
+}
+
+impl<C> cbor::Encode<C> for MemoizedPlutusData {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.writer_mut()
+            .write_all(&self.original_bytes[..])
+            .map_err(cbor::encode::Error::write)
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::{Constr, KeyValuePairs, MaybeIndefArray, to_cbor};
-    use pallas_primitives::{self as pallas, BigInt, BoundedBytes};
+    use crate::{Constr, MaybeIndefArray, to_cbor};
+    use pallas_primitives::{self as pallas, BigInt, BoundedBytes, KeyValuePairs};
     use proptest::{prelude::*, strategy::Just};
 
     // NOTE: We do not use Pallas' PlutusData because it doesn't respect the

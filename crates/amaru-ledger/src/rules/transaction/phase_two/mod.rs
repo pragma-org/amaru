@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::{TransactionBody, WitnessSet};
 use core::fmt;
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    ArenaPool, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash,
-    TransactionInputAdapter, TransactionPointer, cbor, network::NetworkName,
+    ArenaPool, EraHistory, TransactionInputAdapter, TransactionPointer, cbor, network::NetworkName,
     protocol_parameters::ProtocolParameters, to_cbor,
 };
 use amaru_plutus::{
@@ -73,8 +73,8 @@ pub fn execute<C>(
     era_history: &EraHistory,
     pointer: TransactionPointer,
     is_valid: bool,
-    transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
-    transaction_witness_set: &MintedWitnessSet<'_>,
+    transaction_body: &TransactionBody,
+    transaction_witness_set: &WitnessSet,
 ) -> Result<(), PhaseTwoError>
 where
     C: UtxoSlice + fmt::Debug,
@@ -102,7 +102,7 @@ where
         .as_ref()
         .map(|reference_inputs| {
             reference_inputs
-                .into_iter()
+                .iter()
                 .map(|input| {
                     Ok((
                         input.clone(),
@@ -123,7 +123,7 @@ where
     let tx_info = TxInfo::new(
         transaction_body,
         transaction_witness_set,
-        &transaction_body.original_hash(),
+        transaction_body.id(),
         &utxos,
         &pointer.slot,
         *network,

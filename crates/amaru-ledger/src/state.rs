@@ -33,9 +33,9 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    ArenaPool, ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher, IsHeader,
-    Lovelace, MemoizedTransactionOutput, MintedBlock, Point, PoolId, RawBlock, Slot,
-    StakeCredential, StakeCredentialType, TransactionInput, expect_stake_credential,
+    ArenaPool, Block, ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher,
+    Lovelace, MemoizedTransactionOutput, Point, PoolId, RawBlock, Slot, StakeCredential,
+    StakeCredentialType, TransactionInput, expect_stake_credential,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     stake_credential_hash,
@@ -49,7 +49,7 @@ use anyhow::{Context, anyhow};
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, VecDeque},
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
 };
@@ -560,10 +560,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             total_inputs
         )
     )]
-    fn create_validation_context(
-        &self,
-        block: &MintedBlock<'_>,
-    ) -> anyhow::Result<DefaultValidationContext> {
+    fn create_validation_context(&self, block: &Block) -> anyhow::Result<DefaultValidationContext> {
         let mut ctx = context::DefaultPreparationContext::new();
         rules::prepare_block(&mut ctx, block);
         Span::current().record("total_inputs", ctx.utxo.len());
@@ -616,6 +613,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             Err(e) => return BlockValidation::Err(anyhow!(e)),
         };
 
+        let block_height = block.header.header_body.block_number;
+        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+        let txs_processed = block.transaction_bodies.len() as u64;
+
         match rules::validate_block(
             &mut context,
             arena_pool,
@@ -623,15 +624,12 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             self.protocol_parameters(),
             self.era_history(),
             self.governance_activity(),
-            &block,
+            block,
         ) {
             BlockValidation::Err(err) => BlockValidation::Err(err),
             BlockValidation::Invalid(slot, id, err) => BlockValidation::Invalid(slot, id, err),
             BlockValidation::Valid(()) => {
                 let state: VolatileState = context.into();
-                let block_height = &block.header.block_height();
-                let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-                let txs_processed = block.transaction_bodies.len() as u64;
                 let slot = point.slot_or_default();
                 let epoch = match self.era_history().slot_to_epoch(slot, slot) {
                     Ok(epoch) => epoch,
@@ -649,7 +647,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 let density = self.chain_density(point);
 
                 let metrics = LedgerMetrics {
-                    block_height: block_height.as_u64(),
+                    block_height,
                     txs_processed,
                     slot,
                     slot_in_epoch,
@@ -1116,35 +1114,6 @@ impl HasStakeDistribution for StakeDistributionObserver {
             stake: st.stake,
             active_stake: stake_distribution.active_stake,
         }))
-    }
-}
-
-// FailedTransactions
-// ----------------------------------------------------------------------------
-
-/// Failed transactions aren'y immediately available in blocks. Only indices of those transactions
-/// are stored. This internal structure provides a clean(er) interface to accessing those indices.
-pub(crate) struct FailedTransactions {
-    inner: BTreeSet<u32>,
-}
-
-impl FailedTransactions {
-    pub(crate) fn from_block(block: &MintedBlock<'_>) -> Self {
-        FailedTransactions {
-            inner: block
-                .invalid_transactions
-                .as_deref()
-                .map(|indices| {
-                    let mut tree = BTreeSet::new();
-                    tree.extend(indices.to_vec().as_slice());
-                    tree
-                })
-                .unwrap_or_default(),
-        }
-    }
-
-    pub(crate) fn has(&self, ix: u32) -> bool {
-        self.inner.contains(&ix)
     }
 }
 

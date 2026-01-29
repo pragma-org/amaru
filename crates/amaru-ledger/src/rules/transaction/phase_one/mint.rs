@@ -13,10 +13,15 @@
 // limitations under the License.
 
 use crate::context::{UtxoSlice, WitnessSlice};
-use amaru_kernel::{MemoizedDatum, Multiasset, NonZeroInt, RequiredScript, ScriptPurpose};
+use amaru_kernel::{
+    AssetName, MemoizedDatum, NonEmptyKeyValuePairs, NonZeroInt, PolicyId, RequiredScript,
+    ScriptPurpose,
+};
 
-pub fn execute<C>(context: &mut C, mint: Option<&Multiasset<NonZeroInt>>)
-where
+pub fn execute<C>(
+    context: &mut C,
+    mint: Option<&NonEmptyKeyValuePairs<PolicyId, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>,
+) where
     C: UtxoSlice + WitnessSlice,
 {
     if let Some(mint) = mint {
@@ -38,7 +43,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-    use amaru_kernel::{MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -75,7 +80,7 @@ mod tests {
     fn test_mint(
         (mut ctx, tx, expected_traces): (
             AssertValidationContext,
-            MintedTransactionBody<'_>,
+            TransactionBody,
             Vec<json::Value>,
         ),
     ) {
