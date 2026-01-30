@@ -20,6 +20,7 @@ test-utils = ["dep:rand"]
 anyhow.workspace = true
 async-trait.workspace = true
 hex.workspace = true
+parking_lot.workspace = true
 rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
@@ -28,6 +29,10 @@ thiserror.workspace = true
 amaru-kernel.workspace = true
 amaru-slot-arithmetic.workspace = true
 amaru-metrics.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [package.metadata.cargo-machete]
 ignored = ["rand"]

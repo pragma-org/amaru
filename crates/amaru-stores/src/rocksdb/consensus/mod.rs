@@ -826,6 +826,15 @@ pub mod test {
         });
     }
 
+    #[test]
+    fn load_point_returns_the_header_point() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            let actual = store.load_point(&chain[0].hash());
+            assert_eq!(actual, Some(chain[0].point()));
+        });
+    }
+
     // MIGRATIONS
 
     #[test]

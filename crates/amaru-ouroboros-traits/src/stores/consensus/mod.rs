@@ -27,6 +27,11 @@ where
     /// Try to load a header by its hash.
     fn load_header(&self, hash: &HeaderHash) -> Option<H>;
 
+    fn load_point(&self, hash: &HeaderHash) -> Option<Point> {
+        self.load_header(hash)
+            .map(|h: H| Point::Specific(h.slot(), h.hash()))
+    }
+
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
     fn get_anchor_hash(&self) -> HeaderHash;
     fn get_best_chain_hash(&self) -> HeaderHash;

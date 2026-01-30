@@ -17,7 +17,11 @@ use amaru_metrics::ledger::LedgerMetrics;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 
-pub mod mock;
+pub mod mock_can_validate_blocks;
+pub mod mock_can_validate_header;
+
+pub use mock_can_validate_blocks::MockCanValidateBlocks;
+pub use mock_can_validate_header::MockCanValidateHeaders;
 
 #[async_trait::async_trait]
 pub trait CanValidateBlocks: Send + Sync {
@@ -29,6 +33,7 @@ pub trait CanValidateBlocks: Send + Sync {
 
     fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError>;
 }
+
 #[derive(Debug)]
 pub struct BlockValidationError(anyhow::Error);
 

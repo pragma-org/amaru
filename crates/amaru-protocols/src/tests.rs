@@ -22,16 +22,15 @@ use crate::{chainsync, manager};
 use amaru_kernel::is_header::tests::{any_headers_chain_with_root, make_header, run};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, cbor};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, cbor};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros_traits::can_validate_blocks::CanValidateHeaders;
-use amaru_ouroboros_traits::can_validate_blocks::mock::{
-    MockCanValidateBlocks, MockCanValidateHeaders,
-};
+use amaru_ouroboros_traits::can_validate_blocks::mock_can_validate_header::MockCanValidateHeaders;
+use amaru_ouroboros_traits::can_validate_blocks::{CanValidateHeaders, MockCanValidateBlocks};
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, ChainStore, ConnectionProvider, ConnectionResource, ResourceMempool, TxId,
+    CanValidateBlocks, ChainStore, ConnectionProvider, ConnectionResource, ReadOnlyChainStore,
+    ResourceMempool, TxId,
 };
 use pallas_primitives::babbage::{Header, MintedHeader};
 use pallas_primitives::conway::Tx;
@@ -280,15 +279,23 @@ fn add_resources(
     let mempool = Arc::new(InMemoryMempool::default());
     initialize_chain_store(chain_store.clone(), role)?;
     initialize_mempool(mempool.clone(), role)?;
+
     network
         .resources()
         .put::<ResourceHeaderStore>(chain_store.clone());
+
+    let anchor_point = chain_store
+        .load_point(&chain_store.get_anchor_hash())
+        .unwrap_or(Point::Origin);
+    let ledger_state = Arc::new(MockCanValidateBlocks::new(anchor_point));
     network
         .resources()
-        .put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
+        .put::<ResourceBlockValidation>(ledger_state);
+
     network
         .resources()
         .put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
+
     network
         .resources()
         .put::<ConnectionResource>(Arc::new(connections));

@@ -20,6 +20,7 @@ use crate::simulator::{
 };
 use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
+use amaru_consensus::can_validate_blocks::MockCanValidateBlocks;
 use amaru_consensus::consensus::headers_tree::data_generation::{Chain, GeneratedActions};
 use amaru_consensus::consensus::stages::pull::SyncTracker;
 use amaru_consensus::consensus::{
@@ -38,11 +39,8 @@ use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
     Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
 };
-use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateHeaders;
-use amaru_ouroboros::{
-    ChainStore, can_validate_blocks::mock::MockCanValidateBlocks,
-    in_memory_consensus_store::InMemConsensusStore,
-};
+use amaru_ouroboros::can_validate_blocks::mock_can_validate_header::MockCanValidateHeaders;
+use amaru_ouroboros::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::blockfetch::Blocks;
 use amaru_protocols::manager::ManagerMessage;
 use async_trait::async_trait;
@@ -221,9 +219,16 @@ pub fn spawn_node(
     network
         .resources()
         .put::<ResourceParameters>(global_parameters.clone());
+
+    let anchor = resource_header_store
+        .load_point(&resource_header_store.get_anchor_hash())
+        .unwrap_or(Point::Origin);
+
+    let ledger_state = Arc::new(MockCanValidateBlocks::new(anchor));
     network
         .resources()
-        .put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
+        .put::<ResourceBlockValidation>(ledger_state);
+
     network
         .resources()
         .put::<ResourceForwardEventListener>(Arc::new(listener));
