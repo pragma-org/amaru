@@ -119,7 +119,7 @@ pub async fn register_tx_submission(
             protocol: PROTO_N2N_TX_SUB.for_role(role).erase(),
             frame: mux::Frame::OneCborItem,
             handler: tx_submission.clone(),
-            max_buffer: 5760,
+            max_buffer: 2_500_000,
         },
     )
     .await;
