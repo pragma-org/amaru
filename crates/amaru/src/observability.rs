@@ -244,7 +244,7 @@ pub fn setup_open_telemetry(
         .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
 
     let metric_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
-        .with_interval(Duration::from_secs(1))
+        .with_interval(Duration::from_secs(10))
         .build();
 
     let metrics_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
