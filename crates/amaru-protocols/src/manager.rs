@@ -211,7 +211,7 @@ pub async fn stage(
             through,
             cr,
         } => {
-            tracing::debug!(?from, ?through, %peer, "fetching blocks");
+            tracing::trace!(?from, ?through, %peer, "fetching blocks");
             if let Some(ConnectionState::Connected(_, connection)) = manager.peers.get(&peer) {
                 eff.send(
                     connection,
