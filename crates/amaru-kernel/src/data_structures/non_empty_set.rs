@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{KeepRaw, cbor};
-use std::{collections::BTreeSet, fmt::Debug, ops::Deref};
+use std::{collections::BTreeSet, ops::Deref};
 
 /// A read-only non-empty set: unique set of values with at least one element.
 ///
@@ -37,7 +37,7 @@ impl<T: Eq + Ord> From<NonEmptySet<T>> for BTreeSet<T> {
     }
 }
 
-impl<T: Eq + Debug> TryFrom<Vec<T>> for NonEmptySet<T> {
+impl<T: Eq> TryFrom<Vec<T>> for NonEmptySet<T> {
     type Error = IntoNonEmptySetError;
 
     fn try_from(vec: Vec<T>) -> Result<Self, Self::Error> {
@@ -91,7 +91,7 @@ where
 
 impl<'b, C, T> cbor::Decode<'b, C> for NonEmptySet<T>
 where
-    T: Eq + Debug + cbor::Decode<'b, C>,
+    T: Eq + cbor::Decode<'b, C>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         // optional set tag (this will be required in era following Conway)

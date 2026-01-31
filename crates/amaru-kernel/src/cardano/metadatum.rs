@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Int, cbor, key_value_pairs::KeyValuePairs};
+use crate::{Int, cbor};
+use std::collections::BTreeMap;
 
 /// A piece of (structured) metadata found in transaction.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
@@ -34,7 +35,7 @@ pub enum Metadatum {
     Bytes(Vec<u8>),
     Text(String),
     Array(Vec<Metadatum>),
-    Map(KeyValuePairs<Metadatum, Metadatum>),
+    Map(BTreeMap<Metadatum, Metadatum>),
 }
 
 /// FIXME: Multi-era + length checks on bytes and text
@@ -97,7 +98,8 @@ impl<C> cbor::Encode<C> for Metadatum {
 #[cfg(test)]
 mod tests {
     use super::Metadatum;
-    use crate::{Int, from_cbor_no_leftovers, key_value_pairs::KeyValuePairs};
+    use crate::{Int, from_cbor_no_leftovers};
+    use std::collections::BTreeMap;
     use test_case::test_case;
 
     fn int(n: i128) -> Metadatum {
@@ -117,7 +119,7 @@ mod tests {
     }
 
     fn map(kvs: &[(Metadatum, Metadatum)]) -> Metadatum {
-        Metadatum::Map(KeyValuePairs::try_from(kvs.to_vec()).unwrap())
+        Metadatum::Map(BTreeMap::from_iter(kvs.to_vec()))
     }
 
     #[test_case("00", int(0))]
