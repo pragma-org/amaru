@@ -169,15 +169,26 @@ mod tests {
     use test_case::test_case;
 
     macro_rules! fixture {
-        ($id:literal) => {{ $crate::try_include_cbor!(concat!("cbor.decode/block/", $id, "/sample.cbor",)) }};
+        ($id:expr) => {{
+            (
+                Hash::from(&hex::decode($id).unwrap()[..]),
+                $crate::try_include_cbor!(concat!("cbor.decode/block/", $id, "/sample.cbor")),
+            )
+        }};
     }
 
     #[test_case(
-        fixture!("b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698"),
-        70175999;
-        "some arbitrary preprod block"
+        70175999,
+        fixture!("b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698")
     )]
-    fn decode_wellformed(result: Result<(u16, Block), cbor::decode::Error>, expected_slot: u64) {
+    #[test_case(
+        70206662,
+        fixture!("b99a61170fcdb5bade252be2cb0fa6e3ac550b9f5cc4e9d001eda88291eb9de7")
+    )]
+    fn decode_wellformed(
+        slot: u64,
+        (id, result): (Hash<HEADER>, Result<(u16, Block), cbor::decode::Error>),
+    ) {
         match result {
             Err(err) => panic!("{err}"),
             Ok((era_version, block)) => {
@@ -188,12 +199,8 @@ mod tests {
                     hex::encode(&block.header.header_body.block_body_hash[..]),
                 );
 
-                assert_eq!(
-                    hex::encode(&block.header_hash[..]),
-                    "b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698",
-                );
-
-                assert_eq!(block.header.header_body.slot, expected_slot);
+                assert_eq!(block.header_hash, id);
+                assert_eq!(block.header.header_body.slot, slot);
             }
         }
     }

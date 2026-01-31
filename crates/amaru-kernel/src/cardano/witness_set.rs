@@ -14,7 +14,7 @@
 
 use crate::{
     BootstrapWitness, HasScriptHash, Hash, MemoizedNativeScript, MemoizedPlutusData, NonEmptySet,
-    PlutusScript, Redeemers, ScriptKind, VKeyWitness, cbor, size::SCRIPT,
+    NonEmptyVec, PlutusScript, Redeemers, ScriptKind, VKeyWitness, cbor, size::SCRIPT,
 };
 use std::collections::BTreeMap;
 
@@ -31,14 +31,33 @@ use std::collections::BTreeMap;
 )]
 #[cbor(map)]
 pub struct WitnessSet {
+    /// FIXME: Accidentally not a set
+    ///
+    ///   This is supposed to be a NonEmptySet where duplicates would fail to decode. But it isn't.
+    ///   In the Haskell's codebsae, the default decoder for Set fails on duplicate starting from
+    ///   v9 and above:
+    ///
+    ///   <https://github.com/IntersectMBO/cardano-ledger/blob/fe0af09c8667bf8ffdd17dd1a387515b9b0533bf/libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Decoding/Decoder.hs#L906-L928>.
+    ///
+    ///   However, the decoder for both key and bootstrap witnesses was (accidentally) manually
+    ///   overridden and did not use the default `Set` implementation. So, duplicates were still
+    ///   silently ignored (while still allowing a set tag, and still expecting at least one
+    ///   element):
+    ///
+    ///   <https://github.com/IntersectMBO/cardano-ledger/blob/fe0af09c8667bf8ffdd17dd1a387515b9b0533bf/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L610-L624>
+    ///
+    ///   Importantly, this behaviour is changing again in v12, back to being a non-empty set.
     #[n(0)]
-    pub vkeywitness: Option<NonEmptySet<VKeyWitness>>,
+    pub vkeywitness: Option<NonEmptyVec<VKeyWitness>>,
 
     #[n(1)]
     pub native_script: Option<NonEmptySet<MemoizedNativeScript>>,
 
+    /// FIXME: Accidentally not a set
+    ///
+    /// See note on vkeywitness.
     #[n(2)]
-    pub bootstrap_witness: Option<NonEmptySet<BootstrapWitness>>,
+    pub bootstrap_witness: Option<NonEmptyVec<BootstrapWitness>>,
 
     #[n(3)]
     pub plutus_v1_script: Option<NonEmptySet<PlutusScript<1>>>,
