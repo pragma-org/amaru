@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus;
 use amaru_kernel::{HeaderHash, Peer, Point};
 use amaru_ouroboros_traits::{StoreError, can_validate_blocks::HeaderValidationError};
 use serde::ser::SerializeStruct;
@@ -68,7 +67,7 @@ pub enum ConsensusError {
     #[error("Invalid block from peer {} at {}", peer, point)]
     InvalidBlock { peer: Peer, point: Point },
     #[error("{0}")]
-    NoncesError(#[from] consensus::store::NoncesError),
+    NoncesError(#[from] crate::store::NoncesError),
     #[error("{0}")]
     InvalidHeaderParent(Box<InvalidHeaderParentData>),
     #[error("Failed to roll forward chain from {0}: {1}")]

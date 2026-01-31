@@ -19,7 +19,7 @@ use crate::{
     },
     sync::ChainSyncMessage,
 };
-use amaru_consensus::consensus::headers_tree::data_generation::{
+use amaru_consensus::headers_tree::data_generation::{
     Action, GeneratedActions, any_select_chains_from_tree, any_tree_of_headers, transpose,
 };
 use amaru_kernel::{IsHeader, Peer, Point, to_cbor, utils::tests::run_strategy_with_rng};

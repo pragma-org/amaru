@@ -16,10 +16,10 @@ use crate::stages::{
     AsTip,
     consensus::forward_chain::client_protocol::{ClientOp, hash_point},
 };
-use amaru_consensus::ReadOnlyChainStore;
 use amaru_kernel::{IsHeader, Point, Tip};
 use amaru_network::point::{from_network_point, to_network_point};
 use amaru_ouroboros_traits::ChainStore;
+use amaru_ouroboros_traits::ReadOnlyChainStore;
 use pallas_network::miniprotocols::chainsync::Tip as PallasTip;
 use std::{collections::VecDeque, fmt, sync::Arc};
 use tracing::{trace, warn};

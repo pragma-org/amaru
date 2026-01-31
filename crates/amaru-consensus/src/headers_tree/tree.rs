@@ -262,7 +262,7 @@ impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::headers_tree::data_generation::{
+    use crate::headers_tree::data_generation::{
         any_headers_tree, config_begin, generate_headers_chain, generate_headers_tree,
     };
     use proptest::{prop_assert_eq, proptest};

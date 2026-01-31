@@ -20,7 +20,7 @@ use crate::{
     sync::ChainSyncMessage,
 };
 use amaru::stages::build_stage_graph::build_stage_graph;
-use amaru_consensus::consensus::{
+use amaru_consensus::{
     effects::{
         ForwardEvent, ForwardEventListener, ResourceBlockValidation, ResourceForwardEventListener,
         ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,

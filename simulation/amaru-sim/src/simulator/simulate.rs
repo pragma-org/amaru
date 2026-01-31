@@ -33,7 +33,7 @@ use crate::{
     },
     sync::ChainSyncMessage,
 };
-use amaru_consensus::consensus::headers_tree::data_generation::{Action, GeneratedActions};
+use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions};
 use amaru_kernel::utils::string::ListToString;
 use anyhow::anyhow;
 use parking_lot::Mutex;

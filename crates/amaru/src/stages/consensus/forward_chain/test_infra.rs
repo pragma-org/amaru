@@ -16,12 +16,10 @@
 use crate::stages::consensus::forward_chain::{
     client_protocol::PrettyPoint, tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip,
 };
-use amaru_consensus::{
-    ReadOnlyChainStore,
-    consensus::effects::{ForwardEvent, ForwardEventListener},
-};
+use amaru_consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor, size::HEADER};
 use amaru_network::point::to_network_point;
+use amaru_ouroboros::ReadOnlyChainStore;
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use pallas_network::{
     facades::PeerClient,

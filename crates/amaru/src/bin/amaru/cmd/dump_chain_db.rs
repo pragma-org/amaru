@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
-use amaru_consensus::{DiagnosticChainStore, ReadOnlyChainStore};
 use amaru_kernel::{BlockHeader, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
+use amaru_ouroboros::{DiagnosticChainStore, ReadOnlyChainStore};
 use amaru_stores::rocksdb::{
     RocksDbConfig,
     consensus::{ReadOnlyChainDB, RocksDBStore},

@@ -20,7 +20,7 @@
 //!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<BlockHeader>` of a given depth.
 //!
 
-use crate::consensus::{
+use crate::{
     errors::ConsensusError,
     headers_tree::{
         HeadersTree, HeadersTreeDisplay,
@@ -738,7 +738,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::headers_tree::data_generation::generate_tree_of_headers;
+    use crate::headers_tree::data_generation::generate_tree_of_headers;
     use std::collections::BTreeSet;
 
     #[test]

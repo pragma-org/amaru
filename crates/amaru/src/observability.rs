@@ -21,6 +21,7 @@ use std::{
     error::Error,
     io::{self, IsTerminal},
     str::FromStr,
+    time::Duration,
 };
 use tracing::{info, warn};
 use tracing_subscriber::{
@@ -37,11 +38,11 @@ use tracing_subscriber::{
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
-const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=debug";
+const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=debug,pure_stage=warn";
 
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
-const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=trace";
+const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=trace,pure_stage=trace";
 
 // -----------------------------------------------------------------------------
 // TracingSubscriber
@@ -242,8 +243,9 @@ pub fn setup_open_telemetry(
         .build()
         .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
 
-    let metric_reader =
-        opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build();
+    let metric_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
+        .with_interval(Duration::from_secs(10))
+        .build();
 
     let metrics_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_reader(metric_reader)

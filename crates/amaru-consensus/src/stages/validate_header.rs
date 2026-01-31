@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
+use crate::{
     effects::{BaseOps, ConsensusOps},
     errors::{ConsensusError, ValidationFailed},
     events::{DecodedChainSyncEvent, ValidateHeaderEvent},
@@ -179,10 +179,7 @@ impl CanValidateHeaders for ValidateHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        consensus,
-        consensus::{effects::MockLedgerOps, errors::ConsensusError::NoncesError},
-    };
+    use crate::{effects::MockLedgerOps, errors::ConsensusError::NoncesError};
     use amaru_kernel::{
         GlobalParameters, HeaderHash, NetworkName, Point, RawBlock, TESTNET_GLOBAL_PARAMETERS,
         any_header_with_some_parent, utils::tests::run_strategy,
@@ -209,7 +206,7 @@ mod tests {
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
-            NoncesError(consensus::store::NoncesError::UnknownParent { .. }) => {
+            NoncesError(crate::store::NoncesError::UnknownParent { .. }) => {
                 // Expected error
             }
             other => panic!("Expected NoncesError with UnknownParent, got: {:?}", other),
@@ -232,7 +229,7 @@ mod tests {
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
-            NoncesError(consensus::store::NoncesError::UnknownParent { parent, .. })
+            NoncesError(crate::store::NoncesError::UnknownParent { parent, .. })
                 if Some(parent) == header.parent() =>
             {
                 // Expected error

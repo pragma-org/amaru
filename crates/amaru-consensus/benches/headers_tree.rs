@@ -29,7 +29,7 @@
 #[expect(clippy::unwrap_used)]
 #[cfg(all(unix, feature = "profiling", feature = "test-utils"))]
 fn main() {
-    use amaru_consensus::consensus::{
+    use amaru_consensus::{
         headers_tree::{
             HeadersTree,
             data_generation::{

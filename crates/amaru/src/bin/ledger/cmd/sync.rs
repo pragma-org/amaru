@@ -14,7 +14,7 @@
 
 use crate::cmd::new_block_validator;
 use amaru::{DEFAULT_NETWORK, default_chain_dir, default_data_dir, default_ledger_dir};
-use amaru_consensus::consensus::store::PraosChainStore;
+use amaru_consensus::store::PraosChainStore;
 use amaru_kernel::{
     BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point,
     RawBlock, to_cbor,

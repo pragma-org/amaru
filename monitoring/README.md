@@ -9,8 +9,8 @@ We provide example configurations using different compositions of tools:
 
 To turn on monitoring, use the following CLI options when running the application:
 
-* `--with-open-telemetry` (or env variable `AMARU_WITH_OPEN_TELEMETRY`) to enable [OpenTelemetry](https://opentelemetry.io/) traces
-* `--with-json-traces` (or env variable `AMARU_WITH_JSON_TRACES`) to enable JSON traces on stdout
+- `--with-open-telemetry` (or env variable `AMARU_WITH_OPEN_TELEMETRY`) to enable [OpenTelemetry](https://opentelemetry.io/) traces
+- `--with-json-traces` (or env variable `AMARU_WITH_JSON_TRACES`) to enable JSON traces on stdout
 
 ## Filtering traces
 
@@ -22,8 +22,8 @@ Any event (trace, span or metric) can be filtered by target and severity using t
 > [!TIP]
 > Both environment variable are optional.
 >
-> - When omitted, `AMARU_TRACE` defaults to all **amaru** targets above the **trace** level;
-> - When omitted, `AMARU_LOG` defaults to all **amaru** targets above the **debug** level;
+> - When omitted, `AMARU_TRACE` defaults to all **amaru** and **pure-stage** targets above the **trace** level;
+> - When omitted, `AMARU_LOG` defaults to all **errors**, **amaru** targets above the **debug** level, and **pure-stage** above the **warn** level;
 
 ### By target
 
@@ -82,6 +82,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | `stable.epoch`      | Current epoch of the most recent stable point                    |
 | `tip.epoch`         | Current epoch of the most recent volatile point                  |
 | `tip.relative_slot` | Relative slot within the epoch of the most recent volatile point |
+
 </details>
 
 <details><summary>span: `backward`</summary>
@@ -90,6 +91,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | ---          | ---                                               |
 | `point.slot` | Absolute slot number of the target rollback point |
 | `point.hash` | Block header hash of the target rollback point    |
+
 </details>
 
 ### target: `amaru::ledger::state`
@@ -105,6 +107,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | field  | description                                 |
 | ---    | ---                                         |
 | `size` | Current size of the volatile db, up to `k`. |
+
 </details>
 
 #### Spans
@@ -124,14 +127,15 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | `block.transactions.total`   | Total number of transactions in the block            |
 | `block.transactions.failed`  | Total number of failed transactions in the block     |
 | `block.transactions.success` | Total number of successful transactions in the block |
-</details>
 
+</details>
 
 <details><summary>span: `snapshot`</summary>
 
 | field   | description                                                                    |
 | ---     | ---                                                                            |
 | `epoch` | The epoch being captured as snapshot, typically the immediately previous epoch |
+
 </details>
 
 ### target: `amaru::ledger::state::rewards`
@@ -152,8 +156,9 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | field          | description                                                                |
 | ---            | ---                                                                        |
 | `active_stake` | Total stake, in Lovelace, delegated to registered pools                    |
-| `accounts`     | Total number of *active* (i.e. delegated to active pools) staking accounts |
+| `accounts`     | Total number of _active_ (i.e. delegated to active pools) staking accounts |
 | `pools`        | Total number of active pools                                               |
+
 </details>
 
 <details><summary>trace: `rewards.summary`</summary>
@@ -169,6 +174,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
  | `pots.reserves`     | Value, in Lovelace, of the reserves after rewards distribution.                                                           |
  | `pots.treasury`     | Value, in Lovelace, of the treasury after rewards distribution.                                                           |
  | `pots.fees`         | Values, in Lovelace, generated from fees during an epoch.                                                                 |
+
 </details>
 
 ### target: `amaru::ledger::state::transaction`
@@ -184,6 +190,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | `transaction.inputs`       | The number of (collateral) inputs within the transaction  |
 | `transaction.outputs`      | The number of (collateral) outputs within the transaction |
 | `transaction.withdrawals`  | The number of withdrawals within the transaction          |
+
 </details>
 
 #### Traces
@@ -205,6 +212,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | field        | description                       |
 | ---          | ---                               |
 | `credential` | Stake credential being registered |
+
 </details>
 
 <details><summary>trace: `certificate.stake.delegation`</summary>
@@ -213,6 +221,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | ---          | ---                              |
 | `credential` | Stake credential being delegated |
 | `pool`       | Stake pool delegate              |
+
 </details>
 
 <details><summary>trace: `certificate.stake.deregistration`</summary>
@@ -220,6 +229,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | field        | description                       |
 | ---          | ---                               |
 | `credential` | Stake credential being deregistered |
+
 </details>
 
 <details><summary>trace: `certificate.stake.registration`</summary>
@@ -228,6 +238,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | ---      | ---                                  |
 | `pool`   | Stake pool identifier                |
 | `params` | New or initial stake pool parameters |
+
 </details>
 
 <details><summary>trace: `certificate.stake.retirement`</summary>
@@ -236,6 +247,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | ---     | ---                   |
 | `pool`  | Stake pool identifier |
 | `epoch` | Retirement epoch      |
+
 </details>
 
 <details><summary>trace: `certificate.drep.registration`</summary>
@@ -244,6 +256,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | ---      | ---                              |
 | `drep`   | DRep identifier being retired    |
 | `refund` | Mandatory Lovelace refund amount |
+
 </details>
 
 <details><summary>trace: `certificate.drep.retirement`</summary>
@@ -253,8 +266,8 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | `drep`    | DRep identifier being registered             |
 | `deposit` | Mandatory Lovelace deposit amount            |
 | `anchor`  | An optional DRep anchor (URL + content hash) |
-</details>
 
+</details>
 
 <details><summary>trace: `certificate.vote.delegation`</summary>
 
@@ -262,6 +275,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | ---          | ---                              |
 | `credential` | Stake credential being delegated |
 | `drep`       | Target drep for delegation       |
+
 </details>
 
 ### target: `amaru::ledger::store`
@@ -283,6 +297,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | field      | description                                           |
 | ---        | ---                                                   |
 | `filename` | The relative path to the unexpected file or directory |
+
 </details>
 
 <details><summary>trace: `save.point_already_known`</summary>
@@ -290,6 +305,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | field   | description                                      |
 | ---     | ---                                              |
 | `point` | The now-stable point already known and persisted |
+
 </details>
 
 <details><summary>trace: `new.known_snapshots`</summary>
@@ -297,6 +313,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | field   | description                                   |
 | ---     | ---                                           |
 | `epoch` | The snapshot number / epoch it is relevant to |
+
 </details>
 
 ### target: `amaru::ledger::store::accounts`
@@ -316,6 +333,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | field        | description                            |
 | ---          | ---                                    |
 | `credential` | Stake credential of the faulty account |
+
 </details>
 
 ### target: `amaru::ledger::store::pools`
@@ -332,6 +350,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | field  | description                                  |
 | ---    | ---                                          |
 | `pool` | The identifier of the now-retired stake pool |
+
 </details>
 
 <details><summary>trace: `tick.updating`</summary>
@@ -340,8 +359,8 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | ---          | ---                                           |
 | `pool`       | The identifier of the updated stake pool      |
 | `new_params` | The new/now-effective parameters for the pool |
-</details>
 
+</details>
 
 #### Spans
 
@@ -360,14 +379,14 @@ Coming soon.
 
 Amaru recognizes standard OpenTelemetry env variable for its configuration:
 
-* `OTEL_SERVICE_NAME`: Sets the `service.name` key used to identify metrics and traces. This is useful when a single OTLP service stack collects telemetry from several Amaru instances
-* `OTEL_EXPORTER_OTLP_ENDPOINT`: Sets the endpoint used to send spans, defaults to `http://localhost:4317`
-* `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`: Sets the endpoint used to send metrics, defaults to `http://localhost:4318/v1/metrics`
+- `OTEL_SERVICE_NAME`: Sets the `service.name` key used to identify metrics and traces. This is useful when a single OTLP service stack collects telemetry from several Amaru instances
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: Sets the endpoint used to send spans, defaults to `http://localhost:4317`
+- `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`: Sets the endpoint used to send metrics, defaults to `http://localhost:4318/v1/metrics`
 
 Note that two different transports are used internally:
 
-* OTLP/gRPC for spans
-* OTLP/HTTP for metrics
+- OTLP/gRPC for spans
+- OTLP/HTTP for metrics
 
 This helps maximize compatibility with 3rd party tools receiving those data.
 

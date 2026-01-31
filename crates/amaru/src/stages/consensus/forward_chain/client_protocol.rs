@@ -15,9 +15,9 @@
 use super::chain_follower::ChainFollower;
 use crate::stages::AsTip;
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
-use amaru_consensus::ChainStore;
 use amaru_kernel::{Hash, HeaderHash, IsHeader, size::HEADER, to_cbor};
 use amaru_network::point::{from_network_point, to_network_point};
+use amaru_ouroboros_traits::ChainStore;
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{

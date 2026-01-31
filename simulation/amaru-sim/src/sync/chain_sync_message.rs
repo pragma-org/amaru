@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::simulator::{Envelope, bytes::Bytes};
-use amaru_consensus::consensus::events::ChainSyncEvent;
+use amaru_consensus::events::ChainSyncEvent;
 use amaru_kernel::{BlockHeader, Hash, HeaderHash, Peer, Point, Slot, Tip, cbor, size::HEADER};
 use pallas_primitives::babbage::{Header, MintedHeader};
 use std::{

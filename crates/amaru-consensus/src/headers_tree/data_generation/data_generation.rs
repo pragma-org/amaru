@@ -20,7 +20,7 @@
 //!
 //!
 
-use crate::consensus::headers_tree::{HeadersTree, data_generation::Chain, tree::Tree};
+use crate::headers_tree::{HeadersTree, data_generation::Chain, tree::Tree};
 use amaru_kernel::{
     BlockHeader, Bytes, Header, HeaderHash, IsHeader, Peer, make_header, size::HEADER,
 };

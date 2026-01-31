@@ -16,7 +16,7 @@ use crate::stages::{
     build_stage_graph::build_stage_graph,
     consensus::forward_chain::{tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip},
 };
-use amaru_consensus::consensus::{
+use amaru_consensus::{
     effects::{
         ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
         ResourceHeaderValidation, ResourceMeter, ResourceParameters,

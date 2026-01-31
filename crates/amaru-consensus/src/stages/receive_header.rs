@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
+use crate::{
     effects::{BaseOps, ConsensusOps},
     errors::{ConsensusError, ProcessingFailed, ValidationFailed},
     events::{ChainSyncEvent, DecodedChainSyncEvent},
@@ -132,7 +132,7 @@ pub fn decode_header(raw_header: &[u8]) -> Result<BlockHeader, ConsensusError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::{effects::mock_consensus_ops, errors::ValidationFailed};
+    use crate::{effects::mock_consensus_ops, errors::ValidationFailed};
     use amaru_kernel::{IsHeader, Peer, Point, Tip, any_header, cbor, utils::tests::run_strategy};
     use amaru_ouroboros::ChainStore;
     use pure_stage::StageRef;
