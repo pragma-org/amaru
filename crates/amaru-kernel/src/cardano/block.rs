@@ -189,6 +189,10 @@ mod tests {
         70225763,
         fixture!("313e774e32c23b3691751e62d6b57181538cf3164b242505919bce29226de19f")
     )]
+    #[test_case(
+        70582226,
+        fixture!("e1b90d83d6ae89860e2d1a0f398355cd4ed6defddb028dd610748d1f5610b546")
+    )]
     fn decode_wellformed(
         slot: u64,
         (id, result): (Hash<HEADER>, Result<(u16, Block), cbor::decode::Error>),

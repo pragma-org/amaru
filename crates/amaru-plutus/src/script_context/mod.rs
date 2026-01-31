@@ -17,9 +17,9 @@ use amaru_kernel::{
     ComparableProposalId, ComputeHash, EraHistory, EraHistoryError, ExUnits, GlobalParameters,
     HasOwnership, HasScriptHash, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData, MemoizedScript,
     MemoizedTransactionOutput, NativeScript, Network, NetworkName, NonEmptyKeyValuePairs,
-    NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, Nullable,
-    OrderedRedeemer, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion, Redeemer,
-    Redeemers as PallasRedeemers, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
+    NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonEmptyVec, NonZeroInt,
+    Nullable, OrderedRedeemer, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion,
+    Redeemer, Redeemers as PallasRedeemers, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
     StakeCredential, StakePayload, TimeMs, TransactionBody, TransactionId, TransactionInput, Vote,
     Voter, VotingProcedure, WitnessSet, cbor,
     size::{CREDENTIAL, DATUM, KEY, SCRIPT},
@@ -965,8 +965,8 @@ impl TryFrom<&PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdraw
 #[derive(Default)]
 pub struct Datums<'a>(pub BTreeMap<Hash<DATUM>, &'a PlutusData>);
 
-impl<'a> From<&'a NonEmptySet<MemoizedPlutusData>> for Datums<'a> {
-    fn from(plutus_data: &'a NonEmptySet<MemoizedPlutusData>) -> Self {
+impl<'a> From<&'a NonEmptyVec<MemoizedPlutusData>> for Datums<'a> {
+    fn from(plutus_data: &'a NonEmptyVec<MemoizedPlutusData>) -> Self {
         Self(
             plutus_data
                 .iter()
