@@ -24,30 +24,37 @@
 // Go to 3 and continue until heap is empty;
 // Make assertions on the history to ensure the execution was correct, if not, shrink and present minimal history that breaks the assertion together with the seed that allows us to reproduce the execution.
 
-use crate::simulator::shrink::shrink;
-use crate::simulator::simulate_config::SimulateConfig;
-use crate::simulator::world::{Entry, NodeHandle};
-pub(crate) use crate::simulator::world::{History, World};
-use crate::simulator::{Args, GeneratedEntries, NodeConfig};
-use crate::sync::ChainSyncMessage;
+use crate::{
+    simulator::{
+        Args, GeneratedEntries, NodeConfig,
+        shrink::shrink,
+        simulate_config::SimulateConfig,
+        world::{Entry, NodeHandle},
+    },
+    sync::ChainSyncMessage,
+};
 use amaru_consensus::consensus::headers_tree::data_generation::{Action, GeneratedActions};
-use amaru_kernel::string_utils::ListToString;
+use amaru_kernel::utils::string::ListToString;
 use anyhow::anyhow;
 use parking_lot::Mutex;
-use pure_stage::simulation::RandStdRng;
-use pure_stage::trace_buffer::TraceBuffer;
+use pure_stage::{simulation::RandStdRng, trace_buffer::TraceBuffer};
 use rand::{SeedableRng, rngs::StdRng};
 use serde::Serialize;
-use std::fmt::Display;
-use std::fs::{File, create_dir_all};
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 #[cfg(windows)]
 use std::os::windows::fs::symlink_dir;
-use std::sync::Arc;
-use std::time::SystemTime;
-use std::{fmt::Debug, io::Write, path::Path};
+use std::{
+    fmt::{Debug, Display},
+    fs::{File, create_dir_all},
+    io::Write,
+    path::Path,
+    sync::Arc,
+    time::SystemTime,
+};
 use tracing::{error, info};
+
+pub(crate) use crate::simulator::world::{History, World};
 
 /// Run the simulation
 ///

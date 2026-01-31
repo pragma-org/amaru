@@ -27,7 +27,6 @@ vrf_dalek.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
-amaru-slot-arithmetic.workspace = true
 
 # FIXME RK: figure out exact WASM story to properly solve this
 getrandom = { workspace = true, features = ["wasm_js"] }

@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use minicbor::decode::Error;
-use minicbor::{Decode, Decoder, Encode};
-use serde::{Deserialize, Serialize};
+use amaru_kernel::cbor;
 
 /// Parameters used to control the behavior of the transaction submission responder.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResponderParams {
     pub max_window: u16,  // how many tx ids we keep in “window”
     pub fetch_batch: u16, // how many txs we request per round
@@ -45,18 +43,18 @@ impl ResponderParams {
 }
 
 /// Whether the transaction submission initiator should block until it can fulfill a server request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Blocking {
     Yes,
     No,
 }
 
-impl Encode<()> for Blocking {
-    fn encode<W: minicbor::encode::Write>(
+impl cbor::Encode<()> for Blocking {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut minicbor::Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         _ctx: &mut (),
-    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
             Blocking::Yes => e.encode(true)?,
             Blocking::No => e.encode(false)?,
@@ -65,8 +63,8 @@ impl Encode<()> for Blocking {
     }
 }
 
-impl<'b> Decode<'b, ()> for Blocking {
-    fn decode(d: &mut Decoder<'b>, ctx: &mut ()) -> Result<Self, Error> {
+impl<'b> cbor::Decode<'b, ()> for Blocking {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
         let value = bool::decode(d, ctx)?;
         match value {
             true => Ok(Blocking::Yes),

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::point::{from_network_point, to_network_point};
-use amaru_kernel::{Point, peer::Peer};
+use amaru_kernel::{Peer, Point};
 use pallas_network::miniprotocols::chainsync::{Client, ClientError, HeaderContent, NextResponse};
 use pallas_traverse::MultiEraHeader;
 use tracing::{Level, instrument};

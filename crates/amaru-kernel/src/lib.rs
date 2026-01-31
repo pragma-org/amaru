@@ -12,1061 +12,221 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/*
-This module acts as an anti-corruption layer between the amaru codebase and pallas. Said
-differently, it mostly re-exports primitives and types from pallas, in a way that prevent pallas
-imports from spreading across the rest of the ledger sub-component.
-
-It's also the right place to put rather general functions or types that ought to be in pallas.
-While elements are being contributed upstream, they might transiently live in this module.
-*/
-
-use crate::string_utils::ListToString;
-pub use amaru_minicbor_extra::*;
-pub use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
+// TODO: Temporary re-exports until Pallas migrations
+//
+// Re-exports still needed in a few places; but that shall become redundant as soon as we have
+// properly reworked addresses.
 pub use pallas_addresses::{
-    Address, Error as AddressError, Network, ShelleyAddress, ShelleyDelegationPart,
-    ShelleyPaymentPart, StakeAddress, StakePayload, byron::AddrType,
+    ByronAddress, Error as AddressError, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
+    StakeAddress, StakePayload,
+    byron::{AddrAttrProperty, AddrType, AddressPayload},
 };
-use pallas_addresses::{
-    byron::{AddrAttrProperty, AddressPayload},
-    *,
-};
-pub use pallas_codec::{
-    minicbor as cbor,
-    utils::{AnyCbor, Bytes, CborWrap, Int, KeyValuePairs, Nullable, Set},
-};
-pub use pallas_crypto::{
-    hash::{Hash, Hasher},
-    key::ed25519,
-};
-use pallas_primitives::conway::{MintedPostAlonzoTransactionOutput, RedeemerTag};
-pub use pallas_primitives::{
-    DnsName, Fragment, IPv4, IPv6, Port,
-    alonzo::{TransactionOutput as AlonzoTransactionOutput, Value as AlonzoValue},
-    babbage::{Header, MintedHeader, PseudoHeader},
-    conway::{
-        AddrKeyhash, AssetName, BigInt, BootstrapWitness, Certificate, Coin, Constitution, Constr,
-        CostModel, CostModels, DRep, DRepVotingThresholds, DatumHash, DatumOption, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, Language,
-        MaybeIndefArray, Mint, MintedDatumOption, MintedScriptRef, Multiasset, NativeScript,
-        NetworkId, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonZeroInt, PlutusData,
-        PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds, PositiveCoin,
-        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        Redeemers, RedeemersKey as RedeemerKey, Relay, RequiredSigners as PallasRequiredSigners,
-        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionInput, TransactionOutput,
-        Tx, UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure,
-        VotingProcedures as PallasVotingProcedures, VrfKeyhash,
-    },
-};
+
+// TODO: Temporary re-exports until Pallas migrations
+//
+// See above.
+pub use pallas_primitives::conway::{Constr, KeepRaw, MaybeIndefArray};
+
+// TODO: Temporary re-exports until Pallas migrations
+//
+// See above.
 pub use pallas_traverse::{ComputeHash, OriginalHash};
-pub use serde_json as json;
-pub use sha3;
-use sha3::{Digest as _, Sha3_256};
-use std::{
-    array::TryFromSliceError,
-    borrow::Cow,
-    cmp::Ordering,
-    collections::BTreeMap,
-    fmt::{self, Debug, Formatter},
-    ops::Deref,
-    sync::Arc,
+
+// TODO: Interalize amaru-slot-arithmetic within amaru-kernel
+pub use amaru_slot_arithmetic::{
+    Bound, Epoch, EpochBounds, EraHistory, EraHistoryError, EraParams, Slot, SlotArithmeticError,
+    Summary, TimeMs,
 };
 
-pub use account::*;
-pub mod account;
+pub mod cardano;
+#[doc(hidden)]
+pub use cardano::{
+    account::Account,
+    address::{Address, is_locked_by_script},
+    anchor::Anchor,
+    asset_name::AssetName,
+    auxiliary_data::AuxiliaryData,
+    ballot::Ballot,
+    ballot_id::BallotId,
+    bigint::BigInt,
+    block::Block,
+    block_header::BlockHeader,
+    block_height::BlockHeight,
+    bootstrap_witness::BootstrapWitness,
+    bytes::Bytes,
+    certificate::Certificate,
+    certificate_pointer::CertificatePointer,
+    constitution::Constitution,
+    constitutional_committee::ConstitutionalCommitteeStatus,
+    cost_model::CostModel,
+    cost_models::CostModels,
+    drep::DRep,
+    drep_registration::DRepRegistration,
+    drep_state::DRepState,
+    drep_voting_thresholds::DRepVotingThresholds,
+    era_history::{
+        EraHistoryFileError, MAINNET_ERA_HISTORY, PREPROD_ERA_HISTORY, PREVIEW_ERA_HISTORY,
+        TESTNET_ERA_HISTORY, load_era_history_from_file,
+    },
+    ex_units::{ExUnits, sum_ex_units},
+    ex_units_prices::ExUnitPrices,
+    governance_action::GovernanceAction,
+    hash::{
+        Hash, Hasher, HeaderHash, NULL_HASH28, NULL_HASH32, ORIGIN_HASH, PoolId, TransactionId,
+        size,
+    },
+    header::Header,
+    header_body::HeaderBody,
+    int::Int,
+    language::Language,
+    lovelace::Lovelace,
+    memoized::{
+        MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
+        MemoizedTransactionOutput, decode_script, deserialize_script, encode_script,
+        from_minted_script, serialize_memoized_script, serialize_script,
+    },
+    metadatum::Metadatum,
+    native_script::NativeScript,
+    network::Network,
+    network_id::NetworkId,
+    network_magic::NetworkMagic,
+    network_name::NetworkName,
+    non_zero_int::NonZeroInt,
+    nonce::{Nonce, parse_nonce},
+    ordered_redeemer::OrderedRedeemer,
+    peer::Peer,
+    plutus_data::PlutusData,
+    plutus_script::PlutusScript,
+    point::Point,
+    pool_metadata::PoolMetadata,
+    pool_params::PoolParams,
+    pool_voting_thresholds::PoolVotingThresholds,
+    positive_coin::PositiveCoin,
+    proposal::Proposal,
+    proposal_id::{ComparableProposalId, ProposalId},
+    proposal_pointer::ProposalPointer,
+    proposal_state::ProposalState,
+    protocol_parameters::{
+        ConsensusParameters, GlobalParameters, MAINNET_GLOBAL_PARAMETERS,
+        PREPROD_GLOBAL_PARAMETERS, PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_GLOBAL_PARAMETERS,
+        PREVIEW_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, TESTNET_GLOBAL_PARAMETERS,
+    },
+    protocol_parameters_update::{ProtocolParamUpdate, display_protocol_parameters_update},
+    protocol_version::{PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, ProtocolVersion},
+    rational_number::RationalNumber,
+    raw_block::RawBlock,
+    redeemer::Redeemer,
+    redeemer_key::RedeemerKey,
+    redeemers::Redeemers,
+    relay::Relay,
+    required_script::RequiredScript,
+    reward::Reward,
+    reward_account::{
+        RewardAccount, expect_stake_credential, new_stake_address,
+        reward_account_to_stake_credential,
+    },
+    reward_kind::RewardKind,
+    script_kind::ScriptKind,
+    script_purpose::{ScriptPurpose, script_purpose_to_string},
+    stake_credential::{
+        BorrowedStakeCredential, StakeCredential, stake_credential_from_reward_account,
+    },
+    stake_credential_kind::StakeCredentialKind,
+    tip::Tip,
+    transaction::Transaction,
+    transaction_body::TransactionBody,
+    transaction_input::{TransactionInput, transaction_input_to_string},
+    transaction_pointer::TransactionPointer,
+    value::Value,
+    vkey_witness::verify_ed25519_signature,
+    vkey_witness::{InvalidEd25519Signature, VKeyWitness},
+    vote::Vote,
+    voter::Voter,
+    voter_kind::VoterKind,
+    voting_procedure::VotingProcedure,
+    witness_set::WitnessSet,
+};
+#[cfg(any(test, feature = "test-utils"))]
+pub use cardano::{
+    address::any_shelley_address,
+    anchor::any_anchor,
+    ballot::any_ballot,
+    ballot_id::{any_ballot_id, any_voter},
+    block_header::{
+        any_fake_header, any_header, any_header_hash, any_header_with_parent,
+        any_header_with_some_parent, any_headers_chain, any_headers_chain_with_root, make_header,
+    },
+    block_height::any_block_height,
+    certificate_pointer::any_certificate_pointer,
+    constitution::any_constitution,
+    constitutional_committee::any_constitutional_committee_status,
+    drep::any_drep,
+    epoch::any_epoch,
+    hash::{any_hash28, any_hash32},
+    network::any_network,
+    network_magic::any_network_magic,
+    network_name::any_network_name,
+    point::{any_point, any_specific_point},
+    pool_params::any_pool_params,
+    proposal::any_proposal,
+    proposal_id::{any_comparable_proposal_id, any_proposal_id},
+    proposal_pointer::any_proposal_pointer,
+    protocol_parameters::{
+        any_cost_model, any_cost_models, any_drep_voting_thresholds, any_ex_unit_prices,
+        any_ex_units, any_ex_units_prices, any_gov_action, any_guardrails_script,
+        any_pool_voting_thresholds, any_protocol_parameter, any_protocol_params_update,
+        any_protocol_version, any_withdrawal,
+    },
+    rational_number::any_rational_number,
+    reward_account::any_reward_account,
+    stake_credential::any_stake_credential,
+    tip::any_tip,
+    transaction_pointer::any_transaction_pointer,
+    vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote, any_vote_ref},
+};
 
-pub use anchor::Anchor;
-pub mod anchor;
+pub mod cbor {
+    pub use amaru_minicbor_extra::{
+        TAG_MAP_259, TAG_SET_258, allow_tag, check_tagged_array_length, decode_break, from_cbor,
+        from_cbor_no_leftovers, heterogeneous_array, heterogeneous_map, lazy, missing_field, tee,
+        to_cbor, unexpected_field,
+    };
+    pub use minicbor::{
+        CborLen, Decode, Decoder, Encode, Encoder, bytes,
+        data::{self, IanaTag, Tag, Type},
+        decode, decode_with, display, encode, encode_with, len, len_with, to_vec, to_vec_with,
+    };
+    pub use pallas_codec::utils::AnyCbor as Any;
+}
+pub use cbor::{from_cbor, from_cbor_no_leftovers, to_cbor};
 
-pub use auxiliary_data::AuxiliaryData;
-pub mod auxiliary_data;
+pub mod data_structures;
+#[cfg(any(test, feature = "test-utils"))]
+pub use data_structures::nullable::any_nullable;
+#[doc(hidden)]
+pub use data_structures::{
+    ignore_eq::IgnoreEq,
+    key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs},
+    legacy::Legacy,
+    non_empty_bytes::{EmptyBytesError, NonEmptyBytes},
+    non_empty_key_value_pairs::{IntoNonEmptyKeyValuePairsError, NonEmptyKeyValuePairs},
+    non_empty_set::{IntoNonEmptySetError, NonEmptySet},
+    non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
+    nullable::Nullable,
+    set::Set,
+    strict_maybe::StrictMaybe,
+};
 
-pub use borrowed_datum::*;
-pub mod borrowed_datum;
-
-pub use ballot::Ballot;
-pub mod ballot;
-
-pub use ballot_id::*;
-pub mod ballot_id;
-
-pub mod bytes;
-
-pub mod block;
-pub use block::*;
-
-pub use certificate_pointer::*;
-pub mod certificate_pointer;
-
-pub mod connection;
-
-pub mod consensus_events;
-
-pub mod constitution;
-
-pub use constitutional_committee::*;
-pub mod constitutional_committee;
-
-pub mod drep;
-
-pub use drep_registration::*;
-pub mod drep_registration;
-
-pub use drep_state::*;
-pub mod drep_state;
-
-pub mod ignore_eq;
-pub use ignore_eq::IgnoreEq;
-
-pub mod is_header;
-pub use is_header::*;
-
-pub mod key_value_pairs;
-
-pub use memoized::*;
-pub mod memoized;
-
-pub mod network;
-
-pub mod ordered_redeemer;
-pub use ordered_redeemer::*;
-
-pub mod metadatum;
-pub use metadatum::Metadatum;
-
-pub mod non_empty_key_value_pairs;
-pub use non_empty_key_value_pairs::NonEmptyKeyValuePairs;
-
-pub mod non_empty_set;
-pub use non_empty_set::NonEmptySet;
-
-pub mod peer;
-
-pub use protocol_messages::point::*;
-
-pub use pool_params::*;
-pub mod pool_params;
-
-pub mod proposal;
-
-pub use proposal_id::*;
-pub mod proposal_id;
-
-pub use proposal_pointer::*;
-pub mod proposal_pointer;
-
-pub use proposal_state::*;
-pub mod proposal_state;
-
-pub mod protocol_messages;
-
-pub mod protocol_parameters;
-
-pub use protocol_parameters_update::*;
-pub mod protocol_parameters_update;
-
-pub use required_script::*;
-pub mod required_script;
-
-pub use reward::*;
-pub mod reward;
-
-pub mod reward_account;
-
-pub use reward_kind::*;
-pub mod reward_kind;
-
-pub use script_kind::*;
-pub mod script_kind;
-
-pub use stake_credential::*;
-pub mod stake_credential;
-
-pub use strict_maybe::*;
-pub mod strict_maybe;
-
-pub mod transaction;
-pub use transaction::*;
-
-pub mod transaction_body;
-pub use transaction_body::*;
-
-pub use transaction_pointer::*;
-pub mod transaction_pointer;
-
-pub mod vote;
-
-pub mod witness_set;
-pub use witness_set::*;
+pub use serde_json as json;
 
 pub mod macros;
-pub mod serde_utils;
-pub mod string_utils;
 
-pub mod arena_pool;
-pub use arena_pool::*;
-
-#[cfg(any(test, feature = "test-utils"))]
-pub mod tests {
-    use super::{Epoch, Hash, Nullable, RationalNumber, ScriptHash};
-    pub use crate::{
-        anchor::tests::*, ballot::tests::*, ballot_id::tests::*, certificate_pointer::tests::*,
-        constitution::tests::*, constitutional_committee::tests::*, drep::tests::*,
-        network::tests::*, pool_params::tests::*, proposal::tests::*, proposal_id::tests::*,
-        proposal_pointer::tests::*, protocol_messages::point::tests::*,
-        protocol_parameters::tests::*, reward_account::tests::*, stake_credential::tests::*,
-        transaction_pointer::tests::*, vote::tests::*,
-    };
-    use proptest::prelude::*;
-    use rand::{SeedableRng, prelude::StdRng};
-
-    prop_compose! {
-        pub fn any_key_hash()(bytes in any::<[u8; 28]>()) -> Hash<28> {
-            Hash::from(bytes)
-        }
-    }
-
-    prop_compose! {
-        pub fn any_script_hash()(bytes in any::<[u8; 28]>()) -> ScriptHash {
-            Hash::from(bytes)
-        }
-    }
-
-    prop_compose! {
-        pub fn any_epoch()(epoch in any::<u64>()) -> Epoch {
-            Epoch::from(epoch)
-        }
-    }
-
-    pub fn any_nullable<T: std::fmt::Debug + Clone>(
-        any_inner: impl Strategy<Value = T>,
-    ) -> impl Strategy<Value = Nullable<T>> {
-        prop_oneof![
-            Just(Nullable::Undefined),
-            Just(Nullable::Null),
-            any_inner.prop_map(Nullable::Some)
-        ]
-    }
-
-    prop_compose! {
-        pub fn any_rational_number()(
-            numerator in any::<u64>(),
-            denominator in 1..u64::MAX,
-        ) -> RationalNumber {
-            RationalNumber {
-                numerator,
-                denominator,
-            }
-        }
-    }
-
-    pub fn random_bytes(arg: usize) -> Vec<u8> {
-        let mut rng = StdRng::from_os_rng();
-        let mut buffer = vec![0; arg];
-        rng.fill_bytes(&mut buffer);
-        buffer
-    }
-}
-
-// Constants
-// ----------------------------------------------------------------------------
-
-pub const PROTOCOL_VERSION_9: ProtocolVersion = (9, 0);
-
-pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
-
-pub const HEADER_HASH_SIZE: usize = 32;
-
-pub const ORIGIN_HASH: HeaderHash = Hash::new([0; HEADER_HASH_SIZE]);
-
-pub static DEFAULT_HASH28: [u8; 28] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
-
-pub static DEFAULT_HASH32: [u8; 32] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
-
-// Re-exports & extra aliases
-// ----------------------------------------------------------------------------
-
-pub type Lovelace = u64;
-
-pub type EpochInterval = u64;
-
-pub type ScriptPurpose = RedeemerTag;
-
-/// Cheaply cloneable block bytes
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
-pub struct RawBlock(Arc<[u8]>);
-
-impl fmt::Debug for RawBlock {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let bytes = &self.0;
-        let total_len = bytes.len();
-        let preview_len = 32.min(total_len);
-        let preview = &bytes[0..preview_len];
-
-        let mut preview_hex = String::with_capacity(2 * preview_len + 3);
-        for &b in preview {
-            const HEX_CHARS: [u8; 16] = *b"0123456789abcdef";
-            preview_hex.push(HEX_CHARS[(b >> 4) as usize] as char);
-            preview_hex.push(HEX_CHARS[(b & 0x0f) as usize] as char);
-        }
-        if preview_len < total_len {
-            preview_hex.push_str("...");
-        }
-
-        write!(f, "RawBlock({total_len}, {preview_hex})")
-    }
-}
-
-impl Deref for RawBlock {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<&[u8]> for RawBlock {
-    fn from(bytes: &[u8]) -> Self {
-        Self(Arc::from(bytes))
-    }
-}
-
-impl From<Box<[u8]>> for RawBlock {
-    fn from(bytes: Box<[u8]>) -> Self {
-        Self(Arc::from(bytes))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct TransactionInputAdapter(TransactionInput);
-
-impl Deref for TransactionInputAdapter {
-    type Target = TransactionInput;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for TransactionInputAdapter {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}#{}", self.0.transaction_id, self.0.index)
-    }
-}
-
-impl From<TransactionInput> for TransactionInputAdapter {
-    fn from(value: TransactionInput) -> Self {
-        Self(value)
-    }
-}
-
-pub type TransactionId = Hash<32>;
-
-pub type PoolId = Hash<28>;
-
-pub type Nonce = Hash<32>;
-
-pub type Withdrawal = (StakeAddress, Lovelace);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProposalIdAdapter<'a>(pub &'a ProposalId);
-
-impl<'a> ProposalIdAdapter<'a> {
-    pub fn new(gov_action_id: &'a ProposalId) -> Self {
-        Self(gov_action_id)
-    }
-}
-
-impl PartialOrd for ProposalIdAdapter<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ProposalIdAdapter<'_> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0
-            .transaction_id
-            .cmp(&other.0.transaction_id)
-            .then_with(|| self.0.action_index.cmp(&other.0.action_index))
-    }
-}
-
-impl<'a> From<&'a ProposalId> for ProposalIdAdapter<'a> {
-    fn from(proposal_id: &'a ProposalId) -> Self {
-        Self(proposal_id)
-    }
-}
-
-impl Deref for ProposalIdAdapter<'_> {
-    type Target = ProposalId;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl AsRef<ProposalId> for ProposalIdAdapter<'_> {
-    fn as_ref(&self) -> &ProposalId {
-        self.0
-    }
-}
-
-// Helpers
-// ----------------------------------------------------------------------------
-
-/// Turn any Bytes-like structure into a sized slice. Useful for crypto operation requiring
-/// operands with specific bytes sizes. For example:
-///
-/// # ```
-/// # let public_key: [u8; ed25519::PublicKey::SIZE] = into_sized_array(vkey, |error, expected| {
-/// #     InvalidVKeyWitness::InvalidKeySize { error, expected }
-/// # })?;
-/// # ```
-pub fn into_sized_array<const SIZE: usize, E, T>(
-    bytes: T,
-    into_error: impl Fn(TryFromSliceError, usize) -> E,
-) -> Result<[u8; SIZE], E>
-where
-    T: Deref<Target = Bytes>,
-{
-    bytes
-        .deref()
-        .as_slice()
-        .try_into()
-        .map_err(|e| into_error(e, SIZE))
-}
-
-pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::error::Error>> {
-    let hrp = bech32::Hrp::parse(hrp)?;
-    Ok(bech32::encode::<bech32::Bech32>(hrp, payload)?)
-}
-
-// CBOR conversions
-// ----------------------------------------------------------------------------
-
-/// TODO: Ideally, we should either:
-///
-/// - Have pallas_traverse or a similar API works directly from base objects instead of KeepRaw
-///   objects (i.e. MintedTransactionOutput)
-/// - Ensure that our database iterator yields MintedTransactionOutput and not TransactionOutput, so
-///   we can use pallas_traverse out of the box.
-///
-/// Doing the latter properly is a lifetime hell I am not willing to explore right now.
-pub trait HasLovelace {
-    fn lovelace(&self) -> Lovelace;
-}
-
-impl HasLovelace for Value {
-    fn lovelace(&self) -> Lovelace {
-        match self {
-            Value::Coin(lovelace) => *lovelace,
-            Value::Multiasset(lovelace, _) => *lovelace,
-        }
-    }
-}
-
-impl HasLovelace for AlonzoValue {
-    fn lovelace(&self) -> Lovelace {
-        match self {
-            AlonzoValue::Coin(lovelace) => *lovelace,
-            AlonzoValue::Multiasset(lovelace, _) => *lovelace,
-        }
-    }
-}
-
-impl HasLovelace for TransactionOutput {
-    fn lovelace(&self) -> Lovelace {
-        match self {
-            TransactionOutput::Legacy(legacy) => legacy.amount.lovelace(),
-            TransactionOutput::PostAlonzo(modern) => modern.value.lovelace(),
-        }
-    }
-}
-
-impl HasLovelace for MemoizedTransactionOutput {
-    fn lovelace(&self) -> Lovelace {
-        self.value.lovelace()
-    }
-}
-pub trait OriginalSize {
-    fn original_size(&self) -> usize;
-}
-
-impl<T> OriginalSize for KeepRaw<'_, T> {
-    fn original_size(&self) -> usize {
-        to_cbor(self).len()
-    }
-}
-
-pub fn output_stake_credential(output: &MemoizedTransactionOutput) -> Option<StakeCredential> {
-    match &output.address {
-        Address::Shelley(shelley) => match shelley.delegation() {
-            ShelleyDelegationPart::Key(key) => Some(StakeCredential::AddrKeyhash(*key)),
-            ShelleyDelegationPart::Script(script) => Some(StakeCredential::ScriptHash(*script)),
-            ShelleyDelegationPart::Pointer(..) | ShelleyDelegationPart::Null => None,
-        },
-        Address::Byron(..) => None,
-        Address::Stake(..) => unreachable!("stake address inside output?"),
-    }
-}
-
-// StakeAddress
-// ----------------------------------------------------------------------------
-
-// TODO: Required because Pallas doesn't export any contructors for StakeAddress directly. Should
-// be fixed there.
-#[expect(clippy::expect_used)]
-pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddress {
-    let fake_payment_part = ShelleyPaymentPart::Key(Hash::new([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ]));
-    let delegation_part = match payload {
-        StakePayload::Stake(hash) => ShelleyDelegationPart::Key(hash),
-        StakePayload::Script(hash) => ShelleyDelegationPart::Script(hash),
-    };
-    StakeAddress::try_from(ShelleyAddress::new(
-        network,
-        fake_payment_part,
-        delegation_part,
-    ))
-    .expect("has non-empty delegation part")
-}
-
-// StakeCredential
-// ----------------------------------------------------------------------------
-
-#[derive(Debug)]
-pub enum StakeCredentialType {
-    VerificationKey,
-    Script,
-}
-
-impl std::fmt::Display for StakeCredentialType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            StakeCredentialType::VerificationKey => "verification_key",
-            StakeCredentialType::Script => "script",
-        })
-    }
-}
-
-impl From<&StakeCredential> for StakeCredentialType {
-    fn from(credential: &StakeCredential) -> Self {
-        match credential {
-            StakeCredential::AddrKeyhash(..) => Self::VerificationKey,
-            StakeCredential::ScriptHash(..) => Self::Script,
-        }
-    }
-}
-
-impl From<&Voter> for StakeCredentialType {
-    fn from(voter: &Voter) -> Self {
-        match voter {
-            Voter::DRepKey(..)
-            | Voter::ConstitutionalCommitteeKey(..)
-            | Voter::StakePoolKey(..) => Self::VerificationKey,
-            Voter::DRepScript(..) | Voter::ConstitutionalCommitteeScript(..) => Self::Script,
-        }
-    }
-}
-
-pub fn stake_credential_hash(credential: &StakeCredential) -> Hash<28> {
-    match credential {
-        StakeCredential::AddrKeyhash(hash) => *hash,
-        StakeCredential::ScriptHash(hash) => *hash,
-    }
-}
-
-// This function shouldn't exist and pallas should provide a RewardAccount = (Network,
-// StakeCredential) out of the box instead of row bytes.
-pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<StakeCredential> {
-    if let Ok(Address::Stake(stake_addr)) = Address::from_bytes(&account[..]) {
-        match stake_addr.payload() {
-            StakePayload::Stake(key) => Some(StakeCredential::AddrKeyhash(*key)),
-            StakePayload::Script(script) => Some(StakeCredential::ScriptHash(*script)),
-        }
-    } else {
-        None
-    }
-}
-
-/// An 'unsafe' version of `reward_account_to_stake_credential` that panics when the given
-/// RewardAccount isn't a `StakeCredential`.
-#[expect(clippy::panic)]
-pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
-    reward_account_to_stake_credential(account)
-        .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
-}
-
-// Voter
-// ----------------------------------------------------------------------------
-
-#[derive(Debug)]
-pub enum VoterType {
-    DRep,
-    ConstitutionalCommittee,
-    StakePool,
-}
-
-impl std::fmt::Display for VoterType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::DRep => "drep",
-            Self::ConstitutionalCommittee => "committee",
-            Self::StakePool => "stake_pool",
-        })
-    }
-}
-
-impl From<&Voter> for VoterType {
-    fn from(voter: &Voter) -> Self {
-        match voter {
-            Voter::DRepKey(..) | Voter::DRepScript(..) => Self::DRep,
-            Voter::ConstitutionalCommitteeKey(..) | Voter::ConstitutionalCommitteeScript(..) => {
-                Self::ConstitutionalCommittee
-            }
-            Voter::StakePoolKey(..) => Self::StakePool,
-        }
-    }
-}
-
-pub fn voter_credential_hash(credential: &Voter) -> Hash<28> {
-    match credential {
-        Voter::DRepKey(hash)
-        | Voter::DRepScript(hash)
-        | Voter::ConstitutionalCommitteeKey(hash)
-        | Voter::ConstitutionalCommitteeScript(hash)
-        | Voter::StakePoolKey(hash) => *hash,
-    }
-}
-
-// Scripts
-// ----------------------------------------------------------------------------
-
-pub fn display_collection<T>(collection: impl IntoIterator<Item = T>) -> String
-where
-    T: std::fmt::Display,
-{
-    collection
-        .into_iter()
-        .collect::<Vec<_>>()
-        .list_to_string(", ")
-}
-
-pub trait HasAddress {
-    fn address(&self) -> Result<Address, pallas_addresses::Error>;
-}
-
-impl HasAddress for TransactionOutput {
-    fn address(&self) -> Result<Address, pallas_addresses::Error> {
-        match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => {
-                Address::from_bytes(&transaction_output.address)
-            }
-            PseudoTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
-        }
-    }
-}
-
-impl<'b> HasAddress for PseudoTransactionOutput<MintedPostAlonzoTransactionOutput<'b>> {
-    fn address(&self) -> Result<Address, pallas_addresses::Error> {
-        match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => {
-                Address::from_bytes(&transaction_output.address)
-            }
-            PseudoTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
-        }
-    }
-}
-
-pub trait HasDatum {
-    fn datum(&self) -> Option<BorrowedDatumOption<'_>>;
-}
-
-impl HasDatum for TransactionOutput {
-    fn datum(&self) -> Option<BorrowedDatumOption<'_>> {
-        match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => transaction_output
-                .datum_hash
-                .as_ref()
-                .map(BorrowedDatumOption::Hash),
-            PseudoTransactionOutput::PostAlonzo(transaction_output) => transaction_output
-                .datum_option
-                .as_ref()
-                .map(BorrowedDatumOption::from),
-        }
-    }
-}
-
-pub fn to_network_id(network: &Network) -> u8 {
-    match network {
-        Network::Testnet => 0,
-        Network::Mainnet => 1,
-        Network::Other(id) => *id,
-    }
-}
-
-pub trait HasNetwork {
-    /// Returns the Network of a given entity
-    fn has_network(&self) -> Network;
-}
-
-impl HasNetwork for Address {
-    #[expect(clippy::unwrap_used)]
-    fn has_network(&self) -> Network {
-        match self {
-            Address::Byron(address) => address.has_network(),
-            // Safe to unwrap here, as there will always be a network value for self.network as long as it is not Address::Byron (which is handled above)
-            Address::Shelley(_) | Address::Stake(_) => self.network().unwrap(),
-        }
-    }
-}
-
-impl HasNetwork for ByronAddress {
-    /*
-        According to the Byron address specification (https://raw.githubusercontent.com/cardano-foundation/CIPs/master/CIP-0019/CIP-0019-byron-addresses.cddl),
-        the attributes can optionally contain a u32 network discriminant, identifying a specific testnet network.
-
-        When decoding Byron address attributes (https://github.com/IntersectMBO/cardano-ledger/blob/2d1e94cf96d00ba0da53883c388fa0aba6d74624/eras/byron/ledger/impl/src/Cardano/Chain/Common/AddrAttributes.hs#L122-L144),
-        the Haskell node defaults NetworkMagic to NetworkMainOrStage, unless otherwise specified. The discriminant can be any `NetworkMagic` (sometimes referred to as `ProtocolMagic`), identifying a specific testnet.
-        If present, it is Testnet(discriminant).
-
-        It does not, notabtly, validate this discriminant, as evidenced by this conflicting Byron address on Preprod: 2cWKMJemoBaiqkR9D1YZ2xQ2BhVxzauukrsxm8ttZUrto1f7kr5J1tD9uhtEtTc9U4PuF (found in tx 9738801cc4f7e46bb3561a138a403fa8470e8a4faf2df5009023e7bbcdf09cb4).
-        This address encodes a `NetworkMagic` of 1097911063. The `NetworkMagic` of Preprod is 1 (https://book.world.dev.cardano.org/environments/preprod/byron-genesis.json).
-
-
-        As a result, since we are only checking the network of a Byron address for validation, we will mirror the Haskell node logic and disregard the discriminant when fetching the network from an address.
-        (https://github.com/IntersectMBO/cardano-ledger/blob/2d1e94cf96d00ba0da53883c388fa0aba6d74624/libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs#L152)
-    */
-    #[expect(clippy::unwrap_used)]
-    fn has_network(&self) -> Network {
-        // Unwrap is safe, we know that there is a valid address payload if it is a Byron address.
-        let x: AddressPayload = from_cbor(&self.payload.0).unwrap();
-        for attribute in x.attributes.iter() {
-            if let AddrAttrProperty::NetworkTag(_) = attribute {
-                // We are ignoring the network discriminant here, as the Haskell node does
-                return Network::Testnet;
-            }
-        }
-
-        Network::Mainnet
-    }
-}
-
-pub trait HasStakeCredential {
-    fn stake_credential(&self) -> StakeCredential;
-}
-
-impl HasStakeCredential for Voter {
-    fn stake_credential(&self) -> StakeCredential {
-        match self {
-            Self::ConstitutionalCommitteeKey(hash)
-            | Self::StakePoolKey(hash)
-            | Self::DRepKey(hash) => StakeCredential::AddrKeyhash(*hash),
-            Self::ConstitutionalCommitteeScript(hash) | Self::DRepScript(hash) => {
-                StakeCredential::ScriptHash(*hash)
-            }
-        }
-    }
-}
-
-pub trait HasOwnership {
-    /// Returns ownership credential of a given entity, if any.
-    ///
-    /// TODO: The return type is slightly misleading; we refer to a 'StakeCredential', whereas the
-    /// underlying method mainly targets payment credentials in addresses. The reason for this side
-    /// step is that there's no 'Credential' type in Pallas unforunately, and so we just borrow the
-    /// structure of 'StakeCredential'.
-    fn credential(&self) -> Option<StakeCredential>;
-}
-
-impl HasOwnership for Address {
-    fn credential(&self) -> Option<StakeCredential> {
-        match self {
-            Address::Byron(_) => None,
-            Address::Shelley(shelley_address) => Some(match shelley_address.payment() {
-                ShelleyPaymentPart::Key(hash) => StakeCredential::AddrKeyhash(*hash),
-                ShelleyPaymentPart::Script(hash) => StakeCredential::ScriptHash(*hash),
-            }),
-            Address::Stake(stake_address) => Some(match stake_address.payload() {
-                StakePayload::Stake(hash) => StakeCredential::AddrKeyhash(*hash),
-                StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
-            }),
-        }
-    }
-}
-
-impl HasOwnership for Voter {
-    fn credential(&self) -> Option<StakeCredential> {
-        Some(match self {
-            Voter::ConstitutionalCommitteeKey(hash)
-            | Voter::DRepKey(hash)
-            | Voter::StakePoolKey(hash) => StakeCredential::AddrKeyhash(*hash),
-            Voter::ConstitutionalCommitteeScript(hash) | Voter::DRepScript(hash) => {
-                StakeCredential::ScriptHash(*hash)
-            }
-        })
-    }
-}
-
-impl HasOwnership for Certificate {
-    fn credential(&self) -> Option<StakeCredential> {
-        match self {
-            Certificate::StakeRegistration(stake_credential)
-            | Certificate::StakeDeregistration(stake_credential)
-            | Certificate::StakeDelegation(stake_credential, _)
-            | Certificate::Reg(stake_credential, _)
-            | Certificate::UnReg(stake_credential, _)
-            | Certificate::VoteDeleg(stake_credential, _)
-            | Certificate::StakeVoteDeleg(stake_credential, _, _)
-            | Certificate::StakeRegDeleg(stake_credential, _, _)
-            | Certificate::VoteRegDeleg(stake_credential, _, _)
-            | Certificate::StakeVoteRegDeleg(stake_credential, _, _, _)
-            | Certificate::AuthCommitteeHot(stake_credential, _)
-            | Certificate::ResignCommitteeCold(stake_credential, _)
-            | Certificate::RegDRepCert(stake_credential, _, _)
-            | Certificate::UnRegDRepCert(stake_credential, _)
-            | Certificate::UpdateDRepCert(stake_credential, _) => Some(stake_credential.clone()),
-            Certificate::PoolRegistration { operator: id, .. }
-            | Certificate::PoolRetirement(id, _) => Some(StakeCredential::AddrKeyhash(*id)),
-        }
-    }
-}
-
-pub trait HasScriptHash {
-    /*
-        To compute a script hash, one must prepend a tag to the bytes of the script before hashing.
-
-        The tag (u8) is determined by the language, as such:
-
-          0 for native scripts
-          1 for Plutus V1 scripts
-          2 for Plutus V2 scripts
-          3 for Plutus V3 scripts
-    */
-    fn script_hash(&self) -> ScriptHash;
-}
-
-impl<A: HasScriptHash> HasScriptHash for PseudoScript<A> {
-    fn script_hash(&self) -> ScriptHash {
-        match self {
-            PseudoScript::NativeScript(native_script) => native_script.script_hash(),
-            PseudoScript::PlutusV1Script(plutus_script) => plutus_script.script_hash(),
-            PseudoScript::PlutusV2Script(plutus_script) => plutus_script.script_hash(),
-            PseudoScript::PlutusV3Script(plutus_script) => plutus_script.script_hash(),
-        }
-    }
-}
-
-impl HasScriptHash for MemoizedNativeScript {
-    fn script_hash(&self) -> ScriptHash {
-        native_script_hash(self.original_bytes())
-    }
-}
-
-impl HasScriptHash for KeepRaw<'_, NativeScript> {
-    fn script_hash(&self) -> ScriptHash {
-        native_script_hash(self.raw_cbor())
-    }
-}
-
-fn native_script_hash(bytes: &[u8]) -> ScriptHash {
-    tagged_script_hash(0, bytes)
-}
-
-impl<const VERSION: usize> HasScriptHash for PlutusScript<VERSION> {
-    fn script_hash(&self) -> ScriptHash {
-        tagged_script_hash(VERSION as u8, self.as_ref())
-    }
-}
-
-fn tagged_script_hash(tag: u8, bytes: &[u8]) -> ScriptHash {
-    Hasher::<224>::hash_tagged(bytes, tag)
-}
-
-/// Construct the bootstrap root from a bootstrap witness
-pub fn to_root(witness: &BootstrapWitness) -> Hash<28> {
-    // CBOR header for data that will be encoded
-    let prefix: &[u8] = &[131, 0, 130, 0, 88, 64];
-
-    let mut sha_hasher = Sha3_256::new();
-    sha_hasher.update(prefix);
-    sha_hasher.update(witness.public_key.deref());
-    sha_hasher.update(witness.chain_code.deref());
-    sha_hasher.update(witness.attributes.deref());
-
-    let sha_digest = sha_hasher.finalize();
-    Hasher::<224>::hash(&sha_digest)
-}
-
-pub trait HasIndex {
-    fn as_index(&self) -> u32;
-}
-
-impl HasIndex for ScriptPurpose {
-    fn as_index(&self) -> u32 {
-        match self {
-            RedeemerTag::Spend => 0,
-            RedeemerTag::Mint => 1,
-            RedeemerTag::Cert => 2,
-            RedeemerTag::Reward => 3,
-            RedeemerTag::Vote => 4,
-            RedeemerTag::Propose => 5,
-        }
-    }
-}
-
-pub fn script_purpose_to_string(purpose: ScriptPurpose) -> String {
-    match purpose {
-        RedeemerTag::Spend => "Spend".to_string(),
-        RedeemerTag::Mint => "Mint".to_string(),
-        RedeemerTag::Cert => "Cert".to_string(),
-        RedeemerTag::Reward => "Reward".to_string(),
-        RedeemerTag::Vote => "Vote".to_string(),
-        RedeemerTag::Propose => "Propose".to_string(),
-    }
-}
-
-/// Create a new `ExUnits` that is the sum of two `ExUnits`
-pub fn sum_ex_units(left: ExUnits, right: &ExUnits) -> ExUnits {
-    ExUnits {
-        mem: left.mem + right.mem,
-        steps: left.steps + right.steps,
-    }
-}
-
-/// Utility function to parse a nonce (i.e. a blake2b-256 hash digest) from an hex-encoded string.
-pub fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
-    hex::decode(hex_str)
-        .map_err(|e| format!("invalid hex encoding: {e}"))
-        .and_then(|bytes| {
-            <[u8; 32]>::try_from(bytes).map_err(|_| "expected 32-byte nonce".to_string())
-        })
-        .map(Nonce::from)
-}
-
-// Redeemers
-// ----------------------------------------------------------------------------
-
-pub trait HasExUnits {
-    fn ex_units(&self) -> Vec<&ExUnits>;
-}
-
-impl HasExUnits for Block {
-    fn ex_units(&self) -> Vec<&ExUnits> {
-        self.transaction_witnesses
-            .iter()
-            .fold(Vec::new(), |mut acc: Vec<&ExUnits>, witness_set| {
-                if let Some(witnesses) = &witness_set.redeemer {
-                    acc.extend(witnesses.redeemers().values().map(|(ex_units, _)| ex_units));
-                }
-                acc
-            })
-    }
-}
-
-pub trait HasRedeemers {
-    fn redeemers(&self) -> BTreeMap<Cow<'_, RedeemerKey>, (&ExUnits, &PlutusData)>;
-}
-
-impl HasRedeemers for Redeemers {
-    /// Flatten all redeemers kind into a map; This mimicks the Haskell's implementation and
-    /// automatically perform de-duplication of redeemers.
-    ///
-    /// Indeed, it's possible that a list could have a (tag, index) tuple present more than once, with different data.
-    /// The haskell node removes duplicates, keeping the last value present.
-    ///
-    /// See also <https://github.com/IntersectMBO/cardano-ledger/blob/607a7fdad352eb72041bb79f37bc1cf389432b1d/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L626>:
-    ///
-    /// - The Map.fromList behavior is documented here: <https://hackage.haskell.org/package/containers-0.6.6/docs/Data-Map-Strict.html#v:fromList>
-    ///
-    /// In this case, we don't care about the data provided in the redeemer (we're returning just the keys), so it doesn't matter.
-    /// But this will come up during Phase 2 validation, so keep in mind that BTreeSet always keeps the first occurance based on the `PartialEq` result:
-    ///
-    /// <https://doc.rust-lang.org/std/collections/btree_set/struct.BTreeSet.html#method.insert>
-    fn redeemers(&self) -> BTreeMap<Cow<'_, RedeemerKey>, (&ExUnits, &PlutusData)> {
-        match self {
-            Redeemers::List(list) => list
-                .iter()
-                .map(|redeemer| {
-                    (
-                        Cow::Owned(RedeemerKey {
-                            tag: redeemer.tag,
-                            index: redeemer.index,
-                        }),
-                        (&redeemer.ex_units, &redeemer.data),
-                    )
-                })
-                .collect(),
-            Redeemers::Map(map) => map
-                .iter()
-                .map(|(key, redeemer)| (Cow::Borrowed(key), (&redeemer.ex_units, &redeemer.data)))
-                .collect(),
-        }
-    }
-}
-
-pub type RequiredSigners = NonEmptySet<AddrKeyhash>;
-
-pub type VotingProcedures =
-    NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>;
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use test_case::test_case;
-
-    macro_rules! fixture {
-        ($hash:literal) => {
-            (
-                include_cbor!(concat!("bootstrap_witnesses/", $hash, ".cbor")),
-                hash!($hash),
-            )
-        };
-    }
-
-    #[test_case(fixture!("232b6238656c07529e08b152f669507e58e2cb7491d0b586d9dbe425"))]
-    #[test_case(fixture!("323ea3dd5b510b1bd5380b413477179df9a6de89027fd817207f32c6"))]
-    #[test_case(fixture!("59f44fd32ee319bcea9a51e7b84d7c4cb86f7b9b12f337f6ca9e9c85"))]
-    #[test_case(fixture!("65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8e"))]
-    #[test_case(fixture!("a5a8b29a838ce9525ce6c329c99dc89a31a7d8ae36a844eef55d7eb9"))]
-    fn to_root_key_hash((bootstrap_witness, root): (BootstrapWitness, Hash<28>)) {
-        assert_eq!(to_root(&bootstrap_witness).as_slice(), root.as_slice())
-    }
-
-    #[test]
-    fn test_parse_nonce() {
-        assert!(matches!(
-            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"),
-            Ok(..)
-        ));
-    }
-
-    #[test]
-    fn test_parse_nonce_not_hex() {
-        assert!(matches!(parse_nonce("patate"), Err(..)));
-    }
-
-    #[test]
-    fn test_parse_nonce_too_long() {
-        assert!(matches!(
-            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d1234"),
-            Err(..)
-        ));
-    }
-
-    #[test]
-    fn test_parse_nonce_too_short() {
-        assert!(matches!(
-            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a"),
-            Err(..)
-        ));
-    }
-}
+pub mod traits;
+#[doc(hidden)]
+pub use traits::{
+    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasNetwork, HasOwnership, HasRedeemers,
+    HasScriptHash, IsHeader, as_hash, as_index, as_shelley, has_ex_units, has_lovelace,
+    has_network, has_ownership, has_redeemers, has_script_hash, is_header,
+};
+
+pub mod utils;

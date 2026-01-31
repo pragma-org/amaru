@@ -435,12 +435,11 @@ pub fn warn<'a, E: std::fmt::Display + Send + 'a>(
 
 #[cfg(test)]
 mod test {
-    use crate::simulation::SimulationBuilder;
-    use crate::trace_buffer::TerminationReason;
     use crate::{
         Effect, Instant, SendData, StageGraph, StageGraphRunning, StageResponse, TryInStage,
         serde::SendDataValue,
-        trace_buffer::{TraceBuffer, TraceEntry},
+        simulation::SimulationBuilder,
+        trace_buffer::{TerminationReason, TraceBuffer, TraceEntry},
     };
     use std::{ffi::OsString, time::Duration};
 

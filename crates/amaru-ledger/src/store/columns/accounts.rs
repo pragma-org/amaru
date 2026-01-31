@@ -73,14 +73,13 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 pub mod tests {
     use super::Row;
     use amaru_kernel::{
-        Lovelace, prop_cbor_roundtrip,
-        tests::{any_certificate_pointer, any_drep, any_pool_id},
+        Lovelace, any_certificate_pointer, any_drep, any_hash28, prop_cbor_roundtrip,
     };
     use proptest::{option, prelude::*, prop_compose};
 
     prop_compose! {
         pub fn any_row(max_slot: u64)(
-            pool in option::of(any_pool_id()),
+            pool in option::of(any_hash28()),
             pool_delegation_at in any_certificate_pointer(max_slot),
             deposit in any::<Lovelace>(),
             drep in option::of(any_drep()),

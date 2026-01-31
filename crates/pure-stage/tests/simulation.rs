@@ -13,16 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pure_stage::simulation::running::OverrideResult;
-use pure_stage::simulation::{RandStdRng, SimulationBuilder};
 use pure_stage::{
     Effect, ExternalEffect, Instant, Name, OutputEffect, Receiver, Resources, SendData, StageGraph,
     StageGraphRunning, StageRef, StageResponse, TryInStage, UnknownExternalEffect,
     serde::SendDataValue,
+    simulation::{RandStdRng, SimulationBuilder, running::OverrideResult},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
-use rand::SeedableRng;
-use rand::rngs::StdRng;
+use rand::{SeedableRng, rngs::StdRng};
 use std::{
     collections::BTreeMap,
     sync::{

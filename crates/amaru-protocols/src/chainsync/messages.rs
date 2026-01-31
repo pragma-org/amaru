@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    BlockHeader, Point, check_tagged_array_length, protocol_messages::tip::Tip, to_cbor,
-};
-use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
+use amaru_kernel::{BlockHeader, Point, Tip, cbor, to_cbor};
 use pure_stage::DeserializerGuards;
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -55,12 +52,12 @@ impl HeaderContent {
     }
 }
 
-impl Encode<()> for Message {
-    fn encode<W: encode::Write>(
+impl cbor::Encode<()> for Message {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         _ctx: &mut (),
-    ) -> Result<(), encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
             Message::RequestNext(n) => {
                 for _ in 0..*n {
@@ -111,70 +108,70 @@ impl Encode<()> for Message {
     }
 }
 
-impl<'b> Decode<'b, ()> for Message {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
+impl<'b> cbor::Decode<'b, ()> for Message {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
         let len = d.array()?;
         let label = d.u16()?;
 
         match label {
             0 => {
-                check_tagged_array_length(0, len, 1)?;
+                cbor::check_tagged_array_length(0, len, 1)?;
                 Ok(Message::RequestNext(1))
             }
             1 => {
-                check_tagged_array_length(1, len, 1)?;
+                cbor::check_tagged_array_length(1, len, 1)?;
                 Ok(Message::AwaitReply)
             }
             2 => {
-                check_tagged_array_length(2, len, 3)?;
+                cbor::check_tagged_array_length(2, len, 3)?;
                 let content = d.decode()?;
                 let tip = d.decode()?;
                 Ok(Message::RollForward(content, tip))
             }
             3 => {
-                check_tagged_array_length(3, len, 3)?;
+                cbor::check_tagged_array_length(3, len, 3)?;
                 let point = d.decode()?;
                 let tip = d.decode()?;
                 Ok(Message::RollBackward(point, tip))
             }
             4 => {
-                check_tagged_array_length(4, len, 2)?;
+                cbor::check_tagged_array_length(4, len, 2)?;
                 let points = d.decode()?;
                 Ok(Message::FindIntersect(points))
             }
             5 => {
-                check_tagged_array_length(5, len, 3)?;
+                cbor::check_tagged_array_length(5, len, 3)?;
                 let point = d.decode()?;
                 let tip = d.decode()?;
                 Ok(Message::IntersectFound(point, tip))
             }
             6 => {
-                check_tagged_array_length(6, len, 2)?;
+                cbor::check_tagged_array_length(6, len, 2)?;
                 let tip = d.decode()?;
                 Ok(Message::IntersectNotFound(tip))
             }
             7 => {
-                check_tagged_array_length(7, len, 1)?;
+                cbor::check_tagged_array_length(7, len, 1)?;
                 Ok(Message::Done)
             }
-            _ => Err(decode::Error::message(
+            _ => Err(cbor::decode::Error::message(
                 "unknown variant for chainsync message",
             )),
         }
     }
 }
 
-impl<'b> Decode<'b, ()> for HeaderContent {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
+impl<'b> cbor::Decode<'b, ()> for HeaderContent {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
         let len = d.array()?;
         let variant = d.u8()?; // era variant
 
         match variant {
             // byron
             0 => {
-                check_tagged_array_length(0, len, 2)?;
+                cbor::check_tagged_array_length(0, len, 2)?;
                 let len = d.array()?;
-                check_tagged_array_length(0, len, 2)?;
+                cbor::check_tagged_array_length(0, len, 2)?;
 
                 // can't find a reference anywhere about the structure of these values, but they
                 // seem to provide the Byron-specific variant of the header
@@ -191,7 +188,7 @@ impl<'b> Decode<'b, ()> for HeaderContent {
             }
             // shelley and beyond
             v => {
-                check_tagged_array_length(v as usize, len, 2)?;
+                cbor::check_tagged_array_length(v as usize, len, 2)?;
                 d.tag()?;
                 let bytes = d.bytes()?;
                 Ok(HeaderContent {
@@ -204,12 +201,12 @@ impl<'b> Decode<'b, ()> for HeaderContent {
     }
 }
 
-impl Encode<()> for HeaderContent {
-    fn encode<W: encode::Write>(
+impl cbor::Encode<()> for HeaderContent {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         _ctx: &mut (),
-    ) -> Result<(), encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
         e.u8(self.variant)?;
 
@@ -222,15 +219,15 @@ impl Encode<()> for HeaderContent {
                 e.u8(a)?;
                 e.u64(b)?;
             } else {
-                return Err(encode::Error::message(
+                return Err(cbor::encode::Error::message(
                     "header variant 0 but no byron prefix",
                 ));
             }
 
-            e.tag(minicbor::data::IanaTag::Cbor)?;
+            e.tag(cbor::IanaTag::Cbor)?;
             e.bytes(&self.cbor)?;
         } else {
-            e.tag(minicbor::data::IanaTag::Cbor)?;
+            e.tag(cbor::IanaTag::Cbor)?;
             e.bytes(&self.cbor)?;
         }
 
@@ -242,13 +239,11 @@ impl Encode<()> for HeaderContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chainsync::messages::Message::*;
-    use amaru_kernel::prop_cbor_roundtrip;
-    use amaru_kernel::protocol_messages::{
-        handshake::tests::any_byron_prefix, point::tests::any_point, tip::tests::any_tip,
+    use crate::{
+        chainsync::messages::Message::*, protocol_messages::handshake::tests::any_byron_prefix,
     };
-    use proptest::prelude::*;
-    use proptest::prop_compose;
+    use amaru_kernel::{any_point, any_tip, prop_cbor_roundtrip};
+    use proptest::{prelude::*, prop_compose};
 
     mod header_content {
         use super::*;

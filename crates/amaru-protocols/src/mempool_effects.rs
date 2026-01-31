@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Tx;
+use amaru_kernel::Transaction;
 use amaru_ouroboros::ResourceMempool;
 use amaru_ouroboros_traits::{
     CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
@@ -22,8 +22,7 @@ use pure_stage::{
     BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
 };
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-use std::pin::Pin;
+use std::{fmt::Debug, pin::Pin};
 
 /// Implementation of Mempool effects using pure_stage::Effects.
 ///
@@ -54,24 +53,28 @@ impl<T> MemoryPool<T> {
     }
 }
 
-impl<T: SendData + Sync> CanValidateTransactions<Tx> for MemoryPool<T> {
+impl<T: SendData + Sync> CanValidateTransactions<Transaction> for MemoryPool<T> {
     /// This effect uses the ledger to validate a transaction before adding it to the mempool.
-    fn validate_transaction(&self, tx: Tx) -> Result<(), TransactionValidationError> {
+    fn validate_transaction(&self, tx: Transaction) -> Result<(), TransactionValidationError> {
         self.effects.external_sync(ValidateTransaction(tx))
     }
 }
 
-impl<T: SendData + Sync> TxSubmissionMempool<Tx> for MemoryPool<T> {
+impl<T: SendData + Sync> TxSubmissionMempool<Transaction> for MemoryPool<T> {
     /// This effect inserts a transaction into the mempool, specifying its origin.
     /// A TxOrigin::Local origin indicates the transaction was created on the current node,
     /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer
-    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+    fn insert(
+        &self,
+        tx: Transaction,
+        tx_origin: TxOrigin,
+    ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         self.external_sync(Insert::new(tx, tx_origin))
     }
 
     /// This effect retrieves a transaction by its id.
     /// It returns None if the transaction is not found.
-    fn get_tx(&self, tx_id: &TxId) -> Option<Tx> {
+    fn get_tx(&self, tx_id: &TxId) -> Option<Transaction> {
         self.external_sync(GetTx::new(*tx_id))
     }
 
@@ -89,7 +92,7 @@ impl<T: SendData + Sync> TxSubmissionMempool<Tx> for MemoryPool<T> {
     }
 
     /// This effect retrieves a list of transactions for the given ids.
-    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx> {
+    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Transaction> {
         self.external_sync(GetTxsForIds::new(ids))
     }
 
@@ -103,12 +106,12 @@ impl<T: SendData + Sync> TxSubmissionMempool<Tx> for MemoryPool<T> {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Insert {
-    tx: Tx,
+    tx: Transaction,
     tx_origin: TxOrigin,
 }
 
 impl Insert {
-    pub fn new(tx: Tx, tx_origin: TxOrigin) -> Self {
+    pub fn new(tx: Transaction, tx_origin: TxOrigin) -> Self {
         Self { tx, tx_origin }
     }
 }
@@ -118,7 +121,7 @@ impl ExternalEffect for Insert {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool<Tx>>()
+                .get::<ResourceMempool<Transaction>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.insert(self.tx, self.tx_origin)
         })
@@ -132,14 +135,14 @@ impl ExternalEffectAPI for Insert {
 impl ExternalEffectSync for Insert {}
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct ValidateTransaction(Tx);
+struct ValidateTransaction(Transaction);
 
 impl ExternalEffect for ValidateTransaction {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool<Tx>>()
+                .get::<ResourceMempool<Transaction>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.validate_transaction(self.0)
         })
@@ -168,7 +171,7 @@ impl ExternalEffect for GetTx {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool<Tx>>()
+                .get::<ResourceMempool<Transaction>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.get_tx(&self.tx_id)
         })
@@ -176,7 +179,7 @@ impl ExternalEffect for GetTx {
 }
 
 impl ExternalEffectAPI for GetTx {
-    type Response = Option<Tx>;
+    type Response = Option<Transaction>;
 }
 
 impl ExternalEffectSync for GetTx {}
@@ -201,7 +204,7 @@ impl ExternalEffect for TxIdsSince {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool<Tx>>()
+                .get::<ResourceMempool<Transaction>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.tx_ids_since(self.mempool_seqno, self.limit)
         })
@@ -230,7 +233,7 @@ impl ExternalEffect for WaitForAtLeast {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             let mempool = resources
-                .get::<ResourceMempool<Tx>>()
+                .get::<ResourceMempool<Transaction>>()
                 .expect("ResourceMempool requires a mempool")
                 .clone();
             mempool.wait_for_at_least(self.seq_no).await
@@ -260,7 +263,7 @@ impl ExternalEffect for GetTxsForIds {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool<Tx>>()
+                .get::<ResourceMempool<Transaction>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.get_txs_for_ids(&self.tx_ids)
         })
@@ -268,7 +271,7 @@ impl ExternalEffect for GetTxsForIds {
 }
 
 impl ExternalEffectAPI for GetTxsForIds {
-    type Response = Vec<Tx>;
+    type Response = Vec<Transaction>;
 }
 
 impl ExternalEffectSync for GetTxsForIds {}
@@ -281,7 +284,7 @@ impl ExternalEffect for LastSeqNo {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources
-                .get::<ResourceMempool<Tx>>()
+                .get::<ResourceMempool<Transaction>>()
                 .expect("ResourceMempool requires a mempool");
             mempool.last_seq_no()
         })
@@ -296,75 +299,43 @@ impl ExternalEffectSync for LastSeqNo {}
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Nullable, Tx};
+    use amaru_kernel::{Transaction, TransactionBody, WitnessSet};
     use amaru_ouroboros_traits::{
         CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
         TxRejectReason, TxSubmissionMempool,
     };
-    use pallas_primitives::Set;
-    use pallas_primitives::conway::{PseudoTransactionBody, PseudoTx, WitnessSet};
     use std::pin::Pin;
 
     #[allow(dead_code)]
     pub struct ConstantMempool {
-        tx: Tx,
+        tx: Transaction,
     }
 
     impl ConstantMempool {
         #[allow(dead_code)]
         pub fn new() -> Self {
-            let transaction_body = PseudoTransactionBody {
-                inputs: Set::from(vec![]),
-                outputs: vec![],
-                fee: 0,
-                ttl: None,
-                certificates: None,
-                withdrawals: None,
-                auxiliary_data_hash: None,
-                validity_interval_start: None,
-                mint: None,
-                script_data_hash: None,
-                required_signers: None,
-                network_id: None,
-                collateral_return: None,
-                total_collateral: None,
-                reference_inputs: None,
-                voting_procedures: None,
-                proposal_procedures: None,
-                treasury_value: None,
-                collateral: None,
-                donation: None,
-            };
-            let transaction_witness_set = WitnessSet {
-                vkeywitness: None,
-                native_script: None,
-                bootstrap_witness: None,
-                plutus_v1_script: None,
-                plutus_data: None,
-                redeemer: None,
-                plutus_v2_script: None,
-                plutus_v3_script: None,
-            };
-            let tx: Tx = PseudoTx {
-                transaction_body,
-                transaction_witness_set,
-                success: true,
-                auxiliary_data: Nullable::Null,
+            let body = TransactionBody::new([], [], 0);
+            let witnesses = WitnessSet::default();
+            let tx: Transaction = Transaction {
+                body,
+                witnesses,
+                is_expected_valid: true,
+                auxiliary_data: None,
             };
             Self { tx }
         }
     }
 
-    impl TxSubmissionMempool<Tx> for ConstantMempool {
+    impl TxSubmissionMempool<Transaction> for ConstantMempool {
         fn insert(
             &self,
-            tx: Tx,
+            tx: Transaction,
             _tx_origin: TxOrigin,
         ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
             Ok((TxId::from(&tx), MempoolSeqNo(1)))
         }
 
-        fn get_tx(&self, _tx_id: &TxId) -> Option<Tx> {
+        fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
             Some(self.tx.clone())
         }
 
@@ -383,7 +354,7 @@ mod tests {
             Box::pin(async { true })
         }
 
-        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Tx> {
+        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
             vec![self.tx.clone()]
         }
 
@@ -392,8 +363,8 @@ mod tests {
         }
     }
 
-    impl CanValidateTransactions<Tx> for ConstantMempool {
-        fn validate_transaction(&self, _tx: Tx) -> Result<(), TransactionValidationError> {
+    impl CanValidateTransactions<Transaction> for ConstantMempool {
+        fn validate_transaction(&self, _tx: Transaction) -> Result<(), TransactionValidationError> {
             Ok(())
         }
     }

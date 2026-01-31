@@ -12,38 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::chainsync::ChainSyncInitiatorMsg;
-use crate::manager::{Manager, ManagerMessage};
-use crate::network_effects::{Network, NetworkOps};
-use crate::protocol::Role;
-use crate::store_effects::{ResourceHeaderStore, Store};
-use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
-use crate::{chainsync, manager};
-use amaru_kernel::is_header::tests::{any_headers_chain_with_root, make_header, run};
-use amaru_kernel::peer::Peer;
-use amaru_kernel::protocol_messages::network_magic::NetworkMagic;
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, cbor};
+use crate::{
+    chainsync,
+    chainsync::ChainSyncInitiatorMsg,
+    manager,
+    manager::{Manager, ManagerMessage},
+    network_effects::{Network, NetworkOps},
+    protocol::Role,
+    store_effects::{ResourceHeaderStore, Store},
+    tx_submission::{create_transactions, create_transactions_in_mempool},
+};
+use amaru_kernel::{
+    BlockHeader, HeaderHash, IsHeader, NetworkMagic, Peer, Transaction,
+    any_headers_chain_with_root, cbor, make_header, utils::tests::run_strategy,
+};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros_traits::can_validate_blocks::CanValidateHeaders;
-use amaru_ouroboros_traits::can_validate_blocks::mock::{
-    MockCanValidateBlocks, MockCanValidateHeaders,
-};
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, ConnectionProvider, ConnectionResource, ResourceMempool, TxId,
+    can_validate_blocks::{
+        CanValidateHeaders,
+        mock::{MockCanValidateBlocks, MockCanValidateHeaders},
+    },
+    in_memory_consensus_store::InMemConsensusStore,
 };
 use pallas_primitives::babbage::{Header, MintedHeader};
-use pallas_primitives::conway::Tx;
-use pure_stage::tokio::{TokioBuilder, TokioRunning};
-use pure_stage::{Effects, StageGraph, StageRef};
+use pure_stage::{
+    Effects, StageGraph, StageRef,
+    tokio::{TokioBuilder, TokioRunning},
+};
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::runtime::Handle;
-use tokio::time::timeout;
+use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
+use tokio::{runtime::Handle, time::timeout};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::test]
@@ -52,11 +52,17 @@ async fn test_connect_initiator_responder() -> anyhow::Result<()> {
     let (responder, addr) = start_responder().await?;
 
     let responder_chain_store = responder.resources().get::<ResourceHeaderStore>()?.clone();
-    let responder_mempool = responder.resources().get::<ResourceMempool<Tx>>()?.clone();
+    let responder_mempool = responder
+        .resources()
+        .get::<ResourceMempool<Transaction>>()?
+        .clone();
 
     let initiator = start_initiator(addr).await?;
     let initiator_chain_store = initiator.resources().get::<ResourceHeaderStore>()?.clone();
-    let initiator_mempool = initiator.resources().get::<ResourceMempool<Tx>>()?.clone();
+    let initiator_mempool = initiator
+        .resources()
+        .get::<ResourceMempool<Transaction>>()?
+        .clone();
 
     tokio::select! {
         res = responder.join() => anyhow::bail!("responder terminated unexpectedly: {res:?}"),
@@ -292,7 +298,9 @@ fn add_resources(
     network
         .resources()
         .put::<ConnectionResource>(Arc::new(connections));
-    network.resources().put::<ResourceMempool<Tx>>(mempool);
+    network
+        .resources()
+        .put::<ResourceMempool<Transaction>>(mempool);
     Ok(())
 }
 
@@ -309,7 +317,7 @@ fn initialize_chain_store(
     let root_header = BlockHeader::from(make_header(0, 0, Some(origin_hash)));
     chain_store.set_anchor_hash(&root_header.hash())?;
     let chain_size = if role == Role::Responder { 5 } else { 2 };
-    let mut headers = run(any_headers_chain_with_root(chain_size, root_header.hash()));
+    let mut headers = run_strategy(any_headers_chain_with_root(chain_size, root_header.hash()));
     headers.insert(0, root_header);
 
     for header in headers.iter() {
@@ -322,7 +330,10 @@ fn initialize_chain_store(
 
 const TXS_NB: u64 = 10;
 
-fn initialize_mempool(mempool: Arc<InMemoryMempool<Tx>>, role: Role) -> anyhow::Result<()> {
+fn initialize_mempool(
+    mempool: Arc<InMemoryMempool<Transaction>>,
+    role: Role,
+) -> anyhow::Result<()> {
     let tx_count = if role == Role::Initiator { TXS_NB } else { 0 };
     create_transactions_in_mempool(mempool.clone(), tx_count);
     Ok(())

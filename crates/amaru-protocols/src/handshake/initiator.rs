@@ -19,9 +19,9 @@ use crate::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_HANDSHAKE, ProtocolState, StageState,
         miniprotocol, outcome,
     },
-};
-use amaru_kernel::protocol_messages::{
-    handshake::HandshakeResult, version_data::VersionData, version_table::VersionTable,
+    protocol_messages::{
+        handshake::HandshakeResult, version_data::VersionData, version_table::VersionTable,
+    },
 };
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 

@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::NetworkOps;
-use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ProcessingFailed, ValidationFailed};
-use crate::consensus::span::HasSpan;
-use amaru_kernel::IsHeader;
-use amaru_kernel::consensus_events::BlockValidationResult;
-use amaru_kernel::protocol_messages::tip::Tip;
+use crate::consensus::{
+    effects::{BaseOps, ConsensusOps, NetworkOps},
+    errors::{ProcessingFailed, ValidationFailed},
+    events::BlockValidationResult,
+    span::HasSpan,
+};
+use amaru_kernel::{IsHeader, Tip};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Instrument, error, trace};

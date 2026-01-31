@@ -12,16 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ConsensusError, ValidationFailed};
-use crate::consensus::span::HasSpan;
-use crate::consensus::store::PraosChainStore;
-use amaru_kernel::IsHeader;
-use amaru_kernel::consensus_events::{DecodedChainSyncEvent, ValidateHeaderEvent};
-use amaru_kernel::{BlockHeader, Nonce, protocol_parameters::ConsensusParameters, to_cbor};
+use crate::consensus::{
+    effects::{BaseOps, ConsensusOps},
+    errors::{ConsensusError, ValidationFailed},
+    events::{DecodedChainSyncEvent, ValidateHeaderEvent},
+    span::HasSpan,
+    store::PraosChainStore,
+};
+use amaru_kernel::{BlockHeader, ConsensusParameters, IsHeader, Nonce, to_cbor};
 use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::can_validate_blocks::{CanValidateHeaders, HeaderValidationError};
-use amaru_ouroboros_traits::{ChainStore, HasStakeDistribution, Praos};
+use amaru_ouroboros_traits::{
+    ChainStore, HasStakeDistribution, Praos,
+    can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
+};
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
@@ -176,19 +179,18 @@ impl CanValidateHeaders for ValidateHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus;
-    use crate::consensus::effects::MockLedgerOps;
-    use crate::consensus::errors::ConsensusError::NoncesError;
-    use amaru_kernel::Point;
-    use amaru_kernel::is_header::tests::{any_header_with_some_parent, run};
-    use amaru_kernel::network::NetworkName;
-    use amaru_kernel::{
-        HeaderHash, RawBlock,
-        protocol_parameters::{GlobalParameters, TESTNET_GLOBAL_PARAMETERS},
+    use crate::{
+        consensus,
+        consensus::{effects::MockLedgerOps, errors::ConsensusError::NoncesError},
     };
-    use amaru_ouroboros_traits::Nonces;
-    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
+    use amaru_kernel::{
+        GlobalParameters, HeaderHash, NetworkName, Point, RawBlock, TESTNET_GLOBAL_PARAMETERS,
+        any_header_with_some_parent, utils::tests::run_strategy,
+    };
+    use amaru_ouroboros_traits::{
+        ChainStore, Nonces, ReadOnlyChainStore, StoreError,
+        in_memory_consensus_store::InMemConsensusStore,
+    };
     use std::sync::Arc;
 
     #[tokio::test]
@@ -336,7 +338,7 @@ mod tests {
         Arc<dyn HasStakeDistribution>,
     ) {
         // Create a minimal valid header using the default constructor
-        let header = run(any_header_with_some_parent());
+        let header = run_strategy(any_header_with_some_parent());
         // Create a simple global parameters for testing
         let global_parameters = &*TESTNET_GLOBAL_PARAMETERS;
         let ledger = Arc::new(MockLedgerOps);

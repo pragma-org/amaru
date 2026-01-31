@@ -18,9 +18,11 @@ mod responder;
 #[cfg(test)]
 mod tests;
 
-use crate::connection::ConnectionMessage;
-use crate::mux;
-use crate::protocol::{Inputs, PROTO_N2N_KEEP_ALIVE, ProtocolState};
+use crate::{
+    connection::ConnectionMessage,
+    mux,
+    protocol::{Inputs, PROTO_N2N_KEEP_ALIVE, ProtocolState},
+};
 use pure_stage::{Effects, StageRef, Void};
 
 pub use messages::{Cookie, Message};

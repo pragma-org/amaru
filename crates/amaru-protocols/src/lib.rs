@@ -24,6 +24,7 @@ pub mod mempool_effects;
 pub mod mux;
 pub mod network_effects;
 pub mod protocol;
+pub mod protocol_messages;
 pub mod store_effects;
 pub mod tx_submission;
 

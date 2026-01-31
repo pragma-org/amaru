@@ -13,15 +13,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::consensus::forward_chain::client_protocol::PrettyPoint;
-use crate::stages::consensus::forward_chain::tcp_forward_chain_server::TcpForwardChainServer;
-use crate::stages::consensus::forward_chain::to_pallas_tip;
-use amaru_consensus::ReadOnlyChainStore;
-use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
-use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor};
+use crate::stages::consensus::forward_chain::{
+    client_protocol::PrettyPoint, tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip,
+};
+use amaru_consensus::{
+    ReadOnlyChainStore,
+    consensus::effects::{ForwardEvent, ForwardEventListener},
+};
+use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor, size::HEADER};
 use amaru_network::point::to_network_point;
-use amaru_ouroboros_traits::ChainStore;
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::{
@@ -77,7 +78,7 @@ pub fn mk_in_memory_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHea
 }
 
 pub fn hash(s: &str) -> HeaderHash {
-    Hash::<32>::from_str(s).unwrap()
+    Hash::<HEADER>::from_str(s).unwrap()
 }
 
 pub fn hex(s: &str) -> Vec<u8> {

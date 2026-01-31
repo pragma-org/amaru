@@ -14,8 +14,10 @@
 
 use crate::{
     context,
+    context::DefaultValidationContext,
     governance::ratification::{self, RatificationContext},
     rules,
+    rules::{block::BlockValidation, parse_block},
     state::{
         ratification::{ProposalsRoots, ProposalsRootsRc, RatificationResult},
         volatile_db::{StoreUpdate, VolatileDB},
@@ -33,18 +35,16 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    ArenaPool, Block, ComparableProposalId, ConstitutionalCommitteeStatus, EraHistory, Hasher,
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, RawBlock, Slot, StakeCredential,
-    StakeCredentialType, TransactionInput, expect_stake_credential,
-    network::NetworkName,
-    protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash,
+    AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory,
+    EraHistoryError, GlobalParameters, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName,
+    Point, PoolId, ProtocolParameters, RawBlock, Slot, StakeCredential, StakeCredentialKind,
+    TransactionInput, expect_stake_credential,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError,
 };
-use amaru_slot_arithmetic::{Epoch, EraHistoryError};
+use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::{Context, anyhow};
 use std::{
     borrow::Cow,
@@ -57,10 +57,6 @@ use thiserror::Error;
 use tracing::{Level, Span, debug, error, info, instrument, trace, warn};
 use volatile_db::AnchoredVolatileState;
 
-use crate::{
-    context::DefaultValidationContext,
-    rules::{block::BlockValidation, parse_block},
-};
 pub use volatile_db::VolatileState;
 
 pub mod diff_bind;
@@ -863,8 +859,8 @@ pub fn refund_many<'store>(
         refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
             debug!(
                 target: EVENT_TARGET,
-                type = %StakeCredentialType::from(&account),
-                account = %stake_credential_hash(&account),
+                type = %StakeCredentialKind::from(&account),
+                account = %account.as_hash(),
                 %deposit,
                 "refund"
             );

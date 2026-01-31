@@ -12,14 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Instant;
-use crate::stage_ref::StageStateRef;
 use crate::{
-    BoxFuture, Effects, Name, OutputEffect, Receiver, Resources, SendData, Sender, StageBuildRef,
-    StageRef, types::MpscSender,
+    BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
+    StageBuildRef, StageRef, stage_ref::StageStateRef, types::MpscSender,
 };
-use std::any::Any;
-use std::{fmt, future::Future};
+use std::{any::Any, fmt, future::Future};
 use tokio::sync::mpsc;
 
 /// A time specifying when an effect should be executed.

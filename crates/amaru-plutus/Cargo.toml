@@ -12,15 +12,15 @@ rust-version.workspace = true
 
 [dependencies]
 # External dependencies
+bumpalo.workspace = true
+hex.workspace = true
+itertools.workspace = true
 num.workspace = true
 thiserror.workspace = true
-itertools.workspace = true
-hex.workspace = true
-minicbor.workspace = true
+pallas-codec.workspace = true
 
 # Internal dependencies
 amaru-kernel.workspace = true
-amaru-slot-arithmetic.workspace = true
 
 [dev-dependencies]
 serde.workspace = true

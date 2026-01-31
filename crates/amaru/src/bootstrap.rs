@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{default_initial_nonces, default_snapshots_dir};
+use crate::{
+    default_initial_nonces, default_snapshots_dir, get_bootstrap_file, get_bootstrap_headers,
+};
 use amaru_consensus::{ChainStore, Nonces};
 use amaru_kernel::{
-    BlockHeader, EraHistory, Hash, HeaderHash, IsHeader, Nonce, Point, from_cbor,
-    network::NetworkName,
+    BlockHeader, EraHistory, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Point, from_cbor,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
@@ -38,8 +39,6 @@ use tokio::{
 };
 use tokio_util::io::StreamReader;
 use tracing::{Level, info, instrument};
-
-use crate::{get_bootstrap_file, get_bootstrap_headers};
 
 /// Configuration for a single ledger state's snapshot to be imported.
 #[derive(Debug, Deserialize)]
@@ -389,12 +388,10 @@ fn make_era_history(
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, str::FromStr};
-
-    use amaru_kernel::{Hash, HeaderHash, Point, Slot, network::NetworkName};
-    use amaru_slot_arithmetic::TimeMs;
-
     use crate::bootstrap::{make_era_history, sort_snapshots_by_slot};
+    use amaru_kernel::{Hash, HeaderHash, NetworkName, Point, Slot};
+    use amaru_slot_arithmetic::TimeMs;
+    use std::{path::PathBuf, str::FromStr};
 
     #[test]
     fn make_era_history_for_tesnet_given_file_exists() {

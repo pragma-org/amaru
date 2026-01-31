@@ -18,10 +18,10 @@ use crate::{
     store::GovernanceActivity,
 };
 use amaru_kernel::{
-    ArenaPool, Block, EraHistory, ExUnits, HasExUnits, HeaderHash, TransactionId,
-    TransactionPointer, network::NetworkName, protocol_parameters::ProtocolParameters,
+    Block, EraHistory, ExUnits, HasExUnits, HeaderHash, NetworkName, ProtocolParameters, Slot,
+    TransactionId, TransactionPointer,
 };
-use amaru_slot_arithmetic::Slot;
+use amaru_plutus::arena_pool::ArenaPool;
 use std::{
     fmt::{self, Display},
     ops::{ControlFlow, FromResidual, Try},

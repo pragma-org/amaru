@@ -14,9 +14,8 @@
 
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{
-    CertificatePointer, PoolId, PoolParams, StakeCredential, cbor, expect_stake_credential,
+    CertificatePointer, Epoch, PoolId, PoolParams, StakeCredential, cbor, expect_stake_credential,
 };
-use amaru_slot_arithmetic::Epoch;
 use tracing::{debug, trace};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
@@ -234,10 +233,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use amaru_kernel::{
-        prop_cbor_roundtrip,
-        tests::{any_certificate_pointer, any_pool_params},
-    };
+    use amaru_kernel::{any_certificate_pointer, any_pool_params, prop_cbor_roundtrip};
     use proptest::{collection, collection::vec, prelude::*};
 
     pub fn any_future_params(epoch: Epoch) -> impl Strategy<Value = (Option<PoolParams>, Epoch)> {

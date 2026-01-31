@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::effects::{BaseOps, ConsensusOps};
-use crate::consensus::errors::{ConsensusError, ProcessingFailed, ValidationFailed};
-use crate::consensus::span::HasSpan;
-use amaru_kernel::consensus_events::{ValidateBlockEvent, ValidateHeaderEvent};
+use crate::consensus::{
+    effects::{BaseOps, ConsensusOps},
+    errors::{ConsensusError, ProcessingFailed, ValidationFailed},
+    events::{ValidateBlockEvent, ValidateHeaderEvent},
+    span::HasSpan,
+};
 use amaru_kernel::{IsHeader, RawBlock};
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
@@ -109,10 +111,8 @@ pub fn stage(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::effects::mock_consensus_ops;
-    use crate::consensus::errors::ValidationFailed;
-    use amaru_kernel::is_header::tests::{any_header, run};
-    use amaru_kernel::peer::Peer;
+    use crate::consensus::{effects::mock_consensus_ops, errors::ValidationFailed};
+    use amaru_kernel::{Peer, any_header, utils::tests::run_strategy};
     use amaru_protocols::blockfetch::Blocks;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
@@ -121,7 +121,7 @@ mod tests {
     #[tokio::test]
     async fn a_block_that_can_be_fetched_is_sent_downstream() -> anyhow::Result<()> {
         let peer = Peer::new("name");
-        let header = run(any_header());
+        let header = run_strategy(any_header());
         let message = ValidateHeaderEvent::Validated {
             peer: peer.clone(),
             header: header.clone(),

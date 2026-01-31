@@ -19,7 +19,7 @@ use crate::{
     network_effects::{Network, NetworkOps},
     protocol::Role,
 };
-use amaru_kernel::{Point, peer::Peer, protocol_messages::network_magic::NetworkMagic};
+use amaru_kernel::{NetworkMagic, Peer, Point};
 use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
 use pure_stage::{Effects, StageRef};
 use std::{collections::BTreeMap, time::Duration};
@@ -211,7 +211,7 @@ pub async fn stage(
             through,
             cr,
         } => {
-            tracing::debug!(?from, ?through, %peer, "fetching blocks");
+            tracing::trace!(?from, ?through, %peer, "fetching blocks");
             if let Some(ConnectionState::Connected(_, connection)) = manager.peers.get(&peer) {
                 eff.send(
                     connection,

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::consensus::errors::ProcessingFailed;
-use amaru_kernel::{BlockHeader, IsHeader, Point, peer::Peer, protocol_messages::tip::Tip};
+use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};

@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::chain_follower::tests::ChainStoreExt;
-use super::test_infra::{ClientMsg, FORK_47, LOST_47, TIP_47, TestChainForwarder, WINNER_47, hash};
-use crate::stages::AsTip;
-use crate::stages::consensus::forward_chain::to_pallas_tip;
-use amaru_kernel::IsHeader;
-use amaru_kernel::Point;
+use super::{
+    chain_follower::tests::ChainStoreExt,
+    test_infra::{ClientMsg, FORK_47, LOST_47, TIP_47, TestChainForwarder, WINNER_47, hash},
+};
+use crate::stages::{AsTip, consensus::forward_chain::to_pallas_tip};
+use amaru_kernel::{IsHeader, Point};
 use amaru_network::point::to_network_point;
 
 #[tokio::test]

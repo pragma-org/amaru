@@ -39,6 +39,18 @@ pub fn decode_break<'d>(
     Ok(false)
 }
 
+/// Decode a chunk, but retain a reference to the decoded bytes.
+pub fn tee<'d, A>(
+    d: &mut cbor::Decoder<'d>,
+    decoder: impl FnOnce(&mut cbor::Decoder<'d>) -> Result<A, cbor::decode::Error>,
+) -> Result<(A, &'d [u8]), cbor::decode::Error> {
+    let original_bytes = d.input();
+    let start = d.position();
+    let a = decoder(d)?;
+    let end = d.position();
+    Ok((a, &original_bytes[start..end]))
+}
+
 // Array
 // ----------------------------------------------------------------------------
 
@@ -79,6 +91,13 @@ pub fn heterogeneous_array<'d, A>(
 
 /// This function checks the size of an array containing a tagged value.
 /// The `label` parameter is used to identify which variant is being checked.
+///
+/// FIXME: suspicious check_tagged_array_length
+///
+/// This function is a code smell and seems to indicate that we are manually decoding def
+/// array somewhere, instead of using the heterogeneous_array above to also deal indef arrays.
+/// There might be a good reason why this function exists; I haven't checked, but leaving a note
+/// for later to check.
 pub fn check_tagged_array_length(
     label: usize,
     actual: Option<u64>,

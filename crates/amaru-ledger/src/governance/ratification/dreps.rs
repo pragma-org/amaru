@@ -227,8 +227,8 @@ mod tests {
     use super::{tally, voting_threshold};
     use crate::{
         governance::ratification::{
-            ProposalEnum,
-            tests::{MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH, any_proposal_enum},
+            ProposalEnum, any_proposal_enum,
+            tests::{MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH},
         },
         summary::{
             SafeRatio,
@@ -236,8 +236,8 @@ mod tests {
         },
     };
     use amaru_kernel::{
-        DRep, Epoch, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, Vote,
-        tests::{any_drep_voting_thresholds, any_vote_ref},
+        DRep, Epoch, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, Vote, any_drep_voting_thresholds,
+        any_vote_ref,
     };
     use num::{One, Zero};
     use proptest::{collection, prelude::*, sample, test_runner::RngSeed};

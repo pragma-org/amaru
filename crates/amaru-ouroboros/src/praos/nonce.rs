@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraHistory, Hasher, IsHeader, Nonce};
-use amaru_slot_arithmetic::{Epoch, EraHistoryError};
+use amaru_kernel::{Epoch, EraHistory, EraHistoryError, Hasher, IsHeader, Nonce};
 
 /// Obtain the final nonce at an epoch boundary for the epoch from the stable candidate and the
 /// last block (header) of the previous epoch.

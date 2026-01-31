@@ -22,24 +22,26 @@ use crate::{
 };
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration,
-    DatumHash, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
-    PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash,
-    StakeCredential, TransactionInput, Vote, Voter,
+    Epoch, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId,
+    PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, StakeCredential,
+    TransactionInput, Vote, Voter,
+    size::{DATUM, KEY, SCRIPT},
 };
-use amaru_slot_arithmetic::Epoch;
-use core::mem;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    mem,
+};
 use tracing::trace;
 
 #[derive(Debug)]
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     state: VolatileState,
-    known_scripts: BTreeMap<ScriptHash, TransactionInput>,
-    known_datums: BTreeMap<DatumHash, TransactionInput>,
-    required_signers: BTreeSet<Hash<28>>,
+    known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
+    known_datums: BTreeMap<Hash<DATUM>, TransactionInput>,
+    required_signers: BTreeSet<Hash<KEY>>,
     required_scripts: BTreeSet<RequiredScript>,
-    required_supplemental_datums: BTreeSet<Hash<32>>,
+    required_supplemental_datums: BTreeSet<Hash<DATUM>>,
     required_bootstrap_roots: BTreeSet<Hash<28>>,
 }
 
@@ -237,7 +239,7 @@ impl ProposalsSlice for DefaultValidationContext {
 }
 
 impl WitnessSlice for DefaultValidationContext {
-    fn require_vkey_witness(&mut self, vkey_hash: amaru_kernel::AddrKeyhash) {
+    fn require_vkey_witness(&mut self, vkey_hash: Hash<KEY>) {
         self.required_signers.insert(vkey_hash);
     }
 
@@ -245,11 +247,11 @@ impl WitnessSlice for DefaultValidationContext {
         self.required_scripts.insert(script);
     }
 
-    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: TransactionInput) {
+    fn acknowledge_script(&mut self, script_hash: Hash<SCRIPT>, location: TransactionInput) {
         self.known_scripts.insert(script_hash, location);
     }
 
-    fn acknowledge_datum(&mut self, datum_hash: DatumHash, location: TransactionInput) {
+    fn acknowledge_datum(&mut self, datum_hash: Hash<DATUM>, location: TransactionInput) {
         self.known_datums.insert(datum_hash, location);
     }
 
@@ -257,11 +259,11 @@ impl WitnessSlice for DefaultValidationContext {
         self.required_bootstrap_roots.insert(root);
     }
 
-    fn allow_supplemental_datum(&mut self, datum_hash: Hash<32>) {
+    fn allow_supplemental_datum(&mut self, datum_hash: Hash<DATUM>) {
         self.required_supplemental_datums.insert(datum_hash);
     }
 
-    fn required_signers(&mut self) -> BTreeSet<Hash<28>> {
+    fn required_signers(&mut self) -> BTreeSet<Hash<KEY>> {
         mem::take(&mut self.required_signers)
     }
 
@@ -273,16 +275,16 @@ impl WitnessSlice for DefaultValidationContext {
         mem::take(&mut self.required_bootstrap_roots)
     }
 
-    fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>> {
+    fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<DATUM>> {
         mem::take(&mut self.required_supplemental_datums)
     }
 
-    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &MemoizedScript> {
+    fn known_scripts(&mut self) -> BTreeMap<Hash<SCRIPT>, &MemoizedScript> {
         let known_scripts = mem::take(&mut self.known_scripts);
         blanket_known_scripts(self, known_scripts.into_iter())
     }
 
-    fn known_datums(&mut self) -> BTreeMap<DatumHash, &MemoizedPlutusData> {
+    fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
     }

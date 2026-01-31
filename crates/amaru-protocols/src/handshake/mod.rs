@@ -18,14 +18,16 @@ mod responder;
 #[cfg(test)]
 mod tests;
 
-use crate::protocol::{ProtoSpec, ProtocolState, Role, RoleT};
-use amaru_kernel::protocol_messages::{
-    handshake::{HandshakeResult, RefuseReason},
-    network_magic::NetworkMagic,
-    version_data::{PEER_SHARING_DISABLED, VersionData},
-    version_number::VersionNumber,
-    version_table::VersionTable,
+use crate::{
+    protocol::{ProtoSpec, ProtocolState, Role, RoleT},
+    protocol_messages::{
+        handshake::{HandshakeResult, RefuseReason},
+        version_data::{PEER_SHARING_DISABLED, VersionData},
+        version_number::VersionNumber,
+        version_table::VersionTable,
+    },
 };
+use amaru_kernel::NetworkMagic;
 
 pub use messages::Message;
 
@@ -58,7 +60,7 @@ pub fn compute_negotiation_result(
     ours: VersionTable<VersionData>,
     theirs: VersionTable<VersionData>,
 ) -> HandshakeResult {
-    use amaru_kernel::protocol_messages::handshake::RefuseReason;
+    use crate::protocol_messages::handshake::RefuseReason;
     let mut their_versions = theirs.values.keys().collect::<Vec<_>>();
     their_versions.sort();
     their_versions.reverse();

@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use amaru::stages::Config;
-use amaru_kernel::{
-    ArenaPool, EraHistory, network::NetworkName, protocol_parameters::GlobalParameters,
-};
+use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
 use amaru_ledger::block_validator::BlockValidator;
+use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
 use std::{error::Error, path::PathBuf};
 

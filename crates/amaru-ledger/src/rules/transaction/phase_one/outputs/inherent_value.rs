@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use super::InvalidOutput;
-use amaru_kernel::{
-    HasLovelace, MemoizedTransactionOutput, protocol_parameters::ProtocolParameters, to_cbor,
-};
+use amaru_kernel::{HasLovelace, MemoizedTransactionOutput, ProtocolParameters, to_cbor};
 
 pub fn execute(
     protocol_parameters: &ProtocolParameters,

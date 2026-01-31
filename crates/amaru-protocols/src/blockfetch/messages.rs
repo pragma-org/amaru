@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Point, check_tagged_array_length};
-use minicbor::{Decode, Decoder, Encode, Encoder, data::IanaTag, decode, encode};
+use amaru_kernel::{Point, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Message {
@@ -25,12 +24,12 @@ pub enum Message {
     BatchDone,
 }
 
-impl Encode<()> for Message {
-    fn encode<W: encode::Write>(
+impl cbor::Encode<()> for Message {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         _ctx: &mut (),
-    ) -> Result<(), encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
             Message::RequestRange { from, through } => {
                 e.array(3)?.u16(0)?;
@@ -52,7 +51,7 @@ impl Encode<()> for Message {
             }
             Message::Block { body } => {
                 e.array(2)?.u16(4)?;
-                e.tag(IanaTag::Cbor)?;
+                e.tag(cbor::IanaTag::Cbor)?;
                 e.bytes(body)?;
                 Ok(())
             }
@@ -64,37 +63,37 @@ impl Encode<()> for Message {
     }
 }
 
-impl<'b> Decode<'b, ()> for Message {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
+impl<'b> cbor::Decode<'b, ()> for Message {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
         let len = d.array()?;
         let label = d.u16()?;
 
         match label {
             0 => {
-                check_tagged_array_length(0, len, 3)?;
+                cbor::check_tagged_array_length(0, len, 3)?;
                 let from = d.decode()?;
                 let through = d.decode()?;
                 Ok(Message::RequestRange { from, through })
             }
             1 => {
-                check_tagged_array_length(1, len, 1)?;
+                cbor::check_tagged_array_length(1, len, 1)?;
                 Ok(Message::ClientDone)
             }
             2 => {
-                check_tagged_array_length(2, len, 1)?;
+                cbor::check_tagged_array_length(2, len, 1)?;
                 Ok(Message::StartBatch)
             }
             3 => {
-                check_tagged_array_length(3, len, 1)?;
+                cbor::check_tagged_array_length(3, len, 1)?;
                 Ok(Message::NoBlocks)
             }
             4 => {
-                check_tagged_array_length(4, len, 2)?;
+                cbor::check_tagged_array_length(4, len, 2)?;
                 let tag = d.tag()?;
-                if tag != IanaTag::Cbor.tag() {
-                    return Err(decode::Error::message(format!(
+                if tag != cbor::IanaTag::Cbor.tag() {
+                    return Err(cbor::decode::Error::message(format!(
                         "unexpected tag for Block: expected {}, got {}",
-                        IanaTag::Cbor.tag(),
+                        cbor::IanaTag::Cbor.tag(),
                         tag
                     )));
                 }
@@ -105,10 +104,10 @@ impl<'b> Decode<'b, ()> for Message {
                 })
             }
             5 => {
-                check_tagged_array_length(5, len, 1)?;
+                cbor::check_tagged_array_length(5, len, 1)?;
                 Ok(Message::BatchDone)
             }
-            _ => Err(decode::Error::message(
+            _ => Err(cbor::decode::Error::message(
                 "unknown variant for blockfetch message",
             )),
         }
@@ -119,10 +118,8 @@ impl<'b> Decode<'b, ()> for Message {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use amaru_kernel::prop_cbor_roundtrip;
-    use amaru_kernel::protocol_messages::point::tests::any_point;
-    use proptest::prelude::*;
-    use proptest::prop_compose;
+    use amaru_kernel::{any_point, prop_cbor_roundtrip};
+    use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(Message, any_message());
 

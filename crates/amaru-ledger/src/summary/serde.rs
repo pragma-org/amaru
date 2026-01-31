@@ -15,7 +15,7 @@
 //! This module contains a variety of helpers used to produce serialised values for the various
 //! summaries.
 
-use amaru_kernel::{DRep, Network, PoolId, StakeCredential, encode_bech32};
+use amaru_kernel::{DRep, Network, PoolId, StakeCredential, utils::string::encode_bech32};
 use std::collections::BTreeMap;
 
 pub fn encode_pool_id(pool_id: &PoolId) -> String {

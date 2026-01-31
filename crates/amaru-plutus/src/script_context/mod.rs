@@ -13,20 +13,18 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AddrKeyhash, Address, AddressError, AlonzoValue, AssetName, Bytes, CborWrap,
-    Certificate as PallasCertificate, ComputeHash, DatumHash, EraHistory, ExUnits, HasOwnership,
-    HasScriptHash, Hash, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, MintedDatumOption, MintedScriptRef, NativeScript,
-    Network, NonEmptyKeyValuePairs, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs,
-    NonEmptySet, NonZeroInt, Nullable, OrderedRedeemer, PlutusData, PlutusScript, PolicyId,
-    Proposal, ProposalIdAdapter, ProtocolVersion, PseudoScript, Redeemer,
-    Redeemers as PallasRedeemers, RequiredSigners as PallasRequiredSigners, RewardAccount,
-    ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload, TransactionBody,
-    TransactionId, TransactionInput, TransactionInputAdapter, Vote, Voter,
-    VotingProcedures as PallasVotingProcedures, WitnessSet, network::NetworkName,
-    protocol_parameters::GlobalParameters,
+    Address, AddressError, AsShelley, AssetName, Bytes, Certificate as PallasCertificate,
+    ComparableProposalId, ComputeHash, EraHistory, EraHistoryError, ExUnits, GlobalParameters,
+    HasOwnership, HasScriptHash, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData, MemoizedScript,
+    MemoizedTransactionOutput, NativeScript, Network, NetworkName, NonEmptyKeyValuePairs,
+    NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonEmptyVec, NonZeroInt,
+    Nullable, OrderedRedeemer, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion,
+    Redeemer, Redeemers as PallasRedeemers, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
+    StakeCredential, StakePayload, TimeMs, TransactionBody, TransactionId, TransactionInput, Vote,
+    Voter, VotingProcedure, WitnessSet, cbor,
+    size::{CREDENTIAL, DATUM, KEY, SCRIPT},
+    transaction_input_to_string,
 };
-use amaru_slot_arithmetic::{EraHistoryError, TimeMs};
 use itertools::Itertools;
 use std::{
     borrow::Cow,
@@ -179,11 +177,8 @@ pub struct TxInfo<'a> {
 /// - Incorrect chain state such as an incomplete UTxO slice, wrong network, or wrong slot value
 pub enum TxInfoTranslationError {
     /// Some input was not in the provided [`Utxos`]
-    #[error("missing input: {0}")]
-    MissingInput(TransactionInputAdapter),
-    /// Some output is poorly constructed
-    #[error("invalid output: {0}")]
-    InvalidOutput(#[from] TransactionOutputError),
+    #[error("missing input: {}", transaction_input_to_string(.0))]
+    MissingInput(TransactionInput),
     /// Some withdrawal is poorly constructed
     #[error("invalid withdrawal: {0}")]
     InvalidWithdrawal(#[from] WithdrawalError),
@@ -210,14 +205,14 @@ impl<'a> TxInfo<'a> {
     pub fn new(
         tx: &'a TransactionBody,
         witness_set: &'a WitnessSet,
-        tx_id: Hash<32>,
+        tx_id: TransactionId,
         utxos: &'a Utxos,
         slot: &Slot,
         network: NetworkName,
         era_history: &EraHistory,
         protocol_version: ProtocolVersion,
     ) -> Result<Self, TxInfoTranslationError> {
-        let mut scripts: BTreeMap<Hash<28>, Script<'_>> = BTreeMap::new();
+        let mut scripts: BTreeMap<Hash<SCRIPT>, Script<'_>> = BTreeMap::new();
         let inputs = Self::translate_inputs(&tx.inputs, utxos, &mut scripts)?;
         let reference_inputs = tx
             .reference_inputs
@@ -372,7 +367,7 @@ impl<'a> TxInfo<'a> {
     fn translate_inputs(
         inputs: &'a [TransactionInput],
         utxos: &'a Utxos,
-        scripts: &mut BTreeMap<Hash<28>, Script<'a>>,
+        scripts: &mut BTreeMap<Hash<SCRIPT>, Script<'a>>,
     ) -> Result<Vec<OutputRef<'a>>, TxInfoTranslationError> {
         inputs
             .iter()
@@ -380,7 +375,7 @@ impl<'a> TxInfo<'a> {
             .map(|input| {
                 let output_ref = utxos
                     .resolve_input(input)
-                    .ok_or(TxInfoTranslationError::MissingInput(input.clone().into()))?;
+                    .ok_or(TxInfoTranslationError::MissingInput(input.clone()))?;
 
                 if let Some(script) = &output_ref.output.script {
                     scripts.insert(script.script_hash(), script.clone());
@@ -398,7 +393,7 @@ pub type ScriptPurpose<'a> = ScriptInfo<'a, ()>;
 #[doc(hidden)]
 #[derive(Clone)]
 pub enum ScriptInfo<'a, T: Clone> {
-    Minting(PolicyId),
+    Minting(Hash<CREDENTIAL>),
     Spending(&'a TransactionInput, T),
     Rewarding(StakeCredential),
     Certifying(usize, Certificate<'a>),
@@ -416,13 +411,15 @@ impl<'a> ScriptPurpose<'a> {
         certs: &[Certificate<'a>],
         proposal_procedures: &[&'a Proposal],
         votes: &Votes<'a>,
-        scripts: &BTreeMap<Hash<28>, Script<'a>>,
+        scripts: &BTreeMap<Hash<SCRIPT>, Script<'a>>,
         script_table: &mut BTreeMap<OrderedRedeemer<'a>, Script<'a>>,
     ) -> Option<Self> {
         let index = redeemer.index as usize;
         match redeemer.tag {
             RedeemerTag::Spend => inputs.get(index).and_then(|OutputRef { input, output }| {
-                if let Some(StakeCredential::ScriptHash(hash)) = output.address.credential() {
+                if let Some(StakeCredential::ScriptHash(hash)) =
+                    output.address.as_shelley().map(|addr| addr.owner())
+                {
                     let script = scripts.get(&hash);
                     script.map(|script| {
                         script_table.insert(redeemer.clone(), script.clone());
@@ -451,7 +448,7 @@ impl<'a> ScriptPurpose<'a> {
                 }
             }),
             RedeemerTag::Cert => certs.get(index).and_then(|certificate| {
-                if let Some(StakeCredential::ScriptHash(hash)) = certificate.credential() {
+                if let StakeCredential::ScriptHash(hash) = certificate.owner() {
                     let script = scripts.get(&hash);
                     script.map(|script| {
                         script_table.insert(redeemer.clone(), script.clone());
@@ -462,7 +459,7 @@ impl<'a> ScriptPurpose<'a> {
                 }
             }),
             RedeemerTag::Vote => votes.0.keys().nth(index).and_then(|voter| {
-                if let Some(StakeCredential::ScriptHash(hash)) = voter.credential() {
+                if let StakeCredential::ScriptHash(hash) = voter.owner() {
                     let script = scripts.get(&hash);
                     script.map(|script| {
                         script_table.insert(redeemer.clone(), script.clone());
@@ -473,23 +470,22 @@ impl<'a> ScriptPurpose<'a> {
                 }
             }),
             RedeemerTag::Propose => proposal_procedures.get(index).and_then(|proposal| {
+                use amaru_kernel::GovernanceAction::*;
+
                 let script_hash = match proposal.gov_action {
-                    amaru_kernel::GovAction::ParameterChange(
-                        _,
-                        _,
-                        Nullable::Some(gov_proposal_hash),
-                    ) => Some(gov_proposal_hash),
-                    amaru_kernel::GovAction::TreasuryWithdrawals(
-                        _,
-                        Nullable::Some(gov_proposal_hash),
-                    ) => Some(gov_proposal_hash),
-                    amaru_kernel::GovAction::ParameterChange(..)
-                    | amaru_kernel::GovAction::HardForkInitiation(..)
-                    | amaru_kernel::GovAction::TreasuryWithdrawals(..)
-                    | amaru_kernel::GovAction::NoConfidence(_)
-                    | amaru_kernel::GovAction::UpdateCommittee(..)
-                    | amaru_kernel::GovAction::NewConstitution(..)
-                    | amaru_kernel::GovAction::Information => None,
+                    ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => {
+                        Some(gov_proposal_hash)
+                    }
+                    TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => {
+                        Some(gov_proposal_hash)
+                    }
+                    ParameterChange(..)
+                    | HardForkInitiation(..)
+                    | TreasuryWithdrawals(..)
+                    | NoConfidence(_)
+                    | UpdateCommittee(..)
+                    | NewConstitution(..)
+                    | Information => None,
                 };
 
                 if let Some(hash) = script_hash {
@@ -618,11 +614,11 @@ impl TimeRange {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CurrencySymbol {
     Lovelace,
-    Native(Hash<28>),
+    Native(Hash<CREDENTIAL>),
 }
 
-impl From<Hash<28>> for CurrencySymbol {
-    fn from(value: Hash<28>) -> Self {
+impl From<Hash<CREDENTIAL>> for CurrencySymbol {
+    fn from(value: Hash<CREDENTIAL>) -> Self {
         Self::Native(value)
     }
 }
@@ -708,51 +704,6 @@ impl From<Lovelace> for Value<'_> {
     }
 }
 
-#[doc(hidden)]
-#[derive(Debug, Error)]
-pub enum AlonzoValueError {
-    #[error("invalid quantity: {0}")]
-    InvalidQuantity(u64),
-}
-impl<'a> TryFrom<&'a AlonzoValue> for Value<'a> {
-    type Error = AlonzoValueError;
-
-    fn try_from(value: &'a AlonzoValue) -> Result<Self, Self::Error> {
-        let from_tokens = |tokens: &'a KeyValuePairs<AssetName, Lovelace>| {
-            (*tokens)
-                .iter()
-                .map(|(asset_name, quantity)| {
-                    if *quantity > 0 {
-                        Ok((Cow::Borrowed(asset_name), *quantity))
-                    } else {
-                        Err(AlonzoValueError::InvalidQuantity(*quantity))
-                    }
-                })
-                .collect::<Result<BTreeMap<_, _>, Self::Error>>()
-        };
-
-        match value {
-            AlonzoValue::Coin(coin) => Ok((*coin).into()),
-            AlonzoValue::Multiasset(coin, multiasset) if multiasset.is_empty() => {
-                Ok((*coin).into())
-            }
-            AlonzoValue::Multiasset(coin, multiasset) => {
-                let mut map = BTreeMap::new();
-                map.insert(
-                    CurrencySymbol::Lovelace,
-                    BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), *coin)]),
-                );
-
-                for (policy_id, tokens) in multiasset.deref() {
-                    map.insert(CurrencySymbol::Native(*policy_id), from_tokens(tokens)?);
-                }
-
-                Ok(Self(map))
-            }
-        }
-    }
-}
-
 impl Value<'_> {
     pub fn ada(&self) -> Option<u64> {
         self.0
@@ -779,11 +730,9 @@ pub enum Script<'a> {
 }
 
 impl Script<'_> {
-    pub fn to_bytes(&self) -> Result<Vec<u8>, minicbor::decode::Error> {
-        fn decode_cbor_bytes(cbor: &[u8]) -> Result<Vec<u8>, minicbor::decode::Error> {
-            minicbor::decode::Decoder::new(cbor)
-                .bytes()
-                .map(|b| b.to_vec())
+    pub fn to_bytes(&self) -> Result<Vec<u8>, cbor::decode::Error> {
+        fn decode_cbor_bytes(cbor: &[u8]) -> Result<Vec<u8>, cbor::decode::Error> {
+            cbor::decode::Decoder::new(cbor).bytes().map(|b| b.to_vec())
         }
 
         match self {
@@ -795,30 +744,19 @@ impl Script<'_> {
     }
 }
 
-impl<'a> From<&'a CborWrap<MintedScriptRef<'a>>> for Script<'a> {
-    fn from(value: &'a CborWrap<MintedScriptRef<'a>>) -> Self {
-        match &value.0 {
-            PseudoScript::NativeScript(script) => Script::Native(script.deref()),
-            PseudoScript::PlutusV1Script(script) => Script::PlutusV1(script),
-            PseudoScript::PlutusV2Script(script) => Script::PlutusV2(script),
-            PseudoScript::PlutusV3Script(script) => Script::PlutusV3(script),
-        }
-    }
-}
-
 impl<'a> From<&'a MemoizedScript> for Script<'a> {
     fn from(value: &'a MemoizedScript) -> Self {
         match value {
-            PseudoScript::NativeScript(script) => Script::Native(script.as_ref()),
-            PseudoScript::PlutusV1Script(script) => Script::PlutusV1(script),
-            PseudoScript::PlutusV2Script(script) => Script::PlutusV2(script),
-            PseudoScript::PlutusV3Script(script) => Script::PlutusV3(script),
+            MemoizedScript::NativeScript(script) => Script::Native(script.as_ref()),
+            MemoizedScript::PlutusV1Script(script) => Script::PlutusV1(script),
+            MemoizedScript::PlutusV2Script(script) => Script::PlutusV2(script),
+            MemoizedScript::PlutusV3Script(script) => Script::PlutusV3(script),
         }
     }
 }
 
 impl<'a> HasScriptHash for Script<'a> {
-    fn script_hash(&self) -> amaru_kernel::ScriptHash {
+    fn script_hash(&self) -> Hash<SCRIPT> {
         match self {
             Script::Native(native_script) => native_script.compute_hash(),
             Script::PlutusV1(plutus_script) => plutus_script.compute_hash(),
@@ -832,7 +770,7 @@ impl<'a> HasScriptHash for Script<'a> {
 #[derive(Clone)]
 pub enum DatumOption<'a> {
     None,
-    Hash(&'a DatumHash),
+    Hash(&'a Hash<DATUM>),
     Inline(&'a PlutusData),
 }
 
@@ -846,18 +784,8 @@ impl<'a> From<&'a MemoizedDatum> for DatumOption<'a> {
     }
 }
 
-impl<'a> From<Option<&'a MintedDatumOption<'a>>> for DatumOption<'a> {
-    fn from(value: Option<&'a MintedDatumOption<'a>>) -> Self {
-        match value {
-            None => Self::None,
-            Some(MintedDatumOption::Hash(hash)) => Self::Hash(hash),
-            Some(MintedDatumOption::Data(data)) => Self::Inline(data.deref()),
-        }
-    }
-}
-
-impl<'a> From<Option<&'a Hash<32>>> for DatumOption<'a> {
-    fn from(value: Option<&'a Hash<32>>) -> Self {
+impl<'a> From<Option<&'a Hash<DATUM>>> for DatumOption<'a> {
+    fn from(value: Option<&'a Hash<DATUM>>) -> Self {
         match value {
             Some(hash) => Self::Hash(hash),
             None => Self::None,
@@ -888,54 +816,20 @@ impl<'a> From<&'a MemoizedTransactionOutput> for TransactionOutput<'a> {
 }
 
 #[doc(hidden)]
-#[derive(Debug, Error)]
-pub enum TransactionOutputError {
-    #[error("invalid address: {0}")]
-    InvalidAddress(#[from] AddressError),
-    #[error("invalid value: {0}")]
-    InvalidValue(#[from] AlonzoValueError),
-}
-
-// impl<'a> TryFrom<&'a MintedTransactionOutput<'a>> for TransactionOutput<'a> {
-//     type Error = TransactionOutputError;
-//
-//     fn try_from(
-//         output: &'a MintedTransactionOutput<'a>,
-//     ) -> Result<TransactionOutput<'a>, Self::Error> {
-//         match output {
-//             MintedTransactionOutput::Legacy(output) => Ok(TransactionOutput {
-//                 is_legacy: true,
-//                 address: Cow::Owned(Address::from_bytes(&output.address)?),
-//                 value: (&output.amount).try_into()?,
-//                 datum: output.datum_hash.as_ref().into(),
-//                 script: None,
-//             }),
-//             MintedTransactionOutput::PostAlonzo(output) => Ok(TransactionOutput {
-//                 is_legacy: false,
-//                 address: Cow::Owned(Address::from_bytes(&output.address)?),
-//                 value: (&output.value).into(),
-//                 script: output.script_ref.as_ref().map(Script::from),
-//                 datum: output.datum_option.as_ref().into(),
-//             }),
-//         }
-//     }
-// }
-
-#[doc(hidden)]
 #[derive(Debug, Default)]
-pub struct Mint<'a>(pub BTreeMap<Hash<28>, BTreeMap<Cow<'a, AssetName>, i64>>);
+pub struct Mint<'a>(pub BTreeMap<Hash<CREDENTIAL>, BTreeMap<Cow<'a, AssetName>, i64>>);
 
 impl<'a>
     From<
         &'a amaru_kernel::NonEmptyKeyValuePairs<
-            PolicyId,
+            Hash<CREDENTIAL>,
             NonEmptyKeyValuePairs<AssetName, NonZeroInt>,
         >,
     > for Mint<'a>
 {
     fn from(
         value: &'a amaru_kernel::NonEmptyKeyValuePairs<
-            PolicyId,
+            Hash<CREDENTIAL>,
             NonEmptyKeyValuePairs<AssetName, NonZeroInt>,
         >,
     ) -> Self {
@@ -958,10 +852,10 @@ impl<'a>
 
 #[doc(hidden)]
 #[derive(Default)]
-pub struct RequiredSigners(pub BTreeSet<AddrKeyhash>);
+pub struct RequiredSigners(pub BTreeSet<Hash<KEY>>);
 
-impl<'a> From<&'a PallasRequiredSigners> for RequiredSigners {
-    fn from(value: &'a PallasRequiredSigners) -> Self {
+impl<'a> From<&'a NonEmptySet<Hash<KEY>>> for RequiredSigners {
+    fn from(value: &'a NonEmptySet<Hash<KEY>>) -> Self {
         Self(value.iter().copied().collect())
     }
 }
@@ -1069,10 +963,10 @@ impl TryFrom<&PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdraw
 
 #[doc(hidden)]
 #[derive(Default)]
-pub struct Datums<'a>(pub BTreeMap<DatumHash, &'a PlutusData>);
+pub struct Datums<'a>(pub BTreeMap<Hash<DATUM>, &'a PlutusData>);
 
-impl<'a> From<&'a NonEmptySet<MemoizedPlutusData>> for Datums<'a> {
-    fn from(plutus_data: &'a NonEmptySet<MemoizedPlutusData>) -> Self {
+impl<'a> From<&'a NonEmptyVec<MemoizedPlutusData>> for Datums<'a> {
+    fn from(plutus_data: &'a NonEmptyVec<MemoizedPlutusData>) -> Self {
         Self(
             plutus_data
                 .iter()
@@ -1116,7 +1010,9 @@ where
             })
             .collect();
 
-        Ok(PlutusData::Map(KeyValuePairs::Def(converted?)))
+        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
+            converted?,
+        )))
     }
 }
 
@@ -1140,10 +1036,17 @@ impl Redeemers<'_> {
 
 #[doc(hidden)]
 #[derive(Default)]
-pub struct Votes<'a>(pub BTreeMap<&'a Voter, BTreeMap<ProposalIdAdapter<'a>, &'a Vote>>);
+pub struct Votes<'a>(pub BTreeMap<&'a Voter, BTreeMap<ComparableProposalId, &'a Vote>>);
 
-impl<'a> From<&'a PallasVotingProcedures> for Votes<'a> {
-    fn from(voting_procedures: &'a PallasVotingProcedures) -> Self {
+impl<'a> From<&'a NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>
+    for Votes<'a>
+{
+    fn from(
+        voting_procedures: &'a NonEmptyKeyValuePairs<
+            Voter,
+            NonEmptyKeyValuePairs<ProposalId, VotingProcedure>,
+        >,
+    ) -> Self {
         Self(
             voting_procedures
                 .iter()
@@ -1152,7 +1055,12 @@ impl<'a> From<&'a PallasVotingProcedures> for Votes<'a> {
                         voter,
                         votes
                             .iter()
-                            .map(|(proposal, procedure)| (proposal.into(), &procedure.vote))
+                            .map(|(proposal, procedure)| {
+                                (
+                                    ComparableProposalId::from(proposal.clone()),
+                                    &procedure.vote,
+                                )
+                            })
                             .collect(),
                     )
                 })
@@ -1167,7 +1075,7 @@ pub mod test_vectors {
 
     use amaru_kernel::{
         Address, MemoizedDatum, MemoizedTransactionOutput, TransactionInput, include_json,
-        serde_utils::hex_to_bytes,
+        utils::serde::hex_to_bytes,
     };
     use serde::Deserialize;
 
@@ -1379,15 +1287,13 @@ pub mod test_vectors {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{ShelleyAddress, ShelleyDelegationPart};
+    use super::*;
+    use crate::ToPlutusData;
+    use amaru_kernel::{StakePayload, new_stake_address};
     use proptest::{
         prelude::{Just, Strategy, any, prop},
         prop_assert, prop_oneof, proptest,
     };
-
-    use crate::ToPlutusData;
-
-    use super::*;
 
     fn network_strategy() -> impl Strategy<Value = Network> {
         prop_oneof![
@@ -1400,22 +1306,13 @@ mod tests {
     fn stake_address_strategy() -> impl Strategy<Value = StakeAddress> {
         (prop::bool::ANY, any::<[u8; 28]>(), network_strategy()).prop_map(
             |(is_script, hash_bytes, network)| {
-                let delegation: ShelleyDelegationPart = if is_script {
-                    ShelleyDelegationPart::Script(hash_bytes.into())
+                let delegation: StakePayload = if is_script {
+                    StakePayload::Script(hash_bytes.into())
                 } else {
-                    ShelleyDelegationPart::Key(hash_bytes.into())
+                    StakePayload::Stake(hash_bytes.into())
                 };
 
-                // It is not possible to construct a StakeAddress from the parts of it in Pallas.
-                // Instead, we're constructing a ShelelyAddress and then converting it to a StakeAddress.
-                // The conversion uses the ShelleyDelegationPart, so the ShelleyPaymentPart is totally arbitrary here
-                let shelley_addr = ShelleyAddress::new(
-                    network,
-                    amaru_kernel::ShelleyPaymentPart::Key(hash_bytes.into()),
-                    delegation,
-                );
-
-                StakeAddress(shelley_addr.try_into().unwrap())
+                StakeAddress(new_stake_address(network, delegation))
             },
         )
     }
@@ -1502,7 +1399,7 @@ mod tests {
 
             #[allow(clippy::wildcard_enum_match_arm)]
             match plutus_data {
-                PlutusData::Map(KeyValuePairs::Def(pairs)) => {
+                PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(pairs)) => {
                     let has_ada = pairs.iter().any(|(key, _)| {
                         matches!(key, PlutusData::BoundedBytes(b) if b.is_empty())
                     });
@@ -1544,7 +1441,7 @@ mod tests {
 
             #[allow(clippy::wildcard_enum_match_arm)]
             match plutus_data {
-                PlutusData::Map(KeyValuePairs::Def(pairs)) => {
+                PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(pairs)) => {
                     let ada_entry = pairs.iter().find(|(key, _)| {
                         matches!(key, PlutusData::BoundedBytes(b) if b.is_empty())
                     });

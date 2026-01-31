@@ -21,7 +21,7 @@ use crate::{
     },
     store_effects::Store,
 };
-use amaru_kernel::{BlockHeader, IsHeader, Point, peer::Peer, protocol_messages::tip::Tip};
+use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};

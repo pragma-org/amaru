@@ -19,7 +19,7 @@ use crate::rocksdb::{
         util::{BEST_CHAIN_PREFIX, CHAIN_DB_VERSION, HEADER_PREFIX, open_db},
     },
 };
-use amaru_kernel::{BlockHeader, HEADER_HASH_SIZE, Hash, HeaderHash, IsHeader, from_cbor};
+use amaru_kernel::{BlockHeader, Hash, HeaderHash, IsHeader, from_cbor, size::HEADER};
 use amaru_ouroboros_traits::StoreError;
 use rocksdb::OptimisticTransactionDB;
 use std::path::Path;
@@ -101,7 +101,7 @@ fn get_best_chain_hash(db: &OptimisticTransactionDB) -> Option<HeaderHash> {
         .ok()
         .flatten()
         .and_then(|bytes| {
-            if bytes.len() == HEADER_HASH_SIZE {
+            if bytes.len() == HEADER {
                 Some(Hash::from(bytes.as_ref()))
             } else {
                 None

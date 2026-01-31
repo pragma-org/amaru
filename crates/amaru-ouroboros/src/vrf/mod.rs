@@ -16,11 +16,9 @@
 //!
 //! <https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-vrf-03>
 
-use amaru_slot_arithmetic::Slot;
+use amaru_kernel::{Hash, Hasher, Slot};
 pub use pallas_primitives::babbage::{VrfDerivation as Derivation, derive_tagged_vrf_output};
 use std::{array::TryFromSliceError, ops::Deref};
-
-use crate::{Hash, Hasher};
 use thiserror::Error;
 use vrf_dalek::{
     errors::VrfError,

@@ -15,13 +15,14 @@
 use amaru_consensus::consensus::{
     effects::ConsensusEffects,
     errors::{ProcessingFailed, ValidationFailed},
+    events::ChainSyncEvent,
     stages::{
         fetch_block, forward_chain, receive_header,
         select_chain::{self, SelectChain},
         validate_block, validate_header,
     },
 };
-use amaru_kernel::{consensus_events::ChainSyncEvent, protocol_messages::tip::Tip};
+use amaru_kernel::Tip;
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 

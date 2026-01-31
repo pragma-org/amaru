@@ -12,23 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Envelope;
-use crate::simulator::bytes::Bytes;
-use crate::simulator::data_generation::base_generators::generate_arrival_times;
-use crate::simulator::{Entry, NodeConfig};
-use crate::sync::ChainSyncMessage;
+use crate::{
+    simulator::{
+        Entry, Envelope, NodeConfig, bytes::Bytes,
+        data_generation::base_generators::generate_arrival_times,
+    },
+    sync::ChainSyncMessage,
+};
 use amaru_consensus::consensus::headers_tree::data_generation::{
     Action, GeneratedActions, any_select_chains_from_tree, any_tree_of_headers, transpose,
 };
-use amaru_kernel::{IsHeader, Point, is_header::tests::run_with_rng, peer::Peer, to_cbor};
-use pure_stage::Instant;
-use pure_stage::simulation::RandStdRng;
+use amaru_kernel::{IsHeader, Peer, Point, to_cbor, utils::tests::run_strategy_with_rng};
+use pure_stage::{Instant, simulation::RandStdRng};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
-use std::collections::BTreeMap;
-use std::fmt::{Debug, Display};
-use std::time::Duration;
+use std::{
+    collections::BTreeMap,
+    fmt::{Debug, Display},
+    time::Duration,
+};
 
 /// Holds a list of generated entries along with the context used to generate them.
 #[derive(Clone, PartialEq, Eq)]
@@ -117,8 +120,7 @@ impl GeneratedEntries<ChainSyncMessage, GeneratedActions> {
 
     /// Export the generated entries to a JSON file at the given path.
     pub fn export_to_file(&self, path: &str) {
-        use std::fs::File;
-        use std::io::Write;
+        use std::{fs::File, io::Write};
 
         let mut file = File::create(path).unwrap();
         let content = self.as_json().to_string();
@@ -198,13 +200,13 @@ pub fn generate_entries(
 ) -> impl Fn(RandStdRng) -> GeneratedEntries<ChainSyncMessage, GeneratedActions> {
     move |mut rng: RandStdRng| {
         // Generate a tree of headers.
-        let generated_tree = run_with_rng(
+        let generated_tree = run_strategy_with_rng(
             &mut rng.0,
             any_tree_of_headers(node_config.generated_chain_depth as usize),
         );
 
         // Generate actions corresponding to peers doing roll forwards and roll backs on the tree.
-        let generated_actions = run_with_rng(
+        let generated_actions = run_strategy_with_rng(
             &mut rng.0,
             any_select_chains_from_tree(
                 &generated_tree,
@@ -290,8 +292,7 @@ fn make_entry<T>(peer: &Peer, arrival_time: &Instant, body: T) -> Entry<T> {
 mod tests {
     use super::*;
     use pure_stage::EPOCH;
-    use rand::SeedableRng;
-    use rand::prelude::StdRng;
+    use rand::{SeedableRng, prelude::StdRng};
 
     /// This test checks that the generated entries have reasonable slot values
     /// compared to their arrival times.

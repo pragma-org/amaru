@@ -20,7 +20,7 @@ use crate::{
         miniprotocol, outcome,
     },
 };
-use amaru_kernel::{Point, peer::Peer};
+use amaru_kernel::{Peer, Point};
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use std::{collections::VecDeque, mem};

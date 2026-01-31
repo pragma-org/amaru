@@ -74,10 +74,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use amaru_kernel::{
-        prop_cbor_roundtrip,
-        tests::{any_anchor, any_certificate_pointer},
-    };
+    use amaru_kernel::{any_anchor, any_certificate_pointer, prop_cbor_roundtrip};
     use proptest::{option, prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(Row, any_row(u64::MAX));

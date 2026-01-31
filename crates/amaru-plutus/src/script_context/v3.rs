@@ -15,16 +15,16 @@
 use crate::{
     PlutusDataError, ToPlutusData, constr, constr_v3,
     script_context::{
-        Certificate, CurrencySymbol, Datums, KeyValuePairs, Mint, OutputRef, PlutusData,
-        ScriptContext, ScriptInfo, ScriptPurpose, StakeAddress, TransactionInput,
-        TransactionOutput, TxInfo, Value, Voter, Votes, Withdrawals,
+        Certificate, CurrencySymbol, Datums, Mint, OutputRef, PlutusData, ScriptContext,
+        ScriptInfo, ScriptPurpose, StakeAddress, TransactionInput, TransactionOutput, TxInfo,
+        Value, Voter, Votes, Withdrawals,
     },
 };
 use amaru_kernel::{
-    Address, AssetName, Bytes, Certificate as PallasCertificate, Constitution, CostModels, DRep,
-    DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, PolicyId, PoolVotingThresholds,
-    Proposal, ProposalId, ProposalIdAdapter, ProtocolParamUpdate, RationalNumber, StakeCredential,
-    StakePayload, Vote,
+    Address, AssetName, Bytes, Certificate as PallasCertificate, ComparableProposalId,
+    Constitution, CostModels, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction,
+    Hash, PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate, RationalNumber,
+    StakeCredential, StakePayload, Vote, size::CREDENTIAL,
 };
 use num::Integer;
 use std::{collections::BTreeMap, ops::Deref};
@@ -143,7 +143,7 @@ impl ToPlutusData<3> for amaru_kernel::Value {
         fn ada_entry(coin: &u64) -> Result<(PlutusData, PlutusData), PlutusDataError> {
             Ok((
                 <Bytes as ToPlutusData<3>>::to_plutus_data(&Bytes::from(vec![]))?,
-                PlutusData::Map(KeyValuePairs::Def(vec![(
+                PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(vec![(
                     <AssetName as ToPlutusData<3>>::to_plutus_data(&AssetName::from(vec![]))?,
                     <u64 as ToPlutusData<3>>::to_plutus_data(coin)?,
                 )])),
@@ -159,8 +159,8 @@ impl ToPlutusData<3> for amaru_kernel::Value {
                     .iter()
                     .map(|(policy_id, assets)| {
                         Ok((
-                            <PolicyId as ToPlutusData<3>>::to_plutus_data(policy_id)?,
-                            PlutusData::Map(KeyValuePairs::Def(
+                            <Hash<CREDENTIAL> as ToPlutusData<3>>::to_plutus_data(policy_id)?,
+                            PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
                                 assets
                                     .iter()
                                     .map(|(asset, amount)| {
@@ -180,7 +180,9 @@ impl ToPlutusData<3> for amaru_kernel::Value {
             }
         }?;
 
-        Ok(PlutusData::Map(KeyValuePairs::Def(entries)))
+        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
+            entries,
+        )))
     }
 }
 
@@ -309,8 +311,8 @@ impl ToPlutusData<3> for Proposal {
 }
 
 #[allow(clippy::expect_used)]
-impl ToPlutusData<3> for GovAction {
-    /// Serializes a `GovAction` to PlutusData for PlutusV3.
+impl ToPlutusData<3> for GovernanceAction {
+    /// Serializes a `GovernanceAction` to PlutusData for PlutusV3.
     ///
     ///
     /// # Errors
@@ -321,13 +323,13 @@ impl ToPlutusData<3> for GovAction {
     /// in which case it will fail phase-one validation.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
-            GovAction::ParameterChange(previous_action, params, guardrail) => {
+            GovernanceAction::ParameterChange(previous_action, params, guardrail) => {
                 constr_v3!(0, [previous_action, params.as_ref(), guardrail])
             }
-            GovAction::HardForkInitiation(previous_action, version) => {
+            GovernanceAction::HardForkInitiation(previous_action, version) => {
                 constr_v3!(1, [previous_action, version])
             }
-            GovAction::TreasuryWithdrawals(withdrawals, guardrail) => {
+            GovernanceAction::TreasuryWithdrawals(withdrawals, guardrail) => {
                 let withdrawals = withdrawals
                     .iter()
                     .map(|(reward_account, amount)| {
@@ -345,18 +347,24 @@ impl ToPlutusData<3> for GovAction {
                     })
                     .collect::<Result<Vec<(_, _)>, _>>()?;
 
-                constr_v3!(2, [KeyValuePairs::from(withdrawals), guardrail])
+                constr_v3!(
+                    2,
+                    [
+                        pallas_codec::utils::KeyValuePairs::from(withdrawals),
+                        guardrail
+                    ]
+                )
             }
-            GovAction::NoConfidence(previous_action) => {
+            GovernanceAction::NoConfidence(previous_action) => {
                 constr_v3!(3, [previous_action])
             }
-            GovAction::UpdateCommittee(previous_action, removed, added, quorum) => {
+            GovernanceAction::UpdateCommittee(previous_action, removed, added, quorum) => {
                 constr_v3!(4, [previous_action, removed.deref(), added, quorum])
             }
-            GovAction::NewConstitution(previous_action, constitution) => {
+            GovernanceAction::NewConstitution(previous_action, constitution) => {
                 constr_v3!(5, [previous_action, constitution])
             }
-            GovAction::Information => constr!(6),
+            GovernanceAction::Information => constr!(6),
         }
     }
 }
@@ -373,7 +381,7 @@ impl ToPlutusData<3> for ProposalId {
     }
 }
 
-impl ToPlutusData<3> for ProposalIdAdapter<'_> {
+impl ToPlutusData<3> for ComparableProposalId {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         self.deref().to_plutus_data()
     }
@@ -513,7 +521,9 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
             push(33, p.to_plutus_data())?;
         }
 
-        Ok(PlutusData::Map(KeyValuePairs::Def(pparams)))
+        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
+            pparams,
+        )))
     }
 }
 
@@ -640,7 +650,7 @@ mod tests {
         *,
     };
     use crate::script_context::Redeemers;
-    use amaru_kernel::{PROTOCOL_VERSION_10, Transaction, network::NetworkName, to_cbor};
+    use amaru_kernel::{NetworkName, PROTOCOL_VERSION_10, Transaction, cbor, to_cbor};
     use test_case::test_case;
 
     macro_rules! fixture {
@@ -664,8 +674,7 @@ mod tests {
         // this should probably be encoded in the TestVector itself
         let network = NetworkName::Preprod;
 
-        let transaction: Transaction =
-            minicbor::decode(&test_vector.input.transaction_bytes).unwrap();
+        let transaction: Transaction = cbor::decode(&test_vector.input.transaction_bytes).unwrap();
 
         let redeemers = Redeemers::iter_from(
             transaction

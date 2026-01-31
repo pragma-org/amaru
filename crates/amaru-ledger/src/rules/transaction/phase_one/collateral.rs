@@ -14,8 +14,8 @@
 
 use crate::context::UtxoSlice;
 use amaru_kernel::{
-    Address, AlonzoValue, HasOwnership, MemoizedTransactionOutput, StakeCredential,
-    TransactionInput, TransactionInputAdapter, Value, protocol_parameters::ProtocolParameters,
+    MemoizedTransactionOutput, ProtocolParameters, TransactionInput, Value, is_locked_by_script,
+    transaction_input_to_string,
 };
 use std::{
     collections::BTreeMap,
@@ -134,42 +134,14 @@ impl From<&Value> for CollateralBalance {
     }
 }
 
-impl From<&AlonzoValue> for CollateralBalance {
-    fn from(value: &AlonzoValue) -> Self {
-        match value {
-            AlonzoValue::Multiasset(coin, multiasset) => {
-                let map = multiasset
-                    .iter()
-                    .flat_map(|(policy, assets)| {
-                        assets.iter().map(|(asset_name, quantity)| {
-                            let key = [policy.as_ref(), asset_name.as_ref()].concat();
-
-                            (key, *quantity as i64)
-                        })
-                    })
-                    .collect::<BTreeMap<_, _>>();
-
-                Self {
-                    coin: *coin as i64,
-                    multiasset: map,
-                }
-            }
-            AlonzoValue::Coin(coin) => Self {
-                coin: *coin as i64,
-                multiasset: BTreeMap::new(),
-            },
-        }
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum InvalidCollateral {
-    #[error("Unknown input: {0}")]
-    UnknownInput(TransactionInputAdapter),
+    #[error("Unknown input: {}", transaction_input_to_string(.0))]
+    UnknownInput(TransactionInput),
     #[error("too many collateral inputs: provided: {provided} allowed: {allowed}")]
     TooManyInputs { provided: usize, allowed: usize },
-    #[error("a collateral input is locked at a script address: {0}")]
-    LockedAtScriptAddress(TransactionInputAdapter),
+    #[error("a collateral input is locked at a script address: {}", transaction_input_to_string(.0))]
+    LockedAtScriptAddress(TransactionInput),
     #[error("total collateral value is insufficient: provided: {provided} required: {required}")]
     InsufficientBalance { provided: u64, required: u64 },
     #[error(
@@ -215,12 +187,10 @@ where
     for collateral in collaterals.iter() {
         let output = context
             .lookup(collateral)
-            .ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone().into()))?;
+            .ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone()))?;
 
         if is_locked_by_script(&output.address) {
-            return Err(InvalidCollateral::LockedAtScriptAddress(
-                collateral.clone().into(),
-            ));
+            return Err(InvalidCollateral::LockedAtScriptAddress(collateral.clone()));
         }
 
         balance.add_output_value(output);
@@ -254,17 +224,12 @@ where
     Ok(())
 }
 
-pub fn is_locked_by_script(address: &Address) -> bool {
-    matches!(address.credential(), Some(StakeCredential::ScriptHash(_)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::InvalidCollateral;
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
     use amaru_kernel::{
-        TransactionBody, include_cbor, include_json,
-        protocol_parameters::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters},
+        PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, include_cbor,
     };
     use test_case::test_case;
 

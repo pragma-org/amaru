@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
-
-use amaru_kernel::peer::Peer;
+use amaru_kernel::Peer;
 use pallas_network::facades::PeerClient;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// A session with a peer, including the peer itself and a client to communicate with it.

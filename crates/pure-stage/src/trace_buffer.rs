@@ -15,15 +15,20 @@
 
 //! This module contains the [`TraceBuffer`] type, which is used to record the trace of a simulation.
 
-use crate::effect::StageEffect;
-use crate::{Effect, Instant, Name, SendData, effect::StageResponse, serde::to_cbor};
-use crate::{ExternalEffect, ScheduleId};
+use crate::{
+    Effect, ExternalEffect, Instant, Name, ScheduleId, SendData,
+    effect::{StageEffect, StageResponse},
+    serde::to_cbor,
+};
 use cbor4ii::serde::from_slice;
 use parking_lot::Mutex;
-use std::borrow::Borrow;
-use std::fmt::{Debug, Display, Formatter};
-use std::time::Duration;
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    borrow::Borrow,
+    collections::VecDeque,
+    fmt::{Debug, Display, Formatter},
+    sync::Arc,
+    time::Duration,
+};
 
 /// A buffer for recording the trace of a simulation.
 ///

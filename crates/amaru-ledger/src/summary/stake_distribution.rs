@@ -23,10 +23,9 @@ use crate::{
 };
 use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
 use amaru_kernel::{
-    DRep, HasLovelace, Lovelace, Network, PoolId, StakeCredential, expect_stake_credential,
-    output_stake_credential, protocol_parameters::ProtocolParameters,
+    DRep, Epoch, HasLovelace, Lovelace, Network, PoolId, ProtocolParameters, StakeCredential,
+    expect_stake_credential,
 };
-use amaru_slot_arithmetic::Epoch;
 use serde::ser::SerializeStruct;
 use std::collections::BTreeMap;
 use tracing::info;
@@ -187,7 +186,7 @@ impl StakeDistribution {
         // output's address and *lovelace* value, so we can skip on deserializing the rest of the value, as
         // well as the datum and/or script references if any.
         db.iter_utxos()?.for_each(|(_, output)| {
-            if let Some(credential) = output_stake_credential(&output) {
+            if let Some(credential) = output.delegate() {
                 let value = output.lovelace();
                 accounts
                     .entry(credential)
@@ -339,11 +338,8 @@ pub mod tests {
     use super::StakeDistribution;
     use crate::summary::{AccountState, PoolState, safe_ratio, stake_distribution::DRepState};
     use amaru_kernel::{
-        Epoch, Lovelace, expect_stake_credential,
-        tests::{
-            any_anchor, any_certificate_pointer, any_drep, any_pool_id, any_pool_params,
-            any_stake_credential,
-        },
+        Epoch, Lovelace, any_anchor, any_certificate_pointer, any_drep, any_hash28,
+        any_pool_params, any_stake_credential, expect_stake_credential,
     };
     use proptest::{collection, option, prelude::*, prop_compose};
     use std::collections::BTreeMap;
@@ -381,7 +377,7 @@ pub mod tests {
     prop_compose! {
         pub fn any_stake_distribution_no_dreps()(
             epoch in any::<u64>(),
-            pools in collection::btree_map(any_pool_id(), any_pool_state(), 1..10),
+            pools in collection::btree_map(any_hash28(), any_pool_state(), 1..10),
             accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
         ) -> StakeDistribution {
             let active_stake = pools.values().fold(0, |total, st| total + st.stake);
@@ -426,7 +422,7 @@ pub mod tests {
     prop_compose! {
         pub fn any_account_state()(
             lovelace in any::<Lovelace>(),
-            pool in option::of(any_pool_id()),
+            pool in option::of(any_hash28()),
             drep in option::of(any_drep()),
         ) -> AccountState {
             AccountState {

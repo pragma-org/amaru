@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{consensus_events::ChainSyncEvent, peer::Peer};
+use crate::consensus::events::ChainSyncEvent;
+use amaru_kernel::Peer;
 use amaru_protocols::chainsync::{self, ChainSyncInitiatorMsg};
 use pure_stage::{Effects, StageRef};
 use std::collections::BTreeSet;
 use tracing::{Span, instrument};
 
-#[instrument(level = "debug", name = "diffusion.chain_sync", skip_all)]
+#[instrument(level = "trace", name = "diffusion.chain_sync", skip_all)]
 pub async fn stage(
     (mut tracker, downstream): (SyncTracker, StageRef<ChainSyncEvent>),
     msg: ChainSyncInitiatorMsg,
@@ -40,7 +41,7 @@ pub async fn stage(
             tracker.caught_up(&msg.peer);
         }
         RollForward(header_content, tip) => {
-            tracing::debug!(peer = %msg.peer, variant = header_content.variant,
+            tracing::trace!(peer = %msg.peer, variant = header_content.variant,
                 byron_prefix = ?header_content.byron_prefix, tip_point = %tip.point(), "roll forward");
             eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
                 .await;
@@ -56,7 +57,7 @@ pub async fn stage(
             .await;
         }
         RollBackward(point, tip) => {
-            tracing::debug!(peer = %msg.peer, %point, tip_point = %tip.point(), "roll backward");
+            tracing::info!(peer = %msg.peer, %point, tip_point = %tip.point(), "roll backward");
             eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
                 .await;
             eff.send(

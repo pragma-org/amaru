@@ -17,7 +17,7 @@ use amaru::{
     bootstrap::{ImportError, import_snapshots, import_snapshots_from_directory},
     default_ledger_dir,
 };
-use amaru_kernel::network::NetworkName;
+use amaru_kernel::NetworkName;
 use clap::Parser;
 use std::path::PathBuf;
 use tracing::info;

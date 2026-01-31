@@ -23,10 +23,9 @@ use crate::{
 };
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration,
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalPointer,
-    StakeCredential, TransactionInput, protocol_parameters::ProtocolParameters,
+    Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal,
+    ProposalPointer, ProtocolParameters, StakeCredential, TransactionInput,
 };
-use amaru_slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::state::volatile_db";

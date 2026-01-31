@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::check_tagged_array_length;
-use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
+use amaru_kernel::cbor;
 
 #[derive(
     Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -48,19 +47,19 @@ impl From<Cookie> for u16 {
     }
 }
 
-impl<T> Encode<T> for Cookie {
-    fn encode<W: encode::Write>(
+impl<T> cbor::Encode<T> for Cookie {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         _ctx: &mut T,
-    ) -> Result<(), encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.u16(self.0)?;
         Ok(())
     }
 }
 
-impl<'b, T> Decode<'b, T> for Cookie {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut T) -> Result<Self, decode::Error> {
+impl<'b, T> cbor::Decode<'b, T> for Cookie {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut T) -> Result<Self, cbor::decode::Error> {
         Ok(Self(d.u16()?))
     }
 }
@@ -74,12 +73,12 @@ pub enum Message {
     Done,
 }
 
-impl<T> Encode<T> for Message {
-    fn encode<W: encode::Write>(
+impl<T> cbor::Encode<T> for Message {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         _ctx: &mut T,
-    ) -> Result<(), encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
             Message::KeepAlive(cookie) => {
                 e.array(2)?.u16(0)?;
@@ -98,27 +97,27 @@ impl<T> Encode<T> for Message {
     }
 }
 
-impl<'b, T> Decode<'b, T> for Message {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut T) -> Result<Self, decode::Error> {
+impl<'b, T> cbor::Decode<'b, T> for Message {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut T) -> Result<Self, cbor::decode::Error> {
         let len = d.array()?;
         let label = d.u16()?;
 
         match label {
             0 => {
-                check_tagged_array_length(0, len, 2)?;
+                cbor::check_tagged_array_length(0, len, 2)?;
                 let cookie = d.decode()?;
                 Ok(Message::KeepAlive(cookie))
             }
             1 => {
-                check_tagged_array_length(1, len, 2)?;
+                cbor::check_tagged_array_length(1, len, 2)?;
                 let cookie = d.decode()?;
                 Ok(Message::ResponseKeepAlive(cookie))
             }
             2 => {
-                check_tagged_array_length(2, len, 1)?;
+                cbor::check_tagged_array_length(2, len, 1)?;
                 Ok(Message::Done)
             }
-            _ => Err(decode::Error::message("can't decode Message")),
+            _ => Err(cbor::decode::Error::message("can't decode Message")),
         }
     }
 }
@@ -129,8 +128,7 @@ mod tests {
     use super::*;
     use crate::keepalive::messages::Message::*;
     use amaru_kernel::prop_cbor_roundtrip;
-    use proptest::prelude::*;
-    use proptest::prop_compose;
+    use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(Message, any_message());
 

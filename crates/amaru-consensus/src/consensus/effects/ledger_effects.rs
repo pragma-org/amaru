@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::consensus::errors::ProcessingFailed;
-use amaru_kernel::{BlockHeader, IgnoreEq, Point, RawBlock, peer::Peer};
+use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, RawBlock};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks,

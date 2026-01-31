@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Tx;
-use amaru_mempool::strategies::InMemoryMempool;
-use amaru_mempool::{DefaultCanValidateTransactions, MempoolConfig};
+use amaru_kernel::Transaction;
+use amaru_mempool::{DefaultCanValidateTransactions, MempoolConfig, strategies::InMemoryMempool};
 use amaru_ouroboros_traits::{
     CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
     TxRejectReason, TxSubmissionMempool,
 };
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
 /// A mempool wrapper that limits the effective capacity of the inner mempool.
 /// When the last sequence number requested is beyond the capacity, it returns `false` on
@@ -31,11 +29,11 @@ use std::sync::Arc;
 ///
 pub struct SizedMempool {
     capacity: u64,
-    inner_mempool: Arc<InMemoryMempool<Tx>>,
+    inner_mempool: Arc<InMemoryMempool<Transaction>>,
 }
 
 impl SizedMempool {
-    pub fn new(capacity: u64, inner_mempool: Arc<InMemoryMempool<Tx>>) -> Self {
+    pub fn new(capacity: u64, inner_mempool: Arc<InMemoryMempool<Transaction>>) -> Self {
         SizedMempool {
             capacity,
             inner_mempool,
@@ -48,7 +46,7 @@ impl SizedMempool {
 
     pub fn with_tx_validator(
         capacity: u64,
-        tx_validator: Arc<dyn CanValidateTransactions<Tx>>,
+        tx_validator: Arc<dyn CanValidateTransactions<Transaction>>,
     ) -> Self {
         SizedMempool::new(
             capacity,
@@ -57,18 +55,22 @@ impl SizedMempool {
     }
 }
 
-impl CanValidateTransactions<Tx> for SizedMempool {
-    fn validate_transaction(&self, tx: Tx) -> Result<(), TransactionValidationError> {
+impl CanValidateTransactions<Transaction> for SizedMempool {
+    fn validate_transaction(&self, tx: Transaction) -> Result<(), TransactionValidationError> {
         self.inner_mempool.validate_transaction(tx)
     }
 }
 
-impl TxSubmissionMempool<Tx> for SizedMempool {
-    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+impl TxSubmissionMempool<Transaction> for SizedMempool {
+    fn insert(
+        &self,
+        tx: Transaction,
+        tx_origin: TxOrigin,
+    ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         self.inner_mempool.insert(tx, tx_origin)
     }
 
-    fn get_tx(&self, tx_id: &TxId) -> Option<Tx> {
+    fn get_tx(&self, tx_id: &TxId) -> Option<Transaction> {
         self.inner_mempool.get_tx(tx_id)
     }
 
@@ -89,7 +91,7 @@ impl TxSubmissionMempool<Tx> for SizedMempool {
         }
     }
 
-    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx> {
+    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Transaction> {
         self.inner_mempool.get_txs_for_ids(ids)
     }
 
@@ -98,12 +100,12 @@ impl TxSubmissionMempool<Tx> for SizedMempool {
     }
 }
 
-impl Mempool<Tx> for SizedMempool {
-    fn take(&self) -> Vec<Tx> {
+impl Mempool<Transaction> for SizedMempool {
+    fn take(&self) -> Vec<Transaction> {
         self.inner_mempool.take()
     }
 
-    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
+    fn acknowledge<TxKey: Ord, I>(&self, tx: &Transaction, keys: fn(&Transaction) -> I)
     where
         I: IntoIterator<Item = TxKey>,
         Self: Sized,

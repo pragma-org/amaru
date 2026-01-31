@@ -14,11 +14,10 @@
 
 use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
-    AuxiliaryData, EraHistory, TransactionBody, TransactionInput, TransactionPointer, WitnessSet,
-    network::NetworkName, protocol_parameters::ProtocolParameters,
+    AuxiliaryData, EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
+    TransactionPointer, WitnessSet,
 };
-use core::mem;
-use std::{fmt, ops::Deref};
+use std::{fmt, mem, ops::Deref};
 use thiserror::Error;
 
 pub mod certificates;

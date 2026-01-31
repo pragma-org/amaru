@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::cbor;
 use amaru_ouroboros_traits::{
     CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
     TxRejectReason, TxSubmissionMempool,
 };
-use minicbor::Encode;
 use parking_lot::RwLock;
-use std::pin::Pin;
-use std::{collections::BTreeSet, mem};
+use std::{collections::BTreeSet, mem, pin::Pin};
 
 #[derive(Debug, Default)]
 pub struct DummyMempool<T> {
@@ -39,13 +38,15 @@ pub struct DummyMempoolInner<T> {
     transactions: Vec<T>,
 }
 
-impl<Tx: Encode<()> + Send + Sync + 'static> CanValidateTransactions<Tx> for DummyMempool<Tx> {
+impl<Tx: cbor::Encode<()> + Send + Sync + 'static> CanValidateTransactions<Tx>
+    for DummyMempool<Tx>
+{
     fn validate_transaction(&self, _tx: Tx) -> Result<(), TransactionValidationError> {
         Ok(())
     }
 }
 
-impl<Tx: Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for DummyMempool<Tx> {
+impl<Tx: cbor::Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for DummyMempool<Tx> {
     fn insert(&self, tx: Tx, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         let tx_id = TxId::from(&tx);
         let mut inner = self.inner.write();
@@ -78,7 +79,7 @@ impl<Tx: Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for DummyMe
     }
 }
 
-impl<Tx: Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
+impl<Tx: cbor::Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<Tx> {
     fn take(&self) -> Vec<Tx> {
         mem::take(&mut self.inner.write().transactions)
     }
@@ -107,8 +108,7 @@ impl<T> DummyMempoolInner<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use minicbor::Encoder;
-    use minicbor::encode::{Error, Write};
+    use amaru_kernel::cbor;
 
     #[test]
     fn take_empty() {
@@ -145,12 +145,12 @@ mod tests {
         inputs: Vec<usize>,
     }
 
-    impl Encode<()> for FakeTx<'_> {
-        fn encode<W: Write>(
+    impl cbor::Encode<()> for FakeTx<'_> {
+        fn encode<W: cbor::encode::Write>(
             &self,
-            e: &mut Encoder<W>,
+            e: &mut cbor::Encoder<W>,
             _ctx: &mut (),
-        ) -> Result<(), Error<W::Error>> {
+        ) -> Result<(), cbor::encode::Error<W::Error>> {
             e.encode(self.id)?;
             e.encode(&self.inputs)?;
             Ok(())

@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use crate::in_memory::MemoryStore;
+use amaru_kernel::Epoch;
 use amaru_ledger::store::{
     StoreError,
     columns::pools::{Key, Row, Value},
 };
-use amaru_slot_arithmetic::Epoch;
 use tracing::error;
 
 pub fn add(

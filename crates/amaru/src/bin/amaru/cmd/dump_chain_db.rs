@@ -14,9 +14,7 @@
 
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_consensus::{DiagnosticChainStore, ReadOnlyChainStore};
-use amaru_kernel::{
-    BlockHeader, IsHeader, network::NetworkName, string_utils::ListToString, to_cbor,
-};
+use amaru_kernel::{BlockHeader, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
 use amaru_stores::rocksdb::{
     RocksDbConfig,
     consensus::{ReadOnlyChainDB, RocksDBStore},

@@ -13,23 +13,21 @@
 // limitations under the License.
 
 use crate::socket_addr::resolve;
-use amaru_kernel::bytes::NonEmptyBytes;
-use amaru_kernel::peer::Peer;
+use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use bytes::{Buf, BytesMut};
 use parking_lot::Mutex;
 use pure_stage::BoxFuture;
 use socket2::{Domain, Socket, Type};
 use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
         TcpListener, TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
-    sync::Mutex as AsyncMutex,
+    sync::{Mutex as AsyncMutex, mpsc},
+    task::JoinHandle,
 };
 use tracing::Instrument;
 

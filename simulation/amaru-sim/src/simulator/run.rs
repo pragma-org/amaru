@@ -12,46 +12,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Envelope;
-use crate::simulator::NodeConfig;
-use crate::simulator::{
-    Args, History, NodeHandle, SimulateConfig, bytes::Bytes, generate::generate_entries,
-    simulate::simulate,
+use crate::{
+    simulator::{
+        Args, Envelope, History, NodeConfig, NodeHandle, SimulateConfig, bytes::Bytes,
+        generate::generate_entries, simulate::simulate,
+    },
+    sync::ChainSyncMessage,
 };
-use crate::sync::ChainSyncMessage;
 use amaru::stages::build_stage_graph::build_stage_graph;
-use amaru_consensus::consensus::headers_tree::data_generation::{Chain, GeneratedActions};
-use amaru_consensus::consensus::stages::pull::SyncTracker;
 use amaru_consensus::consensus::{
     effects::{
         ForwardEvent, ForwardEventListener, ResourceBlockValidation, ResourceForwardEventListener,
         ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
     },
-    headers_tree::HeadersTreeState,
-    stages::select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
+    events::{ChainSyncEvent, default_block},
+    headers_tree::{
+        HeadersTreeState,
+        data_generation::{Chain, GeneratedActions},
+    },
+    stages::{
+        pull::SyncTracker,
+        select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
+    },
 };
-use amaru_kernel::Hash;
-use amaru_kernel::consensus_events::{ChainSyncEvent, default_block};
-use amaru_kernel::protocol_messages::tip::Tip;
-use amaru_kernel::string_utils::{ListDebug, ListToString, ListsToString};
-use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_kernel::{
-    Point, network::NetworkName, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
+    BlockHeader, GlobalParameters, Hash, IsHeader, NetworkName, Peer, Point, Tip, to_cbor,
+    utils::string::{ListDebug, ListToString, ListsToString},
 };
-use amaru_ouroboros::can_validate_blocks::mock::MockCanValidateHeaders;
 use amaru_ouroboros::{
-    ChainStore, can_validate_blocks::mock::MockCanValidateBlocks,
+    ChainStore,
+    can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},
     in_memory_consensus_store::InMemConsensusStore,
 };
-use amaru_protocols::blockfetch::Blocks;
-use amaru_protocols::manager::ManagerMessage;
+use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage};
 use async_trait::async_trait;
-use pure_stage::simulation::RandStdRng;
-use pure_stage::simulation::SimulationBuilder;
-use pure_stage::trace_buffer::TraceEntry;
-use pure_stage::{Instant, Receiver, StageGraph, StageRef, trace_buffer::TraceBuffer};
-use std::ops::Deref;
+use pure_stage::{
+    Instant, Receiver, StageGraph, StageRef,
+    simulation::{RandStdRng, SimulationBuilder},
+    trace_buffer::{TraceBuffer, TraceEntry},
+};
 use std::{
+    ops::Deref,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},

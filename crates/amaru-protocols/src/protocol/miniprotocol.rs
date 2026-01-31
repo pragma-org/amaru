@@ -16,7 +16,7 @@ use crate::{
     mux::{HandlerMessage, MuxMessage},
     protocol::{NETWORK_SEND_TIMEOUT, ProtocolId, RoleT},
 };
-use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_kernel::{NonEmptyBytes, cbor};
 use pure_stage::{BoxFuture, Effects, SendData, StageRef, TryInStage, Void, err};
 use std::future::Future;
 
@@ -96,7 +96,7 @@ pub fn outcome<S, R, E>() -> Outcome<S, R, E> {
 /// (`Action`) or incoming network messages (`WireMsg`). It may emit information
 /// via the `Out` type.
 pub trait ProtocolState<R: RoleT>: Sized + SendData {
-    type WireMsg: for<'de> minicbor::Decode<'de, ()> + minicbor::Encode<()> + Send;
+    type WireMsg: for<'de> cbor::Decode<'de, ()> + cbor::Encode<()> + Send;
     type Action: std::fmt::Debug + Send;
     type Out: std::fmt::Debug + PartialEq + Send;
     type Error: std::fmt::Debug + std::fmt::Display + PartialEq + Send;
@@ -173,7 +173,7 @@ where
             let local_or_network = match input {
                 Inputs::Network(wire_msg) => {
                     let (outcome, s) = if let HandlerMessage::FromNetwork(wire_msg) = wire_msg {
-                        let wire_msg: Proto::WireMsg = minicbor::decode(&wire_msg)
+                        let wire_msg: Proto::WireMsg = cbor::decode(&wire_msg)
                             .or_terminate(&eff, err("failed to decode message from network"))
                             .await;
                         proto

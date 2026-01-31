@@ -13,14 +13,10 @@
 // limitations under the License.
 
 use crate::consensus;
-use amaru_kernel::peer::Peer;
-use amaru_kernel::{HeaderHash, Point};
-use amaru_ouroboros_traits::StoreError;
-use amaru_ouroboros_traits::can_validate_blocks::HeaderValidationError;
+use amaru_kernel::{HeaderHash, Peer, Point};
+use amaru_ouroboros_traits::{StoreError, can_validate_blocks::HeaderValidationError};
 use serde::ser::SerializeStruct;
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::fmt::Display;
+use std::{fmt, fmt::Display};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -141,7 +137,7 @@ impl PartialEq for ProcessingFailed {
     }
 }
 
-impl Serialize for ProcessingFailed {
+impl serde::Serialize for ProcessingFailed {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -153,12 +149,12 @@ impl Serialize for ProcessingFailed {
     }
 }
 
-impl<'de> Deserialize<'de> for ProcessingFailed {
+impl<'de> serde::Deserialize<'de> for ProcessingFailed {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
+        #[derive(serde::Deserialize)]
         struct ProcessingFailedHelper {
             peer: Option<Peer>,
             error: String,

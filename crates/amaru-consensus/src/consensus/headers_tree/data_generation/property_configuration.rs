@@ -19,8 +19,10 @@
 //!  #![proptest_config(config_begin().no_shrink().with_cases(1).end())]
 //!  `
 
-use proptest::prelude::ProptestConfig;
-use proptest::test_runner::{Config, RngSeed};
+use proptest::{
+    prelude::ProptestConfig,
+    test_runner::{Config, RngSeed},
+};
 
 #[derive(Default, Clone)]
 pub struct ProptestConfiguration {

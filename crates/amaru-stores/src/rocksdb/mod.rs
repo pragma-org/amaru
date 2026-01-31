@@ -16,8 +16,8 @@ use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoi
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
     CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep,
-    EraHistory, Lovelace, MemoizedTransactionOutput, PROTOCOL_VERSION_9, Point, PoolId,
-    StakeCredential, TransactionInput, cbor, protocol_parameters::ProtocolParameters,
+    Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, PROTOCOL_VERSION_9, Point, PoolId,
+    ProtocolParameters, StakeCredential, TransactionInput, cbor,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
@@ -28,7 +28,6 @@ use amaru_ledger::{
     },
     summary::Pots,
 };
-use amaru_slot_arithmetic::Epoch;
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode,
     ReadOptions, Transaction,
@@ -1049,7 +1048,7 @@ fn with_prefix_iterator<
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{EraHistory, network::NetworkName};
+    use amaru_kernel::{EraHistory, NetworkName};
     use proptest::test_runner::TestRunner;
     use tempfile::TempDir;
 

@@ -25,8 +25,8 @@ pub enum InvalidTransactionMetadata {
 
     #[error("metadata hash mismatch: supplied {supplied} expected {expected}")]
     ConflictingMetadataHash {
-        supplied: Hash<32>,
-        expected: Hash<32>,
+        supplied: Hash<{ AuxiliaryData::HASH_SIZE }>,
+        expected: Hash<{ AuxiliaryData::HASH_SIZE }>,
     },
 }
 
