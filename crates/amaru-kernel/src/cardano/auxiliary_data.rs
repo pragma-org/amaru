@@ -23,7 +23,7 @@ pub struct AuxiliaryData {
     hash: Hash<{ AuxiliaryData::HASH_SIZE }>,
 
     #[n(0)]
-    metadata: KeyValuePairs<u32, Metadatum>,
+    metadata: KeyValuePairs<u64, Metadatum>,
 
     #[n(1)]
     native_scripts: Vec<MemoizedNativeScript>,
