@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    cbor,
-    key_value_pairs::{KeyValuePairs, has_duplicate},
-};
+use crate::{KeyValuePairs, cbor, data_structures::key_value_pairs::has_duplicate};
 use std::{collections::BTreeMap, ops::Deref};
 
 /// A key-value map with at least one key:value element, and no duplicate keys.

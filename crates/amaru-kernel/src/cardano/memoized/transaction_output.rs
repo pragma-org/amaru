@@ -14,8 +14,8 @@
 
 use crate::{
     Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs,
-    PlaceholderScript, PositiveCoin, ShelleyDelegationPart, StakeCredential, Value, cbor,
-    decode_script, encode_script, serialize_memoized_script, size::CREDENTIAL,
+    PositiveCoin, ShelleyDelegationPart, StakeCredential, Value, cbor, decode_script,
+    encode_script, serialize_memoized_script, size::CREDENTIAL,
 };
 use pallas_primitives::conway::Multiasset;
 
@@ -278,7 +278,7 @@ pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<MemoizedScript>, D::Error> {
     match serde::Deserialize::deserialize(deserializer)? {
-        None::<PlaceholderScript> => Ok(None),
+        None::<super::PlaceholderScript> => Ok(None),
         Some(placeholder) => Ok(Some(
             MemoizedScript::try_from(placeholder).map_err(serde::de::Error::custom)?,
         )),
