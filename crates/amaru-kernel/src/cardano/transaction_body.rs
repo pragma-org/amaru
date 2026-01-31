@@ -309,7 +309,7 @@ mod tests {
 
         (@inner $era:literal, $id:expr) => {{
             $crate::try_include_cbor!(concat!(
-                "decode_transaction_body/",
+                "cbor.decode/transaction_body/",
                 $era,
                 "/",
                 $id,

@@ -39,6 +39,18 @@ pub fn decode_break<'d>(
     Ok(false)
 }
 
+/// Decode a chunk, but retain a reference to the decoded bytes.
+pub fn tee<'d, A>(
+    d: &mut cbor::Decoder<'d>,
+    decoder: impl FnOnce(&mut cbor::Decoder<'d>) -> Result<A, cbor::decode::Error>,
+) -> Result<(A, &'d [u8]), cbor::decode::Error> {
+    let original_bytes = d.input();
+    let start = d.position();
+    let a = decoder(d)?;
+    let end = d.position();
+    Ok((a, &original_bytes[start..end]))
+}
+
 // Array
 // ----------------------------------------------------------------------------
 

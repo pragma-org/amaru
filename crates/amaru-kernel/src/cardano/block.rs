@@ -13,9 +13,16 @@
 // limitations under the License.
 
 use crate::{
-    AuxiliaryData, Hasher, Header, HeaderHash, Transaction, TransactionBody, WitnessSet, cbor,
+    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Transaction, TransactionBody, WitnessSet,
+    cbor,
+    size::{BLOCK_BODY, HEADER},
 };
 use std::collections::{BTreeMap, BTreeSet};
+
+/// Hard-fork combinator discriminator.
+///
+/// See: <https://github.com/IntersectMBO/ouroboros-consensus/blob/7b150c85af56c8ded78151eaf5ec8675b7acbd8a/ouroboros-consensus-cardano/src/ouroboros-consensus-cardano/Ouroboros/Consensus/Cardano/Node.hs#L173-L179>
+pub const ERA_VERSION_CONWAY: u16 = 7;
 
 #[derive(Debug, Clone, PartialEq, cbor::Encode)]
 pub struct Block {
@@ -24,6 +31,9 @@ pub struct Block {
 
     #[cbor(skip)]
     original_header_size: u64,
+
+    #[cbor(skip)]
+    hash: Hash<BLOCK_BODY>,
 
     #[cbor(skip)]
     header_hash: HeaderHash,
@@ -108,28 +118,41 @@ impl IntoIterator for Block {
 // ensure they form a chain. So at least *some level* of multi-era decoding is necessary.
 impl<'b, C> cbor::Decode<'b, C> for Block {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let original_bytes = d.input();
-        let start_position = d.position();
-
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(5)?;
 
-            let header = d.decode_with(ctx)?;
-            let end_position_header = d.position();
+            let (header, header_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
-            let transaction_bodies = d.decode_with(ctx)?;
-            let transaction_witnesses = d.decode_with(ctx)?;
-            let auxiliary_data = d.decode_with(ctx)?;
-            let invalid_transactions = d.decode_with(ctx)?;
+            let (transaction_bodies, transaction_bodies_bytes) =
+                cbor::tee(d, |d| d.decode_with(ctx))?;
 
-            let end_position = d.position();
+            let (transaction_witnesses, transaction_witnesses_bytes) =
+                cbor::tee(d, |d| d.decode_with(ctx))?;
+
+            let (auxiliary_data, auxiliary_data_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
+
+            let (invalid_transactions, invalid_transactions_bytes) =
+                cbor::tee(d, |d| d.decode_with(ctx))?;
+
+            let mut block_body_hash = Vec::with_capacity(4 * BLOCK_BODY);
+            for component in [
+                transaction_bodies_bytes,
+                transaction_witnesses_bytes,
+                auxiliary_data_bytes,
+                invalid_transactions_bytes,
+            ] {
+                let body_part = Hasher::<{ 8 * BLOCK_BODY }>::hash(component);
+                block_body_hash.extend_from_slice(&body_part[..]);
+            }
 
             Ok(Block {
-                original_body_size: (end_position - end_position_header) as u64, // from usize
-                original_header_size: (end_position_header - start_position) as u64, // from usize
-                header_hash: Hasher::<256>::hash(
-                    &original_bytes[start_position..end_position_header],
-                ),
+                original_body_size: (transaction_bodies_bytes.len()
+                    + transaction_witnesses_bytes.len()
+                    + auxiliary_data_bytes.len()
+                    + invalid_transactions_bytes.len()) as u64,
+                original_header_size: header_bytes.len() as u64,
+                hash: Hasher::<{ 8 * BLOCK_BODY }>::hash(&block_body_hash[..]),
+                header_hash: Hasher::<{ 8 * HEADER }>::hash(header_bytes),
                 header,
                 transaction_bodies,
                 transaction_witnesses,
@@ -137,5 +160,41 @@ impl<'b, C> cbor::Decode<'b, C> for Block {
                 invalid_transactions,
             })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    macro_rules! fixture {
+        ($id:literal) => {{ $crate::try_include_cbor!(concat!("cbor.decode/block/", $id, "/sample.cbor",)) }};
+    }
+
+    #[test_case(
+        fixture!("b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698"),
+        70175999;
+        "some arbitrary preprod block"
+    )]
+    fn decode_wellformed(result: Result<(u16, Block), cbor::decode::Error>, expected_slot: u64) {
+        match result {
+            Err(err) => panic!("{err}"),
+            Ok((era_version, block)) => {
+                assert_eq!(era_version, ERA_VERSION_CONWAY);
+
+                assert_eq!(
+                    hex::encode(&block.hash[..]),
+                    hex::encode(&block.header.header_body.block_body_hash[..]),
+                );
+
+                assert_eq!(
+                    hex::encode(&block.header_hash[..]),
+                    "b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698",
+                );
+
+                assert_eq!(block.header.header_body.slot, expected_slot);
+            }
+        }
     }
 }

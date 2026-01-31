@@ -61,7 +61,31 @@ impl Default for AuxiliaryData {
     }
 }
 
-/// FIXME: Multi-era decoding
+// ```cddl
+// auxiliary_data = metadata / auxiliary_data_array / auxiliary_data_map
+//
+// metadata = {* metadatum_label => metadatum}
+//
+// metadatum_label = uint .size 8
+//
+// auxiliary_data_array =
+//   [ transaction_metadata : metadata
+//   , auxiliary_scripts : auxiliary_scripts
+//   ]
+//
+// auxiliary_scripts = [* native_script]
+//
+// auxiliary_data_map =
+//   #6.259(
+//     { ? 0 : metadata
+//     , ? 1 : [* native_script]
+//     , ? 2 : [* plutus_v1_script]
+//     , ? 3 : [* plutus_v2_script]
+//     , ? 4 : [* plutus_v3_script]
+//     }
+//
+//   )
+// ```
 impl<'b, C> cbor::Decode<'b, C> for AuxiliaryData {
     // NOTE: AuxiliaryData post-Alonzo decoding
     //
@@ -120,12 +144,15 @@ impl AuxiliaryData {
         d: &mut cbor::Decoder<'b>,
         ctx: &mut C,
     ) -> Result<Self, cbor::decode::Error> {
-        let metadata = d.decode_with(ctx)?;
-        let native_scripts = d.decode_with(ctx)?;
-        Ok(Self {
-            metadata,
-            native_scripts,
-            ..Self::default()
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            let metadata = d.decode_with(ctx)?;
+            let native_scripts = d.decode_with(ctx)?;
+            Ok(Self {
+                metadata,
+                native_scripts,
+                ..Self::default()
+            })
         })
     }
 
