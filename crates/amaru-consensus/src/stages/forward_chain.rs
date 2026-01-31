@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
+use crate::{
     effects::{BaseOps, ConsensusOps, NetworkOps},
     errors::{ProcessingFailed, ValidationFailed},
     events::BlockValidationResult,

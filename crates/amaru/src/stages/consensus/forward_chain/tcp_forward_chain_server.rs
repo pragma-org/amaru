@@ -17,7 +17,7 @@ use crate::stages::consensus::forward_chain::{
     to_pallas_tip,
 };
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
-use amaru_consensus::consensus::effects::{ForwardEvent, ForwardEventListener};
+use amaru_consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_kernel::{BlockHeader, IsHeader};
 use amaru_network::point::to_network_point;
 use amaru_ouroboros_traits::ChainStore;
