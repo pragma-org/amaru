@@ -20,7 +20,7 @@ use crate::{
         miniprotocol, outcome,
     },
 };
-use amaru_kernel::{Point, peer::Peer};
+use amaru_kernel::{Peer, Point};
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use std::{collections::VecDeque, mem};
@@ -65,6 +65,10 @@ pub struct BlockFetchInitiator {
     muxer: StageRef<MuxMessage>,
     peer: Peer,
     conn_id: ConnectionId,
+    /// Queue of requests that have been received but not yet answered.
+    ///
+    /// Note that the first two elements of the queue have already been sent
+    /// to the network (pipelining).
     queue: VecDeque<(Point, Point, StageRef<Blocks>)>,
     blocks: Vec<Vec<u8>>,
 }
@@ -95,9 +99,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         match input {
             BlockFetchMessage::RequestRange { from, through, cr } => {
-                let action = self
-                    .queue
-                    .is_empty()
+                let action = (self.queue.len() < 2)
                     .then_some(InitiatorAction::RequestRange { from, through });
                 self.queue.push_back((from, through, cr));
                 Ok((action, self))
@@ -117,7 +119,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
             InitiatorResult::NoBlocks => {
                 let (_, _, cr) = self.queue.pop_front().expect("queue is empty");
                 eff.send(&cr, Blocks { blocks: Vec::new() }).await;
-                self.queue.front()
+                self.queue.get(1)
             }
             InitiatorResult::Block(body) => {
                 self.blocks.push(body);
@@ -127,7 +129,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                 let (_, _, cr) = self.queue.pop_front().expect("queue is empty");
                 let blocks = mem::take(&mut self.blocks);
                 eff.send(&cr, Blocks { blocks }).await;
-                self.queue.front()
+                self.queue.get(1)
             }
         };
         let action = queued.map(|(from, through, _)| InitiatorAction::RequestRange {

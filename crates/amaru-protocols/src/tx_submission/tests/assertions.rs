@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Tx;
+use amaru_kernel::Transaction;
 use amaru_ouroboros_traits::{TxId, TxSubmissionMempool};
 use std::sync::Arc;
 
 /// Check that all the given transactions are currently present in the given mempool.
 #[track_caller]
-pub fn expect_transactions(mempool: Arc<dyn TxSubmissionMempool<Tx>>, txs: Vec<Tx>) {
+pub fn expect_transactions(
+    mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
+    txs: Vec<Transaction>,
+) {
     let tx_ids: Vec<_> = txs.iter().map(TxId::from).collect();
     let actual = tx_ids
         .iter()
@@ -53,12 +56,12 @@ pub fn assert_actions_eq<T: std::fmt::Debug + std::fmt::Display + PartialEq>(
             "\nActual outcomes\n\n{}\n\nExpected outcomes\n\n{}\n",
             actual
                 .iter()
-                .map(|id| format!("{}", id))
+                .map(|id| format!("{:#?}", id))
                 .collect::<Vec<_>>()
                 .join(",\n"),
             expected
                 .iter()
-                .map(|id| format!("{}", id))
+                .map(|id| format!("{:#?}", id))
                 .collect::<Vec<_>>()
                 .join(",\n")
         );

@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_ouroboros::{ConnectionId, ConnectionResource, ToSocketAddrs};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
-use std::{num::NonZeroUsize, time::Duration};
+use std::{net::SocketAddr, num::NonZeroUsize, time::Duration};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
     vec![
+        pure_stage::register_data_deserializer::<ListenEffect>().boxed(),
+        pure_stage::register_data_deserializer::<AcceptEffect>().boxed(),
         pure_stage::register_data_deserializer::<ConnectEffect>().boxed(),
         pure_stage::register_data_deserializer::<SendEffect>().boxed(),
         pure_stage::register_data_deserializer::<RecvEffect>().boxed(),
@@ -27,21 +29,28 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
 }
 
 pub trait NetworkOps {
+    fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, Result<SocketAddr, String>>;
+
+    fn accept(&self) -> BoxFuture<'static, Result<(Peer, ConnectionId), String>>;
+
     fn connect(
         &self,
         addr: ToSocketAddrs,
         timeout: Duration,
     ) -> BoxFuture<'static, Result<ConnectionId, String>>;
+
     fn send(
         &self,
         conn: ConnectionId,
         data: NonEmptyBytes,
     ) -> BoxFuture<'static, Result<(), String>>;
+
     fn recv(
         &self,
         conn: ConnectionId,
         bytes: NonZeroUsize,
     ) -> BoxFuture<'static, Result<NonEmptyBytes, String>>;
+
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, Result<(), String>>;
 }
 
@@ -54,6 +63,14 @@ impl<'a, T> Network<'a, T> {
 }
 
 impl<T> NetworkOps for Network<'_, T> {
+    fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, Result<SocketAddr, String>> {
+        self.0.external(ListenEffect { addr })
+    }
+
+    fn accept(&self) -> BoxFuture<'static, Result<(Peer, ConnectionId), String>> {
+        self.0.external(AcceptEffect)
+    }
+
     fn connect(
         &self,
         addr: ToSocketAddrs,
@@ -81,6 +98,54 @@ impl<T> NetworkOps for Network<'_, T> {
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, Result<(), String>> {
         self.0.external(CloseEffect { conn })
     }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ListenEffect {
+    pub addr: SocketAddr,
+}
+
+impl ExternalEffect for ListenEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let resource = resources
+                .get::<ConnectionResource>()
+                .expect("ListenEffect requires a ConnectionResource")
+                .clone();
+            resource
+                .listen(self.addr)
+                .await
+                .map_err(|e| format!("failed to bind to {:?}: {:#}", self.addr, e))
+        })
+    }
+}
+
+impl ExternalEffectAPI for ListenEffect {
+    type Response = Result<SocketAddr, String>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AcceptEffect;
+
+impl ExternalEffect for AcceptEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            #[expect(clippy::expect_used)]
+            let resource = resources
+                .get::<ConnectionResource>()
+                .expect("AcceptEffect requires a ConnectionResource")
+                .clone();
+            resource
+                .accept()
+                .await
+                .map_err(|e| format!("failed to accept a connection: {:#}", e))
+        })
+    }
+}
+
+impl ExternalEffectAPI for AcceptEffect {
+    type Response = Result<(Peer, ConnectionId), String>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

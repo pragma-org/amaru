@@ -14,8 +14,8 @@
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
-    MemoizedDatum, Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash,
-    ScriptPurpose, TransactionId, TransactionPointer,
+    Hash, MemoizedDatum, Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript,
+    ScriptPurpose, TransactionId, TransactionPointer, size::SCRIPT,
 };
 
 pub(crate) fn execute<C>(
@@ -47,34 +47,30 @@ pub(crate) fn execute<C>(
     }
 }
 
-fn get_proposal_script_hash(proposal: &Proposal) -> Option<ScriptHash> {
+fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
+    use amaru_kernel::GovernanceAction::*;
+
     match proposal.gov_action {
-        amaru_kernel::GovAction::ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => {
-            Some(gov_proposal_hash)
-        }
-        amaru_kernel::GovAction::TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => {
-            Some(gov_proposal_hash)
-        }
-        amaru_kernel::GovAction::ParameterChange(..)
-        | amaru_kernel::GovAction::HardForkInitiation(..)
-        | amaru_kernel::GovAction::TreasuryWithdrawals(..)
-        | amaru_kernel::GovAction::NoConfidence(_)
-        | amaru_kernel::GovAction::UpdateCommittee(..)
-        | amaru_kernel::GovAction::NewConstitution(..)
-        | amaru_kernel::GovAction::Information => None,
+        ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+        TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+        ParameterChange(..)
+        | HardForkInitiation(..)
+        | TreasuryWithdrawals(..)
+        | NoConfidence(_)
+        | UpdateCommittee(..)
+        | NewConstitution(..)
+        | Information => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::mem;
-
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
     use amaru_kernel::{
-        KeepRaw, MintedTransactionBody, OriginalHash, Slot, TransactionPointer, include_cbor,
-        include_json, json,
+        Slot, TransactionBody, TransactionPointer, include_cbor, include_json, json,
     };
     use amaru_tracing_json::assert_trace;
+    use std::mem;
     use test_case::test_case;
 
     macro_rules! fixture {
@@ -114,9 +110,9 @@ mod tests {
     }); "happy path")]
 
     fn test_proposals(
-        (mut ctx, tx, tx_pointer, expected_traces): (
+        (mut ctx, mut tx, tx_pointer, expected_traces): (
             AssertValidationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
+            TransactionBody,
             TransactionPointer,
             Vec<json::Value>,
         ),
@@ -125,8 +121,8 @@ mod tests {
             || {
                 super::execute(
                     &mut ctx,
-                    (tx.original_hash(), tx_pointer),
-                    mem::take(&mut tx.unwrap().proposal_procedures).map(|xs| xs.to_vec()),
+                    (tx.id(), tx_pointer),
+                    mem::take(&mut tx.proposals).map(|xs| xs.to_vec()),
                 )
             },
             expected_traces,

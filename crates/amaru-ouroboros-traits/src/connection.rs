@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_kernel::{NonEmptyBytes, Peer};
 use std::{
     fmt,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
@@ -120,6 +120,10 @@ impl From<SocketAddrV6> for ToSocketAddrs {
 pub type ConnectionResource = Arc<dyn ConnectionProvider>;
 
 pub trait ConnectionProvider: Send + Sync + 'static {
+    fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>>;
+
+    fn accept(&self) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>>;
+
     fn connect(
         &self,
         addr: Vec<SocketAddr>,

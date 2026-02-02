@@ -16,7 +16,7 @@ use crate::stages::{
     build_stage_graph::build_stage_graph,
     consensus::forward_chain::{tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip},
 };
-use amaru_consensus::consensus::{
+use amaru_consensus::{
     effects::{
         ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
         ResourceHeaderValidation, ResourceMeter, ResourceParameters,
@@ -30,11 +30,8 @@ use amaru_consensus::consensus::{
     },
 };
 use amaru_kernel::{
-    ArenaPool, BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point, Tx,
-    network::NetworkName,
-    peer::Peer,
-    protocol_messages::{network_magic::NetworkMagic, tip::Tip},
-    protocol_parameters::{ConsensusParameters, GlobalParameters},
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, IsHeader,
+    NetworkMagic, NetworkName, ORIGIN_HASH, Peer, Point, Tip, Transaction,
 };
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_mempool::InMemoryMempool;
@@ -44,8 +41,8 @@ use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, ConnectionResource, HasStakeDistribution, ResourceMempool,
     in_memory_consensus_store::InMemConsensusStore,
 };
-use amaru_protocols::manager;
-use amaru_protocols::manager::Manager;
+use amaru_plutus::arena_pool::ArenaPool;
+use amaru_protocols::{manager, manager::Manager};
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore},
@@ -267,7 +264,7 @@ pub async fn build_and_run_network(
         .put::<ConnectionResource>(Arc::new(TokioConnections::new(65535)));
     network
         .resources()
-        .put::<ResourceMempool<Tx>>(Arc::new(InMemoryMempool::default()));
+        .put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);

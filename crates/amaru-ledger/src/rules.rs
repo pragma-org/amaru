@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use crate::context::PreparationContext;
-use amaru_kernel::{Bytes, MintedBlock, cbor, ed25519, into_sized_array};
+use amaru_kernel::{Block, cbor};
 use amaru_observability::ledger::{PARSE_BLOCK, PREPARE_BLOCK};
-use std::{array::TryFromSliceError, fmt, fmt::Display};
-use thiserror::Error;
+use std::{fmt, fmt::Display};
 use tracing::{Level, instrument};
 
 pub use block::execute as validate_block;
@@ -42,24 +41,15 @@ impl<T: Display> Display for WithPosition<T> {
 }
 
 #[instrument(level = Level::TRACE, skip_all, name=PREPARE_BLOCK)]
-pub fn prepare_block<'block>(
-    context: &mut impl PreparationContext<'block>,
-    block: &'block MintedBlock<'_>,
-) {
+pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a Block) {
     block.transaction_bodies.iter().for_each(|transaction| {
         let inputs = transaction.inputs.iter();
 
-        let collaterals = transaction
-            .collateral
-            .as_deref()
-            .map(|xs| xs.as_slice())
-            .unwrap_or(&[])
-            .iter();
+        let collaterals = transaction.collateral.as_deref().unwrap_or(&[]).iter();
 
         let reference_inputs = transaction
             .reference_inputs
             .as_deref()
-            .map(|xs| xs.as_slice())
             .unwrap_or(&[])
             .iter();
 
@@ -71,57 +61,9 @@ pub fn prepare_block<'block>(
 }
 
 #[instrument(level = Level::TRACE, skip_all, name = PARSE_BLOCK, fields(block.size = bytes.len()))]
-pub fn parse_block(bytes: &[u8]) -> Result<MintedBlock<'_>, cbor::decode::Error> {
-    let (_, block): (u16, MintedBlock<'_>) = cbor::decode(bytes)?;
+pub fn parse_block(bytes: &[u8]) -> Result<Block, cbor::decode::Error> {
+    let (_, block): (u16, Block) = cbor::decode(bytes)?;
     Ok(block)
-}
-
-pub(crate) fn format_vec<T: Display>(items: &[T]) -> String {
-    items
-        .iter()
-        .map(|item| item.to_string())
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-#[derive(Debug, Error)]
-pub enum InvalidEd25519Signature {
-    #[error("invalid signature size: {error:?}")]
-    InvalidSignatureSize {
-        error: TryFromSliceError,
-        expected: usize,
-    },
-    #[error("invalid verification key size: {error:?}")]
-    InvalidKeySize {
-        error: TryFromSliceError,
-        expected: usize,
-    },
-    #[error("invalid signature for given key")]
-    InvalidSignature,
-}
-
-pub(crate) fn verify_ed25519_signature(
-    vkey: &Bytes,
-    signature: &Bytes,
-    message: &[u8],
-) -> Result<(), InvalidEd25519Signature> {
-    // TODO: vkey should come as sized bytes out of the serialization.
-    // To be fixed upstream in Pallas.
-    let public_key = ed25519::PublicKey::from(into_sized_array(vkey, |error, expected| {
-        InvalidEd25519Signature::InvalidKeySize { error, expected }
-    })?);
-
-    // TODO: signature should come as sized bytes out of the serialization.
-    // To be fixed upstream in Pallas.
-    let signature = ed25519::Signature::from(into_sized_array(signature, |error, expected| {
-        InvalidEd25519Signature::InvalidSignatureSize { error, expected }
-    })?);
-
-    if !public_key.verify(message, &signature) {
-        Err(InvalidEd25519Signature::InvalidSignature)
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -137,10 +79,9 @@ pub(crate) mod tests {
         tests::{fake_input, fake_output},
     };
     use amaru_kernel::{
-        ArenaPool, EraHistory,
-        network::NetworkName,
-        protocol_parameters::{self, ProtocolParameters},
+        EraHistory, NetworkName, PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters,
     };
+    use amaru_plutus::arena_pool::ArenaPool;
     use std::{collections::BTreeMap, sync::LazyLock};
 
     static CONWAY_BLOCK: LazyLock<Vec<u8>> = LazyLock::new(|| {
@@ -187,12 +128,12 @@ pub(crate) mod tests {
             &mut AssertValidationContext::from(ctx),
             &ARENA_POOL,
             &NetworkName::Preprod,
-            &protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             <&EraHistory>::from(NetworkName::Preprod),
             &GovernanceActivity {
                 consecutive_dormant_epochs: 0,
             },
-            &block,
+            block,
         );
 
         assert!(matches!(results, BlockValidation::Valid(())));
@@ -207,7 +148,7 @@ pub(crate) mod tests {
     fn validate_block_header_size_too_big() {
         let pp = ProtocolParameters {
             max_block_header_size: 1,
-            ..protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
+            ..PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
         };
 
         let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();
@@ -225,7 +166,7 @@ pub(crate) mod tests {
             &GovernanceActivity {
                 consecutive_dormant_epochs: 0,
             },
-            &block,
+            block,
         );
 
         assert!(matches!(
@@ -236,10 +177,10 @@ pub(crate) mod tests {
 
     macro_rules! fixture_context {
         ($hash:literal) => {
-            include_json!(concat!("transactions/preprod/", $hash, "/context.json"))
+            amaru_kernel::include_json!(concat!("transactions/preprod/", $hash, "/context.json"))
         };
         ($hash:literal, $variant:literal) => {
-            include_json!(concat!(
+            amaru_kernel::include_json!(concat!(
                 "transactions/preprod/",
                 $hash,
                 "/",

@@ -20,21 +20,24 @@ use crate::{
 };
 use amaru_kernel::{
     CertificatePointer,
+    ComparableProposalId,
+    Constitution,
+    ConstitutionalCommitteeStatus,
+    DRep,
+    Epoch,
     EraHistory,
     Lovelace,
+    MemoizedTransactionOutput,
     Point,
     PoolId,
+    ProtocolParameters,
     StakeCredential,
     TransactionInput,
+    cbor,
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
-    protocol_parameters::ProtocolParameters,
-};
-use amaru_kernel::{
-    ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch,
-    MemoizedTransactionOutput,
 };
 use columns::*;
 use std::{
@@ -71,7 +74,7 @@ pub enum StoreError {
     Internal(#[from] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("unable to decode database's value: {0}")]
-    Undecodable(#[from] minicbor::decode::Error),
+    Undecodable(#[from] cbor::decode::Error),
 
     #[error("error sending work unit through output port")]
     Send,
@@ -109,7 +112,7 @@ impl OpenErrorKind {
 /// A simple alias for alleviating the store interface annotations.
 pub type Result<A> = std::result::Result<A, StoreError>;
 
-#[derive(Debug, PartialEq, Eq, minicbor::Encode, minicbor::Decode, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, cbor::Encode, cbor::Decode)]
 pub enum EpochTransitionProgress {
     #[n(0)]
     EpochEnded,
@@ -119,7 +122,7 @@ pub enum EpochTransitionProgress {
     EpochStarted,
 }
 
-#[derive(Debug, PartialEq, Eq, minicbor::Encode, minicbor::Decode, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, cbor::Encode, cbor::Decode)]
 pub struct GovernanceActivity {
     #[n(0)]
     pub consecutive_dormant_epochs: u32,

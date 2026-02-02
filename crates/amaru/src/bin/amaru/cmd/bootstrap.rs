@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru::{DEFAULT_NETWORK, bootstrap::bootstrap, default_chain_dir, default_ledger_dir};
-use amaru_kernel::network::NetworkName;
+use amaru_kernel::NetworkName;
 use clap::{ArgAction, Parser};
 use std::{error::Error, fs::remove_dir_all, path::PathBuf};
 use tracing::{info, warn};

@@ -19,7 +19,6 @@ tracing = ["amaru-minicbor-extra/tracing"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
-anyhow.workspace = true
 bech32.workspace = true
 bytes = { workspace = true, features = ["serde"] }
 hex.workspace = true
@@ -31,20 +30,13 @@ pallas-crypto.workspace = true
 pallas-math.workspace = true
 pallas-primitives.workspace = true
 pallas-traverse.workspace = true
-parking_lot.workspace = true
+proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 sha3.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-proptest = { workspace = true, optional = true }
 
-# FIXME RK: figure out exact WASM story to properly solve this
-getrandom = { workspace = true, features = ["wasm_js"] }
-
-bumpalo.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-slot-arithmetic.workspace = true
 amaru-minicbor-extra.workspace = true
@@ -54,9 +46,8 @@ amaru-minicbor-extra.workspace = true
 proptest.workspace = true
 rand.workspace = true
 test-case.workspace = true
-
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
 
-[package.metadata.cargo-machete]
-ignored = ["getrandom"]
+[target.'cfg(target_family="wasm")'.dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }

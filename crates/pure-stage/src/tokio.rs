@@ -17,43 +17,39 @@
 //! It is good practice to perform the stage contruction and wiring in a function that takes an
 //! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
 
-use crate::adapter::{Adapter, StageOrAdapter, find_recipient};
-use crate::drop_guard::DropGuard;
-use crate::effect::{CallExtra, CallTimeout, CanSupervise, TransitionFactory};
-use crate::serde::NoDebug;
-use crate::simulation::Transition;
-use crate::stage_ref::StageStateRef;
-use crate::trace_buffer::TraceBuffer;
 use crate::{
-    BoxFuture, EPOCH, Effects, Instant, Name, ScheduleIds, SendData, Sender, StageBuildRef,
-    StageGraph, StageRef,
-    effect::{StageEffect, StageResponse},
+    BoxFuture, EPOCH, Effects, Instant, Name, ScheduleId, ScheduleIds, SendData, Sender,
+    StageBuildRef, StageGraph, StageRef,
+    adapter::{Adapter, StageOrAdapter, find_recipient},
+    drop_guard::DropGuard,
+    effect::{CallExtra, CallTimeout, CanSupervise, StageEffect, StageResponse, TransitionFactory},
     effect_box::EffectBox,
     resources::Resources,
+    serde::NoDebug,
+    simulation::Transition,
+    stage_name,
+    stage_ref::StageStateRef,
     stagegraph::StageGraphRunning,
     time::Clock,
+    trace_buffer::TraceBuffer,
 };
-use crate::{ScheduleId, stage_name};
 use either::Either::{Left, Right};
-use futures_util::stream::FuturesUnordered;
-use futures_util::{FutureExt, StreamExt};
+use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
-use std::any::Any;
-use std::future::poll_fn;
-use std::time::Duration;
 use std::{
+    any::Any,
     collections::BTreeMap,
-    future::Future,
+    future::{Future, poll_fn},
     marker::PhantomData,
     sync::Arc,
     task::{Context, Poll, Waker},
+    time::Duration,
 };
-use tokio::sync::oneshot;
 use tokio::{
     runtime::Handle,
     sync::{
         mpsc::{self, Receiver},
-        watch,
+        oneshot, watch,
     },
     task::JoinHandle,
 };
@@ -456,7 +452,10 @@ fn interpreter(
         let tb = || inner.trace_buffer.lock();
         tb().push_resume(name, &StageResponse::Unit);
         loop {
-            let poll = stage.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+            let poll = {
+                let _span = tracing::trace_span!("stage.poll", stage = %name).entered();
+                stage.as_mut().poll(&mut Context::from_waker(Waker::noop()))
+            };
             if let Poll::Ready(state) = poll {
                 return Some(state);
             }
@@ -662,6 +661,10 @@ impl TokioRunning {
 
     pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {
         &self.inner.trace_buffer
+    }
+
+    pub fn resources(&self) -> &Resources {
+        &self.inner.resources
     }
 }
 

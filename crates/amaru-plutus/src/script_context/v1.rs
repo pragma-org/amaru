@@ -22,6 +22,7 @@ use crate::{
 };
 use amaru_kernel::{
     Address, AssetName, Certificate as PallasCertificate, Hash, StakePayload, TransactionInput,
+    size::DATUM,
 };
 use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
@@ -232,7 +233,7 @@ impl ToPlutusData<1> for TransactionOutput<'_> {
                 self.value,
                 match self.datum {
                     DatumOption::Hash(hash) => Some(*hash),
-                    _ => None::<Hash<32>>,
+                    _ => None::<Hash<DATUM>>,
                 },
             ]
         )
@@ -281,9 +282,7 @@ mod tests {
         *,
     };
     use crate::script_context::Redeemers;
-    use amaru_kernel::{
-        MintedTx, OriginalHash, PROTOCOL_VERSION_10, network::NetworkName, to_cbor,
-    };
+    use amaru_kernel::{NetworkName, PROTOCOL_VERSION_10, Transaction, cbor, to_cbor};
     use std::ops::Deref;
     use test_case::test_case;
 
@@ -305,25 +304,23 @@ mod tests {
         // this should probably be encoded in the TestVector itself
         let network = NetworkName::Preprod;
 
-        let transaction: MintedTx<'_> =
-            minicbor::decode(&test_vector.input.transaction_bytes).unwrap();
+        let transaction: Transaction = cbor::decode(&test_vector.input.transaction_bytes).unwrap();
 
         let redeemers = Redeemers::iter_from(
             transaction
-                .transaction_witness_set
+                .witnesses
                 .redeemer
                 .as_ref()
-                .expect("no redeemers provided")
-                .deref(),
+                .expect("no redeemers provided"),
         );
 
         let produced_contexts = redeemers
             .map(|redeemer| {
                 let utxos = test_vector.input.utxo.clone().into();
                 let tx_info = TxInfo::new(
-                    &transaction.transaction_body,
-                    &transaction.transaction_witness_set,
-                    &transaction.transaction_body.original_hash(),
+                    &transaction.body,
+                    &transaction.witnesses,
+                    transaction.body.id(),
                     &utxos,
                     &0.into(),
                     network,

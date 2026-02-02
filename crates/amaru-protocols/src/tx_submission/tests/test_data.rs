@@ -12,17 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Hash, Nullable, Set};
+use amaru_kernel::{
+    Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY,
+};
 use amaru_ouroboros_traits::Mempool;
-use pallas_primitives::TransactionInput;
-use pallas_primitives::conway::{PseudoTransactionBody, PseudoTx, Tx, WitnessSet};
 use std::sync::Arc;
 
-pub fn create_transactions(number: u64) -> Vec<Tx> {
+pub fn create_transactions(number: u64) -> Vec<Transaction> {
     (0..number).map(create_transaction).collect()
 }
 
-pub fn create_transactions_in_mempool(mempool: Arc<dyn Mempool<Tx>>, number: u64) -> Vec<Tx> {
+pub fn create_transactions_in_mempool(
+    mempool: Arc<dyn Mempool<Transaction>>,
+    number: u64,
+) -> Vec<Transaction> {
     let mut txs = vec![];
     for i in 0..number {
         let tx = create_transaction(i);
@@ -33,47 +36,18 @@ pub fn create_transactions_in_mempool(mempool: Arc<dyn Mempool<Tx>>, number: u64
 }
 
 /// Create a transaction with a unique input based on the given id.
-pub fn create_transaction(id: u64) -> Tx {
+pub fn create_transaction(id: u64) -> Transaction {
     let tx_input = TransactionInput {
-        transaction_id: Hash::new([1; 32]),
+        transaction_id: Hash::new([1; TRANSACTION_BODY]),
         index: id,
     };
-    let transaction_body = PseudoTransactionBody {
-        inputs: Set::from(vec![tx_input]),
-        outputs: vec![],
-        fee: 0,
-        ttl: None,
-        certificates: None,
-        withdrawals: None,
-        auxiliary_data_hash: None,
-        validity_interval_start: None,
-        mint: None,
-        script_data_hash: None,
-        required_signers: None,
-        network_id: None,
-        collateral_return: None,
-        total_collateral: None,
-        reference_inputs: None,
-        voting_procedures: None,
-        proposal_procedures: None,
-        treasury_value: None,
-        collateral: None,
-        donation: None,
-    };
-    let transaction_witness_set = WitnessSet {
-        vkeywitness: None,
-        native_script: None,
-        bootstrap_witness: None,
-        plutus_v1_script: None,
-        plutus_data: None,
-        redeemer: None,
-        plutus_v2_script: None,
-        plutus_v3_script: None,
-    };
-    PseudoTx {
-        transaction_body,
-        transaction_witness_set,
-        success: true,
-        auxiliary_data: Nullable::Null,
+
+    let body = TransactionBody::new([tx_input], [], 0);
+
+    Transaction {
+        body,
+        witnesses: WitnessSet::default(),
+        is_expected_valid: true,
+        auxiliary_data: None,
     }
 }

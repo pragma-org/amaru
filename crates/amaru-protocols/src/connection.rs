@@ -12,30 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::blockfetch::{
-    self, BlockFetchMessage, Blocks, register_blockfetch_initiator, register_blockfetch_responder,
-};
-use crate::chainsync::{
-    self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder,
-};
-use crate::keepalive::register_keepalive;
-use crate::mux::HandlerMessage;
-use crate::protocol::Inputs;
-use crate::store_effects::Store;
-use crate::tx_submission::register_tx_submission;
 use crate::{
+    blockfetch::{
+        self, BlockFetchMessage, Blocks, register_blockfetch_initiator,
+        register_blockfetch_responder,
+    },
+    chainsync::{
+        self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder,
+    },
     handshake,
-    mux::{self, MuxMessage},
-    protocol::{PROTO_HANDSHAKE, Role},
+    keepalive::register_keepalive,
+    mux::{self, HandlerMessage, MuxMessage},
+    protocol::{Inputs, PROTO_HANDSHAKE, Role},
+    protocol_messages::{
+        handshake::HandshakeResult, version_data::VersionData, version_number::VersionNumber,
+        version_table::VersionTable,
+    },
+    store_effects::Store,
+    tx_submission::register_tx_submission,
 };
-use amaru_kernel::peer::Peer;
-use amaru_kernel::protocol_messages::tip::Tip;
-use amaru_kernel::protocol_messages::version_table::VersionTable;
-use amaru_kernel::protocol_messages::{
-    handshake::HandshakeResult, network_magic::NetworkMagic, version_data::VersionData,
-    version_number::VersionNumber,
-};
-use amaru_kernel::{ORIGIN_HASH, Point};
+use amaru_kernel::{NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
 use pure_stage::{Effects, StageRef, Void};
 
@@ -203,10 +199,14 @@ async fn do_initialize(
         .contramap(&handshake, "handshake_bytes", Inputs::Network)
         .await;
 
+    let protocol = match role {
+        Role::Initiator => PROTO_HANDSHAKE.erase(),
+        Role::Responder => PROTO_HANDSHAKE.responder().erase(),
+    };
     eff.send(
         &muxer,
         MuxMessage::Register {
-            protocol: PROTO_HANDSHAKE.erase(),
+            protocol,
             frame: mux::Frame::OneCborItem,
             handler,
             max_buffer: 5760,

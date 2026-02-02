@@ -16,8 +16,10 @@ use crate::tree::Tree;
 use assert_json_diff::assert_json_eq;
 use serde_json as json;
 use serde_json::{Value, to_string_pretty};
-use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, RwLock},
+};
 use tracing::Dispatch;
 use tracing_subscriber::layer::SubscriberExt;
 

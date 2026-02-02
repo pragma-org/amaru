@@ -25,7 +25,6 @@ amaru-ledger.workspace = true
 amaru-iter-borrow.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros-traits = { workspace = true, features = [] }
-amaru-slot-arithmetic.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

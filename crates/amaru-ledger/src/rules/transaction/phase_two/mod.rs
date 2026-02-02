@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use core::fmt;
-use std::collections::BTreeMap;
-
+use crate::context::UtxoSlice;
 use amaru_kernel::{
-    ArenaPool, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash,
-    TransactionInputAdapter, TransactionPointer, cbor, network::NetworkName,
-    protocol_parameters::ProtocolParameters, to_cbor,
+    EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
+    TransactionPointer, WitnessSet, cbor, to_cbor, transaction_input_to_string,
 };
 use amaru_plutus::{
+    arena_pool::ArenaPool,
     script_context::{Script, TxInfo, TxInfoTranslationError, Utxos},
     to_plutus_data::{PLUTUS_V1, PLUTUS_V2, PLUTUS_V3, PlutusDataError},
 };
+use std::{collections::BTreeMap, fmt};
 use thiserror::Error;
 use uplc_turbo::{
     binder::DeBruijn,
@@ -34,12 +33,10 @@ use uplc_turbo::{
     term::Term,
 };
 
-use crate::context::UtxoSlice;
-
 #[derive(Debug, Error)]
 pub enum PhaseTwoError {
-    #[error("missing input: {0}")]
-    MissingInput(TransactionInputAdapter),
+    #[error("missing input: {}", transaction_input_to_string(.0))]
+    MissingInput(TransactionInput),
     #[error("failed to translate transaction to TxInfo: {0}")]
     TransactionTranslationError(#[from] TxInfoTranslationError),
     #[error("illegal state in ScriptContext: {0}")]
@@ -73,8 +70,8 @@ pub fn execute<C>(
     era_history: &EraHistory,
     pointer: TransactionPointer,
     is_valid: bool,
-    transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
-    transaction_witness_set: &MintedWitnessSet<'_>,
+    transaction_body: &TransactionBody,
+    transaction_witness_set: &WitnessSet,
 ) -> Result<(), PhaseTwoError>
 where
     C: UtxoSlice + fmt::Debug,
@@ -91,7 +88,7 @@ where
                 input.clone(),
                 context
                     .lookup(input)
-                    .ok_or(PhaseTwoError::MissingInput(input.clone().into()))?
+                    .ok_or(PhaseTwoError::MissingInput(input.clone()))?
                     .clone(),
             ))
         })
@@ -102,13 +99,13 @@ where
         .as_ref()
         .map(|reference_inputs| {
             reference_inputs
-                .into_iter()
+                .iter()
                 .map(|input| {
                     Ok((
                         input.clone(),
                         context
                             .lookup(input)
-                            .ok_or(PhaseTwoError::MissingInput(input.clone().into()))?
+                            .ok_or(PhaseTwoError::MissingInput(input.clone()))?
                             .clone(),
                     ))
                 })
@@ -123,7 +120,7 @@ where
     let tx_info = TxInfo::new(
         transaction_body,
         transaction_witness_set,
-        &transaction_body.original_hash(),
+        transaction_body.id(),
         &utxos,
         &pointer.slot,
         *network,

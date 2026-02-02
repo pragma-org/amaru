@@ -30,9 +30,11 @@ mod tests;
 #[cfg(test)]
 pub use tests::*;
 
-use crate::connection::ConnectionMessage;
-use crate::mux;
-use crate::protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT};
+use crate::{
+    connection::ConnectionMessage,
+    mux,
+    protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT},
+};
 use amaru_ouroboros::TxOrigin;
 use pure_stage::{Effects, StageRef, Void};
 
@@ -119,7 +121,7 @@ pub async fn register_tx_submission(
             protocol: PROTO_N2N_TX_SUB.for_role(role).erase(),
             frame: mux::Frame::OneCborItem,
             handler: tx_submission.clone(),
-            max_buffer: 5760,
+            max_buffer: 2_500_000,
         },
     )
     .await;

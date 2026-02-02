@@ -14,5 +14,6 @@ publish = false
 [dependencies]
 amaru-kernel = { path = "../../crates/amaru-kernel" }
 amaru-ledger = { path = "../../crates/amaru-ledger" }
+amaru-plutus = { path = "../../crates/amaru-plutus" }
 amaru-stores = { path = "../../crates/amaru-stores", default-features = false }
 hex.workspace = true

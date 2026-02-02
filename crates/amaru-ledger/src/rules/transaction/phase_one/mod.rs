@@ -14,12 +14,10 @@
 
 use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
-    AuxiliaryDataHash, EraHistory, KeepRaw, MintedTransactionBody, MintedWitnessSet, OriginalHash,
-    TransactionInput, TransactionPointer, network::NetworkName,
-    protocol_parameters::ProtocolParameters,
+    AuxiliaryData, EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
+    TransactionPointer, WitnessSet,
 };
-use core::mem;
-use std::{fmt, ops::Deref};
+use std::{fmt, mem, ops::Deref};
 use thiserror::Error;
 
 pub mod certificates;
@@ -94,18 +92,16 @@ pub fn execute<C>(
     governance_activity: &GovernanceActivity,
     pointer: TransactionPointer,
     is_valid: bool,
-    transaction_body: KeepRaw<'_, MintedTransactionBody<'_>>,
-    transaction_witness_set: &MintedWitnessSet<'_>,
-    transaction_auxiliary_data_hash: Option<AuxiliaryDataHash>,
+    mut transaction_body: TransactionBody,
+    transaction_witness_set: &WitnessSet,
+    transaction_auxiliary_data: Option<&AuxiliaryData>,
 ) -> Result<Vec<TransactionInput>, PhaseOneError>
 where
     C: ValidationContext + fmt::Debug,
 {
-    let transaction_id = transaction_body.original_hash();
+    let transaction_id = transaction_body.id();
 
-    let mut transaction_body = transaction_body.unwrap();
-
-    metadata::execute(&transaction_body, transaction_auxiliary_data_hash)?;
+    metadata::execute(&transaction_body, transaction_auxiliary_data)?;
 
     certificates::execute(
         context,
@@ -127,19 +123,13 @@ where
     inputs::execute(
         context,
         transaction_body.inputs.deref(),
-        transaction_body
-            .reference_inputs
-            .as_deref()
-            .map(|vec| vec.as_slice()),
+        transaction_body.reference_inputs.as_deref(),
     )?;
 
     if transaction_witness_set.redeemer.is_some() {
         collateral::execute(
             context,
-            transaction_body
-                .collateral
-                .as_deref()
-                .map(|vec| vec.as_slice()),
+            transaction_body.collateral.as_deref(),
             transaction_body.collateral_return.as_ref(),
             transaction_body.total_collateral,
             transaction_body.fee,
@@ -199,13 +189,10 @@ where
     proposals::execute(
         context,
         (transaction_id, pointer),
-        mem::take(&mut transaction_body.proposal_procedures).map(|xs| xs.to_vec()),
+        mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
     );
 
-    voting_procedures::execute(
-        context,
-        mem::take(&mut transaction_body.voting_procedures).map(|xs| xs.to_vec()),
-    );
+    voting_procedures::execute(context, mem::take(&mut transaction_body.votes));
 
     vkey_witness::execute(
         context,

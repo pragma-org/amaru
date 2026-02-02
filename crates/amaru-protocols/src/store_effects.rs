@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    BlockHeader, HeaderHash, Point, RawBlock, protocol_parameters::GlobalParameters,
-};
+use amaru_kernel::{BlockHeader, GlobalParameters, HeaderHash, Point, RawBlock};
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use pure_stage::{
     BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
@@ -70,12 +68,12 @@ impl<T> ReadOnlyChainStore<BlockHeader> for Store<T> {
         self.external_sync(HasHeaderEffect::new(*hash))
     }
 
-    fn load_from_best_chain(&self, _point: &Point) -> Option<HeaderHash> {
-        None
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        self.external_sync(LoadFromBestChainEffect::new(*point))
     }
 
-    fn next_best_chain(&self, _point: &Point) -> Option<Point> {
-        None
+    fn next_best_chain(&self, point: &Point) -> Option<Point> {
+        self.external_sync(NextBestChainEffect::new(*point))
     }
 }
 
@@ -295,6 +293,66 @@ impl ExternalEffectAPI for HasHeaderEffect {
 }
 
 impl ExternalEffectSync for HasHeaderEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct LoadFromBestChainEffect {
+    point: Point,
+}
+
+impl LoadFromBestChainEffect {
+    pub fn new(point: Point) -> Self {
+        Self { point }
+    }
+}
+
+impl ExternalEffect for LoadFromBestChainEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("LoadFromBestChainEffect requires a chain store")
+                .clone();
+            store.load_from_best_chain(&self.point)
+        })
+    }
+}
+
+impl ExternalEffectAPI for LoadFromBestChainEffect {
+    type Response = Option<HeaderHash>;
+}
+
+impl ExternalEffectSync for LoadFromBestChainEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct NextBestChainEffect {
+    point: Point,
+}
+
+impl NextBestChainEffect {
+    pub fn new(point: Point) -> Self {
+        Self { point }
+    }
+}
+
+impl ExternalEffect for NextBestChainEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("NextBestChainEffect requires a chain store")
+                .clone();
+            store.next_best_chain(&self.point)
+        })
+    }
+}
+
+impl ExternalEffectAPI for NextBestChainEffect {
+    type Response = Option<Point>;
+}
+
+impl ExternalEffectSync for NextBestChainEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct LoadHeaderEffect {

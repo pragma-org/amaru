@@ -14,10 +14,9 @@
 
 use crate::store::{GovernanceActivity, Snapshot, StoreError, columns::dreps};
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Lovelace, Slot, StakeCredential, TransactionPointer,
-    expect_stake_credential, network::EraHistory,
+    Anchor, CertificatePointer, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, Slot,
+    StakeCredential, TransactionPointer, expect_stake_credential,
 };
-use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug)]

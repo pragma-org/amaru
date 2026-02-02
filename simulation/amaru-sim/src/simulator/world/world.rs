@@ -12,16 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Envelope;
-use crate::simulator::world::world::Next::{Continue, Done, Panic};
-use crate::simulator::{NodeHandle, StepResult};
-use amaru_kernel::string_utils::ListToString;
+use crate::simulator::{
+    Envelope, NodeHandle, StepResult,
+    world::world::Next::{Continue, Done, Panic},
+};
+use amaru_kernel::utils::string::ListToString;
 use pure_stage::Instant;
 use serde::Serialize;
-use std::cmp::{Ordering, Reverse};
-use std::collections::{BTreeMap, BinaryHeap};
-use std::fmt::{Debug, Display, Formatter};
-use std::time::Duration;
+use std::{
+    cmp::{Ordering, Reverse},
+    collections::{BTreeMap, BinaryHeap},
+    fmt::{Debug, Display, Formatter},
+    time::Duration,
+};
 use tracing::{debug, info, trace};
 
 /// This data structure represents a simulated 'world' of interconnected nodes.

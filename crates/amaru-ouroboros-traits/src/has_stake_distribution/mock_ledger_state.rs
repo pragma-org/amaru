@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use crate::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
-use amaru_kernel::{Lovelace, PoolId, Slot, VrfKeyhash};
+use amaru_kernel::{Hash, Lovelace, PoolId, Slot, size::VRF_KEY};
 use std::collections::BTreeMap;
 
 /// A mock implementing the HasStakeDistribution trait, suitable to validate a single block header
 /// with default parameters.
 pub struct MockLedgerState {
-    pub vrf_vkey_hash: VrfKeyhash,
+    pub vrf_vkey_hash: Hash<VRF_KEY>,
     pub stake: Lovelace,
     pub active_stake: Lovelace,
     pub op_certs: BTreeMap<PoolId, u64>,

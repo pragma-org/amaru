@@ -15,8 +15,8 @@
 use crate::rocksdb::{PREFIX_LEN, as_value, dreps};
 use ::rocksdb::{Direction, IteratorMode, ReadOptions, Transaction};
 use amaru_kernel::{
-    CertificatePointer, DRep, StakeCredential, StakeCredentialType, display_collection,
-    stake_credential_hash,
+    AsHash, CertificatePointer, DRep, StakeCredential, StakeCredentialKind,
+    utils::string::display_collection,
 };
 use amaru_ledger::store::{StoreError, columns::unsafe_decode};
 use amaru_observability::stores::DREPS_DELEGATION_REMOVE;
@@ -80,10 +80,10 @@ pub fn add<DB>(
                 && previous_deregistration > delegator_since
             {
                 debug!(
-                    drep.type = %StakeCredentialType::from(&drep),
-                    drep.hash = %stake_credential_hash(&drep),
-                    delegator.type = %StakeCredentialType::from(&delegator),
-                    delegator.hash = %stake_credential_hash(&delegator),
+                    drep.type = %StakeCredentialKind::from(&drep),
+                    drep.hash = %drep.as_hash(),
+                    delegator.type = %StakeCredentialKind::from(&delegator),
+                    delegator.hash = %delegator.as_hash(),
                     "drep has unregistered since delegation; skipping mapping",
                 );
                 continue;
@@ -93,10 +93,10 @@ pub fn add<DB>(
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else {
             warn!(
-                drep.type = %StakeCredentialType::from(&drep),
-                drep.hash = %stake_credential_hash(&drep),
-                delegator.type = %StakeCredentialType::from(&delegator),
-                delegator.hash = %stake_credential_hash(&delegator),
+                drep.type = %StakeCredentialKind::from(&drep),
+                drep.hash = %drep.as_hash(),
+                delegator.type = %StakeCredentialKind::from(&delegator),
+                delegator.hash = %delegator.as_hash(),
                 "delegator was delegated to non-existing drep",
             );
         }
@@ -128,8 +128,8 @@ pub fn remove<DB>(
     name = DREPS_DELEGATION_REMOVE,
     skip_all,
     fields(
-        drep.hash = %stake_credential_hash(drep),
-        drep.type = %StakeCredentialType::from(drep),
+        drep.hash = %drep.as_hash(),
+        drep.type = %StakeCredentialKind::from(drep),
     )
 )]
 pub fn drop<DB>(
@@ -156,12 +156,7 @@ pub fn drop<DB>(
         debug!(
             delegators = format!(
                 "[{}]",
-                display_collection(
-                    delegators
-                        .iter()
-                        .map(stake_credential_hash)
-                        .collect::<Vec<_>>()
-                )
+                display_collection(delegators.iter().map(AsHash::as_hash).collect::<Vec<_>>())
             ),
             "clearing present (and past) delegators"
         )

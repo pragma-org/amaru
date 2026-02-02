@@ -17,7 +17,7 @@ use crate::{
     network_effects::create_connection,
     protocol::Role,
 };
-use amaru_kernel::{peer::Peer, protocol_messages::network_magic::NetworkMagic};
+use amaru_kernel::{NetworkMagic, Peer};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::ConnectionResource;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};

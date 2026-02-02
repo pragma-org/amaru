@@ -15,14 +15,13 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use amaru_kernel::{
-        AnyCbor, AuxiliaryData, Bytes, Epoch, EraHistory, Hasher, KeepRaw, MintedTransactionBody,
-        MintedTx, MintedWitnessSet, TransactionPointer, cbor, network::NetworkName,
-        protocol_parameters::ProtocolParameters,
+        Bytes, Epoch, EraHistory, NetworkName, ProtocolParameters, Transaction, TransactionPointer,
+        WitnessSet, cbor, cbor as minicbor,
     };
     use amaru_ledger::{
         self, context::DefaultValidationContext, rules::transaction, store::GovernanceActivity,
     };
-    use std::{collections::BTreeMap, env, fs, io::Write as _, ops::Deref, path::Path};
+    use std::{collections::BTreeMap, env, fs, io::Write as _, path::Path};
 
     // Tests cases are constructed in build.rs, which generates the test_cases.rs file
     include!(concat!(env!("OUT_DIR"), "/test_cases.rs"));
@@ -65,11 +64,11 @@ pub mod tests {
     #[allow(dead_code)]
     struct TestVector {
         #[n(0)]
-        config: AnyCbor,
+        config: cbor::Any,
         #[n(1)]
-        initial_state: AnyCbor,
+        initial_state: cbor::Any,
         #[n(2)]
-        final_state: AnyCbor,
+        final_state: cbor::Any,
         #[n(3)]
         events: Vec<TestVectorEvent>,
         #[n(4)]
@@ -218,13 +217,11 @@ pub mod tests {
                 TestVectorEvent::Transaction(tx, success, slot) => (tx, success, slot),
                 TestVectorEvent::PassTick(..) | TestVectorEvent::PassEpoch(..) => continue,
             };
-            let tx: MintedTx<'_> = cbor::decode(tx_bytes.as_slice())?;
+            let tx: Transaction = cbor::decode(tx_bytes.as_slice())?;
 
-            let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
-            let tx_witness_set: MintedWitnessSet<'_> = tx.transaction_witness_set.deref().clone();
-            let tx_auxiliary_data =
-                Into::<Option<KeepRaw<'_, AuxiliaryData>>>::into(tx.auxiliary_data.clone())
-                    .map(|aux_data| Hasher::<256>::hash(aux_data.raw_cbor()));
+            let tx_witness_set: WitnessSet = tx.witnesses.clone();
+
+            let tx_auxiliary_data = tx.auxiliary_data.as_ref();
 
             let pointer = TransactionPointer {
                 slot: slot.into(),
@@ -242,7 +239,7 @@ pub mod tests {
                 &governance_activity,
                 pointer,
                 true,
-                tx_body,
+                tx.body,
                 &tx_witness_set,
                 tx_auxiliary_data,
             );

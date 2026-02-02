@@ -16,7 +16,7 @@ use amaru::{
     DEFAULT_NETWORK, bootstrap::import_headers_for_network, default_chain_dir,
     get_bootstrap_headers,
 };
-use amaru_kernel::network::NetworkName;
+use amaru_kernel::NetworkName;
 use clap::{ArgAction, Parser};
 use std::{fs, path::PathBuf};
 use tracing::info;

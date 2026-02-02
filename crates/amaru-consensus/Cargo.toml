@@ -23,7 +23,6 @@ async-trait.workspace = true
 hex.workspace = true
 itertools.workspace = true
 opentelemetry.workspace = true
-pallas-crypto.workspace = true
 parking_lot.workspace = true
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
@@ -42,7 +41,6 @@ amaru-mempool.workspace = true
 amaru-metrics.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-protocols.workspace = true
-amaru-slot-arithmetic.workspace = true
 pure-stage.workspace = true
 
 [dev-dependencies]

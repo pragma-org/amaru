@@ -18,7 +18,7 @@ use crate::{
     protocol::Role,
     store_effects::ResourceHeaderStore,
 };
-use amaru_kernel::{Tx, peer::Peer, protocol_messages::network_magic::NetworkMagic};
+use amaru_kernel::{NetworkMagic, Peer, Transaction};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ConnectionResource, in_memory_consensus_store::InMemConsensusStore};
@@ -55,7 +55,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
         .put::<ResourceHeaderStore>(Arc::new(InMemConsensusStore::new()));
     network
         .resources()
-        .put::<ResourceMempool<Tx>>(Arc::new(InMemoryMempool::default()));
+        .put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
 
     let connection = network.stage("connection", connection::stage);
     let connection = network.wire_up(

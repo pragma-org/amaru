@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Envelope;
-use crate::sync::ChainSyncMessage;
+use crate::{simulator::Envelope, sync::ChainSyncMessage};
 use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin, stdin};
 use tracing::error;

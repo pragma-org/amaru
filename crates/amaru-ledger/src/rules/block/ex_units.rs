@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ExUnits, protocol_parameters::ProtocolParameters, sum_ex_units};
-
 use super::InvalidBlockDetails;
+use amaru_kernel::{ExUnits, ProtocolParameters, sum_ex_units};
 
 pub fn block_ex_units_valid(
     ex_units: Vec<&ExUnits>,
@@ -43,16 +42,14 @@ pub fn block_ex_units_valid(
 #[cfg(test)]
 mod tests {
     use crate::rules::block::InvalidBlockDetails;
-    use amaru_kernel::{
-        ExUnits, HasExUnits, MintedBlock, include_cbor, protocol_parameters::ProtocolParameters,
-    };
+    use amaru_kernel::{Block, ExUnits, HasExUnits, ProtocolParameters, include_cbor};
     use test_case::test_case;
 
     macro_rules! fixture {
         ($number:literal) => {
             (
                 include_cbor!(concat!("blocks/preprod/", $number, "/valid.cbor")),
-                amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+                amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($number:literal, $pp:expr) => {
@@ -69,11 +66,11 @@ mod tests {
             mem: 0,
             steps: 0
         },
-        ..amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
+        ..amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
     }) => matches Err(InvalidBlockDetails::TooManyExUnits{provided, max: _})
     if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
     fn test_ex_units(
-        (block, protocol_parameters): (MintedBlock<'_>, ProtocolParameters),
+        (block, protocol_parameters): (Block, ProtocolParameters),
     ) -> Result<(), InvalidBlockDetails> {
         super::block_ex_units_valid(block.ex_units(), &protocol_parameters)
     }

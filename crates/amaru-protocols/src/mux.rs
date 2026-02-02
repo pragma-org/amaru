@@ -16,7 +16,7 @@ use crate::{
     network_effects::{Network, NetworkOps},
     protocol::{Erased, ProtocolId, RoleT},
 };
-use amaru_kernel::bytes::NonEmptyBytes;
+use amaru_kernel::NonEmptyBytes;
 use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
@@ -446,7 +446,7 @@ impl Muxer {
 
     #[instrument(level = "trace", skip_all, fields(proto_id, bytes = bytes.len()))]
     pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: StageRef<Sent>) {
-        tracing::trace!(proto = %proto_id, bytes = bytes.len(), "enqueueing send");
+        tracing::trace!(%proto_id, bytes = bytes.len(), "enqueueing send");
         #[allow(clippy::expect_used)]
         self.protocols
             .get_mut(&proto_id)
@@ -471,13 +471,13 @@ impl Muxer {
                 continue;
             };
             self.next_out = (idx + 1) % self.outgoing.len();
-            tracing::trace!(size = bytes.len(), proto = %proto_id, next = self.next_out, "sending segment");
+            tracing::trace!(size = bytes.len(), %proto_id, next = self.next_out, "sending segment");
             return Some((proto_id, bytes));
         }
         None
     }
 
-    #[instrument(level = "trace", skip(self, bytes, eff), fields(bytes = bytes.len()))]
+    #[instrument(level = "trace", skip(self, bytes, eff, proto_id), fields(%proto_id, bytes = bytes.len()))]
     pub async fn received<M>(
         &mut self,
         timestamp: Timestamp,

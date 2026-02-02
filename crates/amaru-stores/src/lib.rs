@@ -19,15 +19,10 @@ pub mod rocksdb;
 #[cfg(test)]
 pub mod tests {
     use amaru_kernel::{
-        Anchor, ComparableProposalId, DRepRegistration, EraHistory, Hash,
-        MemoizedTransactionOutput, Point, PoolId, PoolParams, Slot, StakeCredential,
-        TransactionInput,
-        network::NetworkName,
-        protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
-        tests::{
-            any_certificate_pointer, any_pool_id, any_pool_params, any_proposal_id,
-            any_stake_credential,
-        },
+        Anchor, ComparableProposalId, DRepRegistration, Epoch, EraHistory, Hash,
+        MemoizedTransactionOutput, NetworkName, PREPROD_INITIAL_PROTOCOL_PARAMETERS, Point, PoolId,
+        PoolParams, Slot, StakeCredential, TransactionInput, any_certificate_pointer, any_hash28,
+        any_pool_params, any_proposal_id, any_stake_credential,
     };
     use amaru_ledger::{
         state::diff_bind,
@@ -42,7 +37,6 @@ pub mod tests {
             },
         },
     };
-    use amaru_slot_arithmetic::Epoch;
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
 
     #[cfg(not(target_os = "windows"))]
@@ -204,7 +198,7 @@ pub mod tests {
 
         let slot = any_slot().new_tree(runner).unwrap().current();
         let point = Point::Specific(slot, Hash::from([0u8; 32]));
-        let slot_leader = any_pool_id().new_tree(runner).unwrap().current();
+        let slot_leader = any_hash28().new_tree(runner).unwrap().current();
 
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let mut governance_activity = GovernanceActivity {

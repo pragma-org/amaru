@@ -13,11 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    cbor, from_cbor,
-    network::NetworkName,
-    protocol_parameters::{self, GlobalParameters},
-    to_cbor, ArenaPool, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock,
-    Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+    cbor, Address, Block, EraHistory, GlobalParameters, Hash, Hasher, MemoizedTransactionOutput,
+    NetworkName, Point, TransactionInput, Value, PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+    PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
 };
 use amaru_ledger::{
     context,
@@ -25,10 +23,11 @@ use amaru_ledger::{
     state::{State, VolatileState},
     store::GovernanceActivity,
 };
+use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::in_memory::MemoryStore;
 use std::collections::BTreeMap;
 
-type BlockWrapper<'b> = (u16, MintedBlock<'b>);
+type BlockWrapper<'b> = (u16, Block);
 
 pub const RAW_BLOCK_CONWAY_1: &str = include_str!("../assets/conway1.block");
 pub const RAW_BLOCK_CONWAY_3: &str = include_str!("../assets/conway3.block");
@@ -39,15 +38,15 @@ pub fn forward_ledger(raw_block: &str) {
     let network = NetworkName::Preprod;
     let era_history: &EraHistory = network.into();
 
-    let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
+    let (_era, block): BlockWrapper = cbor::decode(&bytes).unwrap();
 
     let global_parameters: &GlobalParameters = network.into();
 
     let arena_pool = ArenaPool::new(10, 1_024_000);
 
     let protocol_parameters = match network {
-        NetworkName::Preprod => &*protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
-        NetworkName::Preview => &*protocol_parameters::PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
+        NetworkName::Preprod => &*PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+        NetworkName::Preview => &*PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
         NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
     };
 
@@ -64,10 +63,7 @@ pub fn forward_ledger(raw_block: &str) {
     )
     .unwrap();
 
-    let point = Point::Specific(
-        block.header.header_body.slot.into(),
-        Hasher::<256>::hash(&block.header.raw_cbor()),
-    );
+    let point = Point::Specific(block.header.header_body.slot.into(), block.header_hash());
 
     let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
 
@@ -79,14 +75,13 @@ pub fn forward_ledger(raw_block: &str) {
     }
 
     fn create_output(address: &str) -> MemoizedTransactionOutput {
-        let output = TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
-            address: Bytes::from(hex::decode(address).unwrap()),
+        MemoizedTransactionOutput {
+            is_legacy: false,
+            address: Address::from_hex(address).expect("Invalid hex address"),
             value: Value::Coin(0),
-            datum_option: None,
-            script_ref: None,
-        });
-
-        from_cbor(&to_cbor(&output)).unwrap()
+            datum: amaru_kernel::MemoizedDatum::None,
+            script: None,
+        }
     }
 
     let inputs = BTreeMap::from([
@@ -116,7 +111,7 @@ pub fn forward_ledger(raw_block: &str) {
         &GovernanceActivity {
             consecutive_dormant_epochs: 0,
         },
-        &block,
+        block,
     ) {
         panic!("Failed to validate block")
     };

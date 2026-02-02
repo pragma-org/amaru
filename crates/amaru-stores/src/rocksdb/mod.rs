@@ -16,8 +16,8 @@ use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoi
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
     CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep,
-    EraHistory, Lovelace, MemoizedTransactionOutput, PROTOCOL_VERSION_9, Point, PoolId,
-    StakeCredential, TransactionInput, cbor, protocol_parameters::ProtocolParameters,
+    Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, PROTOCOL_VERSION_9, Point, PoolId,
+    ProtocolParameters, StakeCredential, TransactionInput, cbor,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
@@ -29,7 +29,6 @@ use amaru_ledger::{
     summary::Pots,
 };
 use amaru_observability::stores::SNAPSHOT;
-use amaru_slot_arithmetic::Epoch;
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode,
     ReadOptions, Transaction,
@@ -56,8 +55,6 @@ use transaction::OngoingTransaction;
 
 // Constants
 // ----------------------------------------------------------------------------
-
-const EVENT_TARGET: &str = "amaru::ledger::store";
 
 /// Key where is stored the tip of the database (most recently applied delta)
 const KEY_TIP: &str = "@tip";
@@ -198,7 +195,6 @@ impl RocksDB {
                 snapshots.push(epoch);
             } else if entry.file_name() != DIR_LIVE_DB {
                 warn!(
-                    target: EVENT_TARGET,
                     filename = entry.file_name().to_str().unwrap_or_default(),
                     "new.unexpected_file"
                 );
@@ -284,7 +280,7 @@ impl Snapshot for RocksDBSnapshot {
 impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
-    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = SNAPSHOT, skip_all, fields(epoch)
+    #[instrument(level = Level::INFO, name = SNAPSHOT, skip_all, fields(epoch)
     )]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
@@ -397,7 +393,6 @@ fn with_snapshots(
             with(path, epoch)?;
         } else if entry.file_name() != DIR_LIVE_DB {
             warn!(
-                target: EVENT_TARGET,
                 filename = entry.file_name().to_str().unwrap_or_default(),
                 "with_snapshots.unexpected_file"
             );
@@ -748,7 +743,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
                 if *new <= current && !self.host.incremental_save =>
             {
-                trace!(target: EVENT_TARGET, ?point, "save.point_already_known");
+                trace!(%point, "save.point_already_known");
             }
             _ => {
                 let tip = point.slot_or_default();
@@ -933,7 +928,10 @@ fn pretty_print_snapshot_ranges(ranges: &[Vec<u64>]) -> String {
 fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     let snapshots = RocksDB::snapshots(dir)?;
     let snapshots_ranges = split_continuous(snapshots.iter().map(|e| u64::from(*e)).collect());
-    info!(target: EVENT_TARGET, snapshots = pretty_print_snapshot_ranges(&snapshots_ranges), "new.known_snapshots");
+    info!(
+        snapshots = pretty_print_snapshot_ranges(&snapshots_ranges),
+        "new.known_snapshots"
+    );
     if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
         return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
     }
@@ -1050,7 +1048,7 @@ fn with_prefix_iterator<
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{EraHistory, network::NetworkName};
+    use amaru_kernel::{EraHistory, NetworkName};
     use proptest::test_runner::TestRunner;
     use tempfile::TempDir;
 

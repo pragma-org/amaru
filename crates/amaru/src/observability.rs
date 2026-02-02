@@ -20,6 +20,8 @@ use std::{
     env::VarError,
     error::Error,
     io::{self, IsTerminal},
+    str::FromStr,
+    time::Duration,
 };
 use tracing::{info, warn};
 use tracing_subscriber::{
@@ -36,11 +38,11 @@ use tracing_subscriber::{
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
-const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=debug";
+const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=debug,pure_stage=warn";
 
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
-const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=trace";
+const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=trace,pure_stage=trace";
 
 // -----------------------------------------------------------------------------
 // TracingSubscriber
@@ -109,14 +111,10 @@ impl TracingSubscriber<Registry> {
         }
     }
 
-    pub fn init(self) {
+    pub fn init(self, color: bool) {
         let (default_filter, warning) = new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
 
-        let log_format = || {
-            tracing_subscriber::fmt::format()
-                .with_ansi(io::stderr().is_terminal())
-                .compact()
-        };
+        let log_format = || tracing_subscriber::fmt::format().with_ansi(color).compact();
         let log_writer = || io::stderr as fn() -> io::Stderr;
         let log_events = || FmtSpan::CLOSE;
         let log_filter = || default_filter;
@@ -245,8 +243,9 @@ pub fn setup_open_telemetry(
         .build()
         .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
 
-    let metric_reader =
-        opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build();
+    let metric_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
+        .with_interval(Duration::from_secs(10))
+        .build();
 
     let metrics_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_reader(metric_reader)
@@ -320,6 +319,7 @@ fn new_default_filter(var: &str, default: &str) -> (EnvFilter, DelayedWarning) {
 pub fn setup_observability(
     with_open_telemetry: bool,
     with_json_traces: bool,
+    color: bool,
 ) -> (
     Option<SdkMeterProvider>,
     Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
@@ -338,7 +338,7 @@ pub fn setup_observability(
         None
     };
 
-    subscriber.init();
+    subscriber.init(color);
 
     // NOTE: Both warnings are bound to the same ENV var, so `.or` prevents from logging it twice.
     if let Some(notify) = warning_otlp.or(warning_json) {
@@ -346,4 +346,38 @@ pub fn setup_observability(
     }
 
     (metrics, teardown)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Color {
+    Never,
+    Always,
+    Auto,
+}
+impl FromStr for Color {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "never" => Ok(Color::Never),
+            "always" => Ok(Color::Always),
+            "auto" => Ok(Color::Auto),
+            _ => Err("valid color settings are 'never', 'always' or 'auto'"),
+        }
+    }
+}
+impl Color {
+    pub fn is_enabled(this: Option<Self>) -> bool {
+        match this {
+            Some(Color::Never) => false,
+            Some(Color::Always) => true,
+            Some(Color::Auto) => std::io::stderr().is_terminal(),
+            None => {
+                if std::env::var("NO_COLOR").iter().any(|s| !s.is_empty()) {
+                    false
+                } else {
+                    std::io::stderr().is_terminal()
+                }
+            }
+        }
+    }
 }

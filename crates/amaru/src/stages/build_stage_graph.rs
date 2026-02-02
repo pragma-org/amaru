@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::{
+use amaru_consensus::{
     effects::ConsensusEffects,
     errors::{ProcessingFailed, ValidationFailed},
+    events::ChainSyncEvent,
     stages::{
         fetch_block, forward_chain, receive_header,
         select_chain::{self, SelectChain},
         validate_block, validate_header,
     },
 };
-use amaru_kernel::{consensus_events::ChainSyncEvent, protocol_messages::tip::Tip};
+use amaru_kernel::Tip;
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
@@ -119,7 +120,7 @@ pub fn build_stage_graph(
     );
     let receive_header_stage = network.wire_up(
         receive_header_stage,
-        (
+        receive_header::State::new(
             validate_header_stage.without_state(),
             validation_errors_stage.without_state(),
             processing_errors_stage.without_state(),

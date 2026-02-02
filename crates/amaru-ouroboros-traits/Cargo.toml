@@ -26,7 +26,6 @@ thiserror.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
-amaru-slot-arithmetic.workspace = true
 amaru-metrics.workspace = true
 
 [package.metadata.cargo-machete]

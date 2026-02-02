@@ -14,9 +14,10 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    DatumHash, HasRedeemers, MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemerKey,
-    RequiredScript, ScriptHash, ScriptKind, ScriptPurpose, display_collection,
-    get_provided_scripts, script_purpose_to_string,
+    HasRedeemers, Hash, MemoizedDatum, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose,
+    WitnessSet, script_purpose_to_string,
+    size::{DATUM, SCRIPT},
+    utils::string::display_collection,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -28,9 +29,9 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum InvalidScripts {
     #[error("missing required scripts: missing [{}]", display_collection(.0))]
-    MissingRequiredScripts(BTreeSet<ScriptHash>),
+    MissingRequiredScripts(BTreeSet<Hash<SCRIPT>>),
     #[error("extraneous script witnesses: extra [{}]", display_collection(.0))]
-    ExtraneousScriptWitnesses(BTreeSet<ScriptHash>),
+    ExtraneousScriptWitnesses(BTreeSet<Hash<SCRIPT>>),
     #[error(
         "unspendable inputs at position(s) [{}]: no datums",
         display_collection(.0)
@@ -42,8 +43,8 @@ pub enum InvalidScripts {
         display_collection(provided)
     )]
     MissingRequiredDatums {
-        missing: BTreeSet<DatumHash>,
-        provided: BTreeSet<DatumHash>,
+        missing: BTreeSet<Hash<DATUM>>,
+        provided: BTreeSet<Hash<DATUM>>,
     },
     #[error(
         "extraneous supplemental datums: supplemental: [{}], extraneous: [{}]",
@@ -51,23 +52,37 @@ pub enum InvalidScripts {
         display_collection(extraneous)
     )]
     ExtraneousSupplementalDatums {
-        supplemental: BTreeSet<DatumHash>,
-        extraneous: BTreeSet<DatumHash>,
+        supplemental: BTreeSet<Hash<DATUM>>,
+        extraneous: BTreeSet<Hash<DATUM>>,
     },
-    #[error("extraneous redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
+    #[error(
+        "extraneous redeemers: [{}]",
+        .0.iter().map(|redeemer_key| format!(
+            "[{}, {}]",
+            script_purpose_to_string(&redeemer_key.tag),
+            redeemer_key.index
+        )).collect::<Vec<_>>().join(", ")
+    )]
     ExtraneousRedeemers(Vec<RedeemerKey>),
-    #[error("missing redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
+    #[error(
+        "missing redeemers: [{}]",
+        .0.iter().map(|redeemer_key| format!(
+            "[{}, {}]",
+            script_purpose_to_string(&redeemer_key.tag),
+            redeemer_key.index
+        )).collect::<Vec<_>>().join(", ")
+    )]
     MissingRedeemers(Vec<RedeemerKey>),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
-pub fn execute<C>(context: &mut C, witness_set: &MintedWitnessSet<'_>) -> Result<(), InvalidScripts>
+pub fn execute<C>(context: &mut C, witness_set: &WitnessSet) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice + fmt::Debug,
 {
     let required_scripts = context.required_scripts();
 
-    let required_script_hashes: BTreeSet<&ScriptHash> = required_scripts
+    let required_script_hashes: BTreeSet<&Hash<SCRIPT>> = required_scripts
         .iter()
         .map(|RequiredScript { hash, .. }| hash)
         .collect();
@@ -87,7 +102,7 @@ where
 
     let mut extra_redeemers = Vec::new();
 
-    if let Some(provided_redemeers) = witness_set.redeemer.as_deref().map(HasRedeemers::redeemers) {
+    if let Some(provided_redemeers) = witness_set.redeemer.as_ref().map(HasRedeemers::redeemers) {
         provided_redemeers.keys().for_each(|provided| {
             if let Some(index) = required_redeemers
                 .iter()
@@ -123,7 +138,7 @@ where
 /// script-locked inputs without datum; those are simply "forever" unspendable).
 fn partition_scripts(
     required_scripts: Vec<(RequiredScript, &ScriptKind)>,
-) -> Result<(Vec<RedeemerKey>, BTreeSet<DatumHash>), InvalidScripts> {
+) -> Result<(Vec<RedeemerKey>, BTreeSet<Hash<DATUM>>), InvalidScripts> {
     let mut required_redeemers = Vec::new();
     let mut required_datums = BTreeSet::new();
     let mut missing_datums = BTreeSet::new();
@@ -186,14 +201,14 @@ fn partition_scripts(
 
 // TODO: Should live in Pallas.
 /// Collect all datum hash digests found in the witness set.
-fn datum_hashes(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<DatumHash> {
+fn datum_hashes(witness_set: &WitnessSet) -> BTreeSet<Hash<DATUM>> {
     witness_set
         .plutus_data
         .as_deref()
         .map(|datums| {
             datums
                 .iter()
-                .map(|datum| datum.original_hash())
+                .map(|datum| datum.hash())
                 .collect::<BTreeSet<_>>()
         })
         .unwrap_or_default()
@@ -201,9 +216,9 @@ fn datum_hashes(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<DatumHash> {
 
 fn collect_provided_scripts<'a, C>(
     context: &'a mut C,
-    required: &BTreeSet<&ScriptHash>,
-    witness_set: &'a MintedWitnessSet<'_>,
-) -> BTreeMap<ScriptHash, ScriptKind>
+    required: &BTreeSet<&Hash<SCRIPT>>,
+    witness_set: &'a WitnessSet,
+) -> BTreeMap<Hash<SCRIPT>, ScriptKind>
 where
     C: WitnessSlice,
 {
@@ -219,7 +234,8 @@ where
             }
         });
 
-    get_provided_scripts(witness_set)
+    witness_set
+        .get_provided_scripts()
         .into_iter()
         .chain(referenced)
         .collect()
@@ -229,7 +245,7 @@ where
 /// in each other).
 fn fail_on_script_symmetric_differences(
     required: BTreeSet<RequiredScript>,
-    provided: &BTreeMap<ScriptHash, ScriptKind>,
+    provided: &BTreeMap<Hash<SCRIPT>, ScriptKind>,
 ) -> Result<Vec<(RequiredScript, &ScriptKind)>, InvalidScripts> {
     let mut missing = BTreeSet::new();
     let mut existing = BTreeSet::new();
@@ -251,7 +267,7 @@ fn fail_on_script_symmetric_differences(
         return Err(InvalidScripts::MissingRequiredScripts(missing));
     }
 
-    let extraneous: BTreeSet<ScriptHash> = provided
+    let extraneous: BTreeSet<Hash<SCRIPT>> = provided
         .keys()
         .filter(|k| !existing.contains(k))
         .copied()
@@ -287,8 +303,8 @@ fn fail_on_script_symmetric_differences(
 ///   It's worth noting that collateral inputs and collateral return aren't considered.
 fn fail_on_supplemental_datums<C>(
     context: &mut C,
-    required: &BTreeSet<DatumHash>,
-    witnessed: &BTreeSet<DatumHash>,
+    required: &BTreeSet<Hash<DATUM>>,
+    witnessed: &BTreeSet<Hash<DATUM>>,
 ) -> Result<(), InvalidScripts>
 where
     C: WitnessSlice,
@@ -325,8 +341,8 @@ where
 /// against hashes in the same transaction.
 fn fail_on_unmatched_datums<C>(
     context: &mut C,
-    required: &BTreeSet<DatumHash>,
-    mut witnessed: BTreeSet<DatumHash>,
+    required: &BTreeSet<Hash<DATUM>>,
+    mut witnessed: BTreeSet<Hash<DATUM>>,
 ) -> Result<(), InvalidScripts>
 where
     C: WitnessSlice,
@@ -356,11 +372,10 @@ fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> 
 
 #[cfg(test)]
 mod tests {
-    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-    use amaru_kernel::{MintedWitnessSet, include_cbor, include_json};
-    use test_case::test_case;
-
     use super::InvalidScripts;
+    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
+    use amaru_kernel::{WitnessSet, include_cbor};
+    use test_case::test_case;
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -420,7 +435,7 @@ mod tests {
     )]
     #[test_case(fixture!("83036e0c9851c1df44157a8407b1daa34f25549e0644f432e655bd80b0429eba"); "duplicate redeemers")]
     fn test_scripts(
-        (mut ctx, witness_set): (AssertValidationContext, MintedWitnessSet<'_>),
+        (mut ctx, witness_set): (AssertValidationContext, WitnessSet),
     ) -> Result<(), InvalidScripts> {
         super::execute(&mut ctx, &witness_set)
     }

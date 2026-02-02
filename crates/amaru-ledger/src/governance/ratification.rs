@@ -13,14 +13,13 @@
 // limitations under the License.
 
 use crate::{
-    governance::ratification::proposals_forest::ProposalsForestCompass,
     state::StakeDistributionView,
     store::{StoreError, TransactionalContext, columns::proposals},
     summary::{SafeRatio, stake_distribution::StakeDistribution},
 };
 use amaru_kernel::{
     Ballot, ComparableProposalId, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
-    PoolId, StakeCredential, UnitInterval, Vote, Voter, protocol_parameters::ProtocolParameters,
+    PoolId, ProtocolParameters, RationalNumber, StakeCredential, Vote, Voter,
 };
 use amaru_observability::ledger::{ENACTING, RATIFYING};
 use num::Zero;
@@ -38,13 +37,13 @@ mod dreps;
 mod stake_pools;
 
 mod proposal_enum;
-use proposal_enum::{CommitteeUpdate, OrphanProposal, ProposalEnum};
+pub use proposal_enum::*;
 
 mod proposals_forest;
-use proposals_forest::{ProposalsEnactError, ProposalsForest, ProposalsInsertError};
+pub use proposals_forest::*;
 
 mod proposals_roots;
-pub use proposals_roots::{ProposalsRoots, ProposalsRootsRc};
+pub use proposals_roots::*;
 
 mod proposals_tree;
 
@@ -266,7 +265,7 @@ impl<'distr> RatificationContext<'distr> {
                         _parent,
                     ) => {
                         let committee_status = ConstitutionalCommitteeStatus::Trusted {
-                            threshold: UnitInterval {
+                            threshold: RationalNumber {
                                 numerator: threshold.numer().try_into().unwrap_or_else(|e| {
                                     unreachable!("threshold numerator larger than u64?!: {e}")
                                 }),
@@ -560,12 +559,12 @@ fn opt_root(opt: Option<&ComparableProposalId>) -> String {
 // ----------------------------------------------------------------------------
 
 #[cfg(any(all(test, not(target_os = "windows")), feature = "test-utils"))]
-pub mod tests {
-    use amaru_kernel::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
-    use amaru_slot_arithmetic::TimeMs;
-    use std::sync::LazyLock;
+pub use tests::*;
 
-    pub use super::proposal_enum::tests::*;
+#[cfg(any(all(test, not(target_os = "windows")), feature = "test-utils"))]
+mod tests {
+    use amaru_kernel::{Bound, Epoch, EraHistory, EraParams, Slot, Summary, TimeMs};
+    use std::sync::LazyLock;
 
     // Technically higher than the actual gap we may see in 'real life', but, why not.
     pub const MAX_ARBITRARY_EPOCH: u64 = 10;
@@ -594,7 +593,7 @@ pub mod tests {
     #[cfg(all(test, not(target_os = "windows")))]
     mod internal {
         use super::*;
-        use amaru_kernel::tests::any_proposal_pointer;
+        use amaru_kernel::any_proposal_pointer;
         use proptest::{prelude::*, test_runner::RngSeed};
 
         proptest! {

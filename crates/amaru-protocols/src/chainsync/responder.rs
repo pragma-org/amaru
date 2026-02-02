@@ -21,7 +21,7 @@ use crate::{
     },
     store_effects::Store,
 };
-use amaru_kernel::{BlockHeader, IsHeader, Point, peer::Peer, protocol_messages::tip::Tip};
+use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -252,7 +252,7 @@ impl ProtocolState<Responder> for ResponderState {
                 outcome().result(ResponderResult::FindIntersect(points)),
                 Intersect,
             ),
-            (Idle { send_rollback }, Message::RequestNext) => (
+            (Idle { send_rollback }, Message::RequestNext(1)) => (
                 outcome().result(ResponderResult::RequestNext),
                 CanAwait {
                     send_rollback: *send_rollback,
@@ -346,8 +346,8 @@ mod tests {
         let mut spec = ProtoSpec::default();
         spec.init(idle(false), find_intersect(), Intersect);
         spec.init(idle(true), find_intersect(), Intersect);
-        spec.init(idle(false), RequestNext, can_await(false));
-        spec.init(idle(true), RequestNext, can_await(true));
+        spec.init(idle(false), RequestNext(1), can_await(false));
+        spec.init(idle(true), RequestNext(1), can_await(true));
         spec.init(idle(false), Message::Done, Done);
         spec.init(idle(true), Message::Done, Done);
         spec.resp(Intersect, intersect_found(), idle(true));
@@ -374,8 +374,8 @@ mod tests {
             &super::super::initiator::tests::spec(),
             |state| match state {
                 Idle { .. } => InitiatorState::Idle,
-                CanAwait { .. } => InitiatorState::CanAwait,
-                MustReply => InitiatorState::MustReply,
+                CanAwait { .. } => InitiatorState::CanAwait(0),
+                MustReply => InitiatorState::MustReply(0),
                 Intersect => InitiatorState::Intersect,
                 Done => InitiatorState::Done,
             },

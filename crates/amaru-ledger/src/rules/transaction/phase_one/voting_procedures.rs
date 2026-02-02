@@ -14,14 +14,16 @@
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
-    HasStakeCredential, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript,
-    ScriptPurpose, StakeCredential, Voter, VotingProcedure,
+    HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript, ScriptPurpose,
+    StakeCredential, Voter, VotingProcedure,
 };
 use std::collections::BTreeMap;
 
 pub(crate) fn execute<C>(
     context: &mut C,
-    voting_procedures: Option<Vec<(Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>)>>,
+    voting_procedures: Option<
+        NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>,
+    >,
 ) where
     C: WitnessSlice + ProposalsSlice,
 {
@@ -32,7 +34,7 @@ pub(crate) fn execute<C>(
             .into_iter()
             .enumerate()
             .for_each(|(index, (voter, votes))| {
-                match voter.stake_credential() {
+                match voter.owner() {
                     StakeCredential::ScriptHash(hash) => {
                         context.require_script_witness(RequiredScript {
                             hash,
@@ -61,7 +63,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
-    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -92,19 +94,17 @@ mod tests {
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "drep-script"); "DRep Script")]
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "spo-key"); "SPO Key")]
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "mix"); "mix of roles, unsorted")]
-    fn voting_procedures(
-        (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
-    ) {
+    fn voting_procedures((mut tx, expected_traces): (TransactionBody, Vec<json::Value>)) {
+        let voting_procedures = std::mem::take(&mut tx.votes);
+
         assert_trace(
             || {
                 let mut validation_context =
                     AssertValidationContext::from(AssertPreparationContext {
                         utxo: BTreeMap::new(),
                     });
-                super::execute(
-                    &mut validation_context,
-                    tx.voting_procedures.as_deref().cloned(),
-                )
+
+                super::execute(&mut validation_context, voting_procedures)
             },
             expected_traces,
         );

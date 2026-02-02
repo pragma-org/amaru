@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -u
 
 exitWithUsage () {
   echo -e "\033[1;31mError: missing argument(s)!\033[00m\n"
@@ -24,17 +24,34 @@ if [ -z "$TARGET_EPOCH" ]; then
 fi
 
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
+cargo build --profile $BUILD_PROFILE --bin amaru
 
-AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-traces run | while read line; do
-  echo "$line"
+export AMARU_TRACE="${AMARU_TRACE:-amaru=info}"
+
+function run() {
+  /bin/sh -c "echo exitPID=\$\$; exec cargo run --profile $BUILD_PROFILE -- --with-json-traces run"
+}
+
+ENDED=false
+while read -r line; do
+  if [ "${line:0:8}" = "exitPID=" ]; then
+    PID="${line:8}"
+    echo "PID=$PID (me=$$)"
+  fi
   EVENT=$(jq -r '.fields.message' <<< "$line" 2>/dev/null)
   SPAN=$(jq -r '.span.name' <<< "$line" 2>/dev/null)
   if [ "$EVENT" = "exit" ] && [ "$SPAN" = "epoch_transition" ]; then
     EPOCH=$(jq -r '.span.into' <<< "$line" 2>/dev/null)
+    echo "Epoch $EPOCH"
     if [ "$EPOCH" -eq "$TARGET_EPOCH" ]; then
       echo "Target epoch reached, stopping the process."
-      pkill -INT -P $$
+      kill -INT "$PID"
+      ENDED=true
       break
     fi
   fi
-done
+done < <(run | tee /dev/stderr | grep --line-buffered "exit")
+
+# return value needs to reflect whether target epoch was reached
+echo "ENDED=$ENDED"
+test "$ENDED" = true

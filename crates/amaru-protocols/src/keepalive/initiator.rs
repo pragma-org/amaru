@@ -165,10 +165,10 @@ pub enum InitiatorAction {
 #[cfg(test)]
 #[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
-    use crate::keepalive::State;
-    use crate::keepalive::initiator::InitiatorAction;
-    use crate::keepalive::messages::Message;
-    use crate::protocol::Initiator;
+    use crate::{
+        keepalive::{State, initiator::InitiatorAction, messages::Message},
+        protocol::Initiator,
+    };
 
     #[test]
     fn test_initiator_protocol() {

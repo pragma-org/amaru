@@ -17,12 +17,11 @@ mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    AddrKeyhash, Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Hash, Lovelace,
-    MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential,
-    TransactionInput, Vote, Voter,
+    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    size::{DATUM, KEY, SCRIPT},
 };
-use amaru_slot_arithmetic::Epoch;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
@@ -256,30 +255,30 @@ pub trait ProposalsSlice {
 
 pub trait WitnessSlice {
     /// Indicate a datum that may appear in the witness set that isn't required for spending an input
-    fn allow_supplemental_datum(&mut self, datum_hash: Hash<32>);
+    fn allow_supplemental_datum(&mut self, datum_hash: Hash<DATUM>);
 
     /// Acknowledge presence of a script in the transaction by its location, to use for later validations.
-    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: TransactionInput);
+    fn acknowledge_script(&mut self, script_hash: Hash<SCRIPT>, location: TransactionInput);
 
     /// Acknowledge presence of an inline datum in the transaction by its location, to use for later validations.
-    fn acknowledge_datum(&mut self, datum_hash: DatumHash, location: TransactionInput);
+    fn acknowledge_datum(&mut self, datum_hash: Hash<DATUM>, location: TransactionInput);
 
     /// Indicate that a script wintess is required to be present (and valid) for the corresponding script data
     fn require_script_witness(&mut self, script: RequiredScript);
 
     /// Indicate that a vkey witness is required to be present (and valid) for the corresponding
     /// key hash.
-    fn require_vkey_witness(&mut self, vkey_hash: AddrKeyhash);
+    fn require_vkey_witness(&mut self, vkey_hash: Hash<KEY>);
 
     /// Indicate that a bootstrap witness is required to be present (and valid) for the corresponding
     /// root.
     fn require_bootstrap_witness(&mut self, root: Hash<28>);
 
     /// Obtain the full list of allowed supplemental datums while traversing the transaction
-    fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>>;
+    fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<DATUM>>;
 
     /// Obtain the full list of required signers collected while traversing the transaction.
-    fn required_signers(&mut self) -> BTreeSet<Hash<28>>;
+    fn required_signers(&mut self) -> BTreeSet<Hash<KEY>>;
 
     /// Obtain the full list of require scripts collected while traversing the transaction.
     fn required_scripts(&mut self) -> BTreeSet<RequiredScript>;
@@ -289,10 +288,10 @@ pub trait WitnessSlice {
     fn required_bootstrap_roots(&mut self) -> BTreeSet<Hash<28>>;
 
     /// Obtain the full list of known scripts collected while traversing the transaction.
-    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &MemoizedScript>;
+    fn known_scripts(&mut self) -> BTreeMap<Hash<SCRIPT>, &MemoizedScript>;
 
     /// Obtain the full list of known datums collected while traversing the transaction.
-    fn known_datums(&mut self) -> BTreeMap<DatumHash, &MemoizedPlutusData>;
+    fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData>;
 }
 
 /// Implement 'known_script' using the provided script locations and a context that is at least a
@@ -302,8 +301,8 @@ pub trait WitnessSlice {
 /// times, and no allocation (other than the BTreeMap) is happening whatsoever.
 pub fn blanket_known_scripts<C>(
     context: &'_ mut C,
-    known_scripts: impl Iterator<Item = (ScriptHash, TransactionInput)>,
-) -> BTreeMap<ScriptHash, &'_ MemoizedScript>
+    known_scripts: impl Iterator<Item = (Hash<SCRIPT>, TransactionInput)>,
+) -> BTreeMap<Hash<SCRIPT>, &'_ MemoizedScript>
 where
     C: UtxoSlice,
 {
@@ -329,8 +328,8 @@ where
 /// times, and no allocation (other than the BTreeMap) is happening whatsoever.
 pub fn blanket_known_datums<C>(
     context: &'_ mut C,
-    known_datums: impl Iterator<Item = (DatumHash, TransactionInput)>,
-) -> BTreeMap<DatumHash, &'_ MemoizedPlutusData>
+    known_datums: impl Iterator<Item = (Hash<DATUM>, TransactionInput)>,
+) -> BTreeMap<Hash<DATUM>, &'_ MemoizedPlutusData>
 where
     C: UtxoSlice,
 {

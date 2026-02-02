@@ -14,15 +14,13 @@
 
 use amaru::{DEFAULT_NETWORK, bootstrap::InitialNonces};
 use amaru_kernel::{
-    Bound, EraHistory, EraParams, Hash, HeaderHash, Nonce, Point, Summary, cbor,
-    network::NetworkName,
+    Bound, EraHistory, EraParams, Hash, HeaderHash, NetworkName, Nonce, Point, Summary, cbor,
 };
-use clap::Parser;
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};
 use tracing::{debug, info};
 
-#[derive(Debug, Parser)]
+#[derive(Debug, clap::Parser)]
 pub struct Args {
     /// Network to convert snapshots for.
     #[arg(
@@ -345,7 +343,7 @@ async fn write_ledger_snapshot(
 mod test {
     use super::*;
     use amaru::bootstrap::import_snapshots;
-    use amaru_kernel::network::NetworkName;
+    use amaru_kernel::NetworkName;
     use std::path::PathBuf;
     use tokio::fs;
 

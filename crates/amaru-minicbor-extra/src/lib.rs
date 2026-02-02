@@ -12,11 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use minicbor as cbor;
+use minicbor::{self as cbor, data::Tag};
 use std::cell::RefCell;
 
 pub use decode::*;
-pub mod decode;
+mod decode;
+
+/// The IANA Tag 258: <https://github.com/input-output-hk/cbor-sets-spec/blob/master/CBOR_SETS.md>
+pub static TAG_SET_258: Tag = Tag::new(258);
+
+/// The IANA Tag 259: <https://github.com/shanewholloway/js-cbor-codec/blob/master/docs/CBOR-259-spec--explicit-maps.md>
+pub static TAG_MAP_259: Tag = Tag::new(259);
 
 /// Encode any serialisable value `T` into bytes.
 pub fn to_cbor<T: cbor::Encode<()>>(value: &T) -> Vec<u8> {
@@ -43,6 +49,19 @@ pub fn from_cbor_no_leftovers<T: for<'d> cbor::Decode<'d, ()>>(
     bytes: &[u8],
 ) -> Result<T, cbor::decode::Error> {
     cbor::decode(bytes).map(|NoLeftovers(inner)| inner)
+}
+
+pub fn allow_tag(d: &mut cbor::Decoder<'_>, expected: Tag) -> Result<(), cbor::decode::Error> {
+    if d.datatype()? == cbor::data::Type::Tag {
+        let tag = d.tag()?;
+        if tag != expected {
+            return Err(cbor::decode::Error::message(format!(
+                "invalid CBOR tag: expected {expected} got {tag}"
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 #[repr(transparent)]

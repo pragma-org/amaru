@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru::default_snapshots_dir;
-use amaru_kernel::{EraHistory, network::NetworkName, protocol_parameters::GlobalParameters};
+use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
 use amaru_ledger::{
     store::{ReadStore, Snapshot},
     summary::{

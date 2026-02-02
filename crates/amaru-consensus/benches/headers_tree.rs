@@ -29,18 +29,20 @@
 #[expect(clippy::unwrap_used)]
 #[cfg(all(unix, feature = "profiling", feature = "test-utils"))]
 fn main() {
-    use amaru_consensus::consensus::headers_tree::HeadersTree;
-    use amaru_consensus::consensus::headers_tree::data_generation::{
-        execute_actions_on_tree, generate_random_walks, generate_tree_of_headers,
+    use amaru_consensus::{
+        headers_tree::{
+            HeadersTree,
+            data_generation::{
+                execute_actions_on_tree, generate_random_walks, generate_tree_of_headers,
+            },
+        },
+        stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH,
     };
-    use amaru_consensus::consensus::stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
     use amaru_kernel::{BlockHeader, IsHeader};
-    use amaru_ouroboros_traits::ChainStore;
-    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+    use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
     use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};
-    use std::fs::File;
-    use std::sync::Arc;
+    use std::{fs::File, sync::Arc};
 
     let profile = false;
     let in_memory = false;

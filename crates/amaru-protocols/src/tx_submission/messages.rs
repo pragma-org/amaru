@@ -13,14 +13,12 @@
 // limitations under the License.
 
 use crate::tx_submission::Blocking;
-use amaru_kernel::{Tx, bytes::NonEmptyBytes, check_tagged_array_length, to_cbor};
+use amaru_kernel::{NonEmptyBytes, Transaction, cbor, to_cbor};
 use amaru_ouroboros_traits::TxId;
-use minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
-use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
 /// Messages for the txsubmission mini-protocol.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 #[repr(u8)]
 pub enum Message {
     Init,
@@ -28,7 +26,7 @@ pub enum Message {
     RequestTxIdsNonBlocking(u16, u16),
     RequestTxs(Vec<TxId>),
     ReplyTxIds(Vec<(TxId, u32)>),
-    ReplyTxs(Vec<Tx>),
+    ReplyTxs(Vec<Transaction>),
     Done,
 }
 
@@ -88,12 +86,12 @@ impl Message {
     }
 }
 
-impl Encode<()> for Message {
-    fn encode<W: encode::Write>(
+impl cbor::Encode<()> for Message {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         _ctx: &mut (),
-    ) -> Result<(), encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
             Message::RequestTxIdsBlocking(ack, req) => {
                 e.array(4)?.u16(0)?;
@@ -140,14 +138,14 @@ impl Encode<()> for Message {
     }
 }
 
-impl<'b> Decode<'b, ()> for Message {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
+impl<'b> cbor::Decode<'b, ()> for Message {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
         let len = d.array()?;
         let label = d.u16()?;
 
         match label {
             0 => {
-                check_tagged_array_length(0, len, 4)?;
+                cbor::check_tagged_array_length(0, len, 4)?;
                 let blocking = d.decode()?;
                 let ack = d.u16()?;
                 let req = d.u16()?;
@@ -157,30 +155,30 @@ impl<'b> Decode<'b, ()> for Message {
                 }
             }
             1 => {
-                check_tagged_array_length(1, len, 2)?;
+                cbor::check_tagged_array_length(1, len, 2)?;
                 let items = d.decode()?;
                 Ok(Message::ReplyTxIds(items))
             }
             2 => {
-                check_tagged_array_length(2, len, 2)?;
+                cbor::check_tagged_array_length(2, len, 2)?;
                 let ids = d.decode()?;
                 Ok(Message::RequestTxs(ids))
             }
             3 => {
-                check_tagged_array_length(3, len, 2)?;
+                cbor::check_tagged_array_length(3, len, 2)?;
                 Ok(Message::ReplyTxs(
                     d.array_iter()?.collect::<Result<_, _>>()?,
                 ))
             }
             4 => {
-                check_tagged_array_length(4, len, 1)?;
+                cbor::check_tagged_array_length(4, len, 1)?;
                 Ok(Message::Done)
             }
             6 => {
-                check_tagged_array_length(6, len, 1)?;
+                cbor::check_tagged_array_length(6, len, 1)?;
                 Ok(Message::Init)
             }
-            _ => Err(decode::Error::message(
+            _ => Err(cbor::decode::Error::message(
                 "unknown variant for txsubmission message",
             )),
         }
@@ -244,10 +242,9 @@ pub enum TxSubmissionMessage {
 mod tests {
     use super::*;
     use crate::tx_submission::tests::create_transaction;
-    use amaru_kernel::{Hash, Tx, prop_cbor_roundtrip};
+    use amaru_kernel::{Hash, Transaction, prop_cbor_roundtrip};
     use prop::collection::vec;
-    use proptest::prelude::*;
-    use proptest::prop_compose;
+    use proptest::{prelude::*, prop_compose};
 
     mod tx_id {
         use super::*;
@@ -299,13 +296,13 @@ mod tests {
     }
 
     prop_compose! {
-        fn any_tx_vec()(txs in prop::collection::vec(any_tx(), 0..10)) -> Vec<Tx> {
+        fn any_tx_vec()(txs in prop::collection::vec(any_tx(), 0..10)) -> Vec<Transaction> {
             txs
         }
     }
 
     prop_compose! {
-        fn any_tx()(n in 0u64..=1000) -> Tx {
+        fn any_tx()(n in 0u64..=1000) -> Transaction {
             create_transaction(n)
         }
     }

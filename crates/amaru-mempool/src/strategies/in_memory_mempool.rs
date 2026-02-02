@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::cbor::Encode;
-use amaru_kernel::to_cbor;
-use amaru_ouroboros_traits::mempool::Mempool;
+use amaru_kernel::{cbor, to_cbor};
 use amaru_ouroboros_traits::{
     CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
-    TxRejectReason, TxSubmissionMempool,
+    TxRejectReason, TxSubmissionMempool, mempool::Mempool,
 };
-use std::collections::{BTreeMap, BTreeSet};
-use std::mem;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    mem,
+    pin::Pin,
+    sync::Arc,
+};
 use tokio::sync::Notify;
 
 /// A temporary in-memory mempool implementation to support the transaction submission protocol.
@@ -88,7 +88,7 @@ impl<Tx> Default for MempoolInner<Tx> {
     }
 }
 
-impl<Tx: Encode<()> + Clone> MempoolInner<Tx> {
+impl<Tx: cbor::Encode<()> + Clone> MempoolInner<Tx> {
     /// Inserts a new transaction into the mempool.
     /// The transaction id is a hash of the transaction body.
     fn insert(
@@ -193,7 +193,7 @@ impl<Tx: Send + Sync + 'static> CanValidateTransactions<Tx> for InMemoryMempool<
     }
 }
 
-impl<Tx: Send + Sync + 'static + Encode<()> + Clone> TxSubmissionMempool<Tx>
+impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<Tx>
     for InMemoryMempool<Tx>
 {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
@@ -249,7 +249,7 @@ impl<Tx: Send + Sync + 'static + Encode<()> + Clone> TxSubmissionMempool<Tx>
     }
 }
 
-impl<Tx: Send + Sync + 'static + Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {
+impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {
     fn take(&self) -> Vec<Tx> {
         let mut inner = self.inner.write();
         let entries = mem::take(&mut inner.entries_by_id);
@@ -290,13 +290,9 @@ impl<Tx: Send + Sync + 'static + Encode<()> + Clone> Mempool<Tx> for InMemoryMem
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru_kernel::peer::Peer;
+    use amaru_kernel::{Peer, cbor, cbor as minicbor};
     use assertables::assert_some_eq_x;
-    use minicbor::Decode;
-    use std::ops::Deref;
-    use std::slice;
-    use std::str::FromStr;
-    use std::time::Duration;
+    use std::{ops::Deref, slice, str::FromStr, time::Duration};
     use tokio::time::timeout;
 
     #[tokio::test]
@@ -330,7 +326,7 @@ mod tests {
     }
 
     // HELPERS
-    #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
+    #[derive(Debug, PartialEq, Eq, Clone, cbor::Encode, cbor::Decode)]
     struct Tx(#[n(0)] String);
 
     impl Deref for Tx {

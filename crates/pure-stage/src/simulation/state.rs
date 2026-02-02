@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::effect::StageEffect;
-use crate::{BoxFuture, Name, SendData};
+use crate::{BoxFuture, Name, SendData, effect::StageEffect};
 use std::{collections::VecDeque, fmt};
 
 pub enum InitStageState {

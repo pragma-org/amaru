@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru::{DEFAULT_NETWORK, default_ledger_dir};
-use amaru_kernel::network::NetworkName;
+use amaru_kernel::NetworkName;
 use amaru_ledger::state::MIN_LEDGER_SNAPSHOTS;
 use clap::Parser;
 use std::{fs, io, path::PathBuf};

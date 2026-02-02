@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::network::NetworkName;
+use amaru_kernel::NetworkName;
 use pallas_network::facades::PeerClient;
 use std::fmt;
 

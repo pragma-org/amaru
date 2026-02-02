@@ -16,9 +16,11 @@ mod initiator;
 pub(crate) mod messages;
 mod responder;
 
-use crate::mux::{Frame, MuxMessage};
-use crate::protocol::{Inputs, ProtoSpec, ProtocolState, RoleT};
-use amaru_kernel::{Point, peer::Peer};
+use crate::{
+    mux::{Frame, MuxMessage},
+    protocol::{Inputs, ProtoSpec, ProtocolState, RoleT},
+};
+use amaru_kernel::{Peer, Point};
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
@@ -94,7 +96,7 @@ pub async fn register_blockfetch_initiator<M>(
             handler: eff
                 .contramap(&blockfetch, "blockfetch_bytes", Inputs::Network)
                 .await,
-            max_buffer: 25000000,
+            max_buffer: 2_500_000,
         },
     )
     .await;
@@ -116,12 +118,12 @@ pub async fn register_blockfetch_responder<M>(
     eff.send(
         muxer,
         MuxMessage::Register {
-            protocol: PROTO_N2N_BLOCK_FETCH.erase(),
+            protocol: PROTO_N2N_BLOCK_FETCH.responder().erase(),
             frame: Frame::OneCborItem,
             handler: eff
                 .contramap(&blockfetch, "blockfetch_bytes", Inputs::Network)
                 .await,
-            max_buffer: 25000000,
+            max_buffer: 2_500_000,
         },
     )
     .await;

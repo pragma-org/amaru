@@ -14,9 +14,8 @@
 
 use crate::context::UtxoSlice;
 use amaru_kernel::{
-    Address, AlonzoValue, HasOwnership, MemoizedTransactionOutput, MintedTransactionOutput,
-    StakeCredential, TransactionInput, TransactionInputAdapter, Value,
-    protocol_parameters::ProtocolParameters,
+    MemoizedTransactionOutput, ProtocolParameters, TransactionInput, Value, is_locked_by_script,
+    transaction_input_to_string,
 };
 use std::{
     collections::BTreeMap,
@@ -28,6 +27,8 @@ use thiserror::Error;
 * CollateralBalance is used to track difference in collateral input vlaue and collateral return value.
 * The value of everything should be zero in this struct, otherwise value is not conserved.
 * We allow negative values here so that we are able to display them in an error message
+*
+* TODO: This type and its methods shouldn't exists, and should be merged with Value.
 */
 #[derive(Debug)]
 pub struct CollateralBalance {
@@ -96,18 +97,10 @@ impl CollateralBalance {
     }
 }
 
-impl From<Option<&MintedTransactionOutput<'_>>> for CollateralBalance {
-    fn from(value: Option<&MintedTransactionOutput<'_>>) -> Self {
+impl From<Option<&MemoizedTransactionOutput>> for CollateralBalance {
+    fn from(value: Option<&MemoizedTransactionOutput>) -> Self {
         match value {
-            Some(output) => match output {
-                amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
-                    CollateralBalance::from(&output.amount)
-                }
-
-                amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
-                    CollateralBalance::from(&output.value)
-                }
-            },
+            Some(output) => CollateralBalance::from(&output.value),
             None => CollateralBalance::empty(),
         }
     }
@@ -141,42 +134,14 @@ impl From<&Value> for CollateralBalance {
     }
 }
 
-impl From<&AlonzoValue> for CollateralBalance {
-    fn from(value: &AlonzoValue) -> Self {
-        match value {
-            AlonzoValue::Multiasset(coin, multiasset) => {
-                let map = multiasset
-                    .iter()
-                    .flat_map(|(policy, assets)| {
-                        assets.iter().map(|(asset_name, quantity)| {
-                            let key = [policy.as_ref(), asset_name.as_ref()].concat();
-
-                            (key, *quantity as i64)
-                        })
-                    })
-                    .collect::<BTreeMap<_, _>>();
-
-                Self {
-                    coin: *coin as i64,
-                    multiasset: map,
-                }
-            }
-            AlonzoValue::Coin(coin) => Self {
-                coin: *coin as i64,
-                multiasset: BTreeMap::new(),
-            },
-        }
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum InvalidCollateral {
-    #[error("Unknown input: {0}")]
-    UnknownInput(TransactionInputAdapter),
+    #[error("Unknown input: {}", transaction_input_to_string(.0))]
+    UnknownInput(TransactionInput),
     #[error("too many collateral inputs: provided: {provided} allowed: {allowed}")]
     TooManyInputs { provided: usize, allowed: usize },
-    #[error("a collateral input is locked at a script address: {0}")]
-    LockedAtScriptAddress(TransactionInputAdapter),
+    #[error("a collateral input is locked at a script address: {}", transaction_input_to_string(.0))]
+    LockedAtScriptAddress(TransactionInput),
     #[error("total collateral value is insufficient: provided: {provided} required: {required}")]
     InsufficientBalance { provided: u64, required: u64 },
     #[error(
@@ -199,7 +164,7 @@ pub enum InvalidCollateral {
 pub fn execute<C>(
     context: &mut C,
     collaterals: Option<&[TransactionInput]>,
-    collateral_return: Option<&MintedTransactionOutput<'_>>,
+    collateral_return: Option<&MemoizedTransactionOutput>,
     tx_collateral: Option<u64>,
     fee: u64,
     protocol_parameters: &ProtocolParameters,
@@ -222,18 +187,16 @@ where
     for collateral in collaterals.iter() {
         let output = context
             .lookup(collateral)
-            .ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone().into()))?;
+            .ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone()))?;
 
         if is_locked_by_script(&output.address) {
-            return Err(InvalidCollateral::LockedAtScriptAddress(
-                collateral.clone().into(),
-            ));
+            return Err(InvalidCollateral::LockedAtScriptAddress(collateral.clone()));
         }
 
         balance.add_output_value(output);
     }
 
-    let collateral_return_balance = collateral_return.into();
+    let collateral_return_balance = CollateralBalance::from(collateral_return);
 
     balance.sub(collateral_return_balance);
 
@@ -261,17 +224,12 @@ where
     Ok(())
 }
 
-pub fn is_locked_by_script(address: &Address) -> bool {
-    matches!(address.credential(), Some(StakeCredential::ScriptHash(_)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::InvalidCollateral;
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
     use amaru_kernel::{
-        KeepRaw, MintedTransactionBody, include_cbor, include_json,
-        protocol_parameters::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters},
+        PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, include_cbor,
     };
     use test_case::test_case;
 
@@ -328,11 +286,12 @@ mod tests {
         matches Err(InvalidCollateral::LockedAtScriptAddress(..));
         "locked at script"
     )]
-    #[test_case(
-        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "no-collateral") =>
-        matches Err(InvalidCollateral::NoCollateral);
-        "no collateral"
-    )]
+    // This tx now fails to decode because conway txes cannot have empty collateral
+    //#[test_case(
+    //    fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "no-collateral") =>
+    //    matches Err(InvalidCollateral::NoCollateral);
+    //    "no collateral"
+    //)]
     #[test_case(
         fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "insufficient-balance") =>
         matches Err(InvalidCollateral::InsufficientBalance { .. });
@@ -359,15 +318,11 @@ mod tests {
         "value not conserved - outputs > inputs"
     )]
     fn collateral(
-        (mut ctx, tx, pp): (
-            AssertValidationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
-            ProtocolParameters,
-        ),
+        (mut ctx, tx, pp): (AssertValidationContext, TransactionBody, ProtocolParameters),
     ) -> Result<(), InvalidCollateral> {
         super::execute(
             &mut ctx,
-            tx.collateral.as_deref().map(|vec| vec.as_slice()),
+            tx.collateral.as_deref(),
             tx.collateral_return.as_ref(),
             tx.total_collateral,
             tx.fee,

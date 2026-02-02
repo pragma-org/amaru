@@ -202,12 +202,12 @@ impl ConstitutionalCommittee {
 mod tests {
     use super::ConstitutionalCommittee;
     use crate::{
-        governance::ratification::tests::any_proposal_enum,
+        governance::ratification::any_proposal_enum,
         summary::{SafeRatio, into_safe_ratio},
     };
     use amaru_kernel::{
-        Epoch, Hash, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, StakeCredential, Vote,
-        tests::{VOTE_NO, VOTE_YES, any_rational_number, any_stake_credential, any_vote_ref},
+        Epoch, Hash, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, StakeCredential, VOTE_NO, VOTE_YES,
+        Vote, any_rational_number, any_stake_credential, any_vote_ref,
     };
     use num::{One, Zero};
     use proptest::{collection, prelude::*, sample, test_runner::RngSeed};

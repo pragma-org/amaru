@@ -17,9 +17,9 @@ use anyhow::{Context as _, ensure};
 use cbor4ii::serde::from_slice;
 use std::{collections::HashMap, mem::replace, sync::Arc};
 
-use crate::effect::ScheduleIds;
 use crate::{
     Effect, Instant, Name, SendData,
+    effect::ScheduleIds,
     effect_box::EffectBox,
     serde::to_cbor,
     simulation::{

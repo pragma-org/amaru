@@ -17,8 +17,8 @@ use crate::summary::{
     SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution,
 };
 use amaru_kernel::{
-    DRep, PROTOCOL_VERSION_9, PoolId, ProtocolParamUpdate, ProtocolVersion, Vote,
-    expect_stake_credential, protocol_parameters::PoolVotingThresholds,
+    DRep, PROTOCOL_VERSION_9, PoolId, PoolVotingThresholds, ProtocolParamUpdate, ProtocolVersion,
+    Vote, expect_stake_credential,
 };
 use num::Zero;
 use std::collections::BTreeMap;
@@ -167,7 +167,7 @@ pub fn tally(
 mod tests {
     use super::{tally, voting_threshold};
     use crate::{
-        governance::ratification::{ProposalEnum, tests::any_proposal_enum},
+        governance::ratification::{ProposalEnum, any_proposal_enum},
         summary::{
             SafeRatio,
             stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_dreps},
@@ -175,11 +175,9 @@ mod tests {
     };
     use amaru_kernel::{
         DRep, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, PoolId, ProtocolParamUpdate,
-        ProtocolVersion, Vote, expect_stake_credential,
-        tests::{
-            VOTE_YES, any_comparable_proposal_id, any_ex_units, any_pool_voting_thresholds,
-            any_protocol_params_update, any_protocol_version, any_rational_number, any_vote_ref,
-        },
+        ProtocolVersion, VOTE_YES, Vote, any_comparable_proposal_id, any_ex_units,
+        any_pool_voting_thresholds, any_protocol_params_update, any_protocol_version,
+        any_rational_number, any_vote_ref, expect_stake_credential,
     };
     use num::{One, ToPrimitive, Zero};
     use proptest::{collection, option, prelude::*, sample};

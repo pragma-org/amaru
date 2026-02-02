@@ -9,12 +9,6 @@
 #[test_case(171)]
 #[test_case(172)]
 #[test_case(173)]
-#[test_case(174)]
-#[test_case(175)]
-#[test_case(176)]
-#[test_case(177)]
-#[test_case(178)]
-#[test_case(179)]
 #[ignore]
 pub fn compare_snapshot_preprod(epoch: u64) {
     let epoch = Epoch::from(epoch);

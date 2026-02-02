@@ -16,8 +16,7 @@ pub mod in_memory_consensus_store;
 
 use crate::Nonces;
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, RawBlock};
-use std::fmt::Display;
-use std::iter::successors;
+use std::{fmt::Display, iter::successors};
 use thiserror::Error;
 
 pub trait ReadOnlyChainStore<H>

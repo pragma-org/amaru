@@ -19,12 +19,12 @@ use crate::{
         Inputs, Miniprotocol, Outcome, PROTO_HANDSHAKE, ProtocolState, Responder, StageState,
         miniprotocol, outcome,
     },
-};
-use amaru_kernel::protocol_messages::{
-    handshake::{HandshakeResult, RefuseReason},
-    version_data::VersionData,
-    version_number::VersionNumber,
-    version_table::VersionTable,
+    protocol_messages::{
+        handshake::{HandshakeResult, RefuseReason},
+        version_data::VersionData,
+        version_number::VersionNumber,
+        version_table::VersionTable,
+    },
 };
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
@@ -166,9 +166,10 @@ impl From<HandshakeResult> for ResponderAction {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::handshake::responder::ResponderAction;
-    use crate::handshake::{Message, State};
-    use crate::protocol::Responder;
+    use crate::{
+        handshake::{Message, State, responder::ResponderAction},
+        protocol::Responder,
+    };
 
     #[test]
     fn test_responder_protocol() {

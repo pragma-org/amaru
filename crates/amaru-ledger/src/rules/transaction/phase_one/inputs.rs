@@ -15,27 +15,23 @@
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
     AddrType, Address, HasScriptHash, MemoizedDatum, RequiredScript, ScriptPurpose,
-    TransactionInput, TransactionInputAdapter,
+    TransactionInput, transaction_input_to_string,
 };
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InvalidInputs {
-    #[error("Unknown input: {0}")]
-    UnknownInput(TransactionInputAdapter),
+    #[error("Unknown input: {}", transaction_input_to_string(.0))]
+    UnknownInput(TransactionInput),
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
         intersection
             .iter()
-            .map(|input|
-                input.to_string()
-            )
+            .map(transaction_input_to_string)
             .collect::<Vec<_>>()
             .join(", ")
     )]
-    NonDisjointRefInputs {
-        intersection: Vec<TransactionInputAdapter>,
-    },
+    NonDisjointRefInputs { intersection: Vec<TransactionInput> },
     #[error("input set empty")]
     EmptyInputSet,
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
@@ -61,13 +57,13 @@ where
         for reference_input in reference_inputs {
             // Non-disjoint reference inputs
             if inputs.contains(reference_input) {
-                intersection.push(reference_input.clone().into());
+                intersection.push(reference_input.clone());
                 continue;
             }
 
             let output = context
                 .lookup(reference_input)
-                .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone().into()))?;
+                .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
 
             let script_ref = output.script.as_ref().map(|s| s.script_hash());
 
@@ -105,7 +101,7 @@ where
 
         let output = context
             .lookup(input)
-            .ok_or_else(|| InvalidInputs::UnknownInput(input.clone().into()))?;
+            .ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
 
         let script = output.script.as_ref().map(|script| script.script_hash());
 
@@ -155,7 +151,7 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
     };
-    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -223,11 +219,7 @@ mod tests {
         "unknown reference input"
     )]
     fn inputs(
-        (ctx, tx, expected_traces): (
-            AssertPreparationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
-            Vec<json::Value>,
-        ),
+        (ctx, tx, expected_traces): (AssertPreparationContext, TransactionBody, Vec<json::Value>),
     ) -> Result<(), InvalidInputs> {
         assert_trace(
             move || {
@@ -235,7 +227,7 @@ mod tests {
                 super::execute(
                     &mut validation_context,
                     &tx.inputs,
-                    tx.reference_inputs.as_deref().map(|vec| vec.as_slice()),
+                    tx.reference_inputs.as_deref(),
                 )
             },
             expected_traces,

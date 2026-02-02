@@ -12,39 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{MintedBlock, to_cbor};
-
 use super::InvalidBlockDetails;
+use amaru_kernel::Block;
 
 /// This validation checks that the purported block body size matches the actual block body size.
 /// The validation of the bounds happens in the networking layer
-pub fn block_body_size_valid(block: &MintedBlock<'_>) -> Result<(), InvalidBlockDetails> {
-    let block_header = &block.header.header_body;
-    let bh_size = block_header.block_body_size as usize;
-    let actual_block_size = calculate_block_body_size(block);
+pub fn block_body_size_valid(block: &Block) -> Result<(), InvalidBlockDetails> {
+    let announced_size = block.header.header_body.block_body_size;
+    let actual_size = block.body_len();
 
-    if bh_size != actual_block_size {
-        Err(InvalidBlockDetails::BlockSizeMismatch {
-            supplied: bh_size,
-            actual: actual_block_size,
-        })
-    } else {
-        Ok(())
+    if announced_size != actual_size {
+        return Err(InvalidBlockDetails::BlockSizeMismatch {
+            supplied: announced_size,
+            actual: actual_size,
+        });
     }
-}
 
-// FIXME: Do not re-serialize block here, but rely on the original bytes.
-fn calculate_block_body_size(block: &MintedBlock<'_>) -> usize {
-    to_cbor(&block.transaction_bodies).len()
-        + to_cbor(&block.transaction_witness_sets).len()
-        + to_cbor(&block.auxiliary_data_set).len()
-        + to_cbor(&block.invalid_transactions).len()
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use crate::rules::block::InvalidBlockDetails;
-    use amaru_kernel::{MintedBlock, include_cbor};
+    use amaru_kernel::{Block, include_cbor};
     use test_case::test_case;
 
     macro_rules! fixture {
@@ -57,11 +47,13 @@ mod tests {
     }
 
     #[test_case(fixture!("2667660"); "valid")]
-    #[test_case(fixture!("2667660", "invalid_block_body_size") =>
-        matches Err(InvalidBlockDetails::BlockSizeMismatch {supplied, actual})
-            if supplied == 0 && actual == 3411;
-    "block body size mismatch")]
-    fn test_block_size(block: MintedBlock<'_>) -> Result<(), InvalidBlockDetails> {
+    #[test_case(
+        fixture!("2667660", "invalid_block_body_size")
+        => matches Err(InvalidBlockDetails::BlockSizeMismatch {supplied, actual})
+            if supplied == 0 && actual == 3411
+        ; "block body size mismatch"
+    )]
+    fn test_block_size(block: Block) -> Result<(), InvalidBlockDetails> {
         super::block_body_size_valid(&block)
     }
 }

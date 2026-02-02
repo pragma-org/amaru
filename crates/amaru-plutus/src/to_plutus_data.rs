@@ -17,7 +17,7 @@ use crate::{
     script_context::{CurrencySymbol, DatumOption, RequiredSigners, Script, TimeRange},
 };
 use amaru_kernel::{
-    Address, BigInt, Bytes, ComputeHash, Hash, Int, KeyValuePairs, MaybeIndefArray, MemoizedDatum,
+    Address, BigInt, Bytes, ComputeHash, Hash, Int, MaybeIndefArray, MemoizedDatum,
     NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ShelleyDelegationPart,
     ShelleyPaymentPart, StakeCredential,
 };
@@ -350,14 +350,14 @@ where
     }
 }
 
-impl<const VER: u8, K, V> ToPlutusData<VER> for KeyValuePairs<K, V>
+impl<const VER: u8, K, V> ToPlutusData<VER> for pallas_codec::utils::KeyValuePairs<K, V>
 where
     PlutusVersion<VER>: IsKnownPlutusVersion,
     K: ToPlutusData<VER> + Clone,
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(KeyValuePairs::Def(
+        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
             self.iter()
                 .map(|(key, value)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,
@@ -368,13 +368,13 @@ where
 impl<const VER: u8, K, V> ToPlutusData<VER> for NonEmptyKeyValuePairs<K, V>
 where
     PlutusVersion<VER>: IsKnownPlutusVersion,
-    K: ToPlutusData<VER> + Clone,
+    K: ToPlutusData<VER> + Clone + Eq,
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(KeyValuePairs::Def(
+        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
             self.iter()
-                .map(|(key, value)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
+                .map(|(key, value): &(K, V)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,
         )))
     }

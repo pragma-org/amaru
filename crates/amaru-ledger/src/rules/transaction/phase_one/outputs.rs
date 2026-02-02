@@ -14,19 +14,21 @@
 
 use crate::{
     context::{UtxoSlice, WitnessSlice},
-    rules::{WithPosition, format_vec},
+    rules::WithPosition,
 };
 use amaru_kernel::{
-    HasAddress, HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput,
-    MintedTransactionOutput, Network, TransactionInput, protocol_parameters::ProtocolParameters,
-    to_network_id,
+    AsIndex, HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput, Network,
+    ProtocolParameters, TransactionInput, utils::string::display_collection,
 };
 use thiserror::Error;
 
 mod inherent_value;
 
 #[derive(Debug, Error)]
-#[error("invalid transaction outputs: [{}]", format_vec(invalid_outputs))]
+#[error(
+    "invalid transaction outputs: [{}]",
+    display_collection(invalid_outputs)
+)]
 pub struct InvalidOutputs {
     invalid_outputs: Vec<WithPosition<InvalidOutput>>,
 }
@@ -58,7 +60,7 @@ pub fn execute<C>(
     context: &mut C,
     protocol_parameters: &ProtocolParameters,
     network: &Network,
-    outputs: Vec<MintedTransactionOutput<'_>>,
+    outputs: Vec<MemoizedTransactionOutput>,
     construct_utxo: impl Fn(u64) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
@@ -72,29 +74,20 @@ where
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
-        match MemoizedTransactionOutput::try_from(output) {
-            Ok(output) => {
-                // FIXME: This line is wrong. According to the Haskell source code, we should only count
-                // supplemental datums for outputs (regardless of whether transaction fails or not).
-                //
-                // In particular, any datum present in a collateral return does NOT count towards the
-                // allowed supplemental datums.
-                //
-                // However, I am not fixing this now, because we have no test covering the case whatsoever.
-                // At the moment, that line can actually be fully removed without making any test fail.
-                if let MemoizedDatum::Hash(hash) = &output.datum {
-                    context.allow_supplemental_datum(*hash);
-                }
+        // FIXME: This line is wrong. According to the Haskell source code, we should only count
+        // supplemental datums for outputs (regardless of whether transaction fails or not).
+        //
+        // In particular, any datum present in a collateral return does NOT count towards the
+        // allowed supplemental datums.
+        //
+        // However, I am not fixing this now, because we have no test covering the case whatsoever.
+        // At the moment, that line can actually be fully removed without making any test fail.
+        if let MemoizedDatum::Hash(hash) = &output.datum {
+            context.allow_supplemental_datum(*hash);
+        }
 
-                if let Some(input) = construct_utxo(position as u64) {
-                    context.produce(input, output);
-                }
-            }
-            Err(err) => {
-                let element =
-                    InvalidOutput::UncategorizedError(format!("failed to convert output: {err}"));
-                invalid_outputs.push(WithPosition { position, element });
-            }
+        if let Some(input) = construct_utxo(position as u64) {
+            context.produce(input, output);
         }
     }
 
@@ -106,19 +99,15 @@ where
 }
 
 fn validate_network(
-    output: &MintedTransactionOutput<'_>,
+    output: &MemoizedTransactionOutput,
     expected_network: &Network,
 ) -> Result<(), InvalidOutput> {
-    let address = output
-        .address()
-        .map_err(|e| InvalidOutput::UncategorizedError(e.to_string()))?;
-
-    let given_network = address.has_network();
+    let given_network = output.address.has_network();
 
     if &given_network != expected_network {
         Err(InvalidOutput::WrongNetwork {
-            expected: to_network_id(expected_network),
-            actual: to_network_id(&given_network),
+            expected: expected_network.as_index(),
+            actual: given_network.as_index(),
         })
     } else {
         Ok(())
@@ -127,26 +116,20 @@ fn validate_network(
 
 #[cfg(test)]
 mod tests {
-
-    use std::collections::BTreeMap;
-
-    use amaru_kernel::{
-        MintedTransactionBody, Network, include_cbor, protocol_parameters::ProtocolParameters,
-    };
-    use test_case::test_case;
-
+    use super::{InvalidOutput, InvalidOutputs};
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::WithPosition,
     };
-
-    use super::{InvalidOutput, InvalidOutputs};
+    use amaru_kernel::{Network, ProtocolParameters, TransactionBody, include_cbor};
+    use std::collections::BTreeMap;
+    use test_case::test_case;
 
     macro_rules! fixture {
         ($hash:literal) => {
             (
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+                amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $variant:literal) => {
@@ -158,7 +141,7 @@ mod tests {
                     $variant,
                     "/tx.cbor"
                 )),
-                amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+                amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $pp:expr) => {
@@ -175,7 +158,7 @@ mod tests {
             "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
             ProtocolParameters {
                 lovelace_per_utxo_byte: 100_000_000_000,
-                ..amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
+                ..amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
             }
         ) => matches Err(InvalidOutputs{invalid_outputs})
             if matches!(invalid_outputs[0], WithPosition {
@@ -187,7 +170,7 @@ mod tests {
             "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
             ProtocolParameters {
                 max_value_size: 1,
-                ..amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
+                ..amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
             }
         ) => matches Err(InvalidOutputs{invalid_outputs})
             if matches!(invalid_outputs[0], WithPosition {
@@ -214,7 +197,7 @@ mod tests {
     )]
     #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "valid-byron"); "valid byron")]
     fn outputs(
-        (tx, protocol_parameters): (MintedTransactionBody<'_>, ProtocolParameters),
+        (tx, protocol_parameters): (TransactionBody, ProtocolParameters),
     ) -> Result<(), InvalidOutputs> {
         let mut context = AssertValidationContext::from(AssertPreparationContext {
             utxo: BTreeMap::new(),

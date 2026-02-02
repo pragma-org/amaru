@@ -15,19 +15,17 @@
 use crate::{
     context::ValidationContext,
     rules::transaction::{self, phase_one::PhaseOneError, phase_two::PhaseTwoError},
-    state::FailedTransactions,
     store::GovernanceActivity,
 };
 use amaru_kernel::{
-    ArenaPool, AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hasher, HeaderHash, MintedBlock,
-    OriginalHash, TransactionId, TransactionPointer, network::NetworkName,
-    protocol_parameters::ProtocolParameters,
+    Block, EraHistory, ExUnits, HasExUnits, HeaderHash, NetworkName, ProtocolParameters, Slot,
+    TransactionId, TransactionPointer,
 };
 use amaru_observability::ledger::VALIDATE_BLOCK;
-use amaru_slot_arithmetic::Slot;
+use amaru_plutus::arena_pool::ArenaPool;
 use std::{
     fmt::{self, Display},
-    ops::{ControlFlow, Deref, FromResidual, Try},
+    ops::{ControlFlow, FromResidual, Try},
     process::{ExitCode, Termination},
 };
 use thiserror::Error;
@@ -47,16 +45,16 @@ pub enum TransactionInvalid {
 #[derive(Debug)]
 pub enum InvalidBlockDetails {
     BlockSizeMismatch {
-        supplied: usize,
-        actual: usize,
+        supplied: u64,
+        actual: u64,
     },
     TooManyExUnits {
         provided: ExUnits,
         max: ExUnits,
     },
     HeaderSizeTooBig {
-        supplied: usize,
-        max: usize,
+        supplied: u64,
+        max: u64,
     },
     Transaction {
         transaction_hash: TransactionId,
@@ -179,64 +177,41 @@ pub fn execute<C, S: From<C>>(
     protocol_params: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: &GovernanceActivity,
-    block: &MintedBlock<'_>,
+    block: Block,
 ) -> BlockValidation<(), anyhow::Error>
 where
     C: ValidationContext<FinalState = S> + fmt::Debug,
 {
+    let slot = Slot::from(block.header.header_body.slot);
+
+    let header_hash = block.header_hash();
+
     let with_block_context = |result| match result {
         Ok(out) => BlockValidation::Valid(out),
-        Err(err) => BlockValidation::Invalid(
-            Slot::from(block.header.header_body.slot),
-            Hasher::<256>::hash(block.header.header_body.raw_cbor()),
-            err,
-        ),
+        Err(err) => BlockValidation::Invalid(slot, header_hash, err),
     };
 
     with_block_context(header_size::block_header_size_valid(
-        block.header.raw_cbor(),
+        block.header_len(),
         protocol_params,
     ))?;
 
-    with_block_context(body_size::block_body_size_valid(block))?;
+    with_block_context(body_size::block_body_size_valid(&block))?;
 
     with_block_context(ex_units::block_ex_units_valid(
         block.ex_units(),
         protocol_params,
     ))?;
 
-    let failed_transactions = FailedTransactions::from_block(block);
-
-    let transactions = block.transaction_bodies.deref().to_vec();
-
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
-    for (i, transaction) in (0u32..).zip(transactions.into_iter()) {
-        let transaction_hash = transaction.original_hash();
-
-        let is_valid = !failed_transactions.has(i);
-
-        let witness_set = match block.transaction_witness_sets.get(i as usize) {
-            Some(witness_set) => witness_set,
-            None => {
-                // TODO: Define a proper error for this.
-                return BlockValidation::bail(format!(
-                    "Witness set not found for transaction index {}",
-                    i
-                ));
-            }
-        };
-
-        let auxiliary_data: Option<AuxiliaryDataHash> = block
-            .auxiliary_data_set
-            .iter()
-            .find(|key_pair| key_pair.0 == i)
-            .map(|key_pair| Hasher::<256>::hash(key_pair.1.raw_cbor()));
+    for (i, transaction) in block {
+        let transaction_hash = transaction.body.id();
 
         transaction
+            .body
             .required_signers
             .as_deref()
-            .map(|x| x.as_slice())
             .unwrap_or(&[])
             .iter()
             .for_each(|vk_hash| {
@@ -244,7 +219,7 @@ where
             });
 
         let pointer = TransactionPointer {
-            slot: Slot::from(block.header.header_body.slot),
+            slot,
             transaction_index: i as usize, // From u32
         };
 
@@ -255,10 +230,10 @@ where
             era_history,
             governance_activity,
             pointer,
-            is_valid,
-            transaction.clone(),
-            &witness_set.clone(),
-            auxiliary_data,
+            transaction.is_expected_valid,
+            transaction.body.clone(),
+            &transaction.witnesses,
+            transaction.auxiliary_data.as_ref(),
         ) {
             Ok(inputs) => inputs,
             Err(err) => {
@@ -277,9 +252,9 @@ where
             protocol_params,
             era_history,
             pointer,
-            is_valid,
-            &transaction,
-            witness_set,
+            transaction.is_expected_valid,
+            &transaction.body,
+            &transaction.witnesses,
         ) {
             return with_block_context(Err(InvalidBlockDetails::Transaction {
                 transaction_hash,
