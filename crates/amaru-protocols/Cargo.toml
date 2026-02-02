@@ -23,6 +23,7 @@ serde.workspace = true
 tracing.workspace = true
 
 amaru-kernel = { "workspace" = true, features = ["test-utils"] }
+amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
 

@@ -19,9 +19,7 @@ inventory::collect!(SchemaEntry);
 impl SchemaEntry {
     /// Get all registered schemas
     pub fn all() -> Vec<SchemaEntry> {
-        inventory::iter::<SchemaEntry>()
-            .map(|s| s.clone())
-            .collect()
+        inventory::iter::<SchemaEntry>().cloned().collect()
     }
 
     /// Find a schema by path

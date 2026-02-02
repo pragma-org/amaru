@@ -97,7 +97,7 @@ fn run_simulator_with_traces() {
                 "name": "chain_sync.receive_header",
                 "children": [
                   {
-                    "name": "chain_sync.decode_header"
+                    "name": "decode_header"
                   }
                 ]
               },

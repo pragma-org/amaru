@@ -21,13 +21,13 @@ use amaru_kernel::{
     Ballot, ComparableProposalId, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
     PoolId, ProtocolParameters, RationalNumber, StakeCredential, Vote, Voter,
 };
-use amaru_observability::ledger::{ENACTING, RATIFYING};
+use amaru_observability::trace;
 use num::Zero;
 use std::{
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
 };
-use tracing::{Level, Span, debug_span, field, info, info_span, instrument, trace_span};
+use tracing::{Span, debug_span, field, info, info_span, trace_span};
 
 mod constitutional_committee;
 pub use constitutional_committee::ConstitutionalCommittee;
@@ -88,15 +88,11 @@ pub type StoreUpdate<'distr, S> =
     Box<dyn FnOnce(&S, &RatificationContext<'distr>) -> Result<(), StoreError>>;
 
 impl<'distr> RatificationContext<'distr> {
-    #[instrument(
-        level = Level::INFO,
-        skip_all,
-        fields(
-            roots.protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
-            roots.hard_fork = opt_root(roots.hard_fork.as_deref()),
-            roots.constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
-            roots.constitution = opt_root(roots.constitution.as_deref()),
-        ),
+    #[trace(amaru::ledger::governance::RATIFY_PROPOSALS,
+        roots_protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
+        roots_hard_fork = opt_root(roots.hard_fork.as_deref()),
+        roots_constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
+        roots_constitution = opt_root(roots.constitution.as_deref())
     )]
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
@@ -333,7 +329,7 @@ impl<'distr> RatificationContext<'distr> {
 
     fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
         info_span!(
-            ENACTING,
+            "enacting",
             "proposal.id" = id.to_compact_string(),
             "proposal.kind" = proposal.display_kind(),
             "proposals.pruned" = field::Empty,
@@ -343,7 +339,7 @@ impl<'distr> RatificationContext<'distr> {
     fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
         if matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)) {
             trace_span!(
-                RATIFYING,
+                "ratifying",
                 "proposal.id" = id.to_compact_string(),
                 "proposal.kind" = proposal.display_kind(),
                 "required_threshold.committee" = field::Empty,
@@ -364,7 +360,7 @@ impl<'distr> RatificationContext<'distr> {
             )
         } else {
             debug_span!(
-                RATIFYING,
+                "ratifying",
                 "proposal.id" = id.to_compact_string(),
                 "proposal.kind" = proposal.display_kind(),
                 "required_threshold.committee" = field::Empty,

@@ -28,7 +28,7 @@ use amaru_ledger::{
     },
     summary::Pots,
 };
-use amaru_observability::stores::SNAPSHOT;
+use amaru_observability::{augment_trace, trace};
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode,
     ReadOptions, Transaction,
@@ -40,7 +40,7 @@ use std::{
     path::{Path, PathBuf},
     sync::LazyLock,
 };
-use tracing::{Level, info, instrument, trace, warn};
+use tracing::warn;
 
 pub mod ledger;
 use ledger::columns::*;
@@ -280,8 +280,7 @@ impl Snapshot for RocksDBSnapshot {
 impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
-    #[instrument(level = Level::INFO, name = SNAPSHOT, skip_all, fields(epoch)
-    )]
+    #[trace(amaru::stores::ledger::SNAPSHOT, epoch = u64::from(epoch))]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
 
@@ -344,7 +343,7 @@ impl RocksDBHistoricalStores {
 }
 
 impl HistoricalStores for RocksDBHistoricalStores {
-    #[instrument(level = Level::INFO, skip_all, fields(minimum_epoch))]
+    #[trace(amaru::stores::ledger::PRUNE, functional_minimum = u64::from(functional_minimum))]
     fn prune(&self, functional_minimum: Epoch) -> Result<(), StoreError> {
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
         with_snapshots(&self.config.dir, |path, epoch| {
@@ -589,10 +588,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         res
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-    )]
+    #[trace(amaru::stores::ledger::TRY_EPOCH_TRANSITION, has_from = from.is_some(), has_to = to.is_some())]
     fn try_epoch_transition(
         &self,
         from: Option<EpochTransitionProgress>,
@@ -743,7 +739,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
                 if *new <= current && !self.host.incremental_save =>
             {
-                trace!(%point, "save.point_already_known");
+                record_point_already_known(format!("{point:?}"));
             }
             _ => {
                 let tip = point.slot_or_default();
@@ -892,6 +888,18 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 // Helpers
 // ----------------------------------------------------------------------------
 
+/// Record point information when it's already known during save operations
+#[augment_trace(amaru::stores::ledger::TRY_EPOCH_TRANSITION)]
+fn record_point_already_known(point: String) {
+    // Point information is automatically recorded to current span
+}
+
+/// Record known snapshot ranges during database initialization
+#[augment_trace(amaru::stores::ledger::TRY_EPOCH_TRANSITION)]
+fn record_known_snapshots(snapshots: String) {
+    // Snapshot information is automatically recorded to current span
+}
+
 /// Splits a vector of numbers into groups of continuous numbers.
 /// e.g. `[1, 2, 3, 5, 6, 8]` becomes `[[1, 2, 3], [5, 6], [8]]`.
 fn split_continuous(input: Vec<u64>) -> Vec<Vec<u64>> {
@@ -928,10 +936,7 @@ fn pretty_print_snapshot_ranges(ranges: &[Vec<u64>]) -> String {
 fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     let snapshots = RocksDB::snapshots(dir)?;
     let snapshots_ranges = split_continuous(snapshots.iter().map(|e| u64::from(*e)).collect());
-    info!(
-        snapshots = pretty_print_snapshot_ranges(&snapshots_ranges),
-        "new.known_snapshots"
-    );
+    record_known_snapshots(pretty_print_snapshot_ranges(&snapshots_ranges));
     if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
         return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
     }

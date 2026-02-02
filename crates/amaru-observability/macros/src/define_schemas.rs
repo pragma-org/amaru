@@ -315,21 +315,21 @@ fn parse_token(
         }
         "required" => {
             // Parse: required field_name: Type
-            if state.can_add_field() {
-                if let Some((name, ty)) = try_parse_prefixed_field(tokens, index) {
-                    state.add_required_field(name, ty, errors);
-                    return index + 4; // Skip required, name, :, and type
-                }
+            if state.can_add_field()
+                && let Some((name, ty)) = try_parse_prefixed_field(tokens, index)
+            {
+                state.add_required_field(name, ty, errors);
+                return index + 4; // Skip required, name, :, and type
             }
             index + 1
         }
         "optional" => {
             // Parse: optional field_name: Type
-            if state.can_add_field() {
-                if let Some((name, ty)) = try_parse_prefixed_field(tokens, index) {
-                    state.add_optional_field(name, ty, errors);
-                    return index + 4; // Skip optional, name, :, and type
-                }
+            if state.can_add_field()
+                && let Some((name, ty)) = try_parse_prefixed_field(tokens, index)
+            {
+                state.add_optional_field(name, ty, errors);
+                return index + 4; // Skip optional, name, :, and type
             }
             index + 1
         }
@@ -347,7 +347,7 @@ fn parse_token(
 /// Try to parse a prefixed field definition: `required/optional name: type`.
 ///
 /// Returns `Some((name, type))` if the pattern matches.
-fn try_parse_prefixed_field<'a>(tokens: &'a [String], index: usize) -> Option<(&'a str, &'a str)> {
+fn try_parse_prefixed_field(tokens: &[String], index: usize) -> Option<(&str, &str)> {
     // tokens[index] is "required" or "optional"
     // tokens[index+1] should be the field name
     // tokens[index+2] should be ":"
@@ -1100,13 +1100,49 @@ fn build_module_tree_with_metadata(
     }
 }
 
-// =============================================================================
-// Public Entry Point
-// =============================================================================
+/// Internal expansion with configurable export behavior.
+fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
+    let config = GenerationConfig { export_macros };
+    let input_str = input.to_string();
+    let (schemas, errors) = extract_schemas(&input_str);
 
-// =============================================================================
-// Tests
-// =============================================================================
+    // Generate the module tree (includes all macros)
+    let module_tree = build_module_tree_with_metadata(&schemas, &config);
+
+    // If there are errors, include them alongside the generated code
+    // This ensures macros are defined (preventing "cannot find macro" errors)
+    // while still reporting the actual errors
+    if !errors.is_empty() {
+        let error_msgs: Vec<_> = errors
+            .iter()
+            .map(|e| quote! { compile_error!(#e); })
+            .collect();
+
+        return quote! {
+            #(#error_msgs)*
+            #module_tree
+        }
+        .into();
+    }
+
+    module_tree.into()
+}
+
+/// Expand the `define_schemas!` macro.
+///
+/// Generated macros are exported with `#[macro_export]` for use across crates.
+pub fn expand(input: TokenStream) -> TokenStream {
+    expand_with_config(input, true)
+}
+
+/// Expand the `define_local_schemas!` macro.
+///
+/// Generated macros are NOT exported with `#[macro_export]`, making them
+/// suitable for local/test use without the "macro-expanded `macro_export`
+/// macros from the current crate cannot be referred to by absolute paths" error.
+pub fn expand_local(input: TokenStream) -> TokenStream {
+    expand_with_config(input, false)
+}
 
 #[cfg(test)]
 mod tests {
@@ -1228,52 +1264,4 @@ mod tests {
         });
         assert_eq!(schema.validation_string(), "R|id:u64|O|name:String");
     }
-}
-
-// =============================================================================
-// Public Entry Point
-// =============================================================================
-
-/// Internal expansion with configurable export behavior.
-fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
-    let config = GenerationConfig { export_macros };
-    let input_str = input.to_string();
-    let (schemas, errors) = extract_schemas(&input_str);
-
-    // Generate the module tree (includes all macros)
-    let module_tree = build_module_tree_with_metadata(&schemas, &config);
-
-    // If there are errors, include them alongside the generated code
-    // This ensures macros are defined (preventing "cannot find macro" errors)
-    // while still reporting the actual errors
-    if !errors.is_empty() {
-        let error_msgs: Vec<_> = errors
-            .iter()
-            .map(|e| quote! { compile_error!(#e); })
-            .collect();
-
-        return quote! {
-            #(#error_msgs)*
-            #module_tree
-        }
-        .into();
-    }
-
-    module_tree.into()
-}
-
-/// Expand the `define_schemas!` macro.
-///
-/// Generated macros are exported with `#[macro_export]` for use across crates.
-pub fn expand(input: TokenStream) -> TokenStream {
-    expand_with_config(input, true)
-}
-
-/// Expand the `define_local_schemas!` macro.
-///
-/// Generated macros are NOT exported with `#[macro_export]`, making them
-/// suitable for local/test use without the "macro-expanded `macro_export`
-/// macros from the current crate cannot be referred to by absolute paths" error.
-pub fn expand_local(input: TokenStream) -> TokenStream {
-    expand_with_config(input, false)
 }

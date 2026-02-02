@@ -14,9 +14,9 @@
 
 use crate::context::PreparationContext;
 use amaru_kernel::{Block, cbor};
-use amaru_observability::ledger::{PARSE_BLOCK, PREPARE_BLOCK};
+use amaru_observability::trace;
 use std::{fmt, fmt::Display};
-use tracing::{Level, instrument};
+use tracing::warn;
 
 pub use block::execute as validate_block;
 
@@ -40,7 +40,7 @@ impl<T: Display> Display for WithPosition<T> {
     }
 }
 
-#[instrument(level = Level::TRACE, skip_all, name=PREPARE_BLOCK)]
+#[trace(amaru::ledger::state::PREPARE_BLOCK)]
 pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a Block) {
     block.transaction_bodies.iter().for_each(|transaction| {
         let inputs = transaction.inputs.iter();
@@ -60,7 +60,7 @@ pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a B
     });
 }
 
-#[instrument(level = Level::TRACE, skip_all, name = PARSE_BLOCK, fields(block.size = bytes.len()))]
+#[trace(amaru::ledger::rules::PARSE_BLOCK, block_size = bytes.len() as u64)]
 pub fn parse_block(bytes: &[u8]) -> Result<Block, cbor::decode::Error> {
     let (_, block): (u16, Block) = cbor::decode(bytes)?;
     Ok(block)

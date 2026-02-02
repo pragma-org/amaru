@@ -19,11 +19,10 @@ use crate::{
     span::HasSpan,
 };
 use amaru_kernel::{BlockHeader, IsHeader, from_cbor_no_leftovers};
-use amaru_observability::consensus::chain_sync::{
-    DECODE_HEADER, RECEIVE_HEADER, RECEIVE_HEADER_DECODE_FAILED,
-};
+use amaru_observability::consensus::chain_sync::{RECEIVE_HEADER, RECEIVE_HEADER_DECODE_FAILED};
+use amaru_observability::trace;
 use pure_stage::StageRef;
-use tracing::{Instrument, Level, instrument};
+use tracing::Instrument;
 
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct State {
@@ -120,11 +119,7 @@ pub fn stage(
     .instrument(span)
 }
 
-#[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = DECODE_HEADER,
-)]
+#[trace(amaru::consensus::chain_sync::DECODE_HEADER)]
 pub fn decode_header(raw_header: &[u8]) -> Result<BlockHeader, ConsensusError> {
     from_cbor_no_leftovers(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
         header: raw_header.into(),

@@ -7,7 +7,7 @@
 //! - augment_trace records to current span
 
 use amaru_observability_macros::{augment_trace, define_local_schemas, trace};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use tracing::field::Visit;
 use tracing_subscriber::{Registry, layer::SubscriberExt};
@@ -77,7 +77,7 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CapturingLayer {
 
 #[derive(Default)]
 struct FieldValueCollector {
-    values: HashMap<String, String>,
+    values: BTreeMap<String, String>,
 }
 
 impl Visit for FieldValueCollector {
@@ -96,7 +96,7 @@ impl Visit for FieldValueCollector {
 }
 
 struct ValueCapturingLayer {
-    captured: Arc<Mutex<HashMap<String, String>>>,
+    captured: Arc<Mutex<BTreeMap<String, String>>>,
 }
 
 impl<S> tracing_subscriber::Layer<S> for ValueCapturingLayer
@@ -195,7 +195,7 @@ fn test_schema_fields_declared() {
 
 #[test]
 fn test_field_values_recorded() {
-    let values = Arc::new(Mutex::new(HashMap::new()));
+    let values = Arc::new(Mutex::new(BTreeMap::new()));
     let subscriber = Registry::default().with(ValueCapturingLayer {
         captured: values.clone(),
     });
@@ -210,7 +210,7 @@ fn test_field_values_recorded() {
 
 #[test]
 fn test_augment_trace_records_to_span() {
-    let values = Arc::new(Mutex::new(HashMap::new()));
+    let values = Arc::new(Mutex::new(BTreeMap::new()));
     let subscriber = Registry::default().with(ValueCapturingLayer {
         captured: values.clone(),
     });

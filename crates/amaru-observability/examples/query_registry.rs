@@ -14,12 +14,13 @@ define_schemas! {
     }
 }
 
+#[allow(clippy::print_stdout)]
 fn main() {
     println!("Runtime Schema Registry Query Example\n");
-    
+
     let count = SchemaEntry::count();
     println!("Total registered schemas: {}\n", count);
-    
+
     let entries = SchemaEntry::all();
     for entry in entries {
         println!("Schema: {}", entry.path);
@@ -44,7 +45,7 @@ fn main() {
         }
         println!();
     }
-    
+
     // Query a specific schema
     if let Some(entry) = SchemaEntry::find("consensus::chain_sync::VALIDATE_HEADER") {
         println!("Found schema VALIDATE_HEADER:");

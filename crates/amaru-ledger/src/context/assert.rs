@@ -26,12 +26,11 @@ use amaru_kernel::{
     size::{DATUM, KEY, SCRIPT},
     utils::serde::deserialize_map_proxy,
 };
-use amaru_observability::ledger::{ADD_FEES, REQUIRE_BOOTSTRAP_WITNESS, REQUIRE_SCRIPT_WITNESS, REQUIRE_VKEY_WITNESS, VOTE, WITHDRAW_FROM};
+use amaru_observability::trace;
 use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
 };
-use tracing::{Level, instrument};
 
 // ------------------------------------------------------------------------------------- Preparation
 
@@ -116,14 +115,7 @@ impl From<AssertValidationContext> for () {
 }
 
 impl PotsSlice for AssertValidationContext {
-    #[instrument(
-        level = Level::TRACE,
-        fields(
-            fee = %_fees,
-        )
-        skip_all,
-        name = ADD_FEES
-    )]
+    #[trace(amaru::ledger::context::ADD_FEES, fee = _fees)]
     fn add_fees(&mut self, _fees: Lovelace) {}
 }
 
@@ -188,14 +180,9 @@ impl AccountsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        fields(
-            credential.type = %StakeCredentialKind::from(&credential),
-            credential.hash = %credential.as_hash(),
-        )
-        skip_all,
-        name = WITHDRAW_FROM
+    #[trace(amaru::ledger::context::WITHDRAW_FROM,
+        credential_type = format!("{}", StakeCredentialKind::from(&credential)),
+        credential_hash = format!("{}", credential.as_hash())
     )]
     fn withdraw_from(&mut self, credential: StakeCredential) {
         // We don't actually do any VolatileState updates here
@@ -255,42 +242,23 @@ impl CommitteeSlice for AssertValidationContext {
 impl ProposalsSlice for AssertValidationContext {
     fn acknowledge(&mut self, _id: ProposalId, _pointer: ProposalPointer, _proposal: Proposal) {}
 
-    #[instrument(
-        level = Level::TRACE,
-        fields(
-            voter.type = %VoterKind::from(&_voter),
-            credential.type = %StakeCredentialKind::from(&_voter),
-            credential.hash = %_voter.as_hash(),
-        )
-        skip_all,
-        name = VOTE
+    #[trace(amaru::ledger::context::VOTE,
+        voter_type = format!("{}", VoterKind::from(&_voter)),
+        credential_type = format!("{}", StakeCredentialKind::from(&_voter)),
+        credential_hash = format!("{}", _voter.as_hash())
     )]
     fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {
     }
 }
 
 impl WitnessSlice for AssertValidationContext {
-    #[instrument(
-        level = Level::TRACE,
-        fields(
-            hash = %vkey_hash
-        )
-        skip_all,
-        name = REQUIRE_VKEY_WITNESS
-    )]
+    #[trace(amaru::ledger::context::REQUIRE_VKEY_WITNESS, hash = format!("{}", vkey_hash))]
     fn require_vkey_witness(&mut self, vkey_hash: Hash<28>) {
         self.required_signers.insert(vkey_hash);
     }
 
     // TODO: add purpose to fields
-    #[instrument(
-        level = Level::TRACE,
-        fields(
-            hash = %script.hash
-        )
-        skip_all,
-        name = REQUIRE_SCRIPT_WITNESS
-    )]
+    #[trace(amaru::ledger::context::REQUIRE_SCRIPT_WITNESS, hash = format!("{}", script.hash))]
     fn require_script_witness(&mut self, script: RequiredScript) {
         self.required_scripts.insert(script);
     }
@@ -303,14 +271,7 @@ impl WitnessSlice for AssertValidationContext {
         self.known_datums.insert(datum_hash, location);
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        fields(
-            bootstrap_witness.hash = %root,
-        )
-        skip_all,
-        name = REQUIRE_BOOTSTRAP_WITNESS
-    )]
+    #[trace(amaru::ledger::context::REQUIRE_BOOTSTRAP_WITNESS, bootstrap_witness_hash = format!("{}", root))]
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
         self.required_bootstrap_roots.insert(root);
     }

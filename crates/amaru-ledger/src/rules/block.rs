@@ -21,7 +21,7 @@ use amaru_kernel::{
     Block, EraHistory, ExUnits, HasExUnits, HeaderHash, NetworkName, ProtocolParameters, Slot,
     TransactionId, TransactionPointer,
 };
-use amaru_observability::ledger::VALIDATE_BLOCK;
+use amaru_observability::trace;
 use amaru_plutus::arena_pool::ArenaPool;
 use std::{
     fmt::{self, Display},
@@ -29,7 +29,6 @@ use std::{
     process::{ExitCode, Termination},
 };
 use thiserror::Error;
-use tracing::{Level, instrument};
 
 pub mod body_size;
 pub mod ex_units;
@@ -169,7 +168,7 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
     }
 }
 
-#[instrument(level = Level::TRACE, skip_all, name=VALIDATE_BLOCK)]
+#[trace(amaru::ledger::state::VALIDATE_BLOCK)]
 pub fn execute<C, S: From<C>>(
     context: &mut C,
     arena_pool: &ArenaPool,

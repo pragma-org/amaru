@@ -196,7 +196,7 @@ define_schemas! {
             MANAGE_TRANSACTION_OUTPUTS {}
 
             /// Cleanup old epochs (state.rs)
-            /// Note: Uses function name as span name  
+            /// Note: Uses function name as span name
             CLEANUP_OLD_EPOCHS {}
 
             /// Cleanup expired proposals (state.rs)
@@ -399,40 +399,5 @@ define_schemas! {
                 required bytes: u64
             }
         }
-    }
-}
-
-// =============================================================================
-// Additional Constants (not schema-based, used with standard tracing macros)
-// =============================================================================
-
-// These are span name constants used directly with tracing macros (info_span!, trace_span!, etc.)
-// rather than with the #[trace] attribute macro.
-
-/// Additional ledger-related span name constants
-pub mod ledger {
-    /// Enacting a governance proposal (ratification.rs)
-    pub const ENACTING: &str = "enacting";
-    /// Ratifying a governance proposal (ratification.rs)
-    pub const RATIFYING: &str = "ratifying";
-}
-
-/// Additional consensus-related span name constants
-pub mod consensus {
-    pub mod diffusion {
-        pub const FETCH_BLOCK: &str = "diffusion.fetch_block";
-        pub const FORWARD_CHAIN: &str = "diffusion.forward_chain";
-        pub const CHAIN_SYNC: &str = "diffusion.chain_sync";
-        pub const CHAIN_SYNC_WAIT: &str = "diffusion.chain_sync.wait";
-    }
-
-    pub mod chain_sync {
-        pub const DECODE_HEADER: &str = "chain_sync.decode_header";
-        pub const RECEIVE_HEADER: &str = "chain_sync.receive_header";
-        pub const RECEIVE_HEADER_DECODE_FAILED: &str = "chain_sync.receive_header.decode_failed";
-        pub const SELECT_CHAIN: &str = "chain_sync.select_chain";
-        pub const TRACK_PEERS: &str = "chain_sync.track_peers";
-        pub const VALIDATE_BLOCK: &str = "chain_sync.validate_block";
-        pub const VALIDATE_HEADER: &str = "chain_sync.validate_header";
     }
 }

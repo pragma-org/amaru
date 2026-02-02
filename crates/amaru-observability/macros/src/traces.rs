@@ -1,5 +1,7 @@
 //! Trace macro implementations for compile-time validated tracing.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{FnArg, ItemFn, Pat, PatType};
@@ -26,7 +28,7 @@ struct SchemaMeta {
     macro_module: String,
     /// Optional field name -> expression mappings from inline definitions
     /// Maps field names to custom expressions for recording
-    field_expressions: std::collections::HashMap<String, proc_macro2::TokenStream>,
+    field_expressions: BTreeMap<String, proc_macro2::TokenStream>,
 }
 
 impl SchemaMeta {
@@ -156,7 +158,7 @@ impl SchemaMeta {
             let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
 
             // Convert field expressions to map
-            let mut field_expressions = std::collections::HashMap::new();
+            let mut field_expressions = BTreeMap::new();
             for (field_name, expr) in parsed.field_exprs {
                 field_expressions.insert(field_name.to_string(), quote! { #expr });
             }
@@ -177,7 +179,7 @@ impl SchemaMeta {
                 schema_name: schema_name.to_owned(),
                 module_path,
                 macro_module: macro_module.to_owned(),
-                field_expressions: std::collections::HashMap::new(),
+                field_expressions: BTreeMap::new(),
             }
         }
     }
@@ -230,7 +232,7 @@ fn extract_function_fields(func: &ItemFn) -> Option<Vec<FunctionField>> {
 
     // Check for duplicates using functional approach
     let names: Vec<_> = fields.iter().map(|f| &f.name).collect();
-    let unique_names: std::collections::HashSet<_> = names.iter().collect();
+    let unique_names: BTreeSet<_> = names.iter().collect();
 
     if names.len() != unique_names.len() {
         None // Collision detected
@@ -328,8 +330,7 @@ fn generate_record_calls(
     ));
 
     // Collect field names that have function parameters
-    let param_field_names: std::collections::HashSet<_> =
-        fields.iter().map(|f| f.name.clone()).collect();
+    let param_field_names: BTreeSet<_> = fields.iter().map(|f| f.name.clone()).collect();
 
     // Generate record calls for function parameters
     // Function params use lenient mode - they're auto-matched to schema fields.

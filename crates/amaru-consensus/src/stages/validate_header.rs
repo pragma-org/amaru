@@ -21,7 +21,7 @@ use crate::{
 };
 use amaru_kernel::{BlockHeader, ConsensusParameters, IsHeader, Nonce, to_cbor};
 use amaru_observability::consensus::chain_sync::VALIDATE_HEADER;
-use amaru_observability::consensus::validate_header::{EVOLVE_NONCE, VALIDATE};
+use amaru_observability::trace;
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{
     ChainStore, HasStakeDistribution, Praos,
@@ -30,7 +30,7 @@ use amaru_ouroboros_traits::{
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use std::{fmt, sync::Arc};
-use tracing::{Instrument, Level, Span, instrument};
+use tracing::{Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub fn stage(
@@ -130,24 +130,14 @@ impl ValidateHeader {
         Ok(())
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        name = EVOLVE_NONCE,
-        skip_all,
-        fields(hash = %header.hash()),
-    )]
+    #[trace(amaru::consensus::validate_header::EVOLVE_NONCE, hash = format!("{}", header.hash()))]
     fn evolve_nonce(&self, header: &BlockHeader) -> Result<Nonce, ConsensusError> {
         let nonces = PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone())
             .evolve_nonce(header)?;
         Ok(nonces.active)
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        name = VALIDATE,
-        skip_all,
-        fields(issuer.key = %header.header_body().issuer_vkey)
-    )]
+    #[trace(amaru::consensus::validate_header::VALIDATE, issuer_key = format!("{}", header.header_body().issuer_vkey))]
     fn check_header(
         &self,
         header: &BlockHeader,

@@ -369,6 +369,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-mempool",
  "amaru-network",
+ "amaru-observability",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "anyhow",

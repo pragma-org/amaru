@@ -2,9 +2,8 @@
 //!
 //! This module provides common string manipulation, identifier creation,
 //! and naming convention functions used across the macro crates.
-//! 
+//!
 use proc_macro2::Span;
-
 
 /// Strip leading underscores from a string.
 ///
@@ -25,14 +24,14 @@ pub fn is_identifier_start(token: &str) -> bool {
     token
         .chars()
         .next()
-        .map_or(false, |c| c.is_alphabetic() || c == '_')
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
 /// Check if a string starts with an uppercase character.
 ///
 /// Used to identify schema names (which follow SCREAMING_SNAKE_CASE convention).
 pub fn is_uppercase_identifier(token: &str) -> bool {
-    token.chars().next().map_or(false, char::is_uppercase)
+    token.chars().next().is_some_and(char::is_uppercase)
 }
 
 /// Extract the last component from a colon-separated path.
