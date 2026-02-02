@@ -1,0 +1,12 @@
+error: Duplicate field 'name' in schema VALIDATE_HEADER
+  --> tests/ui/compile_fail/duplicate_field.rs:6:1
+   |
+ 6 | / define_local_schemas! {
+ 7 | |     consensus {
+ 8 | |         chain_sync {
+ 9 | |             VALIDATE_HEADER {
+...  |
+15 | | }
+   | |_^
+   |
+   = note: this error originates in the macro `define_local_schemas` (in Nightly builds, run with -Z macro-backtrace for more info)

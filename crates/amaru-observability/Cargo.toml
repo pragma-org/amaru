@@ -11,6 +11,8 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+amaru-observability-macros = { path = "./macros" }
+inventory = "0.3"
 
 [lints]
 workspace = true

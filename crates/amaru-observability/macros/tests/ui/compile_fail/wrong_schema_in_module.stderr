@@ -1,0 +1,15 @@
+error: Invalid trace in module test::sub : NON_EXISTENT. Expected one of: SCHEMA
+  --> tests/ui/compile_fail/wrong_schema_in_module.rs:7:1
+   |
+ 7 | / define_local_schemas! {
+ 8 | |     test {
+ 9 | |         sub {
+10 | |             SCHEMA {
+...  |
+16 | | }
+   | |_^
+17 |
+18 |   #[trace(test::sub::NON_EXISTENT)]
+   |   --------------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `__VALIDATE_TEST_SUB` which comes from the expansion of the attribute macro `trace` (in Nightly builds, run with -Z macro-backtrace for more info)

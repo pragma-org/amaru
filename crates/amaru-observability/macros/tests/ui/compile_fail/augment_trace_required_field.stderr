@@ -1,0 +1,15 @@
+error: Cannot use required field 'id' in augment_trace for schema SCHEMA. Only optional fields are allowed in augment_trace.
+  --> tests/ui/compile_fail/augment_trace_required_field.rs:7:1
+   |
+ 7 | / define_local_schemas! {
+ 8 | |     test {
+ 9 | |         sub {
+10 | |             SCHEMA {
+...  |
+16 | | }
+   | |_^
+...
+19 |   #[augment_trace(test::sub::SCHEMA)]
+   |   ----------------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `__TEST__SUB_SCHEMA_RECORD` which comes from the expansion of the attribute macro `augment_trace` (in Nightly builds, run with -Z macro-backtrace for more info)
