@@ -21,7 +21,7 @@ use crate::{
         miniprotocol, outcome,
     },
 };
-use amaru_kernel::{BlockHeader, IsHeader, Point, RawBlock};
+use amaru_kernel::{BlockHeader, IsHeader, NonEmptyVec, Point, RawBlock};
 use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use std::fmt::Debug;
@@ -40,12 +40,9 @@ pub struct BlockFetchResponder {
 }
 
 /// This data type represents a range of points to fetch blocks for.
-/// The points are ordered from the oldest to the most recent and at least one point is present
+/// The points are ordered from the most recent to oldest and at least one point is present
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PointsRange {
-    first: Point,
-    rest: Vec<Point>,
-}
+pub struct PointsRange(NonEmptyVec<Point>);
 
 /// Maximum number of blocks that can be streamed for a single request
 pub const MAX_FETCHED_BLOCKS: usize = 1000;
@@ -53,17 +50,17 @@ pub const MAX_FETCHED_BLOCKS: usize = 1000;
 impl PointsRange {
     /// Create a points range with a single point
     pub fn singleton(first: Point) -> PointsRange {
-        PointsRange {
-            first,
-            rest: vec![],
-        }
+        PointsRange(NonEmptyVec::singleton(first))
+    }
+
+    /// Create a points range from a vector of points.
+    pub fn from_vec(vec: Vec<Point>) -> Option<PointsRange> {
+        NonEmptyVec::try_from(vec).ok().map(PointsRange)
     }
 
     #[cfg(test)]
     pub fn points(&self) -> Vec<Point> {
-        let mut points = vec![self.first];
-        points.extend(self.rest.iter().cloned());
-        points
+        self.0.to_vec()
     }
 
     /// Load the first available block in the current range (the block is expected to be found).
@@ -73,12 +70,9 @@ impl PointsRange {
         store: &dyn ChainStore<BlockHeader>,
     ) -> anyhow::Result<(RawBlock, Option<PointsRange>)> {
         let stored_block = store
-            .load_block(&self.first.hash())?
-            .ok_or_else(|| anyhow::anyhow!("block {} was pruned", self.first.hash()))?;
-        let points_range = self.rest.split_first().map(|(first, rest)| PointsRange {
-            first: *first,
-            rest: rest.to_vec(),
-        });
+            .load_block(&self.0.first().hash())?
+            .ok_or_else(|| anyhow::anyhow!("block {} was pruned", self.0.first().hash()))?;
+        let points_range = self.0.pop().1.map(PointsRange);
         Ok((stored_block, points_range))
     }
 
@@ -138,11 +132,7 @@ impl PointsRange {
                 return Ok(None);
             }
         }
-        result.reverse();
-        Ok(result.split_first().map(|(first, rest)| PointsRange {
-            first: *first,
-            rest: rest.to_vec(),
-        }))
+        Ok(PointsRange::from_vec(result))
     }
 }
 
@@ -359,15 +349,13 @@ pub mod tests {
             PointsRange::request_range(&*store, headers[0].point(), headers[4].point()).unwrap();
         assert_eq!(
             result,
-            Some(PointsRange {
-                first: headers[0].point(),
-                rest: vec![
-                    headers[1].point(),
-                    headers[2].point(),
-                    headers[3].point(),
-                    headers[4].point(),
-                ]
-            })
+            PointsRange::from_vec(vec![
+                headers[0].point(),
+                headers[1].point(),
+                headers[2].point(),
+                headers[3].point(),
+                headers[4].point(),
+            ])
         );
     }
 
@@ -497,10 +485,12 @@ pub mod tests {
         let (store, headers) = make_store_with_chain(5);
         store_blocks(store.clone(), &headers);
 
-        let (block, remaining_range) = PointsRange {
-            first: headers[0].point(),
-            rest: vec![headers[1].point(), headers[2].point()],
-        }
+        let (block, remaining_range) = PointsRange::from_vec(vec![
+            headers[0].point(),
+            headers[1].point(),
+            headers[2].point(),
+        ])
+        .unwrap()
         .next_block(&*store)
         .unwrap();
 
@@ -514,10 +504,7 @@ pub mod tests {
         // Should have remaining points
         assert_eq!(
             remaining_range,
-            Some(PointsRange {
-                first: headers[1].point(),
-                rest: vec![headers[2].point()]
-            })
+            PointsRange::from_vec(vec![headers[1].point(), headers[2].point()])
         );
     }
 

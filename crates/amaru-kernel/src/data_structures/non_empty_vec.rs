@@ -19,6 +19,30 @@ use std::{collections::BTreeSet, fmt::Debug, ops::Deref};
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct NonEmptyVec<T: Eq>(Vec<T>);
 
+impl<T: Eq> NonEmptyVec<T> {
+    pub fn singleton(elem: T) -> Self {
+        Self(vec![elem])
+    }
+
+    pub fn first(&self) -> &T {
+        &self.0[0]
+    }
+
+    /// Pop the last element from the NonEmptyVec, returning it and an Option with the remaining
+    #[expect(clippy::expect_used)]
+    pub fn pop(self) -> (T, Option<NonEmptyVec<T>>) {
+        let mut vec = self.0;
+        let last = vec
+            .pop()
+            .expect("NonEmptyVec must have at least one element");
+        if vec.is_empty() {
+            (last, None)
+        } else {
+            (last, Some(NonEmptyVec(vec)))
+        }
+    }
+}
+
 impl<T: Eq> From<NonEmptyVec<T>> for Vec<T> {
     fn from(elems: NonEmptyVec<T>) -> Self {
         elems.0
@@ -171,5 +195,19 @@ mod tests {
             from_cbor_no_leftovers::<NonEmptyVec<u8>>(hex::decode(s).unwrap().as_slice()),
             Err(..),
         ));
+    }
+
+    #[test]
+    fn non_empty_vec_pop() {
+        let vec = NonEmptyVec::try_from(vec![1, 2, 3]).unwrap();
+        let (last, remaining) = vec.pop();
+        assert_eq!(last, 3);
+        let remaining = remaining.expect("should have remaining elements");
+        assert_eq!(remaining.deref(), &[1, 2]);
+
+        let vec = NonEmptyVec::try_from(vec![42]).unwrap();
+        let (last, remaining) = vec.pop();
+        assert_eq!(last, 42);
+        assert!(remaining.is_none());
     }
 }

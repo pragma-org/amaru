@@ -86,7 +86,7 @@ pub async fn register_blockfetch_initiator<M>(
     let blockfetch = eff
         .wire_up(
             eff.stage("blockfetch", initiator()).await,
-            BlockFetchInitiator::new(muxer.clone(), peer, conn_id, era_history.clone()),
+            BlockFetchInitiator::new(muxer.clone(), peer, conn_id, era_history),
         )
         .await;
     eff.send(

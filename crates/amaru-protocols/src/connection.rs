@@ -59,7 +59,7 @@ impl Connection {
                 role,
                 magic,
                 pipeline,
-                era_history: era_history.clone(),
+                era_history,
             },
             state: State::Initial,
         }

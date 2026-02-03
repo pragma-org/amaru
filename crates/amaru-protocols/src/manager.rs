@@ -72,7 +72,7 @@ impl Manager {
             peers: BTreeMap::new(),
             magic,
             chain_sync,
-            era_history: era_history.clone(),
+            era_history,
         }
     }
 }
