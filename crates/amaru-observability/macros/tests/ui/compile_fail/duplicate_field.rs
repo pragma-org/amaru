@@ -6,6 +6,7 @@ use amaru_observability_macros::define_local_schemas;
 define_local_schemas! {
     consensus {
         chain_sync {
+            /// Test schema with duplicate fields
             VALIDATE_HEADER {
                 required name: String
                 required name: u64

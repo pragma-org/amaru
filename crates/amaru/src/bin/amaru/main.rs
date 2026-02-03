@@ -81,6 +81,13 @@ enum Command {
     ///
     DumpChainDB(cmd::dump_chain_db::Args),
 
+    /// Dump all registered trace schemas as JSON Schema.
+    ///
+    /// This command outputs all registered trace schemas in JSON Schema format.
+    /// Useful for documentation, tooling, and validation.
+    #[command(name = "dump-traces-schema")]
+    DumpTracesSchema(cmd::dump_schemas::Args),
+
     /// Fetch specified headers
     FetchChainHeaders(cmd::fetch_chain_headers::Args),
 
@@ -139,20 +146,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get_matches();
     let args = <Cli as FromArgMatches>::from_arg_matches(&matches)?;
 
-    let (metrics, teardown) = setup_observability(
-        args.with_open_telemetry,
-        args.with_json_traces,
-        Color::is_enabled(args.color),
-    );
+    // Skip observability setup for dump-traces-schema to avoid polluting stderr
+    let skip_logging = matches!(args.command, Command::DumpTracesSchema(_));
 
-    info!(
-        with_open_telemetry = args.with_open_telemetry,
-        with_json_traces = args.with_json_traces,
-        "Started with global arguments"
-    );
+    let (metrics, teardown) = if skip_logging {
+        (
+            None,
+            Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
+        )
+    } else {
+        let (m, t) = setup_observability(
+            args.with_open_telemetry,
+            args.with_json_traces,
+            Color::is_enabled(args.color),
+        );
+        (Some(m), t)
+    };
+
+    if !skip_logging {
+        info!(
+            with_open_telemetry = args.with_open_telemetry,
+            with_json_traces = args.with_json_traces,
+            "Started with global arguments"
+        );
+    }
 
     let result = match args.command {
-        Command::Run(args) => cmd::run::run(args, metrics).await,
+        Command::Run(args) => cmd::run::run(args, metrics.unwrap()).await,
         Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
@@ -160,6 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
         Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
         Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
+        Command::DumpTracesSchema(args) => cmd::dump_schemas::run(args).await,
         Command::MigrateChainDB(args) => cmd::migrate_chain_db::run(args).await,
         Command::ResetToEpoch(args) => cmd::reset_to_epoch::run(args).await,
     };

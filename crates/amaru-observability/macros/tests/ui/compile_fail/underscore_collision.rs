@@ -6,6 +6,7 @@ use amaru_observability_macros::{define_local_schemas, trace};
 define_local_schemas! {
     test {
         sub {
+            /// Test schema for underscore collision test
             SCHEMA {
                 required first: String
                 required second: u64

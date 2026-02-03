@@ -7,6 +7,7 @@ use amaru_observability_macros::{augment_trace, define_local_schemas};
 define_local_schemas! {
     test {
         sub {
+            /// Test schema for augment_trace required field test
             SCHEMA {
                 required id: u64
                 optional count: u64

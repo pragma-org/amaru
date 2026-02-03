@@ -4,12 +4,12 @@ error: Wrong type for field 'second': expected 'u64', found 'i32'
  7 | / define_local_schemas! {
  8 | |     test {
  9 | |         sub {
-10 | |             SCHEMA {
+10 | |             /// Test schema for wrong field type test
 ...  |
-17 | | }
+18 | | }
    | |_^
 ...
-20 |   #[trace(test::sub::SCHEMA)]
+21 |   #[trace(test::sub::SCHEMA)]
    |   --------------------------- in this attribute macro expansion
    |
    = note: this error originates in the macro `__TEST__SUB_SCHEMA_RECORD` which comes from the expansion of the attribute macro `trace` (in Nightly builds, run with -Z macro-backtrace for more info)

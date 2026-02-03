@@ -78,6 +78,8 @@ pub struct Schema {
     subcategory: String,
     /// Schema name in SCREAMING_SNAKE_CASE (e.g., "VALIDATE_HEADER")
     name: String,
+    /// Optional description from doc comment
+    description: Option<String>,
     /// Fields that must be present
     required_fields: Vec<SchemaField>,
     /// Fields that may optionally be present
@@ -101,9 +103,15 @@ impl Schema {
             category: category.to_string(),
             subcategory: subcategory.to_string(),
             name: name.to_string(),
+            description: None,
             required_fields: Vec::new(),
             optional_fields: Vec::new(),
         }
+    }
+
+    /// Set the description from a doc comment.
+    fn set_description(&mut self, description: String) {
+        self.description = Some(description);
     }
 
     /// Get the names of all required fields.
@@ -128,31 +136,79 @@ impl Schema {
 
 /// Tokenize input string into meaningful tokens for parsing.
 ///
-/// Splits on: `{`, `}`, `,`, `:`, and whitespace.
+/// Splits on: `{`, `}`, `,`, `:`, and whitespace, while preserving doc comments.
 /// Returns a vector of tokens in parsing order.
 fn tokenize(input: &str) -> Vec<String> {
-    let (mut tokens, current) = input.chars().fold(
-        (Vec::new(), String::new()),
-        |(mut tokens, mut current), ch| {
-            match ch {
-                '{' | '}' | ',' | ':' => {
-                    if !current.is_empty() {
-                        tokens.push(std::mem::take(&mut current));
-                    }
-                    tokens.push(ch.to_string());
+    let mut tokens = Vec::new();
+    let mut chars = input.chars().peekable();
+    let mut current = String::new();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            // Check for doc comment start
+            '/' if chars.peek() == Some(&'/') => {
+                // Flush current token
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
                 }
-                ch if ch.is_whitespace() => {
-                    if !current.is_empty() {
-                        tokens.push(std::mem::take(&mut current));
+                
+                // Consume the second '/'
+                chars.next();
+                
+                // Check for third '/' (doc comment)
+                if chars.peek() == Some(&'/') {
+                    chars.next();
+                    
+                    // Collect the rest of the doc comment until end of line or next '/'
+                    let mut comment = String::from("///");
+                    
+                    // Skip leading whitespace after ///
+                    while chars.peek() == Some(&' ') {
+                        chars.next();
                     }
-                }
-                ch => {
-                    current.push(ch);
+                    
+                    // Collect comment text until we hit something that ends it
+                    while let Some(&c) = chars.peek() {
+                        // Stop at newlines, or at identifiers/braces that indicate end of comment
+                        if c == '\n' {
+                            chars.next();
+                            break;
+                        }
+                        // Also stop if we see start of next token (uppercase letter after whitespace)
+                        comment.push(c);
+                        chars.next();
+                    }
+                    
+                    let trimmed_comment = comment.trim().to_string();
+                    if trimmed_comment.len() > 3 { // More than just "///"
+                        tokens.push(trimmed_comment);
+                    }
+                } else {
+                    // Regular comment (//), skip until newline
+                    while let Some(&c) = chars.peek() {
+                        if c == '\n' {
+                            break;
+                        }
+                        chars.next();
+                    }
                 }
             }
-            (tokens, current)
-        },
-    );
+            '{' | '}' | ',' | ':' => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+                tokens.push(ch.to_string());
+            }
+            c if c.is_whitespace() => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            c => {
+                current.push(c);
+            }
+        }
+    }
 
     // Add any remaining content
     if !current.is_empty() {
@@ -178,6 +234,8 @@ struct ParserState {
     current_schema: Option<Schema>,
     /// Depth at which the current schema was started
     schema_depth: i32,
+    /// Pending description to be applied to the next schema
+    pending_description: Option<String>,
 }
 
 impl ParserState {
@@ -188,6 +246,7 @@ impl ParserState {
             subcategory: String::new(),
             current_schema: None,
             schema_depth: -1,
+            pending_description: None,
         }
     }
 
@@ -222,16 +281,20 @@ impl ParserState {
             }
             1 => {
                 // Depth 1 with uppercase: schema directly in category (no subcategory)
-                self.current_schema = Some(Schema::new_top_level(name));
+                let mut schema = Schema::new_top_level(name);
+                if let Some(description) = self.pending_description.take() {
+                    schema.set_description(description);
+                }
+                self.current_schema = Some(schema);
                 self.schema_depth = self.depth;
             }
             2 if is_uppercase_identifier(name) => {
                 // Depth 2 with uppercase: schema in category::subcategory
-                self.current_schema = Some(Schema::new_with_path(
-                    name,
-                    &self.category,
-                    &self.subcategory,
-                ));
+                let mut schema = Schema::new_with_path(name, &self.category, &self.subcategory);
+                if let Some(description) = self.pending_description.take() {
+                    schema.set_description(description);
+                }
+                self.current_schema = Some(schema);
                 self.schema_depth = self.depth;
             }
             _ => {}
@@ -375,6 +438,32 @@ fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
         (0usize, ParserState::new(), Vec::new(), Vec::new()),
         |(mut skip_until, mut state, mut schemas, mut errors), (idx, token)| {
             if idx >= skip_until {
+                // Check if we're about to start a schema and attach any preceding doc comment
+                // This needs to happen BEFORE parse_token creates the schema
+                if is_identifier_start(token)
+                    && tokens.get(idx + 1).map(|s| s.as_str()) == Some("{")
+                    && is_uppercase_identifier(token)
+                {
+                    // This will be a schema, collect all consecutive doc comments before it
+                    let mut doc_lines = Vec::new();
+                    let mut look_back = idx;
+                    while look_back > 0 {
+                        look_back -= 1;
+                        if tokens[look_back].starts_with("///") {
+                            let line = tokens[look_back].trim_start_matches("///").trim();
+                            if !line.is_empty() {
+                                doc_lines.push(line.to_string());
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    if !doc_lines.is_empty() {
+                        doc_lines.reverse(); // They were collected in reverse order
+                        state.pending_description = Some(doc_lines.join(" "));
+                    }
+                }
+
                 skip_until =
                     parse_token(token, &tokens, idx, &mut state, &mut schemas, &mut errors);
             }
@@ -387,7 +476,21 @@ fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
         schemas.push(schema);
     }
 
-    (schemas, errors)
+    // Validate that all schemas have descriptions
+    let mut missing_descriptions = Vec::new();
+    for schema in &schemas {
+        if schema.description.is_none() {
+            missing_descriptions.push(format!(
+                "Schema '{}' is missing a description. Add a doc comment (///) above the schema definition.",
+                schema.name
+            ));
+        }
+    }
+
+    let mut all_errors = errors;
+    all_errors.extend(missing_descriptions);
+
+    (schemas, all_errors)
 }
 
 // =============================================================================
@@ -524,8 +627,9 @@ fn generate_instrument_macro(
     let macro_ident = make_ident(&macro_name);
     let macro_export = config.macro_export_attr();
 
-    // Target is module path
+    // Target is module path, name is lowercase schema name (same as registry)
     let target = format!("{category}::{subcategory}");
+    let name = schema.name.to_lowercase();
 
     // Required fields: declare as Empty, set via Span::current().record()
     // We can't reference function params by name because:
@@ -570,6 +674,7 @@ fn generate_instrument_macro(
                 #[tracing::instrument(
                     level = tracing::Level::TRACE,
                     skip_all,
+                    name = #name,
                     target = #target,
                     #fields_expr
                 )]
@@ -817,7 +922,8 @@ fn generate_inventory_submission(
     subcategory: &str,
 ) -> proc_macro2::TokenStream {
     let schema_path = format!("{category}::{subcategory}::{}", schema.name);
-    let schema_ident = make_ident(&schema.name);
+    let target_path = format!("{category}::{subcategory}");
+    let schema_name_lowercase = schema.name.to_lowercase();
 
     let required_fields_array: Vec<_> = schema
         .required_fields
@@ -852,13 +958,22 @@ fn generate_inventory_submission(
         quote! { use amaru_observability::registry::SchemaEntry; }
     };
 
+    // Description should exist if validation passed, but use a fallback for error recovery
+    let description = schema
+        .description
+        .as_deref()
+        .unwrap_or("Missing description");
+
     quote! {
         #[allow(non_upper_case_globals)]
         const _: () = {
             #use_stmt
             inventory::submit!(SchemaEntry {
                 path: #schema_path,
-                target: stringify!(#schema_ident),
+                name: #schema_name_lowercase,
+                target: #target_path,
+                level: "TRACE",
+                description: #description,
                 required_fields: &[#(#required_fields_array),*],
                 optional_fields: &[#(#optional_fields_array),*],
             });
@@ -1103,7 +1218,13 @@ fn build_module_tree_with_metadata(
 /// Internal expansion with configurable export behavior.
 fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
     let config = GenerationConfig { export_macros };
-    let input_str = input.to_string();
+    
+    // Convert TokenStream to proc_macro2::TokenStream for manipulation
+    let input2: proc_macro2::TokenStream = input.into();
+    
+    // Convert to string - doc comments (/// ...) are preserved in the string representation
+    let input_str = input2.to_string();
+    
     let (schemas, errors) = extract_schemas(&input_str);
 
     // Generate the module tree (includes all macros)
@@ -1176,6 +1297,7 @@ mod tests {
         let input = r#"
             consensus {
                 sync {
+                    /// Validate the schema
                     VALIDATE {
                         required slot: u64
                     }
@@ -1191,6 +1313,7 @@ mod tests {
         assert_eq!(schemas[0].required_fields.len(), 1);
         assert_eq!(schemas[0].required_fields[0].name, "slot");
         assert_eq!(schemas[0].required_fields[0].ty, "u64");
+        assert_eq!(schemas[0].description, Some("Validate the schema".to_string()));
     }
 
     #[test]
@@ -1198,6 +1321,7 @@ mod tests {
         let input = r#"
             test {
                 sub {
+                    /// Test schema
                     SCHEMA {
                         required id: String
                         optional name: String
@@ -1218,9 +1342,11 @@ mod tests {
         let input = r#"
             cat {
                 sub {
+                    /// Schema A description
                     SCHEMA_A {
                         required a: u32
                     }
+                    /// Schema B description
                     SCHEMA_B {
                         required b: u64
                     }
@@ -1239,6 +1365,7 @@ mod tests {
         let input = r#"
             cat {
                 sub {
+                    /// Schema with duplicate
                     SCHEMA {
                         required x: u32
                         required x: u64
@@ -1247,8 +1374,7 @@ mod tests {
             }
         "#;
         let (_, errors) = extract_schemas(input);
-        assert_eq!(errors.len(), 1);
-        assert!(errors[0].contains("Duplicate field 'x'"));
+        assert!(errors.iter().any(|e| e.contains("Duplicate field 'x'")));
     }
 
     #[test]
@@ -1263,5 +1389,67 @@ mod tests {
             ty: "String".to_string(),
         });
         assert_eq!(schema.validation_string(), "R|id:u64|O|name:String");
+    }
+
+    #[test]
+    fn test_missing_description_error() {
+        let input = r#"
+            cat {
+                sub {
+                    SCHEMA {
+                        required x: u32
+                    }
+                }
+            }
+        "#;
+        let (schemas, errors) = extract_schemas(input);
+        assert_eq!(schemas.len(), 1);
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].contains("SCHEMA") && errors[0].contains("missing a description"),
+            "Expected missing description error, got: {}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn test_with_description() {
+        let input = r#"
+            cat {
+                sub {
+                    /// This is a test schema
+                    SCHEMA {
+                        required x: u32
+                    }
+                }
+            }
+        "#;
+        let (schemas, errors) = extract_schemas(input);
+        assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
+        assert_eq!(schemas.len(), 1);
+        assert_eq!(schemas[0].description, Some("This is a test schema".to_string()));
+    }
+
+    #[test]
+    fn test_multiline_description() {
+        let input = r#"
+            cat {
+                sub {
+                    /// This is a test schema
+                    /// with multiple lines
+                    /// of documentation
+                    SCHEMA {
+                        required x: u32
+                    }
+                }
+            }
+        "#;
+        let (schemas, errors) = extract_schemas(input);
+        assert!(errors.is_empty());
+        assert_eq!(schemas.len(), 1);
+        assert_eq!(
+            schemas[0].description,
+            Some("This is a test schema with multiple lines of documentation".to_string())
+        );
     }
 }

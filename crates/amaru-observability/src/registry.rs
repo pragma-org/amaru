@@ -9,7 +9,10 @@ use inventory;
 #[derive(Debug, Clone)]
 pub struct SchemaEntry {
     pub path: &'static str,
+    pub name: &'static str,
     pub target: &'static str,
+    pub level: &'static str,
+    pub description: &'static str,
     pub required_fields: &'static [(&'static str, &'static str)],
     pub optional_fields: &'static [(&'static str, &'static str)],
 }

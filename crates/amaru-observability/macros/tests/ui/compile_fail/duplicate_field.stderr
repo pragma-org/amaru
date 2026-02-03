@@ -4,9 +4,9 @@ error: Duplicate field 'name' in schema VALIDATE_HEADER
  6 | / define_local_schemas! {
  7 | |     consensus {
  8 | |         chain_sync {
- 9 | |             VALIDATE_HEADER {
+ 9 | |             /// Test schema with duplicate fields
 ...  |
-15 | | }
+16 | | }
    | |_^
    |
    = note: this error originates in the macro `define_local_schemas` (in Nightly builds, run with -Z macro-backtrace for more info)
