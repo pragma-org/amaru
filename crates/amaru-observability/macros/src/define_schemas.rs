@@ -1,3 +1,17 @@
+// Copyright 2026 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! `define_schemas!` macro implementation
 //!
 //! This module parses schema definitions and generates:
@@ -151,22 +165,22 @@ fn tokenize(input: &str) -> Vec<String> {
                 if !current.is_empty() {
                     tokens.push(std::mem::take(&mut current));
                 }
-                
+
                 // Consume the second '/'
                 chars.next();
-                
+
                 // Check for third '/' (doc comment)
                 if chars.peek() == Some(&'/') {
                     chars.next();
-                    
+
                     // Collect the rest of the doc comment until end of line or next '/'
                     let mut comment = String::from("///");
-                    
+
                     // Skip leading whitespace after ///
                     while chars.peek() == Some(&' ') {
                         chars.next();
                     }
-                    
+
                     // Collect comment text until we hit something that ends it
                     while let Some(&c) = chars.peek() {
                         // Stop at newlines, or at identifiers/braces that indicate end of comment
@@ -178,9 +192,10 @@ fn tokenize(input: &str) -> Vec<String> {
                         comment.push(c);
                         chars.next();
                     }
-                    
+
                     let trimmed_comment = comment.trim().to_string();
-                    if trimmed_comment.len() > 3 { // More than just "///"
+                    if trimmed_comment.len() > 3 {
+                        // More than just "///"
                         tokens.push(trimmed_comment);
                     }
                 } else {
@@ -1218,13 +1233,13 @@ fn build_module_tree_with_metadata(
 /// Internal expansion with configurable export behavior.
 fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
     let config = GenerationConfig { export_macros };
-    
+
     // Convert TokenStream to proc_macro2::TokenStream for manipulation
     let input2: proc_macro2::TokenStream = input.into();
-    
+
     // Convert to string - doc comments (/// ...) are preserved in the string representation
     let input_str = input2.to_string();
-    
+
     let (schemas, errors) = extract_schemas(&input_str);
 
     // Generate the module tree (includes all macros)
@@ -1313,7 +1328,10 @@ mod tests {
         assert_eq!(schemas[0].required_fields.len(), 1);
         assert_eq!(schemas[0].required_fields[0].name, "slot");
         assert_eq!(schemas[0].required_fields[0].ty, "u64");
-        assert_eq!(schemas[0].description, Some("Validate the schema".to_string()));
+        assert_eq!(
+            schemas[0].description,
+            Some("Validate the schema".to_string())
+        );
     }
 
     #[test]
@@ -1427,7 +1445,10 @@ mod tests {
         let (schemas, errors) = extract_schemas(input);
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
         assert_eq!(schemas.len(), 1);
-        assert_eq!(schemas[0].description, Some("This is a test schema".to_string()));
+        assert_eq!(
+            schemas[0].description,
+            Some("This is a test schema".to_string())
+        );
     }
 
     #[test]

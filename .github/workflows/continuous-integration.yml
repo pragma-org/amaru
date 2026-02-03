@@ -467,3 +467,61 @@ jobs:
       - name: Run bash_unit
         shell: bash
         run: FORCE_COLOR=true ./bash_unit cli-tests/test_*
+
+  validate-schemas:
+    name: Validate Trace Schemas and Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-x86_64-unknown-linux-gnu
+          restore-keys: |
+            cargo-x86_64-unknown-linux-gnu
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Generate current schemas
+        run: |
+          cargo run --bin amaru --quiet -- dump-traces-schema 2> /tmp/schemas-current.json
+      - name: Compare schemas
+        run: |
+          if diff -u docs/traces-schema.json /tmp/schemas-current.json > /tmp/schemas.diff; then
+            echo "✓ Schemas are up-to-date"
+          else
+            echo "✗ Schemas have changed!"
+            echo ""
+            echo "--- Expected (docs/traces-schema.json)"
+            echo "+++ Current (generated)"
+            cat /tmp/schemas.diff
+            exit 1
+          fi
+      - name: Generate current TRACES.md
+        run: |
+          ./scripts/generate-traces-doc
+          cp docs/TRACES.md /tmp/TRACES-current.md
+          git checkout docs/TRACES.md
+      - name: Compare TRACES.md
+        run: |
+          if diff -u docs/TRACES.md /tmp/TRACES-current.md > /tmp/traces.diff; then
+            echo "✓ TRACES.md is up-to-date"
+          else
+            echo "✗ TRACES.md has changed!"
+            echo ""
+            echo "--- Expected (docs/TRACES.md)"
+            echo "+++ Current (generated)"
+            cat /tmp/traces.diff
+            exit 1
+          fi
+      - name: Show update instructions on failure
+        if: failure()
+        run: |
+          echo "Documentation changes detected. Please run:"
+          echo ""
+          echo "  ./scripts/generate-traces-doc"
+          echo ""
+          echo "If schemas changed, also run:"
+          echo ""
+          echo "  cargo run --bin amaru -- dump-traces-schema 2> docs/traces-schema.json"
+          echo ""
+          echo "Then commit the updated files."

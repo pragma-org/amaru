@@ -137,6 +137,7 @@ struct Cli {
 // TODO(rkuhn): properly measure and design the Tokio runtime setup we need.
 // (probably one runtime for network with 1-2 threads, one for CPU-bound tasks according to parallelism,
 // one for running the consensus pipeline incl. Store access with 2+ threads)
+#[expect(clippy::unwrap_used)]
 #[tokio::main(worker_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
