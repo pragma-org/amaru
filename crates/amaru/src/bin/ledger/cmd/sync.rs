@@ -15,11 +15,12 @@
 use crate::cmd::new_block_validator;
 use amaru::{DEFAULT_NETWORK, default_chain_dir, default_data_dir, default_ledger_dir};
 use amaru_consensus::store::PraosChainStore;
+use amaru_kernel::cardano::network_block::NetworkBlock;
 use amaru_kernel::{
     BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point,
     RawBlock, to_cbor,
 };
-use amaru_ledger::{block_validator::BlockValidator, rules::parse_block};
+use amaru_ledger::block_validator::BlockValidator;
 use amaru_ouroboros::praos::header;
 use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
 use amaru_stores::rocksdb::{
@@ -179,13 +180,14 @@ async fn process_block(
     praos_chain_store: &PraosChainStore<BlockHeader>,
     consensus_parameters: Arc<ConsensusParameters>,
     block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
-    point: &Point,
-    raw_block: &RawBlock,
+    point: Point,
+    raw_block: RawBlock,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let block = parse_block(raw_block)?;
-    let block_header: BlockHeader = BlockHeader::from(block.header);
+    let network_block = NetworkBlock::try_from(raw_block)?;
+    let block = network_block.decode_block()?;
+    let block_header = BlockHeader::from(&block.header);
     chain_store.store_header(&block_header)?;
-    chain_store.store_block(&point.hash(), raw_block)?;
+    chain_store.store_block(&point.hash(), &network_block.raw_block())?;
     let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
 
     // Verify block headers
@@ -206,7 +208,7 @@ async fn process_block(
 
     // Verify block content
     block_validator
-        .roll_forward_block(point, raw_block)
+        .roll_forward_block(&point, block)
         .await
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?;
@@ -247,7 +249,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let mut archive = load_archive(network, archive_name)?;
         for (point, raw_block) in load_blocks(&mut archive)
             .await?
-            .iter()
+            .into_iter()
             // Do not process points already in the ledger
             .filter(|(point, _)| point.slot_or_default() > tip.slot_or_default())
         {

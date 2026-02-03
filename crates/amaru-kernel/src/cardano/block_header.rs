@@ -165,6 +165,18 @@ impl From<Header> for BlockHeader {
     }
 }
 
+impl From<&Header> for BlockHeader {
+    fn from(header: &Header) -> Self {
+        let hash = Point::Origin.hash();
+        let mut block_header = Self {
+            header: header.clone(),
+            hash,
+        };
+        block_header.recompute_hash();
+        block_header
+    }
+}
+
 /// Concrete Conway-era compatible `Header` implementation.
 ///
 /// There's no difference in headers' structure between Babbage

@@ -378,6 +378,7 @@ dependencies = [
  "clap",
  "futures-util",
  "hex",
+ "minicbor",
  "pallas-crypto",
  "pallas-primitives",
  "parking_lot",

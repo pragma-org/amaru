@@ -35,7 +35,7 @@ use amaru_consensus::{
         select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
     },
 };
-use amaru_kernel::cardano::network_block::NetworkBlock;
+use amaru_kernel::cardano::network_block::NETWORK_BLOCK;
 use amaru_kernel::{
     BlockHeader, GlobalParameters, Hash, IsHeader, NetworkName, Peer, Point, Tip, to_cbor,
     utils::string::{ListDebug, ListToString, ListsToString},
@@ -190,7 +190,7 @@ pub fn spawn_node(
             eff.send(
                 &cr,
                 Blocks {
-                    blocks: vec![NetworkBlock::fake()],
+                    blocks: vec![NETWORK_BLOCK.clone()],
                 },
             )
             .await;

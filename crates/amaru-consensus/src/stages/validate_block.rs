@@ -18,10 +18,9 @@ use crate::{
     events::{DecodedChainSyncEvent, ValidateBlockEvent},
     span::HasSpan,
 };
-use amaru_kernel::IsHeader;
-use anyhow::anyhow;
+use amaru_kernel::{Block, BlockHeader, IsHeader, Peer, Point};
 use pure_stage::StageRef;
-use tracing::{Instrument, Span, error};
+use tracing::{Instrument, Span, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 type State = (
@@ -31,94 +30,186 @@ type State = (
 );
 
 pub fn stage(
-    (downstream, validation_errors, processing_errors): State,
+    state: State,
     msg: ValidateBlockEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
     let span = tracing::trace_span!(parent: msg.span(), "chain_sync.validate_block");
-    async move {
-        match msg {
-            ValidateBlockEvent::Validated {
-                header,
-                block,
-                span,
-                peer,
-                ..
-            } => {
-                let point = header.point();
 
-                match eff
-                    .ledger()
-                    .validate_block(&peer, &point, block.raw_block(), Span::current().context())
-                    .await
-                {
-                    Ok(Ok(metrics)) => {
-                        eff.metrics().record(metrics.into()).await;
-                        eff.base()
-                            .send(
-                                &downstream,
-                                DecodedChainSyncEvent::RollForward {
-                                    peer,
-                                    header,
-                                    span: span.clone(),
-                                },
-                            )
-                            .await
-                    }
-                    Ok(Err(err)) => {
-                        error!(?err, %point, "chain_sync.validate_block.failed");
-                        eff.base()
-                            .send(
-                                &validation_errors,
-                                ValidationFailed::new(
-                                    &peer,
-                                    ConsensusError::InvalidBlock {
-                                        peer: peer.clone(),
-                                        point: header.point(),
-                                    },
-                                ),
-                            )
-                            .await;
-                    }
-                    Err(err) => {
-                        error!(?err, %point, "chain_sync.validate_block.failed");
-                        eff.base()
-                            .send(
-                                &processing_errors,
-                                ProcessingFailed::new(&peer, anyhow!(err)),
-                            )
-                            .await;
-                    }
-                }
-            }
-            ValidateBlockEvent::Rollback {
-                peer,
-                rollback_point,
-                span,
-                ..
-            } => {
-                if let Err(err) = eff
-                    .ledger()
-                    .rollback(&peer, &rollback_point, Span::current().context())
-                    .await
-                {
-                    error!(?err, %rollback_point, "chain_sync.validate_block.rollback_failed");
-                    eff.base().send(&processing_errors, err).await;
-                } else {
-                    eff.base()
-                        .send(
-                            &downstream,
-                            DecodedChainSyncEvent::Rollback {
-                                peer,
-                                rollback_point,
-                                span,
-                            },
-                        )
-                        .await
-                }
-            }
-        }
-        (downstream, validation_errors, processing_errors)
+    async move {
+        process_event(msg, eff, &state).await;
+        state
     }
     .instrument(span)
+}
+
+/// Process a single ValidateBlockEvent, either rolling forward or rolling back.
+async fn process_event(msg: ValidateBlockEvent, eff: impl ConsensusOps, state: &State) {
+    let (_, validation_errors, _) = state;
+    match msg {
+        ValidateBlockEvent::Validated {
+            header,
+            block,
+            span,
+            peer,
+            ..
+        } => {
+            let point = header.point();
+
+            match block.decode_block() {
+                Ok(block) => {
+                    roll_forward(&eff, state, header, span, peer, point, block).await;
+                }
+                Err(err) => {
+                    fail_with(
+                        "decode_block",
+                        &eff,
+                        validation_errors,
+                        peer,
+                        point,
+                        err.into(),
+                    )
+                    .await;
+                }
+            };
+        }
+        ValidateBlockEvent::Rollback {
+            peer,
+            rollback_point,
+            span,
+            ..
+        } => {
+            rollback(&eff, state, peer, rollback_point, span).await;
+        }
+    }
+}
+
+/// Roll forward the block: decode it and apply it to the current ledger state.
+async fn roll_forward(
+    eff: &impl ConsensusOps,
+    state: &State,
+    header: BlockHeader,
+    span: Span,
+    peer: Peer,
+    point: Point,
+    block: Block,
+) {
+    let (downstream, validation_errors, processing_errors) = state;
+    match eff
+        .ledger()
+        .validate_block(&peer, &point, block, Span::current().context())
+        .await
+    {
+        Ok(Ok(metrics)) => {
+            eff.metrics().record(metrics.into()).await;
+            eff.base()
+                .send(
+                    downstream,
+                    DecodedChainSyncEvent::RollForward {
+                        peer,
+                        header,
+                        span: span.clone(),
+                    },
+                )
+                .await
+        }
+        Ok(Err(err)) => {
+            fail_with(
+                "validate_block",
+                eff,
+                validation_errors,
+                peer,
+                point,
+                err.into(),
+            )
+            .await;
+        }
+        Err(err) => {
+            error_with(
+                "validate_block",
+                eff,
+                processing_errors,
+                peer,
+                point,
+                err.into(),
+            )
+            .await;
+        }
+    }
+}
+
+/// Rollback the ledger to the given point.
+async fn rollback(
+    eff: &impl ConsensusOps,
+    state: &State,
+    peer: Peer,
+    rollback_point: Point,
+    span: Span,
+) {
+    let (downstream, _, processing_errors) = state;
+    if let Err(err) = eff
+        .ledger()
+        .rollback(&peer, &rollback_point, Span::current().context())
+        .await
+    {
+        error_with(
+            "rollback_block",
+            eff,
+            processing_errors,
+            peer,
+            rollback_point,
+            err.into(),
+        )
+        .await;
+    } else {
+        eff.base()
+            .send(
+                downstream,
+                DecodedChainSyncEvent::Rollback {
+                    peer,
+                    rollback_point,
+                    span,
+                },
+            )
+            .await
+    }
+}
+
+/// Handle a failure by logging and sending a ValidationFailed event downstream.
+async fn fail_with(
+    failure_type: &str,
+    eff: &impl ConsensusOps,
+    validation_errors: &StageRef<ValidationFailed>,
+    peer: Peer,
+    point: Point,
+    err: anyhow::Error,
+) {
+    debug!(?err, %point, "chain_sync.{failure_type}.failure");
+    eff.base()
+        .send(
+            validation_errors,
+            ValidationFailed::new(
+                &peer,
+                ConsensusError::InvalidBlock {
+                    peer: peer.clone(),
+                    point,
+                },
+            ),
+        )
+        .await;
+}
+
+/// Handle a processing error by logging and sending a ProcessingFailed event downstream.
+async fn error_with(
+    error_type: &str,
+    eff: &impl ConsensusOps,
+    processing_errors: &StageRef<ProcessingFailed>,
+    peer: Peer,
+    point: Point,
+    err: anyhow::Error,
+) {
+    error!(?err, %point, "chain_sync.{error_type}.error");
+    eff.base()
+        .send(processing_errors, ProcessingFailed::new(&peer, err))
+        .await;
 }
