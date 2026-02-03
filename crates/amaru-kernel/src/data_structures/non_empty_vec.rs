@@ -28,6 +28,10 @@ impl<T: Eq> NonEmptyVec<T> {
         &self.0[0]
     }
 
+    pub fn last(&self) -> &T {
+        &self.0[self.0.len() - 1]
+    }
+
     /// Pop the last element from the NonEmptyVec, returning it and an Option with the remaining
     #[expect(clippy::expect_used)]
     pub fn pop(self) -> (T, Option<NonEmptyVec<T>>) {

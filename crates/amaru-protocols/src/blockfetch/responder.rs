@@ -69,11 +69,13 @@ impl PointsRange {
         self,
         store: &dyn ChainStore<BlockHeader>,
     ) -> anyhow::Result<(RawBlock, Option<PointsRange>)> {
+        // points are stored from most recent to oldest, so we pop from the end
+        let (last, rest) = self.0.pop();
+        let last_hash = last.hash();
         let stored_block = store
-            .load_block(&self.0.first().hash())?
-            .ok_or_else(|| anyhow::anyhow!("block {} was pruned", self.0.first().hash()))?;
-        let points_range = self.0.pop().1.map(PointsRange);
-        Ok((stored_block, points_range))
+            .load_block(&last_hash)?
+            .ok_or_else(|| anyhow::anyhow!("block {} was pruned", last_hash))?;
+        Ok((stored_block, rest.map(PointsRange)))
     }
 
     /// Return a points range:
@@ -120,8 +122,13 @@ impl PointsRange {
             // load the header for the current hash
             if let Some(header) = store.load_header(&current_hash) {
                 result.push(header.point());
+                // if we found the from point, we're done
                 if current_hash == from.hash() {
                     break;
+                }
+                // if we reached a slot before 'from', abort
+                if header.slot() < from.slot_or_default() {
+                    return Ok(None);
                 }
                 if let Some(parent_hash) = header.parent_hash() {
                     current_hash = parent_hash
@@ -350,11 +357,11 @@ pub mod tests {
         assert_eq!(
             result,
             PointsRange::from_vec(vec![
-                headers[0].point(),
-                headers[1].point(),
-                headers[2].point(),
-                headers[3].point(),
                 headers[4].point(),
+                headers[3].point(),
+                headers[2].point(),
+                headers[1].point(),
+                headers[0].point(),
             ])
         );
     }
@@ -426,6 +433,26 @@ pub mod tests {
     }
 
     #[test]
+    fn test_request_range_slot_before_from_abort() {
+        // Create a chain with 5 headers
+        let (store, headers) = make_store_with_chain(5);
+        store_blocks(store.clone(), &headers);
+
+        // Create a 'from' point that has a slot within the chain range but with a non-existent hash.
+        // When traversing backwards from 'through', we'll pass the slot of 'from' without finding it,
+        // and then hit a block with a slot before 'from', triggering the abort condition.
+        let from_slot = headers[2].slot();
+        let non_existent_hash = run_strategy(any_fake_header()).hash();
+        let from = Point::Specific(from_slot, non_existent_hash);
+
+        let result = PointsRange::request_range(&*store, from, headers[4].point()).unwrap();
+        assert_eq!(
+            result, None,
+            "should return None when we reach a slot before 'from' without finding 'from'"
+        );
+    }
+
+    #[test]
     fn test_request_range_exactly_max_blocks() {
         // Create a chain longer than MAX_BLOCKS
         let (store, headers) = make_store_with_chain(MAX_FETCHED_BLOCKS);
@@ -444,7 +471,7 @@ pub mod tests {
     #[test]
     fn test_request_range_max_blocks_limit() {
         // Create a chain longer than MAX_BLOCKS
-        let chain_length = MAX_FETCHED_BLOCKS + 10;
+        let chain_length = MAX_FETCHED_BLOCKS + 1;
         let (store, headers) = make_store_with_chain(chain_length);
         store_blocks(store.clone(), &headers);
 
@@ -486,9 +513,9 @@ pub mod tests {
         store_blocks(store.clone(), &headers);
 
         let (block, remaining_range) = PointsRange::from_vec(vec![
-            headers[0].point(),
-            headers[1].point(),
             headers[2].point(),
+            headers[1].point(),
+            headers[0].point(),
         ])
         .unwrap()
         .next_block(&*store)
@@ -504,7 +531,7 @@ pub mod tests {
         // Should have remaining points
         assert_eq!(
             remaining_range,
-            PointsRange::from_vec(vec![headers[1].point(), headers[2].point()])
+            PointsRange::from_vec(vec![headers[2].point(), headers[1].point()])
         );
     }
 
