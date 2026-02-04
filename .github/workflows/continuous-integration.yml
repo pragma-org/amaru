@@ -33,6 +33,10 @@ env:
     target/
   INPUT_TIMEOUT: ${{ github.event.inputs.timeout }}
   AMARU_TRACE: ${{ github.event.inputs.demo_trace_level }}
+  RUSTUP_LOG: error
+
+permissions:
+  contents: read
 
 jobs:
   build:
