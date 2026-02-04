@@ -17,7 +17,7 @@ use crate::{
     state,
     store::{HistoricalStores, Store},
 };
-use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, Point, RawBlock};
+use amaru_kernel::{Block, EraHistory, GlobalParameters, NetworkName, Point};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{CanValidateBlocks, can_validate_blocks::BlockValidationError};
 use amaru_plutus::arena_pool::ArenaPool;
@@ -68,10 +68,10 @@ where
     async fn roll_forward_block(
         &self,
         point: &Point,
-        raw_block: &RawBlock,
+        block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         let mut state = self.state.lock().unwrap();
-        match state.roll_forward(point, raw_block, &self.vm_eval_pool) {
+        match state.roll_forward(point, block, &self.vm_eval_pool) {
             BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
             BlockValidation::Invalid(_, _, details) => Ok(Err(BlockValidationError::new(anyhow!(
                 "Invalid block: {details}"

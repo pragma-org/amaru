@@ -18,7 +18,7 @@ use crate::{
     events::{ValidateBlockEvent, ValidateHeaderEvent},
     span::HasSpan,
 };
-use amaru_kernel::{IsHeader, RawBlock};
+use amaru_kernel::IsHeader;
 use amaru_observability::consensus::diffusion::FETCH_BLOCK;
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
@@ -68,9 +68,7 @@ pub fn stage(
                     return (downstream, failures, errors, manager);
                 };
 
-                let block = RawBlock::from(&*block);
-
-                let result = eff.store().store_block(&header.hash(), &block);
+                let result = eff.store().store_block(&header.hash(), &block.raw_block());
                 if let Err(e) = result {
                     eff.base()
                         .send(&errors, ProcessingFailed::new(&peer, e.into()))
@@ -113,6 +111,7 @@ pub fn stage(
 mod tests {
     use super::*;
     use crate::{effects::mock_consensus_ops, errors::ValidationFailed};
+    use amaru_kernel::cardano::network_block::make_network_block;
     use amaru_kernel::{Peer, any_header, utils::tests::run_strategy};
     use amaru_protocols::blockfetch::Blocks;
     use pure_stage::StageRef;
@@ -128,7 +127,7 @@ mod tests {
             header: header.clone(),
             span: Span::current(),
         };
-        let block = vec![1u8; 128];
+        let block = make_network_block(&header);
         let consensus_ops = mock_consensus_ops();
         consensus_ops.mock_base.return_blocks(Blocks {
             blocks: vec![block.clone()],
@@ -139,7 +138,7 @@ mod tests {
         let forwarded = ValidateBlockEvent::Validated {
             peer: peer.clone(),
             header,
-            block: RawBlock::from(block.as_slice()),
+            block,
             span: Span::current(),
         };
         assert_eq!(

@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// See: <https://github.com/IntersectMBO/ouroboros-consensus/blob/7b150c85af56c8ded78151eaf5ec8675b7acbd8a/ouroboros-consensus-cardano/src/ouroboros-consensus-cardano/Ouroboros/Consensus/Cardano/Node.hs#L173-L179>
 pub const ERA_VERSION_CONWAY: u16 = 7;
 
-#[derive(Debug, Clone, PartialEq, cbor::Encode)]
+#[derive(Debug, Clone, PartialEq, cbor::Encode, serde::Serialize, serde::Deserialize)]
 pub struct Block {
     #[cbor(skip)]
     original_body_size: u64,

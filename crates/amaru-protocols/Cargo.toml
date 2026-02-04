@@ -17,6 +17,8 @@ anyhow.workspace = true
 bytes = { workspace = true, features = ["serde"] }
 cbor-data.workspace = true
 futures-util.workspace = true
+hex.workspace = true
+minicbor.workspace = true
 pallas-traverse.workspace = true
 pure-stage.workspace = true
 serde.workspace = true
@@ -26,6 +28,7 @@ amaru-kernel = { "workspace" = true, features = ["test-utils"] }
 amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
+amaru-slot-arithmetic.workspace = true
 
 [dev-dependencies]
 amaru-mempool.workspace = true

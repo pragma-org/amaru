@@ -83,13 +83,9 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         let inner = self.inner.lock().unwrap();
-        inner
-            .blocks
-            .get(hash)
-            .cloned()
-            .ok_or(StoreError::NotFound { hash: *hash })
+        Ok(inner.blocks.get(hash).cloned())
     }
 
     #[expect(clippy::unwrap_used)]

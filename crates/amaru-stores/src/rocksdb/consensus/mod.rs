@@ -221,14 +221,13 @@ macro_rules! impl_ReadOnlyChainStore {
                     .and_then(from_cbor)
             }
 
-            fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
-                self.db
+            fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
+                Ok(self.db
                     .get_pinned([&BLOCK_PREFIX[..], &hash[..]].concat())
                     .map_err(|e| StoreError::ReadError {
                         error: e.to_string(),
                     })?
-                    .ok_or(StoreError::NotFound { hash: *hash })
-                    .map(|bytes| bytes.as_ref().into())
+                    .map(|bytes| bytes.as_ref().into()))
             }
 
             fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
@@ -520,7 +519,7 @@ pub mod test {
 
             db.store_block(&hash, &block).unwrap();
             let block2 = db.load_block(&hash).unwrap();
-            assert_eq!(block, block2);
+            assert_eq!(Some(block), block2);
         })
     }
 
@@ -528,14 +527,9 @@ pub mod test {
     fn rocksdb_chain_store_returns_not_found_for_nonexistent_block() {
         with_db(|db| {
             let nonexistent_hash: HeaderHash = random_bytes(HEADER).as_slice().into();
-            let result = db.load_block(&nonexistent_hash);
+            let result = db.load_block(&nonexistent_hash).unwrap();
 
-            assert_eq!(
-                Err(StoreError::NotFound {
-                    hash: nonexistent_hash
-                }),
-                result
-            );
+            assert_eq!(result, None);
         });
     }
 
@@ -1022,6 +1016,11 @@ pub mod test {
 
     fn populate_db(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
         let chain = run_strategy(any_headers_chain(10));
+
+        // Set the anchor to the first header in the chain
+        store
+            .set_anchor_hash(&chain[0].hash())
+            .expect("should set anchor hash successfully");
 
         for header in chain.iter() {
             store

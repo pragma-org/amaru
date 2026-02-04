@@ -273,7 +273,7 @@ mod tests {
             self.store.get_best_chain_hash()
         }
 
-        fn load_block(&self, hash: &HeaderHash) -> Result<RawBlock, StoreError> {
+        fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
             self.store.load_block(hash)
         }
 

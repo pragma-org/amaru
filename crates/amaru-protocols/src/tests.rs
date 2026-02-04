@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::mempool_effects::MemoryPool;
 use crate::{
     chainsync,
     chainsync::ChainSyncInitiatorMsg,
@@ -22,83 +23,70 @@ use crate::{
     store_effects::{ResourceHeaderStore, Store},
     tx_submission::{create_transactions, create_transactions_in_mempool},
 };
+use amaru_kernel::cardano::network_block::{NetworkBlock, make_network_block};
 use amaru_kernel::{
-    BlockHeader, HeaderHash, IsHeader, NetworkMagic, Peer, Transaction,
-    any_headers_chain_with_root, cbor, make_header, utils::tests::run_strategy,
+    Block, BlockHeader, HeaderHash, IsHeader, NetworkMagic, NetworkName, Peer, Point, Transaction,
+    any_headers_chain_with_root, cbor, make_header,
+    utils::{string::ListToString, tests::run_strategy},
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, ConnectionProvider, ConnectionResource, ResourceMempool, TxId,
+    TxSubmissionMempool,
     can_validate_blocks::{
         CanValidateHeaders,
         mock::{MockCanValidateBlocks, MockCanValidateHeaders},
     },
     in_memory_consensus_store::InMemConsensusStore,
 };
+use amaru_slot_arithmetic::EraHistory;
 use pallas_primitives::babbage::{Header, MintedHeader};
 use pure_stage::{
-    Effects, StageGraph, StageRef,
+    Effects, StageGraph, StageRef, TryInStage,
     tokio::{TokioBuilder, TokioRunning},
 };
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
-use tokio::{runtime::Handle, time::timeout};
+use tokio::runtime::Handle;
+use tokio::sync::Notify;
 use tracing_subscriber::EnvFilter;
 
+/// This test simulates a connection between an initiator and a responder over TCP.
+/// We want to observe that eventually the initiator catches up with the responder's chain
+/// and that both nodes have the same blocks and transactions.
 #[tokio::test]
 async fn test_connect_initiator_responder() -> anyhow::Result<()> {
     setup_logging(true);
-    let (responder, addr) = start_responder().await?;
+    let (responder, addr, responder_done) = start_responder().await?;
+    let (initiator, initiator_done) = start_initiator(addr).await?;
 
-    let responder_chain_store = responder.resources().get::<ResourceHeaderStore>()?.clone();
-    let responder_mempool = responder
-        .resources()
-        .get::<ResourceMempool<Transaction>>()?
-        .clone();
-
-    let initiator = start_initiator(addr).await?;
-    let initiator_chain_store = initiator.resources().get::<ResourceHeaderStore>()?.clone();
-    let initiator_mempool = initiator
-        .resources()
-        .get::<ResourceMempool<Transaction>>()?
-        .clone();
-
-    tokio::select! {
-        res = responder.join() => anyhow::bail!("responder terminated unexpectedly: {res:?}"),
-        res = initiator.join() => anyhow::bail!("initiator terminated unexpectedly: {res:?}"),
-        _ = tokio::time::sleep(Duration::from_secs(3)) => {
-        }
-    }
-
-    // Verify that the 2 nodes have the same best chain
-    assert_eq!(
-        initiator_chain_store.get_best_chain_hash(),
-        responder_chain_store.get_best_chain_hash()
-    );
-
-    // Verify that the 2 nodes have the same transactions
-    let tx_ids = get_tx_ids();
-    assert_eq!(
-        responder_mempool.get_txs_for_ids(tx_ids.as_slice()),
-        initiator_mempool.get_txs_for_ids(tx_ids.as_slice())
-    );
-
+    wait_for_termination(responder_done, initiator_done).await?;
+    check_state(initiator, responder)?;
     Ok(())
 }
 
 /// Create and start a responder node that listens for incoming connections on a free port found at
 /// runtime. Return the address it is listening on.
-async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr)> {
+async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr, Arc<Notify>)> {
     tracing::info!("Creating the responder");
     let mut responder_network = TokioBuilder::default();
-    let responder_manager = Manager::new(NetworkMagic::PREPROD, StageRef::blackhole());
+    let era_history: &EraHistory = NetworkName::Preprod.into();
+    let responder_manager = Manager::new(
+        NetworkMagic::PREPROD,
+        StageRef::blackhole(),
+        Arc::new(era_history.clone()),
+    );
 
     let responder_stage = responder_network.stage("responder", manager::stage);
     let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
 
     let accept_stage = responder_network.stage("accept", accept_stage);
-    let accept_stage = responder_network.wire_up(accept_stage, responder_stage.without_state());
+    let notify = Arc::new(Notify::new());
+    let accept_stage = responder_network.wire_up(
+        accept_stage,
+        AcceptState::new(responder_stage.without_state(), notify.clone()),
+    );
     responder_network
         .preload(accept_stage, [PullAccept])
         .unwrap();
@@ -117,12 +105,14 @@ async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr)> {
 
     tracing::info!("Start the responder");
     let running_responder = responder_network.run(Handle::current());
-    Ok((running_responder, peer_addr))
+    Ok((running_responder, peer_addr, notify))
 }
 
 /// Create and start an initiator node that connects to the given port.
 /// ChainSync events are sent to a stage that stores them in the in-memory store without further processing.
-async fn start_initiator(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<TokioRunning> {
+async fn start_initiator(
+    addr: impl Into<Option<SocketAddr>>,
+) -> anyhow::Result<(TokioRunning, Arc<Notify>)> {
     tracing::info!("Creating the initiator");
     let addr = addr
         .into()
@@ -130,11 +120,22 @@ async fn start_initiator(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<
     let peer = Peer::from_addr(&addr);
     let mut initiator_network = TokioBuilder::default();
 
-    let chainsync_stage = initiator_network.stage("chainsync", test_chainsync_stage);
-    let chainsync_stage = initiator_network.wire_up(chainsync_stage, ());
-
-    let initiator_manager = Manager::new(NetworkMagic::PREPROD, chainsync_stage.without_state());
+    // create stages
     let initiator_stage = initiator_network.stage("initiator", manager::stage);
+    let chainsync_stage = initiator_network.stage("chainsync", test_chainsync_stage);
+
+    // wire up stages
+    let notify = Arc::new(Notify::new());
+    let chainsync_stage = initiator_network.wire_up(
+        chainsync_stage,
+        ChainSyncStageState::new(initiator_stage.sender(), notify.clone()),
+    );
+    let era_history: &EraHistory = NetworkName::Preprod.into();
+    let initiator_manager = Manager::new(
+        NetworkMagic::PREPROD,
+        chainsync_stage.without_state(),
+        Arc::new(era_history.clone()),
+    );
     let initiator_stage = initiator_network.wire_up(initiator_stage, initiator_manager);
     let initiator_sender = initiator_network.input(initiator_stage);
 
@@ -152,44 +153,130 @@ async fn start_initiator(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<
         .await
         .unwrap();
 
-    Ok(running_initiator)
+    Ok((running_initiator, notify))
 }
 
-/// If needed the initiator can be started alone for debugging purposes
-#[tokio::test]
-#[ignore]
-async fn connect_initiator() -> anyhow::Result<()> {
-    setup_logging(true);
-    let running = start_initiator(None).await?;
-    wait_for(running.join(), Duration::from_secs(2000)).await?;
+/// Wait until both nodes signal that they are done.
+/// We timeout after 5 seconds to avoid hanging tests. If the test times out it will fail later when checking the state.
+async fn wait_for_termination(
+    responder_done: Arc<Notify>,
+    initiator_done: Arc<Notify>,
+) -> anyhow::Result<()> {
+    let _ = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(responder_done.notified(), initiator_done.notified());
+    })
+    .await;
     Ok(())
 }
 
-/// If needed the responder can be started alone for debugging purposes
-#[tokio::test]
-#[ignore]
-async fn connect_responder() -> anyhow::Result<()> {
-    setup_logging(true);
-    let running = start_responder().await?.0;
-    wait_for(running.join(), Duration::from_secs(2000)).await?;
+/// Verify that both nodes have the same state: same best chain, same blocks, same transactions.
+fn check_state(initiator: TokioRunning, responder: TokioRunning) -> anyhow::Result<()> {
+    let responder_chain_store = responder.resources().get::<ResourceHeaderStore>()?.clone();
+    let responder_mempool = responder
+        .resources()
+        .get::<ResourceMempool<Transaction>>()?
+        .clone();
+
+    let initiator_chain_store = initiator.resources().get::<ResourceHeaderStore>()?.clone();
+    let initiator_mempool = initiator
+        .resources()
+        .get::<ResourceMempool<Transaction>>()?
+        .clone();
+
+    // Verify that the 2 nodes have the same best chain
+    assert_eq!(
+        initiator_chain_store.get_best_chain_hash(),
+        responder_chain_store.get_best_chain_hash()
+    );
+
+    // Verify that the 2 nodes have the same blocks headers
+    // This makes it easier to spot differences in case of failure, before comparing full blocks.
+    let initiator_block_headers = initiator_chain_store.retrieve_best_chain();
+    let responder_block_headers = responder_chain_store.retrieve_best_chain();
+    assert_eq!(initiator_block_headers, responder_block_headers);
+
+    let initiator_blocks = get_blocks(initiator_chain_store);
+    let responder_blocks = get_blocks(responder_chain_store);
+
+    assert_eq!(
+        initiator_blocks,
+        responder_blocks,
+        "initiator blocks {:?}\nresponder blocks {:?}",
+        initiator_blocks
+            .iter()
+            .map(|b| b.0)
+            .collect::<Vec<_>>()
+            .list_to_string(","),
+        responder_blocks
+            .iter()
+            .map(|b| b.0)
+            .collect::<Vec<_>>()
+            .list_to_string(",")
+    );
+
+    // Verify that the 2 nodes have the same transactions
+    let tx_ids = get_tx_ids();
+    assert_eq!(
+        responder_mempool.get_txs_for_ids(tx_ids.as_slice()),
+        initiator_mempool.get_txs_for_ids(tx_ids.as_slice())
+    );
     Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PullAccept;
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AcceptState {
+    manager_stage: StageRef<ManagerMessage>,
+    #[serde(skip)]
+    notify: Arc<Notify>,
+}
+
+impl PartialEq for AcceptState {
+    fn eq(&self, other: &Self) -> bool {
+        self.manager_stage == other.manager_stage
+    }
+}
+
+impl Eq for AcceptState {}
+
+impl AcceptState {
+    fn new(manager_stage: StageRef<ManagerMessage>, notify: Arc<Notify>) -> Self {
+        Self {
+            manager_stage,
+            notify,
+        }
+    }
+}
+
 /// Create a stage that accepts incoming connections and notifies the manager
 /// about them. This can not be implemented using contramap because we need to
 /// create a sender for that stage and this is not possible with an adapted stage.
 pub async fn accept_stage(
-    manager_stage: StageRef<ManagerMessage>,
+    state: AcceptState,
     _msg: PullAccept,
     eff: Effects<PullAccept>,
-) -> StageRef<ManagerMessage> {
+) -> AcceptState {
+    tracing::info!("pull accept");
+    // Terminate if the mempool already has all expected transactions
+    let mempool = MemoryPool::new(eff.clone());
+    let expected_tx_ids = get_tx_ids();
+    let txs = mempool.get_txs_for_ids(expected_tx_ids.as_slice());
+    if txs.len() == expected_tx_ids.len() {
+        tracing::info!("all txs retrieved, done");
+        state.notify.notify_waiters();
+    } else {
+        tracing::info!(
+            "still missing txs {}, continuing",
+            expected_tx_ids.len() - txs.len()
+        );
+    }
+
     match Network::new(&eff).accept().await {
         Ok((peer, connection_id)) => {
             eff.send(
-                &manager_stage,
+                &state.manager_stage,
                 ManagerMessage::Accepted(peer, connection_id),
             )
             .await;
@@ -199,8 +286,9 @@ pub async fn accept_stage(
             return eff.terminate().await;
         }
     }
-    eff.send(&eff.me(), PullAccept).await;
-    manager_stage
+    eff.schedule_after(PullAccept, Duration::from_millis(100))
+        .await;
+    state
 }
 
 // HELPERS
@@ -216,22 +304,57 @@ fn setup_logging(enable: bool) {
         .try_init();
 }
 
-/// This is a ChainSync stage that just logs the events
+/// State for the ChainSync stage
+/// The stage batches block fetch requests to test the manager's block fetch capabilities with the Message::RequestRange variant.
+/// We accumulate the next points to fetch in this state and keep track of the total number of requested blocks.
+#[derive(Debug, Serialize, Deserialize)]
+struct ChainSyncStageState {
+    manager: StageRef<ManagerMessage>,
+    #[serde(skip)]
+    notify: Arc<Notify>,
+    blocks_to_fetch: Vec<Point>,
+    total_requested_blocks: usize,
+}
+
+impl PartialEq for ChainSyncStageState {
+    fn eq(&self, other: &Self) -> bool {
+        self.manager == other.manager
+            && self.blocks_to_fetch == other.blocks_to_fetch
+            && self.total_requested_blocks == other.total_requested_blocks
+    }
+}
+
+impl Eq for ChainSyncStageState {}
+
+impl ChainSyncStageState {
+    fn new(manager: StageRef<ManagerMessage>, notify: Arc<Notify>) -> Self {
+        Self {
+            manager,
+            notify,
+            blocks_to_fetch: Vec::new(),
+            total_requested_blocks: 0,
+        }
+    }
+}
+
+/// This is a simplified version of the chain sync processing
+/// that only stores headers and fetches blocks in batches of 3.
+/// There is no validation or chain selection logic here.
 async fn test_chainsync_stage(
-    _: (),
+    mut state: ChainSyncStageState,
     msg: ChainSyncInitiatorMsg,
     eff: Effects<ChainSyncInitiatorMsg>,
-) {
+) -> ChainSyncStageState {
     use crate::chainsync::InitiatorResult::*;
     match msg.msg {
         Initialize => {
             tracing::info!(peer = %msg.peer,"initializing chainsync");
         }
         IntersectFound(point, tip) => {
-            tracing::info!(peer = %msg.peer, ?point, ?tip, "intersect found");
+            tracing::info!(peer = %msg.peer, %point, tip_point = %tip.point(), "intersect found");
         }
         IntersectNotFound(tip) => {
-            tracing::info!(peer = %msg.peer, ?tip, "intersect not found");
+            tracing::info!(peer = %msg.peer, %tip, "intersect not found");
             eff.send(&msg.handler, chainsync::InitiatorMessage::Done)
                 .await;
         }
@@ -241,34 +364,77 @@ async fn test_chainsync_stage(
             let header = Header::from(minted_header);
             let block_header = BlockHeader::from(header);
             let header_hash = block_header.hash();
+            let point = block_header.point();
             let store = Store::new(eff.clone());
+            let peer = msg.peer;
+            tracing::info!(%peer, hash = header_hash.to_string(), %tip, "roll forward");
+
+            // store the header, update the best chain, fetch and store the block
             store.store_header(&block_header).unwrap();
+            store.roll_forward_chain(&point).unwrap();
             store.set_best_chain_hash(&header_hash).unwrap();
 
-            tracing::info!(peer = %msg.peer, hash = header_hash.to_string(), ?tip, "roll forward");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
-                .await;
+            // We accumulate points to fetch and fetch them in batches of 3
+            state.blocks_to_fetch.push(point);
+
+            // By construction the initiator and the responder just have 1 block in common
+            // so we know that we eventually need to fetch RESPONDER_BLOCKS_NB - 1 blocks.
+            let remaining_number_of_blocks_to_retrieve =
+                RESPONDER_BLOCKS_NB - 1 - state.total_requested_blocks;
+
+            // If the last batch isn't full but would allow us to complete the retrieval, we fetch it as well.
+            if state.blocks_to_fetch.len() == 3
+                || state.blocks_to_fetch.len() == remaining_number_of_blocks_to_retrieve
+            {
+                let from = *state.blocks_to_fetch.first().unwrap();
+                let through = *state.blocks_to_fetch.last().unwrap();
+                let blocks = eff
+                    .call(&state.manager, Duration::from_secs(1), move |cr| {
+                        ManagerMessage::FetchBlocks {
+                            peer,
+                            from,
+                            through,
+                            cr,
+                        }
+                    })
+                    .await
+                    .or_terminate(&eff, async |e| {
+                        tracing::error!("failed to fetch blocks: {e:?}")
+                    })
+                    .await;
+
+                state.total_requested_blocks += state.blocks_to_fetch.len();
+
+                // store the fetched blocks with their corresponding headers.
+                tracing::info!("retrieved {} blocks", blocks.blocks.len());
+                for network_block in blocks.blocks {
+                    let block_header = network_block
+                        .decode_header()
+                        .expect("failed to extract header from block");
+                    tracing::info!("storing block {:?}", block_header.point());
+                    store
+                        .store_block(&block_header.hash(), &network_block.raw_block())
+                        .unwrap();
+                }
+                state.blocks_to_fetch.clear();
+            };
+
+            if state.total_requested_blocks == RESPONDER_BLOCKS_NB - 1 {
+                tracing::info!("all blocks retrieved, done");
+                state.notify.notify_waiters();
+            } else {
+                eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
+                    .await;
+            }
+            return state;
         }
         RollBackward(point, tip) => {
-            tracing::info!(peer = %msg.peer, ?point, ?tip, "roll backward");
+            tracing::info!(peer = %msg.peer, %point, %tip, "roll backward");
             eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
                 .await;
         }
     }
-}
-
-/// This function can timeout the execution of a manager after a given duration.
-async fn wait_for<F>(running: F, duration: Duration) -> anyhow::Result<()>
-where
-    F: IntoFuture,
-{
-    match timeout(duration, running).await {
-        Ok(_) => anyhow::bail!("test should have timed out"),
-        Err(_) => {
-            tracing::info!("test timed out as expected");
-        }
-    };
-    Ok(())
+    state
 }
 
 /// Resource type definitions
@@ -304,6 +470,9 @@ fn add_resources(
     Ok(())
 }
 
+const RESPONDER_BLOCKS_NB: usize = 10;
+const INITIATOR_BLOCKS_NB: usize = 3;
+
 /// Initialize the chain store with a chain of headers.
 /// The responder chain is longer than the initiator chain to force the initiator to catch up.
 fn initialize_chain_store(
@@ -314,18 +483,47 @@ fn initialize_chain_store(
     let origin_hash: HeaderHash = amaru_kernel::Hash::from_str(
         "4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301",
     )?;
-    let root_header = BlockHeader::from(make_header(0, 0, Some(origin_hash)));
+    let root_header = BlockHeader::from(make_header(100_000_000, 100_000_000, Some(origin_hash)));
     chain_store.set_anchor_hash(&root_header.hash())?;
-    let chain_size = if role == Role::Responder { 5 } else { 2 };
-    let mut headers = run_strategy(any_headers_chain_with_root(chain_size, root_header.hash()));
+    let chain_size = if role == Role::Responder {
+        RESPONDER_BLOCKS_NB - 1
+    } else {
+        INITIATOR_BLOCKS_NB
+    };
+    let mut headers = run_strategy(any_headers_chain_with_root(chain_size, root_header.point()));
     headers.insert(0, root_header);
 
     for header in headers.iter() {
         chain_store.store_header(header)?;
         chain_store.roll_forward_chain(&header.point())?;
         chain_store.set_best_chain_hash(&header.hash())?;
+
+        tracing::info!("storing block for header {}", header.point());
+        let network_block = make_network_block(header);
+        chain_store.store_block(&header.hash(), &network_block.raw_block())?;
     }
     Ok(())
+}
+
+/// Retrieve all blocks from the chain store starting from the best chain tip down to the root.
+fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, Block)> {
+    store
+        .retrieve_best_chain()
+        .iter()
+        .map(|h| {
+            let b = store
+                .load_block(h)
+                .unwrap()
+                .expect("missing block for best-chain header");
+            (
+                *h,
+                NetworkBlock::try_from(b)
+                    .expect("failed to decode raw block")
+                    .decode_block()
+                    .expect("failed to decode block"),
+            )
+        })
+        .collect()
 }
 
 const TXS_NB: u64 = 10;
