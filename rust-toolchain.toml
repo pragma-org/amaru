@@ -1,3 +1,3 @@
 [toolchain]
 channel = "nightly-2025-11-21"              # ⚠️ Also change in top-level Cargo.toml. Find versions here: https://rust-lang.github.io/rustup-components-history/
-components = ["rustc", "rustfmt", "clippy"]
+components = ["rustc", "rust-src", "rustfmt", "clippy"]
