@@ -64,7 +64,7 @@ jobs:
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             title: x86_64/windows
-            command: test-amaru --profile dev-debug
+            command: test --workspace --all-targets --profile dev-debug
 
           - runner: ubuntu-22.04
             target: wasm32-unknown-unknown
@@ -121,7 +121,7 @@ jobs:
           set -e
           EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
           SCOPE="${{ matrix.environments.packages || '' }}"
-          COMMAND="${{ matrix.environments.command  || 'test-amaru' }}"
+          COMMAND="${{ matrix.environments.command  || 'test --workspace --all-targets' }}"
           if [[ -n "${{ matrix.environments.setup }}" ]]; then
             echo "Running setup command: ${{ matrix.environments.setup }}"
             ${{ matrix.environments.setup }}
