@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::errors::ProcessingFailed;
-use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, RawBlock};
+use amaru_kernel::{Block, BlockHeader, IgnoreEq, Peer, Point};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks,
@@ -38,7 +38,7 @@ pub trait LedgerOps: Send + Sync {
         &self,
         peer: &Peer,
         point: &Point,
-        block: RawBlock,
+        block: Block,
         ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
@@ -72,7 +72,7 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         &self,
         peer: &Peer,
         point: &Point,
-        block: RawBlock,
+        block: Block,
         ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>
     {
@@ -100,13 +100,13 @@ pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 pub struct ValidateBlockEffect {
     peer: Peer,
     point: Point,
-    block: RawBlock,
+    block: Block,
     #[serde(skip)]
     ctx: IgnoreEq<opentelemetry::Context>,
 }
 
 impl ValidateBlockEffect {
-    pub fn new(peer: &Peer, point: &Point, block: RawBlock, ctx: opentelemetry::Context) -> Self {
+    pub fn new(peer: &Peer, point: &Point, block: Block, ctx: opentelemetry::Context) -> Self {
         Self {
             peer: peer.clone(),
             point: *point,
@@ -131,7 +131,7 @@ impl ExternalEffect for ValidateBlockEffect {
                     .get::<ResourceBlockValidation>()
                     .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
                     .clone();
-                validator.roll_forward_block(&point, &block).await
+                validator.roll_forward_block(&point, block).await
             }
             .with_context(ctx.0),
         )

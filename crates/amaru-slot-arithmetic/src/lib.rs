@@ -717,6 +717,45 @@ impl EraHistory {
         let elapsed = slot.elapsed_from(bounds.start)?;
         Ok(Slot(elapsed))
     }
+
+    /// Returns the era index (0-based) for the given slot.
+    ///
+    /// The era index corresponds to the position in the era history vector:
+    /// - 0 = Byron
+    /// - 1 = Shelley
+    /// - 2 = Allegra
+    /// - 3 = Mary
+    /// - 4 = Alonzo
+    /// - 5 = Babbage
+    /// - 6 = Conway
+    ///
+    /// To get the network protocol era tag, add 1 to the index (era_tag = era_index + 1).
+    pub fn slot_to_era_index(&self, slot: Slot) -> Result<usize, EraHistoryError> {
+        for (index, era) in self.eras.iter().enumerate() {
+            if era.start.slot > slot {
+                return Err(EraHistoryError::InvalidEraHistory);
+            }
+
+            // Check if slot is in this era: start <= slot < end (end is exclusive)
+            let in_era = match &era.end {
+                Some(end) => slot < end.slot,
+                None => true, // Last era has no end bound
+            };
+
+            if in_era {
+                return Ok(index);
+            }
+        }
+
+        Err(EraHistoryError::InvalidEraHistory)
+    }
+
+    /// Compute the era tag (used for serializating) from a slot using the era history.
+    /// The era tag is era_index + 1 (Byron = 1, Shelley = 2, ..., Conway = 7).
+    pub fn slot_to_era_tag(&self, slot: Slot) -> Result<u16, EraHistoryError> {
+        let era_index = self.slot_to_era_index(slot)?;
+        Ok((era_index + 1) as u16)
+    }
 }
 
 /// Compute the time in milliseconds between the start of the system and the given slot.
@@ -1194,6 +1233,46 @@ mod tests {
             hex::decode("83c35101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
         let result = minicbor::decode::<Bound>(&buffer);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn era_index_from_slot() {
+        let eras = two_eras();
+        assert_eq!(
+            eras.slot_to_era_index(Slot(0)),
+            Ok(0),
+            "first slot in first era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot(48272)),
+            Ok(0),
+            "slot anywhere in first era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot(86399)),
+            Ok(0),
+            "last slot in first era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot(86400)),
+            Ok(1),
+            "first slot in second era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot(105437)),
+            Ok(1),
+            "slot anywhere in second era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot(172801)),
+            Ok(1),
+            "slot beyond first epoch in second era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot(200000)),
+            Ok(1),
+            "slot well into second era"
+        );
     }
 
     proptest! {

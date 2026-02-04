@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::blockfetch::StreamBlocks;
 use crate::{
     blockfetch::{
         self, BlockFetchMessage, Blocks, register_blockfetch_initiator,
@@ -34,6 +35,7 @@ use crate::{
 use amaru_kernel::{NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
 use pure_stage::{Effects, StageRef, Void};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Connection {
@@ -48,6 +50,7 @@ impl Connection {
         role: Role,
         magic: NetworkMagic,
         pipeline: StageRef<ChainSyncInitiatorMsg>,
+        era_history: Arc<amaru_slot_arithmetic::EraHistory>,
     ) -> Self {
         Self {
             params: Params {
@@ -56,6 +59,7 @@ impl Connection {
                 role,
                 magic,
                 pipeline,
+                era_history,
             },
             state: State::Initial,
         }
@@ -69,6 +73,7 @@ struct Params {
     role: Role,
     magic: NetworkMagic,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
+    era_history: Arc<amaru_slot_arithmetic::EraHistory>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -101,7 +106,7 @@ struct StateResponder {
     handshake: StageRef<Inputs<Void>>,
     keepalive: StageRef<HandlerMessage>,
     tx_submission: StageRef<HandlerMessage>,
-    blockfetch_responder: StageRef<Void>,
+    blockfetch_responder: StageRef<StreamBlocks>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -223,6 +228,7 @@ async fn do_handshake(
         role,
         peer,
         conn_id,
+        era_history,
         ..
     }: &Params,
     muxer: StageRef<MuxMessage>,
@@ -250,8 +256,14 @@ async fn do_handshake(
     if *role == Role::Initiator {
         let chainsync_initiator =
             register_chainsync_initiator(&muxer, peer.clone(), *conn_id, pipeline, &eff).await;
-        let blockfetch_initiator =
-            register_blockfetch_initiator(&muxer, peer.clone(), *conn_id, &eff).await;
+        let blockfetch_initiator = register_blockfetch_initiator(
+            &muxer,
+            peer.clone(),
+            *conn_id,
+            era_history.clone(),
+            &eff,
+        )
+        .await;
         State::Initiator(StateInitiator {
             chainsync_initiator,
             blockfetch_initiator,

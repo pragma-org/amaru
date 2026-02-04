@@ -17,7 +17,7 @@ use crate::{
     context::DefaultValidationContext,
     governance::ratification::{self, RatificationContext},
     rules,
-    rules::{block::BlockValidation, parse_block},
+    rules::block::BlockValidation,
     state::{
         ratification::{ProposalsRoots, ProposalsRootsRc, RatificationResult},
         volatile_db::{StoreUpdate, VolatileDB},
@@ -37,7 +37,7 @@ use crate::{
 use amaru_kernel::{
     AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory,
     EraHistoryError, GlobalParameters, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName,
-    Point, PoolId, ProtocolParameters, RawBlock, Slot, StakeCredential, StakeCredentialKind,
+    Point, PoolId, ProtocolParameters, Slot, StakeCredential, StakeCredentialKind,
     TransactionInput, expect_stake_credential,
 };
 use amaru_metrics::ledger::LedgerMetrics;
@@ -596,14 +596,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn roll_forward(
         &mut self,
         point: &Point,
-        raw_block: &RawBlock,
+        block: Block,
         arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
-        let block = match parse_block(&raw_block[..]) {
-            Ok(block) => block,
-            Err(e) => return BlockValidation::Err(anyhow!(e)),
-        };
-
         let mut context = match self.create_validation_context(&block) {
             Ok(context) => context,
             Err(e) => return BlockValidation::Err(anyhow!(e)),

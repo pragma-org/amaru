@@ -107,7 +107,7 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
 pub mod tests {
     use super::*;
     use crate::errors::ProcessingFailed;
-    use amaru_kernel::{Peer, Point, PoolId, RawBlock, Tip};
+    use amaru_kernel::{Block, Peer, Point, PoolId, Tip};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics};
     use amaru_ouroboros::has_stake_distribution::GetPoolError;
@@ -199,7 +199,7 @@ pub mod tests {
             &self,
             _peer: &Peer,
             _point: &Point,
-            _block: RawBlock,
+            _block: Block,
             _ctx: opentelemetry::Context,
         ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>
         {

@@ -16,7 +16,7 @@ use crate::{
     CanValidateBlocks,
     can_validate_blocks::{BlockValidationError, CanValidateHeaders, HeaderValidationError},
 };
-use amaru_kernel::{BlockHeader, Point, RawBlock};
+use amaru_kernel::{Block, BlockHeader, Point};
 use amaru_metrics::ledger::LedgerMetrics;
 
 /// A fake block validator that always returns the same height.
@@ -28,7 +28,7 @@ impl CanValidateBlocks for MockCanValidateBlocks {
     async fn roll_forward_block(
         &self,
         _point: &Point,
-        _block: &RawBlock,
+        _block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         Ok(Ok(Default::default()))
     }

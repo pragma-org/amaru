@@ -344,10 +344,13 @@ async fn block_fetch<H: IsHeader>(
             return Err(ClientError::CannotServeRange(lb_point, ub_point).into());
         }
 
-        let block = store.load_block(&Hash::from(&from_network_point(&lb_point)))?;
-        server.send_start_batch().await?;
-        server.send_block(block.to_vec()).await?;
-        server.send_batch_done().await?;
+        if let Some(block) = store.load_block(&Hash::from(&from_network_point(&lb_point)))? {
+            server.send_start_batch().await?;
+            server.send_block(block.to_vec()).await?;
+            server.send_batch_done().await?;
+        } else {
+            return Err(ClientError::CannotServeRange(lb_point, ub_point).into());
+        }
     }
 }
 

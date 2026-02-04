@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, RawBlock, Tip};
+use amaru_kernel::cardano::network_block::NetworkBlock;
+use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
 use std::{
     fmt,
     fmt::{Debug, Formatter},
@@ -179,8 +180,8 @@ pub enum ValidateBlockEvent {
     Validated {
         peer: Peer,
         header: BlockHeader,
-        #[serde(skip, default = "default_block")]
-        block: RawBlock,
+        #[serde(skip, default = "NetworkBlock::fake")]
+        block: NetworkBlock,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -190,10 +191,6 @@ pub enum ValidateBlockEvent {
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
-}
-
-pub fn default_block() -> RawBlock {
-    RawBlock::from(Vec::new().as_slice())
 }
 
 impl Debug for ValidateBlockEvent {
