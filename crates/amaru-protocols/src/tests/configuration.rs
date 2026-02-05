@@ -36,7 +36,7 @@ pub(super) struct Configuration {
     pub(super) chain_store: Arc<dyn ChainStore<BlockHeader>>,
     pub(super) mempool: Arc<InMemoryMempool<Transaction>>,
     pub(super) addr: SocketAddr,
-    pub(super) connection_timeout: Duration,
+    pub(super) reconnect_delay: Duration,
     pub(super) processing_wait: Option<Duration>,
     pub(super) chain_length: usize,
     pub(super) slow_manager: bool,
@@ -49,7 +49,7 @@ impl Configuration {
             chain_length: 0,
             mempool: Arc::new(InMemoryMempool::default()),
             addr: SocketAddr::from(([127, 0, 0, 1], 3000)),
-            connection_timeout: Duration::from_secs(1),
+            reconnect_delay: Duration::from_secs(1),
             processing_wait: None,
             slow_manager: false,
         };
@@ -64,7 +64,7 @@ impl Configuration {
             chain_length: 0,
             mempool: Arc::new(InMemoryMempool::default()),
             addr: SocketAddr::from(([127, 0, 0, 1], 0)),
-            connection_timeout: Duration::from_secs(1),
+            reconnect_delay: Duration::from_secs(1),
             processing_wait: None,
             slow_manager: false,
         };
@@ -109,8 +109,8 @@ impl Configuration {
         self
     }
 
-    pub(super) fn with_connection_timeout(mut self, timeout: Duration) -> Self {
-        self.connection_timeout = timeout;
+    pub(super) fn with_reconnect_delay(mut self, timeout: Duration) -> Self {
+        self.reconnect_delay = timeout;
         self
     }
 

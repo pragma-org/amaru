@@ -54,7 +54,7 @@ async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
     let (initiator, initiator_done) = start_initiator_with_configuration(
         Configuration::initiator()
             .with_addr(addr)
-            .with_connection_timeout(Duration::from_millis(500)),
+            .with_reconnect_delay(Duration::from_millis(500)),
     )
     .await?;
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -77,7 +77,7 @@ async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::R
     let (initiator, initiator_done) = start_initiator_with_configuration(
         Configuration::initiator()
             .with_addr(addr)
-            .with_connection_timeout(Duration::from_millis(500))
+            .with_reconnect_delay(Duration::from_millis(500))
             .with_processing_wait(Duration::from_millis(100)),
     )
     .await?;
@@ -201,10 +201,12 @@ async fn start_initiator_with_configuration(
         ),
     );
 
+    let manager_config =
+        ManagerConfig::default().with_reconnect_delay(configuration.reconnect_delay);
     let era_history: &EraHistory = NetworkName::Preprod.into();
     let initiator_manager = Manager::new(
         NetworkMagic::PREPROD,
-        ManagerConfig::default(),
+        manager_config,
         chainsync_stage.without_state(),
         Arc::new(era_history.clone()),
     );

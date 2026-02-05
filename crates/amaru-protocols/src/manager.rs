@@ -87,6 +87,18 @@ pub struct ManagerConfig {
     pub reconnect_delay: Duration,
 }
 
+impl ManagerConfig {
+    pub fn with_reconnect_delay(mut self, reconnect_delay: Duration) -> Self {
+        self.reconnect_delay = reconnect_delay;
+        self
+    }
+
+    pub fn with_connection_timeout(mut self, connection_timeout: Duration) -> Self {
+        self.connection_timeout = connection_timeout;
+        self
+    }
+}
+
 impl Default for ManagerConfig {
     fn default() -> Self {
         Self {

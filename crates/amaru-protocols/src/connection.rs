@@ -164,7 +164,6 @@ async fn do_initialize(
     eff: Effects<ConnectionMessage>,
 ) -> State {
     let muxer = eff.stage("mux", mux::stage).await;
-    let muxer = eff.supervise(muxer, ConnectionMessage::Disconnect);
     let muxer = eff
         .wire_up(
             muxer,
