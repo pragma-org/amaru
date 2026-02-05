@@ -490,16 +490,40 @@ jobs:
           cargo run --bin amaru --quiet -- dump-traces-schema 2> /tmp/schemas-current.json
       - name: Compare schemas
         run: |
-          if diff -u docs/traces-schema.json /tmp/schemas-current.json > /tmp/schemas.diff; then
+          set -euo pipefail
+
+          # Canonicalize JSON to avoid formatting noise
+          jq -S . docs/traces-schema.json > /tmp/expected.json
+          jq -S . /tmp/schemas-current.json > /tmp/current.json
+
+          if diff -u /tmp/expected.json /tmp/current.json > /tmp/schemas.diff; then
             echo "✓ Schemas are up-to-date"
           else
-            echo "✗ Schemas have changed!"
-            echo ""
-            echo "--- Expected (docs/traces-schema.json)"
-            echo "+++ Current (generated)"
-            cat /tmp/schemas.diff
+            echo "::group::❌ Schema diff (expected → generated)"
+            diff --color=always -u /tmp/expected.json /tmp/current.json
+            echo "::endgroup::"
+
+            echo "::error title=Schema out of date::Generated schema does not match docs/traces-schema.json"
+
+            {
+              echo "## ❌ Schema mismatch"
+              echo ""
+              echo "The generated schema differs from \`docs/traces-schema.json\`."
+              echo ""
+              echo "**How to fix:**"
+              echo '```bash'
+              echo '<YOUR_SCHEMA_GENERATION_COMMAND> > docs/traces-schema.json'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+
             exit 1
           fi
+      - name: Upload schema diff
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-diff
+          path: /tmp/schemas.diff
       - name: Generate current TRACES.md
         run: |
           ./scripts/generate-traces-doc
