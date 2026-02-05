@@ -289,7 +289,7 @@ async fn handle_msg(
             Ok(())
         }
         MuxMessage::Terminate => {
-            tracing::error!(role=%muxer.role(), "terminating muxer due to read/write error");
+            tracing::debug!(role=%muxer.role(), "terminating muxer due to read/write error");
             eff.terminate::<Void>().await;
             Ok(())
         }

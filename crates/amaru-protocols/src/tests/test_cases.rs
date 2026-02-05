@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::manager;
-use crate::manager::{Manager, ManagerMessage};
+use crate::manager::{Manager, ManagerConfig, ManagerMessage};
 use crate::tests::accept_stage::{AcceptState, PullAccept, accept_stage};
 use crate::tests::assertions::{check_state, wait_for_termination};
 use crate::tests::chainsync_stage::{ChainSyncStageState, test_chainsync_stage};
@@ -127,7 +127,7 @@ async fn start_responder_with_configuration(
     let era_history: &EraHistory = NetworkName::Preprod.into();
     let responder_manager = Manager::new(
         NetworkMagic::PREPROD,
-        configuration.connection_timeout,
+        ManagerConfig::default(),
         StageRef::blackhole(),
         Arc::new(era_history.clone()),
     );
@@ -204,7 +204,7 @@ async fn start_initiator_with_configuration(
     let era_history: &EraHistory = NetworkName::Preprod.into();
     let initiator_manager = Manager::new(
         NetworkMagic::PREPROD,
-        configuration.connection_timeout,
+        ManagerConfig::default(),
         chainsync_stage.without_state(),
         Arc::new(era_history.clone()),
     );
