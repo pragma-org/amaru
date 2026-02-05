@@ -9,9 +9,20 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
-| `receive_header` | `TRACE` | Receive header from peer |  |  |
 | `decode_header` | `TRACE` | Decode header from raw bytes |  |  |
+| `validate_header` | `TRACE` | Validate header properties |  |  |
+| `validate_block` | `TRACE` | Validate block properties |  |  |
+| `select_chain` | `TRACE` | Validate header properties |  |  |
+| `receive_header_decode_failed` | `TRACE` | Decode header from raw bytes |  |  |
+| `receive_header` | `TRACE` | Pull chain updates from peer |  |  |
 | `pull` | `TRACE` | Chain sync pull operation |  |  |
+
+### target: `consensus::diffusion`
+
+| name | level | description | required fields | optional fields |
+| --- | --- | --- | --- | --- |
+| `forward_chain` | `TRACE` | Forward chain operations |  |  |
+| `fetch_block` | `TRACE` | Fetch a block from the network |  |  |
 
 ### target: `consensus::validate_header`
 
@@ -133,9 +144,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
-| `cleanup_expired_proposals` | `TRACE` | Cleanup expired proposals |  |  |
-| `cleanup_old_epochs` | `TRACE` | Cleanup old epochs |  |  |
-| `manage_transaction_outputs` | `TRACE` | Manage transaction outputs |  |  |
 | `ratification_context_new` | `TRACE` | Create ratification context |  |  |
 | `roll_backward` | `TRACE` | Roll backward to a specific point |  |  |
 | `reset_blocks_count` | `TRACE` | Reset blocks count to zero |  |  |
@@ -155,6 +163,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `epoch_transition` | `TRACE` | Epoch transition processing | from, into |  |
 | `apply_block` | `TRACE` | Apply a block to stable state | point_slot |  |
 | `roll_forward` | `TRACE` | Roll forward ledger state with a new block |  |  |
+| `cleanup_expired_proposals` | `TRACE` | Cleanup expired proposals |  |  |
+| `cleanup_old_epochs` | `TRACE` | Cleanup old epochs |  |  |
+| `manage_transaction_outputs` | `TRACE` | Manage transaction outputs |  |  |
 
 <details><summary>span: `tick_proposals`</summary>
 
@@ -229,14 +240,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
-| `buffer` | `TRACE` | Buffer protocol messages |  |  |
-| `register` | `TRACE` | Register protocol with muxer |  |  |
 | `mux` | `TRACE` | Multiplex outgoing bytes | bytes |  |
 | `demux` | `TRACE` | Demultiplex incoming bytes | proto_id, bytes |  |
 | `want_next` | `TRACE` | Want next message for protocol |  |  |
 | `received` | `TRACE` | Handle received protocol data | bytes |  |
 | `next_segment` | `TRACE` | Get next segment to send |  |  |
 | `outgoing` | `TRACE` | Handle outgoing protocol messages | proto_id, bytes |  |
+| `buffer` | `TRACE` | Buffer protocol messages |  |  |
+| `register` | `TRACE` | Register protocol with muxer |  |  |
 
 <details><summary>span: `mux`</summary>
 
