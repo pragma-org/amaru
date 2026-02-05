@@ -21,11 +21,22 @@
 
 use amaru_observability_macros::define_schemas;
 
+pub const OPENING_CHAIN_DB: &str = "opening chain db";
+pub const MIGRATING_DATABASE: &str = "migrating database";
+
 define_schemas! {
 
     consensus {
+        diffusion {
+            /// Fetch a block from the network
+            FETCH_BLOCK {}
+
+            /// Forward chain operations
+            FORWARD_CHAIN {}
+        }
 
         validate_header {
+
             /// Evolve the nonce based on header
             EVOLVE_NONCE {
                 required hash: String
@@ -42,11 +53,23 @@ define_schemas! {
             /// Chain sync pull operation
             PULL {}
 
-            /// Receive header from peer
+            /// Decode header from raw bytes
+            DECODE_HEADER {}
+
+            /// Pull chain updates from peer
             RECEIVE_HEADER {}
 
             /// Decode header from raw bytes
-            DECODE_HEADER {}
+            RECEIVE_HEADER_DECODE_FAILED {}
+
+            /// Validate header properties
+            SELECT_CHAIN {}
+
+            /// Validate block properties
+            VALIDATE_BLOCK {}
+
+            /// Validate header properties
+            VALIDATE_HEADER {}
         }
     }
 

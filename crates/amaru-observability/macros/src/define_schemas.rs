@@ -938,7 +938,7 @@ fn generate_inventory_submission(
 ) -> proc_macro2::TokenStream {
     let schema_path = format!("{category}::{subcategory}::{}", schema.name);
     let target_path = format!("{category}::{subcategory}");
-    let schema_name_lowercase = schema.name.to_lowercase();
+    let schema_name = schema.name.clone();
 
     let required_fields_array: Vec<_> = schema
         .required_fields
@@ -963,6 +963,8 @@ fn generate_inventory_submission(
     // Use `crate::` path when inside amaru-observability lib itself, external path otherwise.
     // We check both CARGO_PKG_NAME and CARGO_CRATE_NAME because examples within the
     // amaru-observability package have the package name but a different crate name.
+    //
+    // This is required for local schema testing
     let is_observability_lib = std::env::var("CARGO_PKG_NAME").ok().as_deref()
         == Some("amaru-observability")
         && std::env::var("CARGO_CRATE_NAME").ok().as_deref() == Some("amaru_observability");
@@ -985,7 +987,7 @@ fn generate_inventory_submission(
             #use_stmt
             inventory::submit!(SchemaEntry {
                 path: #schema_path,
-                name: #schema_name_lowercase,
+                name: #schema_name,
                 target: #target_path,
                 level: "TRACE",
                 description: #description,
@@ -1100,15 +1102,16 @@ fn build_module_tree_with_metadata(
             for schema in cat_schemas {
                 let schema_ident = make_ident(&schema.name);
                 let full_path = format!("{category}::{subcat_name}");
+                let full_const_path = format!("{full_path}::{}", schema.name.to_lowercase());
 
                 // Track names for registry and error messages
                 all_schema_names.push(schema.name.clone());
-                all_schema_paths.push(format!("{full_path}::{}", schema.name));
+                all_schema_paths.push(full_const_path.clone());
                 module_schema_names.push(schema.name.clone());
 
                 // Generate const for schema path
                 consts_and_metadata.push(quote! {
-                    pub const #schema_ident: &str = #full_path;
+                    pub const #schema_ident: &str = #full_const_path;
                 });
 
                 // Generate validation constants

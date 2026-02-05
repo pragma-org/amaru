@@ -94,7 +94,7 @@ fn run_simulator_with_traces() {
             "name": "handle_msg",
             "children": [
               {
-                "name": "chain_sync.receive_header",
+                "name": "consensus::chain_sync::receive_header",
                 "children": [
                   {
                     "name": "decode_header"
@@ -102,19 +102,19 @@ fn run_simulator_with_traces() {
                 ]
               },
               {
-                "name": "chain_sync.validate_header"
+                "name": "consensus::chain_sync::validate_header"
               },
               {
-                "name": "diffusion.fetch_block"
+                "name": "consensus::diffusion::fetch_block"
               },
               {
-                "name": "chain_sync.validate_block"
+                "name": "consensus::chain_sync::validate_block"
               },
               {
-                "name": "chain_sync.select_chain"
+                "name": "consensus::chain_sync::select_chain"
               },
               {
-                "name": "diffusion.forward_chain"
+                "name": "consensus::diffusion::forward_chain"
               }
             ]
           }

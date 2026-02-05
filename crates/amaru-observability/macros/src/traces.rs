@@ -38,22 +38,23 @@ struct SchemaMeta {
     module_path: String,
     /// The macro module path (e.g., `amaru` or `my_crate::schemas::amaru`)
     /// Currently unused but kept for future extensibility (local schema support)
-    #[allow(dead_code)]
     macro_module: String,
     /// Optional field name -> expression mappings from inline definitions
     /// Maps field names to custom expressions for recording
     field_expressions: BTreeMap<String, proc_macro2::TokenStream>,
 }
 
+const SEPARATOR: &str = "::";
+
 impl SchemaMeta {
     /// Extract category from module_path (e.g., "consensus" from "consensus::chain_sync")
     fn category(&self) -> &str {
-        self.module_path.split("::").next().unwrap_or("")
+        self.module_path.split(SEPARATOR).next().unwrap_or("")
     }
 
     /// Extract subcategory from module_path (e.g., "chain_sync" from "consensus::chain_sync")
     fn subcategory(&self) -> &str {
-        let parts: Vec<&str> = self.module_path.split("::").collect();
+        let parts: Vec<&str> = self.module_path.split(SEPARATOR).collect();
         if parts.len() >= 2 { parts[1] } else { "" }
     }
 
@@ -63,7 +64,7 @@ impl SchemaMeta {
     /// are NOT exported with `#[macro_export]`. They must be called without a path
     /// prefix since they're local to the module where they're defined.
     fn is_local_schema(&self) -> bool {
-        !(self.macro_module == "amaru" || self.macro_module.starts_with("amaru::"))
+        self.macro_module != "amaru"
     }
 
     /// Generate a macro call with or without a crate path prefix.
@@ -467,7 +468,7 @@ fn wrap_in_module_validator(
         return body;
     }
 
-    let parts: Vec<&str> = meta.module_path.split("::").collect();
+    let parts: Vec<&str> = meta.module_path.split(SEPARATOR).collect();
     if parts.len() < 2 {
         return body;
     }

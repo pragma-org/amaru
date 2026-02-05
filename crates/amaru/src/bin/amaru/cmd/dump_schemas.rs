@@ -25,9 +25,7 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let entries = SchemaEntry::all();
-    let output = generate_json_schema(&entries);
-
+    let output = generate_json_schema(&SchemaEntry::all());
     let json_string = if args.compact {
         serde_json::to_string(&output)?
     } else {
@@ -39,46 +37,51 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn generate_json_schema(entries: &[SchemaEntry]) -> Value {
-    let mut schemas = Value::Object(Default::default());
+    let schemas_map = entries
+        .iter()
+        .map(|entry| {
+            let properties = entry
+                .required_fields
+                .iter()
+                .chain(entry.optional_fields.iter())
+                .map(|(name, ty)| (name.to_string(), field_to_json_type(ty)))
+                .collect::<serde_json::Map<_, _>>();
 
-    for entry in entries {
-        let mut properties = serde_json::Map::new();
-        let mut required = Vec::new();
-        let mut optional = Vec::new();
+            let required: Vec<_> = entry
+                .required_fields
+                .iter()
+                .map(|(name, _)| Value::String(name.to_string()))
+                .collect();
 
-        for (name, ty) in entry.required_fields {
-            properties.insert(name.to_string(), field_to_json_type(ty));
-            required.push(Value::String(name.to_string()));
-        }
+            let optional: Vec<_> = entry
+                .optional_fields
+                .iter()
+                .map(|(name, _)| Value::String(name.to_string()))
+                .collect();
 
-        for (name, ty) in entry.optional_fields {
-            properties.insert(name.to_string(), field_to_json_type(ty));
-            optional.push(Value::String(name.to_string()));
-        }
-
-        let schema = json!({
-            "type": "object",
-            "properties": properties,
-            "required": required,
-            "optional": optional,
-            "additionalProperties": false,
-            "name": entry.name,
-            "level": entry.level,
-            "target": entry.target,
-            "description": entry.description,
-        });
-
-        if let Value::Object(ref mut obj) = schemas {
-            obj.insert(entry.path.to_string(), schema);
-        }
-    }
+            (
+                entry.path.to_string(),
+                json!({
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                    "optional": optional,
+                    "additionalProperties": false,
+                    "name": entry.name.to_lowercase(),
+                    "level": entry.level,
+                    "target": entry.target,
+                    "description": entry.description,
+                }),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
 
     json!({
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "title": "Amaru Trace Schemas",
         "description": "JSON Schema definitions for all registered traces in Amaru",
-        "definitions": schemas,
+        "definitions": Value::Object(schemas_map),
     })
 }
 

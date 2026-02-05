@@ -48,32 +48,6 @@ pub fn is_uppercase_identifier(token: &str) -> bool {
     token.chars().next().is_some_and(char::is_uppercase)
 }
 
-/// Extract the last component from a colon-separated path.
-///
-/// # Example
-/// ```
-/// # fn path_last_component(path: &str) -> &str { path.rsplit_once("::").map_or(path, |(_, name)| name) }
-/// assert_eq!(path_last_component("consensus::chain_sync::VALIDATE_HEADER"), "VALIDATE_HEADER");
-/// assert_eq!(path_last_component("SCHEMA"), "SCHEMA");
-/// ```
-#[allow(dead_code)]
-pub fn path_last_component(path: &str) -> &str {
-    path.rsplit_once("::").map_or(path, |(_, name)| name)
-}
-
-/// Extract all but the last component from a colon-separated path.
-///
-/// # Example
-/// ```
-/// # fn path_parent(path: &str) -> &str { path.rsplit_once("::").map_or("", |(parent, _)| parent) }
-/// assert_eq!(path_parent("consensus::chain_sync::VALIDATE_HEADER"), "consensus::chain_sync");
-/// assert_eq!(path_parent("SCHEMA"), "");
-/// ```
-#[allow(dead_code)]
-pub fn path_parent(path: &str) -> &str {
-    path.rsplit_once("::").map_or("", |(parent, _)| parent)
-}
-
 /// Parse a schema path and extract (schema_name, module_path) using functional approach.
 ///
 /// # Example
@@ -264,8 +238,6 @@ mod tests {
     #[test]
     fn test_path_operations() {
         let path = "consensus::chain_sync::VALIDATE_HEADER";
-        assert_eq!(path_last_component(path), "VALIDATE_HEADER");
-        assert_eq!(path_parent(path), "consensus::chain_sync");
         assert_eq!(
             parse_schema_path(path),
             ("VALIDATE_HEADER", "consensus::chain_sync")
@@ -274,8 +246,6 @@ mod tests {
 
     #[test]
     fn test_path_edge_cases() {
-        assert_eq!(path_last_component("SCHEMA"), "SCHEMA");
-        assert_eq!(path_parent("SCHEMA"), "");
         assert_eq!(parse_schema_path("SCHEMA"), ("SCHEMA", ""));
     }
 
