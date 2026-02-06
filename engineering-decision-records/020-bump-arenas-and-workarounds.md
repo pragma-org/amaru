@@ -19,7 +19,7 @@ Unfortunately, the very fast deallocation is achieved by ignoring any drop code 
 
 In [pragma-org/uplc#36](https://github.com/pragma-org/uplc/pull/36) adds a New Type for `bumpalo::Bump` called `Arena`. This provides a place to handle more complicated logic. The PR also uses `AppendOnlyVec`, an alternative to `Slab` or `Slotmap`. It is similar to `Bump` in that you can push/alloc with only a shared reference, and in that it never moves items once they've been allocated so it can have long lived shared references to items. It differs in that it can only store one type. It has extra overhead in that it can safely be used across multiple threads, which is functionality we do not need.
 
-An alternative solution to this problem would be to find a large integer crate that supports storing its data in `Bump` allocation. At this time we did not find a library that supports arbitrary sized integers and custom allocations. Our preferred large integer crate is `nub-bigint` is probably only interested in adding compatibility with custom allocators once std stabilizes the API.
+An alternative solution to this problem would be to find a large integer crate that supports storing its data in `Bump` allocation. At this time we did not find a library that supports arbitrary sized integers and custom allocations. Our preferred large integer crate is `nub-bigint`, which is probably only interested in adding compatibility with custom allocators once std stabilizes the API.
 
 ## Discussion points
 
