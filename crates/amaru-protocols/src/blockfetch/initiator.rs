@@ -360,7 +360,8 @@ pub mod tests {
     use super::*;
     use crate::protocol::Initiator;
     use amaru_kernel::{
-        BlockHeader, Epoch, EraParams, HeaderHash, IsHeader, Slot, TimeMs, any_headers_chain,
+        BlockHeader, Epoch, EraName, EraParams, HeaderHash, IsHeader, Slot, TimeMs,
+        any_headers_chain,
         cardano::era_history::{Bound, Summary},
         cbor, make_header,
         utils::tests::run_strategy,
@@ -579,7 +580,7 @@ pub mod tests {
                     epoch: Epoch::from(0),
                 },
                 end: None,
-                params: EraParams::new(86400, 1000).expect("valid era params"),
+                params: EraParams::new(86400, 1000, EraName::Conway).expect("valid era params"),
             }],
             Slot::from(2160 * 3),
         ))
@@ -610,7 +611,7 @@ pub mod tests {
         encoder.array(2).expect("failed to encode array");
         let era_history = test_era_history();
         let era_tag = era_history.slot_to_era_tag(header.slot()).unwrap();
-        encoder.u16(era_tag).expect("failed to encode tag");
+        encoder.encode(era_tag).expect("failed to encode tag");
         encoder.array(5).expect("failed to encode inner array");
         encoder
             .encode(header.header())

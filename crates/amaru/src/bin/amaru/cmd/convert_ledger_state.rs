@@ -14,7 +14,7 @@
 
 use amaru::{DEFAULT_NETWORK, bootstrap::InitialNonces};
 use amaru_kernel::{
-    EraHistory, EraParams, Hash, HeaderHash, NetworkName, Nonce, Point,
+    EraHistory, EraName, EraParams, Hash, HeaderHash, NetworkName, Nonce, Point, TimeMs,
     cardano::era_history::{Bound, Summary},
     cbor,
 };
@@ -137,7 +137,8 @@ async fn convert_snapshot_to(
         // protocol parameters which are decoded later down the road.
         params: EraParams {
             epoch_size_slots: network.default_epoch_size_in_slots(),
-            slot_length: 1000,
+            slot_length: TimeMs::new(1000),
+            era_name: EraName::Conway,
         },
     });
 
@@ -266,7 +267,7 @@ async fn write_era_history(
 
 /// This is the number of past eras before the current era in the "standard" Cardano history, e.g
 /// from Byron to Babbage. Bump this number when a hard fork happens.
-pub const PAST_ERAS_NUMBER: i32 = 6;
+pub const PAST_ERAS_NUMBER: u8 = 6;
 
 fn decode_eras(
     d: &mut minicbor::Decoder<'_>,
@@ -274,14 +275,16 @@ fn decode_eras(
 ) -> Result<Vec<Summary>, Box<dyn std::error::Error>> {
     let mut eras = Vec::new();
 
-    for _ in 0..PAST_ERAS_NUMBER {
+    for era_tag in 1..=PAST_ERAS_NUMBER {
         d.array()?;
         let start: Bound = d.decode()?;
         let end: Bound = d.decode()?;
         let params = if end.slot == 0.into() {
+            #[expect(clippy::expect_used)]
             EraParams {
                 epoch_size_slots: network.default_epoch_size_in_slots(),
-                slot_length: 0,
+                slot_length: TimeMs::new(0),
+                era_name: EraName::try_from(era_tag).expect("iteration over known era tags"),
             }
         } else {
             let end_slot = u64::from(end.slot);
@@ -298,13 +301,14 @@ fn decode_eras(
             let epochs_elapsed = end_epoch - start_epoch;
             let time_ms_elapsed = end_ms.saturating_sub(start_ms);
 
+            // end_slot > start_slot => slots_elapsed > 0
+            let slot_length = TimeMs::new(time_ms_elapsed / slots_elapsed);
+
+            #[expect(clippy::expect_used)]
             EraParams {
                 epoch_size_slots: slots_elapsed / epochs_elapsed,
-                slot_length: if slots_elapsed == 0 {
-                    0
-                } else {
-                    time_ms_elapsed / slots_elapsed
-                },
+                slot_length,
+                era_name: EraName::try_from(era_tag).expect("iteration over known era tags"),
             }
         };
         let summary = Summary {

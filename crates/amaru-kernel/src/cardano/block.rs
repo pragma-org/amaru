@@ -19,11 +19,6 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Hard-fork combinator discriminator.
-///
-/// See: <https://github.com/IntersectMBO/ouroboros-consensus/blob/7b150c85af56c8ded78151eaf5ec8675b7acbd8a/ouroboros-consensus-cardano/src/ouroboros-consensus-cardano/Ouroboros/Consensus/Cardano/Node.hs#L173-L179>
-pub const ERA_VERSION_CONWAY: u16 = 7;
-
 #[derive(Debug, Clone, PartialEq, cbor::Encode, serde::Serialize, serde::Deserialize)]
 pub struct Block {
     #[cbor(skip)]
@@ -166,6 +161,7 @@ impl<'b, C> cbor::Decode<'b, C> for Block {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::EraName;
     use test_case::test_case;
 
     macro_rules! fixture {
@@ -199,12 +195,12 @@ mod tests {
     )]
     fn decode_wellformed(
         slot: u64,
-        (id, result): (Hash<HEADER>, Result<(u16, Block), cbor::decode::Error>),
+        (id, result): (Hash<HEADER>, Result<(EraName, Block), cbor::decode::Error>),
     ) {
         match result {
             Err(err) => panic!("{err}"),
             Ok((era_version, block)) => {
-                assert_eq!(era_version, ERA_VERSION_CONWAY);
+                assert_eq!(era_version, EraName::Conway);
 
                 assert_eq!(
                     hex::encode(&block.hash[..]),

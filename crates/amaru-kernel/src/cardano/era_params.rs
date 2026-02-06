@@ -12,25 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{EraName, TimeMs};
 use minicbor::{Decode, Decoder, Encode};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EraParams {
     pub epoch_size_slots: u64,
-    pub slot_length: u64, // Milliseconds
+    pub slot_length: TimeMs,
+    #[serde(default = "default_era_name")]
+    pub era_name: EraName,
+}
+
+fn default_era_name() -> EraName {
+    EraName::Conway
 }
 
 impl EraParams {
-    pub fn new(epoch_size_slots: u64, slot_length: u64) -> Option<Self> {
+    pub fn new(epoch_size_slots: u64, slot_length_ms: u64, era_name: EraName) -> Option<Self> {
         if epoch_size_slots == 0 {
             return None;
         }
-        if slot_length == 0 {
+        if slot_length_ms == 0 {
             return None;
         }
         Some(EraParams {
             epoch_size_slots,
-            slot_length,
+            slot_length: TimeMs::new(slot_length_ms),
+            era_name,
         })
     }
 }
@@ -41,23 +49,29 @@ impl<C> Encode<C> for EraParams {
         e: &mut minicbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), minicbor::encode::Error<W::Error>> {
-        e.begin_array()?;
+        e.array(3)?;
         self.epoch_size_slots.encode(e, ctx)?;
         self.slot_length.encode(e, ctx)?;
-        e.end()?;
+        self.era_name.encode(e, ctx)?;
         Ok(())
     }
 }
 
 impl<'b, C> Decode<'b, C> for EraParams {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        let _ = d.array()?;
+        let len = d.array()?;
+        if len != Some(3) {
+            return Err(minicbor::decode::Error::message(format!(
+                "Expected 3 elements in EraParams, got {len:?}"
+            )));
+        }
         let epoch_size_slots = d.decode()?;
         let slot_length = d.decode()?;
-        d.skip()?;
+        let era_name = d.decode()?;
         Ok(EraParams {
             epoch_size_slots,
             slot_length,
+            era_name,
         })
     }
 }

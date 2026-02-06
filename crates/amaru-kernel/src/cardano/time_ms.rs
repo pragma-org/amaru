@@ -17,7 +17,10 @@ use minicbor::{
     data::{IanaTag, Type},
 };
 use num::BigUint;
-use std::{fmt, ops::Add};
+use std::{
+    fmt,
+    ops::{Add, Mul},
+};
 
 #[derive(
     Clone,
@@ -47,8 +50,8 @@ impl fmt::Display for TimeMs {
 }
 
 impl From<u64> for TimeMs {
-    fn from(epoch: u64) -> TimeMs {
-        TimeMs(epoch)
+    fn from(ms: u64) -> TimeMs {
+        TimeMs(ms)
     }
 }
 
@@ -71,6 +74,22 @@ impl Add<TimeMs> for TimeMs {
 
     fn add(self, rhs: TimeMs) -> Self::Output {
         TimeMs(self.0 + rhs.0)
+    }
+}
+
+impl Mul<u64> for TimeMs {
+    type Output = Self;
+
+    fn mul(self, rhs: u64) -> Self::Output {
+        TimeMs(self.0 * rhs)
+    }
+}
+
+impl Mul<TimeMs> for u64 {
+    type Output = TimeMs;
+
+    fn mul(self, rhs: TimeMs) -> Self::Output {
+        rhs * self
     }
 }
 

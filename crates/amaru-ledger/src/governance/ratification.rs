@@ -563,7 +563,7 @@ pub use tests::*;
 #[cfg(any(all(test, not(target_os = "windows")), feature = "test-utils"))]
 mod tests {
     use amaru_kernel::{
-        Epoch, EraHistory, EraParams, Slot, TimeMs,
+        Epoch, EraHistory, EraName, EraParams, Slot, TimeMs,
         cardano::era_history::{Bound, Summary},
     };
     use std::sync::LazyLock;
@@ -585,7 +585,8 @@ mod tests {
                     // Pick an epoch length such that epochs falls within the min and max bounds;
                     // knowing that slots ranges across all u64.
                     epoch_size_slots: u64::MAX / (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH + 1),
-                    slot_length: 1,
+                    slot_length: TimeMs::new(1),
+                    era_name: EraName::Conway,
                 },
             }],
             Slot::from(0),

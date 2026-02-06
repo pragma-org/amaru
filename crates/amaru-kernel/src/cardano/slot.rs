@@ -39,7 +39,7 @@ impl fmt::Display for Slot {
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum SlotArithmeticError {
-    #[error("slot arithmetic underflow, substracting {1} from {0}")]
+    #[error("slot arithmetic underflow, subtracting {1} from {0}")]
     Underflow(u64, u64),
 }
 

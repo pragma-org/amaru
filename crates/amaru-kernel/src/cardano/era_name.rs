@@ -15,7 +15,7 @@
 use minicbor::{Decode, Decoder, Encode};
 use std::{fmt, str::FromStr};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum EraName {
     Byron = 1,
@@ -137,19 +137,19 @@ impl TryFrom<u8> for EraName {
     }
 }
 
-impl Encode<()> for EraName {
+impl<C> Encode<C> for EraName {
     fn encode<W: minicbor::encode::Write>(
         &self,
         e: &mut minicbor::Encoder<W>,
-        _ctx: &mut (),
+        _ctx: &mut C,
     ) -> Result<(), minicbor::encode::Error<W::Error>> {
         e.u8(*self as u8)?;
         Ok(())
     }
 }
 
-impl<'b> Decode<'b, ()> for EraName {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, minicbor::decode::Error> {
+impl<'b, C> Decode<'b, C> for EraName {
+    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
         let value = d.u8()?;
         EraName::try_from(value).map_err(minicbor::decode::Error::message)
     }
@@ -182,7 +182,7 @@ mod tests {
 
         #[test]
         fn era_name_encode_decode_roundtrip(era_name in any_era_name()) {
-            let buffer = minicbor::to_vec(&era_name).unwrap();
+            let buffer = minicbor::to_vec(era_name).unwrap();
             let decoded: EraName = minicbor::decode(&buffer).unwrap();
             assert_eq!(era_name, decoded);
         }

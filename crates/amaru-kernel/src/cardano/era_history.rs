@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    Epoch, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, Slot, TESTNET_GLOBAL_PARAMETERS,
-    TimeMs,
+    Epoch, EraName, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, Slot,
+    TESTNET_GLOBAL_PARAMETERS, TimeMs,
     cardano::{era_params::EraParams, slot::SlotArithmeticError},
 };
 use amaru_minicbor_extra::heterogeneous_array;
@@ -45,7 +45,8 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             }),
             params: EraParams {
                 epoch_size_slots: 21600,
-                slot_length: 20000,
+                slot_length: TimeMs::new(20000),
+                era_name: EraName::Byron,
             },
         },
         Summary {
@@ -61,7 +62,8 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             }),
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Shelley,
             },
         },
         Summary {
@@ -77,7 +79,8 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             }),
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Allegra,
             },
         },
         Summary {
@@ -93,7 +96,8 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             }),
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Mary,
             },
         },
         Summary {
@@ -109,7 +113,8 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             }),
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Alonzo,
             },
         },
         Summary {
@@ -125,7 +130,8 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             }),
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Babbage,
             },
         },
         Summary {
@@ -137,7 +143,8 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             end: None,
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Conway,
             },
         },
     ];
@@ -168,7 +175,8 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             }),
             params: EraParams {
                 epoch_size_slots: 21600,
-                slot_length: 20000,
+                slot_length: TimeMs::new(20000),
+                era_name: EraName::Byron,
             },
         },
         Summary {
@@ -184,7 +192,8 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             }),
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Shelley,
             },
         },
         Summary {
@@ -201,7 +210,8 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Allegra,
             },
         },
         Summary {
@@ -218,7 +228,8 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Mary,
             },
         },
         Summary {
@@ -235,7 +246,8 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Alonzo,
             },
         },
         Summary {
@@ -252,7 +264,8 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Babbage,
             },
         },
         Summary {
@@ -264,7 +277,8 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             end: None,
             params: EraParams {
                 epoch_size_slots: 432000,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Conway,
             },
         },
     ];
@@ -296,7 +310,8 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             }),
             params: EraParams {
                 epoch_size_slots: 4320,
-                slot_length: 20000,
+                slot_length: TimeMs::new(20000),
+                era_name: EraName::Byron,
             },
         },
         Summary {
@@ -312,7 +327,8 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             }),
             params: EraParams {
                 epoch_size_slots: 86400,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Shelley,
             },
         },
         Summary {
@@ -329,7 +345,8 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 
             params: EraParams {
                 epoch_size_slots: 86400,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Allegra,
             },
         },
         Summary {
@@ -346,7 +363,8 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 
             params: EraParams {
                 epoch_size_slots: 86400,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Mary,
             },
         },
         Summary {
@@ -363,7 +381,8 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 
             params: EraParams {
                 epoch_size_slots: 86400,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Alonzo,
             },
         },
         Summary {
@@ -380,7 +399,8 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 
             params: EraParams {
                 epoch_size_slots: 86400,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Babbage,
             },
         },
         Summary {
@@ -393,7 +413,8 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 
             params: EraParams {
                 epoch_size_slots: 86400,
-                slot_length: 1000,
+                slot_length: TimeMs::new(1000),
+                era_name: EraName::Conway,
             },
         },
     ];
@@ -416,7 +437,8 @@ pub static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 
         params: EraParams {
             epoch_size_slots: 86400, // one day
-            slot_length: 1000,
+            slot_length: TimeMs::new(1000),
+            era_name: EraName::Conway,
         },
     }];
 
@@ -835,7 +857,7 @@ impl EraHistory {
 
     /// Returns the era index (0-based) for the given slot.
     ///
-    /// The era index corresponds to the position in the era history vector:
+    /// The era index should correspond to the position in the era history vector:
     /// - 0 = Byron
     /// - 1 = Shelley
     /// - 2 = Allegra
@@ -843,8 +865,6 @@ impl EraHistory {
     /// - 4 = Alonzo
     /// - 5 = Babbage
     /// - 6 = Conway
-    ///
-    /// To get the network protocol era tag, add 1 to the index (era_tag = era_index + 1).
     pub fn slot_to_era_index(&self, slot: Slot) -> Result<usize, EraHistoryError> {
         for (index, era) in self.eras.iter().enumerate() {
             if era.start.slot > slot {
@@ -866,10 +886,9 @@ impl EraHistory {
     }
 
     /// Compute the era tag (used for serializating) from a slot using the era history.
-    /// The era tag is era_index + 1 (Byron = 1, Shelley = 2, ..., Conway = 7).
-    pub fn slot_to_era_tag(&self, slot: Slot) -> Result<u16, EraHistoryError> {
+    pub fn slot_to_era_tag(&self, slot: Slot) -> Result<EraName, EraHistoryError> {
         let era_index = self.slot_to_era_index(slot)?;
-        Ok((era_index + 1) as u16)
+        Ok(self.eras[era_index].params.era_name)
     }
 }
 
@@ -900,6 +919,7 @@ fn slot_to_epoch(slot: &Slot, era: &Summary) -> Result<Epoch, EraHistoryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::any_era_name;
     use crate::{Epoch, PREPROD_ERA_HISTORY, Slot, any_network_name, load_era_history_from_file};
     use proptest::prelude::*;
     use proptest::proptest;
@@ -928,10 +948,11 @@ mod tests {
         }
     }
     prop_compose! {
-        fn arbitrary_era_params()(epoch_size_slots in 1u64..65535u64, slot_length in 1u64..65535u64) -> EraParams {
+        fn arbitrary_era_params()(epoch_size_slots in 1u64..65535u64, slot_length in 1u64..65535u64, era_name in any_era_name()) -> EraParams {
             EraParams {
                 epoch_size_slots,
-                slot_length,
+                slot_length: TimeMs::new(slot_length),
+                era_name,
             }
         }
     }
@@ -1016,7 +1037,7 @@ mod tests {
     }
 
     fn default_params() -> EraParams {
-        EraParams::new(86400, 1000).unwrap()
+        EraParams::new(86400, 1000, EraName::Conway).unwrap()
     }
 
     fn one_era() -> EraHistory {
@@ -1303,7 +1324,7 @@ mod tests {
         let buffer = minicbor::to_vec(&eras).unwrap();
         assert_eq!(
             hex::encode(buffer),
-            "9f9f83000000f69f1a000151801903e8ffffff"
+            "9f9f83000000f6831a000151801b000000e8d4a5100007ffff"
         );
     }
 
