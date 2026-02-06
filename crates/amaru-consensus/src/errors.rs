@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{HeaderHash, Peer, Point};
-use amaru_ouroboros_traits::{StoreError, can_validate_blocks::HeaderValidationError};
+use amaru_ouroboros_traits::{
+    BlockValidationError, StoreError, can_validate_blocks::HeaderValidationError,
+};
 use serde::ser::SerializeStruct;
 use std::{fmt, fmt::Display};
 use thiserror::Error;
@@ -71,9 +73,11 @@ pub enum ConsensusError {
     #[error("{0}")]
     InvalidHeaderParent(Box<InvalidHeaderParentData>),
     #[error("Failed to roll forward chain from {0}: {1}")]
-    RollForwardChainFailed(amaru_kernel::Hash<32>, amaru_ouroboros::StoreError),
+    RollForwardChainFailed(amaru_kernel::Hash<32>, StoreError),
     #[error("Failed to rollback chain at {0}: {1}")]
-    RollbackChainFailed(Point, amaru_ouroboros::StoreError),
+    RollbackChainFailed(Point, StoreError),
+    #[error("Failed to rollback block at {0}: {1}")]
+    RollbackBlockFailed(Point, BlockValidationError),
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -171,7 +175,7 @@ impl Display for ProcessingFailed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "validation failed for peer {}: {}",
+            "processing failed for peer {}: {}",
             self.peer
                 .clone()
                 .map(|p| p.name)

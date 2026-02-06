@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::errors::ProcessingFailed;
+use crate::errors::{ConsensusError, ValidationFailed};
 use amaru_kernel::{Block, BlockHeader, IgnoreEq, Peer, Point};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
@@ -47,7 +47,7 @@ pub trait LedgerOps: Send + Sync {
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, anyhow::Result<(), ProcessingFailed>>;
+    ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>>;
 }
 
 /// Implementation of LedgerOps using pure_stage::Effects.
@@ -85,7 +85,7 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, anyhow::Result<(), ProcessingFailed>> {
+    ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>> {
         self.0.external(RollbackBlockEffect::new(peer, point, ctx))
     }
 }
@@ -205,15 +205,18 @@ impl ExternalEffect for RollbackBlockEffect {
                 .get::<ResourceBlockValidation>()
                 .expect("RollbackBlockEffect requires a ResourceBlockValidation resource")
                 .clone();
-            validator
-                .rollback_block(&self.point)
-                .map_err(|e| ProcessingFailed::new(&self.peer, e.to_anyhow()))
+            validator.rollback_block(&self.point).map_err(|e| {
+                ValidationFailed::new(
+                    &self.peer,
+                    ConsensusError::RollbackBlockFailed(self.point, e),
+                )
+            })
         })
     }
 }
 
 impl ExternalEffectAPI for RollbackBlockEffect {
-    type Response = anyhow::Result<(), ProcessingFailed>;
+    type Response = anyhow::Result<(), ValidationFailed>;
 }
 
 impl ExternalEffectSync for RollbackBlockEffect {}

@@ -167,7 +167,7 @@ async fn do_initialize(
     let muxer = eff
         .wire_up(
             muxer,
-            mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)]),
+            mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role),
         )
         .await;
 

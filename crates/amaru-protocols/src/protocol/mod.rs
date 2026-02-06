@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
+use std::fmt::{Display, Formatter};
 use std::{marker::PhantomData, time::Duration};
 
 mod check;
@@ -98,6 +99,15 @@ const RESPONDER: u16 = 0x8000;
 pub enum Role {
     Initiator,
     Responder,
+}
+
+impl Display for Role {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Role::Initiator => write!(f, "initiator"),
+            Role::Responder => write!(f, "responder"),
+        }
+    }
 }
 
 impl Role {

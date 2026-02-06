@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::protocol::Role;
 use crate::{
     handshake,
     mux::{self, MuxMessage},
@@ -65,7 +66,7 @@ fn test_against_node() {
         .put::<ConnectionResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
-    let mux = network.wire_up(mux, mux::State::new(conn_id, &[]));
+    let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator));
 
     let (output, mut rx) = network.output::<handshake::HandshakeResult>("handshake_result", 10);
 
@@ -143,7 +144,7 @@ fn test_against_node_with_tokio() {
         .put::<ConnectionResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
-    let mux = network.wire_up(mux, mux::State::new(conn_id, &[]));
+    let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator));
 
     let (output, mut rx) = network.output::<handshake::HandshakeResult>("handshake_result", 10);
 
