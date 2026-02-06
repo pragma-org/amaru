@@ -37,6 +37,7 @@ pub mod drep_state;
 pub mod drep_voting_thresholds;
 pub mod epoch;
 pub mod era_history;
+pub mod era_name;
 pub mod era_params;
 pub mod ex_units;
 pub mod ex_units_prices;

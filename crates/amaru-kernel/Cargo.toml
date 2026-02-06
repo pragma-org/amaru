@@ -47,6 +47,7 @@ proptest.workspace = true
 rand.workspace = true
 test-case.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
+cbor4ii.workspace = true
 
 [target.'cfg(target_family="wasm")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
