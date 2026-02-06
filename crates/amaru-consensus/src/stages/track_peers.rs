@@ -30,14 +30,14 @@ use std::collections::BTreeMap;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TrackPeers {
     upstream: BTreeMap<Peer, PerPeer>,
     manager: StageRef<ManagerMessage>,
     downstream: StageRef<Tip>,
 }
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct PerPeer {
     current: Point,
     highest: Point,
@@ -144,9 +144,9 @@ pub fn decode_header(raw_header: HeaderContent) -> Result<BlockHeader, Consensus
     })
 }
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TrackPeersMsg {
-    FromUpstrea(ChainSyncInitiatorMsg),
+    FromUpstream(ChainSyncInitiatorMsg),
 }
 
 pub async fn stage(
@@ -157,7 +157,7 @@ pub async fn stage(
     use TrackPeersMsg::*;
 
     match msg {
-        FromUpstrea(ChainSyncInitiatorMsg {
+        FromUpstream(ChainSyncInitiatorMsg {
             peer,
             conn_id: _,
             handler,
@@ -245,4 +245,580 @@ pub async fn stage(
         }
     }
     state
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::effects::{ResourceHeaderValidation, ValidateHeaderEffect};
+    use amaru_kernel::{BlockHeight, HeaderHash, Point, Tip, make_header};
+    use amaru_ouroboros::ConnectionId;
+    use amaru_ouroboros_traits::{
+        ChainStore, can_validate_blocks::mock::MockCanValidateHeaders,
+        in_memory_consensus_store::InMemConsensusStore,
+    };
+    use amaru_protocols::store_effects::{
+        HasHeaderEffect, LoadHeaderEffect, ResourceHeaderStore, StoreHeaderEffect,
+    };
+    use opentelemetry::Context;
+    use pure_stage::{
+        DeserializerGuards, Effect, SendData, StageGraph,
+        simulation::{SimulationBuilder, SimulationRunning},
+        trace_buffer::{TraceBuffer, TraceEntry},
+    };
+    use std::sync::Arc;
+    use tokio::runtime::{Builder, Handle};
+
+    fn build_store(headers: &[BlockHeader]) -> Arc<InMemConsensusStore<BlockHeader>> {
+        let store = Arc::new(InMemConsensusStore::new());
+        for header in headers {
+            store.store_header(header).unwrap();
+        }
+        store
+    }
+
+    fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
+        BlockHeader::from(make_header(block_number, slot, parent))
+    }
+
+    fn validate_header_effect(at_stage: &str, header: BlockHeader) -> TraceEntry {
+        TraceEntry::suspend(Effect::external(
+            at_stage,
+            Box::new(ValidateHeaderEffect::new(&header, Context::new())),
+        ))
+    }
+
+    fn load_header_effect(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+        TraceEntry::suspend(Effect::external(
+            at_stage,
+            Box::new(LoadHeaderEffect::new(hash)),
+        ))
+    }
+
+    fn has_header_effect(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+        TraceEntry::suspend(Effect::external(
+            at_stage,
+            Box::new(HasHeaderEffect::new(hash)),
+        ))
+    }
+
+    fn store_header_effect(at_stage: &str, header: BlockHeader) -> TraceEntry {
+        TraceEntry::suspend(Effect::external(
+            at_stage,
+            Box::new(StoreHeaderEffect::new(header)),
+        ))
+    }
+
+    fn send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl SendData) -> TraceEntry {
+        TraceEntry::suspend(Effect::send(from, to, Box::new(msg)))
+    }
+
+    fn setup(
+        rt: &Handle,
+        state: TrackPeers,
+        msg: TrackPeersMsg,
+        store: Arc<InMemConsensusStore<BlockHeader>>,
+    ) -> (SimulationRunning, DeserializerGuards) {
+        let guards = vec![
+            pure_stage::register_data_deserializer::<TrackPeers>().boxed(),
+            pure_stage::register_data_deserializer::<TrackPeersMsg>().boxed(),
+            pure_stage::register_data_deserializer::<chainsync::InitiatorMessage>().boxed(),
+            pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
+            pure_stage::register_data_deserializer::<Tip>().boxed(),
+            pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
+            pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
+            pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),
+            pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
+        ];
+        let mut network =
+            SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
+        network
+            .resources()
+            .put::<ResourceHeaderStore>(store.clone());
+        network
+            .resources()
+            .put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
+        let tp = network.stage("tp", stage);
+        let tp = network.wire_up(tp, state);
+        network.preload(&tp, [msg]).unwrap();
+        let mut running = network.run();
+        running.run_until_blocked_incl_effects(rt);
+        (running, guards)
+    }
+
+    #[track_caller]
+    fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
+        let mut tb = running.trace_buffer().lock();
+        let trace = tb
+            .iter_entries()
+            .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
+            .collect::<Vec<_>>();
+        tb.clear();
+        pretty_assertions::assert_eq!(trace, expected);
+    }
+
+    #[test]
+    fn test_new_peer() {
+        let state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: Peer::new("peer1"),
+            conn_id: ConnectionId::initial(),
+            handler: StageRef::named_for_tests("handler"),
+            msg: chainsync::InitiatorResult::Initialize,
+        });
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state.clone())),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                TraceEntry::state("tp-1", Box::new(state)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_initialize_existing_peer() {
+        let peer = Peer::new("peer1");
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: Point::Origin,
+                highest: Point::Origin,
+            },
+        );
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer,
+            conn_id: ConnectionId::initial(),
+            handler: StageRef::named_for_tests("handler"),
+            msg: chainsync::InitiatorResult::Initialize,
+        });
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state.clone())),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                TraceEntry::state("tp-1", Box::new(state)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_intersect_found_missing_header_sends_done() {
+        let state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let handler = StageRef::named_for_tests("handler");
+        let current = Point::Specific(1u64.into(), HeaderHash::from([1u8; 32]));
+        let tip = Tip::new(current, BlockHeight::from(1));
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: Peer::new("peer1"),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::IntersectFound(current, tip),
+        });
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state.clone())),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                load_header_effect("tp-1", current.hash()),
+                send("tp-1", &handler, chainsync::InitiatorMessage::Done),
+                TraceEntry::state("tp-1", Box::new(state)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_intersect_found_tracks_peer() {
+        let state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let handler = StageRef::named_for_tests("handler");
+        let header = make_block_header(1, 1, None);
+        let current = header.point();
+        let tip = Tip::new(current, BlockHeight::from(2));
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: Peer::new("peer1"),
+            conn_id: ConnectionId::initial(),
+            handler,
+            msg: chainsync::InitiatorResult::IntersectFound(current, tip),
+        });
+
+        let mut expected = state.clone();
+        expected.upstream.insert(
+            Peer::new("peer1"),
+            PerPeer {
+                current,
+                highest: tip.point(),
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(
+            rt.handle(),
+            state.clone(),
+            msg.clone(),
+            build_store(&[header]),
+        );
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                load_header_effect("tp-1", current.hash()),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_intersect_not_found_untracked_sends_done() {
+        let state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let handler = StageRef::named_for_tests("handler");
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: Peer::new("peer1"),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::IntersectNotFound(Tip::origin()),
+        });
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state.clone())),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::Done),
+                TraceEntry::state("tp-1", Box::new(state)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_intersect_not_found_removes_peer() {
+        let peer = Peer::new("peer1");
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let expected = state.clone();
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: Point::Origin,
+                highest: Point::Origin,
+            },
+        );
+        let handler = StageRef::named_for_tests("handler");
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer,
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::IntersectNotFound(Tip::origin()),
+        });
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::Done),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_roll_forward_unknown_peer_removes() {
+        let state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let handler = StageRef::named_for_tests("handler");
+        let header = make_block_header(1, 1, None);
+        let child = make_block_header(2, 2, Some(header.hash()));
+        let peer = Peer::new("peer1");
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::RollForward(
+                HeaderContent::new(&header, EraName::Conway),
+                child.tip(),
+            ),
+        });
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state.clone())),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::RequestNext),
+                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+                TraceEntry::state("tp-1", Box::new(state)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_roll_forward_known_peer_header_already_stored() {
+        let peer = Peer::new("peer1");
+        let handler = StageRef::named_for_tests("handler");
+        let parent = make_block_header(1, 1, None);
+        let header = make_block_header(2, 2, Some(parent.hash()));
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::RollForward(
+                HeaderContent::new(&header, EraName::Conway),
+                header.tip(),
+            ),
+        });
+
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: parent.point(),
+                highest: parent.point(),
+            },
+        );
+
+        let mut expected = state.clone();
+        expected.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: header.point(),
+                highest: header.point(),
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(
+            rt.handle(),
+            state.clone(),
+            msg.clone(),
+            build_store(&[header.clone()]),
+        );
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::RequestNext),
+                validate_header_effect("tp-1", header.clone()),
+                has_header_effect("tp-1", header.hash()),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_roll_forward_known_peer_new_header_forwards_tip() {
+        let peer = Peer::new("peer1");
+        let handler = StageRef::named_for_tests("handler");
+        let parent = make_block_header(1, 1, None);
+        let header = make_block_header(2, 2, Some(parent.hash()));
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::RollForward(
+                HeaderContent::new(&header, EraName::Conway),
+                header.tip(),
+            ),
+        });
+
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: parent.point(),
+                highest: parent.point(),
+            },
+        );
+
+        let mut expected = state.clone();
+        expected.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: header.point(),
+                highest: header.point(),
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::RequestNext),
+                validate_header_effect("tp-1", header.clone()),
+                has_header_effect("tp-1", header.hash()),
+                store_header_effect("tp-1", header.clone()),
+                send("tp-1", "downstream", header.tip()),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_roll_backward_updates_peer() {
+        let peer = Peer::new("peer1");
+        let header = make_block_header(1, 1, None);
+        let current = header.point();
+        let tip = Tip::new(current, BlockHeight::from(1));
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: StageRef::named_for_tests("handler"),
+            msg: chainsync::InitiatorResult::RollBackward(current, tip),
+        });
+
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: Point::Origin,
+                highest: Point::Origin,
+            },
+        );
+
+        let mut expected = state.clone();
+        expected.upstream.insert(
+            peer,
+            PerPeer {
+                current,
+                highest: tip.point(),
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(
+            rt.handle(),
+            state.clone(),
+            msg.clone(),
+            build_store(&[header]),
+        );
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                has_header_effect("tp-1", current.hash()),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_roll_backward_unknown_peer_removes() {
+        let peer = Peer::new("peer1");
+        let header = make_block_header(1, 1, None);
+        let current = header.point();
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: StageRef::named_for_tests("handler"),
+            msg: chainsync::InitiatorResult::RollBackward(current, Tip::origin()),
+        });
+
+        let state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(
+            rt.handle(),
+            state.clone(),
+            msg.clone(),
+            build_store(&[header]),
+        );
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state.clone())),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                has_header_effect("tp-1", current.hash()),
+                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+                TraceEntry::state("tp-1", Box::new(state)),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_roll_backward_unknown_point_removes() {
+        let peer = Peer::new("peer1");
+        let current = Point::Specific(1u64.into(), HeaderHash::from([1u8; 32]));
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: StageRef::named_for_tests("handler"),
+            msg: chainsync::InitiatorResult::RollBackward(current, Tip::origin()),
+        });
+
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: Point::Origin,
+                highest: Point::Origin,
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state.clone())),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                has_header_effect("tp-1", current.hash()),
+                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+                TraceEntry::state("tp-1", Box::new(state)),
+            ],
+        );
+    }
 }

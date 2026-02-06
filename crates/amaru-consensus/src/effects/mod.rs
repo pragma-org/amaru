@@ -20,7 +20,10 @@ mod network_effects;
 
 pub use base_effects::{Base, BaseOps};
 pub use consensus_effects::{ConsensusEffects, ConsensusOps};
-pub use ledger_effects::{Ledger, LedgerOps, ResourceBlockValidation, ResourceHeaderValidation};
+pub use ledger_effects::{
+    Ledger, LedgerOps, ResourceBlockValidation, ResourceHeaderValidation, RollbackBlockEffect,
+    ValidateBlockEffect, ValidateHeaderEffect,
+};
 pub use metrics_effects::{MetricsOps, ResourceMeter};
 pub use network_effects::{
     ForwardEvent, ForwardEventListener, Network, NetworkOps, ResourceForwardEventListener,

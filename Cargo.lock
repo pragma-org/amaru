@@ -146,6 +146,7 @@ dependencies = [
  "opentelemetry",
  "parking_lot",
  "pprof",
+ "pretty_assertions",
  "proptest",
  "pure-stage",
  "rand 0.9.2",

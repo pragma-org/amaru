@@ -135,6 +135,10 @@ impl SimulationRunning {
         &self.resources
     }
 
+    pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {
+        &self.trace_buffer
+    }
+
     /// Install a breakpoint that will be hit when an effect matching the given predicate is encountered.
     pub fn breakpoint(
         &mut self,

@@ -63,9 +63,7 @@ impl<Msg> Clone for StageRef<Msg> {
 
 impl<Msg> fmt::Debug for StageRef<Msg> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StageRef")
-            .field("name", &self.name)
-            .finish()
+        write!(f, "StageRef({})", self.name)
     }
 }
 
@@ -78,6 +76,12 @@ impl<Msg> AsRef<StageRef<Msg>> for StageRef<Msg> {
 impl<Msg> AsRef<Name> for StageRef<Msg> {
     fn as_ref(&self) -> &Name {
         &self.name
+    }
+}
+
+impl<Msg> AsRef<str> for StageRef<Msg> {
+    fn as_ref(&self) -> &str {
+        self.name.as_str()
     }
 }
 

@@ -45,7 +45,7 @@ pub enum InitiatorMessage {
 }
 
 /// Message sent from the handler to the consensus pipeline
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChainSyncInitiatorMsg {
     pub peer: Peer,
     pub conn_id: ConnectionId,
@@ -188,7 +188,7 @@ pub enum InitiatorAction {
     Done,
 }
 
-#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorResult {
     Initialize,
     IntersectFound(Point, Tip),
