@@ -17,7 +17,6 @@ mod consensus_effects;
 mod ledger_effects;
 mod metrics_effects;
 mod network_effects;
-mod store_effects;
 
 pub use base_effects::{Base, BaseOps};
 pub use consensus_effects::{ConsensusEffects, ConsensusOps};
@@ -26,7 +25,6 @@ pub use metrics_effects::{MetricsOps, ResourceMeter};
 pub use network_effects::{
     ForwardEvent, ForwardEventListener, Network, NetworkOps, ResourceForwardEventListener,
 };
-pub use store_effects::{ResourceHeaderStore, ResourceParameters, Store};
 
 #[cfg(test)]
 pub use consensus_effects::tests::*;

@@ -79,7 +79,7 @@ pub use cardano::{
     memoized::{
         MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
         MemoizedTransactionOutput, decode_script, deserialize_script, encode_script,
-        from_minted_script, serialize_memoized_script, serialize_script,
+        from_minted_script, script_original_bytes, serialize_memoized_script, serialize_script,
     },
     metadatum::Metadatum,
     native_script::NativeScript,
@@ -199,7 +199,7 @@ pub mod cbor {
 }
 pub use cbor::{from_cbor, from_cbor_no_leftovers, to_cbor};
 
-pub mod data_structures;
+mod data_structures;
 #[cfg(any(test, feature = "test-utils"))]
 pub use data_structures::nullable::any_nullable;
 #[doc(hidden)]
@@ -220,7 +220,7 @@ pub use serde_json as json;
 
 pub mod macros;
 
-pub mod traits;
+mod traits;
 #[doc(hidden)]
 pub use traits::{
     AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasNetwork, HasOwnership, HasRedeemers,

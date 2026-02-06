@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HeaderHash, Peer, Point};
+use amaru_kernel::{EraName, HeaderHash, Peer, Point};
 use amaru_ouroboros_traits::{
     BlockValidationError, StoreError, can_validate_blocks::HeaderValidationError,
 };
@@ -72,6 +72,14 @@ pub enum ConsensusError {
     NoncesError(#[from] crate::store::NoncesError),
     #[error("{0}")]
     InvalidHeaderParent(Box<InvalidHeaderParentData>),
+    #[error("Invalid header point {actual}, expected window ({parent}, {highest}]")]
+    InvalidHeaderPoint {
+        actual: Point,
+        parent: Point,
+        highest: Point,
+    },
+    #[error("Invalid header variant {0}")]
+    InvalidHeaderVariant(EraName),
     #[error("Failed to roll forward chain from {0}: {1}")]
     RollForwardChainFailed(amaru_kernel::Hash<32>, StoreError),
     #[error("Failed to rollback chain at {0}: {1}")]

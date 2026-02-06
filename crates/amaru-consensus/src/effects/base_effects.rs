@@ -38,8 +38,13 @@ pub trait BaseOps: Clone + Send {
 }
 
 /// Implementation of BaseOps using pure_stage::Effects.
-#[derive(Clone)]
 pub struct Base<'a, T>(&'a Effects<T>);
+
+impl<'a, T> Clone for Base<'a, T> {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
 
 impl<'a, T> Base<'a, T> {
     pub fn new(eff: &'a Effects<T>) -> Base<'a, T> {
@@ -47,7 +52,7 @@ impl<'a, T> Base<'a, T> {
     }
 }
 
-impl<T: Clone + SendData + Sync> BaseOps for Base<'_, T> {
+impl<T: SendData + Sync> BaseOps for Base<'_, T> {
     fn send<Msg: SendData + 'static>(
         &self,
         target: &StageRef<Msg>,

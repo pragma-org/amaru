@@ -20,9 +20,16 @@ use pure_stage::{
 use std::sync::Arc;
 
 /// Implementation of ChainStore using pure_stage::Effects.
-#[derive(Clone)]
 pub struct Store<T> {
     effects: Effects<T>,
+}
+
+impl<T> Clone for Store<T> {
+    fn clone(&self) -> Self {
+        Self {
+            effects: self.effects.clone(),
+        }
+    }
 }
 
 impl<T> Store<T> {

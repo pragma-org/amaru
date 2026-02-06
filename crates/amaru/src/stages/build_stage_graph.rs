@@ -63,6 +63,8 @@ pub fn build_stage_graph(
             match error {
                 MissingTip
                 | InvalidHeader(_, _)
+                | InvalidHeaderPoint { .. }
+                | InvalidHeaderVariant(_)
                 | HeaderPointMismatch { .. }
                 | UnknownPoint(_)
                 | InvalidRollback { .. }
