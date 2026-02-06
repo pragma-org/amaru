@@ -14,13 +14,13 @@ rust-version.workspace = true
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0"
-quote = "1.0"
-syn = { version = "2.0", features = ["full"] }
-inventory = "0.3"
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
+inventory.workspace = true
 
 [dev-dependencies]
-amaru-observability = { path = ".." }
-tracing = "0.1"
-tracing-subscriber = "0.3"
-trybuild = "1.0"
+amaru-observability.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+trybuild.workspace = true

@@ -96,15 +96,17 @@ At compile time, the macro validates:
 
 #### Span Augmentation
 
-The `#[augment_trace]` macro adds optional context to an existing span without creating a new one:
+The `trace_record!` macro records fields to the current span with a schema anchor:
 
 ```rust
-#[augment_trace(ledger::state::APPLY_BLOCK)]
-fn handle_error(error: String) {
+#[trace(ledger::state::APPLY_BLOCK)]
+fn apply_block(block: &Block) {
+    // Record additional fields with schema context
+    trace_record!(ledger::state::APPLY_BLOCK, block_size = block.size(), tx_count = block.transactions.len());
 }
 ```
 
-This macro only allows optional fields, since required fields belong to the span creator.
+This macro is a lightweight way to add context to the current span without creating a new one. The schema constant anchors the recording and documents which schema these fields belong to.
 
 #### Benefits
 

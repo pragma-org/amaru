@@ -9,12 +9,12 @@ Procedural macros for compile-time validated tracing instrumentation.
 | `define_schemas!` | Define span schemas with required/optional fields |
 | `define_local_schemas!` | Same as above, but without `#[macro_export]` (for tests) |
 | `#[trace(path)]` | Instrument a function, validating required fields |
-| `#[augment_trace(path)]` | Add optional fields to the current span |
+| `trace_record!(schema, field1 = value1, ...)` | Record fields to current span with schema anchor |
 
 ## Quick Example
 
 ```rust
-use amaru_observability_macros::{define_schemas, trace, augment_trace};
+use amaru_observability_macros::{define_schemas, trace, trace_record};
 
 // 1. Define schemas
 define_schemas! {
@@ -36,9 +36,9 @@ fn validate_header(slot: u64, hash: String) {
     // Function body - span created with slot and hash recorded
 }
 
-#[augment_trace(VALIDATE_HEADER)]
-fn add_peer_info(peer_id: String) {
-    // Adds peer_id to the current span (optional fields only)
+fn add_peer_info() {
+    trace_record!(VALIDATE_HEADER, peer_id = "some_peer");
+    // Adds peer_id to the current span
 }
 ```
 
@@ -104,12 +104,20 @@ fn validate_header(slot: u64, hash: String) {
 }
 ```
 
-### What `#[augment_trace(SCHEMA)]` Generates
+### What `trace_record!` Generates
 
-Similar to `#[trace]`, but:
-- Does **not** create a new span
-- Only allows **optional** fields (required fields belong in `#[trace]`)
-- Records fields to the **current** span
+The `trace_record!` macro records fields to the current span with a schema anchor:
+
+```rust
+trace_record!(VALIDATE_HEADER, peer_id = "peer", attempts = 3);  // ✅ Records to current span
+
+// Expands to:
+{
+    let _schema = &VALIDATE_HEADER;  // Schema anchor for documentation
+    tracing::Span::current().record("peer_id", tracing::field::display(&"peer"));
+    tracing::Span::current().record("attempts", tracing::field::display(&3));
+}
+```
 
 ## Compile-Time Safety
 
@@ -197,7 +205,7 @@ __<CATEGORY>__<SUBCATEGORY>__<SCHEMA>_<SUFFIX>
 | `_REQUIRE` | Validates all required fields are present |
 | `_INSTRUMENT` | Creates the span with field recording |
 
-These are implementation details—users only interact with `#[trace]` and `#[augment_trace]`.
+These are implementation details—users only interact with `#[trace]` and `trace_record!`.
 
 ### Why This Pattern?
 

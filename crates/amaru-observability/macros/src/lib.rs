@@ -22,7 +22,7 @@
 //!
 //! - [`define_schemas!`] - Declares schemas with their fields and types
 //! - [`#[trace]`](macro@trace) - Instruments functions, requiring all required schema fields
-//! - [`#[augment_trace]`](macro@augment_trace) - Adds fields to the current span without requiring all fields
+//! - [`trace_record!`](macro@trace_record) - Records fields to the current span
 
 use proc_macro::TokenStream;
 
@@ -82,29 +82,20 @@ pub fn trace(args: TokenStream, input: TokenStream) -> TokenStream {
     traces::expand_trace(args, input)
 }
 
-/// Augments the current span with additional optional fields.
+/// Records fields to the current span with a schema anchor.
 ///
-/// Unlike [`#[trace]`](macro@trace), this macro can only use **optional** fields
-/// from the schema. Required fields are not allowed in `augment_trace` because
-/// augmenting a span should only add supplementary context, not core identifying
-/// information.
-///
-/// This macro does NOT create a new span - it records fields to the current span.
-/// The function parameters are automatically recorded at the start of the function.
-///
-/// Use this when you want to add additional context to an existing span
-/// without creating a new one.
+/// This macro records fields to the current span, with the schema constant documenting
+/// which schema these fields belong to.
 ///
 /// # Example
 ///
 /// ```text
-/// // Given a schema with optional fields like 'peer_id' and 'timing_ms':
-/// #[augment_trace(consensus::chain_sync::VALIDATE_HEADER)]
-/// fn add_peer_context(peer_id: String, timing_ms: u64) {
-///     // peer_id and timing_ms are automatically recorded to the current span
+/// #[trace(ledger::state::APPLY_BLOCK)]
+/// fn apply_block(block: &Block) {
+///     trace_record!(ledger::state::APPLY_BLOCK, size = block.size(), tx_count = block.transactions.len());
 /// }
 /// ```
-#[proc_macro_attribute]
-pub fn augment_trace(args: TokenStream, input: TokenStream) -> TokenStream {
-    traces::expand_augment_trace(args, input)
+#[proc_macro]
+pub fn trace_record(input: TokenStream) -> TokenStream {
+    traces::expand_trace_record(input)
 }

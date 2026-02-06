@@ -19,4 +19,4 @@ mod schemas;
 pub use schemas::*;
 
 // Re-export the macros for convenient use
-pub use amaru_observability_macros::{augment_trace, define_schemas, trace};
+pub use amaru_observability_macros::{define_schemas, trace, trace_record};

@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Core validation tests for trace and augment_trace macros
+//! Core validation tests for trace and trace_record! macros
 //!
 //! This file consolidates all unit tests for:
 //! - Required/optional field handling
 //! - Custom expressions
 //! - Extra function parameters (ignored)
-//! - augment_trace restrictions
+//! - trace_record! restrictions
 //!
 //! UI compile_fail tests cover error cases separately.
 
-use amaru_observability_macros::{augment_trace, define_local_schemas, trace};
+use amaru_observability_macros::{define_local_schemas, trace, trace_record};
 
 define_local_schemas! {
     consensus {
@@ -214,25 +214,41 @@ mod extra_params {
     }
 }
 
-mod augment_trace_tests {
+mod trace_record_tests {
     use super::*;
 
-    #[augment_trace(ledger::state::RESOLVE_INPUTS)]
-    fn augment_with_optional(_resolved_from_context: u64) {}
+    fn augment_with_optional(_resolved_from_context: u64) {
+        trace_record!(
+            ledger::state::RESOLVE_INPUTS,
+            resolved_from_context = _resolved_from_context
+        );
+    }
 
-    #[augment_trace(ledger::state::RESOLVE_INPUTS)]
-    fn augment_with_multiple(_resolved_from_context: u64, _resolved_from_volatile: u64) {}
+    fn augment_with_multiple(_resolved_from_context: u64, _resolved_from_volatile: u64) {
+        trace_record!(
+            ledger::state::RESOLVE_INPUTS,
+            resolved_from_context = _resolved_from_context,
+            resolved_from_volatile = _resolved_from_volatile
+        );
+    }
 
-    #[augment_trace(ledger::state::RESOLVE_INPUTS)]
-    fn augment_with_extra(resolved_from_context: u64, extra: &str) {
+    fn augment_with_extra(_resolved_from_context: u64, extra: &str) {
+        trace_record!(
+            ledger::state::RESOLVE_INPUTS,
+            resolved_from_context = _resolved_from_context
+        );
         let _ = extra;
     }
 
-    #[augment_trace(ledger::state::RESOLVE_INPUTS, resolved_from_context = 100_u64)]
-    fn augment_with_expression() {}
+    fn augment_with_expression() {
+        trace_record!(
+            ledger::state::RESOLVE_INPUTS,
+            resolved_from_context = 100_u64
+        );
+    }
 
     #[test]
-    fn test_augment_trace() {
+    fn test_trace_record() {
         augment_with_optional(10);
         augment_with_multiple(10, 20);
         augment_with_extra(10, "extra");

@@ -14,7 +14,7 @@
 
 //! Example demonstrating the observability instrumentation macros
 //!
-//! This shows how to use #[trace] and #[augment_trace] with local schemas.
+//! This shows how to use #[trace] and trace_record! with local schemas.
 //!
 //! Key features demonstrated:
 //! - Using define_local_schemas! to define schemas locally
@@ -22,7 +22,7 @@
 //! - Function instrumentation with required and optional parameters
 //! - Custom expression fields using field = expr syntax
 
-use amaru_observability_macros::{augment_trace, define_local_schemas, trace};
+use amaru_observability_macros::{define_local_schemas, trace, trace_record};
 
 define_local_schemas! {
     consensus {
@@ -96,9 +96,14 @@ pub fn create_validation_context(
     Ok(())
 }
 
-/// Example 4: Function that augments the current span
-#[augment_trace(ledger::state::RESOLVE_INPUTS)]
-pub fn add_resolve_stats(_resolved_from_context: u64, _resolved_from_volatile: u64) {}
+/// Example 4: Function that records fields to the current span
+pub fn add_resolve_stats(_resolved_from_context: u64, _resolved_from_volatile: u64) {
+    trace_record!(
+        ledger::state::RESOLVE_INPUTS,
+        resolved_from_context = _resolved_from_context,
+        resolved_from_volatile = _resolved_from_volatile
+    );
+}
 
 /// Example 5: Schema with only optional fields
 #[trace(ledger::state::ROLL_FORWARD)]
@@ -157,13 +162,13 @@ pub fn process_block_with_all_custom_fields(
     Ok(())
 }
 
-/// Example 9: Augment trace with custom expressions
-#[augment_trace(
-    ledger::state::RESOLVE_INPUTS,
-    resolved_from_context = 10_u64,
-    resolved_from_volatile = 20_u64
-)]
+/// Example 9: Record computed metrics to current span
 pub fn add_processing_metrics() {
+    trace_record!(
+        ledger::state::RESOLVE_INPUTS,
+        resolved_from_context = 10_u64,
+        resolved_from_volatile = 20_u64
+    );
     tracing::debug!("Added computed processing metrics to current span");
 }
 
@@ -203,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn test_augment_trace() {
+    fn test_trace_record() {
         add_resolve_stats(10, 20);
         add_processing_metrics();
     }

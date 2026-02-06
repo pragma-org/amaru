@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Tests that verify runtime behavior of trace and augment_trace macros
+//! Tests that verify runtime behavior of trace macro
 //!
 //! These tests verify:
 //! - Correct target and span names are generated
 //! - Schema fields are declared in span metadata
 //! - Field values are auto-recorded
-//! - augment_trace records to current span
+//! - trace_record! records to current span
 
-use amaru_observability_macros::{augment_trace, define_local_schemas, trace};
+use amaru_observability_macros::{define_local_schemas, trace, trace_record};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use tracing::field::Visit;
@@ -143,12 +143,16 @@ fn apply_block(point_slot: u64) {
 fn process_block(_block_body_hash: String, _block_number: u64, _block_body_size: u64) {}
 
 #[trace(ledger::state::CREATE_VALIDATION_CONTEXT)]
-fn outer_with_augment(_block_body_hash: String, _block_number: u64, _block_body_size: u64) {
-    inner_augment(5);
+fn outer_with_record(_block_body_hash: String, _block_number: u64, _block_body_size: u64) {
+    inner_record(5);
 }
 
-#[augment_trace(ledger::state::CREATE_VALIDATION_CONTEXT)]
-fn inner_augment(_total_inputs: u64) {}
+fn inner_record(_total_inputs: u64) {
+    trace_record!(
+        ledger::state::CREATE_VALIDATION_CONTEXT,
+        total_inputs = _total_inputs
+    );
+}
 
 #[test]
 fn test_span_target_and_name() {
@@ -223,18 +227,18 @@ fn test_field_values_recorded() {
 }
 
 #[test]
-fn test_augment_trace_records_to_span() {
+fn test_trace_record_records_to_span() {
     let values = Arc::new(Mutex::new(BTreeMap::new()));
     let subscriber = Registry::default().with(ValueCapturingLayer {
         captured: values.clone(),
     });
 
     tracing::subscriber::with_default(subscriber, || {
-        outer_with_augment("hash".into(), 100, 1024);
+        outer_with_record("hash".into(), 100, 1024);
     });
 
     let recorded = values.lock().unwrap();
-    // The inner augment function should record total_inputs
+    // The inner record function should record total_inputs
     assert!(
         recorded.contains_key("total_inputs") || recorded.contains_key("block_body_hash"),
         "Expected some fields to be recorded, got {:?}",

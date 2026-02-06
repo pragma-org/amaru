@@ -204,15 +204,6 @@ impl SchemaMeta {
 // Required Field Checking
 // =============================================================================
 
-/// Controls whether required field validation is enforced.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RequiredFieldCheck {
-    /// Enforce that all required fields are present (for `#[trace]`)
-    Enforce,
-    /// Skip required field checking (for `#[augment_trace]`)
-    Skip,
-}
-
 /// Extracted function parameter information.
 struct FunctionField {
     /// Original parameter name (may have leading underscores)
@@ -314,29 +305,14 @@ fn resolve_record_expr(field: &FunctionField, meta: &SchemaMeta) -> proc_macro2:
         })
 }
 
-/// Mode for record calls - determines validation behavior.
-#[derive(Clone, Copy, PartialEq)]
-enum RecordMode {
-    /// Normal #[trace] mode:
-    /// - Function params: lenient (auto-match to schema, ignore if no match)
-    /// - Custom expressions: strict (must match schema field)
-    Trace,
-    /// #[augment_trace] mode: only allows optional fields, errors on required
-    Augment,
-}
-
 /// Generate all record calls for a function's fields and inline field expressions.
 ///
-/// Uses different modes of the _RECORD macro based on RecordMode:
-/// - Trace mode:
-///   - Function params: lenient (silently ignored if not in schema)
-///   - Custom expressions: STRICT (compile error if field doesn't exist)
-/// - Augment mode:
-///   - Errors on required fields: only optional fields allowed in augment_trace
+/// - Function params: lenient (silently ignored if not in schema)
+/// - Custom expressions: STRICT (compile error if field doesn't exist)
+///   - Custom expressions: strict (must match schema field)
 fn generate_record_calls(
     fields: &[FunctionField],
     meta: &SchemaMeta,
-    mode: RecordMode,
 ) -> Vec<proc_macro2::TokenStream> {
     let record_macro_ident = make_ident(&make_record_macro_name(
         meta.category(),
@@ -357,19 +333,8 @@ fn generate_record_calls(
             let field_name = &field.name;
             let record_expr = resolve_record_expr(field, meta);
 
-            match mode {
-                RecordMode::Augment => {
-                    // Augment mode - validates optional-only and records
-                    meta.macro_call_stmt(
-                        &record_macro_ident,
-                        quote! { #field_name, #record_expr, augment },
-                    )
-                }
-                RecordMode::Trace => {
-                    // Lenient for function params - ignores params not in schema
-                    meta.macro_call_stmt(&record_macro_ident, quote! { #field_name, #record_expr })
-                }
-            }
+            // Lenient for function params - ignores params not in schema
+            meta.macro_call_stmt(&record_macro_ident, quote! { #field_name, #record_expr })
         })
         .collect();
 
@@ -379,22 +344,11 @@ fn generate_record_calls(
     for (field_name, expr) in &meta.field_expressions {
         if !param_field_names.contains(field_name) {
             let field_name_str = field_name.as_str();
-            match mode {
-                RecordMode::Augment => {
-                    // Augment mode - validates optional-only and records
-                    record_calls.push(meta.macro_call_stmt(
-                        &record_macro_ident,
-                        quote! { #field_name_str, #expr, augment },
-                    ));
-                }
-                RecordMode::Trace => {
-                    // STRICT mode for custom expressions - errors on unknown fields
-                    record_calls.push(meta.macro_call_stmt(
-                        &record_macro_ident,
-                        quote! { #field_name_str, #expr, strict },
-                    ));
-                }
-            }
+            // STRICT mode for custom expressions - errors on unknown fields
+            record_calls.push(meta.macro_call_stmt(
+                &record_macro_ident,
+                quote! { #field_name_str, #expr, strict },
+            ));
         }
     }
 
@@ -487,11 +441,7 @@ fn wrap_in_module_validator(
 }
 
 /// Generate all validation tokens for a function.
-fn generate_validations(
-    func: &ItemFn,
-    meta: &SchemaMeta,
-    required_check: RequiredFieldCheck,
-) -> Vec<proc_macro2::TokenStream> {
+fn generate_validations(func: &ItemFn, meta: &SchemaMeta) -> Vec<proc_macro2::TokenStream> {
     // Extract fields, checking for collisions
     let fields = match extract_function_fields(func) {
         Some(fields) => fields,
@@ -511,14 +461,11 @@ fn generate_validations(
     // Note: Custom expressions are validated through the _RECORD macro,
     // which now errors on unknown fields. No separate validation needed.
 
-    // Add required fields check (only for #[trace], not #[augment_trace])
-    // For augment_trace, optional-only validation happens in record calls via `augment` mode
-    if required_check == RequiredFieldCheck::Enforce {
-        let mut field_names: Vec<_> = fields.iter().map(|f| f.name.clone()).collect();
-        // Add custom expression field names to required field check
-        field_names.extend(meta.field_expressions.keys().cloned());
-        validations.push(generate_required_fields_check(meta, &field_names));
-    }
+    // Add required fields check
+    let mut field_names: Vec<_> = fields.iter().map(|f| f.name.clone()).collect();
+    // Add custom expression field names to required field check
+    field_names.extend(meta.field_expressions.keys().cloned());
+    validations.push(generate_required_fields_check(meta, &field_names));
 
     validations
 }
@@ -541,108 +488,197 @@ fn generate_validations(
 /// }
 /// ```
 pub fn expand_trace(args: TokenStream, input: TokenStream) -> TokenStream {
-    expand_trace_macro(args, input, RequiredFieldCheck::Enforce)
+    expand_trace_macro(args, input)
 }
 
-/// Augments the current span with additional optional fields.
+/// Records fields to the current span with a schema anchor.
 ///
-/// Unlike [`#[trace]`](macro@trace), this macro can only use **optional** fields
-/// from the schema. Required fields are not allowed in `augment_trace` because
-/// augmenting a span should only add supplementary context, not core identifying
-/// information.
+/// This macro allows recording fields to the current span outside of functions
+/// decorated with `#[trace]`. Use this when you want to add additional context
+/// to an existing span without creating a new one.
 ///
 /// This macro does NOT create a new span - it records fields to the current span.
-/// The function parameters are automatically recorded at the start of the function.
-///
-/// Use this when you want to add additional context to an existing span
-/// without creating a new one.
+/// The schema constant anchors the recording and documents which schema these
+/// fields belong to.
 ///
 /// # Example
 ///
 /// ```text
-/// // Given a schema with optional fields like 'peer_id' and 'timing_ms':
-/// #[augment_trace(consensus::chain_sync::VALIDATE_HEADER)]
-/// fn add_peer_context(peer_id: String, timing_ms: u64) {
-///     // peer_id and timing_ms are automatically recorded to the current span
-/// }
+/// trace_record!(ledger::state::APPLY_BLOCK, block_size = 1024, tx_count = 5);
 /// ```
-pub fn expand_augment_trace(args: TokenStream, input: TokenStream) -> TokenStream {
-    expand_augment_trace_macro(args, input)
-}
-
-/// Common implementation for trace macros using functional approach.
-fn expand_trace_macro(
-    args: TokenStream,
-    input: TokenStream,
-    required_check: RequiredFieldCheck,
-) -> TokenStream {
+///
+/// Common implementation for trace macros.
+fn expand_trace_macro(args: TokenStream, input: TokenStream) -> TokenStream {
     let Ok(func) = syn::parse::<ItemFn>(input.clone()) else {
         return input;
     };
 
     let meta = SchemaMeta::from_args(args);
-    let field_validations = generate_validations(&func, &meta, required_check);
+    let field_validations = generate_validations(&func, &meta);
 
     // Extract function fields and generate record calls
     let fields = extract_function_fields(&func).unwrap_or_default();
-    let record_calls = generate_record_calls(&fields, &meta, RecordMode::Trace);
+    let record_calls = generate_record_calls(&fields, &meta);
 
     // Generate the final instrumented function (wrapped in module validator)
     let output = generate_instrumented_function(&func, &meta, field_validations, record_calls);
     output.into()
 }
 
-/// Implementation for augment_trace macro.
+/// Expand the `trace_record!` macro.
 ///
-/// Unlike trace, this does NOT create a new span - it just adds record() calls
-/// to record fields to the current span. Uses `augment` mode which validates
-/// that only optional fields are used.
-fn expand_augment_trace_macro(args: TokenStream, input: TokenStream) -> TokenStream {
-    let Ok(func) = syn::parse::<ItemFn>(input.clone()) else {
-        return input;
-    };
+/// This macro allows recording fields to the current span. It supports both validated
+/// (schema-aware) and simple forms.
+/// Expand the `trace_record!` macro.
+///
+/// This macro records fields to the current span with a schema anchor.
+///
+/// # Syntax
+///
+/// ```text
+/// trace_record!(SCHEMA_CONST, field1 = value1, field2 = value2, ...);
+/// ```
+///
+/// The schema constant anchors the recording and documents which schema these fields
+/// belong to. Use this inside or outside of functions decorated with `#[trace]` to
+/// record fields to the current span.
+///
+/// # Examples
+///
+/// ```text
+/// #[trace(ledger::state::APPLY_BLOCK)]
+/// fn apply_block(block: &Block) {
+///     // Record additional fields
+///     trace_record!(ledger::state::APPLY_BLOCK, size = block.size(), tx_count = block.transactions.len());
+/// }
+/// ```
+pub fn expand_trace_record(input: TokenStream) -> TokenStream {
+    let input2: proc_macro2::TokenStream = input.into();
+    let input_str = input2.to_string();
 
-    let meta = SchemaMeta::from_args(args);
+    // Only schema form is supported: trace_record!(SCHEMA, field = value, ...)
+    expand_schema_form(&input2, &input_str)
+}
 
-    // Generate validations - only field type validators (optional-only check is done via augment mode)
-    let field_validations = generate_validations(&func, &meta, RequiredFieldCheck::Skip);
+fn expand_schema_form(input2: &proc_macro2::TokenStream, input_str: &str) -> TokenStream {
+    let parts: Vec<&str> = input_str.split(',').map(|s| s.trim()).collect();
 
-    // Generate the __list_available_schemas call with proper path
-    let list_schemas_ident = make_ident("__list_available_schemas");
-    let list_schemas_call = meta.macro_call(&list_schemas_ident, quote! {});
+    if parts.len() < 2 {
+        return syn::Error::new_spanned(
+            input2,
+            "trace_record! with schema requires at least one field assignment: trace_record!(SCHEMA_CONST, field = value, ...)",
+        )
+        .to_compile_error()
+        .into();
+    }
 
-    // Extract function fields for record() calls using augment mode
-    // Augment mode validates that only optional fields are used
-    let fields = extract_function_fields(&func).unwrap_or_default();
-    let record_calls = generate_record_calls(&fields, &meta, RecordMode::Augment);
+    let schema_const_str = parts[0];
+    let field_assignments = &parts[1..];
 
-    // Build the function body
-    let attrs = &func.attrs;
-    let vis = &func.vis;
-    let sig = &func.sig;
-    let original_stmts = &func.block.stmts;
+    if field_assignments.is_empty() {
+        return syn::Error::new_spanned(
+            input2,
+            "trace_record! requires at least one field assignment: trace_record!(SCHEMA_CONST, field = value, ...)",
+        )
+        .to_compile_error()
+        .into();
+    }
 
-    let fn_name = &sig.ident;
-    let validation_const_name = make_ident(&format!(
-        "__AUGMENT_TRACE_VALIDATION_{}",
-        fn_name.to_string().to_uppercase()
-    ));
-
-    let function_body = quote! {
-        #(#attrs)*
-        #vis #sig {
-            // Compile-time validation of schema usage
-            #[allow(non_upper_case_globals)]
-            const #validation_const_name: () = {
-                #(#field_validations)*
-                const _: &str = #list_schemas_call;
-            };
-            #(#record_calls)*
-            #(#original_stmts)*
+    // Parse the schema constant path
+    let schema_const_tokens: proc_macro2::TokenStream = match schema_const_str.parse() {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            return syn::Error::new_spanned(
+                input2,
+                "First argument must be a valid schema constant path like 'ledger::state::APPLY_BLOCK'",
+            )
+            .to_compile_error()
+            .into();
         }
     };
 
-    // Wrap the entire function in the module validator for better error messages
-    let output = wrap_in_module_validator(&meta, function_body);
-    output.into()
+    // Parse field assignments (field = value)
+    let mut field_records = Vec::new();
+
+    for assignment in field_assignments {
+        // Split on = to get field name and value
+        let assignment_parts: Vec<&str> = assignment.splitn(2, '=').map(|s| s.trim()).collect();
+
+        if assignment_parts.len() != 2 {
+            return syn::Error::new_spanned(
+                input2,
+                format!(
+                    "Invalid field assignment '{}'. Expected 'field = value'",
+                    assignment
+                ),
+            )
+            .to_compile_error()
+            .into();
+        }
+
+        let field_name = assignment_parts[0];
+        let value_expr_str = assignment_parts[1];
+
+        // Parse field name (should be a valid identifier, becomes a string literal)
+        if !is_valid_identifier(field_name) {
+            return syn::Error::new_spanned(
+                input2,
+                format!("'{}' is not a valid field name identifier", field_name),
+            )
+            .to_compile_error()
+            .into();
+        }
+
+        // Parse value expression
+        let value_expr_tokens: proc_macro2::TokenStream = match value_expr_str.parse() {
+            Ok(tokens) => tokens,
+            Err(_) => {
+                return syn::Error::new_spanned(
+                    input2,
+                    format!(
+                        "Invalid value expression '{}' for field '{}'",
+                        value_expr_str, field_name
+                    ),
+                )
+                .to_compile_error()
+                .into();
+            }
+        };
+
+        // Generate the actual record call
+        let field_name_literal = syn::LitStr::new(field_name, proc_macro2::Span::call_site());
+        let record_call = quote! {
+            tracing::Span::current().record(#field_name_literal, tracing::field::display(&#value_expr_tokens))
+        };
+
+        field_records.push(record_call);
+    }
+
+    // Combine all records
+    let expanded = quote! {
+        {
+            // Use the schema constant to anchor the recording context
+            // This documents which schema these fields belong to
+            let _schema = &#schema_const_tokens;
+
+            // Runtime recording of all fields
+            #(#field_records);*
+        }
+    };
+
+    expanded.into()
+}
+
+/// Check if a string is a valid Rust identifier
+fn is_valid_identifier(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+
+    let first_char = s.chars().next().unwrap();
+    if !first_char.is_alphabetic() && first_char != '_' {
+        return false;
+    }
+
+    s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }

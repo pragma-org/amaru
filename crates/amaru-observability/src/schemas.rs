@@ -250,6 +250,20 @@ define_schemas! {
             }
         }
 
+        rocksdb {
+            /// Save point to RocksDB store
+            SAVE_POINT {
+                required slot: u64
+                optional epoch: u64
+            }
+
+            /// Validate sufficient snapshots exist
+            VALIDATE_SNAPSHOTS {
+                optional snapshot_count: u64
+                optional continuous_ranges: u64
+            }
+        }
+
         consensus {
             /// Store a block header
             STORE_HEADER {

@@ -704,14 +704,12 @@ fn generate_instrument_macro(
 /// This macro handles multiple validation modes:
 /// - Lenient mode: `_RECORD!("name", expr)` - silently ignores unknown fields (for function params)
 /// - Strict mode: `_RECORD!("name", expr, strict)` - errors on unknown fields (for custom expressions)
-/// - Validate mode: `_RECORD!("name", "type", validate)` - validates field name/type pair (replaces _VALIDATOR)
-/// - Augment mode: `_RECORD!("name", expr, augment)` - only allows optional fields (replaces _OPTIONAL_ONLY)
+/// - Validate mode: `_RECORD!("name", "type", validate)` - validates field name/type pair (for #[trace])
 ///
 /// Usage:
 /// - `__SCHEMA_RECORD!("field_name", expr);` → records if known, ignores if unknown
 /// - `__SCHEMA_RECORD!("field_name", expr, strict);` → records if known, errors if unknown
 /// - `__SCHEMA_RECORD!("field_name", "type", validate);` → validates field name/type (for #[trace])
-/// - `__SCHEMA_RECORD!("field_name", expr, augment);` → records if optional, errors if required (for #[augment_trace])
 fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     let macro_name = make_record_macro_name(&schema.category, &schema.subcategory, &schema.name);
     let macro_ident = make_ident(&macro_name);
@@ -792,44 +790,6 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         })
         .collect();
 
-    // Generate patterns for augment mode - only optional fields allowed
-    // This replaces the old _OPTIONAL_ONLY macro
-    let augment_optional_patterns: Vec<_> = schema
-        .optional_fields
-        .iter()
-        .map(|field| {
-            let field_name = &field.name;
-            quote! {
-                (#field_name, $expr:expr, augment) => {{
-                    tracing::Span::current().record(
-                        #field_name,
-                        tracing::field::display(&$expr)
-                    );
-                }};
-            }
-        })
-        .collect();
-
-    // Generate error patterns for required fields in augment mode
-    let augment_required_error_patterns: Vec<_> = schema
-        .required_fields
-        .iter()
-        .map(|field| {
-            let field_name = &field.name;
-            quote! {
-                (#field_name, $expr:expr, augment) => {
-                    compile_error!(concat!(
-                        "Cannot use required field '",
-                        #field_name,
-                        "' in augment_trace for schema ",
-                        #schema_name,
-                        ". Only optional fields are allowed in augment_trace."
-                    ));
-                };
-            }
-        })
-        .collect();
-
     // List all fields for error messages
     let all_field_names: Vec<_> = all_fields.iter().map(|f| f.name.as_str()).collect();
     let fields_list = all_field_names.join(", ");
@@ -859,21 +819,13 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                 ));
             };
 
-            // ===== VALIDATE MODE (replaces _VALIDATOR) =====
+            // ===== VALIDATE MODE =====
             // Exact matches (correct name and type)
             #(#validate_exact_patterns)*
             // Wrong type patterns
             #(#validate_wrong_type_patterns)*
             // Unknown field - ignored to allow extra function parameters
             ($name:literal, $ty:literal, validate) => {};
-
-            // ===== AUGMENT MODE (replaces _OPTIONAL_ONLY) =====
-            // Optional fields - allowed and recorded
-            #(#augment_optional_patterns)*
-            // Required fields - not allowed in augment_trace
-            #(#augment_required_error_patterns)*
-            // Unknown field - silently ignore (allows extra function params)
-            ($name:literal, $expr:expr, augment) => {};
         }
     }
 }
