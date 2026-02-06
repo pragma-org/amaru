@@ -397,6 +397,7 @@ dependencies = [
  "amaru",
  "amaru-consensus",
  "amaru-kernel",
+ "amaru-observability",
  "amaru-ouroboros",
  "amaru-protocols",
  "amaru-tracing-json",
@@ -3317,6 +3318,7 @@ dependencies = [
 name = "pure-stage"
 version = "0.1.0"
 dependencies = [
+ "amaru-observability",
  "anyhow",
  "cbor4ii",
  "either",

@@ -545,7 +545,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     #[observability_trace(amaru::ledger::state::CREATE_VALIDATION_CONTEXT,
-        block_body_hash = format!("{}", block.header.header_body.block_body_hash),
+        block_body_hash = block.header.header_body.block_body_hash,
         block_number = block.header.header_body.block_number,
         block_body_size = block.header.header_body.block_body_size
     )]

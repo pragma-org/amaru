@@ -236,6 +236,19 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+### target: `network::connection`
+
+| name | level | description | required fields | optional fields |
+| --- | --- | --- | --- | --- |
+| `close` | `TRACE` | Close connection |  |  |
+| `recv` | `TRACE` | Receive data from connection |  |  |
+| `send` | `TRACE` | Send data over connection |  |  |
+| `connect_addrs` | `TRACE` | Connect to multiple addresses |  |  |
+| `connect` | `TRACE` | Connect to addresses |  |  |
+| `accept` | `TRACE` | Accept a connection |  |  |
+| `listen` | `TRACE` | Listen on address |  |  |
+| `accept_loop` | `TRACE` | Accept loop for incoming connections |  |  |
+
 ### target: `protocols::mux`
 
 | name | level | description | required fields | optional fields |
@@ -283,18 +296,61 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+### target: `simulator::node`
+
+| name | level | description | required fields | optional fields |
+| --- | --- | --- | --- | --- |
+| `handle_msg` | `TRACE` | Handle message in simulator node |  |  |
+
+### target: `stage::logging`
+
+| name | level | description | required fields | optional fields |
+| --- | --- | --- | --- | --- |
+| `test_span` | `TRACE` | Test span for logging |  |  |
+
+### target: `stage::tokio`
+
+| name | level | description | required fields | optional fields |
+| --- | --- | --- | --- | --- |
+| `poll` | `TRACE` | Poll stage operation |  |  |
+
 ### target: `stores::consensus`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
+| `roll_forward_chain` | `TRACE` | Roll forward the chain to a point | hash, slot |  |
+| `store_block` | `TRACE` | Store a raw block | hash |  |
+| `store_header` | `TRACE` | Store a block header | hash |  |
 | `read_blocks` | `TRACE` | Read blocks operations | hash |  |
 | `read_headers` | `TRACE` | Read headers operations | hash |  |
 | `rollback_to_tip` | `TRACE` | Rollback to tip operations | hash |  |
 | `store_block_to_tip` | `TRACE` | Store block to tip operations | hash |  |
 | `rollback_chain` | `TRACE` | Rollback the chain to a point | hash, slot |  |
-| `roll_forward_chain` | `TRACE` | Roll forward the chain to a point | hash, slot |  |
-| `store_block` | `TRACE` | Store a raw block | hash |  |
-| `store_header` | `TRACE` | Store a block header | hash |  |
+
+<details><summary>span: `roll_forward_chain`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `store_block`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `store_header`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+
+</details>
 
 <details><summary>span: `read_blocks`</summary>
 
@@ -334,31 +390,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
 | `slot` | `integer` | ✓ |
-
-</details>
-
-<details><summary>span: `roll_forward_chain`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `hash` | `string` | ✓ |
-| `slot` | `integer` | ✓ |
-
-</details>
-
-<details><summary>span: `store_block`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `hash` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `store_header`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `hash` | `string` | ✓ |
 
 </details>
 
@@ -404,6 +435,31 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `integer` | ✓ |
+
+</details>
+
+### target: `stores::rocksdb`
+
+| name | level | description | required fields | optional fields |
+| --- | --- | --- | --- | --- |
+| `validate_snapshots` | `TRACE` | Validate sufficient snapshots exist | snapshot_count, continuous_ranges |  |
+| `save_point` | `TRACE` | Save point to RocksDB store | slot | epoch |
+
+<details><summary>span: `validate_snapshots`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `snapshot_count` | `integer` |  |
+| `continuous_ranges` | `integer` |  |
+
+</details>
+
+<details><summary>span: `save_point`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `slot` | `integer` | ✓ |
+| `epoch` | `integer` |  |
 
 </details>
 

@@ -27,7 +27,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
 };
-use tracing::{Span, debug_span, field, info, info_span, trace_span};
+use tracing::{Span, field, info};
 
 mod constitutional_committee;
 pub use constitutional_committee::ConstitutionalCommittee;
@@ -328,58 +328,19 @@ impl<'distr> RatificationContext<'distr> {
     }
 
     fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
-        info_span!(
+        tracing::trace_span!(
             "enacting",
             "proposal.id" = id.to_compact_string(),
             "proposal.kind" = proposal.display_kind(),
-            "proposals.pruned" = field::Empty,
         )
     }
 
     fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
-        if matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)) {
-            trace_span!(
-                "ratifying",
-                "proposal.id" = id.to_compact_string(),
-                "proposal.kind" = proposal.display_kind(),
-                "required_threshold.committee" = field::Empty,
-                "votes.committee.yes" = field::Empty,
-                "votes.committee.no" = field::Empty,
-                "votes.committee.abstain" = field::Empty,
-                "approved.committee" = field::Empty,
-                "required_threshold.pools" = field::Empty,
-                "votes.pools.yes" = field::Empty,
-                "votes.pools.no" = field::Empty,
-                "votes.pools.abstain" = field::Empty,
-                "approved.pools" = field::Empty,
-                "required_threshold.dreps" = field::Empty,
-                "votes.dreps.yes" = field::Empty,
-                "votes.dreps.no" = field::Empty,
-                "votes.dreps.abstain" = field::Empty,
-                "approved.dreps" = field::Empty,
-            )
-        } else {
-            debug_span!(
-                "ratifying",
-                "proposal.id" = id.to_compact_string(),
-                "proposal.kind" = proposal.display_kind(),
-                "required_threshold.committee" = field::Empty,
-                "votes.committee.yes" = field::Empty,
-                "votes.committee.no" = field::Empty,
-                "votes.committee.abstain" = field::Empty,
-                "approved.committee" = field::Empty,
-                "required_threshold.pools" = field::Empty,
-                "votes.pools.yes" = field::Empty,
-                "votes.pools.no" = field::Empty,
-                "votes.pools.abstain" = field::Empty,
-                "approved.pools" = field::Empty,
-                "required_threshold.dreps" = field::Empty,
-                "votes.dreps.yes" = field::Empty,
-                "votes.dreps.no" = field::Empty,
-                "votes.dreps.abstain" = field::Empty,
-                "approved.dreps" = field::Empty,
-            )
-        }
+        tracing::trace_span!(
+            "ratifying",
+            "proposal.id" = id.to_compact_string(),
+            "proposal.kind" = proposal.display_kind(),
+        )
     }
 
     fn is_accepted_by_everyone(

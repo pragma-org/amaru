@@ -130,14 +130,14 @@ impl ValidateHeader {
         Ok(())
     }
 
-    #[trace(amaru::consensus::validate_header::EVOLVE_NONCE, hash = format!("{}", header.hash()))]
+    #[trace(amaru::consensus::validate_header::EVOLVE_NONCE, hash = header.hash())]
     fn evolve_nonce(&self, header: &BlockHeader) -> Result<Nonce, ConsensusError> {
         let nonces = PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone())
             .evolve_nonce(header)?;
         Ok(nonces.active)
     }
 
-    #[trace(amaru::consensus::validate_header::VALIDATE, issuer_key = format!("{}", header.header_body().issuer_vkey))]
+    #[trace(amaru::consensus::validate_header::VALIDATE, issuer_key = header.header_body().issuer_vkey)]
     fn check_header(
         &self,
         header: &BlockHeader,

@@ -40,6 +40,7 @@
 
 #![expect(unused)]
 
+use amaru_observability::trace_span;
 use cbor4ii::{
     core::{
         enc::{Encode, Write},
@@ -49,7 +50,7 @@ use cbor4ii::{
 };
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tracing::{Event, Subscriber};
+use tracing::{Event, Subscriber, info};
 use tracing_subscriber::layer::{Context, Layer};
 
 #[derive(Default)]
@@ -295,7 +296,7 @@ mod tests {
             tracing_subscriber::registry().with(CborLayer::new(collector.clone())),
         ));
 
-        info_span!("test_span", field1 = 42, field2 = "value").in_scope(|| {
+        trace_span!(stage::logging::TEST_SPAN, field1 = 42, field2 = "value").in_scope(|| {
             info!(message = "test event", field3 = 123);
         });
 

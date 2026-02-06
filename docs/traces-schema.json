@@ -428,6 +428,516 @@
       "target": "consensus::chain_sync",
       "description": "Decode header from raw bytes"
     },
+    "stores::consensus::ROLL_FORWARD_CHAIN": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "roll_forward_chain",
+      "level": "TRACE",
+      "target": "stores::consensus",
+      "description": "Roll forward the chain to a point"
+    },
+    "stores::consensus::STORE_BLOCK": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "store_block",
+      "level": "TRACE",
+      "target": "stores::consensus",
+      "description": "Store a raw block"
+    },
+    "stores::consensus::STORE_HEADER": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "store_header",
+      "level": "TRACE",
+      "target": "stores::consensus",
+      "description": "Store a block header"
+    },
+    "stage::tokio::POLL": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "poll",
+      "level": "TRACE",
+      "target": "stage::tokio",
+      "description": "Poll stage operation"
+    },
+    "stage::logging::TEST_SPAN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "test_span",
+      "level": "TRACE",
+      "target": "stage::logging",
+      "description": "Test span for logging"
+    },
+    "simulator::node::HANDLE_MSG": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "handle_msg",
+      "level": "TRACE",
+      "target": "simulator::node",
+      "description": "Handle message in simulator node"
+    },
+    "protocols::mux::MUX": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "bytes"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "mux",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Multiplex outgoing bytes"
+    },
+    "protocols::mux::DEMUX": {
+      "type": "object",
+      "properties": {
+        "proto_id": {
+          "type": "integer"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "proto_id",
+        "bytes"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "demux",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Demultiplex incoming bytes"
+    },
+    "protocols::mux::WANT_NEXT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "want_next",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Want next message for protocol"
+    },
+    "protocols::mux::RECEIVED": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "name": "received",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Handle received protocol data"
+    },
+    "protocols::mux::NEXT_SEGMENT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "next_segment",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Get next segment to send"
+    },
+    "protocols::mux::OUTGOING": {
+      "type": "object",
+      "properties": {
+        "proto_id": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "proto_id",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "name": "outgoing",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Handle outgoing protocol messages"
+    },
+    "protocols::mux::BUFFER": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "buffer",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Buffer protocol messages"
+    },
+    "protocols::mux::REGISTER": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "register",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Register protocol with muxer"
+    },
+    "network::connection::CLOSE": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "close",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Close connection"
+    },
+    "network::connection::RECV": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "recv",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Receive data from connection"
+    },
+    "network::connection::SEND": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "send",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Send data over connection"
+    },
+    "network::connection::CONNECT_ADDRS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect_addrs",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Connect to multiple addresses"
+    },
+    "network::connection::CONNECT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Connect to addresses"
+    },
+    "network::connection::ACCEPT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "accept",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Accept a connection"
+    },
+    "network::connection::LISTEN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "listen",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Listen on address"
+    },
+    "network::connection::ACCEPT_LOOP": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "accept_loop",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Accept loop for incoming connections"
+    },
+    "network::chainsync_client::FIND_INTERSECTION": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "intersection_slot": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "intersection_slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "find_intersection",
+      "level": "TRACE",
+      "target": "network::chainsync_client",
+      "description": "Find chain intersection point with peer"
+    },
+    "ledger::state::CLEANUP_EXPIRED_PROPOSALS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "cleanup_expired_proposals",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Cleanup expired proposals"
+    },
+    "ledger::state::CLEANUP_OLD_EPOCHS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "cleanup_old_epochs",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Cleanup old epochs"
+    },
+    "ledger::state::MANAGE_TRANSACTION_OUTPUTS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "manage_transaction_outputs",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Manage transaction outputs"
+    },
+    "ledger::context::ADD_FEES": {
+      "type": "object",
+      "properties": {
+        "fee": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fee"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "add_fees",
+      "level": "TRACE",
+      "target": "ledger::context",
+      "description": "Add transaction fees to pots"
+    },
+    "consensus::validate_header::VALIDATE": {
+      "type": "object",
+      "properties": {
+        "issuer_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "issuer_key"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate",
+      "level": "TRACE",
+      "target": "consensus::validate_header",
+      "description": "Validate header cryptographic properties"
+    },
+    "consensus::validate_header::EVOLVE_NONCE": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "evolve_nonce",
+      "level": "TRACE",
+      "target": "consensus::validate_header",
+      "description": "Evolve the nonce based on header"
+    },
+    "consensus::diffusion::FORWARD_CHAIN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forward_chain",
+      "level": "TRACE",
+      "target": "consensus::diffusion",
+      "description": "Forward chain operations"
+    },
+    "consensus::diffusion::FETCH_BLOCK": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch_block",
+      "level": "TRACE",
+      "target": "consensus::diffusion",
+      "description": "Fetch a block from the network"
+    },
+    "consensus::chain_sync::VALIDATE_HEADER": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate_header",
+      "level": "TRACE",
+      "target": "consensus::chain_sync",
+      "description": "Validate header properties"
+    },
+    "consensus::chain_sync::VALIDATE_BLOCK": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate_block",
+      "level": "TRACE",
+      "target": "consensus::chain_sync",
+      "description": "Validate block properties"
+    },
+    "consensus::chain_sync::SELECT_CHAIN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "select_chain",
+      "level": "TRACE",
+      "target": "consensus::chain_sync",
+      "description": "Validate header properties"
+    },
+    "stores::rocksdb::VALIDATE_SNAPSHOTS": {
+      "type": "object",
+      "properties": {
+        "snapshot_count": {
+          "type": "integer"
+        },
+        "continuous_ranges": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "snapshot_count",
+        "continuous_ranges"
+      ],
+      "additionalProperties": false,
+      "name": "validate_snapshots",
+      "level": "TRACE",
+      "target": "stores::rocksdb",
+      "description": "Validate sufficient snapshots exist"
+    },
+    "consensus::chain_sync::RECEIVE_HEADER_DECODE_FAILED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "receive_header_decode_failed",
+      "level": "TRACE",
+      "target": "consensus::chain_sync",
+      "description": "Decode header from raw bytes"
+    },
+    "stores::rocksdb::SAVE_POINT": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "type": "integer"
+        },
+        "epoch": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "slot"
+      ],
+      "optional": [
+        "epoch"
+      ],
+      "additionalProperties": false,
+      "name": "save_point",
+      "level": "TRACE",
+      "target": "stores::rocksdb",
+      "description": "Save point to RocksDB store"
+    },
     "stores::ledger::DREPS_DELEGATION_REMOVE": {
       "type": "object",
       "properties": {
@@ -600,352 +1110,6 @@
       "level": "TRACE",
       "target": "stores::consensus",
       "description": "Rollback the chain to a point"
-    },
-    "stores::consensus::ROLL_FORWARD_CHAIN": {
-      "type": "object",
-      "properties": {
-        "hash": {
-          "type": "string"
-        },
-        "slot": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "hash",
-        "slot"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "roll_forward_chain",
-      "level": "TRACE",
-      "target": "stores::consensus",
-      "description": "Roll forward the chain to a point"
-    },
-    "stores::consensus::STORE_BLOCK": {
-      "type": "object",
-      "properties": {
-        "hash": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "hash"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "store_block",
-      "level": "TRACE",
-      "target": "stores::consensus",
-      "description": "Store a raw block"
-    },
-    "stores::consensus::STORE_HEADER": {
-      "type": "object",
-      "properties": {
-        "hash": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "hash"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "store_header",
-      "level": "TRACE",
-      "target": "stores::consensus",
-      "description": "Store a block header"
-    },
-    "protocols::mux::MUX": {
-      "type": "object",
-      "properties": {
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "bytes"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "mux",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Multiplex outgoing bytes"
-    },
-    "protocols::mux::DEMUX": {
-      "type": "object",
-      "properties": {
-        "proto_id": {
-          "type": "integer"
-        },
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "proto_id",
-        "bytes"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "demux",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Demultiplex incoming bytes"
-    },
-    "protocols::mux::WANT_NEXT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "want_next",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Want next message for protocol"
-    },
-    "protocols::mux::RECEIVED": {
-      "type": "object",
-      "properties": {
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "bytes"
-      ],
-      "additionalProperties": false,
-      "name": "received",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Handle received protocol data"
-    },
-    "protocols::mux::NEXT_SEGMENT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "next_segment",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Get next segment to send"
-    },
-    "protocols::mux::OUTGOING": {
-      "type": "object",
-      "properties": {
-        "proto_id": {
-          "type": "string"
-        },
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "proto_id",
-        "bytes"
-      ],
-      "additionalProperties": false,
-      "name": "outgoing",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Handle outgoing protocol messages"
-    },
-    "protocols::mux::BUFFER": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "buffer",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Buffer protocol messages"
-    },
-    "protocols::mux::REGISTER": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "register",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Register protocol with muxer"
-    },
-    "network::chainsync_client::FIND_INTERSECTION": {
-      "type": "object",
-      "properties": {
-        "peer": {
-          "type": "string"
-        },
-        "intersection_slot": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "peer",
-        "intersection_slot"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "find_intersection",
-      "level": "TRACE",
-      "target": "network::chainsync_client",
-      "description": "Find chain intersection point with peer"
-    },
-    "ledger::state::CLEANUP_EXPIRED_PROPOSALS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "cleanup_expired_proposals",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Cleanup expired proposals"
-    },
-    "ledger::state::CLEANUP_OLD_EPOCHS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "cleanup_old_epochs",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Cleanup old epochs"
-    },
-    "ledger::state::MANAGE_TRANSACTION_OUTPUTS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "manage_transaction_outputs",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Manage transaction outputs"
-    },
-    "ledger::context::ADD_FEES": {
-      "type": "object",
-      "properties": {
-        "fee": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "fee"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "add_fees",
-      "level": "TRACE",
-      "target": "ledger::context",
-      "description": "Add transaction fees to pots"
-    },
-    "consensus::validate_header::VALIDATE": {
-      "type": "object",
-      "properties": {
-        "issuer_key": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "issuer_key"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "validate",
-      "level": "TRACE",
-      "target": "consensus::validate_header",
-      "description": "Validate header cryptographic properties"
-    },
-    "consensus::validate_header::EVOLVE_NONCE": {
-      "type": "object",
-      "properties": {
-        "hash": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "hash"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "evolve_nonce",
-      "level": "TRACE",
-      "target": "consensus::validate_header",
-      "description": "Evolve the nonce based on header"
-    },
-    "consensus::diffusion::FORWARD_CHAIN": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "forward_chain",
-      "level": "TRACE",
-      "target": "consensus::diffusion",
-      "description": "Forward chain operations"
-    },
-    "consensus::diffusion::FETCH_BLOCK": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "fetch_block",
-      "level": "TRACE",
-      "target": "consensus::diffusion",
-      "description": "Fetch a block from the network"
-    },
-    "consensus::chain_sync::VALIDATE_HEADER": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "validate_header",
-      "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Validate header properties"
-    },
-    "consensus::chain_sync::VALIDATE_BLOCK": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "validate_block",
-      "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Validate block properties"
-    },
-    "consensus::chain_sync::SELECT_CHAIN": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "select_chain",
-      "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Validate header properties"
-    },
-    "consensus::chain_sync::RECEIVE_HEADER_DECODE_FAILED": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "receive_header_decode_failed",
-      "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Decode header from raw bytes"
     },
     "consensus::chain_sync::RECEIVE_HEADER": {
       "type": "object",

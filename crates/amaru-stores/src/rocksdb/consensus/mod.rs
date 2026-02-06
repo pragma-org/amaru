@@ -427,14 +427,14 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
     }
 
     #[trace(amaru::stores::consensus::ROLL_FORWARD_CHAIN,
-        hash = format!("{}", point.hash()),
+        hash = point.hash(),
         slot = u64::from(point.slot_or_default()))]
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         store_chain_point(&self.db, point)
     }
 
     #[trace(amaru::stores::consensus::ROLLBACK_CHAIN,
-        hash = format!("{}", point.hash()),
+        hash = point.hash(),
         slot = u64::from(point.slot_or_default()))]
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
         if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(self, point).is_none() {

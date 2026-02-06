@@ -181,8 +181,8 @@ impl AccountsSlice for AssertValidationContext {
     }
 
     #[trace(amaru::ledger::context::WITHDRAW_FROM,
-        credential_type = format!("{}", StakeCredentialKind::from(&credential)),
-        credential_hash = format!("{}", credential.as_hash())
+        credential_type = StakeCredentialKind::from(&credential),
+        credential_hash = credential.as_hash()
     )]
     fn withdraw_from(&mut self, credential: StakeCredential) {
         // We don't actually do any VolatileState updates here
@@ -243,9 +243,9 @@ impl ProposalsSlice for AssertValidationContext {
     fn acknowledge(&mut self, _id: ProposalId, _pointer: ProposalPointer, _proposal: Proposal) {}
 
     #[trace(amaru::ledger::context::VOTE,
-        voter_type = format!("{}", VoterKind::from(&_voter)),
-        credential_type = format!("{}", StakeCredentialKind::from(&_voter)),
-        credential_hash = format!("{}", _voter.as_hash())
+        voter_type = VoterKind::from(&_voter),
+        credential_type = StakeCredentialKind::from(&_voter),
+        credential_hash = _voter.as_hash()
     )]
     fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {
     }

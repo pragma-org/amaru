@@ -444,7 +444,7 @@ impl Muxer {
         }
     }
 
-    #[trace(amaru::protocols::mux::OUTGOING, proto_id = format!("{}", proto_id), bytes = bytes.len() as u64)]
+    #[trace(amaru::protocols::mux::OUTGOING, proto_id = proto_id, bytes = bytes.len() as u64)]
     pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: StageRef<Sent>) {
         tracing::trace!(%proto_id, bytes = bytes.len(), "enqueueing send");
         #[allow(clippy::expect_used)]

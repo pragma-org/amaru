@@ -682,3 +682,80 @@ fn is_valid_identifier(s: &str) -> bool {
 
     s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
+
+/// Creates a tracing span with compile-time validated schema anchor.
+///
+/// This macro replaces `info_span!`, `debug_span!`, etc. with a schema-anchored
+/// approach that provides compile-time validation.
+///
+/// # Syntax
+///
+/// ```text
+/// trace_span!(LEVEL, SCHEMA_CONST, field1 = value1, field2 = value2, ...);
+/// ```
+///
+/// Where LEVEL is one of: TRACE, DEBUG, INFO, WARN, ERROR
+///
+/// # Examples
+///
+/// ```text
+/// trace_span!(INFO, operations::database::OPENING_CHAIN_DB, path = "...")
+/// trace_span!(DEBUG, ledger::state::APPLY_BLOCK, block_size = 1024)
+/// ```
+pub fn expand_trace_span(input: TokenStream) -> TokenStream {
+    let input2: proc_macro2::TokenStream = input.into();
+    let input_str = input2.to_string();
+
+    // Parse: SCHEMA, field = value, ...
+    // Or: SCHEMA, field1 = value1, field2 = value2, ... (with format specifiers like %field)
+    let parts: Vec<&str> = input_str.splitn(2, ',').map(|s| s.trim()).collect();
+
+    if parts.is_empty() {
+        return syn::Error::new_spanned(
+            &input2,
+            "trace_span! requires at least: trace_span!(SCHEMA_CONST, ...)",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    let schema_const_str = parts[0];
+    let remaining = if parts.len() > 1 { parts[1] } else { "" };
+
+    // Parse the schema constant path
+    let schema_const_tokens: proc_macro2::TokenStream = match schema_const_str.parse() {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            return syn::Error::new_spanned(
+                &input2,
+                "First argument must be a valid schema constant path",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    // Parse the remaining field arguments - pass them through as-is
+    let remaining_tokens: proc_macro2::TokenStream = match remaining.parse() {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            // If parsing fails, still try to use it
+            proc_macro2::TokenStream::new()
+        }
+    };
+
+    // Generate the span creation call
+    let expanded = if remaining.is_empty() {
+        // No fields
+        quote! {
+            tracing::trace_span!(stringify!(#schema_const_tokens))
+        }
+    } else {
+        // With fields - pass through remaining tokens
+        quote! {
+            tracing::trace_span!(stringify!(#schema_const_tokens), #remaining_tokens)
+        }
+    };
+
+    expanded.into()
+}

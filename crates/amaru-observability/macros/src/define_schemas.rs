@@ -425,12 +425,22 @@ fn parse_token(
 /// Try to parse a prefixed field definition: `required/optional name: type`.
 ///
 /// Returns `Some((name, type))` if the pattern matches.
+///
+/// Note: Field names MUST be valid Rust identifiers (alphanumeric + underscore).
+/// String literals like `"proposal.id"` are explicitly rejected to ensure schema
+/// field names can be used directly in macro code generation.
 fn try_parse_prefixed_field(tokens: &[String], index: usize) -> Option<(&str, &str)> {
     // tokens[index] is "required" or "optional"
     // tokens[index+1] should be the field name
     // tokens[index+2] should be ":"
     // tokens[index+3] should be the type
     let name = tokens.get(index + 1).map(|s| s.as_str())?;
+
+    // Explicitly reject string literals as field names - they cannot be used as Rust identifiers
+    if name.starts_with('"') || name.starts_with('\'') {
+        return None;
+    }
+
     if !is_identifier_start(name) {
         return None;
     }

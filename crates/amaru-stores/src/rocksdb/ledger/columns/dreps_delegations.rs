@@ -124,8 +124,8 @@ pub fn remove<DB>(
 /// Forget about ALL bindings for a given drep, returning all known (past and present) delegations
 /// for that drep.
 #[trace(amaru::stores::ledger::DREPS_DELEGATION_REMOVE,
-    drep_hash = format!("{}", drep.as_hash()),
-    drep_type = format!("{}", StakeCredentialKind::from(drep))
+    drep_hash = drep.as_hash(),
+    drep_type = StakeCredentialKind::from(drep)
 )]
 pub fn drop<DB>(
     db: &Transaction<'_, DB>,

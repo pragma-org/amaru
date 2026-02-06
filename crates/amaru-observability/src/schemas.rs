@@ -74,6 +74,32 @@ define_schemas! {
     }
 
     network {
+        connection {
+            /// Accept loop for incoming connections
+            ACCEPT_LOOP {}
+
+            /// Listen on address
+            LISTEN {}
+
+            /// Accept a connection
+            ACCEPT {}
+
+            /// Connect to addresses
+            CONNECT {}
+
+            /// Connect to multiple addresses
+            CONNECT_ADDRS {}
+
+            /// Send data over connection
+            SEND {}
+
+            /// Receive data from connection
+            RECV {}
+
+            /// Close connection
+            CLOSE {}
+        }
+
         chainsync_client {
             /// Find chain intersection point with peer
             FIND_INTERSECTION {
@@ -344,6 +370,25 @@ define_schemas! {
             MUX {
                 required bytes: u64
             }
+        }
+    }
+
+    simulator {
+        node {
+            /// Handle message in simulator node
+            HANDLE_MSG {}
+        }
+    }
+
+    stage {
+        tokio {
+            /// Poll stage operation
+            POLL {}
+        }
+
+        logging {
+            /// Test span for logging
+            TEST_SPAN {}
         }
     }
 }

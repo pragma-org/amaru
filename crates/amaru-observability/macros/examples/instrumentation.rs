@@ -118,10 +118,6 @@ pub fn find_intersection(_peer: String, _intersection_slot: u64) -> Result<(), S
 }
 
 // Helper functions for custom expression examples
-fn compute_hash(input: &str) -> String {
-    format!("hash_{}", input)
-}
-
 fn get_current_block_number() -> u64 {
     42
 }
@@ -136,7 +132,7 @@ fn calculate_total_inputs() -> u64 {
 
 /// Example 7: Custom expression fields - providing required fields through expressions
 #[trace(ledger::state::CREATE_VALIDATION_CONTEXT,
-        block_body_hash = compute_hash("current_block"),
+        block_body_hash = "hash_current_block",
         block_number = get_current_block_number(),
         block_body_size = get_block_size())]
 pub fn process_block_with_computed_fields(
@@ -149,7 +145,7 @@ pub fn process_block_with_computed_fields(
 
 /// Example 8: Custom expressions with optional fields
 #[trace(ledger::state::CREATE_VALIDATION_CONTEXT,
-        block_body_hash = compute_hash("block_abc"),
+        block_body_hash = "hash_block_abc",
         block_number = get_current_block_number(),
         block_body_size = get_block_size(),
         total_inputs = calculate_total_inputs())]

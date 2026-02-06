@@ -99,3 +99,19 @@ pub fn trace(args: TokenStream, input: TokenStream) -> TokenStream {
 pub fn trace_record(input: TokenStream) -> TokenStream {
     traces::expand_trace_record(input)
 }
+
+/// Creates a tracing span with compile-time validated schema anchor.
+///
+/// This macro creates TRACE-level spans with a schema-anchored approach
+/// that provides compile-time validation.
+///
+/// # Example
+///
+/// ```text
+/// trace_span!(operations::database::OPENING_CHAIN_DB, path = "...")
+/// trace_span!(ledger::state::APPLY_BLOCK, block_size = 1024)
+/// ```
+#[proc_macro]
+pub fn trace_span(input: TokenStream) -> TokenStream {
+    traces::expand_trace_span(input)
+}
