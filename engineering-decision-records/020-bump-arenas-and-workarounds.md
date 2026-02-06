@@ -7,7 +7,7 @@ status: proposed
 
 ## Motivation
 
-We sometimes have to deal with a directed acyclic graph of data that is created and processed in a somewhat arbitrary fashion. This is an easy pattern to model in many garbage collected languages including Haskell, and sometimes we just have to be compatible with the architectural decisions made in that paradigm. Unfortunately, this usege pattern sometimes makes Rust unhappy.
+We sometimes have to deal with a directed acyclic graph of data that is created and processed in a somewhat arbitrary fashion. This is an easy pattern to model in many garbage-collected languages including Haskell, and sometimes we just have to be compatible with the architectural decisions made in that paradigm. Unfortunately, this usage pattern sometimes makes Rust unhappy.
 
 ## Decision
 
