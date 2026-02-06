@@ -45,7 +45,7 @@ pub enum InitiatorMessage {
 }
 
 /// Message sent from the handler to the consensus pipeline
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChainSyncInitiatorMsg {
     pub peer: Peer,
     pub conn_id: ConnectionId,
@@ -188,7 +188,7 @@ pub enum InitiatorAction {
     Done,
 }
 
-#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorResult {
     Initialize,
     IntersectFound(Point, Tip),
@@ -286,7 +286,7 @@ pub mod tests {
     use crate::protocol::ProtoSpec;
     use InitiatorState::*;
     use Message::*;
-    use amaru_kernel::{Hash, HeaderHash, RawBlock, Slot, make_header, size::HEADER};
+    use amaru_kernel::{EraName, Hash, HeaderHash, RawBlock, Slot, make_header, size::HEADER};
     use amaru_ouroboros_traits::{Nonces, StoreError};
 
     pub fn spec() -> ProtoSpec<InitiatorState, Message, Initiator> {
@@ -294,7 +294,12 @@ pub mod tests {
         let find_intersect = || FindIntersect(vec![Point::Origin]);
         let intersect_found = || IntersectFound(Point::Origin, Tip::origin());
         let intersect_not_found = || IntersectNotFound(Tip::origin());
-        let roll_forward = || RollForward(HeaderContent::make_v6(vec![]), Tip::origin());
+        let roll_forward = || {
+            RollForward(
+                HeaderContent::with_bytes(vec![], EraName::Conway),
+                Tip::origin(),
+            )
+        };
         let roll_backward = || RollBackward(Point::Origin, Tip::origin());
 
         let mut spec = ProtoSpec::default();

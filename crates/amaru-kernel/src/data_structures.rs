@@ -17,7 +17,6 @@ pub mod key_value_pairs;
 pub mod legacy;
 pub mod non_empty_bytes;
 pub mod non_empty_key_value_pairs;
-pub use non_empty_key_value_pairs::*;
 pub mod non_empty_set;
 pub mod non_empty_vec;
 // TODO: remove 'Nullable', eventually

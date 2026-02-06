@@ -23,7 +23,7 @@ use amaru::stages::build_stage_graph::build_stage_graph;
 use amaru_consensus::{
     effects::{
         ForwardEvent, ForwardEventListener, ResourceBlockValidation, ResourceForwardEventListener,
-        ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
+        ResourceHeaderValidation,
     },
     events::ChainSyncEvent,
     headers_tree::{
@@ -45,7 +45,11 @@ use amaru_ouroboros::{
     can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},
     in_memory_consensus_store::InMemConsensusStore,
 };
-use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage};
+use amaru_protocols::{
+    blockfetch::Blocks,
+    manager::ManagerMessage,
+    store_effects::{ResourceHeaderStore, ResourceParameters},
+};
 use async_trait::async_trait;
 use pure_stage::{
     Instant, Receiver, StageGraph, StageRef,
