@@ -19,8 +19,9 @@ use amaru_kernel::{
     utils::string::display_collection,
 };
 use amaru_ledger::store::{StoreError, columns::unsafe_decode};
+use amaru_observability::trace;
 use std::collections::BTreeSet;
-use tracing::{Level, debug, instrument, warn};
+use tracing::{debug, warn};
 
 /// Name prefixed used for storing Account -> DRep & DRep -> Account entries. UTF-8 encoding for
 /// "dlg".
@@ -122,14 +123,9 @@ pub fn remove<DB>(
 
 /// Forget about ALL bindings for a given drep, returning all known (past and present) delegations
 /// for that drep.
-#[instrument(
-    level = Level::DEBUG,
-    name = "dreps_delegations.remove",
-    skip_all,
-    fields(
-        drep.hash = %drep.as_hash(),
-        drep.type = %StakeCredentialKind::from(drep),
-    )
+#[trace(amaru::stores::ledger::DREPS_DELEGATION_REMOVE,
+    drep_hash = drep.as_hash(),
+    drep_type = StakeCredentialKind::from(drep)
 )]
 pub fn drop<DB>(
     db: &Transaction<'_, DB>,

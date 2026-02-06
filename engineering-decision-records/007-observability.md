@@ -17,7 +17,7 @@ We would like the codebase to organize the metrics it tracks in a simple, consis
 
 ## Decision
 
-### Observability
+### General Principles
 
 - By default, the application provides human-readable information on stderr in a pretty format (possibly TUI).
 
@@ -37,6 +37,83 @@ We would like the codebase to organize the metrics it tracks in a simple, consis
 - We define the frontier between logs and traces by following a simple rule:
   - Any event at the DEBUG level or above is considered a log
   - Any event at the TRACE level is considered a trace
+
+### Tracing Schemas
+
+To ensure consistency and enable compile-time validation of tracing instrumentation, we use a schema-based approach implemented in the `amaru-observability` crate.
+
+#### Schema Definition
+
+Schemas are defined using the `define_schemas!` macro in a central location (`amaru-observability/src/schemas.rs`). They are organized hierarchically matching the crate/module structure:
+
+```rust
+define_schemas! {
+    consensus {
+        validate_header {
+            EVOLVE_NONCE {
+                required hash: String
+            }
+            VALIDATE {
+                required issuer_key: String
+            }
+        }
+    }
+    ledger {
+        state {
+            APPLY_BLOCK {
+                required point_slot: u64
+                optional error: String
+            }
+        }
+    }
+}
+```
+
+Each schema declares:
+- **Required fields**: Must be present as function parameters with matching types
+- **Optional fields**: Supplementary context that can be recorded later
+
+#### Function Instrumentation
+
+The `#[trace]` macro instruments functions with compile-time validated tracing:
+
+```rust
+#[trace(consensus::validate_header::EVOLVE_NONCE)]
+fn evolve_nonce(&self, hash: String) -> Result<Nonce, ConsensusError> {
+}
+```
+
+The macro generates `#[tracing::instrument]` with consistent settings:
+- `level = Level::TRACE` - all instrumented spans are at TRACE level
+- `skip_all` - function parameters are not auto-captured (explicit recording required)
+- `target` - derived from schema path (e.g., `"consensus::validate_header"`)
+- `fields(...)` - all schema fields pre-declared as `Empty`
+
+At compile time, the macro validates:
+- The schema exists at the specified path
+- Required fields are present as function parameters
+- Field types match the schema declaration
+
+#### Span Augmentation
+
+The `trace_record!` macro records fields to the current span with a schema anchor:
+
+```rust
+#[trace(ledger::state::APPLY_BLOCK)]
+fn apply_block(block: &Block) {
+    // Record additional fields with schema context
+    trace_record!(ledger::state::APPLY_BLOCK, block_size = block.size(), tx_count = block.transactions.len());
+}
+```
+
+This macro is a lightweight way to add context to the current span without creating a new one. The schema constant anchors the recording and documents which schema these fields belong to.
+
+#### Benefits
+
+- **Compile-time safety**: Typos or type mismatches in field names cause compilation errors
+- **Consistency**: All spans follow the same instrumentation pattern
+- **Discoverability**: All schemas are defined in a central, documented location
+- **Flexibility**: Functions can have additional parameters beyond schema fields
 
 ### Metrics
 
@@ -60,4 +137,7 @@ The Amaru binary itself will contain a `metrics` module that stores and construc
 
 - Users of the Amaru node can track, aggregate, and alert on the health of the node based on multiple system or component specific metrics. They might notice, for example, that CPU usage hits 100% at epoch boundaries, resulting in missing slot leader checks, which indicates that the machine they are running the node on is underprovisioned.
 
-- [PR #84](https://github.com/pragma-org/amaru/pull/84)
+## References
+
+- [PR #84](https://github.com/pragma-org/amaru/pull/84) - Initial metrics implementation
+- [PR #638](https://github.com/pragma-org/amaru/pull/638) - Tracing schemas and compile-time validation

@@ -15,6 +15,7 @@ default = []
 
 [dependencies]
 anyhow.workspace = true
+amaru-observability.workspace = true
 cbor4ii.workspace = true
 either.workspace = true
 erased-serde.workspace = true

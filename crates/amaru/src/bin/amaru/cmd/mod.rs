@@ -19,6 +19,7 @@ use std::fmt;
 pub(crate) mod bootstrap;
 pub(crate) mod convert_ledger_state;
 pub(crate) mod dump_chain_db;
+pub(crate) mod dump_schemas;
 pub(crate) mod fetch_chain_headers;
 pub(crate) mod import_headers;
 pub(crate) mod import_ledger_state;

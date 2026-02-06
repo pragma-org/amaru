@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::simulator::Envelope;
+use amaru_observability::trace_span;
 use anyhow::anyhow;
 use pure_stage::{Receiver, StageRef, simulation::running::SimulationRunning};
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,7 @@ use std::{
     process::{Command, Stdio},
 };
 use tokio::runtime::Handle;
-use tracing::{info_span, trace};
+use tracing::trace;
 
 /// A `NodeHandle` is an async function that sends an Envelope<Msg> to a node and returns a list of Envelope<Msg>.
 /// as the result of processing that message (Envelope holds source/destination values representing node ids).
@@ -58,7 +59,7 @@ impl<Msg> NodeHandle<Msg> {
         &mut self,
         msg: Option<Envelope<Msg>>,
     ) -> Result<Option<Vec<Envelope<Msg>>>, anyhow::Error> {
-        info_span!("handle_msg").in_scope(|| (self.handle)(msg))
+        trace_span!(simulator::node::HANDLE_MSG).in_scope(|| (self.handle)(msg))
     }
 
     /// Make some progress in the node execution.
