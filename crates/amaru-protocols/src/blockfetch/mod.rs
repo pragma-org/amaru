@@ -20,7 +20,7 @@ use crate::{
     mux::{Frame, MuxMessage},
     protocol::{Inputs, ProtoSpec, ProtocolState, RoleT},
 };
-use amaru_kernel::{Peer, Point};
+use amaru_kernel::{EraHistory, Peer, Point};
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef};
 use std::sync::Arc;
@@ -79,7 +79,7 @@ pub async fn register_blockfetch_initiator<M>(
     muxer: &StageRef<MuxMessage>,
     peer: Peer,
     conn_id: ConnectionId,
-    era_history: Arc<amaru_slot_arithmetic::EraHistory>,
+    era_history: Arc<EraHistory>,
     eff: &Effects<M>,
 ) -> StageRef<BlockFetchMessage> {
     use crate::protocol::PROTO_N2N_BLOCK_FETCH;

@@ -22,9 +22,8 @@ use crate::{
     },
 };
 use amaru_kernel::cardano::network_block::NetworkBlock;
-use amaru_kernel::{IsHeader, Peer, Point, RawBlock};
+use amaru_kernel::{EraHistory, IsHeader, Peer, Point, RawBlock};
 use amaru_ouroboros::ConnectionId;
-use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use std::sync::Arc;
 use std::{collections::VecDeque, mem};
@@ -361,7 +360,9 @@ pub mod tests {
     use super::*;
     use crate::protocol::Initiator;
     use amaru_kernel::{
-        BlockHeader, HeaderHash, IsHeader, any_headers_chain, cbor, make_header,
+        BlockHeader, Epoch, EraParams, HeaderHash, IsHeader, Slot, TimeMs, any_headers_chain,
+        cardano::era_history::{Bound, Summary},
+        cbor, make_header,
         utils::tests::run_strategy,
     };
 
@@ -570,8 +571,6 @@ pub mod tests {
 
     /// Create a simple era history for testing where all slots map to era index 0 (tag 1).
     pub fn test_era_history() -> Arc<EraHistory> {
-        use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary, TimeMs};
-
         Arc::new(EraHistory::new(
             &[Summary {
                 start: Bound {

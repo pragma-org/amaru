@@ -24,6 +24,7 @@ bytes = { workspace = true, features = ["serde"] }
 hex.workspace = true
 itertools.workspace = true
 minicbor.workspace = true
+num.workspace = true
 pallas-addresses.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
@@ -38,7 +39,6 @@ sha3.workspace = true
 thiserror.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru-slot-arithmetic.workspace = true
 amaru-minicbor-extra.workspace = true
 
 [dev-dependencies]
@@ -47,7 +47,6 @@ proptest.workspace = true
 rand.workspace = true
 test-case.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_family="wasm")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }

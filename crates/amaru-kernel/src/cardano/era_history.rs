@@ -13,9 +13,12 @@
 // limitations under the License.
 
 use crate::{
-    Bound, Epoch, EraHistory, EraParams, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
-    Slot, Summary, TESTNET_GLOBAL_PARAMETERS, TimeMs,
+    Epoch, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, Slot, TESTNET_GLOBAL_PARAMETERS,
+    TimeMs,
+    cardano::{era_params::EraParams, slot::SlotArithmeticError},
 };
+use amaru_minicbor_extra::heterogeneous_array;
+use minicbor::{Decode, Decoder, Encode};
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
 /// Era history for Mainnet retrieved with:
@@ -455,12 +458,957 @@ pub fn load_era_history_from_file(path: &Path) -> Result<EraHistory, EraHistoryF
     serde_json::from_reader(reader).map_err(EraHistoryFileError::JsonParseError)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Bound {
+    pub time_ms: TimeMs, // Milliseconds
+    pub slot: Slot,
+    pub epoch: Epoch,
+}
+
+#[cfg(test)]
+impl Bound {
+    fn genesis() -> Bound {
+        Bound {
+            time_ms: TimeMs::new(0),
+            slot: Slot::new(0),
+            epoch: Epoch::new(0),
+        }
+    }
+}
+
+impl<C> Encode<C> for Bound {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.array(3)?;
+        self.time_ms.encode(e, ctx)?;
+        self.slot.encode(e, ctx)?;
+        self.epoch.encode(e, ctx)?;
+        Ok(())
+    }
+}
+
+impl<'b, C> Decode<'b, C> for Bound {
+    fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(3)?;
+
+            let time_ms = d.decode()?;
+            let slot = d.decode()?;
+            let epoch = d.decode_with(ctx)?;
+            Ok(Bound {
+                time_ms,
+                slot,
+                epoch,
+            })
+        })
+    }
+}
+
+// The start is inclusive and the end is exclusive. In a valid EraHistory, the
+// end of each era will equal the start of the next one.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Summary {
+    pub start: Bound,
+    pub end: Option<Bound>,
+    pub params: EraParams,
+}
+
+impl Summary {
+    /// Checks whether the current `Summary` ends after the given slot; In case
+    /// where the Summary doesn't have any upper bound, then we check whether the
+    /// point is within a foreseeable horizon.
+    pub fn contains_slot(&self, slot: &Slot, tip: &Slot, stability_window: &Slot) -> bool {
+        &self
+            .end
+            .as_ref()
+            .map(|end| end.slot)
+            .unwrap_or_else(|| self.calculate_end_bound(tip, stability_window).slot)
+            >= slot
+    }
+
+    /// Like contains_slot, but doesn't enforce anything about the upper bound. So when there's no
+    /// upper bound, the slot is simply always considered within the era.
+    pub fn contains_slot_unchecked_horizon(&self, slot: &Slot) -> bool {
+        self.end
+            .as_ref()
+            .map(|end| &end.slot >= slot)
+            .unwrap_or(true)
+    }
+
+    pub fn contains_epoch(&self, epoch: &Epoch, tip: &Slot, stability_window: &Slot) -> bool {
+        &self
+            .end
+            .as_ref()
+            .map(|end| end.epoch)
+            .unwrap_or_else(|| self.calculate_end_bound(tip, stability_window).epoch)
+            > epoch
+    }
+
+    /// Like contains_epoch, but doesn't enforce anything about the upper bound. So when there's no
+    /// upper bound, the epoch is simply always considered within the era.
+    pub fn contains_epoch_unchecked_horizon(&self, epoch: &Epoch) -> bool {
+        self.end
+            .as_ref()
+            .map(|end| &end.epoch > epoch)
+            .unwrap_or(true)
+    }
+
+    /// Calculate a virtual end `Bound` given a time and the last era summary that we know of.
+    ///
+    /// **pre-condition**: the provided tip must be after (or equal) to the start of this era.
+    fn calculate_end_bound(&self, tip: &Slot, stability_window: &Slot) -> Bound {
+        let Self { start, params, end } = self;
+
+        debug_assert!(end.is_none());
+
+        // NOTE: The +1 here is justified by the fact that upper bound in era summaries are
+        // exclusive. So if our tip is *exactly* at the frontier of the stability area, then
+        // technically, we already can foresee time in the next epoch.
+        let end_of_stable_window =
+            start.slot.as_u64().max(tip.as_u64() + 1) + stability_window.as_u64();
+
+        let delta_slots = end_of_stable_window - start.slot.as_u64();
+
+        let delta_epochs = delta_slots / params.epoch_size_slots
+            + if delta_slots.is_multiple_of(params.epoch_size_slots) {
+                0
+            } else {
+                1
+            };
+
+        let max_foreseeable_epoch = start.epoch.as_u64() + delta_epochs;
+
+        let foreseeable_slots = delta_epochs * params.epoch_size_slots;
+
+        Bound {
+            time_ms: start.time_ms + foreseeable_slots * params.slot_length,
+            slot: Slot::new(start.slot.as_u64() + foreseeable_slots),
+            epoch: Epoch::new(max_foreseeable_epoch),
+        }
+    }
+}
+
+impl<C> Encode<C> for Summary {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.begin_array()?;
+        self.start.encode(e, ctx)?;
+        self.end.encode(e, ctx)?;
+        self.params.encode(e, ctx)?;
+        e.end()?;
+        Ok(())
+    }
+}
+
+impl<'b, C> Decode<'b, C> for Summary {
+    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        let _ = d.array()?;
+        let start = d.decode()?;
+        let end = d.decode()?;
+        let params = d.decode()?;
+        d.skip()?;
+        Ok(Summary { start, end, params })
+    }
+}
+
+// A complete history of eras that have taken place.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub struct EraHistory {
+    /// Number of slots for which the chain growth property guarantees at least k blocks.
+    ///
+    /// This is defined as 3 * k / f, where:
+    ///
+    /// - k is the network security parameter (mainnet = 2160);
+    /// - f is the active slot coefficient (mainnet = 0.05);
+    stability_window: Slot,
+
+    /// Summary of each era boundaries.
+    eras: Vec<Summary>,
+}
+
+impl<C> Encode<C> for EraHistory {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.begin_array()?;
+        for s in &self.eras {
+            s.encode(e, ctx)?;
+        }
+        e.end()?;
+        Ok(())
+    }
+}
+
+impl<'b> Decode<'b, Slot> for EraHistory {
+    fn decode(d: &mut Decoder<'b>, ctx: &mut Slot) -> Result<Self, minicbor::decode::Error> {
+        let mut eras = vec![];
+        let eras_iter: minicbor::decode::ArrayIter<'_, '_, Summary> = d.array_iter()?;
+        for era in eras_iter {
+            eras.push(era?);
+        }
+        Ok(EraHistory {
+            stability_window: *ctx,
+            eras,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
+pub enum EraHistoryError {
+    #[error("slot past time horizon")]
+    PastTimeHorizon,
+    #[error("invalid era history")]
+    InvalidEraHistory,
+    #[error("{0}")]
+    SlotArithmetic(#[from] SlotArithmeticError),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EpochBounds {
+    pub start: Slot,
+    pub end: Option<Slot>,
+}
+
+// The last era in the provided EraHistory must end at the time horizon for accurate results. The
+// horizon is the end of the epoch containing the end of the current era's safe zone relative to
+// the current tip. Returns number of milliseconds elapsed since the system start time.
+impl EraHistory {
+    pub fn new(eras: &[Summary], stability_window: Slot) -> EraHistory {
+        #[expect(clippy::panic)]
+        if eras.is_empty() {
+            panic!("EraHistory cannot be empty");
+        }
+        // TODO ensures only last era ends with Option
+        EraHistory {
+            stability_window,
+            eras: eras.to_vec(),
+        }
+    }
+
+    pub fn slot_to_posix_time(
+        &self,
+        slot: Slot,
+        tip: Slot,
+        system_start: TimeMs,
+    ) -> Result<TimeMs, EraHistoryError> {
+        let relative_time = self.slot_to_relative_time(slot, tip)?;
+
+        Ok(relative_time + system_start)
+    }
+
+    pub fn slot_to_relative_time(&self, slot: Slot, tip: Slot) -> Result<TimeMs, EraHistoryError> {
+        for era in &self.eras {
+            if era.start.slot > slot {
+                return Err(EraHistoryError::InvalidEraHistory);
+            }
+
+            if era.contains_slot(&slot, &tip, &self.stability_window) {
+                return slot_to_relative_time(&slot, era);
+            }
+        }
+
+        Err(EraHistoryError::PastTimeHorizon)
+    }
+
+    /// Unsafe version of `slot_to_relative_time` which doesn't check whether the slot is within a
+    /// foreseeable horizon. Only use this when the slot is guaranteed to be in the past.
+    pub fn slot_to_relative_time_unchecked_horizon(
+        &self,
+        slot: Slot,
+    ) -> Result<TimeMs, EraHistoryError> {
+        for era in &self.eras {
+            if era.start.slot > slot {
+                return Err(EraHistoryError::InvalidEraHistory);
+            }
+
+            if era.contains_slot_unchecked_horizon(&slot) {
+                return slot_to_relative_time(&slot, era);
+            }
+        }
+
+        Err(EraHistoryError::InvalidEraHistory)
+    }
+
+    pub fn slot_to_epoch(&self, slot: Slot, tip: Slot) -> Result<Epoch, EraHistoryError> {
+        for era in &self.eras {
+            if era.start.slot > slot {
+                return Err(EraHistoryError::InvalidEraHistory);
+            }
+
+            if era.contains_slot(&slot, &tip, &self.stability_window) {
+                return slot_to_epoch(&slot, era);
+            }
+        }
+
+        Err(EraHistoryError::PastTimeHorizon)
+    }
+
+    pub fn slot_to_epoch_unchecked_horizon(&self, slot: Slot) -> Result<Epoch, EraHistoryError> {
+        for era in &self.eras {
+            if era.start.slot > slot {
+                return Err(EraHistoryError::InvalidEraHistory);
+            }
+
+            if era.contains_slot_unchecked_horizon(&slot) {
+                return slot_to_epoch(&slot, era);
+            }
+        }
+
+        Err(EraHistoryError::InvalidEraHistory)
+    }
+
+    pub fn next_epoch_first_slot(&self, epoch: Epoch, tip: &Slot) -> Result<Slot, EraHistoryError> {
+        for era in &self.eras {
+            if era.start.epoch > epoch {
+                return Err(EraHistoryError::InvalidEraHistory);
+            }
+
+            if era.contains_epoch(&epoch, tip, &self.stability_window) {
+                let start_of_next_epoch = (epoch.as_u64() - era.start.epoch.as_u64() + 1)
+                    * era.params.epoch_size_slots
+                    + era.start.slot.as_u64();
+                return Ok(Slot::new(start_of_next_epoch));
+            }
+        }
+        Err(EraHistoryError::PastTimeHorizon)
+    }
+
+    /// Find the first epoch of the era from which this epoch belongs.
+    pub fn era_first_epoch(&self, epoch: Epoch) -> Result<Epoch, EraHistoryError> {
+        for era in &self.eras {
+            // NOTE: This is okay. If there's no upper-bound to the era and the slot is after the
+            // start of it, then necessarily the era's lower bound is what we're looking for.
+            if era.contains_epoch_unchecked_horizon(&epoch) {
+                return Ok(era.start.epoch);
+            }
+        }
+
+        Err(EraHistoryError::InvalidEraHistory)
+    }
+
+    pub fn epoch_bounds(&self, epoch: Epoch) -> Result<EpochBounds, EraHistoryError> {
+        for era in &self.eras {
+            if era.start.epoch > epoch {
+                return Err(EraHistoryError::InvalidEraHistory);
+            }
+
+            // NOTE: Unchecked horizon is okay here since in case there's no upper-bound, we'll
+            // simply return a `None` epoch bounds as well.
+            if era.contains_epoch_unchecked_horizon(&epoch) {
+                let epochs_elapsed = epoch - era.start.epoch;
+                let offset = era.start.slot;
+                let slots_elapsed = epochs_elapsed * era.params.epoch_size_slots;
+                let start = offset.offset_by(slots_elapsed);
+                let end = offset.offset_by(era.params.epoch_size_slots + slots_elapsed);
+                return Ok(EpochBounds {
+                    start,
+                    end: era.end.as_ref().map(|_| end),
+                });
+            }
+        }
+
+        Err(EraHistoryError::InvalidEraHistory)
+    }
+
+    /// Computes the relative slot in the epoch given an absolute slot.
+    ///
+    /// Returns the number of slots since the start of the epoch containing the given slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EraHistoryError::PastTimeHorizon` if the slot is beyond the time horizon.
+    /// Returns `EraHistoryError::InvalidEraHistory` if the era history is invalid.
+    pub fn slot_in_epoch(&self, slot: Slot, tip: Slot) -> Result<Slot, EraHistoryError> {
+        let epoch = self.slot_to_epoch(slot, tip)?;
+        let bounds = self.epoch_bounds(epoch)?;
+        let elapsed = slot.elapsed_from(bounds.start)?;
+        Ok(Slot::new(elapsed))
+    }
+
+    /// Returns the era index (0-based) for the given slot.
+    ///
+    /// The era index corresponds to the position in the era history vector:
+    /// - 0 = Byron
+    /// - 1 = Shelley
+    /// - 2 = Allegra
+    /// - 3 = Mary
+    /// - 4 = Alonzo
+    /// - 5 = Babbage
+    /// - 6 = Conway
+    ///
+    /// To get the network protocol era tag, add 1 to the index (era_tag = era_index + 1).
+    pub fn slot_to_era_index(&self, slot: Slot) -> Result<usize, EraHistoryError> {
+        for (index, era) in self.eras.iter().enumerate() {
+            if era.start.slot > slot {
+                return Err(EraHistoryError::InvalidEraHistory);
+            }
+
+            // Check if slot is in this era: start <= slot < end (end is exclusive)
+            let in_era = match &era.end {
+                Some(end) => slot < end.slot,
+                None => true, // Last era has no end bound
+            };
+
+            if in_era {
+                return Ok(index);
+            }
+        }
+
+        Err(EraHistoryError::InvalidEraHistory)
+    }
+
+    /// Compute the era tag (used for serializating) from a slot using the era history.
+    /// The era tag is era_index + 1 (Byron = 1, Shelley = 2, ..., Conway = 7).
+    pub fn slot_to_era_tag(&self, slot: Slot) -> Result<u16, EraHistoryError> {
+        let era_index = self.slot_to_era_index(slot)?;
+        Ok((era_index + 1) as u16)
+    }
+}
+
+/// Compute the time in milliseconds between the start of the system and the given slot.
+///
+/// **pre-condition**: the given summary must be the era containing that slot.
+fn slot_to_relative_time(slot: &Slot, era: &Summary) -> Result<TimeMs, EraHistoryError> {
+    let slots_elapsed = slot
+        .elapsed_from(era.start.slot)
+        .map_err(|_| EraHistoryError::InvalidEraHistory)?;
+    let time_elapsed = era.params.slot_length * slots_elapsed;
+    let relative_time = era.start.time_ms + time_elapsed;
+    Ok(relative_time)
+}
+
+/// Compute the epoch corresponding to the given slot.
+///
+/// **pre-condition**: the given summary must be the era containing that slot.
+fn slot_to_epoch(slot: &Slot, era: &Summary) -> Result<Epoch, EraHistoryError> {
+    let slots_elapsed = slot
+        .elapsed_from(era.start.slot)
+        .map_err(|_| EraHistoryError::InvalidEraHistory)?;
+    let epochs_elapsed = slots_elapsed / era.params.epoch_size_slots;
+    let epoch_number = era.start.epoch + epochs_elapsed;
+    Ok(epoch_number)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{Epoch, PREPROD_ERA_HISTORY, Slot, any_network_name, load_era_history_from_file};
+    use proptest::prelude::*;
     use proptest::proptest;
+    use std::cmp::{max, min};
     use std::{env, fs::File, io::Write, path::Path, str::FromStr};
+    use test_case::test_case;
+
+    prop_compose! {
+        fn arbitrary_time_ms()(ms in 0u64..u64::MAX) -> TimeMs {
+            TimeMs::new(ms)
+        }
+    }
+
+    prop_compose! {
+        fn arbitrary_bound()(time_ms in arbitrary_time_ms(), slot in any::<u32>(), epoch in any::<Epoch>()) -> Bound {
+            Bound {
+                time_ms, slot: Slot::new(slot as u64), epoch
+            }
+        }
+    }
+    prop_compose! {
+        fn arbitrary_bound_for_epoch(epoch: Epoch)(time_ms in arbitrary_time_ms(), slot in any::<u32>()) -> Bound {
+            Bound {
+                time_ms, slot: Slot::new(slot as u64), epoch
+            }
+        }
+    }
+    prop_compose! {
+        fn arbitrary_era_params()(epoch_size_slots in 1u64..65535u64, slot_length in 1u64..65535u64) -> EraParams {
+            EraParams {
+                epoch_size_slots,
+                slot_length,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn arbitrary_summary()(
+            b1 in any::<u16>(),
+            b2 in any::<u16>(),
+            params in arbitrary_era_params(),
+        )(
+            first_epoch in Just(min(b1, b2) as u64),
+            last_epoch in Just(max(b1, b2) as u64),
+            params in Just(params),
+            start in arbitrary_bound_for_epoch(Epoch::from(max(b1, b2) as u64)),
+        ) -> Summary {
+            let epochs_elapsed = last_epoch - first_epoch;
+            let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
+            let time_elapsed = slots_elapsed * params.slot_length;
+            let end = Some(Bound {
+                time_ms: start.time_ms + time_elapsed,
+                slot: start.slot.offset_by(slots_elapsed),
+                epoch: Epoch::from(last_epoch),
+            });
+            Summary { start, end, params }
+        }
+    }
+
+    prop_compose! {
+        // Generate an arbitrary list of ordered epochs where we might have a new era
+        fn arbitrary_boundaries()(
+            first_epoch in any::<u16>(),
+            era_lengths in prop::collection::vec(1u64..1000, 1usize..32usize),
+        ) -> Vec<u64> {
+            let mut boundaries = vec![first_epoch as u64];
+            for era_length in era_lengths {
+                boundaries.push(boundaries.last().unwrap() + era_length);
+            }
+            boundaries
+        }
+    }
+
+    prop_compose! {
+        fn arbitrary_era_history()(
+            boundaries in arbitrary_boundaries()
+        )(
+            stability_window in any::<u64>(),
+            era_params in prop::collection::vec(arbitrary_era_params(), boundaries.len()),
+            boundaries in Just(boundaries),
+        ) -> EraHistory {
+            let genesis = Bound::genesis();
+
+            let mut prev_bound = genesis;
+
+            // For each boundary, compute the time and slot for that epoch based on the era params and
+            // construct a summary from the boundary pair
+            let mut summaries = vec![];
+            for (boundary, prev_era_params) in boundaries.iter().zip(era_params.iter()) {
+                let epochs_elapsed = boundary - prev_bound.epoch.as_u64();
+                let slots_elapsed = epochs_elapsed * prev_era_params.epoch_size_slots;
+                let time_elapsed = slots_elapsed * prev_era_params.slot_length;
+                let new_bound = Bound {
+                    time_ms: prev_bound.time_ms + time_elapsed,
+                    slot: prev_bound.slot.offset_by(slots_elapsed),
+                    epoch: Epoch::new(*boundary),
+                };
+
+                summaries.push(Summary {
+                    start: prev_bound,
+                    end: if *boundary as usize == boundaries.len() {
+                        None
+                    } else {
+                        Some(new_bound.clone())
+                    },
+                    params: prev_era_params.clone(),
+                });
+
+                prev_bound = new_bound;
+            }
+
+            EraHistory::new(&summaries, Slot::from(stability_window))
+        }
+    }
+
+    fn default_params() -> EraParams {
+        EraParams::new(86400, 1000).unwrap()
+    }
+
+    fn one_era() -> EraHistory {
+        EraHistory {
+            stability_window: Slot::new(25920),
+            eras: vec![Summary {
+                start: Bound {
+                    time_ms: TimeMs::new(0),
+                    slot: Slot::new(0),
+                    epoch: Epoch::new(0),
+                },
+                end: None,
+                params: default_params(),
+            }],
+        }
+    }
+
+    fn two_eras() -> EraHistory {
+        EraHistory {
+            stability_window: Slot::new(25920),
+            eras: vec![
+                Summary {
+                    start: Bound {
+                        time_ms: TimeMs::new(0),
+                        slot: Slot::new(0),
+                        epoch: Epoch::new(0),
+                    },
+                    end: Some(Bound {
+                        time_ms: TimeMs::new(86400000),
+                        slot: Slot::new(86400),
+                        epoch: Epoch::new(1),
+                    }),
+                    params: default_params(),
+                },
+                Summary {
+                    start: Bound {
+                        time_ms: TimeMs::new(86400000),
+                        slot: Slot::new(86400),
+                        epoch: Epoch::new(1),
+                    },
+                    end: None,
+                    params: default_params(),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn slot_to_relative_time_within_horizon() {
+        let eras = two_eras();
+        assert_eq!(
+            eras.slot_to_relative_time(Slot::new(172800), Slot::new(172800)),
+            Ok(TimeMs::new(172800000))
+        );
+    }
+
+    #[test]
+    fn slot_to_time_fails_after_time_horizon() {
+        let eras = two_eras();
+        assert_eq!(
+            eras.slot_to_relative_time(Slot::new(172800), Slot::new(100000)),
+            Ok(TimeMs::new(172800000)),
+            "point is right at the end of the epoch, tip is somewhere"
+        );
+        assert_eq!(
+            eras.slot_to_relative_time(Slot::new(172801), Slot::new(86400)),
+            Err(EraHistoryError::PastTimeHorizon),
+            "point in the next epoch, but tip is way before the stability window (first slot)"
+        );
+        assert_eq!(
+            eras.slot_to_relative_time(Slot::new(172801), Slot::new(100000)),
+            Err(EraHistoryError::PastTimeHorizon),
+            "point in the next epoch, but tip is way before the stability window (somewhere)"
+        );
+        assert_eq!(
+            eras.slot_to_relative_time(Slot::new(172801), Slot::new(146880)),
+            Ok(TimeMs::new(172801000)),
+            "point in the next epoch, and tip right at the stability window limit"
+        );
+        assert_eq!(
+            eras.slot_to_relative_time(Slot::new(172801), Slot::new(146879)),
+            Err(EraHistoryError::PastTimeHorizon),
+            "point in the next epoch, but tip right *before* the stability window limit"
+        );
+    }
+
+    #[test]
+    fn epoch_bounds_epoch_0() {
+        let bounds = two_eras().epoch_bounds(Epoch::new(0)).unwrap();
+        assert_eq!(bounds.start, Slot::new(0));
+        assert_eq!(bounds.end, Some(Slot::new(86400)));
+    }
+
+    #[test]
+    fn epoch_bounds_epoch_1() {
+        let bounds = two_eras().epoch_bounds(Epoch::new(1)).unwrap();
+        assert_eq!(bounds.start, Slot::new(86400));
+        assert_eq!(bounds.end, None);
+    }
+
+    const MAINNET_SYSTEM_START: u64 = 1506203091000;
+
+    #[test_case(0, 42, MAINNET_SYSTEM_START
+        => Ok(MAINNET_SYSTEM_START);
+        "first slot in the system, tip is irrelevant"
+    )]
+    #[test_case(1000, 42, MAINNET_SYSTEM_START
+        => Ok(MAINNET_SYSTEM_START + 1000 * 1000);
+        "one thousand slots after genesis, tip is irrelevant"
+    )]
+    #[test_case(172801, 0, MAINNET_SYSTEM_START
+        => Err(EraHistoryError::PastTimeHorizon);
+        "slot is at the next epcoh, but tip is at genesis"
+    )]
+    fn slot_to_posix(slot: u64, tip: u64, system_start: u64) -> Result<u64, EraHistoryError> {
+        two_eras()
+            .slot_to_posix_time(slot.into(), tip.into(), system_start.into())
+            .map(|time_ms| time_ms.into())
+    }
+
+    #[test_case(0,          42 => Ok(0);
+        "first slot in first epoch, tip irrelevant"
+    )]
+    #[test_case(48272,      42 => Ok(0);
+        "slot anywhere in first epoch, tip irrelevant"
+    )]
+    #[test_case(86400,      42 => Ok(1);
+        "first slot in second epoch, tip irrelevant"
+    )]
+    #[test_case(105437,     42 => Ok(1);
+        "slot anywhere in second epoch, tip irrelevant"
+    )]
+    #[test_case(172801, 146879 => Err(EraHistoryError::PastTimeHorizon);
+        "slot beyond first epoch (at the frontier), tip before stable area"
+    )]
+    #[test_case(200000, 146879 => Err(EraHistoryError::PastTimeHorizon);
+        "slot beyond first epoch (anywhere), tip before stable area"
+    )]
+    #[test_case(200000, 146880 => Ok(2);
+        "slot within third epoch, tip in stable area (lower frontier)"
+    )]
+    #[test_case(200000, 153129 => Ok(2);
+        "slot within third epoch, tip in stable area (anywhere)"
+    )]
+    #[test_case(200000, 172800 => Ok(2);
+        "slot within third epoch, tip in stable area (upper frontier)"
+    )]
+    #[test_case(260000, 146880 => Err(EraHistoryError::PastTimeHorizon);
+        "slot far far away, tip in stable area (lower frontier)"
+    )]
+    #[test_case(260000, 153129 => Err(EraHistoryError::PastTimeHorizon);
+        "slot far far away, tip in stable area (anywhere)"
+    )]
+    #[test_case(260000, 172800 => Err(EraHistoryError::PastTimeHorizon);
+        "slot far far away, tip in stable area (upper frontier)"
+    )]
+    fn slot_to_epoch(slot: u64, tip: u64) -> Result<u64, EraHistoryError> {
+        two_eras()
+            .slot_to_epoch(Slot::new(slot), Slot::new(tip))
+            .map(|epoch| epoch.into())
+    }
+
+    #[test_case(0 => Ok(0); "first slot in first epoch")]
+    #[test_case(48272 => Ok(0); "slot anywhere in first epoch")]
+    #[test_case(86400 => Ok(1); "first slot in second epoch")]
+    #[test_case(105437 => Ok(1); "slot anywhere in second epoch")]
+    #[test_case(172801 => Ok(2); "slot beyond first epoch (at the frontier)")]
+    #[test_case(200000 => Ok(2); "slot within third epoch")]
+    #[test_case(260000 => Ok(3); "slot far far away")]
+    fn slot_to_epoch_unchecked_horizon(slot: u64) -> Result<u64, EraHistoryError> {
+        two_eras()
+            .slot_to_epoch_unchecked_horizon(Slot::new(slot))
+            .map(|epoch| epoch.into())
+    }
+
+    #[test_case(0, 42 => Ok(86400); "fully known forecast (1), tip irrelevant")]
+    #[test_case(1, 42 => Ok(172800); "fully known forecast (2), tip irrelevant")]
+    #[test_case(2, 42 => Err(EraHistoryError::PastTimeHorizon);
+        "far away forecast, tip before stable window (well before)"
+    )]
+    #[test_case(2, 146879 => Err(EraHistoryError::PastTimeHorizon);
+        "far away forecast, tip before stable window (lower frontier)"
+    )]
+    #[test_case(2, 146880 => Ok(259200);
+        "far away forecast, tip within stable window (lower frontier)"
+    )]
+    #[test_case(2, 201621 => Ok(259200);
+        "far away forecast, tip within stable window (anywhere)"
+    )]
+    #[test_case(2, 259199 => Ok(259200);
+        "far away forecast, tip within stable window (upper frontier)"
+    )]
+    fn next_epoch_first_slot(epoch: u64, tip: u64) -> Result<u64, EraHistoryError> {
+        two_eras()
+            .next_epoch_first_slot(Epoch::new(epoch), &Slot::new(tip))
+            .map(|slot| slot.into())
+    }
+
+    #[test]
+    fn slot_in_epoch_invalid_era_history() {
+        // Create an invalid era history where the second era starts at a slot
+        // that is earlier than the first era's start slot
+        let invalid_eras = EraHistory {
+            stability_window: Slot::new(129600),
+            eras: vec![
+                Summary {
+                    start: Bound {
+                        time_ms: TimeMs::new(100000),
+                        slot: Slot::new(100),
+                        epoch: Epoch::new(1),
+                    },
+                    end: Some(Bound {
+                        time_ms: TimeMs::new(186400000),
+                        slot: Slot::new(86500),
+                        epoch: Epoch::new(2),
+                    }),
+                    params: default_params(),
+                },
+                Summary {
+                    start: Bound {
+                        time_ms: TimeMs::new(186400000),
+                        slot: Slot::new(50), // This is invalid - earlier than first era's start
+                        epoch: Epoch::new(2),
+                    },
+                    end: Some(Bound {
+                        time_ms: TimeMs::new(272800000),
+                        slot: Slot::new(86450),
+                        epoch: Epoch::new(3),
+                    }),
+                    params: default_params(),
+                },
+            ],
+        };
+
+        let relative_slot = invalid_eras.slot_in_epoch(Slot::new(60), Slot::new(42));
+        assert_eq!(relative_slot, Err(EraHistoryError::InvalidEraHistory));
+    }
+
+    #[test]
+    fn slot_in_epoch_underflows_given_era_history_with_gaps() {
+        // Create a custom era history with a gap between epochs
+        let invalid_eras = EraHistory {
+            stability_window: Slot::new(129600),
+            eras: vec![
+                Summary {
+                    start: Bound {
+                        time_ms: TimeMs::new(0),
+                        slot: Slot::new(0),
+                        epoch: Epoch::new(0),
+                    },
+                    end: Some(Bound {
+                        time_ms: TimeMs::new(86400000),
+                        slot: Slot::new(86400),
+                        epoch: Epoch::new(1),
+                    }),
+                    params: default_params(),
+                },
+                Summary {
+                    start: Bound {
+                        time_ms: TimeMs::new(86400000),
+                        slot: Slot::new(186400), // Gap of 100000 slots
+                        epoch: Epoch::new(1),
+                    },
+                    end: Some(Bound {
+                        time_ms: TimeMs::new(172800000),
+                        slot: Slot::new(272800),
+                        epoch: Epoch::new(2),
+                    }),
+                    params: default_params(),
+                },
+            ],
+        };
+
+        // A slot in epoch 1 but before the start of epoch 1's slots
+        let problematic_slot = Slot::new(100000);
+
+        let result = invalid_eras.slot_in_epoch(problematic_slot, Slot::new(42));
+        assert_eq!(result, Err(EraHistoryError::InvalidEraHistory));
+    }
+
+    #[test]
+    fn encode_era_history() {
+        let eras = one_era();
+        let buffer = minicbor::to_vec(&eras).unwrap();
+        assert_eq!(
+            hex::encode(buffer),
+            "9f9f83000000f69f1a000151801903e8ffffff"
+        );
+    }
+
+    #[test]
+    fn can_decode_bounds_with_unbounded_integer_slot() {
+        // CBOR encoding for
+        // [[[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [0, 0, 0]],
+        //  [[0, 0, 0], [259200000000000000, 259200, 3]],
+        //  [[259200000000000000, 259200, 3], [55814400000000000000, 55814400, 646]]]
+        let buffer = hex::decode("868283000000830000008283000000830000008283000000830000008283000000830000008283000000831b0398dd06d5c800001a0003f4800382831b0398dd06d5c800001a0003f4800383c2490306949515279000001a0353a900190286").unwrap();
+        let eras: Vec<(Bound, Bound)> = minicbor::decode(&buffer).unwrap();
+
+        assert_eq!(eras[5].1.time_ms, TimeMs::new(55814400000));
+    }
+
+    #[test]
+    fn scales_encoded_bounds_to_ms_precision() {
+        // CBOR encoding for
+        //   [259200000000000000, 259200, 3]
+        let buffer = hex::decode("831b0398dd06d5c800001a0003f48003").unwrap();
+        let bound: Bound = minicbor::decode(&buffer)
+            .expect("cannot decode '831b0398dd06d5c800001a0003f48003' as a Bound");
+
+        assert_eq!(bound.time_ms, TimeMs::new(259200000));
+    }
+
+    #[test]
+    fn cannot_decode_bounds_with_too_large_integer_value() {
+        // CBOR encoding for
+        // [558144000000000000001234567890000000000, 55814400, 646]
+        let buffer =
+            hex::decode("83c25101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
+        let result = minicbor::decode::<Bound>(&buffer);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cannot_decode_bounds_with_invalid_tag() {
+        // CBOR encoding for
+        // [-558144000000000000001234567890000000001, 55814400, 646]
+        let buffer =
+            hex::decode("83c35101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
+        let result = minicbor::decode::<Bound>(&buffer);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn era_index_from_slot() {
+        let eras = two_eras();
+        assert_eq!(
+            eras.slot_to_era_index(Slot::new(0)),
+            Ok(0),
+            "first slot in first era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot::new(48272)),
+            Ok(0),
+            "slot anywhere in first era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot::new(86399)),
+            Ok(0),
+            "last slot in first era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot::new(86400)),
+            Ok(1),
+            "first slot in second era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot::new(105437)),
+            Ok(1),
+            "slot anywhere in second era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot::new(172801)),
+            Ok(1),
+            "slot beyond first epoch in second era"
+        );
+        assert_eq!(
+            eras.slot_to_era_index(Slot::new(200000)),
+            Ok(1),
+            "slot well into second era"
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn roundtrip_era_history(era_history in arbitrary_era_history()) {
+            let buffer = minicbor::to_vec(&era_history).unwrap();
+            let decoded = minicbor::decode_with(&buffer, &mut era_history.stability_window.clone()).unwrap();
+            assert_eq!(era_history, decoded);
+        }
+
+        #[test]
+        fn roundtrip_bounds(bound in arbitrary_bound()) {
+            let buffer = minicbor::to_vec(&bound).unwrap();
+            let msg = format!("failed to decode {}", hex::encode(&buffer));
+            let decoded = minicbor::decode(&buffer).expect(&msg);
+            assert_eq!(bound, decoded);
+        }
+    }
 
     proptest! {
         #[test]

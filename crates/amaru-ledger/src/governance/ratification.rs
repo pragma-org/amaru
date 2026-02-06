@@ -562,7 +562,10 @@ pub use tests::*;
 
 #[cfg(any(all(test, not(target_os = "windows")), feature = "test-utils"))]
 mod tests {
-    use amaru_kernel::{Bound, Epoch, EraHistory, EraParams, Slot, Summary, TimeMs};
+    use amaru_kernel::{
+        Epoch, EraHistory, EraParams, Slot, TimeMs,
+        cardano::era_history::{Bound, Summary},
+    };
     use std::sync::LazyLock;
 
     // Technically higher than the actual gap we may see in 'real life', but, why not.

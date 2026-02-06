@@ -289,12 +289,11 @@ pub mod tests {
     use crate::protocol::Responder;
     use amaru_kernel::cardano::network_block::{NetworkBlock, make_encoded_block};
     use amaru_kernel::{
-        BlockHeader, IsHeader, any_fake_header, any_headers_chain, any_headers_chain_with_root,
-        utils::tests::run_strategy,
+        BlockHeader, IsHeader, Slot, any_fake_header, any_headers_chain,
+        any_headers_chain_with_root, utils::tests::run_strategy,
     };
     use amaru_ouroboros_traits::ChainStore;
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-    use amaru_slot_arithmetic::Slot;
     use std::sync::Arc;
 
     #[test]

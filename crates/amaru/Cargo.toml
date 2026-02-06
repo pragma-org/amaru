@@ -75,7 +75,6 @@ amaru-ouroboros-traits.workspace = true
 amaru-plutus.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-protocols.workspace = true
-amaru-slot-arithmetic.workspace = true
 amaru-metrics.workspace = true
 pure-stage.workspace = true
 

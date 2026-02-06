@@ -14,7 +14,9 @@
 
 use amaru::{DEFAULT_NETWORK, bootstrap::InitialNonces};
 use amaru_kernel::{
-    Bound, EraHistory, EraParams, Hash, HeaderHash, NetworkName, Nonce, Point, Summary, cbor,
+    EraHistory, EraParams, Hash, HeaderHash, NetworkName, Nonce, Point,
+    cardano::era_history::{Bound, Summary},
+    cbor,
 };
 use std::path::{Path, PathBuf};
 use tokio::fs::{self};

@@ -389,8 +389,7 @@ fn make_era_history(
 #[cfg(test)]
 mod tests {
     use crate::bootstrap::{make_era_history, sort_snapshots_by_slot};
-    use amaru_kernel::{Hash, HeaderHash, NetworkName, Point, Slot};
-    use amaru_slot_arithmetic::TimeMs;
+    use amaru_kernel::{Hash, HeaderHash, NetworkName, Point, Slot, TimeMs};
     use std::{path::PathBuf, str::FromStr};
 
     #[test]

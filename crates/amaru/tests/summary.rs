@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru::default_snapshots_dir;
-use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
+use amaru_kernel::{Epoch, EraHistory, GlobalParameters, NetworkName};
 use amaru_ledger::{
     store::{ReadStore, Snapshot},
     summary::{
@@ -21,7 +21,6 @@ use amaru_ledger::{
         stake_distribution::StakeDistribution,
     },
 };
-use amaru_slot_arithmetic::Epoch;
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
 use std::{
     collections::BTreeMap,

@@ -32,14 +32,7 @@ pub use pallas_primitives::conway::{Constr, KeepRaw, MaybeIndefArray};
 // See above.
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 
-// TODO: Interalize amaru-slot-arithmetic within amaru-kernel
-pub use amaru_slot_arithmetic::{
-    Bound, Epoch, EpochBounds, EraHistory, EraHistoryError, EraParams, Slot, SlotArithmeticError,
-    Summary, TimeMs,
-};
-
 pub mod cardano;
-#[doc(hidden)]
 pub use cardano::{
     account::Account,
     address::{Address, is_locked_by_script},
@@ -64,10 +57,12 @@ pub use cardano::{
     drep_registration::DRepRegistration,
     drep_state::DRepState,
     drep_voting_thresholds::DRepVotingThresholds,
+    epoch::Epoch,
     era_history::{
-        EraHistoryFileError, MAINNET_ERA_HISTORY, PREPROD_ERA_HISTORY, PREVIEW_ERA_HISTORY,
-        TESTNET_ERA_HISTORY, load_era_history_from_file,
+        EraHistory, EraHistoryError, EraHistoryFileError, MAINNET_ERA_HISTORY, PREPROD_ERA_HISTORY,
+        PREVIEW_ERA_HISTORY, TESTNET_ERA_HISTORY, load_era_history_from_file,
     },
+    era_params::EraParams,
     ex_units::{ExUnits, sum_ex_units},
     ex_units_prices::ExUnitPrices,
     governance_action::GovernanceAction,
@@ -128,10 +123,12 @@ pub use cardano::{
     reward_kind::RewardKind,
     script_kind::ScriptKind,
     script_purpose::{ScriptPurpose, script_purpose_to_string},
+    slot::{Slot, SlotArithmeticError},
     stake_credential::{
         BorrowedStakeCredential, StakeCredential, stake_credential_from_reward_account,
     },
     stake_credential_kind::StakeCredentialKind,
+    time_ms::TimeMs,
     tip::Tip,
     transaction::Transaction,
     transaction_body::TransactionBody,
