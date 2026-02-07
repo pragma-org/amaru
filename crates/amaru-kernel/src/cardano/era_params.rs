@@ -18,12 +18,7 @@ use crate::{EraName, TimeMs, cbor};
 pub struct EraParams {
     pub epoch_size_slots: u64,
     pub slot_length: TimeMs,
-    #[serde(default = "default_era_name")]
     pub era_name: EraName,
-}
-
-fn default_era_name() -> EraName {
-    EraName::Conway
 }
 
 impl EraParams {
