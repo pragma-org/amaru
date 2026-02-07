@@ -92,7 +92,7 @@ impl<'b, C> cbor::Decode<'b, C> for SerialisedAsMillis {
                 }
                 U64 | U32 | U16 | U8 => d.u64(),
                 t => Err(cbor::decode::Error::message(format!(
-                    "Unhandled type decoding SerialisedAsPico: {t}"
+                    "Unhandled type decoding SerialisedAsMillis: {t}"
                 ))),
             })
             .map(Duration::from_millis)

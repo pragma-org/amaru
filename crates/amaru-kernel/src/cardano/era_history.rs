@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use crate::{
-    Epoch, EraName, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, Slot,
-    TESTNET_GLOBAL_PARAMETERS,
+    Epoch, EraBound, EraName, EraSummary, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
+    Slot, TESTNET_GLOBAL_PARAMETERS,
     cardano::{era_params::EraParams, slot::SlotArithmeticError},
     cbor,
-    utils::cbor::SerialisedAsPico,
 };
 use std::{
     fs::File,
@@ -26,6 +25,21 @@ use std::{
     sync::LazyLock,
     time::{Duration, SystemTime},
 };
+
+// A complete history of eras that have taken place.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub struct EraHistory {
+    /// Number of slots for which the chain growth property guarantees at least k blocks.
+    ///
+    /// This is defined as 3 * k / f, where:
+    ///
+    /// - k is the network security parameter (mainnet = 2160);
+    /// - f is the active slot coefficient (mainnet = 0.05);
+    stability_window: Slot,
+
+    /// EraSummary of each era boundaries.
+    eras: Vec<EraSummary>,
+}
 
 /// Era history for Mainnet retrieved with:
 ///
@@ -37,14 +51,14 @@ use std::{
 /// ```
 ///
 pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
-    let eras: [Summary; 7] = [
-        Summary {
-            start: Bound {
+    let eras: [EraSummary; 7] = [
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(89856000),
                 slot: Slot::from(4492800),
                 epoch: Epoch::from(208),
@@ -55,13 +69,13 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Byron,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(89856000),
                 slot: Slot::from(4492800),
                 epoch: Epoch::from(208),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(101952000),
                 slot: Slot::from(16588800),
                 epoch: Epoch::from(236),
@@ -72,13 +86,13 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Shelley,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(101952000),
                 slot: Slot::from(16588800),
                 epoch: Epoch::from(236),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(108432000),
                 slot: Slot::from(23068800),
                 epoch: Epoch::from(251),
@@ -89,13 +103,13 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Allegra,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(108432000),
                 slot: Slot::from(23068800),
                 epoch: Epoch::from(251),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(125280000),
                 slot: Slot::from(39916800),
                 epoch: Epoch::from(290),
@@ -106,13 +120,13 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Mary,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(125280000),
                 slot: Slot::from(39916800),
                 epoch: Epoch::from(290),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(157680000),
                 slot: Slot::from(72316800),
                 epoch: Epoch::from(365),
@@ -123,13 +137,13 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Alonzo,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(157680000),
                 slot: Slot::from(72316800),
                 epoch: Epoch::from(365),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(219024000),
                 slot: Slot::from(133660800),
                 epoch: Epoch::from(507),
@@ -140,8 +154,8 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Babbage,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(219024000),
                 slot: Slot::from(133660800),
                 epoch: Epoch::from(507),
@@ -167,14 +181,14 @@ pub static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 /// ```
 ///
 pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
-    let eras: [Summary; 7] = [
-        Summary {
-            start: Bound {
+    let eras: [EraSummary; 7] = [
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(1728000),
                 slot: Slot::from(86400),
                 epoch: Epoch::from(4),
@@ -185,13 +199,13 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Byron,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(1728000),
                 slot: Slot::from(86400),
                 epoch: Epoch::from(4),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(2160000),
                 slot: Slot::from(518400),
                 epoch: Epoch::from(5),
@@ -202,13 +216,13 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Shelley,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(2160000),
                 slot: Slot::from(518400),
                 epoch: Epoch::from(5),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(2592000),
                 slot: Slot::from(950400),
                 epoch: Epoch::from(6),
@@ -220,13 +234,13 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Allegra,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(2592000),
                 slot: Slot::from(950400),
                 epoch: Epoch::from(6),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(3024000),
                 slot: Slot::from(1382400),
                 epoch: Epoch::from(7),
@@ -238,13 +252,13 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Mary,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(3024000),
                 slot: Slot::from(1382400),
                 epoch: Epoch::from(7),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(5184000),
                 slot: Slot::from(3542400),
                 epoch: Epoch::from(12),
@@ -256,13 +270,13 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Alonzo,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(5184000),
                 slot: Slot::from(3542400),
                 epoch: Epoch::from(12),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(70416000),
                 slot: Slot::from(68774400),
                 epoch: Epoch::from(163),
@@ -274,8 +288,8 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Babbage,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(70416000),
                 slot: Slot::from(68774400),
                 epoch: Epoch::from(163),
@@ -302,14 +316,14 @@ pub static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 /// ```
 ///
 pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
-    let eras: [Summary; 7] = [
-        Summary {
-            start: Bound {
+    let eras: [EraSummary; 7] = [
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
@@ -320,13 +334,13 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Byron,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
@@ -337,13 +351,13 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Shelley,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(5),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
@@ -355,13 +369,13 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Allegra,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
@@ -373,13 +387,13 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Mary,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(0),
                 slot: Slot::from(0),
                 epoch: Epoch::from(0),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(259200),
                 slot: Slot::from(259200),
                 epoch: Epoch::from(3),
@@ -391,13 +405,13 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Alonzo,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(259200),
                 slot: Slot::from(259200),
                 epoch: Epoch::from(3),
             },
-            end: Some(Bound {
+            end: Some(EraBound {
                 time: Duration::from_secs(55814400),
                 slot: Slot::from(55814400),
                 epoch: Epoch::from(646),
@@ -409,8 +423,8 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 era_name: EraName::Babbage,
             },
         },
-        Summary {
-            start: Bound {
+        EraSummary {
+            start: EraBound {
                 time: Duration::from_secs(55814400),
                 slot: Slot::from(55814400),
                 epoch: Epoch::from(646),
@@ -433,8 +447,8 @@ pub static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 /// This default `EraHistory` contains a single era which covers 1000 epochs,
 /// with a slot length of 1 second and epoch size of 86400 slots.
 pub static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
-    let eras: [Summary; 1] = [Summary {
-        start: Bound {
+    let eras: [EraSummary; 1] = [EraSummary {
+        start: EraBound {
             time: Duration::from_secs(0),
             slot: Slot::from(0),
             epoch: Epoch::from(0),
@@ -486,183 +500,6 @@ pub fn load_era_history_from_file(path: &Path) -> Result<EraHistory, EraHistoryF
     serde_json::from_reader(reader).map_err(EraHistoryFileError::JsonParseError)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Bound {
-    #[serde(deserialize_with = "SerialisedAsPico::deserialize")]
-    #[serde(serialize_with = "SerialisedAsPico::serialize")]
-    pub time: Duration,
-    pub slot: Slot,
-    pub epoch: Epoch,
-}
-
-#[cfg(test)]
-impl Bound {
-    fn genesis() -> Bound {
-        Bound {
-            time: Duration::from_secs(0),
-            slot: Slot::new(0),
-            epoch: Epoch::new(0),
-        }
-    }
-}
-
-impl<C> cbor::Encode<C> for Bound {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(3)?;
-        SerialisedAsPico::from(self.time).encode(e, ctx)?;
-        self.slot.encode(e, ctx)?;
-        self.epoch.encode(e, ctx)?;
-        Ok(())
-    }
-}
-
-impl<'b, C> cbor::Decode<'b, C> for Bound {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_array(d, |d, assert_len| {
-            assert_len(3)?;
-            let time: SerialisedAsPico = d.decode()?;
-            let slot = d.decode()?;
-            let epoch = d.decode_with(ctx)?;
-            Ok(Bound {
-                time: time.into(),
-                slot,
-                epoch,
-            })
-        })
-    }
-}
-
-// The start is inclusive and the end is exclusive. In a valid EraHistory, the
-// end of each era will equal the start of the next one.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Summary {
-    pub start: Bound,
-    pub end: Option<Bound>,
-    pub params: EraParams,
-}
-
-impl Summary {
-    /// Checks whether the current `Summary` ends after the given slot; In case
-    /// where the Summary doesn't have any upper bound, then we check whether the
-    /// point is within a foreseeable horizon.
-    pub fn contains_slot(&self, slot: &Slot, tip: &Slot, stability_window: &Slot) -> bool {
-        &self
-            .end
-            .as_ref()
-            .map(|end| end.slot)
-            .unwrap_or_else(|| self.calculate_end_bound(tip, stability_window).slot)
-            >= slot
-    }
-
-    /// Like contains_slot, but doesn't enforce anything about the upper bound. So when there's no
-    /// upper bound, the slot is simply always considered within the era.
-    pub fn contains_slot_unchecked_horizon(&self, slot: &Slot) -> bool {
-        self.end
-            .as_ref()
-            .map(|end| &end.slot >= slot)
-            .unwrap_or(true)
-    }
-
-    pub fn contains_epoch(&self, epoch: &Epoch, tip: &Slot, stability_window: &Slot) -> bool {
-        &self
-            .end
-            .as_ref()
-            .map(|end| end.epoch)
-            .unwrap_or_else(|| self.calculate_end_bound(tip, stability_window).epoch)
-            > epoch
-    }
-
-    /// Like contains_epoch, but doesn't enforce anything about the upper bound. So when there's no
-    /// upper bound, the epoch is simply always considered within the era.
-    pub fn contains_epoch_unchecked_horizon(&self, epoch: &Epoch) -> bool {
-        self.end
-            .as_ref()
-            .map(|end| &end.epoch > epoch)
-            .unwrap_or(true)
-    }
-
-    /// Calculate a virtual end `Bound` given a time and the last era summary that we know of.
-    ///
-    /// **pre-condition**: the provided tip must be after (or equal) to the start of this era.
-    fn calculate_end_bound(&self, tip: &Slot, stability_window: &Slot) -> Bound {
-        let Self { start, params, end } = self;
-
-        debug_assert!(end.is_none());
-
-        // NOTE: The +1 here is justified by the fact that upper bound in era summaries are
-        // exclusive. So if our tip is *exactly* at the frontier of the stability area, then
-        // technically, we already can foresee time in the next epoch.
-        let end_of_stable_window =
-            start.slot.as_u64().max(tip.as_u64() + 1) + stability_window.as_u64();
-
-        let delta_slots = end_of_stable_window - start.slot.as_u64();
-
-        let delta_epochs = delta_slots / params.epoch_size_slots
-            + if delta_slots.is_multiple_of(params.epoch_size_slots) {
-                0
-            } else {
-                1
-            };
-
-        let max_foreseeable_epoch = start.epoch.as_u64() + delta_epochs;
-
-        let foreseeable_slots = delta_epochs * params.epoch_size_slots;
-
-        Bound {
-            time: Duration::from_secs(
-                start.time.as_secs() + params.slot_length.as_secs() * foreseeable_slots,
-            ),
-            slot: Slot::new(start.slot.as_u64() + foreseeable_slots),
-            epoch: Epoch::new(max_foreseeable_epoch),
-        }
-    }
-}
-
-impl<C> cbor::Encode<C> for Summary {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.begin_array()?;
-        self.start.encode(e, ctx)?;
-        self.end.encode(e, ctx)?;
-        self.params.encode(e, ctx)?;
-        e.end()?;
-        Ok(())
-    }
-}
-
-impl<'b, C> cbor::Decode<'b, C> for Summary {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let _ = d.array()?;
-        let start = d.decode()?;
-        let end = d.decode()?;
-        let params = d.decode()?;
-        d.skip()?;
-        Ok(Summary { start, end, params })
-    }
-}
-
-// A complete history of eras that have taken place.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
-pub struct EraHistory {
-    /// Number of slots for which the chain growth property guarantees at least k blocks.
-    ///
-    /// This is defined as 3 * k / f, where:
-    ///
-    /// - k is the network security parameter (mainnet = 2160);
-    /// - f is the active slot coefficient (mainnet = 0.05);
-    stability_window: Slot,
-
-    /// Summary of each era boundaries.
-    eras: Vec<Summary>,
-}
-
 impl<C> cbor::Encode<C> for EraHistory {
     fn encode<W: cbor::encode::Write>(
         &self,
@@ -681,7 +518,7 @@ impl<C> cbor::Encode<C> for EraHistory {
 impl<'b> cbor::Decode<'b, Slot> for EraHistory {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut Slot) -> Result<Self, cbor::decode::Error> {
         let mut eras = vec![];
-        let eras_iter: cbor::decode::ArrayIter<'_, '_, Summary> = d.array_iter()?;
+        let eras_iter: cbor::decode::ArrayIter<'_, '_, EraSummary> = d.array_iter()?;
         for era in eras_iter {
             eras.push(era?);
         }
@@ -705,7 +542,7 @@ pub enum EraHistoryError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EpochBounds {
+pub struct EpochEraBounds {
     pub start: Slot,
     pub end: Option<Slot>,
 }
@@ -714,7 +551,7 @@ pub struct EpochBounds {
 // horizon is the end of the epoch containing the end of the current era's safe zone relative to
 // the current tip. Returns number of milliseconds elapsed since the system start time.
 impl EraHistory {
-    pub fn new(eras: &[Summary], stability_window: Slot) -> EraHistory {
+    pub fn new(eras: &[EraSummary], stability_window: Slot) -> EraHistory {
         #[expect(clippy::panic)]
         if eras.is_empty() {
             panic!("EraHistory cannot be empty");
@@ -831,7 +668,7 @@ impl EraHistory {
         Err(EraHistoryError::InvalidEraHistory)
     }
 
-    pub fn epoch_bounds(&self, epoch: Epoch) -> Result<EpochBounds, EraHistoryError> {
+    pub fn epoch_bounds(&self, epoch: Epoch) -> Result<EpochEraBounds, EraHistoryError> {
         for era in &self.eras {
             if era.start.epoch > epoch {
                 return Err(EraHistoryError::InvalidEraHistory);
@@ -845,7 +682,7 @@ impl EraHistory {
                 let slots_elapsed = epochs_elapsed * era.params.epoch_size_slots;
                 let start = offset.offset_by(slots_elapsed);
                 let end = offset.offset_by(era.params.epoch_size_slots + slots_elapsed);
-                return Ok(EpochBounds {
+                return Ok(EpochEraBounds {
                     start,
                     end: era.end.as_ref().map(|_| end),
                 });
@@ -910,7 +747,7 @@ impl EraHistory {
 /// Compute the time in milliseconds between the start of the system and the given slot.
 ///
 /// **pre-condition**: the given summary must be the era containing that slot.
-fn slot_to_relative_time(slot: &Slot, era: &Summary) -> Result<Duration, EraHistoryError> {
+fn slot_to_relative_time(slot: &Slot, era: &EraSummary) -> Result<Duration, EraHistoryError> {
     let slots_elapsed: u32 = slot
         .elapsed_from(era.start.slot)
         .map_err(|_| EraHistoryError::InvalidEraHistory)?
@@ -927,7 +764,7 @@ fn slot_to_relative_time(slot: &Slot, era: &Summary) -> Result<Duration, EraHist
 /// Compute the epoch corresponding to the given slot.
 ///
 /// **pre-condition**: the given summary must be the era containing that slot.
-fn slot_to_epoch(slot: &Slot, era: &Summary) -> Result<Epoch, EraHistoryError> {
+fn slot_to_epoch(slot: &Slot, era: &EraSummary) -> Result<Epoch, EraHistoryError> {
     let slots_elapsed = slot
         .elapsed_from(era.start.slot)
         .map_err(|_| EraHistoryError::InvalidEraHistory)?;
@@ -940,72 +777,12 @@ fn slot_to_epoch(slot: &Slot, era: &Summary) -> Result<Epoch, EraHistoryError> {
 mod tests {
     use super::*;
     use crate::{
-        Epoch, PREPROD_ERA_HISTORY, Slot, any_era_name, any_network_name,
-        load_era_history_from_file,
+        Epoch, PREPROD_ERA_HISTORY, Slot, any_era_params, any_network_name,
+        from_cbor_no_leftovers_with, load_era_history_from_file, to_cbor,
     };
     use proptest::{prelude::*, proptest};
-    use std::{
-        cmp::{max, min},
-        env,
-        fs::File,
-        io::Write,
-        path::Path,
-        str::FromStr,
-    };
+    use std::{env, fs::File, io::Write, path::Path, str::FromStr};
     use test_case::test_case;
-
-    prop_compose! {
-        fn any_bound_time()(ms in any::<u64>()) -> Duration {
-            Duration::from_secs(ms)
-        }
-    }
-
-    prop_compose! {
-        fn any_bound()(time in any_bound_time(), slot in any::<u32>(), epoch in any::<Epoch>()) -> Bound {
-            Bound {
-                time, slot: Slot::new(slot as u64), epoch
-            }
-        }
-    }
-    prop_compose! {
-        fn any_bound_for_epoch(epoch: Epoch)(time in any_bound_time(), slot in any::<u32>()) -> Bound {
-            Bound {
-                time, slot: Slot::new(slot as u64), epoch
-            }
-        }
-    }
-    prop_compose! {
-        fn any_era_params()(epoch_size_slots in 1u64..65535, slot_length in 1u64..65535, era_name in any_era_name()) -> EraParams {
-            EraParams {
-                epoch_size_slots,
-                slot_length: Duration::from_secs(slot_length),
-                era_name,
-            }
-        }
-    }
-
-    prop_compose! {
-        fn any_summary()(
-            b1 in any::<u16>(),
-            b2 in any::<u16>(),
-            params in any_era_params(),
-        )(
-            first_epoch in Just(min(b1, b2) as u64),
-            last_epoch in Just(max(b1, b2) as u64),
-            params in Just(params),
-            start in any_bound_for_epoch(Epoch::from(max(b1, b2) as u64)),
-        ) -> Summary {
-            let epochs_elapsed = last_epoch - first_epoch;
-            let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
-            let time_elapsed = params.slot_length * slots_elapsed as u32;
-            let end = Some(Bound {
-                time: start.time + time_elapsed,
-                slot: start.slot.offset_by(slots_elapsed),
-                epoch: Epoch::from(last_epoch),
-            });
-            Summary { start, end, params }
-        }
-    }
 
     prop_compose! {
         // Generate an arbitrary list of ordered epochs where we might have a new era
@@ -1029,7 +806,11 @@ mod tests {
             era_params in prop::collection::vec(any_era_params(), boundaries.len()),
             boundaries in Just(boundaries),
         ) -> EraHistory {
-            let genesis = Bound::genesis();
+            let genesis = EraBound {
+                time: Duration::from_secs(0),
+                slot: Slot::new(0),
+                epoch: Epoch::new(0),
+            };
 
             let mut prev_bound = genesis;
 
@@ -1040,13 +821,13 @@ mod tests {
                 let epochs_elapsed = boundary - prev_bound.epoch.as_u64();
                 let slots_elapsed = epochs_elapsed * prev_era_params.epoch_size_slots;
                 let time_elapsed = prev_era_params.slot_length * slots_elapsed as u32;
-                let new_bound = Bound {
+                let new_bound = EraBound {
                     time: prev_bound.time + time_elapsed,
                     slot: prev_bound.slot.offset_by(slots_elapsed),
                     epoch: Epoch::new(*boundary),
                 };
 
-                summaries.push(Summary {
+                summaries.push(EraSummary {
                     start: prev_bound,
                     end: if *boundary as usize == boundaries.len() {
                         None
@@ -1070,8 +851,8 @@ mod tests {
     fn one_era() -> EraHistory {
         EraHistory {
             stability_window: Slot::new(25920),
-            eras: vec![Summary {
-                start: Bound {
+            eras: vec![EraSummary {
+                start: EraBound {
                     time: Duration::from_secs(0),
                     slot: Slot::new(0),
                     epoch: Epoch::new(0),
@@ -1086,21 +867,21 @@ mod tests {
         EraHistory {
             stability_window: Slot::new(25920),
             eras: vec![
-                Summary {
-                    start: Bound {
+                EraSummary {
+                    start: EraBound {
                         time: Duration::from_secs(0),
                         slot: Slot::new(0),
                         epoch: Epoch::new(0),
                     },
-                    end: Some(Bound {
+                    end: Some(EraBound {
                         time: Duration::from_secs(86400),
                         slot: Slot::new(86400),
                         epoch: Epoch::new(1),
                     }),
                     params: default_params(),
                 },
-                Summary {
-                    start: Bound {
+                EraSummary {
+                    start: EraBound {
                         time: Duration::from_secs(86400),
                         slot: Slot::new(86400),
                         epoch: Epoch::new(1),
@@ -1273,26 +1054,26 @@ mod tests {
         let invalid_eras = EraHistory {
             stability_window: Slot::new(129600),
             eras: vec![
-                Summary {
-                    start: Bound {
+                EraSummary {
+                    start: EraBound {
                         time: Duration::from_secs(100),
                         slot: Slot::new(100),
                         epoch: Epoch::new(1),
                     },
-                    end: Some(Bound {
+                    end: Some(EraBound {
                         time: Duration::from_secs(186400),
                         slot: Slot::new(86500),
                         epoch: Epoch::new(2),
                     }),
                     params: default_params(),
                 },
-                Summary {
-                    start: Bound {
+                EraSummary {
+                    start: EraBound {
                         time: Duration::from_secs(186400),
                         slot: Slot::new(50), // This is invalid - earlier than first era's start
                         epoch: Epoch::new(2),
                     },
-                    end: Some(Bound {
+                    end: Some(EraBound {
                         time: Duration::from_secs(272800),
                         slot: Slot::new(86450),
                         epoch: Epoch::new(3),
@@ -1312,26 +1093,26 @@ mod tests {
         let invalid_eras = EraHistory {
             stability_window: Slot::new(129600),
             eras: vec![
-                Summary {
-                    start: Bound {
+                EraSummary {
+                    start: EraBound {
                         time: Duration::from_secs(0),
                         slot: Slot::new(0),
                         epoch: Epoch::new(0),
                     },
-                    end: Some(Bound {
+                    end: Some(EraBound {
                         time: Duration::from_secs(86400),
                         slot: Slot::new(86400),
                         epoch: Epoch::new(1),
                     }),
                     params: default_params(),
                 },
-                Summary {
-                    start: Bound {
+                EraSummary {
+                    start: EraBound {
                         time: Duration::from_secs(86400),
                         slot: Slot::new(186400), // Gap of 100000 slots
                         epoch: Epoch::new(1),
                     },
-                    end: Some(Bound {
+                    end: Some(EraBound {
                         time: Duration::from_secs(172800),
                         slot: Slot::new(272800),
                         epoch: Epoch::new(2),
@@ -1368,7 +1149,7 @@ mod tests {
         //  [[0, 0, 0], [259200000000000000, 259200, 3]],
         //  [[259200000000000000, 259200, 3], [55814400000000000000, 55814400, 646]]]
         let buffer = hex::decode("868283000000830000008283000000830000008283000000830000008283000000830000008283000000831b0398dd06d5c800001a0003f4800382831b0398dd06d5c800001a0003f4800383c2490306949515279000001a0353a900190286").unwrap();
-        let eras: Vec<(Bound, Bound)> = cbor::decode(&buffer).unwrap();
+        let eras: Vec<(EraBound, EraBound)> = cbor::decode(&buffer).unwrap();
 
         assert_eq!(eras[5].1.time, Duration::from_secs(55814400));
     }
@@ -1378,8 +1159,8 @@ mod tests {
         // CBOR encoding for
         //   [259200000000000000, 259200, 3]
         let buffer = hex::decode("831b0398dd06d5c800001a0003f48003").unwrap();
-        let bound: Bound = cbor::decode(&buffer)
-            .expect("cannot decode '831b0398dd06d5c800001a0003f48003' as a Bound");
+        let bound: EraBound = cbor::decode(&buffer)
+            .expect("cannot decode '831b0398dd06d5c800001a0003f48003' as a EraBound");
 
         assert_eq!(bound.time, Duration::from_secs(259200));
     }
@@ -1390,7 +1171,7 @@ mod tests {
         // [558144000000000000001234567890000000000, 55814400, 646]
         let buffer =
             hex::decode("83c25101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
-        let result = cbor::decode::<Bound>(&buffer);
+        let result = cbor::decode::<EraBound>(&buffer);
         assert!(result.is_err());
     }
 
@@ -1400,7 +1181,7 @@ mod tests {
         // [-558144000000000000001234567890000000001, 55814400, 646]
         let buffer =
             hex::decode("83c35101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
-        let result = cbor::decode::<Bound>(&buffer);
+        let result = cbor::decode::<EraBound>(&buffer);
         assert!(result.is_err());
     }
 
@@ -1447,17 +1228,9 @@ mod tests {
     proptest! {
         #[test]
         fn roundtrip_era_history(era_history in any_era_history()) {
-            let buffer = cbor::to_vec(&era_history).unwrap();
-            let decoded = cbor::decode_with(&buffer, &mut era_history.stability_window.clone()).unwrap();
+            let buffer = to_cbor(&era_history);
+            let decoded = from_cbor_no_leftovers_with(&buffer, &mut era_history.stability_window.clone()).unwrap();
             assert_eq!(era_history, decoded);
-        }
-
-        #[test]
-        fn roundtrip_bounds(bound in any_bound()) {
-            let buffer = cbor::to_vec(&bound).unwrap();
-            let msg = format!("failed to decode {}", hex::encode(&buffer));
-            let decoded = cbor::decode(&buffer).expect(&msg);
-            assert_eq!(bound, decoded);
         }
     }
 

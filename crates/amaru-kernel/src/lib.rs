@@ -58,12 +58,14 @@ pub use cardano::{
     drep_state::DRepState,
     drep_voting_thresholds::DRepVotingThresholds,
     epoch::Epoch,
+    era_bound::EraBound,
     era_history::{
         EraHistory, EraHistoryError, EraHistoryFileError, MAINNET_ERA_HISTORY, PREPROD_ERA_HISTORY,
         PREVIEW_ERA_HISTORY, TESTNET_ERA_HISTORY, load_era_history_from_file,
     },
     era_name::{EraName, EraNameError},
     era_params::EraParams,
+    era_summary::EraSummary,
     ex_units::{ExUnits, sum_ex_units},
     ex_units_prices::ExUnitPrices,
     governance_action::GovernanceAction,
@@ -158,7 +160,9 @@ pub use cardano::{
     constitutional_committee::any_constitutional_committee_status,
     drep::any_drep,
     epoch::any_epoch,
+    era_bound::{any_era_bound, any_era_bound_for_epoch, any_era_bound_time},
     era_name::any_era_name,
+    era_params::any_era_params,
     hash::{any_hash28, any_hash32},
     network::any_network,
     network_magic::any_network_magic,
@@ -185,8 +189,8 @@ pub use cardano::{
 pub mod cbor {
     pub use amaru_minicbor_extra::{
         TAG_MAP_259, TAG_SET_258, allow_tag, check_tagged_array_length, decode_break, expect_tag,
-        from_cbor, from_cbor_no_leftovers, heterogeneous_array, heterogeneous_map, lazy,
-        missing_field, tee, to_cbor, unexpected_field,
+        from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array,
+        heterogeneous_map, lazy, missing_field, tee, to_cbor, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
@@ -195,7 +199,7 @@ pub mod cbor {
     };
     pub use pallas_codec::utils::AnyCbor as Any;
 }
-pub use cbor::{from_cbor, from_cbor_no_leftovers, to_cbor};
+pub use cbor::{from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, to_cbor};
 
 pub mod data_structures;
 #[cfg(any(test, feature = "test-utils"))]

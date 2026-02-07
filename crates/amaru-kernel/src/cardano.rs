@@ -46,6 +46,8 @@ pub mod hash;
 // TODO: BlockHeader vs Header
 //
 // We have two types that seemingly fulfill the same function. They shall be unified.
+pub mod era_bound;
+pub mod era_summary;
 pub mod header;
 pub mod header_body;
 pub mod int;

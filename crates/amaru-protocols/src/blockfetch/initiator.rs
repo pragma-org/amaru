@@ -359,10 +359,8 @@ pub mod tests {
     use super::*;
     use crate::protocol::Initiator;
     use amaru_kernel::{
-        BlockHeader, Epoch, EraName, EraParams, HeaderHash, IsHeader, Slot, any_headers_chain,
-        cardano::era_history::{Bound, Summary},
-        cbor, make_header,
-        utils::tests::run_strategy,
+        BlockHeader, Epoch, EraBound, EraName, EraParams, EraSummary, HeaderHash, IsHeader, Slot,
+        any_headers_chain, cbor, make_header, utils::tests::run_strategy,
     };
     use std::time::Duration;
 
@@ -572,8 +570,8 @@ pub mod tests {
     /// Create a simple era history for testing where all slots map to era index 0 (tag 1).
     pub fn test_era_history() -> Arc<EraHistory> {
         Arc::new(EraHistory::new(
-            &[Summary {
-                start: Bound {
+            &[EraSummary {
+                start: EraBound {
                     time: Duration::from_secs(0),
                     slot: Slot::from(0),
                     epoch: Epoch::from(0),

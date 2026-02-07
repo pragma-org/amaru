@@ -16,7 +16,7 @@ use crate::cbor;
 use num::BigUint;
 use std::time::Duration;
 
-/// Scaling factor between nanoseconds and picoseconds
+/// Scaling factor between seconds and picoseconds
 const SECONDS_TO_PICO: u64 = 1_000_000_000_000u64;
 
 /// A newtype wrapper meant to facilitate CBOR encoding of time::Duration as integers with

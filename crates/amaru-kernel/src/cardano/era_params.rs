@@ -72,3 +72,25 @@ impl<'b, C> cbor::Decode<'b, C> for EraParams {
         })
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
+    use super::*;
+    use crate::{any_era_name, prop_cbor_roundtrip};
+    use proptest::prelude::*;
+
+    prop_compose! {
+        pub fn any_era_params()(epoch_size_slots in 1u64..65535, slot_length in 1u64..65535, era_name in any_era_name()) -> EraParams {
+            EraParams {
+                epoch_size_slots,
+                slot_length: Duration::from_secs(slot_length),
+                era_name,
+            }
+        }
+    }
+
+    prop_cbor_roundtrip!(EraParams, any_era_params());
+}

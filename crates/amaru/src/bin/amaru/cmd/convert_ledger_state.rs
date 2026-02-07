@@ -14,9 +14,8 @@
 
 use amaru::{DEFAULT_NETWORK, bootstrap::InitialNonces};
 use amaru_kernel::{
-    EraHistory, EraName, EraParams, Hash, HeaderHash, NetworkName, Nonce, Point,
-    cardano::era_history::{Bound, Summary},
-    cbor,
+    EraBound, EraHistory, EraName, EraParams, EraSummary, Hash, HeaderHash, NetworkName, Nonce,
+    Point, cbor,
 };
 use std::{
     path::{Path, PathBuf},
@@ -128,12 +127,12 @@ async fn convert_snapshot_to(
     // HardForkCombinator telescope encoding.
     // encodes the era history. There are 6 eras before conway.
     // FIXME: pass the current Era to know how many skips to do
-    let mut eras: Vec<Summary> = decode_eras(&mut d, network)?;
+    let mut eras: Vec<EraSummary> = decode_eras(&mut d, network)?;
 
     // current era lower bound
     d.array()?;
-    let start: Bound = d.decode()?;
-    eras.push(Summary {
+    let start: EraBound = d.decode()?;
+    eras.push(EraSummary {
         start,
         end: None,
         // FIXME: the current era params should be extracted from teh
@@ -275,13 +274,13 @@ pub const PAST_ERAS_NUMBER: u8 = 6;
 fn decode_eras(
     d: &mut minicbor::Decoder<'_>,
     network: &NetworkName,
-) -> Result<Vec<Summary>, Box<dyn std::error::Error>> {
+) -> Result<Vec<EraSummary>, Box<dyn std::error::Error>> {
     let mut eras = Vec::new();
 
     for era_tag in 1..=PAST_ERAS_NUMBER {
         d.array()?;
-        let start: Bound = d.decode()?;
-        let end: Bound = d.decode()?;
+        let start: EraBound = d.decode()?;
+        let end: EraBound = d.decode()?;
         let params = if end.slot == 0.into() {
             #[expect(clippy::expect_used)]
             EraParams {
@@ -314,7 +313,7 @@ fn decode_eras(
                 era_name: EraName::try_from(era_tag).expect("iteration over known era tags"),
             }
         };
-        let summary = Summary {
+        let summary = EraSummary {
             start,
             end: Some(end),
             params,
