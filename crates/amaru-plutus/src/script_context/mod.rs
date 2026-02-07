@@ -20,8 +20,8 @@ use amaru_kernel::{
     NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonEmptyVec, NonZeroInt,
     Nullable, OrderedRedeemer, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion,
     Redeemer, Redeemers as PallasRedeemers, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
-    StakeCredential, StakePayload, TimeMs, TransactionBody, TransactionId, TransactionInput, Vote,
-    Voter, VotingProcedure, WitnessSet, cbor,
+    StakeCredential, StakePayload, TransactionBody, TransactionId, TransactionInput, Vote, Voter,
+    VotingProcedure, WitnessSet, cbor,
     size::{CREDENTIAL, DATUM, KEY, SCRIPT},
     transaction_input_to_string,
 };
@@ -31,6 +31,7 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
+    time::{Duration, SystemTime},
 };
 use thiserror::Error;
 
@@ -568,8 +569,8 @@ impl From<BTreeMap<TransactionInput, MemoizedTransactionOutput>> for Utxos {
 /// See [`TimeRange::new`] for more information on converting from a validity interval from Ouroboros to a Plutus TimeRange.
 #[doc(hidden)]
 pub struct TimeRange {
-    pub(crate) lower_bound: Option<TimeMs>,
-    pub(crate) upper_bound: Option<TimeMs>,
+    pub(crate) lower_bound: Option<SystemTime>,
+    pub(crate) upper_bound: Option<SystemTime>,
 }
 
 impl TimeRange {
@@ -593,11 +594,13 @@ impl TimeRange {
         network: NetworkName,
     ) -> Result<Self, EraHistoryError> {
         let parameters: &GlobalParameters = network.into();
+        // TODO: Use 'SystemTime' for system_start in GlobalParameters
+        let system_start = SystemTime::UNIX_EPOCH + Duration::from_millis(parameters.system_start);
         let lower_bound = valid_from_slot
-            .map(|slot| era_history.slot_to_posix_time(slot, *tip, parameters.system_start.into()))
+            .map(|slot| era_history.slot_to_posix_time(slot, *tip, system_start))
             .transpose()?;
         let upper_bound = valid_to_slot
-            .map(|slot| era_history.slot_to_posix_time(slot, *tip, parameters.system_start.into()))
+            .map(|slot| era_history.slot_to_posix_time(slot, *tip, system_start))
             .transpose()?;
 
         Ok(Self {

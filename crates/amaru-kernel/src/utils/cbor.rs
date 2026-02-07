@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod array;
-pub mod cbor;
-pub mod serde;
-pub mod string;
-#[cfg(any(test, feature = "test-utils"))]
-pub mod tests;
+mod serialised_as_millis;
+mod serialised_as_pico;
+
+pub use serialised_as_millis::SerialisedAsMillis;
+pub use serialised_as_pico::SerialisedAsPico;

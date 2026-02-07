@@ -390,8 +390,7 @@ fn make_era_history(
 mod tests {
     use crate::bootstrap::{make_era_history, sort_snapshots_by_slot};
     use amaru_kernel::{Hash, HeaderHash, NetworkName, Point, Slot};
-    use amaru_slot_arithmetic::TimeMs;
-    use std::{path::PathBuf, str::FromStr};
+    use std::{path::PathBuf, str::FromStr, time::Duration};
 
     #[test]
     fn make_era_history_for_tesnet_given_file_exists() {
@@ -405,7 +404,7 @@ mod tests {
             .expect("fail to make era history");
 
         assert_eq!(
-            TimeMs::from(5100000000),
+            Duration::from_secs(5100000),
             history
                 .slot_to_relative_time_unchecked_horizon(Slot::from(5100000))
                 .unwrap()

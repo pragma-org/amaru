@@ -37,6 +37,8 @@ pub mod drep_state;
 pub mod drep_voting_thresholds;
 pub mod epoch;
 pub mod era_history;
+pub mod era_name;
+pub mod era_params;
 pub mod ex_units;
 pub mod ex_units_prices;
 pub mod governance_action;
@@ -44,6 +46,8 @@ pub mod hash;
 // TODO: BlockHeader vs Header
 //
 // We have two types that seemingly fulfill the same function. They shall be unified.
+pub mod era_bound;
+pub mod era_summary;
 pub mod header;
 pub mod header_body;
 pub mod int;
@@ -87,6 +91,7 @@ pub mod reward_account;
 pub mod reward_kind;
 pub mod script_kind;
 pub mod script_purpose;
+pub mod slot;
 pub mod stake_credential;
 pub mod stake_credential_kind;
 pub mod tip;

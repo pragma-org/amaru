@@ -74,7 +74,7 @@ jobs:
           - runner: ubuntu-22.04
             target: riscv32gc-unknown-linux-gnu
             title: riscv32
-            packages: -p amaru-ledger -p amaru-slot-arithmetic
+            packages: -p amaru-ledger
             extra-args: +nightly -Zbuild-std=std,panic_abort
             command: build
             setup: |

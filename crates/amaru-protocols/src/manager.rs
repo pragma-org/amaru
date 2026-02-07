@@ -19,7 +19,7 @@ use crate::{
     network_effects::{Network, NetworkOps},
     protocol::Role,
 };
-use amaru_kernel::{NetworkMagic, Peer, Point};
+use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
 use pure_stage::{Effects, StageRef};
 use std::sync::Arc;
@@ -52,7 +52,7 @@ pub struct Manager {
     magic: NetworkMagic,
     config: ManagerConfig,
     chain_sync: StageRef<ChainSyncInitiatorMsg>,
-    era_history: Arc<amaru_slot_arithmetic::EraHistory>,
+    era_history: Arc<EraHistory>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -68,7 +68,7 @@ impl Manager {
         magic: NetworkMagic,
         config: ManagerConfig,
         chain_sync: StageRef<ChainSyncInitiatorMsg>,
-        era_history: Arc<amaru_slot_arithmetic::EraHistory>,
+        era_history: Arc<EraHistory>,
     ) -> Self {
         Self {
             peers: BTreeMap::new(),

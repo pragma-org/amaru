@@ -50,7 +50,6 @@ serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 amaru-kernel = { workspace = true, features = ["test-utils"] }
-amaru-slot-arithmetic = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 amaru-stores.workspace = true
 

@@ -51,6 +51,32 @@ pub fn from_cbor_no_leftovers<T: for<'d> cbor::Decode<'d, ()>>(
     cbor::decode(bytes).map(|NoLeftovers(inner)| inner)
 }
 
+/// Decode a CBOR input, ensuring that there are no bytes leftovers once decoded. This is handy to
+/// test standalone decoders and ensures that they entirely consume their inputs.
+pub fn from_cbor_no_leftovers_with<C, T: for<'d> cbor::Decode<'d, C>>(
+    bytes: &[u8],
+    ctx: &mut C,
+) -> Result<T, cbor::decode::Error> {
+    cbor::decode_with(bytes, ctx).map(|NoLeftovers(inner)| inner)
+}
+
+/// Decode a tagged value, expecting the given tag. For a lenient version, see allow_tag.
+pub fn expect_tag(
+    d: &mut cbor::Decoder<'_>,
+    expected: impl Into<Tag>,
+) -> Result<(), cbor::decode::Error> {
+    let tag: Tag = d.tag()?;
+    let expected: Tag = expected.into();
+
+    if tag != expected {
+        return Err(cbor::decode::Error::message(format!(
+            "invalid CBOR tag: got {tag}, expected {expected}"
+        )));
+    };
+
+    Ok(())
+}
+
 pub fn allow_tag(d: &mut cbor::Decoder<'_>, expected: Tag) -> Result<(), cbor::decode::Error> {
     if d.datatype()? == cbor::data::Type::Tag {
         let tag = d.tag()?;

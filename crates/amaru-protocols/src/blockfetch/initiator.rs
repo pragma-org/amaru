@@ -12,22 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::blockfetch::responder::MAX_FETCHED_BLOCKS;
 use crate::{
-    blockfetch::{State, messages::Message},
+    blockfetch::{State, messages::Message, responder::MAX_FETCHED_BLOCKS},
     mux::MuxMessage,
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, StageState,
         miniprotocol, outcome,
     },
 };
-use amaru_kernel::cardano::network_block::NetworkBlock;
-use amaru_kernel::{IsHeader, Peer, Point, RawBlock};
+use amaru_kernel::{
+    EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock,
+};
 use amaru_ouroboros::ConnectionId;
-use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use std::sync::Arc;
-use std::{collections::VecDeque, mem};
+use std::{collections::VecDeque, mem, sync::Arc};
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -361,9 +359,10 @@ pub mod tests {
     use super::*;
     use crate::protocol::Initiator;
     use amaru_kernel::{
-        BlockHeader, HeaderHash, IsHeader, any_headers_chain, cbor, make_header,
-        utils::tests::run_strategy,
+        BlockHeader, Epoch, EraBound, EraName, EraParams, EraSummary, HeaderHash, IsHeader, Slot,
+        any_headers_chain, cbor, make_header, utils::tests::run_strategy,
     };
+    use std::time::Duration;
 
     #[test]
     #[expect(clippy::wildcard_enum_match_arm)]
@@ -570,17 +569,16 @@ pub mod tests {
 
     /// Create a simple era history for testing where all slots map to era index 0 (tag 1).
     pub fn test_era_history() -> Arc<EraHistory> {
-        use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary, TimeMs};
-
         Arc::new(EraHistory::new(
-            &[Summary {
-                start: Bound {
-                    time_ms: TimeMs::from(0),
+            &[EraSummary {
+                start: EraBound {
+                    time: Duration::from_secs(0),
                     slot: Slot::from(0),
                     epoch: Epoch::from(0),
                 },
                 end: None,
-                params: EraParams::new(86400, 1000).expect("valid era params"),
+                params: EraParams::new(86400, Duration::from_secs(1), EraName::Conway)
+                    .expect("valid era params"),
             }],
             Slot::from(2160 * 3),
         ))
@@ -611,7 +609,7 @@ pub mod tests {
         encoder.array(2).expect("failed to encode array");
         let era_history = test_era_history();
         let era_tag = era_history.slot_to_era_tag(header.slot()).unwrap();
-        encoder.u16(era_tag).expect("failed to encode tag");
+        encoder.encode(era_tag).expect("failed to encode tag");
         encoder.array(5).expect("failed to encode inner array");
         encoder
             .encode(header.header())

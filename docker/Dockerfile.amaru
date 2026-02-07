@@ -33,7 +33,6 @@ COPY crates/amaru-network/Cargo.toml /usr/src/amaru/crates/amaru-network/Cargo.t
 COPY crates/amaru-ouroboros/Cargo.toml /usr/src/amaru/crates/amaru-ouroboros/Cargo.toml
 COPY crates/amaru-ouroboros-traits/Cargo.toml /usr/src/amaru/crates/amaru-ouroboros-traits/Cargo.toml
 COPY crates/amaru-progress-bar/Cargo.toml /usr/src/amaru/crates/amaru-progress-bar/Cargo.toml
-COPY crates/amaru-slot-arithmetic/Cargo.toml /usr/src/amaru/crates/amaru-slot-arithmetic/Cargo.toml
 COPY crates/amaru-stores/Cargo.toml /usr/src/amaru/crates/amaru-stores/Cargo.toml
 COPY crates/amaru-tracing-json/Cargo.toml /usr/src/amaru/crates/amaru-tracing-json/Cargo.toml
 COPY crates/pure-stage/Cargo.toml /usr/src/amaru/crates/pure-stage/Cargo.toml
