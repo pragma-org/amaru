@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use minicbor::{Decode, Decoder, Encode};
+use crate::cbor;
 use std::{fmt, str::FromStr};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
@@ -67,8 +67,8 @@ pub const ERA_NAMES: [EraName; 8] = [
     EraName::Dijkstra,
 ];
 
-const ERA_STRINGS: [&str; 9] = [
-    "", "Byron", "Shelley", "Allegra", "Mary", "Alonzo", "Babbage", "Conway", "Dijkstra",
+const ERA_STRINGS: [&str; 8] = [
+    "Byron", "Shelley", "Allegra", "Mary", "Alonzo", "Babbage", "Conway", "Dijkstra",
 ];
 
 impl EraName {
@@ -77,7 +77,7 @@ impl EraName {
     }
 
     pub const fn as_str(self) -> &'static str {
-        ERA_STRINGS[self as usize]
+        ERA_STRINGS[self as usize - 1]
     }
 }
 
@@ -91,17 +91,12 @@ impl FromStr for EraName {
     type Err = EraNameError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Byron" => Ok(EraName::Byron),
-            "Shelley" => Ok(EraName::Shelley),
-            "Allegra" => Ok(EraName::Allegra),
-            "Mary" => Ok(EraName::Mary),
-            "Alonzo" => Ok(EraName::Alonzo),
-            "Babbage" => Ok(EraName::Babbage),
-            "Conway" => Ok(EraName::Conway),
-            "Dijkstra" => Ok(EraName::Dijkstra),
-            _ => Err(EraNameError::InvalidEraName(s.to_string())),
-        }
+        let (_, era_name) = ERA_STRINGS
+            .into_iter()
+            .zip(ERA_NAMES)
+            .find(|(era_str, _)| era_str == &s)
+            .ok_or(EraNameError::InvalidEraName(s.to_string()))?;
+        Ok(era_name)
     }
 }
 
@@ -123,35 +118,29 @@ impl TryFrom<u8> for EraName {
     type Error = EraNameError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(EraName::Byron),
-            2 => Ok(EraName::Shelley),
-            3 => Ok(EraName::Allegra),
-            4 => Ok(EraName::Mary),
-            5 => Ok(EraName::Alonzo),
-            6 => Ok(EraName::Babbage),
-            7 => Ok(EraName::Conway),
-            8 => Ok(EraName::Dijkstra),
-            _ => Err(EraNameError::InvalidEraTag(value)),
+        let ix = value as usize;
+        if ix == 0 || ix > ERA_NAMES.len() {
+            return Err(EraNameError::InvalidEraTag(value));
         }
+        Ok(ERA_NAMES[ix - 1])
     }
 }
 
-impl<C> Encode<C> for EraName {
-    fn encode<W: minicbor::encode::Write>(
+impl<C> cbor::Encode<C> for EraName {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut minicbor::Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         _ctx: &mut C,
-    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.u8(*self as u8)?;
         Ok(())
     }
 }
 
-impl<'b, C> Decode<'b, C> for EraName {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+impl<'b, C> cbor::Decode<'b, C> for EraName {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let value = d.u8()?;
-        EraName::try_from(value).map_err(minicbor::decode::Error::message)
+        EraName::try_from(value).map_err(cbor::decode::Error::message)
     }
 }
 
@@ -163,7 +152,7 @@ pub fn any_era_name() -> impl proptest::prelude::Strategy<Value = EraName> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru_minicbor_extra::to_cbor;
+    use crate::to_cbor;
     use proptest::prelude::*;
     use std::str::FromStr;
 
@@ -182,8 +171,8 @@ mod tests {
 
         #[test]
         fn era_name_encode_decode_roundtrip(era_name in any_era_name()) {
-            let buffer = minicbor::to_vec(era_name).unwrap();
-            let decoded: EraName = minicbor::decode(&buffer).unwrap();
+            let buffer = cbor::to_vec(era_name).unwrap();
+            let decoded: EraName = cbor::decode(&buffer).unwrap();
             assert_eq!(era_name, decoded);
         }
 
