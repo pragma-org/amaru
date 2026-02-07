@@ -79,23 +79,32 @@ impl<'b, C> cbor::Decode<'b, C> for SerialisedAsMillis {
     #[allow(clippy::wildcard_enum_match_arm)]
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         use cbor::Type::*;
-        d.datatype()
-            .and_then(|datatype| match datatype {
-                Tag => {
-                    cbor::expect_tag(d, cbor::IanaTag::PosBignum)?;
-                    let millis = BigUint::from_bytes_be(d.bytes()?);
-                    u64::try_from(millis).map_err(|e| {
-                        cbor::decode::Error::message(format!(
-                            "cannot convert to u64, too large: {e}"
-                        ))
-                    })
+        match d.datatype()? {
+            Tag => {
+                cbor::expect_tag(d, cbor::IanaTag::PosBignum)?;
+                let millis = BigUint::from_bytes_be(d.bytes()?);
+                match u128::try_from(millis) {
+                    Ok(millis) => {
+                        if let Some(nanos) = millis.checked_mul(1_000_000)
+                            && nanos < (u64::MAX as u128) * 1_000_000_000
+                        {
+                            Ok(Self(Duration::from_nanos_u128(nanos)))
+                        } else {
+                            Err(cbor::decode::Error::message(format!(
+                                "cannot convert to Duration, too large: {millis}ms"
+                            )))
+                        }
+                    }
+                    Err(millis) => Err(cbor::decode::Error::message(format!(
+                        "cannot convert to Duration, too large: {}ms",
+                        millis.into_original()
+                    ))),
                 }
-                U64 | U32 | U16 | U8 => d.u64(),
-                t => Err(cbor::decode::Error::message(format!(
-                    "Unhandled type decoding SerialisedAsMillis: {t}"
-                ))),
-            })
-            .map(Duration::from_millis)
-            .map(Self::from)
+            }
+            U64 | U32 | U16 | U8 => Ok(Self(Duration::from_millis(d.u64()?))),
+            t => Err(cbor::decode::Error::message(format!(
+                "Unhandled type decoding SerialisedAsMillis: {t}"
+            ))),
+        }
     }
 }

@@ -16,15 +16,13 @@ use crate::cbor;
 use num::BigUint;
 use std::time::Duration;
 
-/// Scaling factor between seconds and picoseconds
-const SECONDS_TO_PICO: u64 = 1_000_000_000_000u64;
-
 /// A newtype wrapper meant to facilitate CBOR encoding of time::Duration as integers with
-/// pico-precision. This may seem odd, but is necessary to mimicks the encoding behavior of *some*
+/// pico-precision. This may seem odd, but is necessary to mimic the encoding behavior of *some*
 /// Haskell types such as 'RelativeTime'.
 ///
-/// /!\ IMPORTANT
-/// There is a loss of precision coming from this type when durations are below seconds.
+/// Note that the Haskell RelativeTime truncates to whole seconds, which this helper does not.
+/// Haskell should be able to read values encoded by this helper, but will truncate to whole seconds
+/// when computing with the values.
 ///
 /// TODO: Maybe consider promoting this as `RelativeTime`, for robustness and to avoid some
 /// confusing naming...
@@ -68,12 +66,12 @@ impl<C> cbor::Encode<C> for SerialisedAsPico {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        let s = self.0.as_secs();
-        match s.checked_mul(SECONDS_TO_PICO) {
+        let s = self.0.as_nanos();
+        match s.checked_mul(1000).and_then(|s| u64::try_from(s).ok()) {
             Some(t) => t.encode(e, ctx),
             None => {
                 e.tag(cbor::IanaTag::PosBignum)?;
-                e.bytes(&(BigUint::from(s) * SECONDS_TO_PICO).to_bytes_be())?;
+                e.bytes(&(BigUint::from(s) * 1000u16).to_bytes_be())?;
                 Ok(())
             }
         }
@@ -84,23 +82,30 @@ impl<'b, C> cbor::Decode<'b, C> for SerialisedAsPico {
     #[allow(clippy::wildcard_enum_match_arm)]
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         use cbor::Type::*;
-        d.datatype()
-            .and_then(|datatype| match datatype {
-                Tag => {
-                    cbor::expect_tag(d, cbor::IanaTag::PosBignum)?;
-                    let s = BigUint::from_bytes_be(d.bytes()?) / SECONDS_TO_PICO;
-                    u64::try_from(s).map_err(|e| {
-                        cbor::decode::Error::message(format!(
-                            "cannot convert to u64, too large: {e}"
-                        ))
-                    })
+        match d.datatype()? {
+            Tag => {
+                cbor::expect_tag(d, cbor::IanaTag::PosBignum)?;
+                let nanos = BigUint::from_bytes_be(d.bytes()?) / 1000u16;
+                match u128::try_from(nanos) {
+                    Ok(nanos) => {
+                        if nanos < (u64::MAX as u128) * 1_000_000_000 {
+                            Ok(Self(Duration::from_nanos_u128(nanos)))
+                        } else {
+                            Err(cbor::decode::Error::message(format!(
+                                "cannot convert to Duration, too large: {nanos}ns"
+                            )))
+                        }
+                    }
+                    Err(nanos) => Err(cbor::decode::Error::message(format!(
+                        "cannot convert to Duration, too large: {}ns",
+                        nanos.into_original()
+                    ))),
                 }
-                U64 | U32 | U16 | U8 => d.u64().map(|ps| ps / SECONDS_TO_PICO),
-                t => Err(cbor::decode::Error::message(format!(
-                    "Unhandled type decoding SerialisedAsPico: {t}"
-                ))),
-            })
-            .map(Duration::from_secs)
-            .map(Self::from)
+            }
+            U64 | U32 | U16 | U8 => Ok(Self(Duration::from_nanos(d.u64()? / 1000))),
+            t => Err(cbor::decode::Error::message(format!(
+                "Unhandled type decoding SerialisedAsPico: {t}"
+            ))),
+        }
     }
 }
