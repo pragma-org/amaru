@@ -14,7 +14,7 @@
 
 use crate::{
     effects::{ConsensusEffects, ConsensusOps},
-    errors::{ConsensusError, InvalidHeaderParentData},
+    errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
 };
 use amaru_kernel::{
     BlockHeader, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip, from_cbor_no_leftovers,
@@ -39,8 +39,8 @@ pub struct TrackPeers {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct PerPeer {
-    current: Point,
-    highest: Point,
+    current: Tip,
+    highest: Tip,
 }
 
 impl TrackPeers {
@@ -69,17 +69,25 @@ impl TrackPeers {
                     peer: peer.clone(),
                     forwarded: header.point(),
                     actual: header.parent_hash(),
-                    expected: per_peer.current,
+                    expected: per_peer.current.point(),
                 },
             )));
         }
-        let highest = per_peer.highest.max(tip.point());
-        if header.point() < per_peer.current || header.point() > highest {
-            return Err(ConsensusError::InvalidHeaderPoint {
-                actual: header.point(),
-                parent: per_peer.current,
-                highest: per_peer.highest,
+        if header.block_height() != per_peer.current.block_height() + 1 {
+            return Err(ConsensusError::InvalidHeaderHeight {
+                actual: header.block_height(),
+                expected: per_peer.current.block_height() + 1,
             });
+        }
+        let highest = per_peer.highest.point().max(tip.point());
+        if header.point() < per_peer.current.point() || header.point() > highest {
+            return Err(ConsensusError::InvalidHeaderPoint(Box::new(
+                InvalidHeaderPoint {
+                    actual: header.point(),
+                    parent: per_peer.current.point(),
+                    highest,
+                },
+            )));
         }
         eff.ledger()
             .validate_header(&header, Span::current().context())
@@ -98,8 +106,8 @@ impl TrackPeers {
         let Some(per_peer) = self.upstream.get_mut(peer) else {
             return Err(ConsensusError::UnknownPeer(peer.clone()));
         };
-        per_peer.current = header.point();
-        per_peer.highest = tip.point();
+        per_peer.current = header.tip();
+        per_peer.highest = tip;
         if eff.store().has_header(&header.hash()) {
             Ok(None)
         } else {
@@ -117,14 +125,15 @@ impl TrackPeers {
         tip: Tip,
         eff: impl ConsensusOps,
     ) -> Result<(), ConsensusError> {
-        if !eff.store().has_header(&current.hash()) {
+        let store = eff.store();
+        let Some(header) = store.load_header(&current.hash()) else {
             return Err(ConsensusError::UnknownPoint(current.hash()));
-        }
+        };
         let Some(per_peer) = self.upstream.get_mut(peer) else {
             return Err(ConsensusError::UnknownPeer(peer.clone()));
         };
-        per_peer.current = current;
-        per_peer.highest = tip.point();
+        per_peer.current = Tip::new(current, header.block_height());
+        per_peer.highest = tip;
         Ok(())
     }
 }
@@ -169,17 +178,20 @@ pub async fn stage(
                     tracing::info!(%peer,"initializing chainsync");
                 }
                 IntersectFound(current, tip) => {
-                    if Store::new(eff.clone())
-                        .load_header(&current.hash())
-                        .is_none()
-                    {
+                    let Some(header) = Store::new(eff.clone()).load_header(&current.hash()) else {
                         tracing::warn!(%peer, %current, %tip, reason = "peer sent unknown intersection point", "stopping chainsync");
                         eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                         return state;
-                    }
-                    let highest = tip.point();
-                    tracing::info!(%peer, %current, %highest, "intersect found");
-                    state.upstream.insert(peer, PerPeer { current, highest });
+                    };
+                    tracing::info!(%peer, %current, highest = %tip.point(), "intersect found");
+                    let current = Tip::new(current, header.block_height());
+                    state.upstream.insert(
+                        peer,
+                        PerPeer {
+                            current,
+                            highest: tip,
+                        },
+                    );
                 }
                 IntersectNotFound(tip) => {
                     tracing::info!(%peer, highest = %tip.point(), reason = "intersect not found", "stopping chainsync");
@@ -187,8 +199,7 @@ pub async fn stage(
                     state.upstream.remove(&peer);
                 }
                 RollForward(header_content, tip) => {
-                    let highest = tip.point();
-                    tracing::trace!(%peer, variant = header_content.variant.as_str(), %highest, "roll forward");
+                    tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip.point(), "roll forward");
                     eff.send(&handler, chainsync::InitiatorMessage::RequestNext)
                         .await;
 
@@ -204,12 +215,14 @@ pub async fn stage(
                         Ok(header) => header,
                         Err(error) => {
                             tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
+                            state.upstream.remove(&peer);
                             eff.send(&state.manager, ManagerMessage::RemovePeer(peer))
                                 .await;
                             return state;
                         }
                     };
 
+                    let tip_point = tip.point();
                     let tip = state
                         .roll_forward(&peer, header, tip, ConsensusEffects::new(eff.clone()))
                         .await;
@@ -217,6 +230,7 @@ pub async fn stage(
                         Ok(tip) => tip,
                         Err(error) => {
                             tracing::error!(%error, %peer, "chain_sync.store_header.failed");
+                            state.upstream.remove(&peer);
                             eff.send(&state.manager, ManagerMessage::RemovePeer(peer))
                                 .await;
                             return state;
@@ -224,18 +238,21 @@ pub async fn stage(
                     };
 
                     if let Some(tip) = tip {
+                        tracing::debug!(%peer, tip = %tip.point(), "roll forward with new header");
                         eff.send(&state.downstream, tip).await;
+                    } else {
+                        tracing::debug!(%peer, tip = %tip_point, "roll forward, header already stored");
                     }
                 }
                 RollBackward(current, tip) => {
-                    let highest = tip.point();
-                    tracing::info!(%peer, %current, %highest, "roll backward");
+                    tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");
 
                     if let Err(error) = state
                         .roll_backward(&peer, current, tip, ConsensusEffects::new(eff.clone()))
                         .await
                     {
                         tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
+                        state.upstream.remove(&peer);
                         eff.send(&state.manager, ManagerMessage::RemovePeer(peer))
                             .await;
                         return state;
@@ -251,23 +268,32 @@ pub async fn stage(
 mod tests {
     use super::*;
     use crate::effects::{ResourceHeaderValidation, ValidateHeaderEffect};
+    use amaru_kernel::BlockHeader;
     use amaru_kernel::{BlockHeight, HeaderHash, Point, Tip, make_header};
     use amaru_ouroboros::ConnectionId;
     use amaru_ouroboros_traits::{
-        ChainStore, can_validate_blocks::mock::MockCanValidateHeaders,
+        ChainStore,
+        can_validate_blocks::{
+            CanValidateHeaders, HeaderValidationError, mock::MockCanValidateHeaders,
+        },
         in_memory_consensus_store::InMemConsensusStore,
     };
     use amaru_protocols::store_effects::{
         HasHeaderEffect, LoadHeaderEffect, ResourceHeaderStore, StoreHeaderEffect,
     };
+    use anyhow::anyhow;
     use opentelemetry::Context;
     use pure_stage::{
         DeserializerGuards, Effect, SendData, StageGraph,
         simulation::{SimulationBuilder, SimulationRunning},
         trace_buffer::{TraceBuffer, TraceEntry},
     };
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
+    use std::{io, slice};
     use tokio::runtime::{Builder, Handle};
+    use tracing::Level;
+    use tracing::subscriber::DefaultGuard;
+    use tracing_subscriber::util::SubscriberInitExt;
 
     fn build_store(headers: &[BlockHeader]) -> Arc<InMemConsensusStore<BlockHeader>> {
         let store = Arc::new(InMemConsensusStore::new());
@@ -313,13 +339,63 @@ mod tests {
         TraceEntry::suspend(Effect::send(from, to, Box::new(msg)))
     }
 
-    fn setup(
-        rt: &Handle,
-        state: TrackPeers,
-        msg: TrackPeersMsg,
-        store: Arc<InMemConsensusStore<BlockHeader>>,
-    ) -> (SimulationRunning, DeserializerGuards) {
-        let guards = vec![
+    struct BufferWriter {
+        buffer: Arc<Mutex<Vec<u8>>>,
+        guard: Option<DefaultGuard>,
+    }
+
+    impl BufferWriter {
+        fn new() -> Self {
+            Self {
+                buffer: Arc::new(Mutex::new(Vec::new())),
+                guard: None,
+            }
+        }
+
+        #[track_caller]
+        fn assert_log(&self, pred: impl Fn(&str) -> bool) {
+            let logs = String::from_utf8(self.buffer.lock().expect("log buffer poisoned").clone())
+                .expect("log should be valid UTF-8");
+            let found = logs.split('\n').any(pred);
+            assert!(found, "expected log not found\n\n{}", logs);
+        }
+
+        #[track_caller]
+        fn assert_no_log(&self, pred: impl Fn(&str) -> bool) {
+            let logs = String::from_utf8(self.buffer.lock().expect("log buffer poisoned").clone())
+                .expect("log should be valid UTF-8");
+            let found = logs.split('\n').filter(|s| pred(s)).collect::<Vec<_>>();
+            assert!(
+                found.is_empty(),
+                "unexpected logs found\n\n{}",
+                found.join("\n")
+            );
+        }
+    }
+
+    impl Clone for BufferWriter {
+        fn clone(&self) -> Self {
+            Self {
+                buffer: self.buffer.clone(),
+                guard: None,
+            }
+        }
+    }
+
+    impl io::Write for BufferWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let mut guard = self.buffer.lock().expect("log buffer poisoned");
+            guard.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn register_guards() -> DeserializerGuards {
+        vec![
             pure_stage::register_data_deserializer::<TrackPeers>().boxed(),
             pure_stage::register_data_deserializer::<TrackPeersMsg>().boxed(),
             pure_stage::register_data_deserializer::<chainsync::InitiatorMessage>().boxed(),
@@ -329,7 +405,37 @@ mod tests {
             pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
             pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),
             pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
-        ];
+        ]
+    }
+
+    fn setup(
+        rt: &Handle,
+        state: TrackPeers,
+        msg: TrackPeersMsg,
+        store: Arc<InMemConsensusStore<BlockHeader>>,
+    ) -> (SimulationRunning, DeserializerGuards, BufferWriter) {
+        setup_with_validation(rt, state, msg, store, Arc::new(MockCanValidateHeaders))
+    }
+
+    fn setup_with_validation(
+        rt: &Handle,
+        state: TrackPeers,
+        msg: TrackPeersMsg,
+        store: Arc<InMemConsensusStore<BlockHeader>>,
+        validation: Arc<dyn CanValidateHeaders + Send + Sync>,
+    ) -> (SimulationRunning, DeserializerGuards, BufferWriter) {
+        let writer = BufferWriter::new();
+        let mut logs = writer.clone();
+
+        // set the tracing subscriber for the current thread
+        let sub = tracing_subscriber::fmt()
+            .with_max_level(Level::DEBUG)
+            .with_writer(move || writer.clone())
+            .set_default();
+        logs.guard = Some(sub);
+
+        let guards = register_guards();
+
         let mut network =
             SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
         network
@@ -337,13 +443,26 @@ mod tests {
             .put::<ResourceHeaderStore>(store.clone());
         network
             .resources()
-            .put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
+            .put::<ResourceHeaderValidation>(validation);
+
         let tp = network.stage("tp", stage);
         let tp = network.wire_up(tp, state);
         network.preload(&tp, [msg]).unwrap();
+
         let mut running = network.run();
         running.run_until_blocked_incl_effects(rt);
-        (running, guards)
+
+        (running, guards, logs)
+    }
+
+    struct FailingHeaderValidation;
+
+    impl CanValidateHeaders for FailingHeaderValidation {
+        fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
+            Err(HeaderValidationError::new(anyhow!(
+                "header validation failed: booyah!"
+            )))
+        }
     }
 
     #[track_caller]
@@ -371,7 +490,8 @@ mod tests {
         });
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
         assert_trace(
             &running,
             &[
@@ -380,6 +500,8 @@ mod tests {
                 TraceEntry::state("tp-1", Box::new(state)),
             ],
         );
+        logs.assert_log(|l| l.contains("initializing chainsync"));
+        logs.assert_no_log(|l| l.contains("WARN") || l.contains("ERROR"));
     }
 
     #[test]
@@ -392,8 +514,8 @@ mod tests {
         state.upstream.insert(
             peer.clone(),
             PerPeer {
-                current: Point::Origin,
-                highest: Point::Origin,
+                current: Tip::origin(),
+                highest: Tip::origin(),
             },
         );
         let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
@@ -404,7 +526,8 @@ mod tests {
         });
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
         assert_trace(
             &running,
             &[
@@ -413,6 +536,8 @@ mod tests {
                 TraceEntry::state("tp-1", Box::new(state)),
             ],
         );
+        logs.assert_log(|l| l.contains("initializing chainsync"));
+        logs.assert_no_log(|l| l.contains("WARN") || l.contains("ERROR"));
     }
 
     #[test]
@@ -432,7 +557,8 @@ mod tests {
         });
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
         assert_trace(
             &running,
             &[
@@ -443,6 +569,8 @@ mod tests {
                 TraceEntry::state("tp-1", Box::new(state)),
             ],
         );
+        logs.assert_log(|l| l.contains("peer sent unknown intersection point"));
+        logs.assert_no_log(|l| l.contains("ERROR"));
     }
 
     #[test]
@@ -466,13 +594,13 @@ mod tests {
         expected.upstream.insert(
             Peer::new("peer1"),
             PerPeer {
-                current,
-                highest: tip.point(),
+                current: header.tip(),
+                highest: tip,
             },
         );
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(
+        let (running, _guards, logs) = setup(
             rt.handle(),
             state.clone(),
             msg.clone(),
@@ -487,6 +615,8 @@ mod tests {
                 TraceEntry::state("tp-1", Box::new(expected)),
             ],
         );
+        logs.assert_log(|l| l.contains("INFO") && l.contains("intersect found"));
+        logs.assert_no_log(|l| l.contains("WARN") || l.contains("ERROR"));
     }
 
     #[test]
@@ -504,7 +634,8 @@ mod tests {
         });
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
         assert_trace(
             &running,
             &[
@@ -514,6 +645,8 @@ mod tests {
                 TraceEntry::state("tp-1", Box::new(state)),
             ],
         );
+        logs.assert_log(|l| l.contains("INFO") && l.contains("intersect not found"));
+        logs.assert_no_log(|l| l.contains("WARN") || l.contains("ERROR"));
     }
 
     #[test]
@@ -527,8 +660,8 @@ mod tests {
         state.upstream.insert(
             peer.clone(),
             PerPeer {
-                current: Point::Origin,
-                highest: Point::Origin,
+                current: Tip::origin(),
+                highest: Tip::origin(),
             },
         );
         let handler = StageRef::named_for_tests("handler");
@@ -540,7 +673,8 @@ mod tests {
         });
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
         assert_trace(
             &running,
             &[
@@ -550,6 +684,8 @@ mod tests {
                 TraceEntry::state("tp-1", Box::new(expected)),
             ],
         );
+        logs.assert_log(|l| l.contains("INFO") && l.contains("intersect not found"));
+        logs.assert_no_log(|l| l.contains("WARN") || l.contains("ERROR"));
     }
 
     #[test]
@@ -573,7 +709,8 @@ mod tests {
         });
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
         assert_trace(
             &running,
             &[
@@ -584,6 +721,11 @@ mod tests {
                 TraceEntry::state("tp-1", Box::new(state)),
             ],
         );
+        logs.assert_log(|l| {
+            l.contains("ERROR")
+                && l.contains("chain_sync.validate_header.failed")
+                && l.contains("Unknown peer")
+        });
     }
 
     #[test]
@@ -609,8 +751,8 @@ mod tests {
         state.upstream.insert(
             peer.clone(),
             PerPeer {
-                current: parent.point(),
-                highest: parent.point(),
+                current: parent.tip(),
+                highest: parent.tip(),
             },
         );
 
@@ -618,17 +760,17 @@ mod tests {
         expected.upstream.insert(
             peer.clone(),
             PerPeer {
-                current: header.point(),
-                highest: header.point(),
+                current: header.tip(),
+                highest: header.tip(),
             },
         );
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(
+        let (running, _guards, logs) = setup(
             rt.handle(),
             state.clone(),
             msg.clone(),
-            build_store(&[header.clone()]),
+            build_store(slice::from_ref(&header)),
         );
         assert_trace(
             &running,
@@ -641,6 +783,10 @@ mod tests {
                 TraceEntry::state("tp-1", Box::new(expected)),
             ],
         );
+        logs.assert_log(|l| {
+            l.contains("DEBUG") && l.contains("roll forward") && l.contains("already stored")
+        });
+        logs.assert_no_log(|l| l.contains("WARN") || l.contains("ERROR"));
     }
 
     #[test]
@@ -666,8 +812,8 @@ mod tests {
         state.upstream.insert(
             peer.clone(),
             PerPeer {
-                current: parent.point(),
-                highest: parent.point(),
+                current: parent.tip(),
+                highest: parent.tip(),
             },
         );
 
@@ -675,13 +821,14 @@ mod tests {
         expected.upstream.insert(
             peer.clone(),
             PerPeer {
-                current: header.point(),
-                highest: header.point(),
+                current: header.tip(),
+                highest: header.tip(),
             },
         );
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
         assert_trace(
             &running,
             &[
@@ -692,6 +839,310 @@ mod tests {
                 has_header_effect("tp-1", header.hash()),
                 store_header_effect("tp-1", header.clone()),
                 send("tp-1", "downstream", header.tip()),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+        logs.assert_log(|l| {
+            l.contains("DEBUG") && l.contains("roll forward") && l.contains("new header")
+        });
+        logs.assert_no_log(|l| l.contains("WARN") || l.contains("ERROR"));
+    }
+
+    #[test]
+    fn test_roll_forward_invalid_variant_removes_peer() {
+        let peer = Peer::new("peer1");
+        let handler = StageRef::named_for_tests("handler");
+        let parent = make_block_header(1, 1, None);
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::RollForward(
+                HeaderContent::with_bytes(vec![], EraName::Babbage),
+                parent.tip(),
+            ),
+        });
+
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let expected = state.clone();
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: parent.tip(),
+                highest: parent.tip(),
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::RequestNext),
+                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+        logs.assert_log(|l| {
+            l.contains("ERROR")
+                && l.contains("chain_sync.validate_header.failed")
+                && l.contains("Invalid header variant")
+        });
+    }
+
+    #[test]
+    fn test_roll_forward_invalid_cbor_removes_peer() {
+        let peer = Peer::new("peer1");
+        let handler = StageRef::named_for_tests("handler");
+        let parent = make_block_header(1, 1, None);
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::RollForward(
+                HeaderContent::with_bytes(vec![0xff], EraName::Conway),
+                parent.tip(),
+            ),
+        });
+
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let expected = state.clone();
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: parent.tip(),
+                highest: parent.tip(),
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::RequestNext),
+                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+        logs.assert_log(|l| {
+            l.contains("ERROR")
+                && l.contains("chain_sync.validate_header.failed")
+                && l.contains("Failed to decode header")
+        });
+    }
+
+    #[test]
+    fn test_roll_forward_invalid_parent_removes_peer() {
+        let peer = Peer::new("peer1");
+        let handler = StageRef::named_for_tests("handler");
+        let parent = make_block_header(1, 1, None);
+        let wrong_parent = HeaderHash::from([9u8; 32]);
+        let header = make_block_header(2, 2, Some(wrong_parent));
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::RollForward(
+                HeaderContent::new(&header, EraName::Conway),
+                header.tip(),
+            ),
+        });
+
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let expected = state.clone();
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: parent.tip(),
+                highest: parent.tip(),
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::RequestNext),
+                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+        logs.assert_log(|l| {
+            l.contains("ERROR")
+                && l.contains("chain_sync.validate_header.failed")
+                && l.contains("Invalid header parent")
+        });
+    }
+
+    #[test]
+    fn test_roll_forward_invalid_height_removes_peer() {
+        let peer = Peer::new("peer1");
+        let handler = StageRef::named_for_tests("handler");
+        let parent = make_block_header(1, 1, None);
+        let header = make_block_header(3, 2, Some(parent.hash()));
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::RollForward(
+                HeaderContent::new(&header, EraName::Conway),
+                header.tip(),
+            ),
+        });
+
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let expected = state.clone();
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: parent.tip(),
+                highest: parent.tip(),
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::RequestNext),
+                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+        logs.assert_log(|l| {
+            l.contains("ERROR")
+                && l.contains("chain_sync.validate_header.failed")
+                && l.contains("Invalid header height")
+        });
+    }
+
+    #[test]
+    fn test_roll_forward_invalid_point_removes_peer() {
+        let peer = Peer::new("peer1");
+        let handler = StageRef::named_for_tests("handler");
+        let parent = make_block_header(1, 1, None);
+        let header = make_block_header(2, 3, Some(parent.hash()));
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::RollForward(
+                HeaderContent::new(&header, EraName::Conway),
+                parent.tip(),
+            ),
+        });
+
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let expected = state.clone();
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: parent.tip(),
+                highest: parent.tip(),
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::RequestNext),
+                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+                TraceEntry::state("tp-1", Box::new(expected)),
+            ],
+        );
+        logs.assert_log(|l| {
+            l.contains("ERROR")
+                && l.contains("chain_sync.validate_header.failed")
+                && l.contains("Invalid header point")
+        });
+    }
+
+    #[test]
+    fn test_roll_forward_header_validation_failure_removes_peer() {
+        let peer = Peer::new("peer1");
+        let handler = StageRef::named_for_tests("handler");
+        let parent = make_block_header(1, 1, None);
+        let header = make_block_header(2, 2, Some(parent.hash()));
+        let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: peer.clone(),
+            conn_id: ConnectionId::initial(),
+            handler: handler.clone(),
+            msg: chainsync::InitiatorResult::RollForward(
+                HeaderContent::new(&header, EraName::Conway),
+                header.tip(),
+            ),
+        });
+
+        let mut state = TrackPeers::new(
+            StageRef::named_for_tests("manager"),
+            StageRef::named_for_tests("downstream"),
+        );
+        let expected = state.clone();
+        state.upstream.insert(
+            peer.clone(),
+            PerPeer {
+                current: parent.tip(),
+                highest: header.tip(),
+            },
+        );
+
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (running, _guards, logs) = setup_with_validation(
+            rt.handle(),
+            state.clone(),
+            msg.clone(),
+            build_store(&[]),
+            Arc::new(FailingHeaderValidation),
+        );
+
+        logs.assert_log(|l| {
+            l.contains("ERROR")
+                && l.contains("chain_sync.validate_header.failed")
+                && l.contains("booyah!")
+        });
+        assert_trace(
+            &running,
+            &[
+                TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                send("tp-1", &handler, chainsync::InitiatorMessage::RequestNext),
+                validate_header_effect("tp-1", header.clone()),
+                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
                 TraceEntry::state("tp-1", Box::new(expected)),
             ],
         );
@@ -717,8 +1168,8 @@ mod tests {
         state.upstream.insert(
             peer.clone(),
             PerPeer {
-                current: Point::Origin,
-                highest: Point::Origin,
+                current: Tip::origin(),
+                highest: Tip::origin(),
             },
         );
 
@@ -726,13 +1177,13 @@ mod tests {
         expected.upstream.insert(
             peer,
             PerPeer {
-                current,
-                highest: tip.point(),
+                current: header.tip(),
+                highest: tip,
             },
         );
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(
+        let (running, _guards, logs) = setup(
             rt.handle(),
             state.clone(),
             msg.clone(),
@@ -743,10 +1194,12 @@ mod tests {
             &[
                 TraceEntry::state("tp-1", Box::new(state)),
                 TraceEntry::input("tp-1", Box::new(msg)),
-                has_header_effect("tp-1", current.hash()),
+                load_header_effect("tp-1", current.hash()),
                 TraceEntry::state("tp-1", Box::new(expected)),
             ],
         );
+        logs.assert_log(|l| l.contains("INFO") && l.contains("roll backward"));
+        logs.assert_no_log(|l| l.contains("WARN") || l.contains("ERROR"));
     }
 
     #[test]
@@ -767,7 +1220,7 @@ mod tests {
         );
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(
+        let (running, _guards, logs) = setup(
             rt.handle(),
             state.clone(),
             msg.clone(),
@@ -778,11 +1231,16 @@ mod tests {
             &[
                 TraceEntry::state("tp-1", Box::new(state.clone())),
                 TraceEntry::input("tp-1", Box::new(msg)),
-                has_header_effect("tp-1", current.hash()),
+                load_header_effect("tp-1", current.hash()),
                 send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
                 TraceEntry::state("tp-1", Box::new(state)),
             ],
         );
+        logs.assert_log(|l| {
+            l.contains("ERROR")
+                && l.contains("chain_sync.roll_backward.failed")
+                && l.contains("Unknown peer")
+        });
     }
 
     #[test]
@@ -800,25 +1258,32 @@ mod tests {
             StageRef::named_for_tests("manager"),
             StageRef::named_for_tests("downstream"),
         );
+        let expected = state.clone();
         state.upstream.insert(
             peer.clone(),
             PerPeer {
-                current: Point::Origin,
-                highest: Point::Origin,
+                current: Tip::origin(),
+                highest: Tip::origin(),
             },
         );
 
         let rt = Builder::new_current_thread().build().unwrap();
-        let (running, _guards) = setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
+        let (running, _guards, logs) =
+            setup(rt.handle(), state.clone(), msg.clone(), build_store(&[]));
         assert_trace(
             &running,
             &[
-                TraceEntry::state("tp-1", Box::new(state.clone())),
-                TraceEntry::input("tp-1", Box::new(msg)),
-                has_header_effect("tp-1", current.hash()),
-                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
                 TraceEntry::state("tp-1", Box::new(state)),
+                TraceEntry::input("tp-1", Box::new(msg)),
+                load_header_effect("tp-1", current.hash()),
+                send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+                TraceEntry::state("tp-1", Box::new(expected)),
             ],
         );
+        logs.assert_log(|l| {
+            l.contains("ERROR")
+                && l.contains("chain_sync.roll_backward.failed")
+                && l.contains("Unknown point")
+        });
     }
 }

@@ -571,6 +571,7 @@ impl TraceBuffer {
 
     /// Iterate over the deserialized entries in the trace buffer.
     pub fn iter_entries(&self) -> impl Iterator<Item = (Instant, TraceEntry)> {
+        #[expect(clippy::expect_used)]
         self.messages
             .iter()
             .map(|m| from_slice(m).expect("trace buffer is not supposed to contain invalid CBOR"))

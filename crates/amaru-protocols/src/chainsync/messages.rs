@@ -171,7 +171,6 @@ impl<'b> cbor::Decode<'b, ()> for HeaderContent {
         let variant = EraName::from_header_variant(d.u8()?).map_err(cbor::decode::Error::custom)?;
 
         match variant {
-            // byron
             EraName::Byron => {
                 cbor::check_tagged_array_length(0, len, 2)?;
                 let len = d.array()?;
@@ -190,9 +189,14 @@ impl<'b> cbor::Decode<'b, ()> for HeaderContent {
                     cbor: Vec::from(bytes),
                 })
             }
-            // shelley and beyond
-            v => {
-                cbor::check_tagged_array_length(v.header_variant().into(), len, 2)?;
+            EraName::Shelley
+            | EraName::Allegra
+            | EraName::Mary
+            | EraName::Alonzo
+            | EraName::Babbage
+            | EraName::Conway
+            | EraName::Dijkstra => {
+                cbor::check_tagged_array_length(variant.header_variant().into(), len, 2)?;
                 d.tag()?;
                 let bytes = d.bytes()?;
                 Ok(HeaderContent {

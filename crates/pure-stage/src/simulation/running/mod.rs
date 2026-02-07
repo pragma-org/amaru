@@ -660,7 +660,7 @@ impl SimulationRunning {
                             None
                         }
                         DeliverMessageResult::NotFound => {
-                            tracing::warn!(stage = %to, "message send to terminated stage dropped");
+                            tracing::debug!(stage = %to, "message send to terminated stage dropped");
                             Some(from)
                         }
                     };
