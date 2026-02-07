@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{EraName, TimeMs};
-use minicbor::{Decode, Decoder, Encode};
+use crate::{EraName, TimeMs, cbor};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EraParams {
@@ -43,12 +42,12 @@ impl EraParams {
     }
 }
 
-impl<C> Encode<C> for EraParams {
-    fn encode<W: minicbor::encode::Write>(
+impl<C> cbor::Encode<C> for EraParams {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut minicbor::Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         ctx: &mut C,
-    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(3)?;
         self.epoch_size_slots.encode(e, ctx)?;
         self.slot_length.encode(e, ctx)?;
@@ -57,11 +56,11 @@ impl<C> Encode<C> for EraParams {
     }
 }
 
-impl<'b, C> Decode<'b, C> for EraParams {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+impl<'b, C> cbor::Decode<'b, C> for EraParams {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let len = d.array()?;
         if len != Some(3) {
-            return Err(minicbor::decode::Error::message(format!(
+            return Err(cbor::decode::Error::message(format!(
                 "Expected 3 elements in EraParams, got {len:?}"
             )));
         }

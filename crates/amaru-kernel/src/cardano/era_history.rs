@@ -16,9 +16,8 @@ use crate::{
     Epoch, EraName, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, Slot,
     TESTNET_GLOBAL_PARAMETERS, TimeMs,
     cardano::{era_params::EraParams, slot::SlotArithmeticError},
+    cbor,
 };
-use amaru_minicbor_extra::heterogeneous_array;
-use minicbor::{Decode, Decoder, Encode};
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
 /// Era history for Mainnet retrieved with:
@@ -498,12 +497,12 @@ impl Bound {
     }
 }
 
-impl<C> Encode<C> for Bound {
-    fn encode<W: minicbor::encode::Write>(
+impl<C> cbor::Encode<C> for Bound {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut minicbor::Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         ctx: &mut C,
-    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(3)?;
         self.time_ms.encode(e, ctx)?;
         self.slot.encode(e, ctx)?;
@@ -512,11 +511,10 @@ impl<C> Encode<C> for Bound {
     }
 }
 
-impl<'b, C> Decode<'b, C> for Bound {
-    fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        heterogeneous_array(d, |d, assert_len| {
+impl<'b, C> cbor::Decode<'b, C> for Bound {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(3)?;
-
             let time_ms = d.decode()?;
             let slot = d.decode()?;
             let epoch = d.decode_with(ctx)?;
@@ -613,12 +611,12 @@ impl Summary {
     }
 }
 
-impl<C> Encode<C> for Summary {
-    fn encode<W: minicbor::encode::Write>(
+impl<C> cbor::Encode<C> for Summary {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut minicbor::Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         ctx: &mut C,
-    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.begin_array()?;
         self.start.encode(e, ctx)?;
         self.end.encode(e, ctx)?;
@@ -628,8 +626,8 @@ impl<C> Encode<C> for Summary {
     }
 }
 
-impl<'b, C> Decode<'b, C> for Summary {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+impl<'b, C> cbor::Decode<'b, C> for Summary {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let _ = d.array()?;
         let start = d.decode()?;
         let end = d.decode()?;
@@ -654,12 +652,12 @@ pub struct EraHistory {
     eras: Vec<Summary>,
 }
 
-impl<C> Encode<C> for EraHistory {
-    fn encode<W: minicbor::encode::Write>(
+impl<C> cbor::Encode<C> for EraHistory {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut minicbor::Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         ctx: &mut C,
-    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.begin_array()?;
         for s in &self.eras {
             s.encode(e, ctx)?;
@@ -669,10 +667,10 @@ impl<C> Encode<C> for EraHistory {
     }
 }
 
-impl<'b> Decode<'b, Slot> for EraHistory {
-    fn decode(d: &mut Decoder<'b>, ctx: &mut Slot) -> Result<Self, minicbor::decode::Error> {
+impl<'b> cbor::Decode<'b, Slot> for EraHistory {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut Slot) -> Result<Self, cbor::decode::Error> {
         let mut eras = vec![];
-        let eras_iter: minicbor::decode::ArrayIter<'_, '_, Summary> = d.array_iter()?;
+        let eras_iter: cbor::decode::ArrayIter<'_, '_, Summary> = d.array_iter()?;
         for era in eras_iter {
             eras.push(era?);
         }
@@ -919,12 +917,19 @@ fn slot_to_epoch(slot: &Slot, era: &Summary) -> Result<Epoch, EraHistoryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::any_era_name;
-    use crate::{Epoch, PREPROD_ERA_HISTORY, Slot, any_network_name, load_era_history_from_file};
-    use proptest::prelude::*;
-    use proptest::proptest;
-    use std::cmp::{max, min};
-    use std::{env, fs::File, io::Write, path::Path, str::FromStr};
+    use crate::{
+        Epoch, PREPROD_ERA_HISTORY, Slot, any_era_name, any_network_name,
+        load_era_history_from_file,
+    };
+    use proptest::{prelude::*, proptest};
+    use std::{
+        cmp::{max, min},
+        env,
+        fs::File,
+        io::Write,
+        path::Path,
+        str::FromStr,
+    };
     use test_case::test_case;
 
     prop_compose! {
@@ -1321,7 +1326,7 @@ mod tests {
     #[test]
     fn encode_era_history() {
         let eras = one_era();
-        let buffer = minicbor::to_vec(&eras).unwrap();
+        let buffer = cbor::to_vec(&eras).unwrap();
         assert_eq!(
             hex::encode(buffer),
             "9f9f83000000f6831a000151801b000000e8d4a5100007ffff"
@@ -1338,7 +1343,7 @@ mod tests {
         //  [[0, 0, 0], [259200000000000000, 259200, 3]],
         //  [[259200000000000000, 259200, 3], [55814400000000000000, 55814400, 646]]]
         let buffer = hex::decode("868283000000830000008283000000830000008283000000830000008283000000830000008283000000831b0398dd06d5c800001a0003f4800382831b0398dd06d5c800001a0003f4800383c2490306949515279000001a0353a900190286").unwrap();
-        let eras: Vec<(Bound, Bound)> = minicbor::decode(&buffer).unwrap();
+        let eras: Vec<(Bound, Bound)> = cbor::decode(&buffer).unwrap();
 
         assert_eq!(eras[5].1.time_ms, TimeMs::new(55814400000));
     }
@@ -1348,7 +1353,7 @@ mod tests {
         // CBOR encoding for
         //   [259200000000000000, 259200, 3]
         let buffer = hex::decode("831b0398dd06d5c800001a0003f48003").unwrap();
-        let bound: Bound = minicbor::decode(&buffer)
+        let bound: Bound = cbor::decode(&buffer)
             .expect("cannot decode '831b0398dd06d5c800001a0003f48003' as a Bound");
 
         assert_eq!(bound.time_ms, TimeMs::new(259200000));
@@ -1360,7 +1365,7 @@ mod tests {
         // [558144000000000000001234567890000000000, 55814400, 646]
         let buffer =
             hex::decode("83c25101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
-        let result = minicbor::decode::<Bound>(&buffer);
+        let result = cbor::decode::<Bound>(&buffer);
         assert!(result.is_err());
     }
 
@@ -1370,7 +1375,7 @@ mod tests {
         // [-558144000000000000001234567890000000001, 55814400, 646]
         let buffer =
             hex::decode("83c35101a3e69fd156bd141cccb9fb74768db4001a0353a900190286").unwrap();
-        let result = minicbor::decode::<Bound>(&buffer);
+        let result = cbor::decode::<Bound>(&buffer);
         assert!(result.is_err());
     }
 
@@ -1417,16 +1422,16 @@ mod tests {
     proptest! {
         #[test]
         fn roundtrip_era_history(era_history in arbitrary_era_history()) {
-            let buffer = minicbor::to_vec(&era_history).unwrap();
-            let decoded = minicbor::decode_with(&buffer, &mut era_history.stability_window.clone()).unwrap();
+            let buffer = cbor::to_vec(&era_history).unwrap();
+            let decoded = cbor::decode_with(&buffer, &mut era_history.stability_window.clone()).unwrap();
             assert_eq!(era_history, decoded);
         }
 
         #[test]
         fn roundtrip_bounds(bound in arbitrary_bound()) {
-            let buffer = minicbor::to_vec(&bound).unwrap();
+            let buffer = cbor::to_vec(&bound).unwrap();
             let msg = format!("failed to decode {}", hex::encode(&buffer));
-            let decoded = minicbor::decode(&buffer).expect(&msg);
+            let decoded = cbor::decode(&buffer).expect(&msg);
             assert_eq!(bound, decoded);
         }
     }

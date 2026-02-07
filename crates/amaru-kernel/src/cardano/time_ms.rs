@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use minicbor::{
-    Decode, Decoder, Encode,
-    data::{IanaTag, Type},
-};
+use crate::cbor;
 use num::BigUint;
 use std::{
     fmt,
@@ -96,17 +93,17 @@ impl Mul<TimeMs> for u64 {
 /// Scaling factor between picoseconds and milliseconds
 const PICOS_IN_MILLIS: u64 = 1_000_000_000u64;
 
-impl<C> Encode<C> for TimeMs {
-    fn encode<W: minicbor::encode::Write>(
+impl<C> cbor::Encode<C> for TimeMs {
+    fn encode<W: cbor::encode::Write>(
         &self,
-        e: &mut minicbor::Encoder<W>,
+        e: &mut cbor::Encoder<W>,
         ctx: &mut C,
-    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self.0.checked_mul(PICOS_IN_MILLIS) {
             Some(time_ps) => time_ps.encode(e, ctx),
             None => {
                 let bytes = (BigUint::from(self.0) * PICOS_IN_MILLIS).to_bytes_be();
-                IanaTag::PosBignum.encode(e, ctx)?;
+                cbor::IanaTag::PosBignum.encode(e, ctx)?;
                 e.bytes(&bytes)?;
                 Ok(())
             }
@@ -114,15 +111,17 @@ impl<C> Encode<C> for TimeMs {
     }
 }
 
-impl<'b, C> Decode<'b, C> for TimeMs {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+impl<'b, C> cbor::Decode<'b, C> for TimeMs {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        use cbor::Type::*;
+
         let datatype = d.datatype();
         (match datatype {
-            Ok(Type::Tag) => {
+            Ok(Tag) => {
                 // consume and validate tag
                 let tag = d.tag()?;
-                if tag != IanaTag::PosBignum.into() {
-                    return Err(minicbor::decode::Error::message(format!(
+                if tag != cbor::IanaTag::PosBignum.into() {
+                    return Err(cbor::decode::Error::message(format!(
                         "Unexpected CBOR tag decoding TimeMs: {tag} (expected positive bignum)"
                     )));
                 };
@@ -143,21 +142,15 @@ impl<'b, C> Decode<'b, C> for TimeMs {
                 let num = BigUint::from_bytes_be(bytes);
                 let num_ms = num / PICOS_IN_MILLIS;
                 if num_ms > BigUint::from(u64::MAX) {
-                    Err(minicbor::decode::Error::message(
-                        "Unsigned integer too large",
-                    ))
+                    Err(cbor::decode::Error::message("Unsigned integer too large"))
                 } else {
                     Ok(num_ms.try_into().map_err(|e| {
-                        minicbor::decode::Error::message(format!(
-                            "Error converting BigUint to u64 {e}"
-                        ))
+                        cbor::decode::Error::message(format!("Error converting BigUint to u64 {e}"))
                     })?)
                 }
             }
-            Ok(Type::U64) | Ok(Type::U32) | Ok(Type::U16) | Ok(Type::U8) => {
-                d.u64().map(|ps| ps / PICOS_IN_MILLIS)
-            }
-            Ok(t) => Err(minicbor::decode::Error::message(format!(
+            Ok(U64) | Ok(U32) | Ok(U16) | Ok(U8) => d.u64().map(|ps| ps / PICOS_IN_MILLIS),
+            Ok(t) => Err(cbor::decode::Error::message(format!(
                 "Unhandled type decoding TimeMs: {t}"
             ))),
             Err(err) => Err(err),
