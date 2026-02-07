@@ -20,9 +20,16 @@ use pure_stage::{
 use std::sync::Arc;
 
 /// Implementation of ChainStore using pure_stage::Effects.
-#[derive(Clone)]
 pub struct Store<T> {
     effects: Effects<T>,
+}
+
+impl<T> Clone for Store<T> {
+    fn clone(&self) -> Self {
+        Self {
+            effects: self.effects.clone(),
+        }
+    }
 }
 
 impl<T> Store<T> {
@@ -113,7 +120,7 @@ pub type ResourceHeaderStore = Arc<dyn ChainStore<BlockHeader>>;
 pub type ResourceParameters = GlobalParameters;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct StoreHeaderEffect {
+pub struct StoreHeaderEffect {
     header: BlockHeader,
 }
 
@@ -143,7 +150,7 @@ impl ExternalEffectAPI for StoreHeaderEffect {
 impl ExternalEffectSync for StoreHeaderEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct StoreBlockEffect {
+pub struct StoreBlockEffect {
     hash: HeaderHash,
     block: RawBlock,
 }
@@ -265,7 +272,7 @@ impl ExternalEffectAPI for PutNoncesEffect {
 impl ExternalEffectSync for PutNoncesEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct HasHeaderEffect {
+pub struct HasHeaderEffect {
     hash: HeaderHash,
 }
 
@@ -295,7 +302,7 @@ impl ExternalEffectAPI for HasHeaderEffect {
 impl ExternalEffectSync for HasHeaderEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct LoadFromBestChainEffect {
+pub struct LoadFromBestChainEffect {
     point: Point,
 }
 
@@ -325,7 +332,7 @@ impl ExternalEffectAPI for LoadFromBestChainEffect {
 impl ExternalEffectSync for LoadFromBestChainEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct NextBestChainEffect {
+pub struct NextBestChainEffect {
     point: Point,
 }
 
@@ -355,7 +362,7 @@ impl ExternalEffectAPI for NextBestChainEffect {
 impl ExternalEffectSync for NextBestChainEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct LoadHeaderEffect {
+pub struct LoadHeaderEffect {
     hash: HeaderHash,
 }
 

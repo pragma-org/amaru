@@ -26,8 +26,13 @@ pub trait MetricsOps: Clone + Send {
 }
 
 /// Implementation of MetricsOps using pure_stage::Effects.
-#[derive(Clone)]
 pub struct Metrics<'a, T>(&'a Effects<T>);
+
+impl<'a, T> Clone for Metrics<'a, T> {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
 
 impl<'a, T> Metrics<'a, T> {
     pub fn new(eff: &'a Effects<T>) -> Metrics<'a, T> {
@@ -35,7 +40,7 @@ impl<'a, T> Metrics<'a, T> {
     }
 }
 
-impl<T: Clone + SendData + Sync> MetricsOps for Metrics<'_, T> {
+impl<T: SendData + Sync> MetricsOps for Metrics<'_, T> {
     fn record(&self, event: MetricsEvent) -> BoxFuture<'static, ()> {
         self.0.external(RecordMetricsEffect::new(event))
     }

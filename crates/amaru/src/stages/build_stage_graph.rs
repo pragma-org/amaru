@@ -62,7 +62,10 @@ pub fn build_stage_graph(
             use super::ConsensusError::*;
             match error {
                 MissingTip
+                | InvalidHeaderHeight { .. }
                 | InvalidHeader(_, _)
+                | InvalidHeaderPoint(_)
+                | InvalidHeaderVariant(_)
                 | HeaderPointMismatch { .. }
                 | UnknownPoint(_)
                 | InvalidRollback { .. }

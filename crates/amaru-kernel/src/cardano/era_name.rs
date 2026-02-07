@@ -28,34 +28,6 @@ pub enum EraName {
     Dijkstra = 8,
 }
 
-impl<'de> serde::Deserialize<'de> for EraName {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        if deserializer.is_human_readable() {
-            let s = String::deserialize(deserializer)?;
-            Self::from_str(&s).map_err(serde::de::Error::custom)
-        } else {
-            let value = u8::deserialize(deserializer)?;
-            Self::try_from(value).map_err(serde::de::Error::custom)
-        }
-    }
-}
-
-impl serde::Serialize for EraName {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        if serializer.is_human_readable() {
-            serializer.serialize_str(self.as_str())
-        } else {
-            serializer.serialize_u8(*self as u8)
-        }
-    }
-}
-
 pub const ERA_NAMES: [EraName; 8] = [
     EraName::Byron,
     EraName::Shelley,
@@ -78,6 +50,27 @@ impl EraName {
 
     pub const fn as_str(self) -> &'static str {
         ERA_STRINGS[self as usize]
+    }
+
+    pub const fn header_variant(self) -> u8 {
+        (self as u8) - 1
+    }
+
+    pub const fn from_header_variant(variant: u8) -> Result<EraName, EraNameError> {
+        // see https://github.com/IntersectMBO/ouroboros-consensus/blob/bf6ade5fea033dc5d38a02a22d2370fcbc18a3fe/ouroboros-consensus-cardano/cddl/base.cddl
+        // in conjunction with
+        // https://github.com/IntersectMBO/ouroboros-consensus/blob/bf6ade5fea033dc5d38a02a22d2370fcbc18a3fe/ouroboros-consensus-cardano/cddl/node-to-node/chainsync/header.cddl
+        match variant {
+            0 => Ok(EraName::Byron),
+            1 => Ok(EraName::Shelley),
+            2 => Ok(EraName::Allegra),
+            3 => Ok(EraName::Mary),
+            4 => Ok(EraName::Alonzo),
+            5 => Ok(EraName::Babbage),
+            6 => Ok(EraName::Conway),
+            7 => Ok(EraName::Dijkstra),
+            _ => Err(EraNameError::InvalidEraTag(variant)),
+        }
     }
 }
 
@@ -133,6 +126,34 @@ impl TryFrom<u8> for EraName {
             7 => Ok(EraName::Conway),
             8 => Ok(EraName::Dijkstra),
             _ => Err(EraNameError::InvalidEraTag(value)),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for EraName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let s = String::deserialize(deserializer)?;
+            Self::from_str(&s).map_err(serde::de::Error::custom)
+        } else {
+            let value = u8::deserialize(deserializer)?;
+            Self::try_from(value).map_err(serde::de::Error::custom)
+        }
+    }
+}
+
+impl serde::Serialize for EraName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(self.as_str())
+        } else {
+            serializer.serialize_u8(*self as u8)
         }
     }
 }

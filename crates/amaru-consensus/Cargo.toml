@@ -44,11 +44,14 @@ pure-stage.workspace = true
 
 [dev-dependencies]
 hex.workspace = true
+pretty_assertions.workspace = true
 proptest.workspace = true
 rand.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
+tracing-subscriber.workspace = true
+
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 amaru-stores.workspace = true

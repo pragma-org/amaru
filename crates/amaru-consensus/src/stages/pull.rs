@@ -41,7 +41,7 @@ pub async fn stage(
             tracker.caught_up(&msg.peer);
         }
         RollForward(header_content, tip) => {
-            tracing::trace!(peer = %msg.peer, variant = header_content.variant,
+            tracing::trace!(peer = %msg.peer, variant = header_content.variant.as_str(),
                 byron_prefix = ?header_content.byron_prefix, tip_point = %tip.point(), "roll forward");
             eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
                 .await;

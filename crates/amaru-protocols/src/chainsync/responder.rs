@@ -21,7 +21,7 @@ use crate::{
     },
     store_effects::Store,
 };
-use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
+use amaru_kernel::{BlockHeader, EraName, IsHeader, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -176,7 +176,7 @@ fn next_header(
         .ok_or_else(|| anyhow::anyhow!("best-chain header not found: {}", point))?;
     *pointer = point;
     Ok(Some(ResponderAction::RollForward(
-        HeaderContent::v6(&header),
+        HeaderContent::new(&header, EraName::Conway),
         tip,
     )))
 }
@@ -340,7 +340,12 @@ mod tests {
         let find_intersect = || FindIntersect(vec![Point::Origin]);
         let intersect_found = || IntersectFound(Point::Origin, Tip::origin());
         let intersect_not_found = || IntersectNotFound(Tip::origin());
-        let roll_forward = || RollForward(HeaderContent::make_v6(vec![]), Tip::origin());
+        let roll_forward = || {
+            RollForward(
+                HeaderContent::with_bytes(vec![], EraName::Conway),
+                Tip::origin(),
+            )
+        };
         let roll_backward = || RollBackward(Point::Origin, Tip::origin());
 
         let mut spec = ProtoSpec::default();
