@@ -21,7 +21,7 @@ use amaru_kernel::{
     NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ShelleyDelegationPart,
     ShelleyPaymentPart, StakeCredential,
 };
-use std::{borrow::Cow, collections::BTreeMap};
+use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
 use thiserror::Error;
 
 /// Represents an error that occured during serialization to `PlutusData`.
@@ -164,17 +164,24 @@ where
     }
 }
 
+#[allow(clippy::expect_used)]
+fn system_time_to_posix_millis(st: SystemTime) -> u64 {
+    st.duration_since(SystemTime::UNIX_EPOCH)
+        .expect("system time before Unix epoch?")
+        .as_millis() as u64
+}
+
 impl<const V: u8> ToPlutusData<V> for TimeRange
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         let lower = match self.lower_bound {
-            Some(x) => constr!(0, [constr!(1, [u64::from(x)])?, true]),
+            Some(x) => constr!(0, [constr!(1, [system_time_to_posix_millis(x)])?, true]),
             None => constr!(0, [constr!(0)?, true]),
         };
         let upper = match self.upper_bound {
-            Some(x) => constr!(0, [constr!(1, [u64::from(x)])?, false]),
+            Some(x) => constr!(0, [constr!(1, [system_time_to_posix_millis(x)])?, false]),
             None => constr!(0, [constr!(2)?, true]),
         };
 

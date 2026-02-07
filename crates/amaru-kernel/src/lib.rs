@@ -129,15 +129,13 @@ pub use cardano::{
         BorrowedStakeCredential, StakeCredential, stake_credential_from_reward_account,
     },
     stake_credential_kind::StakeCredentialKind,
-    time_ms::TimeMs,
     tip::Tip,
     transaction::Transaction,
     transaction_body::TransactionBody,
     transaction_input::{TransactionInput, transaction_input_to_string},
     transaction_pointer::TransactionPointer,
     value::Value,
-    vkey_witness::verify_ed25519_signature,
-    vkey_witness::{InvalidEd25519Signature, VKeyWitness},
+    vkey_witness::{InvalidEd25519Signature, VKeyWitness, verify_ed25519_signature},
     vote::Vote,
     voter::Voter,
     voter_kind::VoterKind,
@@ -186,9 +184,9 @@ pub use cardano::{
 
 pub mod cbor {
     pub use amaru_minicbor_extra::{
-        TAG_MAP_259, TAG_SET_258, allow_tag, check_tagged_array_length, decode_break, from_cbor,
-        from_cbor_no_leftovers, heterogeneous_array, heterogeneous_map, lazy, missing_field, tee,
-        to_cbor, unexpected_field,
+        TAG_MAP_259, TAG_SET_258, allow_tag, check_tagged_array_length, decode_break, expect_tag,
+        from_cbor, from_cbor_no_leftovers, heterogeneous_array, heterogeneous_map, lazy,
+        missing_field, tee, to_cbor, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,

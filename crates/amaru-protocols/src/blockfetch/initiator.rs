@@ -12,21 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::blockfetch::responder::MAX_FETCHED_BLOCKS;
 use crate::{
-    blockfetch::{State, messages::Message},
+    blockfetch::{State, messages::Message, responder::MAX_FETCHED_BLOCKS},
     mux::MuxMessage,
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, StageState,
         miniprotocol, outcome,
     },
 };
-use amaru_kernel::cardano::network_block::NetworkBlock;
-use amaru_kernel::{EraHistory, IsHeader, Peer, Point, RawBlock};
+use amaru_kernel::{
+    EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock,
+};
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use std::sync::Arc;
-use std::{collections::VecDeque, mem};
+use std::{collections::VecDeque, mem, sync::Arc};
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -360,12 +359,12 @@ pub mod tests {
     use super::*;
     use crate::protocol::Initiator;
     use amaru_kernel::{
-        BlockHeader, Epoch, EraName, EraParams, HeaderHash, IsHeader, Slot, TimeMs,
-        any_headers_chain,
+        BlockHeader, Epoch, EraName, EraParams, HeaderHash, IsHeader, Slot, any_headers_chain,
         cardano::era_history::{Bound, Summary},
         cbor, make_header,
         utils::tests::run_strategy,
     };
+    use std::time::Duration;
 
     #[test]
     #[expect(clippy::wildcard_enum_match_arm)]
@@ -575,12 +574,13 @@ pub mod tests {
         Arc::new(EraHistory::new(
             &[Summary {
                 start: Bound {
-                    time_ms: TimeMs::from(0),
+                    time: Duration::from_secs(0),
                     slot: Slot::from(0),
                     epoch: Epoch::from(0),
                 },
                 end: None,
-                params: EraParams::new(86400, 1000, EraName::Conway).expect("valid era params"),
+                params: EraParams::new(86400, Duration::from_secs(1), EraName::Conway)
+                    .expect("valid era params"),
             }],
             Slot::from(2160 * 3),
         ))

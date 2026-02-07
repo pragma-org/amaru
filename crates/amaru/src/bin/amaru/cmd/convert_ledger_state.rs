@@ -14,11 +14,14 @@
 
 use amaru::{DEFAULT_NETWORK, bootstrap::InitialNonces};
 use amaru_kernel::{
-    EraHistory, EraName, EraParams, Hash, HeaderHash, NetworkName, Nonce, Point, TimeMs,
+    EraHistory, EraName, EraParams, Hash, HeaderHash, NetworkName, Nonce, Point,
     cardano::era_history::{Bound, Summary},
     cbor,
 };
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tokio::fs::{self};
 use tracing::{debug, info};
 
@@ -137,7 +140,7 @@ async fn convert_snapshot_to(
         // protocol parameters which are decoded later down the road.
         params: EraParams {
             epoch_size_slots: network.default_epoch_size_in_slots(),
-            slot_length: TimeMs::new(1000),
+            slot_length: Duration::from_secs(1),
             era_name: EraName::Conway,
         },
     });
@@ -283,7 +286,7 @@ fn decode_eras(
             #[expect(clippy::expect_used)]
             EraParams {
                 epoch_size_slots: network.default_epoch_size_in_slots(),
-                slot_length: TimeMs::new(0),
+                slot_length: Duration::from_secs(0),
                 era_name: EraName::try_from(era_tag).expect("iteration over known era tags"),
             }
         } else {
@@ -291,8 +294,8 @@ fn decode_eras(
             let start_slot = u64::from(start.slot);
             let end_epoch = u64::from(end.epoch);
             let start_epoch = u64::from(start.epoch);
-            let end_ms = u64::from(end.time_ms);
-            let start_ms = u64::from(start.time_ms);
+            let end_ms = end.time.as_millis() as u64;
+            let start_ms = start.time.as_millis() as u64;
 
             if end_slot <= start_slot || end_epoch <= start_epoch {
                 return Err("Invalid era bounds (non-increasing)".into());
@@ -302,7 +305,7 @@ fn decode_eras(
             let time_ms_elapsed = end_ms.saturating_sub(start_ms);
 
             // end_slot > start_slot => slots_elapsed > 0
-            let slot_length = TimeMs::new(time_ms_elapsed / slots_elapsed);
+            let slot_length = Duration::from_millis(time_ms_elapsed / slots_elapsed);
 
             #[expect(clippy::expect_used)]
             EraParams {

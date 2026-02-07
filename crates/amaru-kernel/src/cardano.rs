@@ -92,7 +92,6 @@ pub mod script_purpose;
 pub mod slot;
 pub mod stake_credential;
 pub mod stake_credential_kind;
-pub mod time_ms;
 pub mod tip;
 pub mod transaction;
 pub mod transaction_body;

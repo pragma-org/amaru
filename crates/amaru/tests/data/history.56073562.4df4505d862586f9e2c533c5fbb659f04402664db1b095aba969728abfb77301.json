@@ -1,1 +1,120 @@
-{"stability_window":25920,"eras":[{"start":{"time_ms":0,"slot":0,"epoch":0},"end":{"time_ms":0,"slot":0,"epoch":0},"params":{"epoch_size_slots":86400,"slot_length":0,"era_name":"Byron"}},{"start":{"time_ms":0,"slot":0,"epoch":0},"end":{"time_ms":0,"slot":0,"epoch":0},"params":{"epoch_size_slots":86400,"slot_length":0,"era_name":"Shelley"}},{"start":{"time_ms":0,"slot":0,"epoch":0},"end":{"time_ms":0,"slot":0,"epoch":0},"params":{"epoch_size_slots":86400,"slot_length":0,"era_name":"Allegra"}},{"start":{"time_ms":0,"slot":0,"epoch":0},"end":{"time_ms":0,"slot":0,"epoch":0},"params":{"epoch_size_slots":86400,"slot_length":0,"era_name":"Mary"}},{"start":{"time_ms":0,"slot":0,"epoch":0},"end":{"time_ms":259200000,"slot":259200,"epoch":3},"params":{"epoch_size_slots":86400,"slot_length":1000,"era_name":"Alonzo"}},{"start":{"time_ms":259200000,"slot":259200,"epoch":3},"end":{"time_ms":55814400000,"slot":55814400,"epoch":646},"params":{"epoch_size_slots":86400,"slot_length":1000,"era_name":"Babbage"}},{"start":{"time_ms":55814400000,"slot":55814400,"epoch":646},"end":null,"params":{"epoch_size_slots":86400,"slot_length":1000,"era_name":"Conway"}}]}
+{
+  "stability_window": 25920,
+  "eras": [
+    {
+      "start": {
+        "time": 0,
+        "slot": 0,
+        "epoch": 0
+      },
+      "end": {
+        "time": 0,
+        "slot": 0,
+        "epoch": 0
+      },
+      "params": {
+        "epoch_size_slots": 86400,
+        "slot_length": 0,
+        "era_name": "Byron"
+      }
+    },
+    {
+      "start": {
+        "time": 0,
+        "slot": 0,
+        "epoch": 0
+      },
+      "end": {
+        "time": 0,
+        "slot": 0,
+        "epoch": 0
+      },
+      "params": {
+        "epoch_size_slots": 86400,
+        "slot_length": 0,
+        "era_name": "Shelley"
+      }
+    },
+    {
+      "start": {
+        "time": 0,
+        "slot": 0,
+        "epoch": 0
+      },
+      "end": {
+        "time": 0,
+        "slot": 0,
+        "epoch": 0
+      },
+      "params": {
+        "epoch_size_slots": 86400,
+        "slot_length": 0,
+        "era_name": "Allegra"
+      }
+    },
+    {
+      "start": {
+        "time": 0,
+        "slot": 0,
+        "epoch": 0
+      },
+      "end": {
+        "time": 0,
+        "slot": 0,
+        "epoch": 0
+      },
+      "params": {
+        "epoch_size_slots": 86400,
+        "slot_length": 0,
+        "era_name": "Mary"
+      }
+    },
+    {
+      "start": {
+        "time": 0,
+        "slot": 0,
+        "epoch": 0
+      },
+      "end": {
+        "time": 259200,
+        "slot": 259200,
+        "epoch": 3
+      },
+      "params": {
+        "epoch_size_slots": 86400,
+        "slot_length": 1000,
+        "era_name": "Alonzo"
+      }
+    },
+    {
+      "start": {
+        "time": 259200,
+        "slot": 259200,
+        "epoch": 3
+      },
+      "end": {
+        "time": 55814400,
+        "slot": 55814400,
+        "epoch": 646
+      },
+      "params": {
+        "epoch_size_slots": 86400,
+        "slot_length": 1000,
+        "era_name": "Babbage"
+      }
+    },
+    {
+      "start": {
+        "time": 55814400,
+        "slot": 55814400,
+        "epoch": 646
+      },
+      "end": null,
+      "params": {
+        "epoch_size_slots": 86400,
+        "slot_length": 1000,
+        "era_name": "Conway"
+      }
+    }
+  ]
+}

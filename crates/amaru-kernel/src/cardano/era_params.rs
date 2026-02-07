@@ -12,26 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{EraName, TimeMs, cbor};
+use crate::{EraName, cbor, utils::cbor::SerialisedAsMillis};
+use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EraParams {
     pub epoch_size_slots: u64,
-    pub slot_length: TimeMs,
+    #[serde(deserialize_with = "SerialisedAsMillis::deserialize")]
+    #[serde(serialize_with = "SerialisedAsMillis::serialize")]
+    pub slot_length: Duration,
     pub era_name: EraName,
 }
 
 impl EraParams {
-    pub fn new(epoch_size_slots: u64, slot_length_ms: u64, era_name: EraName) -> Option<Self> {
+    pub fn new(epoch_size_slots: u64, slot_length: Duration, era_name: EraName) -> Option<Self> {
         if epoch_size_slots == 0 {
             return None;
         }
-        if slot_length_ms == 0 {
+        if slot_length.is_zero() {
             return None;
         }
         Some(EraParams {
             epoch_size_slots,
-            slot_length: TimeMs::new(slot_length_ms),
+            slot_length,
             era_name,
         })
     }
@@ -45,7 +48,7 @@ impl<C> cbor::Encode<C> for EraParams {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(3)?;
         self.epoch_size_slots.encode(e, ctx)?;
-        self.slot_length.encode(e, ctx)?;
+        SerialisedAsMillis::from(self.slot_length).encode(e, ctx)?;
         self.era_name.encode(e, ctx)?;
         Ok(())
     }
@@ -60,11 +63,11 @@ impl<'b, C> cbor::Decode<'b, C> for EraParams {
             )));
         }
         let epoch_size_slots = d.decode()?;
-        let slot_length = d.decode()?;
+        let slot_length: SerialisedAsMillis = d.decode()?;
         let era_name = d.decode()?;
         Ok(EraParams {
             epoch_size_slots,
-            slot_length,
+            slot_length: Duration::from(slot_length),
             era_name,
         })
     }
