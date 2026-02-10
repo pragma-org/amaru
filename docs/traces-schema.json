@@ -4,117 +4,62 @@
   "title": "Amaru Trace Schemas",
   "description": "JSON Schema definitions for all registered traces in Amaru",
   "definitions": {
-    "ledger::state::RATIFICATION_CONTEXT_NEW": {
+    "consensus::chain_sync::DECODE_HEADER": {
       "type": "object",
       "properties": {},
       "required": [],
       "optional": [],
       "additionalProperties": false,
-      "name": "ratification_context_new",
+      "name": "decode_header",
       "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Create ratification context"
+      "target": "consensus::chain_sync",
+      "description": "Decode header from raw bytes"
     },
-    "ledger::state::ROLL_BACKWARD": {
+    "consensus::chain_sync::PULL": {
       "type": "object",
       "properties": {},
       "required": [],
       "optional": [],
       "additionalProperties": false,
-      "name": "roll_backward",
+      "name": "pull",
       "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Roll backward to a specific point"
+      "target": "consensus::chain_sync",
+      "description": "Chain sync pull operation"
     },
-    "ledger::state::RESET_BLOCKS_COUNT": {
+    "consensus::chain_sync::RECEIVE_HEADER": {
       "type": "object",
       "properties": {},
       "required": [],
       "optional": [],
       "additionalProperties": false,
-      "name": "reset_blocks_count",
+      "name": "receive_header",
       "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Reset blocks count to zero"
+      "target": "consensus::chain_sync",
+      "description": "Pull chain updates from peer"
     },
-    "ledger::state::RESET_FEES": {
+    "consensus::chain_sync::RECEIVE_HEADER_DECODE_FAILED": {
       "type": "object",
       "properties": {},
       "required": [],
       "optional": [],
       "additionalProperties": false,
-      "name": "reset_fees",
+      "name": "receive_header_decode_failed",
       "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Reset fees to zero"
+      "target": "consensus::chain_sync",
+      "description": "Header decode failed from received data"
     },
-    "ledger::state::COMPUTE_STAKE_DISTRIBUTION_NAMED": {
+    "consensus::chain_sync::SELECT_CHAIN": {
       "type": "object",
       "properties": {},
       "required": [],
       "optional": [],
       "additionalProperties": false,
-      "name": "compute_stake_distribution_named",
+      "name": "select_chain",
       "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Compute stake distribution for epoch"
+      "target": "consensus::chain_sync",
+      "description": "Select best chain from available headers"
     },
-    "ledger::state::BEGIN_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "begin_epoch",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Begin epoch operations"
-    },
-    "ledger::state::END_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "end_epoch",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "End epoch operations"
-    },
-    "ledger::state::FORWARD": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "forward",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Forward ledger state with new volatile state"
-    },
-    "ledger::state::COMPUTE_REWARDS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "compute_rewards",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Compute rewards for epoch"
-    },
-    "ledger::state::TICK_POOL": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "tick_pool",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Tick pool operations"
-    },
-    "ledger::state::VALIDATE_BLOCK": {
+    "consensus::chain_sync::VALIDATE_BLOCK": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -122,203 +67,92 @@
       "additionalProperties": false,
       "name": "validate_block",
       "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Validate block against rules"
+      "target": "consensus::chain_sync",
+      "description": "Validate block properties"
     },
-    "ledger::state::PREPARE_BLOCK": {
+    "consensus::chain_sync::VALIDATE_HEADER": {
       "type": "object",
       "properties": {},
       "required": [],
       "optional": [],
       "additionalProperties": false,
-      "name": "prepare_block",
+      "name": "validate_header",
       "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Prepare block for validation"
+      "target": "consensus::chain_sync",
+      "description": "Validate header properties"
     },
-    "ledger::state::TICK_PROPOSALS": {
-      "type": "object",
-      "properties": {
-        "proposals_count": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "proposals_count"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "tick_proposals",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Tick proposals for ratification"
-    },
-    "ledger::state::COMPUTE_STAKE_DISTRIBUTION": {
-      "type": "object",
-      "properties": {
-        "epoch": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "epoch"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "compute_stake_distribution",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Compute stake distribution for epoch"
-    },
-    "ledger::state::CREATE_VALIDATION_CONTEXT": {
-      "type": "object",
-      "properties": {
-        "block_body_hash": {
-          "type": "string"
-        },
-        "block_number": {
-          "type": "integer"
-        },
-        "block_body_size": {
-          "type": "integer"
-        },
-        "total_inputs": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "block_body_hash",
-        "block_number",
-        "block_body_size"
-      ],
-      "optional": [
-        "total_inputs"
-      ],
-      "additionalProperties": false,
-      "name": "create_validation_context",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Create validation context for a block"
-    },
-    "ledger::state::RESOLVE_INPUTS": {
-      "type": "object",
-      "properties": {
-        "resolved_from_context": {
-          "type": "integer"
-        },
-        "resolved_from_volatile": {
-          "type": "integer"
-        },
-        "resolved_from_db": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "resolved_from_context",
-        "resolved_from_volatile",
-        "resolved_from_db"
-      ],
-      "additionalProperties": false,
-      "name": "resolve_inputs",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Resolve transaction inputs from various sources"
-    },
-    "ledger::state::EPOCH_TRANSITION": {
-      "type": "object",
-      "properties": {
-        "from": {
-          "type": "integer"
-        },
-        "into": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "from",
-        "into"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "epoch_transition",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Epoch transition processing"
-    },
-    "ledger::state::APPLY_BLOCK": {
-      "type": "object",
-      "properties": {
-        "point_slot": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "point_slot"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "apply_block",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Apply a block to stable state"
-    },
-    "ledger::state::ROLL_FORWARD": {
+    "consensus::diffusion::FETCH_BLOCK": {
       "type": "object",
       "properties": {},
       "required": [],
       "optional": [],
       "additionalProperties": false,
-      "name": "roll_forward",
+      "name": "fetch_block",
       "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Roll forward ledger state with a new block"
+      "target": "consensus::diffusion",
+      "description": "Fetch a block from the network"
     },
-    "ledger::rules::PARSE_BLOCK": {
+    "consensus::diffusion::FORWARD_CHAIN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forward_chain",
+      "level": "TRACE",
+      "target": "consensus::diffusion",
+      "description": "Forward chain operations"
+    },
+    "consensus::validate_header::EVOLVE_NONCE": {
       "type": "object",
       "properties": {
-        "block_size": {
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "evolve_nonce",
+      "level": "TRACE",
+      "target": "consensus::validate_header",
+      "description": "Evolve the nonce based on header"
+    },
+    "consensus::validate_header::VALIDATE": {
+      "type": "object",
+      "properties": {
+        "issuer_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "issuer_key"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate",
+      "level": "TRACE",
+      "target": "consensus::validate_header",
+      "description": "Validate header cryptographic properties"
+    },
+    "ledger::context::ADD_FEES": {
+      "type": "object",
+      "properties": {
+        "fee": {
           "type": "integer"
         }
       },
       "required": [
-        "block_size"
+        "fee"
       ],
       "optional": [],
       "additionalProperties": false,
-      "name": "parse_block",
+      "name": "add_fees",
       "level": "TRACE",
-      "target": "ledger::rules",
-      "description": "Parse raw block bytes"
-    },
-    "ledger::governance::RATIFY_PROPOSALS": {
-      "type": "object",
-      "properties": {
-        "roots_protocol_parameters": {
-          "type": "string"
-        },
-        "roots_hard_fork": {
-          "type": "string"
-        },
-        "roots_constitutional_committee": {
-          "type": "string"
-        },
-        "roots_constitution": {
-          "type": "string"
-        }
-      },
-      "required": [],
-      "optional": [
-        "roots_protocol_parameters",
-        "roots_hard_fork",
-        "roots_constitutional_committee",
-        "roots_constitution"
-      ],
-      "additionalProperties": false,
-      "name": "ratify_proposals",
-      "level": "TRACE",
-      "target": "ledger::governance",
-      "description": "Ratify proposals at epoch boundary"
+      "target": "ledger::context",
+      "description": "Add transaction fees to pots"
     },
     "ledger::context::REQUIRE_BOOTSTRAP_WITNESS": {
       "type": "object",
@@ -417,16 +251,688 @@
       "target": "ledger::context",
       "description": "Withdraw from stake credential"
     },
-    "consensus::chain_sync::DECODE_HEADER": {
+    "ledger::governance::RATIFY_PROPOSALS": {
+      "type": "object",
+      "properties": {
+        "roots_protocol_parameters": {
+          "type": "string"
+        },
+        "roots_hard_fork": {
+          "type": "string"
+        },
+        "roots_constitutional_committee": {
+          "type": "string"
+        },
+        "roots_constitution": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "optional": [
+        "roots_protocol_parameters",
+        "roots_hard_fork",
+        "roots_constitutional_committee",
+        "roots_constitution"
+      ],
+      "additionalProperties": false,
+      "name": "ratify_proposals",
+      "level": "TRACE",
+      "target": "ledger::governance",
+      "description": "Ratify proposals at epoch boundary"
+    },
+    "ledger::rules::PARSE_BLOCK": {
+      "type": "object",
+      "properties": {
+        "block_size": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "block_size"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "parse_block",
+      "level": "TRACE",
+      "target": "ledger::rules",
+      "description": "Parse raw block bytes"
+    },
+    "ledger::state::APPLY_BLOCK": {
+      "type": "object",
+      "properties": {
+        "point_slot": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "point_slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "apply_block",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Apply a block to stable state"
+    },
+    "ledger::state::BEGIN_EPOCH": {
       "type": "object",
       "properties": {},
       "required": [],
       "optional": [],
       "additionalProperties": false,
-      "name": "decode_header",
+      "name": "begin_epoch",
       "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Decode header from raw bytes"
+      "target": "ledger::state",
+      "description": "Begin epoch operations"
+    },
+    "ledger::state::CLEANUP_EXPIRED_PROPOSALS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "cleanup_expired_proposals",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Cleanup expired proposals"
+    },
+    "ledger::state::CLEANUP_OLD_EPOCHS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "cleanup_old_epochs",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Cleanup old epochs"
+    },
+    "ledger::state::COMPUTE_REWARDS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "compute_rewards",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Compute rewards for epoch"
+    },
+    "ledger::state::COMPUTE_STAKE_DISTRIBUTION": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "compute_stake_distribution",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Compute stake distribution for epoch"
+    },
+    "ledger::state::COMPUTE_STAKE_DISTRIBUTION_NAMED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "compute_stake_distribution_named",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Compute stake distribution for epoch"
+    },
+    "ledger::state::CREATE_VALIDATION_CONTEXT": {
+      "type": "object",
+      "properties": {
+        "block_body_hash": {
+          "type": "string"
+        },
+        "block_number": {
+          "type": "integer"
+        },
+        "block_body_size": {
+          "type": "integer"
+        },
+        "total_inputs": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "block_body_hash",
+        "block_number",
+        "block_body_size"
+      ],
+      "optional": [
+        "total_inputs"
+      ],
+      "additionalProperties": false,
+      "name": "create_validation_context",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Create validation context for a block"
+    },
+    "ledger::state::END_EPOCH": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "end_epoch",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "End epoch operations"
+    },
+    "ledger::state::EPOCH_TRANSITION": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "integer"
+        },
+        "into": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "into"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "epoch_transition",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Epoch transition processing"
+    },
+    "ledger::state::FORWARD": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forward",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Forward ledger state with new volatile state"
+    },
+    "ledger::state::MANAGE_TRANSACTION_OUTPUTS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "manage_transaction_outputs",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Manage transaction outputs"
+    },
+    "ledger::state::PREPARE_BLOCK": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "prepare_block",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Prepare block for validation"
+    },
+    "ledger::state::RATIFICATION_CONTEXT_NEW": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "ratification_context_new",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Create ratification context"
+    },
+    "ledger::state::RESET_BLOCKS_COUNT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "reset_blocks_count",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Reset blocks count to zero"
+    },
+    "ledger::state::RESET_FEES": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "reset_fees",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Reset fees to zero"
+    },
+    "ledger::state::RESOLVE_INPUTS": {
+      "type": "object",
+      "properties": {
+        "resolved_from_context": {
+          "type": "integer"
+        },
+        "resolved_from_volatile": {
+          "type": "integer"
+        },
+        "resolved_from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "resolved_from_context",
+        "resolved_from_volatile",
+        "resolved_from_db"
+      ],
+      "additionalProperties": false,
+      "name": "resolve_inputs",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Resolve transaction inputs from various sources"
+    },
+    "ledger::state::ROLL_BACKWARD": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "roll_backward",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Roll backward to a specific point"
+    },
+    "ledger::state::ROLL_FORWARD": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "roll_forward",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Roll forward ledger state with a new block"
+    },
+    "ledger::state::TICK_POOL": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "tick_pool",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Tick pool operations"
+    },
+    "ledger::state::TICK_PROPOSALS": {
+      "type": "object",
+      "properties": {
+        "proposals_count": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "proposals_count"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "tick_proposals",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Tick proposals for ratification"
+    },
+    "ledger::state::VALIDATE_BLOCK": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate_block",
+      "level": "TRACE",
+      "target": "ledger::state",
+      "description": "Validate block against rules"
+    },
+    "network::chainsync_client::FIND_INTERSECTION": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "intersection_slot": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "intersection_slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "find_intersection",
+      "level": "TRACE",
+      "target": "network::chainsync_client",
+      "description": "Find chain intersection point with peer"
+    },
+    "network::connection::ACCEPT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "accept",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Accept a connection"
+    },
+    "network::connection::ACCEPT_LOOP": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "accept_loop",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Accept loop for incoming connections"
+    },
+    "network::connection::CLOSE": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "close",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Close connection"
+    },
+    "network::connection::CONNECT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Connect to addresses"
+    },
+    "network::connection::CONNECT_ADDRS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect_addrs",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Connect to multiple addresses"
+    },
+    "network::connection::LISTEN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "listen",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Listen on address"
+    },
+    "network::connection::RECV": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "recv",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Receive data from connection"
+    },
+    "network::connection::SEND": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "send",
+      "level": "TRACE",
+      "target": "network::connection",
+      "description": "Send data over connection"
+    },
+    "protocols::mux::BUFFER": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "buffer",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Buffer protocol messages"
+    },
+    "protocols::mux::DEMUX": {
+      "type": "object",
+      "properties": {
+        "proto_id": {
+          "type": "integer"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "proto_id",
+        "bytes"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "demux",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Demultiplex incoming bytes"
+    },
+    "protocols::mux::MUX": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "bytes"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "mux",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Multiplex outgoing bytes"
+    },
+    "protocols::mux::NEXT_SEGMENT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "next_segment",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Get next segment to send"
+    },
+    "protocols::mux::OUTGOING": {
+      "type": "object",
+      "properties": {
+        "proto_id": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "proto_id",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "name": "outgoing",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Handle outgoing protocol messages"
+    },
+    "protocols::mux::RECEIVED": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "name": "received",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Handle received protocol data"
+    },
+    "protocols::mux::REGISTER": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "register",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Register protocol with muxer"
+    },
+    "protocols::mux::WANT_NEXT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "want_next",
+      "level": "TRACE",
+      "target": "protocols::mux",
+      "description": "Want next message for protocol"
+    },
+    "simulator::node::HANDLE_MSG": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "handle_msg",
+      "level": "TRACE",
+      "target": "simulator::node",
+      "description": "Handle message in simulator node"
+    },
+    "stage::logging::TEST_SPAN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "test_span",
+      "level": "TRACE",
+      "target": "stage::logging",
+      "description": "Test span for logging"
+    },
+    "stage::tokio::POLL": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "poll",
+      "level": "TRACE",
+      "target": "stage::tokio",
+      "description": "Poll stage operation"
+    },
+    "stores::consensus::READ_BLOCKS": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "read_blocks",
+      "level": "TRACE",
+      "target": "stores::consensus",
+      "description": "Read blocks operations"
+    },
+    "stores::consensus::READ_HEADERS": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "read_headers",
+      "level": "TRACE",
+      "target": "stores::consensus",
+      "description": "Read headers operations"
+    },
+    "stores::consensus::ROLLBACK_CHAIN": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "rollback_chain",
+      "level": "TRACE",
+      "target": "stores::consensus",
+      "description": "Rollback the chain to a point"
+    },
+    "stores::consensus::ROLLBACK_TO_TIP": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "rollback_to_tip",
+      "level": "TRACE",
+      "target": "stores::consensus",
+      "description": "Rollback to tip operations"
     },
     "stores::consensus::ROLL_FORWARD_CHAIN": {
       "type": "object",
@@ -466,6 +972,23 @@
       "target": "stores::consensus",
       "description": "Store a raw block"
     },
+    "stores::consensus::STORE_BLOCK_TO_TIP": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "store_block_to_tip",
+      "level": "TRACE",
+      "target": "stores::consensus",
+      "description": "Store block to tip operations"
+    },
     "stores::consensus::STORE_HEADER": {
       "type": "object",
       "properties": {
@@ -482,461 +1005,6 @@
       "level": "TRACE",
       "target": "stores::consensus",
       "description": "Store a block header"
-    },
-    "stage::tokio::POLL": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "poll",
-      "level": "TRACE",
-      "target": "stage::tokio",
-      "description": "Poll stage operation"
-    },
-    "stage::logging::TEST_SPAN": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "test_span",
-      "level": "TRACE",
-      "target": "stage::logging",
-      "description": "Test span for logging"
-    },
-    "simulator::node::HANDLE_MSG": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "handle_msg",
-      "level": "TRACE",
-      "target": "simulator::node",
-      "description": "Handle message in simulator node"
-    },
-    "protocols::mux::MUX": {
-      "type": "object",
-      "properties": {
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "bytes"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "mux",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Multiplex outgoing bytes"
-    },
-    "protocols::mux::DEMUX": {
-      "type": "object",
-      "properties": {
-        "proto_id": {
-          "type": "integer"
-        },
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "proto_id",
-        "bytes"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "demux",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Demultiplex incoming bytes"
-    },
-    "protocols::mux::WANT_NEXT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "want_next",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Want next message for protocol"
-    },
-    "protocols::mux::RECEIVED": {
-      "type": "object",
-      "properties": {
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "bytes"
-      ],
-      "additionalProperties": false,
-      "name": "received",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Handle received protocol data"
-    },
-    "protocols::mux::NEXT_SEGMENT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "next_segment",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Get next segment to send"
-    },
-    "protocols::mux::OUTGOING": {
-      "type": "object",
-      "properties": {
-        "proto_id": {
-          "type": "string"
-        },
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "proto_id",
-        "bytes"
-      ],
-      "additionalProperties": false,
-      "name": "outgoing",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Handle outgoing protocol messages"
-    },
-    "protocols::mux::BUFFER": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "buffer",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Buffer protocol messages"
-    },
-    "protocols::mux::REGISTER": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "register",
-      "level": "TRACE",
-      "target": "protocols::mux",
-      "description": "Register protocol with muxer"
-    },
-    "network::connection::CLOSE": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "close",
-      "level": "TRACE",
-      "target": "network::connection",
-      "description": "Close connection"
-    },
-    "network::connection::RECV": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "recv",
-      "level": "TRACE",
-      "target": "network::connection",
-      "description": "Receive data from connection"
-    },
-    "network::connection::SEND": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "send",
-      "level": "TRACE",
-      "target": "network::connection",
-      "description": "Send data over connection"
-    },
-    "network::connection::CONNECT_ADDRS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "connect_addrs",
-      "level": "TRACE",
-      "target": "network::connection",
-      "description": "Connect to multiple addresses"
-    },
-    "network::connection::CONNECT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "connect",
-      "level": "TRACE",
-      "target": "network::connection",
-      "description": "Connect to addresses"
-    },
-    "network::connection::ACCEPT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "accept",
-      "level": "TRACE",
-      "target": "network::connection",
-      "description": "Accept a connection"
-    },
-    "network::connection::LISTEN": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "listen",
-      "level": "TRACE",
-      "target": "network::connection",
-      "description": "Listen on address"
-    },
-    "network::connection::ACCEPT_LOOP": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "accept_loop",
-      "level": "TRACE",
-      "target": "network::connection",
-      "description": "Accept loop for incoming connections"
-    },
-    "network::chainsync_client::FIND_INTERSECTION": {
-      "type": "object",
-      "properties": {
-        "peer": {
-          "type": "string"
-        },
-        "intersection_slot": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "peer",
-        "intersection_slot"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "find_intersection",
-      "level": "TRACE",
-      "target": "network::chainsync_client",
-      "description": "Find chain intersection point with peer"
-    },
-    "ledger::state::CLEANUP_EXPIRED_PROPOSALS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "cleanup_expired_proposals",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Cleanup expired proposals"
-    },
-    "ledger::state::CLEANUP_OLD_EPOCHS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "cleanup_old_epochs",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Cleanup old epochs"
-    },
-    "ledger::state::MANAGE_TRANSACTION_OUTPUTS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "manage_transaction_outputs",
-      "level": "TRACE",
-      "target": "ledger::state",
-      "description": "Manage transaction outputs"
-    },
-    "ledger::context::ADD_FEES": {
-      "type": "object",
-      "properties": {
-        "fee": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "fee"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "add_fees",
-      "level": "TRACE",
-      "target": "ledger::context",
-      "description": "Add transaction fees to pots"
-    },
-    "consensus::validate_header::VALIDATE": {
-      "type": "object",
-      "properties": {
-        "issuer_key": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "issuer_key"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "validate",
-      "level": "TRACE",
-      "target": "consensus::validate_header",
-      "description": "Validate header cryptographic properties"
-    },
-    "consensus::validate_header::EVOLVE_NONCE": {
-      "type": "object",
-      "properties": {
-        "hash": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "hash"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "evolve_nonce",
-      "level": "TRACE",
-      "target": "consensus::validate_header",
-      "description": "Evolve the nonce based on header"
-    },
-    "consensus::diffusion::FORWARD_CHAIN": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "forward_chain",
-      "level": "TRACE",
-      "target": "consensus::diffusion",
-      "description": "Forward chain operations"
-    },
-    "consensus::diffusion::FETCH_BLOCK": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "fetch_block",
-      "level": "TRACE",
-      "target": "consensus::diffusion",
-      "description": "Fetch a block from the network"
-    },
-    "consensus::chain_sync::VALIDATE_HEADER": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "validate_header",
-      "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Validate header properties"
-    },
-    "consensus::chain_sync::VALIDATE_BLOCK": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "validate_block",
-      "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Validate block properties"
-    },
-    "consensus::chain_sync::SELECT_CHAIN": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "select_chain",
-      "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Select best chain from available headers"
-    },
-    "stores::rocksdb::VALIDATE_SNAPSHOTS": {
-      "type": "object",
-      "properties": {
-        "snapshot_count": {
-          "type": "integer"
-        },
-        "continuous_ranges": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "snapshot_count",
-        "continuous_ranges"
-      ],
-      "additionalProperties": false,
-      "name": "validate_snapshots",
-      "level": "TRACE",
-      "target": "stores::rocksdb",
-      "description": "Validate sufficient snapshots exist"
-    },
-    "consensus::chain_sync::RECEIVE_HEADER_DECODE_FAILED": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "receive_header_decode_failed",
-      "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Header decode failed from received data"
-    },
-    "stores::rocksdb::SAVE_POINT": {
-      "type": "object",
-      "properties": {
-        "slot": {
-          "type": "integer"
-        },
-        "epoch": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "slot"
-      ],
-      "optional": [
-        "epoch"
-      ],
-      "additionalProperties": false,
-      "name": "save_point",
-      "level": "TRACE",
-      "target": "stores::rocksdb",
-      "description": "Save point to RocksDB store"
     },
     "stores::ledger::DREPS_DELEGATION_REMOVE": {
       "type": "object",
@@ -958,35 +1026,6 @@
       "level": "TRACE",
       "target": "stores::ledger",
       "description": "Remove DRep delegations"
-    },
-    "stores::ledger::TRY_EPOCH_TRANSITION": {
-      "type": "object",
-      "properties": {
-        "has_from": {
-          "type": "boolean"
-        },
-        "has_to": {
-          "type": "boolean"
-        },
-        "point": {
-          "type": "string"
-        },
-        "snapshots": {
-          "type": "string"
-        }
-      },
-      "required": [],
-      "optional": [
-        "has_from",
-        "has_to",
-        "point",
-        "snapshots"
-      ],
-      "additionalProperties": false,
-      "name": "try_epoch_transition",
-      "level": "TRACE",
-      "target": "stores::ledger",
-      "description": "Epoch transition tracking"
     },
     "stores::ledger::PRUNE": {
       "type": "object",
@@ -1022,116 +1061,77 @@
       "target": "stores::ledger",
       "description": "Create ledger snapshot for epoch"
     },
-    "stores::consensus::READ_BLOCKS": {
+    "stores::ledger::TRY_EPOCH_TRANSITION": {
       "type": "object",
       "properties": {
-        "hash": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "hash"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "read_blocks",
-      "level": "TRACE",
-      "target": "stores::consensus",
-      "description": "Read blocks operations"
-    },
-    "stores::consensus::READ_HEADERS": {
-      "type": "object",
-      "properties": {
-        "hash": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "hash"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "read_headers",
-      "level": "TRACE",
-      "target": "stores::consensus",
-      "description": "Read headers operations"
-    },
-    "stores::consensus::ROLLBACK_TO_TIP": {
-      "type": "object",
-      "properties": {
-        "hash": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "hash"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "rollback_to_tip",
-      "level": "TRACE",
-      "target": "stores::consensus",
-      "description": "Rollback to tip operations"
-    },
-    "stores::consensus::STORE_BLOCK_TO_TIP": {
-      "type": "object",
-      "properties": {
-        "hash": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "hash"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "store_block_to_tip",
-      "level": "TRACE",
-      "target": "stores::consensus",
-      "description": "Store block to tip operations"
-    },
-    "stores::consensus::ROLLBACK_CHAIN": {
-      "type": "object",
-      "properties": {
-        "hash": {
+        "has_from": {
+          "type": "boolean"
+        },
+        "has_to": {
+          "type": "boolean"
+        },
+        "point": {
           "type": "string"
         },
+        "snapshots": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "optional": [
+        "has_from",
+        "has_to",
+        "point",
+        "snapshots"
+      ],
+      "additionalProperties": false,
+      "name": "try_epoch_transition",
+      "level": "TRACE",
+      "target": "stores::ledger",
+      "description": "Epoch transition tracking"
+    },
+    "stores::rocksdb::SAVE_POINT": {
+      "type": "object",
+      "properties": {
         "slot": {
+          "type": "integer"
+        },
+        "epoch": {
           "type": "integer"
         }
       },
       "required": [
-        "hash",
         "slot"
       ],
-      "optional": [],
+      "optional": [
+        "epoch"
+      ],
       "additionalProperties": false,
-      "name": "rollback_chain",
+      "name": "save_point",
       "level": "TRACE",
-      "target": "stores::consensus",
-      "description": "Rollback the chain to a point"
+      "target": "stores::rocksdb",
+      "description": "Save point to RocksDB store"
     },
-    "consensus::chain_sync::RECEIVE_HEADER": {
+    "stores::rocksdb::VALIDATE_SNAPSHOTS": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "snapshot_count": {
+          "type": "integer"
+        },
+        "continuous_ranges": {
+          "type": "integer"
+        }
+      },
       "required": [],
-      "optional": [],
+      "optional": [
+        "snapshot_count",
+        "continuous_ranges"
+      ],
       "additionalProperties": false,
-      "name": "receive_header",
+      "name": "validate_snapshots",
       "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Pull chain updates from peer"
-    },
-    "consensus::chain_sync::PULL": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "pull",
-      "level": "TRACE",
-      "target": "consensus::chain_sync",
-      "description": "Chain sync pull operation"
+      "target": "stores::rocksdb",
+      "description": "Validate sufficient snapshots exist"
     }
   }
 }

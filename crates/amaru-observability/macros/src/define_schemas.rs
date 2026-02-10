@@ -400,7 +400,17 @@ fn parse_token(
             index + 1
         }
         "required" => {
-            // Parse: required field_name: Type
+            // Parse: required field_name: Type (prefix syntax only)
+            // Block syntax (required { ... }) is not supported
+            if tokens.get(index + 1).map(|s| s.as_str()) == Some("{") {
+                errors.push(
+                    "Block syntax for required fields is not supported. Use prefix syntax instead: \
+                     `required field_name: Type` (repeat for each field)"
+                        .to_string(),
+                );
+                return index + 1;
+            }
+
             if state.can_add_field()
                 && let Some((name, ty)) = try_parse_prefixed_field(tokens, index)
             {
@@ -410,7 +420,17 @@ fn parse_token(
             index + 1
         }
         "optional" => {
-            // Parse: optional field_name: Type
+            // Parse: optional field_name: Type (prefix syntax only)
+            // Block syntax (optional { ... }) is not supported
+            if tokens.get(index + 1).map(|s| s.as_str()) == Some("{") {
+                errors.push(
+                    "Block syntax for optional fields is not supported. Use prefix syntax instead: \
+                     `optional field_name: Type` (repeat for each field)"
+                        .to_string(),
+                );
+                return index + 1;
+            }
+
             if state.can_add_field()
                 && let Some((name, ty)) = try_parse_prefixed_field(tokens, index)
             {
@@ -1264,13 +1284,13 @@ mod tests {
 
     #[test]
     fn test_tokenize_simple() {
-        let tokens = tokenize("foo { bar: u64 }");
+        let tokens = tokenize("foo { bar: u64 }").unwrap();
         assert_eq!(tokens, vec!["foo", "{", "bar", ":", "u64", "}"]);
     }
 
     #[test]
     fn test_tokenize_nested() {
-        let tokens = tokenize("cat { sub { SCHEMA { required x: u32 } } }");
+        let tokens = tokenize("cat { sub { SCHEMA { required x: u32 } } }").unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -1281,7 +1301,7 @@ mod tests {
 
     #[test]
     fn test_tokenize_with_commas() {
-        let tokens = tokenize("a: u32, b: String");
+        let tokens = tokenize("a: u32, b: String").unwrap();
         assert_eq!(tokens, vec!["a", ":", "u32", ",", "b", ":", "String"]);
     }
 

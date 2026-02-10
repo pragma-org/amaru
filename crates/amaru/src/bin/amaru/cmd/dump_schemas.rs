@@ -37,7 +37,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn generate_json_schema(entries: &[SchemaEntry]) -> Value {
-    let schemas_map = entries
+    // Sort entries by path to ensure deterministic output across builds and platforms
+    let mut sorted_entries = entries.to_vec();
+    sorted_entries.sort_by(|a, b| a.path.cmp(b.path));
+
+    let schemas_map = sorted_entries
         .iter()
         .map(|entry| {
             let properties = entry
