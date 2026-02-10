@@ -124,7 +124,9 @@ impl SchemaMeta {
     /// - `amaru::consensus::validate_header::EVOLVE_NONCE`
     /// - `amaru::consensus::validate_header::EVOLVE_NONCE, hash = compute_hash()`
     /// - `my_crate::amaru::test::sub::MY_SCHEMA, field = expr()`
-    fn from_args(args: TokenStream) -> Self {
+    ///
+    /// Returns `Err(TokenStream)` with compile error if parsing fails.
+    fn from_args(args: TokenStream) -> Result<Self, TokenStream> {
         // First, try to extract just the schema path for backward compatibility
         let args_str = args.to_string();
 
@@ -165,7 +167,10 @@ impl SchemaMeta {
                 }
             }
 
-            let parsed = syn::parse::<MacroArgs>(args).expect("Failed to parse macro arguments");
+            let parsed = match syn::parse::<MacroArgs>(args) {
+                Ok(p) => p,
+                Err(err) => return Err(err.to_compile_error().into()),
+            };
 
             // Convert path to string and parse schema components
             let schema_path = &parsed.schema_path;
@@ -178,24 +183,27 @@ impl SchemaMeta {
                 field_expressions.insert(field_name.to_string(), quote! { #expr });
             }
 
-            SchemaMeta {
+            Ok(SchemaMeta {
                 schema_name: schema_name.to_owned(),
                 module_path,
                 macro_module: macro_module.to_owned(),
                 field_expressions,
-            }
+            })
         } else {
             // Legacy syntax: just a schema path
-            let schema_path = syn::parse::<syn::Path>(args).expect("Invalid schema path");
+            let schema_path = match syn::parse::<syn::Path>(args) {
+                Ok(p) => p,
+                Err(err) => return Err(err.to_compile_error().into()),
+            };
             let path_str = quote! { #schema_path }.to_string().replace(' ', "");
             let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
 
-            SchemaMeta {
+            Ok(SchemaMeta {
                 schema_name: schema_name.to_owned(),
                 module_path,
                 macro_module: macro_module.to_owned(),
                 field_expressions: BTreeMap::new(),
-            }
+            })
         }
     }
 }
@@ -513,7 +521,10 @@ fn expand_trace_macro(args: TokenStream, input: TokenStream) -> TokenStream {
         return input;
     };
 
-    let meta = SchemaMeta::from_args(args);
+    let meta = match SchemaMeta::from_args(args) {
+        Ok(m) => m,
+        Err(err) => return err,
+    };
     let field_validations = generate_validations(&func, &meta);
 
     // Extract function fields and generate record calls
@@ -594,9 +605,8 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     };
 
     if args.field_assignments.is_empty() {
-        let input2: proc_macro2::TokenStream = proc_macro2::TokenStream::new();
         return syn::Error::new_spanned(
-            &input2,
+            &args.schema_path,
             "trace_record! requires at least one field assignment: trace_record!(SCHEMA_CONST, field = value, ...)",
         )
         .to_compile_error()
