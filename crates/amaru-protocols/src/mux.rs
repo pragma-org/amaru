@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use crate::protocol::Role;
-use crate::protocol::Role;
 use crate::{
     network_effects::{Network, NetworkOps},
     protocol::{Erased, ProtocolId, RoleT},
