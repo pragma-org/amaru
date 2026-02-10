@@ -20,17 +20,17 @@ define_schemas! {
         example {
             /// Test event for validation
             ProcessEvent {
-                required: [
+                required {
                     event_type: &str,
                     timestamp: u64,
-                ],
-                optional: [
+                }
+                optional {
                     status: &str,
                     error_code: u32,
                     duration_ms: u64,
                     message: &str,
                     details: &str,
-                ],
+                }
             }
         }
     }

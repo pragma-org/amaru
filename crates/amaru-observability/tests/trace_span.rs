@@ -20,17 +20,17 @@ define_schemas! {
         span_test {
             /// Test span event for validation
             SpanEvent {
-                required: [
+                required {
                     event_type: &str,
                     timestamp: u64,
-                ],
-                optional: [
+                }
+                optional {
                     status: &str,
                     error_code: u32,
                     duration_ms: u64,
                     message: &str,
                     details: &str,
-                ],
+                }
             }
         }
     }

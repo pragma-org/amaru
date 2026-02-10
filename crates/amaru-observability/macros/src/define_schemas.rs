@@ -151,14 +151,22 @@ impl Schema {
 /// Tokenize input string into meaningful tokens for parsing.
 ///
 /// Splits on: `{`, `}`, `,`, `:`, and whitespace, while preserving doc comments.
-/// Returns a vector of tokens in parsing order.
-fn tokenize(input: &str) -> Vec<String> {
+/// Rejects `[` and `]` as syntax errors (use `{}` for field lists instead).
+/// Returns a vector of tokens in parsing order, or an error if brackets are found.
+fn tokenize(input: &str) -> Result<Vec<String>, String> {
     let mut tokens = Vec::new();
     let mut chars = input.chars().peekable();
     let mut current = String::new();
 
     while let Some(ch) = chars.next() {
         match ch {
+            // Reject bracket syntax
+            '[' | ']' => {
+                return Err(format!(
+                    "Unsupported syntax: brackets `[` and `]` are not allowed. Use curly braces `{{}}` for field lists instead. Found `{}` at position in input",
+                    ch
+                ));
+            }
             // Check for doc comment start
             '/' if chars.peek() == Some(&'/') => {
                 // Flush current token
@@ -230,7 +238,7 @@ fn tokenize(input: &str) -> Vec<String> {
         tokens.push(current);
     }
 
-    tokens
+    Ok(tokens)
 }
 
 // =============================================================================
@@ -456,7 +464,12 @@ fn try_parse_prefixed_field(tokens: &[String], index: usize) -> Option<(&str, &s
 
 /// Extract all schemas and errors from input using functional approach.
 fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
-    let tokens = tokenize(input);
+    let tokens = match tokenize(input) {
+        Ok(t) => t,
+        Err(e) => {
+            return (Vec::new(), vec![e]);
+        }
+    };
 
     // Process tokens sequentially while maintaining state
     let (_, mut state, mut schemas, errors) = tokens.iter().enumerate().fold(
