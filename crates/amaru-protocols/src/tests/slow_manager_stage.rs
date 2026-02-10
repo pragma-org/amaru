@@ -13,17 +13,17 @@
 // limitations under the License.
 
 use crate::manager;
-use crate::manager::{Manager, ManagerMessage};
+use crate::manager::{ManagerMessage, State};
 use pure_stage::Effects;
 use std::time::Duration;
 
 /// This stage allows us to simulate a responder node that will not respond right away with
 /// all the data that the initiator is requesting. This is useful for testing the reconnection logic.
 pub async fn slow_manager_stage(
-    manager: Manager,
+    state: State,
     msg: ManagerMessage,
     eff: Effects<ManagerMessage>,
-) -> Manager {
+) -> State {
     match msg {
         ManagerMessage::AddPeer(_) => {}
         ManagerMessage::ConnectionDied(_, _, _) => {}
@@ -35,6 +35,8 @@ pub async fn slow_manager_stage(
         }
         ManagerMessage::RemovePeer(_) => {}
         ManagerMessage::FetchBlocks { .. } => {}
+        ManagerMessage::Listen(_) => {}
+        ManagerMessage::NewTip(_) => {}
     }
-    manager::stage(manager, msg, eff).await
+    manager::stage(state, msg, eff).await
 }

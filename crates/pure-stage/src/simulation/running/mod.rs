@@ -485,6 +485,18 @@ impl SimulationRunning {
         }
     }
 
+    /// Run until sleeping or blocked, and if sleeping, skip to the next wakeup.
+    /// Return true if the simulation is terminated, false otherwise.
+    pub fn run_or_terminated(&mut self) -> bool {
+        if self.is_terminated() {
+            return true;
+        }
+        if let Blocked::Sleeping { .. } = self.run_until_sleeping_or_blocked() {
+            self.skip_to_next_wakeup(None);
+        }
+        false
+    }
+
     // TODO: shouldn’t this have a clock ceiling?
     pub fn run_one_step(&mut self, rt: &Handle) -> Option<Blocked> {
         self.receive_inputs();

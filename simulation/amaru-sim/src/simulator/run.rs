@@ -14,53 +14,40 @@
 
 use crate::{
     simulator::{
-        Args, Envelope, History, NodeConfig, NodeHandle, SimulateConfig, bytes::Bytes,
-        generate::generate_entries, simulate::simulate,
+        Args, History, NodeHandle, RunConfig, generate::generate_entries, simulate::simulate,
     },
     sync::ChainSyncMessage,
 };
-use amaru::stages::build_stage_graph::build_stage_graph;
+use amaru::stages::build_node::build_node;
+use amaru::tests::configuration::NodeConfig;
+use amaru::tests::in_memory_connection_provider::InMemoryConnectionProvider;
 use amaru_consensus::{
-    effects::{
-        ForwardEvent, ForwardEventListener, ResourceBlockValidation, ResourceForwardEventListener,
-        ResourceHeaderStore, ResourceHeaderValidation, ResourceParameters,
-    },
-    events::ChainSyncEvent,
-    headers_tree::{
-        HeadersTreeState,
-        data_generation::{Chain, GeneratedActions},
-    },
-    stages::{
-        pull::SyncTracker,
-        select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
-    },
+    effects::{ResourceBlockValidation, ResourceHeaderValidation},
+    headers_tree::data_generation::{Chain, GeneratedActions},
+    stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH,
 };
 use amaru_kernel::cardano::network_block::NETWORK_BLOCK;
 use amaru_kernel::{
-    BlockHeader, GlobalParameters, Hash, IsHeader, NetworkName, Peer, Point, Tip, to_cbor,
+    BlockHeader, GlobalParameters, HeaderHash, IsHeader, Point, RawBlock, Transaction,
     utils::string::{ListDebug, ListToString, ListsToString},
 };
 use amaru_ouroboros::{
-    ChainStore,
+    ChainStore, ConnectionsResource, Nonces, ReadOnlyChainStore, ResourceMempool, StoreError,
     can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},
     in_memory_consensus_store::InMemConsensusStore,
 };
-use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage};
-use async_trait::async_trait;
+use amaru_protocols::store_effects::ResourceHeaderStore;
+use delegate::delegate;
 use pure_stage::{
-    Instant, Receiver, StageGraph, StageRef,
+    Instant, StageGraph,
     simulation::{RandStdRng, SimulationBuilder},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
-};
-use tokio::{runtime::Runtime, sync::mpsc};
-use tracing::{Span, info};
+use rand::SeedableRng;
+use rand::prelude::StdRng;
+use std::{sync::Arc, time::Duration};
+use tokio::runtime::Runtime;
+use tracing::info;
 
 /// Run the full simulation:
 ///
@@ -68,27 +55,34 @@ use tracing::{Span, info};
 /// * Run the simulation.
 pub fn run(args: Args) {
     let rt = Runtime::new().unwrap();
+    let rng = RandStdRng(StdRng::seed_from_u64(args.seed()));
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
-    let node_config = NodeConfig::from(args.clone());
+    let connections = Arc::new(InMemoryConnectionProvider::default());
+    let node_config = NodeConfig::default()
+        .with_upstream_peer("peer-1")
+        .with_chain_length(args.generated_chain_depth as usize)
+        .with_eval_strategy(rng)
+        .with_trace_buffer(trace_buffer.clone())
+        .with_connections(connections);
 
     let spawn = |node_id: String, rng: RandStdRng| {
         let mut network = SimulationBuilder::default()
             .with_trace_buffer(trace_buffer.clone())
             .with_mailbox_size(10000)
             .with_eval_strategy(rng);
-        let (input, init_messages, output) = spawn_node(node_id, node_config.clone(), &mut network);
+        spawn_node(node_id, node_config.clone(), &mut network).unwrap();
         let running = network.run();
-        NodeHandle::from_pure_stage(input, init_messages, output, running, rt.handle().clone())
-            .unwrap()
+        NodeHandle::from_pure_stage(running, rt.handle().clone()).unwrap()
     };
 
-    let simulate_config = SimulateConfig::from(args.clone());
+    let run_config = RunConfig::from(args.clone());
     simulate(
-        &simulate_config,
+        &run_config,
         &node_config,
         spawn,
         generate_entries(
-            &node_config,
+            node_config.chain_length,
+            node_config.upstream_peers.len(),
             Instant::at_offset(Duration::from_secs(0)),
             200.0,
         ),
@@ -101,189 +95,43 @@ pub fn run(args: Args) {
 }
 
 /// Create and start a node
-/// Return:
-///
-///  * A handle to send messages to the node
-///  * A handle to receive init messages executed on the node
-///  * A handle to receive output messages from the node
-///
 pub fn spawn_node(
     node_id: String,
     node_config: NodeConfig,
-    network: &mut SimulationBuilder,
-) -> (
-    StageRef<Envelope<ChainSyncMessage>>,
-    Receiver<Envelope<ChainSyncMessage>>,
-    Receiver<Envelope<ChainSyncMessage>>,
-) {
+    stage_graph: &mut impl StageGraph,
+) -> anyhow::Result<()> {
     info!(node_id, "node.spawn");
-    let (network_name, select_chain, _sync_tracker, resource_header_store, resource_validation) =
-        init_node(&node_config);
-    let global_parameters: &GlobalParameters = network_name.into();
 
-    // The receiver replies ok to init messages from the sender (via 'output', the only output of the graph)
-    // and forwards chain sync messages to the rest of the processing graph
-    let receiver = network.stage(
-        "receiver",
-        async |(downstream, output), msg: Envelope<ChainSyncMessage>, eff| {
-            match msg.body {
-                ChainSyncMessage::Init { msg_id, .. } => {
-                    eff.send(
-                        &output,
-                        // Reply with InitOk
-                        Envelope {
-                            src: msg.dest,
-                            dest: msg.src,
-                            body: ChainSyncMessage::InitOk {
-                                in_reply_to: msg_id,
-                            },
-                        },
-                    )
-                    .await
-                }
-                ChainSyncMessage::InitOk { .. } => (),
-                ChainSyncMessage::Fwd {
-                    slot, hash, header, ..
-                } => {
-                    let point = Point::Specific(slot, Hash::from(&*hash.bytes));
-                    let tip = Tip::new(point, 0.into());
-                    eff.send(
-                        &downstream,
-                        ChainSyncEvent::RollForward {
-                            peer: Peer::new(&msg.src),
-                            tip,
-                            raw_header: header.into(),
-                            span: Span::current(),
-                        },
-                    )
-                    .await
-                }
-                ChainSyncMessage::Bck { slot, hash, .. } => {
-                    let point = Point::Specific(slot, Hash::from(&*hash.bytes));
-                    let tip = Tip::new(point, 0.into());
-                    eff.send(
-                        &downstream,
-                        ChainSyncEvent::Rollback {
-                            peer: Peer::new(&msg.src),
-                            rollback_point: point,
-                            tip,
-                            span: Span::current(),
-                        },
-                    )
-                    .await
-                }
-            }
-            (downstream, output)
-        },
-    );
+    let config = node_config.make_node_configuration();
+    let global_parameters: &GlobalParameters = config.network.into();
+    let mut global_parameters = global_parameters.clone();
 
-    // TODO: switch simulation to tracking network bytes
-    let manager = network.stage("manager", async |_, msg: ManagerMessage, eff| match msg {
-        ManagerMessage::AddPeer(_) => {}
-        ManagerMessage::RemovePeer(_) => {}
-        ManagerMessage::Connect(_) => {}
-        ManagerMessage::ConnectionDied(_, _, _) => {}
-        ManagerMessage::FetchBlocks { cr, .. } => {
-            // We need to return a non-empty block to proceed with the simulation.
-            // That block needs to be the same that is deserialized by default with the NetworkBlock::fake() function
-            // used with the ValidateBlockEvent deserializer, otherwise the replay test will fail.
-            eff.send(
-                &cr,
-                Blocks {
-                    blocks: vec![NETWORK_BLOCK.clone()],
-                },
-            )
-            .await;
-        }
-        ManagerMessage::Accepted(_, _) => {}
-    });
-    let manager = network.wire_up(manager, ());
+    // Set the maximum length for the best fragment based on the generated chain depth
+    // so that the generate roll forwards will move the best chain anchor.
+    global_parameters.consensus_security_param =
+        if node_config.chain_length > DEFAULT_MAXIMUM_FRAGMENT_LENGTH {
+            DEFAULT_MAXIMUM_FRAGMENT_LENGTH
+        } else {
+            node_config.chain_length - 1
+        };
 
-    let our_tip = Tip::origin();
-    let receive_header_ref =
-        build_stage_graph(select_chain, our_tip, manager.without_state(), network);
+    build_node(&config, &global_parameters, None, stage_graph)?;
 
-    let (output, rx1) = network.output("output", 10);
-
-    // The number of received messages sent by the forward event listener is proportional
-    // to the number of downstream peers, as each event is duplicated to each downstream peer.
-    let (sender, rx2) = mpsc::channel(1_000_000);
-    let listener =
-        MockForwardEventListener::new(node_id, node_config.number_of_downstream_peers, sender);
-
-    let receiver = network.wire_up(receiver, (receive_header_ref, output.clone()));
-
-    network
+    // Override some resources to use mocks
+    stage_graph
         .resources()
-        .put::<ResourceHeaderStore>(resource_header_store.clone());
-    network
+        .put::<ResourceMempool<Transaction>>(node_config.mempool.clone());
+    stage_graph
         .resources()
-        .put::<ResourceHeaderValidation>(resource_validation);
-    network
+        .put::<ConnectionsResource>(node_config.connections.clone());
+    stage_graph
         .resources()
-        .put::<ResourceParameters>(global_parameters.clone());
-    network
+        .put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
+    stage_graph
         .resources()
         .put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
-    network
-        .resources()
-        .put::<ResourceForwardEventListener>(Arc::new(listener));
 
-    (receiver.without_state(), rx1, Receiver::new(rx2))
-}
-
-fn init_node(
-    node_config: &NodeConfig,
-) -> (
-    NetworkName,
-    SelectChain,
-    SyncTracker,
-    ResourceHeaderStore,
-    ResourceHeaderValidation,
-) {
-    let network_name = NetworkName::Testnet(42);
-    let chain_store = Arc::new(InMemConsensusStore::new());
-    let header_validation = Arc::new(MockCanValidateHeaders);
-
-    let peers = (1..=node_config.number_of_upstream_peers)
-        .map(|i| Peer::new(&format!("c{}", i)))
-        .collect::<Vec<_>>();
-    let select_chain = make_chain_selector(
-        chain_store.clone(),
-        node_config.generated_chain_depth,
-        &peers,
-    );
-    let sync_tracker = SyncTracker::new(&peers);
-
-    (
-        network_name,
-        select_chain,
-        sync_tracker,
-        chain_store,
-        header_validation,
-    )
-}
-
-fn make_chain_selector(
-    chain_store: Arc<dyn ChainStore<BlockHeader>>,
-    generated_chain_depth: u64,
-    peers: &Vec<Peer>,
-) -> SelectChain {
-    // Set the maximum length for the best fragment based on the generated chain depth
-    // so we generated roll forwards that move the best chain anchor.
-    let max_length = if generated_chain_depth > DEFAULT_MAXIMUM_FRAGMENT_LENGTH as u64 {
-        DEFAULT_MAXIMUM_FRAGMENT_LENGTH
-    } else {
-        generated_chain_depth as usize - 1
-    };
-    let mut tree_state = HeadersTreeState::new(max_length);
-    let anchor = chain_store.get_anchor_hash();
-    for peer in peers {
-        tree_state
-            .initialize_peer(chain_store.clone(), peer, &anchor)
-            .expect("the root node is guaranteed to already be in the tree")
-    }
-    SelectChain::new(tree_state)
+    Ok(())
 }
 
 /// Property: at the end of the simulation, the chain built from the history of messages received
@@ -383,81 +231,55 @@ fn make_best_chain_from_downstream_messages(
 
 /// Replay a previous simulation run:
 pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
-    let mut network = SimulationBuilder::default();
-    let node_config = NodeConfig::from(args);
-    let _ = spawn_node("n1".to_string(), node_config, &mut network);
-    let mut replay = network.replay();
+    let node_config = NodeConfig::default()
+        .with_chain_length(args.generated_chain_depth as usize)
+        .with_seed(
+            args.seed
+                .expect("there must be a seed to replay a simulation"),
+        );
+    let mut stage_graph = SimulationBuilder::default();
+    let _ = spawn_node("n1".to_string(), node_config, &mut stage_graph);
+    stage_graph
+        .resources()
+        .put::<ResourceHeaderStore>(Arc::new(ReplayStore::default()));
+    let mut replay = stage_graph.replay();
     replay.run_trace(traces)
 }
 
-/// This implementation of ForwardEventListener sends the received events a Sender that can collect them
-/// to check them later.
-///
-/// A message id is maintained for each received event and each message is duplicated to the number of downstream peers.
-#[derive(Clone, Debug)]
-pub struct MockForwardEventListener {
-    node_id: String,
-    number_of_downstream_peers: u8,
-    sender: mpsc::Sender<Envelope<ChainSyncMessage>>,
-    msg_id: Arc<AtomicU64>,
+#[derive(Clone, Default)]
+struct ReplayStore {
+    inner: InMemConsensusStore<BlockHeader>,
 }
 
-impl MockForwardEventListener {
-    pub fn new(
-        node_id: String,
-        number_of_downstream_peers: u8,
-        sender: mpsc::Sender<Envelope<ChainSyncMessage>>,
-    ) -> Self {
-        Self {
-            node_id,
-            number_of_downstream_peers,
-            msg_id: Arc::new(AtomicU64::new(0)),
-            sender,
+impl ReadOnlyChainStore<BlockHeader> for ReplayStore {
+    delegate! {
+        to self.inner {
+            fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader>;
+            fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
+            fn get_anchor_hash(&self) -> HeaderHash;
+            fn get_best_chain_hash(&self) -> HeaderHash;
+            fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash>;
+            fn next_best_chain(&self, point: &Point) -> Option<Point>;
+            fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
+            fn has_header(&self, hash: &HeaderHash) -> bool;
         }
+    }
+
+    fn load_block(&self, _hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
+        Ok(Some(NETWORK_BLOCK.raw_block()))
     }
 }
 
-#[async_trait]
-impl ForwardEventListener for MockForwardEventListener {
-    async fn send(&self, event: ForwardEvent) -> anyhow::Result<()> {
-        fn message(event: &ForwardEvent, msg_id: u64) -> ChainSyncMessage {
-            match event {
-                ForwardEvent::Forward(header) => ChainSyncMessage::Fwd {
-                    msg_id,
-                    slot: header.point().slot_or_default(),
-                    hash: Bytes {
-                        bytes: header.hash().as_slice().to_vec(),
-                    },
-                    header: Bytes {
-                        bytes: to_cbor(&header),
-                    },
-                },
-                ForwardEvent::Backward(tip) => ChainSyncMessage::Bck {
-                    msg_id,
-                    slot: tip.point().slot_or_default(),
-                    hash: Bytes {
-                        bytes: tip.hash().as_slice().to_vec(),
-                    },
-                },
-            }
+impl ChainStore<BlockHeader> for ReplayStore {
+    delegate! {
+        to self.inner {
+            fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError>;
+            fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+            fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+            fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError>;
+            fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError>;
+            fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError>;
+            fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError>;
         }
-
-        // This allocates a range of message ids from
-        // self.msg_id to self.msg_id + number_of_downstream_peers
-        let base_msg_id = self
-            .msg_id
-            .fetch_add(self.number_of_downstream_peers as u64, Ordering::Relaxed);
-
-        for i in 1..=self.number_of_downstream_peers {
-            let dest = format!("c{}", i);
-            let msg_id = base_msg_id + i as u64;
-            let envelope = Envelope {
-                src: self.node_id.clone(),
-                dest,
-                body: message(&event, msg_id),
-            };
-            self.sender.send(envelope).await?;
-        }
-        Ok(())
     }
 }

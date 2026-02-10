@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{BlockHeight, HeaderHash, Point, Slot, cbor};
+use crate::{BlockHeight, HeaderHash, Point, Slot, Tip, cbor};
 
 /// Interface to a header for the purpose of chain selection.
 pub trait IsHeader: cbor::Encode<()> + Sized {
@@ -44,4 +44,9 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
     // 2. Use a panic
     // 3. Fix Pallas' leader_vrf_output to return a Hash<32> instead of a Vec.
     fn extended_vrf_nonce_output(&self) -> Vec<u8>;
+
+    /// Return the header tip
+    fn tip(&self) -> Tip {
+        Tip::new(self.point(), self.block_height())
+    }
 }

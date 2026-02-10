@@ -31,6 +31,21 @@ pub enum Message {
     Done,
 }
 
+impl Message {
+    pub fn message_type(&self) -> &str {
+        match self {
+            Message::RequestNext(_) => "RequestNext",
+            Message::AwaitReply => "AwaitReply",
+            Message::RollForward(_, _) => "RollForward",
+            Message::RollBackward(_, _) => "RollBackward",
+            Message::FindIntersect(_) => "FindIntersect",
+            Message::IntersectFound(_, _) => "IntersectFound",
+            Message::IntersectNotFound(_) => "IntersectNotFound",
+            Message::Done => "Done",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Ord, PartialOrd)]
 pub struct HeaderContent {
     pub variant: u8,

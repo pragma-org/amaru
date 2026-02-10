@@ -25,7 +25,9 @@ use amaru_kernel::{
 };
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use std::{collections::VecDeque, mem, sync::Arc};
+use std::sync::Arc;
+use std::{collections::VecDeque, mem};
+use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -299,6 +301,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
+    #[instrument(name = "blockfetch.initiator", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,

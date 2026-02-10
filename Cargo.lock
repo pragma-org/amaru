@@ -107,6 +107,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pallas-hardano",
  "pallas-network",
+ "parking_lot",
  "proptest",
  "pure-stage",
  "rand 0.9.2",
@@ -305,6 +306,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "hex",
+ "parking_lot",
  "rand 0.9.2",
  "serde",
  "thiserror 2.0.17",
@@ -374,6 +376,7 @@ dependencies = [
  "async-trait",
  "cbor4ii",
  "clap",
+ "delegate",
  "futures-util",
  "hex",
  "pallas-crypto",
@@ -1298,6 +1301,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
 dependencies = [
  "uuid",
+]
+
+[[package]]
+name = "delegate"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "780eb241654bf097afb00fc5f054a09b687dad862e485fdcf8399bb056565370"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

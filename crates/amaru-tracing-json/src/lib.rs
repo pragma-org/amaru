@@ -27,16 +27,16 @@ pub mod tree;
 
 #[repr(transparent)]
 #[derive(Clone, Default)]
-pub struct JsonTraceCollector(Arc<RwLock<Vec<json::Value>>>);
+pub struct JsonTraceCollector(Arc<RwLock<Vec<Value>>>);
 
 impl JsonTraceCollector {
-    fn insert(&self, value: json::Value) {
+    fn insert(&self, value: Value) {
         if let Ok(mut lines) = self.0.write() {
             lines.push(value);
         }
     }
 
-    pub fn flush(&self) -> Vec<json::Value> {
+    pub fn flush(&self) -> Vec<Value> {
         match self.0.write() {
             Ok(mut traces) => {
                 let lines = traces.clone();
@@ -54,12 +54,12 @@ impl JsonTraceCollector {
 
 #[derive(Default)]
 struct JsonVisitor {
-    fields: json::Map<String, json::Value>,
+    fields: json::Map<String, Value>,
 }
 
 impl JsonVisitor {
     #[expect(clippy::unwrap_used)]
-    fn add_field(&mut self, json_path: &str, value: json::Value) {
+    fn add_field(&mut self, json_path: &str, value: Value) {
         let steps = json_path.split('.').collect::<Vec<_>>();
 
         if steps.is_empty() {
@@ -143,11 +143,43 @@ impl tracing::field::Visit for JsonVisitor {
     }
 }
 
-pub struct JsonLayer(JsonTraceCollector);
+pub struct JsonLayer {
+    collector: JsonTraceCollector,
+    include_targets: Option<Vec<String>>,
+    exclude_targets: Option<Vec<String>>,
+}
 
 impl JsonLayer {
-    pub fn new(collector: JsonTraceCollector) -> Self {
-        Self(collector)
+    pub fn new<'a>(
+        collector: JsonTraceCollector,
+        include_targets: impl Into<Option<Vec<&'a str>>>,
+        exclude_targets: impl Into<Option<Vec<&'a str>>>,
+    ) -> Self {
+        Self {
+            collector,
+            include_targets: include_targets
+                .into()
+                .map(|ts: Vec<&str>| ts.into_iter().map(ToString::to_string).collect()),
+            exclude_targets: exclude_targets
+                .into()
+                .map(|ts: Vec<&str>| ts.into_iter().map(ToString::to_string).collect()),
+        }
+    }
+
+    pub fn has_target(&self, target: &str) -> bool {
+        // First check if target is excluded
+        if let Some(exclude_targets) = &self.exclude_targets
+            && exclude_targets.iter().any(|t| target.starts_with(t))
+        {
+            return false;
+        }
+
+        // Then check if target is included (if include list is specified)
+        if let Some(include_targets) = &self.include_targets {
+            include_targets.iter().any(|t| target.starts_with(t))
+        } else {
+            true
+        }
     }
 }
 
@@ -161,10 +193,13 @@ where
         id: &tracing::span::Id,
         ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        let mut visitor = JsonVisitor::default();
-        attrs.record(&mut visitor);
-
         if let Some(span) = ctx.span(id) {
+            if !self.has_target(span.metadata().target()) {
+                return;
+            }
+            let mut visitor = JsonVisitor::default();
+            attrs.record(&mut visitor);
+
             // Store the fields in the span for later use
             let mut extensions = span.extensions_mut();
             extensions.insert(visitor.fields);
@@ -173,9 +208,14 @@ where
 
     fn on_enter(&self, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
         if let Some(span) = ctx.span(id) {
+            if !self.has_target(span.metadata().target()) {
+                return;
+            }
+
             let mut span_json = json::json!({
                 "id": Value::String(format!("{id:?}")),
                 "name": span.name().to_string(),
+                "target": span.metadata().target().to_string(),
                 "type": "span".to_string(),
                 "level": format!("{}", span.metadata().level()),
             });
@@ -190,7 +230,7 @@ where
                 }
             }
 
-            self.0.insert(span_json);
+            self.collector.insert(span_json);
         }
     }
 
@@ -199,6 +239,10 @@ where
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
+        if !self.has_target(event.metadata().target()) {
+            return;
+        }
+
         let mut visitor = JsonVisitor::default();
         event.record(&mut visitor);
 
@@ -218,7 +262,7 @@ where
             event_json[key] = value.clone();
         }
 
-        self.0.insert(event_json);
+        self.collector.insert(event_json);
     }
 }
 
@@ -229,8 +273,8 @@ pub fn assert_trace<F, R>(run: F, expected: Vec<Value>) -> R
 where
     F: FnOnce() -> R,
 {
-    let (result, collected) = collect(run);
-    let collected: Vec<_> = collected.into_iter().map(strip_ids).collect();
+    let (result, collected) = collect(run, None::<Vec<&str>>, None::<Vec<&str>>);
+    let collected: Vec<_> = collected.into_iter().map(strip_ids_and_target).collect();
 
     if collected != expected {
         eprintln!(
@@ -253,11 +297,19 @@ where
 /// Assert that the collected spans form a list of trees.
 /// `expected` is a list of expected root spans with their children.
 /// The result of `run` is returned.
-pub fn assert_spans_trees<F, R>(run: F, expected: Vec<Value>) -> R
+///
+/// A list of `targets` can be provided to filter the collected traces by their target.
+/// If `targets` is None, all traces are collected.
+pub fn assert_spans_trees<'a, F, R>(
+    run: F,
+    expected: Vec<Value>,
+    include_targets: impl Into<Option<Vec<&'a str>>>,
+    exclude_targets: impl Into<Option<Vec<&'a str>>>,
+) -> R
 where
     F: FnOnce() -> R,
 {
-    let (result, collected) = collect(run);
+    let (result, collected) = collect(run, include_targets, exclude_targets);
     let actual = as_trees(collected);
 
     if actual.len() != expected.len() {
@@ -286,12 +338,14 @@ where
 
     // make comparisons tree by tree
     for (actual, expected) in actual.iter().zip(expected.iter()) {
-        eprintln!(
-            "actual:\n {}\n\nexpected:\n {}\n",
-            to_string_pretty(actual).unwrap_or_default(),
-            to_string_pretty(expected).unwrap_or_default()
-        );
-        assert_json_eq!(actual, expected);
+        if actual != expected {
+            eprintln!(
+                "actual:\n {}\n\nexpected:\n {}\n",
+                to_string_pretty(actual).unwrap_or_default(),
+                to_string_pretty(expected).unwrap_or_default()
+            );
+            assert_json_eq!(actual, expected);
+        }
     }
     result
 }
@@ -364,12 +418,16 @@ fn is_span(item: &Value) -> bool {
 }
 
 /// Collect tracing data emitted during the execution of `run` and also return the result of `run`.
-fn collect<F, R>(run: F) -> (R, Vec<Value>)
+fn collect<'a, F, R>(
+    run: F,
+    include_targets: impl Into<Option<Vec<&'a str>>>,
+    exclude_targets: impl Into<Option<Vec<&'a str>>>,
+) -> (R, Vec<Value>)
 where
     F: FnOnce() -> R,
 {
     let collector = JsonTraceCollector::default();
-    let layer = JsonLayer::new(collector.clone());
+    let layer = JsonLayer::new(collector.clone(), include_targets, exclude_targets);
     let subscriber = tracing_subscriber::registry().with(layer);
     let dispatch = Dispatch::new(subscriber);
     let _guard = tracing::dispatcher::set_default(&dispatch);
@@ -378,20 +436,20 @@ where
     (result, collected)
 }
 
-/// Remove ids from collected data
-fn strip_ids(mut value: Value) -> Value {
+/// Remove ids and target from collected data
+fn strip_ids_and_target(mut value: Value) -> Value {
     if let Value::Object(ref mut map) = value {
         map.remove("id");
         map.remove("parent_id");
+        map.remove("target");
     }
     value
 }
 
-/// Keep only span name and children from collected data
-/// and remove the `_span` suffix from span names
+/// Keep span fields from collected data, removing only internal fields like id, parent_id, type, level
 fn strip_span(mut value: Value) -> Value {
     if let Value::Object(ref mut map) = value {
-        map.retain(|key, _value| ["name", "children"].contains(&(key.as_str())));
+        map.retain(|key, _value| !["id", "parent_id", "type", "level"].contains(&(key.as_str())));
     }
     value
 }
@@ -426,12 +484,18 @@ mod tests {
     #[test]
     fn check_spans_tree_is_ok() {
         assert_spans_trees(
-            || info_span!("foo").in_scope(|| info_span!("bar").in_scope(|| {})),
+            || {
+                info_span!(target: "test", "foo")
+                    .in_scope(|| info_span!(target: "test", "bar").in_scope(|| {}))
+            },
             vec![json!({
+                "target": "test",
                 "name": "foo",
                 "children": [
-                    json!({ "name": "bar"})]
+                    json!({ "name": "bar", "target": "test"})]
             })],
+            None::<Vec<&str>>,
+            None::<Vec<&str>>,
         )
     }
 
@@ -445,6 +509,8 @@ mod tests {
                 "children": [
                     json!({ "name": "bar2"})]
             })],
+            None::<Vec<&str>>,
+            None::<Vec<&str>>,
         )
     }
 }

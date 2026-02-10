@@ -26,7 +26,7 @@ use crate::{
 };
 use amaru_kernel::NetworkMagic;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::ConnectionResource;
+use amaru_ouroboros::ConnectionsResource;
 use futures_util::StreamExt;
 use pure_stage::{
     Effect, StageGraph, simulation::SimulationBuilder, tokio::TokioBuilder,
@@ -63,7 +63,7 @@ fn test_against_node() {
 
     network
         .resources()
-        .put::<ConnectionResource>(Arc::new(conn));
+        .put::<ConnectionsResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
     let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator));
@@ -141,7 +141,7 @@ fn test_against_node_with_tokio() {
 
     network
         .resources()
-        .put::<ConnectionResource>(Arc::new(conn));
+        .put::<ConnectionsResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
     let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator));

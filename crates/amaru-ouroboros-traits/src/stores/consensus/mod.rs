@@ -15,7 +15,9 @@
 pub mod in_memory_consensus_store;
 
 use crate::Nonces;
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, RawBlock};
+use amaru_kernel::cardano::network_block::NetworkBlock;
+use amaru_kernel::{Block, BlockHeader, HeaderHash, IsHeader, Point, RawBlock, Tip};
+use std::sync::Arc;
 use std::{fmt::Display, iter::successors};
 use thiserror::Error;
 
@@ -41,6 +43,10 @@ where
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
     fn has_header(&self, hash: &HeaderHash) -> bool;
+
+    fn load_tip(&self, hash: &HeaderHash) -> Option<Tip> {
+        self.load_header(hash).map(|h| h.tip())
+    }
 
     /// Return the hashes of the best chain fragment, starting from the anchor.
     fn retrieve_best_chain(&self) -> Vec<HeaderHash> {
@@ -193,4 +199,27 @@ impl Display for StoreError {
             ),
         }
     }
+}
+
+/// Retrieve all blocks from the chain store starting from the best chain tip down to the root.
+#[cfg(feature = "test-utils")]
+#[expect(clippy::expect_used)]
+pub fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, Block)> {
+    store
+        .retrieve_best_chain()
+        .iter()
+        .map(|h| {
+            let b = store
+                .load_block(h)
+                .expect("load_blocks should not raise an error")
+                .expect("missing block for best-chain header");
+            (
+                *h,
+                NetworkBlock::try_from(b)
+                    .expect("failed to decode raw block")
+                    .decode_block()
+                    .expect("failed to decode block"),
+            )
+        })
+        .collect()
 }

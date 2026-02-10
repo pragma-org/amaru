@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_consensus::errors::ConsensusError::*;
+use amaru_consensus::stages::accept::PullAccept;
+use amaru_consensus::stages::pull::SyncTracker;
+use amaru_consensus::stages::{accept, pull};
 use amaru_consensus::{
     effects::ConsensusEffects,
     errors::{ProcessingFailed, ValidationFailed},
-    events::ChainSyncEvent,
     stages::{
         fetch_block, forward_chain, receive_header,
         select_chain::{self, SelectChain},
@@ -23,18 +26,21 @@ use amaru_consensus::{
     },
 };
 use amaru_kernel::Tip;
-use amaru_protocols::manager::ManagerMessage;
+use amaru_protocols::manager;
+use amaru_protocols::manager::{Manager, ManagerMessage};
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create the graph of stages supporting the consensus protocol.
 /// The output of the graph is passed as a parameter, allowing the caller to
 /// decide what to do with the results the graph processing.
+#[expect(clippy::expect_used)]
 pub fn build_stage_graph(
     chain_selector: SelectChain,
+    sync_tracker: SyncTracker,
+    manager: Manager,
     our_tip: Tip,
-    manager: StageRef<ManagerMessage>,
     network: &mut impl StageGraph,
-) -> StageRef<ChainSyncEvent> {
+) -> StageRef<ManagerMessage> {
     let receive_header_stage = network.stage(
         "receive_header",
         with_consensus_effects(receive_header::stage),
@@ -55,11 +61,11 @@ pub fn build_stage_graph(
         "forward_chain",
         with_consensus_effects(forward_chain::stage),
     );
+    let accept_stage = network.stage("accept", accept::stage);
 
     let validation_errors_stage =
-        network.stage("validation_errors", async move |manager, error, eff| {
+        network.stage("validation_errors", async move |manager_stage, error, eff| {
             let ValidationFailed { peer, error } = error;
-            use super::ConsensusError::*;
             match error {
                 MissingTip
                 | InvalidHeader(_, _)
@@ -73,7 +79,7 @@ pub fn build_stage_graph(
                 | RollbackChainFailed(_, _)
                 | CannotDecodeHeader { .. } => {
                     tracing::error!(%peer, %error, "peer sent invalid data, disconnecting");
-                    eff.send(&manager, ManagerMessage::RemovePeer(peer)).await;
+                    eff.send(&manager_stage, ManagerMessage::RemovePeer(peer)).await;
                 }
                 FetchBlockFailed(_)
                 | StoreHeaderFailed(_, _)
@@ -87,7 +93,7 @@ pub fn build_stage_graph(
                     tracing::error!(%peer, %error, "validation error, this needs to be investigated");
                 }
             }
-            manager
+            manager_stage
         });
 
     let processing_errors_stage = network.stage(
@@ -99,60 +105,93 @@ pub fn build_stage_graph(
         },
     );
 
-    let validation_errors_stage = network.wire_up(validation_errors_stage, manager.clone());
-    let processing_errors_stage = network.wire_up(processing_errors_stage, ());
+    let manager_stage = network.stage("manager", manager::stage);
+    let processing_errors_stage = network.wire_up(processing_errors_stage, ()).without_state();
+    let validation_errors_stage = network
+        .wire_up(validation_errors_stage, manager_stage.sender())
+        .without_state();
 
-    let forward_chain_stage = network.wire_up(
-        forward_chain_stage,
-        (
-            our_tip,
-            validation_errors_stage.clone().without_state(),
-            processing_errors_stage.clone().without_state(),
-        ),
-    );
+    let forward_chain_stage = network
+        .wire_up(
+            forward_chain_stage,
+            (
+                our_tip,
+                manager_stage.sender(),
+                validation_errors_stage.clone(),
+                processing_errors_stage.clone(),
+            ),
+        )
+        .without_state();
 
-    let select_chain_stage = network.wire_up(
-        select_chain_stage,
-        (
-            chain_selector,
-            forward_chain_stage.without_state(),
-            validation_errors_stage.clone().without_state(),
-        ),
-    );
-    let validate_block_stage = network.wire_up(
-        validate_block_stage,
-        (
-            select_chain_stage.without_state(),
-            validation_errors_stage.clone().without_state(),
-            processing_errors_stage.clone().without_state(),
-        ),
-    );
-    let fetch_block_stage = network.wire_up(
-        fetch_block_stage,
-        (
-            validate_block_stage.clone().without_state(),
-            validation_errors_stage.clone().without_state(),
-            processing_errors_stage.clone().without_state(),
-            manager,
-        ),
-    );
-    let validate_header_stage = network.wire_up(
-        validate_header_stage,
-        (
-            fetch_block_stage.without_state(),
-            validation_errors_stage.clone().without_state(),
-        ),
-    );
-    let receive_header_stage = network.wire_up(
-        receive_header_stage,
-        receive_header::State::new(
-            validate_header_stage.without_state(),
-            validation_errors_stage.without_state(),
-            processing_errors_stage.without_state(),
-        ),
-    );
+    let accept_stage = network
+        .wire_up(
+            accept_stage,
+            accept::AcceptState::new(manager_stage.sender(), manager.config()),
+        )
+        .without_state();
+    network
+        .preload(&accept_stage, [PullAccept])
+        .expect("preload should not fail on startup");
 
-    receive_header_stage.without_state()
+    let select_chain_stage = network
+        .wire_up(
+            select_chain_stage,
+            (
+                chain_selector,
+                forward_chain_stage,
+                validation_errors_stage.clone(),
+            ),
+        )
+        .without_state();
+
+    let validate_block_stage = network
+        .wire_up(
+            validate_block_stage,
+            (
+                select_chain_stage,
+                validation_errors_stage.clone(),
+                processing_errors_stage.clone(),
+            ),
+        )
+        .without_state();
+
+    let fetch_block_stage = network
+        .wire_up(
+            fetch_block_stage,
+            (
+                validate_block_stage,
+                validation_errors_stage.clone(),
+                processing_errors_stage.clone(),
+                manager_stage.sender(),
+            ),
+        )
+        .without_state();
+
+    let validate_header_stage = network
+        .wire_up(
+            validate_header_stage,
+            (fetch_block_stage, validation_errors_stage.clone()),
+        )
+        .without_state();
+
+    let receive_header_stage = network
+        .wire_up(
+            receive_header_stage,
+            receive_header::State::new(
+                validate_header_stage,
+                validation_errors_stage,
+                processing_errors_stage,
+            ),
+        )
+        .without_state();
+
+    let pull_stage = network.stage("pull", pull::stage);
+    let pull_stage = network
+        .wire_up(pull_stage, (sync_tracker, receive_header_stage))
+        .without_state();
+    network
+        .wire_up(manager_stage, (manager, pull_stage))
+        .without_state()
 }
 
 /// Wrap a function taking `ConsensusEffects` so that it can be used in a stage graph that provides

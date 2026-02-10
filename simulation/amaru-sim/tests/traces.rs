@@ -12,112 +12,80 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::{
-    Args, GeneratedEntries, NodeConfig, SimulateConfig, TEST_DATA_DIR, generate_entries,
-    run::spawn_node,
-};
+use amaru::tests::configuration::NodeConfig;
+use amaru::tests::setup::{create_nodes, run_nodes};
 use amaru_tracing_json::assert_spans_trees;
-use pure_stage::{
-    Instant,
-    simulation::{RandStdRng, SimulationBuilder},
-};
-use rand::{SeedableRng, prelude::StdRng};
 use serde_json::json;
-use std::time::Duration;
-use tokio::runtime::Runtime;
 use tracing::info_span;
 
-// FIXME: this test is flaky although it should not as everything is
-// supposed to be deterministic in the simulation. Perhaps this
-// happens because of the tracing library?
 #[test]
 fn run_simulator_with_traces() {
-    let args = Args {
-        number_of_tests: 1,
-        number_of_nodes: 1,
-        number_of_upstream_peers: 1,
-        number_of_downstream_peers: 1,
-        generated_chain_depth: 1,
-        disable_shrinking: true,
-        seed: Some(43),
-        persist_on_success: false,
-        persist_directory: format!("{TEST_DATA_DIR}/run_simulator_with_traces"),
-    };
-    let node_config = NodeConfig::from(args.clone());
-
-    let rt = Runtime::new().unwrap();
-    let generate_one = |rng: RandStdRng| {
-        let generated_entries = generate_entries(
-            &node_config,
-            Instant::at_offset(Duration::from_secs(0)),
-            200.0,
-        )(rng);
-
-        let generation_context = generated_entries.generation_context().clone();
-        GeneratedEntries::new(
-            generated_entries
-                .entries()
-                .iter()
-                .take(1)
-                .cloned()
-                .collect(),
-            generation_context,
-        )
-    };
-
-    let simulate_config = SimulateConfig::from(args.clone());
-    let mut rng = RandStdRng(StdRng::seed_from_u64(simulate_config.seed));
-    let generated_entries = generate_one(rng.derive());
-    let msg = generated_entries
-        .entries()
-        .first()
-        .unwrap()
-        .clone()
-        .envelope;
-
     let execute = || {
-        let mut network = SimulationBuilder::default();
-        let (input, _, _) = spawn_node("n1".to_string(), node_config.clone(), &mut network);
-        let mut running = network.run();
-        info_span!("handle_msg").in_scope(|| {
-            running.enqueue_msg(&input, [msg]);
-            running
-                .run_until_blocked_incl_effects(rt.handle())
-                .assert_terminated("processing_errors");
+        let responder_config = NodeConfig::responder().with_chain_length(1);
+        let mut nodes = create_nodes(vec![NodeConfig::initiator(), responder_config]).unwrap();
+        info_span!(target: "amaru_consensus", "handle_msg").in_scope(|| {
+            run_nodes(&mut nodes);
         });
     };
 
     assert_spans_trees(
         execute,
         vec![json!(
-          {
-            "name": "handle_msg",
-            "children": [
-              {
-                "name": "chain_sync.receive_header",
-                "children": [
-                  {
-                    "name": "chain_sync.decode_header"
-                  }
-                ]
-              },
-              {
-                "name": "chain_sync.validate_header"
-              },
-              {
-                "name": "diffusion.fetch_block"
-              },
-              {
-                "name": "chain_sync.validate_block"
-              },
-              {
-                "name": "chain_sync.select_chain"
-              },
-              {
-                "name": "diffusion.forward_chain"
-              }
-            ]
-          }
+            {
+              "name": "handle_msg",
+              "target": "amaru_consensus",
+              "children": [
+                // Protocol manager
+                { "name": "manager", "target": "amaru_protocols::manager", "message_type": "AddPeer" },
+                { "name": "manager", "target": "amaru_protocols::manager", "message_type": "Listen" },
+                { "name": "manager", "target": "amaru_protocols::manager", "message_type": "Listen" },
+                { "name": "manager", "target": "amaru_protocols::manager", "message_type": "Connect" },
+                // Connection initialization
+                { "name": "connection", "target": "amaru_protocols::connection", "conn_id": "0", "peer": "127.0.0.1:3000", "role": "Initiator", "message_type": "Initialize" },
+                { "name": "manager", "target": "amaru_protocols::manager", "message_type": "Accepted" },
+                { "name": "connection", "target": "amaru_protocols::connection", "conn_id": "1", "peer": "127.0.0.1:0", "role": "Responder", "message_type": "Initialize" },
+                // Handshake
+                { "name": "handshake.responder", "target": "amaru_protocols::handshake::responder", "message_type": "Propose" },
+                { "name": "connection", "target": "amaru_protocols::connection", "conn_id": "1", "peer": "127.0.0.1:0", "role": "Responder", "message_type": "Handshake" },
+                { "name": "handshake.initiator", "target": "amaru_protocols::handshake::initiator", "message_type": "Accept" },
+                { "name": "connection", "target": "amaru_protocols::connection", "conn_id": "0", "peer": "127.0.0.1:3000", "role": "Initiator", "message_type": "Handshake" },
+                // Chainsync + Tx submission
+                { "name": "diffusion.chain_sync", "target": "amaru_consensus::stages::pull", "message_type": "Initialize" },
+                { "name": "tx_submission.responder", "target": "amaru_protocols::tx_submission::responder", "message_type": "Init" },
+                { "name": "chainsync.responder", "target": "amaru_protocols::chainsync::responder", "message_type": "FindIntersect" },
+                { "name": "tx_submission.initiator", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
+                { "name": "chainsync.initiator", "target": "amaru_protocols::chainsync::initiator", "message_type": "IntersectFound" },
+                { "name": "diffusion.chain_sync", "target": "amaru_consensus::stages::pull", "message_type": "IntersectFound" },
+                { "name": "tx_submission.responder", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
+                { "name": "chainsync.responder", "target": "amaru_protocols::chainsync::responder", "message_type": "RequestNext" },
+                { "name": "chainsync.responder", "target": "amaru_protocols::chainsync::responder", "message_type": "RequestNext" },
+                { "name": "tx_submission.initiator", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
+                { "name": "chainsync.initiator", "target": "amaru_protocols::chainsync::initiator", "message_type": "RollBackward" },
+                {
+                  "name": "diffusion.chain_sync",
+                  "target": "amaru_consensus::stages::pull",
+                  "message_type": "RollBackward",
+                  "children": [
+                    { "name": "chain_sync.receive_header", "target": "amaru_consensus::stages::receive_header" },
+                    { "name": "chain_sync.validate_header", "target": "amaru_consensus::stages::validate_header" },
+                    { "name": "diffusion.fetch_block", "target": "amaru_consensus::stages::fetch_block" },
+                    { "name": "chain_sync.validate_block", "target": "amaru_consensus::stages::validate_block" },
+                    { "name": "chain_sync.select_chain", "target": "amaru_consensus::stages::select_chain" }
+                  ]
+                },
+                { "name": "tx_submission.responder", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
+                { "name": "chainsync.initiator", "target": "amaru_protocols::chainsync::initiator", "message_type": "AwaitReply" },
+                { "name": "tx_submission.initiator", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
+                { "name": "tx_submission.responder", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
+                { "name": "tx_submission.initiator", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
+                { "name": "tx_submission.responder", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
+                { "name": "tx_submission.initiator", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
+                { "name": "tx_submission.responder", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
+                { "name": "tx_submission.initiator", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" }
+              ]
+            }
         )],
+        vec!["amaru_consensus", "amaru_protocols"],
+        vec!["amaru_protocols::mux"],
     );
 }

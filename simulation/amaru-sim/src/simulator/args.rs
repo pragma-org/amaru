@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::{NodeConfig, SimulateConfig};
+use crate::simulator::RunConfig;
+use amaru::tests::configuration::NodeConfig;
 use clap::Parser;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 pub const TEST_DATA_DIR: &str = "test-data";
@@ -26,10 +28,6 @@ pub struct Args {
     /// Number of tests to run in simulation
     #[arg(long, default_value = "50", env = "AMARU_NUMBER_OF_TESTS")]
     pub number_of_tests: u32,
-
-    /// Number of nodes in simulation.
-    #[arg(long, default_value = "1", env = "AMARU_NUMBER_OF_NODES")]
-    pub number_of_nodes: u8,
 
     /// Number of upstream peers to simulate
     #[arg(long, default_value = "2", env = "AMARU_NUMBER_OF_UPSTREAM_PEERS")]
@@ -60,17 +58,20 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn from_configs(simulate_config: &SimulateConfig, node_config: &NodeConfig) -> Self {
+    pub fn from_configs(run_config: &RunConfig, node_config: &NodeConfig) -> Self {
         Self {
-            number_of_tests: simulate_config.number_of_tests,
-            number_of_nodes: simulate_config.number_of_nodes,
-            number_of_upstream_peers: node_config.number_of_upstream_peers,
-            number_of_downstream_peers: node_config.number_of_downstream_peers,
-            generated_chain_depth: node_config.generated_chain_depth,
-            disable_shrinking: simulate_config.disable_shrinking,
-            seed: Some(simulate_config.seed),
-            persist_on_success: simulate_config.persist_on_success,
-            persist_directory: simulate_config.persist_directory.to_string_lossy().into(),
+            number_of_tests: run_config.number_of_tests,
+            number_of_upstream_peers: run_config.number_of_upstream_peers,
+            number_of_downstream_peers: run_config.number_of_downstream_peers,
+            generated_chain_depth: node_config.chain_length as u64,
+            disable_shrinking: run_config.disable_shrinking,
+            seed: Some(run_config.seed),
+            persist_on_success: run_config.persist_on_success,
+            persist_directory: run_config.persist_directory.to_string_lossy().into(),
         }
+    }
+
+    pub fn seed(&self) -> u64 {
+        self.seed.unwrap_or_else(|| rand::rng().random::<u64>())
     }
 }

@@ -25,6 +25,7 @@ use amaru_kernel::{BlockHeader, IsHeader, NonEmptyVec, Point, RawBlock};
 use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use std::fmt::Debug;
+use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<BlockFetchResponder>().boxed()]
@@ -225,6 +226,7 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
+    #[instrument(name = "blockfetch.responder", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,
