@@ -12,39 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{NonEmptyBytes, Peer};
-use std::{
-    fmt,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
-    num::NonZeroUsize,
-    pin::Pin,
-    sync::Arc,
-    time::Duration,
-};
-
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-#[derive(
-    Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
-pub struct ConnectionId(u64);
-
-impl ConnectionId {
-    /// Get the next ConnectionId, wrapping on overflow (which should not happen given we are using u64)
-    pub fn next(&self) -> Self {
-        Self(self.0.wrapping_add(1))
-    }
-
-    pub fn initial() -> Self {
-        Self(0)
-    }
-}
-
-impl fmt::Display for ConnectionId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+use anyhow::anyhow;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ToSocketAddrs {
@@ -117,36 +86,29 @@ impl From<SocketAddrV6> for ToSocketAddrs {
     }
 }
 
-pub type ConnectionResource = Arc<dyn ConnectionProvider>;
-
-pub trait ConnectionProvider: Send + Sync + 'static {
-    fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>>;
-
-    fn accept(&self) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>>;
-
-    fn connect(
-        &self,
-        addr: Vec<SocketAddr>,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
-
-    fn connect_addrs(
-        &self,
-        addr: ToSocketAddrs,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
-
-    fn send(
-        &self,
-        conn: ConnectionId,
-        data: NonEmptyBytes,
-    ) -> BoxFuture<'static, std::io::Result<()>>;
-
-    fn recv(
-        &self,
-        conn: ConnectionId,
-        bytes: NonZeroUsize,
-    ) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>>;
-
-    fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>>;
+impl ToSocketAddrs {
+    pub fn to_socket_addrs(self) -> anyhow::Result<Vec<SocketAddr>> {
+        let addresses = match self {
+            ToSocketAddrs::SocketAddrs(addrs) => addrs,
+            ToSocketAddrs::SocketAddrV4(a) => vec![SocketAddr::V4(a)],
+            ToSocketAddrs::SocketAddrV6(a) => vec![SocketAddr::V6(a)],
+            ToSocketAddrs::String(s) => {
+                vec![
+                    s.parse()
+                        .map_err(|e| anyhow!(format!("invalid address '{s}': {e}")))?,
+                ]
+            }
+            ToSocketAddrs::IpAddrs(ips) => ips
+                .into_iter()
+                .map(|(ip, port)| SocketAddr::new(ip, port))
+                .collect(),
+            ToSocketAddrs::IpAddrV4(ip, port) => {
+                vec![SocketAddr::new(IpAddr::V4(ip), port)]
+            }
+            ToSocketAddrs::IpAddrV6(ip, port) => {
+                vec![SocketAddr::new(IpAddr::V6(ip), port)]
+            }
+        };
+        Ok(addresses)
+    }
 }

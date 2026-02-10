@@ -64,6 +64,7 @@ use amaru_kernel::{Transaction, utils::string::display_collection};
 use amaru_ouroboros::{MempoolSeqNo, TxSubmissionMempool};
 use amaru_ouroboros_traits::TxId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 const MAX_REQUESTED_TX_IDS: u16 = 10;
 
@@ -130,6 +131,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().send(Message::Init).want_next(), State::Idle))
     }
 
+    #[instrument(name = "tx_submission.initiator", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,

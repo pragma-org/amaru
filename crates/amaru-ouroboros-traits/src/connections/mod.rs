@@ -12,18 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod chain_follower;
-pub mod client_protocol;
-pub mod tcp_forward_chain_server;
+mod to_socket_addrs;
+pub use to_socket_addrs::*;
 
-#[cfg(test)]
-mod test_infra;
-#[cfg(test)]
-mod tests;
+mod connection_provider;
+pub use connection_provider::*;
 
-pub fn to_pallas_tip(tip: amaru_kernel::Tip) -> pallas_network::miniprotocols::chainsync::Tip {
-    pallas_network::miniprotocols::chainsync::Tip(
-        amaru_network::point::to_network_point(tip.point()),
-        tip.block_height().as_u64(),
-    )
-}
+mod mock;
+pub use mock::*;

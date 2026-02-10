@@ -36,7 +36,7 @@ use tokio::sync::Notify;
 /// and that both nodes have the same blocks and transactions.
 #[tokio::test]
 async fn test_connect_initiator_responder() -> anyhow::Result<()> {
-    setup_logging(true);
+    setup_logging(false);
     let (responder, addr, responder_done) = start_responder().await?;
     let (initiator, initiator_done) = start_initiator_at(addr).await?;
 
@@ -47,7 +47,7 @@ async fn test_connect_initiator_responder() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
-    setup_logging(true);
+    setup_logging(false);
     let addr = ephemeral_localhost_addr()?;
     tracing::info!("starting test at address {}", addr);
     let (initiator, initiator_done) = start_initiator_with_configuration(
@@ -66,7 +66,7 @@ async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::Result<()> {
-    setup_logging(true);
+    setup_logging(false);
 
     // start an initiator with a responder that will be slow right after connection, so that
     // the initiator doesn't start synchronizing right away
@@ -127,7 +127,6 @@ async fn start_responder_with_configuration(
     let responder_manager = Manager::new(
         NetworkMagic::PREPROD,
         ManagerConfig::default(),
-        StageRef::blackhole(),
         Arc::new(era_history.clone()),
     );
 
@@ -136,7 +135,8 @@ async fn start_responder_with_configuration(
     } else {
         responder_network.stage("responder", manager::stage)
     };
-    let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
+    let responder_stage =
+        responder_network.wire_up(responder_stage, (responder_manager, StageRef::blackhole()));
 
     let accept_stage = responder_network.stage("accept", accept_stage);
     let notify = Arc::new(Notify::new());
@@ -206,10 +206,10 @@ async fn start_initiator_with_configuration(
     let initiator_manager = Manager::new(
         NetworkMagic::PREPROD,
         manager_config,
-        chainsync_stage.without_state(),
         Arc::new(era_history.clone()),
     );
-    let initiator_stage = initiator_network.wire_up(initiator_stage, initiator_manager);
+    let state = (initiator_manager, chainsync_stage.without_state());
+    let initiator_stage = initiator_network.wire_up(initiator_stage, state);
     let initiator_sender = initiator_network.input(initiator_stage);
 
     let initiator_connections = TokioConnections::new(65535);

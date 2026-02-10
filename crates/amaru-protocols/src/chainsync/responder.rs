@@ -26,6 +26,7 @@ use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use std::cmp::Reverse;
+use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -241,6 +242,7 @@ impl ProtocolState<Responder> for ResponderState {
         Ok((outcome().want_next(), *self))
     }
 
+    #[instrument(name = "chainsync.responder", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,

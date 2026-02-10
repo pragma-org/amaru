@@ -24,15 +24,17 @@
 // Go to 3 and continue until heap is empty;
 // Make assertions on the history to ensure the execution was correct, if not, shrink and present minimal history that breaks the assertion together with the seed that allows us to reproduce the execution.
 
+pub(crate) use crate::simulator::world::{History, World};
 use crate::{
     simulator::{
-        Args, GeneratedEntries, NodeConfig,
+        Args, GeneratedEntries,
+        run_config::RunConfig,
         shrink::shrink,
-        simulate_config::SimulateConfig,
         world::{Entry, NodeHandle},
     },
     sync::ChainSyncMessage,
 };
+use amaru::tests::configuration::NodeConfig;
 use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions};
 use amaru_kernel::utils::string::ListToString;
 use anyhow::anyhow;
@@ -54,8 +56,6 @@ use std::{
 };
 use tracing::{error, info};
 
-pub(crate) use crate::simulator::world::{History, World};
-
 /// Run the simulation
 ///
 /// - Generate a number of messages to be delivered to nodes.
@@ -64,7 +64,7 @@ pub(crate) use crate::simulator::world::{History, World};
 /// - Persist the schedule of messages to a file for later replay.
 #[allow(clippy::too_many_arguments)]
 pub fn simulate<F>(
-    simulate_config: &SimulateConfig,
+    run_config: &RunConfig,
     node_config: &NodeConfig,
     spawn: F,
     generator: impl Fn(RandStdRng) -> GeneratedEntries<ChainSyncMessage, GeneratedActions>,
@@ -76,9 +76,9 @@ pub fn simulate<F>(
 where
     F: Fn(String, RandStdRng) -> NodeHandle<ChainSyncMessage>,
 {
-    let mut rng = RandStdRng(StdRng::seed_from_u64(simulate_config.seed));
-    info!(seed=%simulate_config.seed, "simulate.start");
-    let tests_dir = simulate_config.persist_directory.as_path();
+    let mut rng = RandStdRng(StdRng::seed_from_u64(run_config.seed));
+    info!(seed=%run_config.seed, "simulate.start");
+    let tests_dir = run_config.persist_directory.as_path();
     if !tests_dir.exists() {
         create_dir_all(tests_dir)?;
     }
@@ -90,12 +90,12 @@ where
     create_symlink_dir(test_run_dir.as_path(), tests_dir.join("latest").as_path());
     persist_args(
         test_run_dir.as_path(),
-        simulate_config,
+        run_config,
         node_config,
         persist_on_success,
     )?;
 
-    for test_number in 1..=simulate_config.number_of_tests {
+    for test_number in 1..=run_config.number_of_tests {
         trace_buffer.lock().clear();
         let test_run_dir_n = test_run_dir.join(format!("test-{}", test_number));
         create_dir_all(&test_run_dir_n)?;
@@ -105,7 +105,7 @@ where
         );
 
         info!(
-            test_number, total=%simulate_config.number_of_tests,
+            test_number, total=%run_config.number_of_tests,
             "simulate.generate_test_data"
         );
         let generated_entries = generator(rng.derive());
@@ -113,7 +113,7 @@ where
         display_test_stats(generation_context);
 
         let result = match run_test(
-            simulate_config,
+            run_config,
             &spawn,
             &property,
             rng.derive(),
@@ -123,7 +123,7 @@ where
             Err(error) => {
                 error!(
                     test_number,
-                    total=%simulate_config.number_of_tests,
+                    total=%run_config.number_of_tests,
                     data_directory=%test_run_dir.to_str().unwrap(),
                     "simulate.test.failure"
                 );
@@ -133,7 +133,7 @@ where
                 display_test_stats(generation_context);
                 info!(
                     test_number,
-                    total=%simulate_config.number_of_tests,
+                    total=%run_config.number_of_tests,
                     "simulate.test.success"
                 );
                 Ok(())
@@ -146,16 +146,16 @@ where
     }
 
     info!(
-        total=%simulate_config.number_of_tests,
+        total=%run_config.number_of_tests,
         "simulate.complete"
     );
-    display_test_configuration(simulate_config, node_config);
+    display_test_configuration(run_config, node_config);
     Ok(())
 }
 
 /// Run a single test by spawning nodes, sending them messages and checking the property.
 pub fn run_test<Msg, GenerationContext, F>(
-    simulate_config: &SimulateConfig,
+    run_config: &RunConfig,
     spawn: &F,
     property: &impl Fn(&History<Msg>, &GenerationContext) -> Result<(), String>,
     mut rng: RandStdRng,
@@ -168,7 +168,7 @@ where
 {
     let mut test = test_nodes(
         rng.derive(),
-        simulate_config.number_of_nodes,
+        run_config.number_of_upstream_peers,
         &spawn,
         generated_entries.generation_context(),
         &property,
@@ -178,11 +178,11 @@ where
     let result = test(entries);
     match result {
         (history, Err(reason)) => {
-            let failure_message = if simulate_config.disable_shrinking {
+            let failure_message = if run_config.disable_shrinking {
                 let number_of_shrinks = 0;
                 create_failure_message(
                     test_number,
-                    simulate_config.seed,
+                    run_config.seed,
                     number_of_shrinks,
                     history,
                     reason,
@@ -195,7 +195,7 @@ where
                 assert_eq!(Err(reason.clone()), result);
                 create_failure_message(
                     test_number,
-                    simulate_config.seed,
+                    run_config.seed,
                     number_of_shrinks,
                     shrunk_history,
                     reason,
@@ -241,9 +241,11 @@ where
     }
 }
 
-fn display_test_configuration(simulate_config: &SimulateConfig, node_config: &NodeConfig) {
-    info!(number_of_tests=%simulate_config.number_of_tests,
-          number_of_upstream_peers=%node_config.number_of_upstream_peers,
+fn display_test_configuration(run_config: &RunConfig, node_config: &NodeConfig) {
+    info!(number_of_tests=%run_config.number_of_tests,
+          chain_length=%node_config.chain_length,
+          number_of_upstream_peers=%run_config.number_of_upstream_peers,
+          number_of_downstream_peers=%run_config.number_of_downstream_peers,
           "simulate.configuration");
 }
 
@@ -325,14 +327,14 @@ fn persist_traces_as_cbor(
 /// Persist the seed to .seed file where the filename is the seed value
 fn persist_args(
     dir: &Path,
-    simulate_config: &SimulateConfig,
+    run_config: &RunConfig,
     node_config: &NodeConfig,
     persist: bool,
 ) -> Result<(), anyhow::Error> {
     if !persist {
         return Ok(());
     }
-    let args = Args::from_configs(simulate_config, node_config);
+    let args = Args::from_configs(run_config, node_config);
     let path = dir.join("args.json");
     let mut file = File::create(&path)?;
     let serialized = serde_json::to_string_pretty(&args)?;

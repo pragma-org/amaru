@@ -24,6 +24,7 @@ use crate::{
     },
 };
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<KeepAliveResponder>().boxed()]
@@ -80,6 +81,7 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
+    #[instrument(name = "keepalive.responder", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,

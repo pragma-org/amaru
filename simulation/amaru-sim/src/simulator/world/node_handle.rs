@@ -14,7 +14,7 @@
 
 use crate::simulator::Envelope;
 use anyhow::anyhow;
-use pure_stage::{Receiver, StageRef, simulation::running::SimulationRunning};
+use pure_stage::simulation::running::SimulationRunning;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{Debug, Display},
@@ -23,7 +23,7 @@ use std::{
     process::{Command, Stdio},
 };
 use tokio::runtime::Handle;
-use tracing::{info_span, trace};
+use tracing::info_span;
 
 /// A `NodeHandle` is an async function that sends an Envelope<Msg> to a node and returns a list of Envelope<Msg>.
 /// as the result of processing that message (Envelope holds source/destination values representing node ids).
@@ -79,11 +79,8 @@ impl<Msg> NodeHandle<Msg> {
     ///  * `running` is the simulated node, waiting for messages to arrive.
     ///
     pub fn from_pure_stage(
-        input: StageRef<Envelope<Msg>>,
-        mut init_messages: Receiver<Envelope<Msg>>,
-        mut output: Receiver<Envelope<Msg>>,
-        mut running: SimulationRunning,
-        rt: Handle,
+        mut _running: SimulationRunning,
+        _rt: Handle,
     ) -> anyhow::Result<NodeHandle<Msg>>
     where
         Msg: PartialEq
@@ -94,24 +91,26 @@ impl<Msg> NodeHandle<Msg> {
             + serde::de::DeserializeOwned
             + 'static,
     {
-        let handle = Box::new(move |msg: Option<Envelope<Msg>>| match msg {
-            Some(msg) => {
-                trace!(msg = %msg, "enqueuing");
-                running.enqueue_msg(&input, [msg]);
-                match running.run_one_step(&rt) {
-                    Some(_blocked) => {
-                        let mut result = init_messages.drain().collect::<Vec<_>>();
-                        result.extend(output.drain().collect::<Vec<_>>());
-                        Ok(Some(result))
-                    }
-                    None => Ok(None),
-                }
-            }
-            None => match running.run_one_step(&rt) {
-                Some(_) => Ok(Some(output.drain().collect::<Vec<_>>())),
-                None => Ok(None),
-            },
-        });
+        // TODO: make different nodes for upstream peer, node under test and downstream peer
+        let handle = Box::new(
+            move |_msg: Option<Envelope<Msg>>| Ok(None),
+            // Some(msg) => {
+            //     trace!(msg = %msg, "enqueuing");
+            //     running.enqueue_msg(&input, [msg]);
+            //     match running.run_one_step(&rt) {
+            //         Some(_blocked) => {
+            //             let mut result = init_messages.drain().collect::<Vec<_>>();
+            //             result.extend(output.drain().collect::<Vec<_>>());
+            //             Ok(Some(result))
+            //         }
+            //         None => Ok(None),
+            //     }
+            // }
+            // None => match running.run_one_step(&rt) {
+            //     Some(_) => Ok(Some(output.drain().collect::<Vec<_>>())),
+            //     None => Ok(None),
+            // },
+        );
 
         let close = Box::new(move || ());
 

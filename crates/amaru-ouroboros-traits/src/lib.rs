@@ -21,8 +21,8 @@ pub use can_validate_blocks::{BlockValidationError, CanValidateBlocks};
 pub mod can_validate_transactions;
 pub use can_validate_transactions::{CanValidateTransactions, TransactionValidationError};
 
-pub mod connection;
-pub use connection::*;
+pub mod connections;
+pub use connections::*;
 
 pub mod mempool;
 pub use mempool::*;

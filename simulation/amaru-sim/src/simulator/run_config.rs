@@ -18,21 +18,23 @@ use std::path::{Path, PathBuf};
 
 /// Configuration for a simulation run
 #[derive(Debug, Clone)]
-pub struct SimulateConfig {
+pub struct RunConfig {
     pub number_of_tests: u32,
     pub seed: u64,
-    pub number_of_nodes: u8,
+    pub number_of_upstream_peers: u8,
+    pub number_of_downstream_peers: u8,
     pub disable_shrinking: bool,
     pub persist_on_success: bool,
     pub persist_directory: PathBuf,
 }
 
-impl Default for SimulateConfig {
+impl Default for RunConfig {
     fn default() -> Self {
         Self {
             number_of_tests: 50,
             seed: rand::rng().random::<u64>(),
-            number_of_nodes: 1,
+            number_of_upstream_peers: 1,
+            number_of_downstream_peers: 1,
             disable_shrinking: true,
             persist_on_success: true,
             persist_directory: Path::new("test-data").to_path_buf(),
@@ -40,13 +42,14 @@ impl Default for SimulateConfig {
     }
 }
 
-impl SimulateConfig {
+impl RunConfig {
     pub fn from(args: Args) -> Self {
         let default = Self::default();
         Self {
             number_of_tests: args.number_of_tests,
             seed: args.seed.unwrap_or(default.seed),
-            number_of_nodes: args.number_of_nodes,
+            number_of_upstream_peers: args.number_of_upstream_peers,
+            number_of_downstream_peers: args.number_of_downstream_peers,
             disable_shrinking: args.disable_shrinking,
             persist_on_success: args.persist_on_success,
             persist_directory: Path::new(&args.persist_directory).to_path_buf(),
@@ -63,7 +66,7 @@ impl SimulateConfig {
     }
 
     pub fn with_number_of_nodes(mut self, n: u8) -> Self {
-        self.number_of_nodes = n;
+        self.number_of_upstream_peers = n;
         self
     }
 

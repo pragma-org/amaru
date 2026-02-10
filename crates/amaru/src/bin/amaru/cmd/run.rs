@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use crate::pid::with_optional_pid_file;
+use amaru::stages::build_node::build_and_run_node;
+use amaru::stages::config::{Config, MaxExtraLedgerSnapshots, StoreType};
 use amaru::{
     DEFAULT_LISTEN_ADDRESS, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, default_chain_dir,
-    default_ledger_dir,
-    metrics::track_system_metrics,
-    stages::{Config, MaxExtraLedgerSnapshots, StoreType, build_and_run_network},
+    default_ledger_dir, metrics::track_system_metrics,
 };
 use amaru_kernel::NetworkName;
 use amaru_stores::rocksdb::RocksDbConfig;
@@ -141,7 +141,7 @@ pub async fn run(
 
         let exit = amaru::exit::hook_exit_token();
 
-        let _ = build_and_run_network(config, meter_provider).await?;
+        let _ = build_and_run_node(config, meter_provider)?;
 
         exit.cancelled().await;
 

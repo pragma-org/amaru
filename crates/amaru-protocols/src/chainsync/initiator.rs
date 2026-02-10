@@ -24,6 +24,7 @@ use crate::{
 use amaru_kernel::{BlockHeader, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -51,6 +52,18 @@ pub struct ChainSyncInitiatorMsg {
     pub conn_id: ConnectionId,
     pub handler: StageRef<InitiatorMessage>,
     pub msg: InitiatorResult,
+}
+
+impl ChainSyncInitiatorMsg {
+    pub fn message_type(&self) -> &str {
+        match self.msg {
+            InitiatorResult::Initialize => "Initialize",
+            InitiatorResult::IntersectFound(_, _) => "IntersectFound",
+            InitiatorResult::IntersectNotFound(_) => "IntersectNotFound",
+            InitiatorResult::RollForward(_, _) => "RollForward",
+            InitiatorResult::RollBackward(_, _) => "RollBackward",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -217,6 +230,7 @@ impl ProtocolState<Initiator> for InitiatorState {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
+    #[instrument(name = "chainsync.initiator", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,

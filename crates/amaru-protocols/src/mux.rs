@@ -658,7 +658,7 @@ mod tests {
         protocol::{Initiator, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_TEST, Responder},
     };
     use amaru_network::connection::TokioConnections;
-    use amaru_ouroboros::ConnectionResource;
+    use amaru_ouroboros::ConnectionsResource;
     use amaru_ouroboros_traits::ConnectionProvider;
     use futures_util::StreamExt;
     use pure_stage::{
@@ -727,7 +727,7 @@ mod tests {
 
         graph
             .resources()
-            .put::<ConnectionResource>(Arc::new(network));
+            .put::<ConnectionsResource>(Arc::new(network));
 
         let mut running = graph.run();
         let join_handle = tokio::spawn(async move {
@@ -1113,7 +1113,7 @@ mod tests {
 
         graph
             .resources()
-            .put::<ConnectionResource>(Arc::new(network));
+            .put::<ConnectionsResource>(Arc::new(network));
 
         let running = graph.run(Handle::current());
 

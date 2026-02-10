@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::tests::configuration::NodeConfig;
 use amaru_sim::simulator::{
-    Args, NodeConfig, SimulateConfig, TEST_DATA_DIR,
+    Args, RunConfig, TEST_DATA_DIR,
     run::{replay, run},
 };
 use anyhow::anyhow;
@@ -42,8 +43,8 @@ pub fn run_simulator() {
 ///
 pub fn run_replay() {
     initialize_logs();
-    let simulate_config = SimulateConfig::default();
-    let test_directory = simulate_config.persist_directory.as_path();
+    let run_config = RunConfig::default();
+    let test_directory = run_config.persist_directory.as_path();
     let args = get_args(test_directory, SimulationRun::Latest).expect("latest arguments");
     let traces =
         get_traces(test_directory, SimulationRun::Latest, TestRun::Latest).expect("latest traces");
@@ -91,36 +92,29 @@ fn initialize_logs() {
 
 /// Create Args from environment variables, with defaults from SimulateConfig and NodeConfig.
 fn make_args() -> Args {
-    let simulate_config = SimulateConfig::default();
+    let run_config = RunConfig::default();
     let node_config = NodeConfig::default();
 
     Args {
-        number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", simulate_config.number_of_tests),
-        number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", simulate_config.number_of_nodes),
+        number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", run_config.number_of_tests),
         number_of_upstream_peers: get_env_var(
             "AMARU_NUMBER_OF_UPSTREAM_PEERS",
-            node_config.number_of_upstream_peers,
+            run_config.number_of_upstream_peers,
         ),
         number_of_downstream_peers: get_env_var(
             "AMARU_NUMBER_OF_DOWNSTREAM_PEERS",
-            node_config.number_of_downstream_peers,
+            run_config.number_of_downstream_peers,
         ),
         generated_chain_depth: get_env_var(
             "AMARU_GENERATED_CHAIN_DEPTH",
-            node_config.generated_chain_depth,
+            node_config.chain_length as u64,
         ),
-        disable_shrinking: is_true_or("AMARU_DISABLE_SHRINKING", simulate_config.disable_shrinking),
+        disable_shrinking: is_true_or("AMARU_DISABLE_SHRINKING", run_config.disable_shrinking),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
-        persist_on_success: is_true_or(
-            "AMARU_PERSIST_ON_SUCCESS",
-            simulate_config.persist_on_success,
-        ),
+        persist_on_success: is_true_or("AMARU_PERSIST_ON_SUCCESS", run_config.persist_on_success),
         persist_directory: get_env_var(
             "AMARU_PERSIST_DIRECTORY",
-            simulate_config
-                .persist_directory
-                .to_string_lossy()
-                .to_string(),
+            run_config.persist_directory.to_string_lossy().to_string(),
         ),
     }
 }

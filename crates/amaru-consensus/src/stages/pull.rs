@@ -19,7 +19,7 @@ use pure_stage::{Effects, StageRef};
 use std::collections::BTreeSet;
 use tracing::{Span, instrument};
 
-#[instrument(level = "trace", name = "diffusion.chain_sync", skip_all)]
+#[instrument(level = "trace", name = "diffusion.chain_sync", skip_all, fields(message_type = msg.message_type()))]
 pub async fn stage(
     (mut tracker, downstream): (SyncTracker, StageRef<ChainSyncEvent>),
     msg: ChainSyncInitiatorMsg,

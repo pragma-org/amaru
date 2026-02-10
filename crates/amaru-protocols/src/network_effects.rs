@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_ouroboros::{ConnectionId, ConnectionResource, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionId, ConnectionsResource, ToSocketAddrs};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use std::{net::SocketAddr, num::NonZeroUsize, time::Duration};
 
@@ -110,7 +110,7 @@ impl ExternalEffect for ListenEffect {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
             let resource = resources
-                .get::<ConnectionResource>()
+                .get::<ConnectionsResource>()
                 .expect("ListenEffect requires a ConnectionResource")
                 .clone();
             resource
@@ -133,7 +133,7 @@ impl ExternalEffect for AcceptEffect {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
             let resource = resources
-                .get::<ConnectionResource>()
+                .get::<ConnectionsResource>()
                 .expect("AcceptEffect requires a ConnectionResource")
                 .clone();
             resource
@@ -159,7 +159,7 @@ impl ExternalEffect for ConnectEffect {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
             let resource = resources
-                .get::<ConnectionResource>()
+                .get::<ConnectionsResource>()
                 .expect("ConnectEffect requires a ConnectionResource")
                 .clone();
             resource
@@ -185,7 +185,7 @@ impl ExternalEffect for SendEffect {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
             let resource = resources
-                .get::<ConnectionResource>()
+                .get::<ConnectionsResource>()
                 .expect("SendEffect requires a ConnectionResource")
                 .clone();
             resource
@@ -211,7 +211,7 @@ impl ExternalEffect for RecvEffect {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
             let resource = resources
-                .get::<ConnectionResource>()
+                .get::<ConnectionsResource>()
                 .expect("RecvEffect requires a ConnectionResource")
                 .clone();
             resource
@@ -236,7 +236,7 @@ impl ExternalEffect for CloseEffect {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
             let resource = resources
-                .get::<ConnectionResource>()
+                .get::<ConnectionsResource>()
                 .expect("CloseEffect requires a ConnectionResource")
                 .clone();
             resource
@@ -260,7 +260,7 @@ pub async fn create_connection(
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         use amaru_network::socket_addr::resolve;
 
-        let addr = amaru_ouroboros_traits::connection::ToSocketAddrs::String(
+        let addr = ToSocketAddrs::String(
             std::env::var("PEER").unwrap_or_else(|_| "127.0.0.1:3000".to_string()),
         );
         let addr = resolve(addr).await?;

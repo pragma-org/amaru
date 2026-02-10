@@ -73,6 +73,16 @@ pub enum Message {
     Done,
 }
 
+impl Message {
+    pub fn message_type(&self) -> &str {
+        match self {
+            Message::KeepAlive(_) => "KeepAlive",
+            Message::ResponseKeepAlive(_) => "ResponseKeepAlive",
+            Message::Done => "Done",
+        }
+    }
+}
+
 impl<T> cbor::Encode<T> for Message {
     fn encode<W: cbor::encode::Write>(
         &self,
