@@ -296,7 +296,8 @@ mod tests {
             tracing_subscriber::registry().with(CborLayer::new(collector.clone())),
         ));
 
-        trace_span!(stage::logging::TEST_SPAN, field1 = 42, field2 = "value").in_scope(|| {
+        // Use tracing::trace_span! directly since we don't have a schema defined for this test
+        tracing::trace_span!("test_span", field1 = 42, field2 = "value").in_scope(|| {
             info!(message = "test event", field3 = 123);
         });
 

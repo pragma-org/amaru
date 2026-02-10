@@ -152,8 +152,8 @@ fn test_trace_record_with_complex_nested_expr() {
     let span = tracing::info_span!("test_span");
     let _guard = span.enter();
 
-    let items = vec!["a", "b", "c"];
-    let filtered = items.iter().filter(|s| s.len() > 0).collect::<Vec<_>>();
+    let items = ["a", "b", "c"];
+    let filtered = items.iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
 
     trace_record!(
         amaru::test::example::ProcessEvent,

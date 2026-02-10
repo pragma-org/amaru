@@ -140,8 +140,8 @@ fn test_trace_span_with_method_chain() {
 #[test]
 fn test_trace_span_with_complex_nested_expr() {
     // Create a span with complex nested expression containing multiple commas
-    let items = vec!["a", "b", "c"];
-    let filtered = items.iter().filter(|s| s.len() > 0).collect::<Vec<_>>();
+    let items = ["a", "b", "c"];
+    let filtered = items.iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
 
     let span = trace_span!(
         amaru::test::span_test::SpanEvent,
