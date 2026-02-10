@@ -520,8 +520,8 @@ pub use tests::*;
 
 #[cfg(any(all(test, not(target_os = "windows")), feature = "test-utils"))]
 mod tests {
-    use amaru_kernel::{Bound, Epoch, EraHistory, EraParams, Slot, Summary, TimeMs};
-    use std::sync::LazyLock;
+    use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, Slot};
+    use std::{sync::LazyLock, time::Duration};
 
     // Technically higher than the actual gap we may see in 'real life', but, why not.
     pub const MAX_ARBITRARY_EPOCH: u64 = 10;
@@ -529,9 +529,9 @@ mod tests {
 
     pub static ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         EraHistory::new(
-            &[Summary {
-                start: Bound {
-                    time_ms: TimeMs::from(0),
+            &[EraSummary {
+                start: EraBound {
+                    time: Duration::from_secs(0),
                     slot: Slot::from(0),
                     epoch: Epoch::from(0),
                 },
@@ -540,7 +540,8 @@ mod tests {
                     // Pick an epoch length such that epochs falls within the min and max bounds;
                     // knowing that slots ranges across all u64.
                     epoch_size_slots: u64::MAX / (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH + 1),
-                    slot_length: 1,
+                    slot_length: Duration::from_secs(1),
+                    era_name: EraName::Conway,
                 },
             }],
             Slot::from(0),

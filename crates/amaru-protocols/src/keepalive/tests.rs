@@ -17,10 +17,9 @@ use crate::{
     network_effects::create_connection,
     protocol::Role,
 };
-use amaru_kernel::{NetworkMagic, NetworkName, Peer};
+use amaru_kernel::{EraHistory, NetworkMagic, NetworkName, Peer};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::ConnectionResource;
-use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use std::{sync::Arc, time::Duration};
 use tokio::{runtime::Runtime, time::timeout};

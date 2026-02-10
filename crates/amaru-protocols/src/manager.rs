@@ -19,7 +19,7 @@ use crate::{
     network_effects::{Network, NetworkOps},
     protocol::Role,
 };
-use amaru_kernel::{NetworkMagic, Peer, Point};
+use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
 use pure_stage::{Effects, StageRef};
 use std::sync::Arc;
@@ -50,8 +50,9 @@ pub enum ManagerMessage {
 pub struct Manager {
     peers: BTreeMap<Peer, ConnectionState>,
     magic: NetworkMagic,
+    config: ManagerConfig,
     chain_sync: StageRef<ChainSyncInitiatorMsg>,
-    era_history: Arc<amaru_slot_arithmetic::EraHistory>,
+    era_history: Arc<EraHistory>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -65,14 +66,44 @@ enum ConnectionState {
 impl Manager {
     pub fn new(
         magic: NetworkMagic,
+        config: ManagerConfig,
         chain_sync: StageRef<ChainSyncInitiatorMsg>,
-        era_history: Arc<amaru_slot_arithmetic::EraHistory>,
+        era_history: Arc<EraHistory>,
     ) -> Self {
         Self {
             peers: BTreeMap::new(),
             magic,
+            config,
             chain_sync,
             era_history,
+        }
+    }
+}
+
+/// Parameters for the Manager: connection timeout, reconnection delay, etc...
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ManagerConfig {
+    pub connection_timeout: Duration,
+    pub reconnect_delay: Duration,
+}
+
+impl ManagerConfig {
+    pub fn with_reconnect_delay(mut self, reconnect_delay: Duration) -> Self {
+        self.reconnect_delay = reconnect_delay;
+        self
+    }
+
+    pub fn with_connection_timeout(mut self, connection_timeout: Duration) -> Self {
+        self.connection_timeout = connection_timeout;
+        self
+    }
+}
+
+impl Default for ManagerConfig {
+    fn default() -> Self {
+        Self {
+            connection_timeout: Duration::from_secs(10),
+            reconnect_delay: Duration::from_secs(2),
         }
     }
 }
@@ -129,14 +160,17 @@ pub async fn stage(
             };
             let addr = ToSocketAddrs::String(peer.to_string());
             let conn_id = match Network::new(&eff)
-                .connect(addr, Duration::from_secs(10))
+                .connect(addr, manager.config.connection_timeout)
                 .await
             {
                 Ok(conn_id) => conn_id,
                 Err(err) => {
-                    tracing::error!(?err, %peer, "failed to connect to peer");
-                    eff.schedule_after(ManagerMessage::Connect(peer), Duration::from_secs(10))
-                        .await;
+                    tracing::error!(?err, %peer, reconnecting_in=?manager.config.reconnect_delay, "failed to connect to peer. Scheduling reconnect");
+                    eff.schedule_after(
+                        ManagerMessage::Connect(peer),
+                        manager.config.reconnect_delay,
+                    )
+                    .await;
                     assert_eq!(*entry, ConnectionState::Scheduled);
                     return manager;
                 }
@@ -194,9 +228,12 @@ pub async fn stage(
                 ConnectionState::Connected(..) => {
                     // Only reconnect on the initiator side
                     if role == Role::Initiator {
-                        tracing::info!(%peer, "initiator connection died, scheduling reconnect");
-                        eff.schedule_after(ManagerMessage::Connect(peer), Duration::from_secs(10))
-                            .await;
+                        tracing::info!(%peer, reconnecting_in=?manager.config.reconnect_delay, "initiator connection died, scheduling reconnect");
+                        eff.schedule_after(
+                            ManagerMessage::Connect(peer),
+                            manager.config.reconnect_delay,
+                        )
+                        .await;
                         *peer_state = ConnectionState::Scheduled;
                     } else {
                         tracing::info!(%peer, "responder connection died, removing peer");

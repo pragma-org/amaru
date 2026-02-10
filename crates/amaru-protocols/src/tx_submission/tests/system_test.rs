@@ -18,12 +18,11 @@ use crate::{
     protocol::Role,
     store_effects::ResourceHeaderStore,
 };
-use amaru_kernel::{NetworkMagic, NetworkName, Peer, Transaction};
+use amaru_kernel::{EraHistory, NetworkMagic, NetworkName, Peer, Transaction};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ConnectionResource, in_memory_consensus_store::InMemConsensusStore};
 use amaru_ouroboros_traits::ResourceMempool;
-use amaru_slot_arithmetic::EraHistory;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use std::{sync::Arc, time::Duration};
 use tokio::{runtime::Handle, time::timeout};

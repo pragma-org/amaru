@@ -87,7 +87,6 @@ dependencies = [
  "amaru-plutus",
  "amaru-progress-bar",
  "amaru-protocols",
- "amaru-slot-arithmetic",
  "amaru-stores",
  "anyhow",
  "async-compression",
@@ -141,7 +140,6 @@ dependencies = [
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-protocols",
- "amaru-slot-arithmetic",
  "amaru-stores",
  "anyhow",
  "async-trait",
@@ -175,13 +173,14 @@ name = "amaru-kernel"
 version = "0.1.0"
 dependencies = [
  "amaru-minicbor-extra",
- "amaru-slot-arithmetic",
  "bech32 0.11.1",
  "bytes",
+ "cbor4ii",
  "getrandom 0.3.4",
  "hex",
  "itertools 0.14.0",
  "minicbor",
+ "num",
  "pallas-addresses",
  "pallas-codec",
  "pallas-crypto",
@@ -208,7 +207,6 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "amaru-progress-bar",
- "amaru-slot-arithmetic",
  "amaru-tracing-json",
  "anyhow",
  "async-trait",
@@ -373,7 +371,6 @@ dependencies = [
  "amaru-observability",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
- "amaru-slot-arithmetic",
  "anyhow",
  "bytes",
  "cbor-data",
@@ -385,6 +382,7 @@ dependencies = [
  "proptest",
  "pure-stage",
  "serde",
+ "socket2 0.6.1",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -420,20 +418,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "amaru-slot-arithmetic"
-version = "0.1.0"
-dependencies = [
- "amaru-minicbor-extra",
- "hex",
- "minicbor",
- "num",
- "proptest",
- "serde",
- "test-case",
- "thiserror 2.0.17",
 ]
 
 [[package]]

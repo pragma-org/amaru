@@ -32,7 +32,7 @@ use crate::{
     store_effects::Store,
     tx_submission::register_tx_submission,
 };
-use amaru_kernel::{NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_kernel::{EraHistory, NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
 use pure_stage::{Effects, StageRef, Void};
 use std::sync::Arc;
@@ -50,7 +50,7 @@ impl Connection {
         role: Role,
         magic: NetworkMagic,
         pipeline: StageRef<ChainSyncInitiatorMsg>,
-        era_history: Arc<amaru_slot_arithmetic::EraHistory>,
+        era_history: Arc<EraHistory>,
     ) -> Self {
         Self {
             params: Params {
@@ -73,7 +73,7 @@ struct Params {
     role: Role,
     magic: NetworkMagic,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
-    era_history: Arc<amaru_slot_arithmetic::EraHistory>,
+    era_history: Arc<EraHistory>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -167,7 +167,7 @@ async fn do_initialize(
     let muxer = eff
         .wire_up(
             muxer,
-            mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)]),
+            mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role),
         )
         .await;
 

@@ -108,7 +108,6 @@ amaru-plutus = { path = "crates/amaru-plutus" }
 amaru-progress-bar = { path = "crates/amaru-progress-bar" }
 amaru-protocols = { path = "crates/amaru-protocols" }
 amaru-sim = { path = "crates/amaru-sim" }
-amaru-slot-arithmetic = { path = "crates/amaru-slot-arithmetic" }
 amaru-stores = { path = "crates/amaru-stores" }
 amaru-tracing-json = { path = "crates/amaru-tracing-json" }
 pure-stage = { path = "crates/pure-stage" }

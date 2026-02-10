@@ -56,12 +56,37 @@ pub fn build_stage_graph(
         with_consensus_effects(forward_chain::stage),
     );
 
-    // TODO: currently only validate_header errors, will need to grow into all error handling
     let validation_errors_stage =
         network.stage("validation_errors", async move |manager, error, eff| {
             let ValidationFailed { peer, error } = error;
-            tracing::error!(%peer, %error, "peer error");
-            eff.send(&manager, ManagerMessage::RemovePeer(peer)).await;
+            use super::ConsensusError::*;
+            match error {
+                MissingTip
+                | InvalidHeader(_, _)
+                | HeaderPointMismatch { .. }
+                | UnknownPoint(_)
+                | InvalidRollback { .. }
+                | InvalidBlock { .. }
+                | NoncesError(_)
+                | InvalidHeaderParent(_)
+                | RollForwardChainFailed(_, _)
+                | RollbackChainFailed(_, _)
+                | CannotDecodeHeader { .. } => {
+                    tracing::error!(%peer, %error, "peer sent invalid data, disconnecting");
+                    eff.send(&manager, ManagerMessage::RemovePeer(peer)).await;
+                }
+                FetchBlockFailed(_)
+                | StoreHeaderFailed(_, _)
+                | RemoveHeaderFailed(_, _)
+                | SetAnchorHashFailed(_, _)
+                | SetBestChainHashFailed(_, _)
+                | UpdateBestChainFailed(_, _, _)
+                | StoreBlockFailed(_, _)
+                | RollbackBlockFailed(_, _) // this can failed if the block was not downloaded in the first place
+                | UnknownPeer(_) => {
+                    tracing::error!(%peer, %error, "validation error, this needs to be investigated");
+                }
+            }
             manager
         });
 

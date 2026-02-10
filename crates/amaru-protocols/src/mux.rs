@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::protocol::Role;
 use crate::{
     network_effects::{Network, NetworkOps},
     protocol::{Erased, ProtocolId, RoleT},
@@ -22,7 +23,7 @@ use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
-use pure_stage::{Effects, StageRef, TryInStage};
+use pure_stage::{Effects, StageRef, TryInStage, Void};
 #[expect(clippy::disallowed_types)]
 use std::collections::HashMap;
 use std::{
@@ -132,6 +133,8 @@ pub enum MuxMessage {
     Written,
     /// Permit the next invocation of the Protocol with data from the network.
     WantNext(ProtocolId<Erased>),
+    /// Reading or writing error occurred
+    Terminate,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -152,8 +155,8 @@ impl State {
     ///
     /// Note that upon receiving the first message, the stage will start reading from the network.
     /// Any data received for unregistered protocols will lead to stage termination.
-    pub fn new(conn: ConnectionId, buffer: &[(ProtocolId<Erased>, usize)]) -> Self {
-        let mut muxer = Muxer::new();
+    pub fn new(conn: ConnectionId, buffer: &[(ProtocolId<Erased>, usize)], role: Role) -> Self {
+        let mut muxer = Muxer::new(role);
         for &(proto_id, limit) in buffer {
             #[expect(clippy::expect_used)]
             muxer.buffer(proto_id, limit).expect("no buffered data yet");
@@ -179,23 +182,29 @@ impl State {
                 let writer = eff
                     .stage(
                         format!("writer-{}", conn),
-                        |(conn, muxer), data: NonEmptyBytes, eff| async move {
+                        move |(conn, muxer, role), data: NonEmptyBytes, eff| async move {
                             Network::new(&eff)
                             .send(conn, data)
                             .await
                             .or_terminate(
                                 &eff,
-                                async |err| tracing::error!(%err, "failed to send data to network"),
+                                async |err| tracing::error!(%err, %role, "failed to send data to network"),
                             )
                             .await;
                             eff.send(&muxer, MuxMessage::Written).await;
-                            (conn, muxer)
+                            (conn, muxer, role)
                         },
                     )
                     .await;
-                let writer = eff.wire_up(writer, (*conn, eff.me())).await;
+                let writer = eff.supervise(writer, MuxMessage::Terminate);
+                let writer = eff
+                    .wire_up(writer, (*conn, eff.me(), self.muxer.role()))
+                    .await;
                 let reader = eff.stage(format!("reader-{}", conn), read_segment).await;
-                let reader = eff.wire_up(reader, (*conn, eff.me())).await;
+                let reader = eff.supervise(reader, MuxMessage::Terminate);
+                let reader = eff
+                    .wire_up(reader, (*conn, eff.me(), self.muxer.role()))
+                    .await;
                 eff.send(&reader, Read).await;
                 self.conn = Connection::Init(writer, reader);
             }
@@ -222,7 +231,7 @@ pub async fn stage(mut state: State, msg: MuxMessage, mut eff: Effects<MuxMessag
                 }
                 write!(&mut err, "{}", error).ok();
             }
-            tracing::error!(%err, "muxing error")
+            tracing::error!(%err, role=%muxer.role(), "muxing error")
         })
         .await;
 
@@ -279,32 +288,37 @@ async fn handle_msg(
             }
             Ok(())
         }
+        MuxMessage::Terminate => {
+            tracing::debug!(role=%muxer.role(), "terminating muxer due to read/write error");
+            eff.terminate::<Void>().await;
+            Ok(())
+        }
     }
 }
 
 async fn read_segment(
-    (conn, muxer): (ConnectionId, StageRef<MuxMessage>),
+    (conn, muxer, role): (ConnectionId, StageRef<MuxMessage>, Role),
     _token: Read,
     eff: Effects<Read>,
-) -> (ConnectionId, StageRef<MuxMessage>) {
+) -> (ConnectionId, StageRef<MuxMessage>, Role) {
     let header = loop {
         let data = Network::new(&eff)
             .recv(conn, HEADER_LEN)
             .await
             .or_terminate(
                 &eff,
-                async |err| tracing::error!(%err, "failed to receive segment header from network"),
+                async |err| tracing::error!(%role, %err, "failed to receive segment header from network"),
             )
             .await;
         let Some(header) = Header::decode(&mut data.into_inner())
             .or_terminate(
                 &eff,
-                async |err| tracing::error!(%err, "failed to decode segment header"),
+                async |err| tracing::error!(%role, %err, "failed to decode segment header"),
             )
             .await
         else {
             // sending frames without payload data is not explicitly forbidden, so we just ignore them
-            tracing::info!("received empty segment header");
+            tracing::info!(%role, "received empty segment header");
             continue;
         };
         break header;
@@ -315,7 +329,7 @@ async fn read_segment(
         .await
         .or_terminate(
             &eff,
-            async |err| tracing::error!(%err, "failed to receive segment data from network"),
+            async |err| tracing::error!(%role, %err, "failed to receive segment data from network"),
         )
         .await;
 
@@ -324,7 +338,7 @@ async fn read_segment(
         MuxMessage::FromNetwork(header.timestamp, header.proto_id, data),
     )
     .await;
-    (conn, muxer)
+    (conn, muxer, role)
 }
 
 /// A header for a segment of data.
@@ -373,16 +387,26 @@ impl Header {
 #[expect(clippy::disallowed_types)]
 type Protocols = HashMap<ProtocolId<Erased>, PerProto>;
 
-#[derive(Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Muxer {
     protocols: Protocols,
     outgoing: Vec<ProtocolId<Erased>>,
     next_out: usize,
+    role: Role,
 }
 
 impl Muxer {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(role: Role) -> Self {
+        Self {
+            protocols: Protocols::new(),
+            outgoing: Vec::new(),
+            next_out: 0,
+            role,
+        }
+    }
+
+    pub fn role(&self) -> Role {
+        self.role
     }
 
     #[trace(amaru::protocols::mux::REGISTER)]
@@ -692,7 +716,10 @@ mod tests {
         let mut graph = SimulationBuilder::default().with_trace_buffer(trace_buffer);
 
         let mux = graph.stage("mux", super::stage);
-        let mux = graph.wire_up(mux, State::new(conn_id, &[(PROTO_TEST.erase(), 0)]));
+        let mux = graph.wire_up(
+            mux,
+            State::new(conn_id, &[(PROTO_TEST.erase(), 0)], Role::Initiator),
+        );
 
         let (output, mut rx) = graph.output::<HandlerMessage>("output", 10);
         let (sent, mut sent_rx) = graph.output::<Sent>("sent", 10);
@@ -812,6 +839,7 @@ mod tests {
                     (PROTO_N2N_BLOCK_FETCH.erase(), 0),
                     (PROTO_HANDSHAKE.erase(), 1),
                 ],
+                Role::Initiator,
             ),
         );
 
@@ -842,13 +870,13 @@ mod tests {
         );
         let spawn1 = running.run_until_blocked().assert_breakpoint("spawn");
         let writer = spawn1
-            .extract_wire_stage(&mux, (conn_id, (*mux).clone()))
+            .extract_wire_stage(&mux, (conn_id, (*mux).clone(), Role::Initiator))
             .clone();
         running.handle_effect(spawn1);
 
         let spawn2 = running.run_until_blocked().assert_breakpoint("spawn");
         let reader = spawn2
-            .extract_wire_stage(&mux, (conn_id, (*mux).clone()))
+            .extract_wire_stage(&mux, (conn_id, (*mux).clone(), Role::Initiator))
             .clone();
         running.handle_effect(spawn2);
 
@@ -1074,7 +1102,10 @@ mod tests {
         let mut graph = TokioBuilder::default().with_trace_buffer(trace_buffer);
 
         let mux = graph.stage("mux", super::stage);
-        let mux = graph.wire_up(mux, State::new(conn_id, &[(PROTO_TEST.erase(), 0)]));
+        let mux = graph.wire_up(
+            mux,
+            State::new(conn_id, &[(PROTO_TEST.erase(), 0)], Role::Initiator),
+        );
 
         let (output, mut rx) = graph.output::<HandlerMessage>("output", 10);
         let (sent, mut sent_rx) = graph.output::<Sent>("sent", 10);

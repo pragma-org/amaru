@@ -14,9 +14,13 @@
 
 use amaru::{DEFAULT_NETWORK, bootstrap::InitialNonces};
 use amaru_kernel::{
-    Bound, EraHistory, EraParams, Hash, HeaderHash, NetworkName, Nonce, Point, Summary, cbor,
+    EraBound, EraHistory, EraName, EraParams, EraSummary, Hash, HeaderHash, NetworkName, Nonce,
+    Point, cbor,
 };
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tokio::fs::{self};
 use tracing::{debug, info};
 
@@ -123,19 +127,20 @@ async fn convert_snapshot_to(
     // HardForkCombinator telescope encoding.
     // encodes the era history. There are 6 eras before conway.
     // FIXME: pass the current Era to know how many skips to do
-    let mut eras: Vec<Summary> = decode_eras(&mut d, network)?;
+    let mut eras: Vec<EraSummary> = decode_eras(&mut d, network)?;
 
     // current era lower bound
     d.array()?;
-    let start: Bound = d.decode()?;
-    eras.push(Summary {
+    let start: EraBound = d.decode()?;
+    eras.push(EraSummary {
         start,
         end: None,
         // FIXME: the current era params should be extracted from teh
         // protocol parameters which are decoded later down the road.
         params: EraParams {
             epoch_size_slots: network.default_epoch_size_in_slots(),
-            slot_length: 1000,
+            slot_length: Duration::from_secs(1),
+            era_name: EraName::Conway,
         },
     });
 
@@ -264,30 +269,32 @@ async fn write_era_history(
 
 /// This is the number of past eras before the current era in the "standard" Cardano history, e.g
 /// from Byron to Babbage. Bump this number when a hard fork happens.
-pub const PAST_ERAS_NUMBER: i32 = 6;
+pub const PAST_ERAS_NUMBER: u8 = 6;
 
 fn decode_eras(
     d: &mut minicbor::Decoder<'_>,
     network: &NetworkName,
-) -> Result<Vec<Summary>, Box<dyn std::error::Error>> {
+) -> Result<Vec<EraSummary>, Box<dyn std::error::Error>> {
     let mut eras = Vec::new();
 
-    for _ in 0..PAST_ERAS_NUMBER {
+    for era_tag in 1..=PAST_ERAS_NUMBER {
         d.array()?;
-        let start: Bound = d.decode()?;
-        let end: Bound = d.decode()?;
+        let start: EraBound = d.decode()?;
+        let end: EraBound = d.decode()?;
         let params = if end.slot == 0.into() {
+            #[expect(clippy::expect_used)]
             EraParams {
                 epoch_size_slots: network.default_epoch_size_in_slots(),
-                slot_length: 0,
+                slot_length: Duration::from_secs(0),
+                era_name: EraName::try_from(era_tag).expect("iteration over known era tags"),
             }
         } else {
             let end_slot = u64::from(end.slot);
             let start_slot = u64::from(start.slot);
             let end_epoch = u64::from(end.epoch);
             let start_epoch = u64::from(start.epoch);
-            let end_ms = u64::from(end.time_ms);
-            let start_ms = u64::from(start.time_ms);
+            let end_ms = end.time.as_millis() as u64;
+            let start_ms = start.time.as_millis() as u64;
 
             if end_slot <= start_slot || end_epoch <= start_epoch {
                 return Err("Invalid era bounds (non-increasing)".into());
@@ -296,16 +303,17 @@ fn decode_eras(
             let epochs_elapsed = end_epoch - start_epoch;
             let time_ms_elapsed = end_ms.saturating_sub(start_ms);
 
+            // end_slot > start_slot => slots_elapsed > 0
+            let slot_length = Duration::from_millis(time_ms_elapsed / slots_elapsed);
+
+            #[expect(clippy::expect_used)]
             EraParams {
                 epoch_size_slots: slots_elapsed / epochs_elapsed,
-                slot_length: if slots_elapsed == 0 {
-                    0
-                } else {
-                    time_ms_elapsed / slots_elapsed
-                },
+                slot_length,
+                era_name: EraName::try_from(era_tag).expect("iteration over known era tags"),
             }
         };
-        let summary = Summary {
+        let summary = EraSummary {
             start,
             end: Some(end),
             params,

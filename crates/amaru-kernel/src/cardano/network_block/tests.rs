@@ -19,7 +19,7 @@ use proptest::prelude::*;
 pub fn make_network_block(header: &BlockHeader) -> NetworkBlock {
     let block = make_block_with_header(header);
     NetworkBlock {
-        era_tag: 7,
+        era_tag: EraName::Conway,
         encoded_block: to_cbor(&block),
     }
 }
@@ -39,7 +39,7 @@ pub fn any_network_block() -> impl Strategy<Value = NetworkBlock> {
     any_header().prop_map(|header| {
         let block = make_block_with_header(&header);
         NetworkBlock {
-            era_tag: 7,
+            era_tag: EraName::Conway,
             encoded_block: to_cbor(&block),
         }
     })

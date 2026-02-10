@@ -42,6 +42,7 @@ use amaru_ouroboros_traits::{
     in_memory_consensus_store::InMemConsensusStore,
 };
 use amaru_plutus::arena_pool::ArenaPool;
+use amaru_protocols::manager::ManagerConfig;
 use amaru_protocols::{manager, manager::Manager};
 use amaru_stores::{
     in_memory::MemoryStore,
@@ -235,6 +236,7 @@ pub async fn build_and_run_network(
         manager,
         Manager::new(
             config.network_magic,
+            ManagerConfig::default(),
             pull_stage.without_state(),
             Arc::new(era_history.clone()),
         ),
