@@ -553,106 +553,68 @@ fn expand_trace_macro(args: TokenStream, input: TokenStream) -> TokenStream {
 /// }
 /// ```
 pub fn expand_trace_record(input: TokenStream) -> TokenStream {
-    let input2: proc_macro2::TokenStream = input.into();
-    let input_str = input2.to_string();
+    // Parse using syn to properly handle commas in expressions
+    use syn::{Token, parse::Parse, parse::ParseStream};
 
-    // Only schema form is supported: trace_record!(SCHEMA, field = value, ...)
-    expand_schema_form(&input2, &input_str)
-}
-
-fn expand_schema_form(input2: &proc_macro2::TokenStream, input_str: &str) -> TokenStream {
-    let parts: Vec<&str> = input_str.split(',').map(|s| s.trim()).collect();
-
-    if parts.len() < 2 {
-        return syn::Error::new_spanned(
-            input2,
-            "trace_record! with schema requires at least one field assignment: trace_record!(SCHEMA_CONST, field = value, ...)",
-        )
-        .to_compile_error()
-        .into();
+    struct TraceRecordArgs {
+        schema_path: syn::Path,
+        field_assignments: Vec<(syn::Ident, syn::Expr)>,
     }
 
-    let schema_const_str = parts[0];
-    let field_assignments = &parts[1..];
+    impl Parse for TraceRecordArgs {
+        fn parse(input: ParseStream) -> syn::Result<Self> {
+            let schema_path: syn::Path = input.parse()?;
+            let mut field_assignments = Vec::new();
 
-    if field_assignments.is_empty() {
+            // Parse comma-separated field = value pairs
+            while input.peek(Token![,]) {
+                input.parse::<Token![,]>()?; // consume comma
+
+                if input.is_empty() {
+                    break;
+                }
+
+                let field_name: syn::Ident = input.parse()?;
+                input.parse::<Token![=]>()?;
+                let value_expr: syn::Expr = input.parse()?;
+
+                field_assignments.push((field_name, value_expr));
+            }
+
+            Ok(TraceRecordArgs {
+                schema_path,
+                field_assignments,
+            })
+        }
+    }
+
+    let args = match syn::parse::<TraceRecordArgs>(input) {
+        Ok(args) => args,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    if args.field_assignments.is_empty() {
+        let input2: proc_macro2::TokenStream = proc_macro2::TokenStream::new();
         return syn::Error::new_spanned(
-            input2,
+            &input2,
             "trace_record! requires at least one field assignment: trace_record!(SCHEMA_CONST, field = value, ...)",
         )
         .to_compile_error()
         .into();
     }
 
-    // Parse the schema constant path
-    let schema_const_tokens: proc_macro2::TokenStream = match schema_const_str.parse() {
-        Ok(tokens) => tokens,
-        Err(_) => {
-            return syn::Error::new_spanned(
-                input2,
-                "First argument must be a valid schema constant path like 'ledger::state::APPLY_BLOCK'",
-            )
-            .to_compile_error()
-            .into();
-        }
-    };
-
-    // Parse field assignments (field = value)
+    // Generate record calls for each field
     let mut field_records = Vec::new();
-
-    for assignment in field_assignments {
-        // Split on = to get field name and value
-        let assignment_parts: Vec<&str> = assignment.splitn(2, '=').map(|s| s.trim()).collect();
-
-        if assignment_parts.len() != 2 {
-            return syn::Error::new_spanned(
-                input2,
-                format!(
-                    "Invalid field assignment '{}'. Expected 'field = value'",
-                    assignment
-                ),
-            )
-            .to_compile_error()
-            .into();
-        }
-
-        let field_name = assignment_parts[0];
-        let value_expr_str = assignment_parts[1];
-
-        // Parse field name (should be a valid identifier, becomes a string literal)
-        if !is_valid_identifier(field_name) {
-            return syn::Error::new_spanned(
-                input2,
-                format!("'{}' is not a valid field name identifier", field_name),
-            )
-            .to_compile_error()
-            .into();
-        }
-
-        // Parse value expression
-        let value_expr_tokens: proc_macro2::TokenStream = match value_expr_str.parse() {
-            Ok(tokens) => tokens,
-            Err(_) => {
-                return syn::Error::new_spanned(
-                    input2,
-                    format!(
-                        "Invalid value expression '{}' for field '{}'",
-                        value_expr_str, field_name
-                    ),
-                )
-                .to_compile_error()
-                .into();
-            }
-        };
-
-        // Generate the actual record call
-        let field_name_literal = syn::LitStr::new(field_name, proc_macro2::Span::call_site());
+    for (field_name, value_expr) in args.field_assignments {
+        let field_name_str = field_name.to_string();
+        let field_name_literal = syn::LitStr::new(&field_name_str, proc_macro2::Span::call_site());
         let record_call = quote! {
-            tracing::Span::current().record(#field_name_literal, tracing::field::display(&#value_expr_tokens))
+            tracing::Span::current().record(#field_name_literal, tracing::field::display(&#value_expr))
         };
-
         field_records.push(record_call);
     }
+
+    let schema_const_tokens = &args.schema_path;
 
     // Combine all records
     let expanded = quote! {
@@ -669,91 +631,122 @@ fn expand_schema_form(input2: &proc_macro2::TokenStream, input_str: &str) -> Tok
     expanded.into()
 }
 
-/// Check if a string is a valid Rust identifier
-fn is_valid_identifier(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-
-    let first_char = s.chars().next().unwrap();
-    if !first_char.is_alphabetic() && first_char != '_' {
-        return false;
-    }
-
-    s.chars().all(|c| c.is_alphanumeric() || c == '_')
-}
-
 /// Creates a tracing span with compile-time validated schema anchor.
 ///
-/// This macro replaces `info_span!`, `debug_span!`, etc. with a schema-anchored
-/// approach that provides compile-time validation.
+/// This macro creates spans using schema constants as the span name, ensuring
+/// compile-time validation that the schema constant exists and providing the
+/// proper &'static str value as the span name.
 ///
 /// # Syntax
 ///
 /// ```text
-/// trace_span!(LEVEL, SCHEMA_CONST, field1 = value1, field2 = value2, ...);
+/// trace_span!(SCHEMA_CONST, field1 = value1, field2 = value2, ...);
 /// ```
 ///
-/// Where LEVEL is one of: TRACE, DEBUG, INFO, WARN, ERROR
+/// The schema constant must be a &'static str defined via `define_schemas!`.
+/// Field values can use tracing format specifiers like `%field` or `?field`.
+///
+/// # Error Behavior
+///
+/// This macro will emit a compile error if:
+/// - The schema constant path is invalid or doesn't exist
+/// - Field names are invalid identifiers
+/// - Field value expressions are syntactically invalid
+/// - There are unexpected tokens after the field assignments
+///
+/// Invalid input will never silently drop fields or create spans without the
+/// intended instrumentation. Parse failures always result in explicit compile errors.
 ///
 /// # Examples
 ///
 /// ```text
-/// trace_span!(INFO, operations::database::OPENING_CHAIN_DB, path = "...")
-/// trace_span!(DEBUG, ledger::state::APPLY_BLOCK, block_size = 1024)
+/// trace_span!(operations::database::OPENING_CHAIN_DB, path = "...")
+/// trace_span!(ledger::state::APPLY_BLOCK, block_size = 1024)
+/// trace_span!(stage::tokio::POLL, name = %name)
 /// ```
 pub fn expand_trace_span(input: TokenStream) -> TokenStream {
-    let input2: proc_macro2::TokenStream = input.into();
-    let input_str = input2.to_string();
+    // Parse using syn to properly handle commas in expressions
+    use syn::{Token, parse::Parse, parse::ParseStream};
 
-    // Parse: SCHEMA, field = value, ...
-    // Or: SCHEMA, field1 = value1, field2 = value2, ... (with format specifiers like %field)
-    let parts: Vec<&str> = input_str.splitn(2, ',').map(|s| s.trim()).collect();
-
-    if parts.is_empty() {
-        return syn::Error::new_spanned(
-            &input2,
-            "trace_span! requires at least: trace_span!(SCHEMA_CONST, ...)",
-        )
-        .to_compile_error()
-        .into();
+    struct TraceSpanArgs {
+        schema_path: syn::Path,
+        field_tokens: Vec<proc_macro2::TokenStream>,
     }
 
-    let schema_const_str = parts[0];
-    let remaining = if parts.len() > 1 { parts[1] } else { "" };
+    impl Parse for TraceSpanArgs {
+        fn parse(input: ParseStream) -> syn::Result<Self> {
+            let schema_path: syn::Path = input.parse()?;
+            let mut field_tokens = Vec::new();
 
-    // Parse the schema constant path
-    let schema_const_tokens: proc_macro2::TokenStream = match schema_const_str.parse() {
-        Ok(tokens) => tokens,
-        Err(_) => {
-            return syn::Error::new_spanned(
-                &input2,
-                "First argument must be a valid schema constant path",
-            )
-            .to_compile_error()
-            .into();
+            // Parse comma-separated field assignments
+            // We need to handle tracing format specifiers like %name or ?value
+            while input.peek(Token![,]) {
+                input.parse::<Token![,]>()?; // consume comma
+
+                if input.is_empty() {
+                    break;
+                }
+
+                let field_name: syn::Ident = input.parse()?;
+                input.parse::<Token![=]>()?;
+
+                // Check for tracing format specifiers (%, ?, or expressions)
+                let value_token = if input.peek(Token![%]) {
+                    // Format specifier %field
+                    input.parse::<Token![%]>()?;
+                    let field_ref: syn::Ident = input.parse()?;
+                    quote! { %#field_ref }
+                } else if input.peek(Token![?]) {
+                    // Format specifier ?field
+                    input.parse::<Token![?]>()?;
+                    let field_ref: syn::Ident = input.parse()?;
+                    quote! { ?#field_ref }
+                } else {
+                    // Regular expression
+                    let value_expr: syn::Expr = input.parse()?;
+                    quote! { &#value_expr }
+                };
+
+                let field_token = quote! {
+                    #field_name = #value_token
+                };
+                field_tokens.push(field_token);
+            }
+
+            // Ensure all input has been consumed - no trailing tokens
+            // This prevents silent failures where invalid input is ignored
+            if !input.is_empty() {
+                return Err(input.error("unexpected tokens after field assignments"));
+            }
+
+            Ok(TraceSpanArgs {
+                schema_path,
+                field_tokens,
+            })
         }
+    }
+
+    let args = match syn::parse::<TraceSpanArgs>(input) {
+        Ok(args) => args,
+        Err(err) => return err.to_compile_error().into(),
     };
 
-    // Parse the remaining field arguments - pass them through as-is
-    let remaining_tokens: proc_macro2::TokenStream = match remaining.parse() {
-        Ok(tokens) => tokens,
-        Err(_) => {
-            // If parsing fails, still try to use it
-            proc_macro2::TokenStream::new()
-        }
-    };
+    let schema_const_tokens = &args.schema_path;
 
     // Generate the span creation call
-    let expanded = if remaining.is_empty() {
-        // No fields
+    // Uses the schema constant value directly (not stringified) for:
+    // 1. Compile-time validation that the constant exists
+    // 2. Proper &'static str value as span name
+    let expanded = if args.field_tokens.is_empty() {
+        // No fields - just schema constant as span name
         quote! {
-            tracing::trace_span!(stringify!(#schema_const_tokens))
+            tracing::trace_span!(#schema_const_tokens)
         }
     } else {
-        // With fields - pass through remaining tokens
+        // With fields - pass them directly to tracing::trace_span!
+        let field_tokens = &args.field_tokens;
         quote! {
-            tracing::trace_span!(stringify!(#schema_const_tokens), #remaining_tokens)
+            tracing::trace_span!(#schema_const_tokens, #(#field_tokens),*)
         }
     };
 

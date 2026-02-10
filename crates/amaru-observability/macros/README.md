@@ -9,6 +9,7 @@ Procedural macros for compile-time validated tracing instrumentation.
 | `define_schemas!` | Define span schemas with required/optional fields |
 | `define_local_schemas!` | Same as above, but without `#[macro_export]` (for tests) |
 | `#[trace(path)]` | Instrument a function, validating required fields |
+| `trace_span!(schema, %field1, ?field2, ...)` | Create a span with schema validation and format specifiers |
 | `trace_record!(schema, field1 = value1, ...)` | Record fields to current span with schema anchor |
 
 ## Quick Example

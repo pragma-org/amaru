@@ -59,10 +59,10 @@ define_schemas! {
             /// Pull chain updates from peer
             RECEIVE_HEADER {}
 
-            /// Decode header from raw bytes
+            /// Header decode failed from received data
             RECEIVE_HEADER_DECODE_FAILED {}
 
-            /// Validate header properties
+            /// Select best chain from available headers
             SELECT_CHAIN {}
 
             /// Validate block properties

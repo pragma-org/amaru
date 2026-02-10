@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_observability::trace_span;
+use amaru_observability::{simulator, trace_span};
 use amaru_sim::simulator::{
     Args, GeneratedEntries, NodeConfig, SimulateConfig, TEST_DATA_DIR, generate_entries,
     run::spawn_node,
@@ -91,7 +91,7 @@ fn run_simulator_with_traces() {
         execute,
         vec![json!(
           {
-            "name": "simulator::node::HANDLE_MSG",
+            "name": "simulator::node::handle_msg",
             "children": [
               {
                 "name": "consensus::chain_sync::receive_header",

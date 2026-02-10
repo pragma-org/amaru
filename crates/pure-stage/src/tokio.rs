@@ -33,7 +33,7 @@ use crate::{
     time::Clock,
     trace_buffer::TraceBuffer,
 };
-use amaru_observability::trace_span;
+use amaru_observability::{stage, trace_span};
 use either::Either::{Left, Right};
 use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;

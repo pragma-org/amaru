@@ -500,7 +500,7 @@ jobs:
             echo "✓ Schemas are up-to-date"
           else
             echo "::group::❌ Schema diff (expected → generated)"
-            diff --color=always -u /tmp/expected.json /tmp/current.json
+            diff --color=always -u /tmp/expected.json /tmp/current.json || true
             echo "::endgroup::"
 
             echo "::error title=Schema out of date::Generated schema does not match docs/traces-schema.json"
@@ -512,7 +512,7 @@ jobs:
               echo ""
               echo "**How to fix:**"
               echo '```bash'
-              echo '<YOUR_SCHEMA_GENERATION_COMMAND> > docs/traces-schema.json'
+              echo './scripts/generate-traces-doc'
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
 

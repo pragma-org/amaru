@@ -41,15 +41,15 @@ for target in $TARGETS; do
 | --- | --- | --- | --- | --- |
 ENTRY
 
-  # Get all spans for this target and output table rows
-  jq -r ".definitions | to_entries[] | select(.value.target == \"${target}\") | [.value.name, .value.level, (.value.description // \"\"), (.value.required | join(\", \") // \"\"), (.value.optional | join(\", \") // \"\")] | @tsv" "${SCHEMAS_JSON}" | while IFS=$'\t' read -r name level description required optional; do
+  # Get all spans for this target and output table rows (sorted by name)
+  jq -r ".definitions | to_entries | sort_by(.value.name) | .[] | select(.value.target == \"${target}\") | [.value.name, .value.level, (.value.description // \"\"), (.value.required | join(\", \") // \"\"), (.value.optional | join(\", \") // \"\")] | @tsv" "${SCHEMAS_JSON}" | while IFS=$'\t' read -r name level description required optional; do
     # Escape backticks in description if any
     description="${description//\`/\\\`}"
     echo "| \`${name}\` | \`${level}\` | ${description} | ${required} | ${optional} |" >> "${OUTPUT_FILE}"
   done
 
-  # Add details for each span (in the same order as the table)
-  jq -r ".definitions | to_entries[] | select(.value.target == \"${target}\") | .value.name" "${SCHEMAS_JSON}" | while read -r name; do
+  # Add details for each span (in sorted order by name)
+  jq -r ".definitions | to_entries | sort_by(.value.name) | .[] | select(.value.target == \"${target}\") | .value.name" "${SCHEMAS_JSON}" | while read -r name; do
     SPAN_DATA=$(jq -r ".definitions | to_entries[] | select(.value.target == \"${target}\" and .value.name == \"${name}\") | .value" "${SCHEMAS_JSON}")
     
     HAS_FIELDS=$(echo "$SPAN_DATA" | jq -r '.properties | keys | length')
