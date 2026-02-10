@@ -5,26 +5,26 @@ This document lists all available spans in Amaru, auto-generated from the code.
 For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
 
 
-### target: `consensus::chain_sync`
+## target: `consensus::chain_sync`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
 | `decode_header` | `TRACE` | Decode header from raw bytes |  |  |
 | `pull` | `TRACE` | Chain sync pull operation |  |  |
 | `receive_header` | `TRACE` | Pull chain updates from peer |  |  |
-| `receive_header_decode_failed` | `TRACE` | Decode header from raw bytes |  |  |
-| `select_chain` | `TRACE` | Validate header properties |  |  |
+| `receive_header_decode_failed` | `TRACE` | Header decode failed from received data |  |  |
+| `select_chain` | `TRACE` | Select best chain from available headers |  |  |
 | `validate_block` | `TRACE` | Validate block properties |  |  |
 | `validate_header` | `TRACE` | Validate header properties |  |  |
 
-### target: `consensus::diffusion`
+## target: `consensus::diffusion`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
 | `fetch_block` | `TRACE` | Fetch a block from the network |  |  |
 | `forward_chain` | `TRACE` | Forward chain operations |  |  |
 
-### target: `consensus::validate_header`
+## target: `consensus::validate_header`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -47,7 +47,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-### target: `ledger::context`
+## target: `ledger::context`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -109,7 +109,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-### target: `ledger::governance`
+## target: `ledger::governance`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -126,7 +126,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-### target: `ledger::rules`
+## target: `ledger::rules`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -140,7 +140,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-### target: `ledger::state`
+## target: `ledger::state`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -221,7 +221,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-### target: `network::chainsync_client`
+## target: `network::chainsync_client`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -236,7 +236,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-### target: `network::connection`
+## target: `network::connection`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -249,7 +249,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `recv` | `TRACE` | Receive data from connection |  |  |
 | `send` | `TRACE` | Send data over connection |  |  |
 
-### target: `protocols::mux`
+## target: `protocols::mux`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -296,25 +296,25 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-### target: `simulator::node`
+## target: `simulator::node`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
 | `handle_msg` | `TRACE` | Handle message in simulator node |  |  |
 
-### target: `stage::logging`
+## target: `stage::logging`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
 | `test_span` | `TRACE` | Test span for logging |  |  |
 
-### target: `stage::tokio`
+## target: `stage::tokio`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
 | `poll` | `TRACE` | Poll stage operation |  |  |
 
-### target: `stores::consensus`
+## target: `stores::consensus`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -393,7 +393,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-### target: `stores::ledger`
+## target: `stores::ledger`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -438,7 +438,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-### target: `stores::rocksdb`
+## target: `stores::rocksdb`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |

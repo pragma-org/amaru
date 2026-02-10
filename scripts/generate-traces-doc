@@ -35,7 +35,7 @@ for target in $TARGETS; do
   # Add target section
   cat >> "${OUTPUT_FILE}" << ENTRY
 
-### target: \`${target}\`
+## target: \`${target}\`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |

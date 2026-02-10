@@ -882,7 +882,7 @@
       "name": "select_chain",
       "level": "TRACE",
       "target": "consensus::chain_sync",
-      "description": "Validate header properties"
+      "description": "Select best chain from available headers"
     },
     "stores::rocksdb::VALIDATE_SNAPSHOTS": {
       "type": "object",
@@ -914,7 +914,7 @@
       "name": "receive_header_decode_failed",
       "level": "TRACE",
       "target": "consensus::chain_sync",
-      "description": "Decode header from raw bytes"
+      "description": "Header decode failed from received data"
     },
     "stores::rocksdb::SAVE_POINT": {
       "type": "object",
