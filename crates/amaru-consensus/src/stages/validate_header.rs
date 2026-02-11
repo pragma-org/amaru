@@ -20,7 +20,7 @@ use crate::{
     store::PraosChainStore,
 };
 use amaru_kernel::{BlockHeader, ConsensusParameters, IsHeader, Nonce, to_cbor};
-use amaru_observability::consensus::chain_sync::VALIDATE_HEADER;
+use amaru_observability::amaru::consensus::chain_sync::VALIDATE_HEADER;
 use amaru_observability::trace;
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{

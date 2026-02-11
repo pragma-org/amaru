@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::simulator::Envelope;
-use amaru_observability::{simulator, trace_span};
+use amaru_observability::{amaru::simulator, trace_span};
 use anyhow::anyhow;
 use pure_stage::{Receiver, StageRef, simulation::running::SimulationRunning};
 use serde::{Deserialize, Serialize};

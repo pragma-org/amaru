@@ -12,4 +12,4 @@ error: Wrong type for field 'second': expected 'u64', found 'i32'
 35 |   #[trace(test::sub::SCHEMA)]
    |   --------------------------- in this attribute macro expansion
    |
-   = note: this error originates in the macro `__TEST__SUB_SCHEMA_RECORD` which comes from the expansion of the attribute macro `trace` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `__TEST__SUB__SCHEMA_RECORD` which comes from the expansion of the attribute macro `trace` (in Nightly builds, run with -Z macro-backtrace for more info)

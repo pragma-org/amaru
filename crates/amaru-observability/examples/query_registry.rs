@@ -17,13 +17,15 @@ use amaru_observability_macros::define_schemas;
 
 // Define some schemas that should be registered
 define_schemas! {
-    consensus {
-        chain_sync {
-            /// Validate a block before adding to chain
-            VALIDATE_HEADER {
-                required point_slot: u64
-                required point_hash: String
-                optional peer_id: String
+    amaru {
+        consensus {
+            chain_sync {
+                /// Validate a block before adding to chain
+                VALIDATE_HEADER {
+                    required point_slot: u64
+                    required point_hash: String
+                    optional peer_id: String
+                }
             }
         }
     }

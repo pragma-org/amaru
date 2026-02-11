@@ -20,7 +20,7 @@ use crate::{
     span::HasSpan,
 };
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Peer, Point, utils::string::ListToString};
-use amaru_observability::consensus::chain_sync::SELECT_CHAIN;
+use amaru_observability::amaru::consensus::chain_sync::SELECT_CHAIN;
 use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{BoxFuture, StageRef};
 use std::{

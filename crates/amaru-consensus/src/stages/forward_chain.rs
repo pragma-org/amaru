@@ -19,7 +19,7 @@ use crate::{
     span::HasSpan,
 };
 use amaru_kernel::{IsHeader, Tip};
-use amaru_observability::consensus::diffusion::FORWARD_CHAIN;
+use amaru_observability::amaru::consensus::diffusion::FORWARD_CHAIN;
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Instrument, error, trace};

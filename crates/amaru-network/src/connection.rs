@@ -14,7 +14,7 @@
 
 use crate::socket_addr::resolve;
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_observability::{network, trace_span};
+use amaru_observability::{amaru::network, trace_span};
 use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use bytes::{Buf, BytesMut};
 use parking_lot::Mutex;

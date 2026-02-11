@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_observability::{simulator, trace_span};
+use amaru_observability::{amaru::simulator, trace_span};
 use amaru_sim::simulator::{
     Args, GeneratedEntries, NodeConfig, SimulateConfig, TEST_DATA_DIR, generate_entries,
     run::spawn_node,
@@ -91,10 +91,10 @@ fn run_simulator_with_traces() {
         execute,
         vec![json!(
           {
-            "name": "simulator::node::handle_msg",
+            "name": "amaru::simulator::node::HANDLE_MSG",
             "children": [
               {
-                "name": "consensus::chain_sync::receive_header",
+                "name": "amaru::consensus::chain_sync::RECEIVE_HEADER",
                 "children": [
                   {
                     "name": "decode_header"
@@ -102,19 +102,19 @@ fn run_simulator_with_traces() {
                 ]
               },
               {
-                "name": "consensus::chain_sync::validate_header"
+                "name": "amaru::consensus::chain_sync::VALIDATE_HEADER"
               },
               {
-                "name": "consensus::diffusion::fetch_block"
+                "name": "amaru::consensus::diffusion::FETCH_BLOCK"
               },
               {
-                "name": "consensus::chain_sync::validate_block"
+                "name": "amaru::consensus::chain_sync::VALIDATE_BLOCK"
               },
               {
-                "name": "consensus::chain_sync::select_chain"
+                "name": "amaru::consensus::chain_sync::SELECT_CHAIN"
               },
               {
-                "name": "consensus::diffusion::forward_chain"
+                "name": "amaru::consensus::diffusion::FORWARD_CHAIN"
               }
             ]
           }

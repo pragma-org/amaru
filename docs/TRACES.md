@@ -5,7 +5,7 @@ This document lists all available spans in Amaru, auto-generated from the code.
 For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
 
 
-## target: `consensus::chain_sync`
+## target: `amaru::consensus::chain_sync`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -17,14 +17,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `validate_block` | `TRACE` | Validate block properties |  |  |
 | `validate_header` | `TRACE` | Validate header properties |  |  |
 
-## target: `consensus::diffusion`
+## target: `amaru::consensus::diffusion`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
 | `fetch_block` | `TRACE` | Fetch a block from the network |  |  |
 | `forward_chain` | `TRACE` | Forward chain operations |  |  |
 
-## target: `consensus::validate_header`
+## target: `amaru::consensus::validate_header`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -47,7 +47,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `ledger::context`
+## target: `amaru::ledger::context`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -109,7 +109,128 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `ledger::governance`
+## target: `amaru::ledger::context::default::validation`
+
+| name | level | description | required fields | optional fields |
+| --- | --- | --- | --- | --- |
+| `certificate_committee_delegate` | `TRACE` | Delegate cold key to committee | cc_member_type, cc_member_hash, delegate_type, delegate_hash |  |
+| `certificate_committee_resign` | `TRACE` | Resign from committee | cc_member_type, cc_member_hash |  |
+| `certificate_drep_registration` | `TRACE` | Register a DRep | drep_type, drep_hash, deposit |  |
+| `certificate_drep_retirement` | `TRACE` | Unregister a DRep | drep_type, drep_hash, refund |  |
+| `certificate_drep_update` | `TRACE` | Update DRep anchor | drep_type, drep_hash |  |
+| `certificate_pool_registration` | `TRACE` | Register a pool | pool_id |  |
+| `certificate_pool_retirement` | `TRACE` | Retire a pool | pool_id, epoch |  |
+| `certificate_stake_delegation` | `TRACE` | Delegate stake to a pool | credential_type, credential_hash, pool_id |  |
+| `certificate_stake_deregistration` | `TRACE` | Unregister a stake credential | credential_type, credential_hash |  |
+| `certificate_stake_registration` | `TRACE` | Register a stake credential | credential_type, credential_hash |  |
+| `certificate_vote_delegation` | `TRACE` | Delegate vote to DRep | credential_type, credential_hash, drep_type, drep_hash |  |
+
+<details><summary>span: `certificate_committee_delegate`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `cc_member_type` | `string` | ✓ |
+| `cc_member_hash` | `string` | ✓ |
+| `delegate_type` | `string` | ✓ |
+| `delegate_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `certificate_committee_resign`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `cc_member_type` | `string` | ✓ |
+| `cc_member_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `certificate_drep_registration`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `drep_type` | `string` | ✓ |
+| `drep_hash` | `string` | ✓ |
+| `deposit` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `certificate_drep_retirement`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `drep_type` | `string` | ✓ |
+| `drep_hash` | `string` | ✓ |
+| `refund` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `certificate_drep_update`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `drep_type` | `string` | ✓ |
+| `drep_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `certificate_pool_registration`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `pool_id` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `certificate_pool_retirement`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `pool_id` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `certificate_stake_delegation`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `credential_type` | `string` | ✓ |
+| `credential_hash` | `string` | ✓ |
+| `pool_id` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `certificate_stake_deregistration`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `credential_type` | `string` | ✓ |
+| `credential_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `certificate_stake_registration`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `credential_type` | `string` | ✓ |
+| `credential_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `certificate_vote_delegation`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `credential_type` | `string` | ✓ |
+| `credential_hash` | `string` | ✓ |
+| `drep_type` | `string` | ✓ |
+| `drep_hash` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::ledger::governance`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -126,7 +247,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `ledger::rules`
+## target: `amaru::ledger::rules`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -140,7 +261,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `ledger::state`
+## target: `amaru::ledger::state`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -221,7 +342,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `network::chainsync_client`
+## target: `amaru::network::chainsync_client`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -236,7 +357,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `network::connection`
+## target: `amaru::network::connection`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -249,7 +370,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `recv` | `TRACE` | Receive data from connection |  |  |
 | `send` | `TRACE` | Send data over connection |  |  |
 
-## target: `protocols::mux`
+## target: `amaru::protocols::mux`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -296,25 +417,25 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `simulator::node`
+## target: `amaru::simulator::node`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
 | `handle_msg` | `TRACE` | Handle message in simulator node |  |  |
 
-## target: `stage::logging`
+## target: `amaru::stage::logging`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
 | `test_span` | `TRACE` | Test span for logging |  |  |
 
-## target: `stage::tokio`
+## target: `amaru::stage::tokio`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
 | `poll` | `TRACE` | Poll stage operation |  |  |
 
-## target: `stores::consensus`
+## target: `amaru::stores::consensus`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -393,7 +514,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `stores::ledger`
+## target: `amaru::stores::ledger`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |
@@ -438,7 +559,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `stores::rocksdb`
+## target: `amaru::stores::rocksdb`
 
 | name | level | description | required fields | optional fields |
 | --- | --- | --- | --- | --- |

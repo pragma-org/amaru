@@ -19,7 +19,7 @@ use crate::{
     span::HasSpan,
 };
 use amaru_kernel::{Block, BlockHeader, IsHeader, Peer, Point};
-use amaru_observability::consensus::chain_sync::VALIDATE_BLOCK;
+use amaru_observability::amaru::consensus::chain_sync::VALIDATE_BLOCK;
 use pure_stage::StageRef;
 use tracing::{Instrument, Span, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;

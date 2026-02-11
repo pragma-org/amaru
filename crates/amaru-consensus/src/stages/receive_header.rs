@@ -19,7 +19,9 @@ use crate::{
     span::HasSpan,
 };
 use amaru_kernel::{BlockHeader, IsHeader, from_cbor_no_leftovers};
-use amaru_observability::consensus::chain_sync::{RECEIVE_HEADER, RECEIVE_HEADER_DECODE_FAILED};
+use amaru_observability::amaru::consensus::chain_sync::{
+    RECEIVE_HEADER, RECEIVE_HEADER_DECODE_FAILED,
+};
 use amaru_observability::trace;
 use pure_stage::StageRef;
 use tracing::Instrument;

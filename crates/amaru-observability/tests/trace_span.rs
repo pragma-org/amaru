@@ -16,17 +16,19 @@ use amaru_observability::define_schemas;
 use amaru_observability::trace_span;
 
 define_schemas! {
-    test {
-        span_test {
-            /// Test span event for validation
-            SpanEvent {
-                required event_type: &str
-                required timestamp: u64
-                optional status: &str
-                optional error_code: u32
-                optional duration_ms: u64
-                optional message: &str
-                optional details: &str
+    amaru {
+        test {
+            span_test {
+                /// Test span event for validation
+                SpanEvent {
+                    required event_type: &str
+                    required timestamp: u64
+                    optional status: &str
+                    optional error_code: u32
+                    optional duration_ms: u64
+                    optional message: &str
+                    optional details: &str
+                }
             }
         }
     }

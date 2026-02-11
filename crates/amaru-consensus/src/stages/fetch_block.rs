@@ -19,7 +19,7 @@ use crate::{
     span::HasSpan,
 };
 use amaru_kernel::IsHeader;
-use amaru_observability::consensus::diffusion::FETCH_BLOCK;
+use amaru_observability::amaru::consensus::diffusion::FETCH_BLOCK;
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
 use std::time::Duration;

@@ -28,7 +28,7 @@ use amaru_ledger::{
     },
     summary::Pots,
 };
-use amaru_observability::stores::rocksdb::{SAVE_POINT, VALIDATE_SNAPSHOTS};
+use amaru_observability::amaru::stores::rocksdb::{SAVE_POINT, VALIDATE_SNAPSHOTS};
 use amaru_observability::{trace, trace_record};
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode,

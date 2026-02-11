@@ -125,15 +125,14 @@ pub fn parse_full_schema_path(full_path: &str) -> (&str, String, &str) {
     let is_amaru_path = full_path.contains("amaru::");
 
     if is_amaru_path {
-        // For amaru paths, strip macro_module prefix to get target
-        let after_amaru = if full_path.len() > macro_module.len() + 2 {
-            &full_path[macro_module.len() + 2..] // Skip "::"
-        } else {
-            full_path
-        };
+        // For amaru paths, find the "amaru::" portion and keep everything after it
+        // (but including "amaru" itself) for the categories path
+        let amaru_pos = full_path.find("amaru::").expect("amaru:: must exist");
+        let after_crate_prefix = &full_path[amaru_pos..];
 
-        // Parse the remaining path to get schema_name and target
-        let (schema_name, target_path) = parse_schema_path(after_amaru);
+        // Parse to get schema_name and target
+        // The target should include "amaru" for module validator lookup
+        let (schema_name, target_path) = parse_schema_path(after_crate_prefix);
 
         (schema_name, target_path.to_string(), macro_module)
     } else {
@@ -150,76 +149,82 @@ pub fn make_ident(name: &str) -> syn::Ident {
     syn::Ident::new(name, Span::call_site())
 }
 
-/// Generate a namespace prefix from category and subcategory.
+/// Generate a namespace prefix from categories.
 ///
-/// Convention: `{CATEGORY}__{SUBCATEGORY}__` (double underscores, uppercase)
-/// Example: `consensus::chain_sync` → `CONSENSUS__CHAIN_SYNC__`
-pub fn make_macro_namespace(category: &str, subcategory: &str) -> String {
-    if category.is_empty() && subcategory.is_empty() {
+/// Convention: joins categories with double underscores in uppercase
+/// Examples:
+/// - ["consensus", "chain_sync"] → `CONSENSUS__CHAIN_SYNC__`
+/// - ["ledger"] → `LEDGER__`
+/// - [] → ""
+pub fn make_macro_namespace(categories: &[String]) -> String {
+    if categories.is_empty() {
         String::new()
-    } else if subcategory.is_empty() {
-        format!("{}__", category.to_uppercase())
     } else {
-        format!(
-            "{}__{}_",
-            category.to_uppercase(),
-            subcategory.to_uppercase()
-        )
+        categories
+            .iter()
+            .map(|c| c.to_uppercase())
+            .collect::<Vec<_>>()
+            .join("__")
+            + "__"
     }
 }
 
 /// Generate a required fields checker macro name for a schema.
 ///
-/// Convention: `__{CATEGORY}__{SUBCATEGORY}__{SCHEMA_NAME}_REQUIRE`
-pub fn make_require_macro_name(category: &str, subcategory: &str, schema_name: &str) -> String {
-    let namespace = make_macro_namespace(category, subcategory);
+/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_REQUIRE`
+pub fn make_require_macro_name(categories: &[String], schema_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
     format!("__{namespace}{schema_name}_REQUIRE")
 }
 
 /// Generate a module validator macro name.
 ///
-/// Convention: `__VALIDATE_{CATEGORY}_{SUBCATEGORY}` (uppercase)
-pub fn make_module_validator_name(category: &str, subcategory: &str) -> String {
-    format!(
-        "__VALIDATE_{}_{}",
-        category.to_uppercase(),
-        subcategory.to_uppercase()
-    )
+/// Convention: `__VALIDATE_{CATEGORIES}` (uppercase, joined by underscores)
+pub fn make_module_validator_name(categories: &[String]) -> String {
+    if categories.is_empty() {
+        "__VALIDATE".to_string()
+    } else {
+        format!(
+            "__VALIDATE_{}",
+            categories
+                .iter()
+                .map(|c| c.to_uppercase())
+                .collect::<Vec<_>>()
+                .join("_")
+        )
+    }
 }
 
 /// Generate a schema field constant name.
 ///
-/// Convention: `__{CATEGORY}__{SUBCATEGORY}__{SCHEMA_NAME}_SCHEMA_FIELDS`
-pub fn make_schema_field_const_name(
-    category: &str,
-    subcategory: &str,
-    schema_name: &str,
-) -> String {
-    let namespace = make_macro_namespace(category, subcategory);
+/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_SCHEMA_FIELDS`
+pub fn make_schema_field_const_name(categories: &[String], schema_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
     format!("__{namespace}{schema_name}_SCHEMA_FIELDS")
 }
 
 /// Generate a schema validation registry constant name.
 ///
-/// Convention: `_SCHEMA_{CATEGORY}__{SUBCATEGORY}__{SCHEMA_NAME}`
-pub fn make_registry_const_name(category: &str, subcategory: &str, schema_name: &str) -> String {
-    let namespace = make_macro_namespace(category, subcategory);
+/// Convention: `_SCHEMA_{CATEGORIES}__{SCHEMA_NAME}`
+#[allow(dead_code)]
+pub fn make_registry_const_name(categories: &[String], schema_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
     format!("_SCHEMA_{namespace}{schema_name}")
 }
 
 /// Generate a schema instrument helper macro name.
 ///
-/// Convention: `__{CATEGORY}__{SUBCATEGORY}__{SCHEMA_NAME}_INSTRUMENT`
-pub fn make_instrument_macro_name(category: &str, subcategory: &str, schema_name: &str) -> String {
-    let namespace = make_macro_namespace(category, subcategory);
+/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_INSTRUMENT`
+pub fn make_instrument_macro_name(categories: &[String], schema_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
     format!("__{namespace}{schema_name}_INSTRUMENT")
 }
 
 /// Generate a schema field record helper macro name.
 ///
-/// Convention: `__{CATEGORY}__{SUBCATEGORY}__{SCHEMA_NAME}_RECORD`
-pub fn make_record_macro_name(category: &str, subcategory: &str, schema_name: &str) -> String {
-    let namespace = make_macro_namespace(category, subcategory);
+/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_RECORD`
+pub fn make_record_macro_name(categories: &[String], schema_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
     format!("__{namespace}{schema_name}_RECORD")
 }
 

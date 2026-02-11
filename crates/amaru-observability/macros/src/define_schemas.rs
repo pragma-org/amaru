@@ -24,12 +24,11 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use std::collections::BTreeMap;
 
 use crate::utils::{
     format_field_spec, is_identifier_start, is_uppercase_identifier, make_ident,
     make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_registry_const_name, make_require_macro_name, make_schema_field_const_name,
+    make_require_macro_name, make_schema_field_const_name,
 };
 
 // =============================================================================
@@ -86,12 +85,9 @@ pub struct SchemaField {
 /// A complete schema definition.
 #[derive(Debug, Clone)]
 pub struct Schema {
-    /// Top-level namespace (e.g., "amaru")
-    namespace: String,
-    /// Top-level category (e.g., "consensus")
-    category: String,
-    /// Sub-category (e.g., "chain_sync")
-    subcategory: String,
+    /// Category path components (e.g., ["ledger", "state"] for ledger::state)
+    /// Can be arbitrary depth: ["a"], ["a", "b"], ["a", "b", "c"], etc.
+    categories: Vec<String>,
     /// Schema name in SCREAMING_SNAKE_CASE (e.g., "VALIDATE_HEADER")
     name: String,
     /// Optional description from doc comment
@@ -104,15 +100,27 @@ pub struct Schema {
 
 impl Schema {
     /// Create a new schema with the given path components.
-    fn new(name: &str, namespace: &str, category: &str, subcategory: &str) -> Self {
+    fn new(name: &str, categories: Vec<String>) -> Self {
         Schema {
-            namespace: namespace.to_string(),
-            category: category.to_string(),
-            subcategory: subcategory.to_string(),
+            categories,
             name: name.to_string(),
             description: None,
             required_fields: Vec::new(),
             optional_fields: Vec::new(),
+        }
+    }
+
+    /// Get the target path by joining categories with "::"
+    fn target_path(&self) -> String {
+        self.categories.join("::")
+    }
+
+    /// Get the full schema path including the name
+    fn full_path(&self) -> String {
+        if self.categories.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}::{}", self.target_path(), self.name)
         }
     }
 
@@ -242,12 +250,8 @@ fn tokenize(input: &str) -> Result<Vec<String>, String> {
 struct ParserState {
     /// Current brace nesting depth
     depth: i32,
-    /// Top-level namespace name (e.g., "amaru" at depth 0)
-    namespace: String,
-    /// Current category name
-    category: String,
-    /// Current subcategory name
-    subcategory: String,
+    /// Category path stack (grows as we nest deeper)
+    category_stack: Vec<String>,
     /// Schema being built (if any)
     current_schema: Option<Schema>,
     /// Depth at which the current schema was started
@@ -260,9 +264,7 @@ impl ParserState {
     fn new() -> Self {
         ParserState {
             depth: 0,
-            namespace: String::new(),
-            category: String::new(),
-            subcategory: String::new(),
+            category_stack: Vec::new(),
             current_schema: None,
             schema_depth: -1,
             pending_description: None,
@@ -282,46 +284,28 @@ impl ParserState {
                 schemas.push(schema);
             }
             self.schema_depth = -1;
+        } else if self.depth > 0 && self.category_stack.len() >= self.depth as usize {
+            // Closing a category level - pop from stack
+            self.category_stack.pop();
         }
 
         self.depth = self.depth.saturating_sub(1);
     }
 
-    /// Try to start a new scope (category, subcategory, or schema).
+    /// Try to start a new scope (category or schema).
     fn try_start_scope(&mut self, name: &str) {
-        match self.depth {
-            0 => {
-                // Top level: this is the outer wrapper (like "amaru"), capture it
-                self.namespace = name.to_string();
+        if is_uppercase_identifier(name) {
+            // Uppercase identifier = schema definition
+            let mut schema = Schema::new(name, self.category_stack.clone());
+            if let Some(description) = self.pending_description.take() {
+                schema.set_description(description);
             }
-            1 => {
-                // Depth 1: this is a category (e.g., "consensus", "ledger", "network")
-                self.category = name.to_string();
-            }
-            2 if !is_uppercase_identifier(name) => {
-                // Depth 2 with lowercase: this is a subcategory (e.g., "chain_sync", "state")
-                self.subcategory = name.to_string();
-            }
-            2 => {
-                // Depth 2 with uppercase: schema directly in category (no subcategory)
-                let mut schema = Schema::new(name, &self.namespace, &self.category, "");
-                if let Some(description) = self.pending_description.take() {
-                    schema.set_description(description);
-                }
-                self.current_schema = Some(schema);
-                self.schema_depth = self.depth;
-            }
-            3 if is_uppercase_identifier(name) => {
-                // Depth 3 with uppercase: schema in category::subcategory
-                let mut schema =
-                    Schema::new(name, &self.namespace, &self.category, &self.subcategory);
-                if let Some(description) = self.pending_description.take() {
-                    schema.set_description(description);
-                }
-                self.current_schema = Some(schema);
-                self.schema_depth = self.depth;
-            }
-            _ => {}
+            self.current_schema = Some(schema);
+            self.schema_depth = self.depth;
+        } else {
+            // Lowercase identifier = category level
+            // Push onto the stack (will be popped on closing brace)
+            self.category_stack.push(name.to_string());
         }
     }
 
@@ -577,8 +561,7 @@ fn generate_required_fields_macro(
     schema: &Schema,
     config: &GenerationConfig,
 ) -> proc_macro2::TokenStream {
-    let require_macro_name =
-        make_require_macro_name(&schema.category, &schema.subcategory, &schema.name);
+    let require_macro_name = make_require_macro_name(&schema.categories, &schema.name);
     let require_ident = make_ident(&require_macro_name);
     let macro_export = config.macro_export_attr();
     let crate_prefix = config.crate_prefix();
@@ -678,16 +661,14 @@ fn generate_required_fields_macro(
 ///   - Optional fields: `field = tracing::field::Empty` - set via `Span::current().record()`
 fn generate_instrument_macro(
     schema: &Schema,
-    category: &str,
-    subcategory: &str,
     config: &GenerationConfig,
 ) -> proc_macro2::TokenStream {
-    let macro_name = make_instrument_macro_name(category, subcategory, &schema.name);
+    let macro_name = make_instrument_macro_name(&schema.categories, &schema.name);
     let macro_ident = make_ident(&macro_name);
     let macro_export = config.macro_export_attr();
 
-    // Target is module path: namespace::category::subcategory
-    let target = format!("{}::{category}::{subcategory}", schema.namespace);
+    // Target is the category path joined with ::
+    let target = schema.target_path();
     let name = schema.name.to_lowercase();
 
     // Required fields: declare as Empty, set via Span::current().record()
@@ -755,7 +736,7 @@ fn generate_instrument_macro(
 /// - `__SCHEMA_RECORD!("field_name", expr, strict);` → records if known, errors if unknown
 /// - `__SCHEMA_RECORD!("field_name", "type", validate);` → validates field name/type (for #[trace])
 fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
-    let macro_name = make_record_macro_name(&schema.category, &schema.subcategory, &schema.name);
+    let macro_name = make_record_macro_name(&schema.categories, &schema.name);
     let macro_ident = make_ident(&macro_name);
     let schema_name = &schema.name;
     let macro_export = config.macro_export_attr();
@@ -878,14 +859,13 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
 ///
 /// This ensures only valid schemas are used within a module path.
 fn generate_module_validator_macro(
-    category: &str,
-    subcategory: &str,
+    categories: &[String],
     schema_names: &[String],
     config: &GenerationConfig,
 ) -> proc_macro2::TokenStream {
-    let validator_name = make_module_validator_name(category, subcategory);
+    let validator_name = make_module_validator_name(categories);
     let validator_ident = make_ident(&validator_name);
-    let module_path = format!("{category}::{subcategory}");
+    let module_path = categories.join("::");
     let schemas_list = schema_names.join(", ");
     let macro_export = config.macro_export_attr();
 
@@ -927,13 +907,9 @@ fn generate_module_validator_macro(
 ///
 /// Note: When the macro is expanded within the `amaru-observability` crate itself,
 /// we use `crate::registry::SchemaEntry` instead of `amaru_observability::registry::SchemaEntry`.
-fn generate_inventory_submission(
-    schema: &Schema,
-    category: &str,
-    subcategory: &str,
-) -> proc_macro2::TokenStream {
-    let schema_path = format!("{category}::{subcategory}::{}", schema.name);
-    let target_path = format!("{category}::{subcategory}");
+fn generate_inventory_submission(schema: &Schema) -> proc_macro2::TokenStream {
+    let schema_path = schema.full_path();
+    let target_path = schema.target_path();
     let schema_name = schema.name.clone();
 
     let required_fields_array: Vec<_> = schema
@@ -1053,22 +1029,52 @@ fn generate_schema_help_macros(
 // Module Tree Generation
 // =============================================================================
 
-/// Group schemas by category and subcategory.
-fn group_schemas_by_path(schemas: &[Schema]) -> BTreeMap<String, BTreeMap<String, Vec<Schema>>> {
-    schemas
-        .iter()
-        .cloned()
-        .fold(BTreeMap::new(), |mut grouped, schema| {
-            let category = schema.category.clone();
-            let subcategory = schema.subcategory.clone();
-            grouped
-                .entry(category)
-                .or_default()
-                .entry(subcategory)
-                .or_default()
-                .push(schema);
-            grouped
-        })
+use std::collections::BTreeMap;
+
+/// A tree node representing either a category module or a schema.
+#[derive(Clone)]
+enum TreeNode {
+    Category {
+        #[allow(dead_code)]
+        name: String,
+        children: BTreeMap<String, TreeNode>,
+    },
+    Schema(Schema),
+}
+
+/// Build a tree from schemas, grouping by category paths.
+fn build_category_tree(schemas: &[Schema]) -> BTreeMap<String, TreeNode> {
+    let mut root = BTreeMap::new();
+
+    for schema in schemas {
+        let mut current = &mut root;
+
+        // Navigate/create the category path
+        for category_name in &schema.categories {
+            current = current
+                .entry(category_name.clone())
+                .or_insert_with(|| TreeNode::Category {
+                    name: category_name.clone(),
+                    children: BTreeMap::new(),
+                })
+                .as_category_mut()
+                .expect("Expected category node");
+        }
+
+        // Insert the schema at the leaf
+        current.insert(schema.name.clone(), TreeNode::Schema(schema.clone()));
+    }
+
+    root
+}
+
+impl TreeNode {
+    fn as_category_mut(&mut self) -> Option<&mut BTreeMap<String, TreeNode>> {
+        match self {
+            TreeNode::Category { children, .. } => Some(children),
+            TreeNode::Schema(_) => None,
+        }
+    }
 }
 
 /// Build the complete module tree with all generated code.
@@ -1076,120 +1082,32 @@ fn build_module_tree_with_metadata(
     schemas: &[Schema],
     config: &GenerationConfig,
 ) -> proc_macro2::TokenStream {
-    let grouped = group_schemas_by_path(schemas);
+    let tree = build_category_tree(schemas);
 
-    let mut outer_modules = Vec::new();
-    let mut validation_consts = Vec::new();
-    let mut schema_field_consts = Vec::new();
     let mut validation_macros = Vec::new();
     let mut inventory_submissions = Vec::new();
     let mut all_schema_names = Vec::new();
     let mut all_schema_paths = Vec::new();
 
-    for (category, subcats) in grouped {
-        let category_ident = make_ident(&category);
-        let mut sub_modules = Vec::new();
+    // Generate all validation macros and collect schemas
+    for schema in schemas {
+        all_schema_names.push(schema.name.clone());
+        all_schema_paths.push(schema.full_path());
 
-        for (subcat_name, cat_schemas) in subcats {
-            let subcat_ident = make_ident(&subcat_name);
-            let mut consts_and_metadata = Vec::new();
-            let mut module_schema_names = Vec::new();
+        validation_macros.push(generate_required_fields_macro(schema, config));
+        validation_macros.push(generate_instrument_macro(schema, config));
+        validation_macros.push(generate_record_macro(schema, config));
 
-            for schema in cat_schemas {
-                let schema_ident = make_ident(&schema.name);
-                let full_path = format!("{category}::{subcat_name}");
-                let full_const_path = format!("{full_path}::{}", schema.name.to_lowercase());
-
-                // Track names for registry and error messages
-                all_schema_names.push(schema.name.clone());
-                all_schema_paths.push(full_const_path.clone());
-                module_schema_names.push(schema.name.clone());
-
-                // Generate const for schema path
-                consts_and_metadata.push(quote! {
-                    pub const #schema_ident: &str = #full_const_path;
-                });
-
-                // Generate validation constants
-                let validation_string = schema.validation_string();
-                let validation_const_name =
-                    make_schema_field_const_name(&category, &subcat_name, &schema.name);
-                let validation_const_ident = make_ident(&validation_const_name);
-
-                consts_and_metadata.push(quote! {
-                    /// Compile-time validation constant for the #[trace] macro.
-                    /// Format: R|required_field:type,...|O|optional_field:type,...
-                    pub const #validation_const_ident: &str = #validation_string;
-                });
-
-                validation_consts.push((
-                    (category.clone(), subcat_name.clone(), schema.name.clone()),
-                    validation_string.clone(),
-                ));
-                schema_field_consts.push((validation_const_name, validation_string));
-
-                // Generate required fields checker macro
-                validation_macros.push(generate_required_fields_macro(&schema, config));
-
-                // Generate instrument helper macro
-                validation_macros.push(generate_instrument_macro(
-                    &schema,
-                    &category,
-                    &subcat_name,
-                    config,
-                ));
-
-                // Generate unified record helper macro (handles recording, validation, and augment modes)
-                validation_macros.push(generate_record_macro(&schema, config));
-
-                // Generate inventory submission
-                inventory_submissions.push(generate_inventory_submission(
-                    &schema,
-                    &category,
-                    &subcat_name,
-                ));
-            }
-
-            // Generate module-specific schema validator macro
-            validation_macros.push(generate_module_validator_macro(
-                &category,
-                &subcat_name,
-                &module_schema_names,
-                config,
-            ));
-
-            sub_modules.push(quote! {
-                pub mod #subcat_ident {
-                    #(#consts_and_metadata)*
-                }
-            });
-        }
-
-        outer_modules.push(quote! {
-            pub mod #category_ident {
-                #(#sub_modules)*
-            }
-        });
+        inventory_submissions.push(generate_inventory_submission(schema));
     }
 
-    // Generate validation registry entries
-    let validation_registry_entries =
-        validation_consts
-            .iter()
-            .map(|((category, subcategory, schema_name), schema_str)| {
-                let const_name = make_registry_const_name(category, subcategory, schema_name);
-                let const_ident = make_ident(&const_name);
-                quote! {
-                    pub const #const_ident: &str = #schema_str;
-                }
-            });
+    // Generate category module validator macros
+    let mut category_validators = Vec::new();
+    collect_category_validators(&tree, &mut vec![], &mut category_validators, config);
+    validation_macros.extend(category_validators);
 
-    let schema_field_entries = schema_field_consts.iter().map(|(const_name, schema_str)| {
-        let const_ident = make_ident(const_name);
-        quote! {
-            pub const #const_ident: &str = #schema_str;
-        }
-    });
+    // Build the module tree recursively
+    let modules = build_modules(&tree, config);
 
     // Generate schema list helper macros
     let schema_help_macro =
@@ -1200,32 +1118,90 @@ fn build_module_tree_with_metadata(
         #(#inventory_submissions)*
 
         // Validation macros at crate root (required for #[macro_export])
-        // Note: #[macro_export] macros are automatically placed at crate root
-        // and cannot be re-exported via `pub use`. Users should call them
-        // without a module prefix (e.g., `__SCHEMA_INSTRUMENT!()` not `amaru::__SCHEMA_INSTRUMENT!()`)
         #[allow(unused_macros)]
         #(#validation_macros)*
 
         // Schema list helper macros
         #schema_help_macro
 
-        /// The `amaru` module contains all schema definitions and metadata constants.
-        ///
-        /// Use `amaru::category::subcategory::SCHEMA_NAME` paths with `#[trace]`.
-        /// Note: Validation macros are at crate root due to Rust's #[macro_export] behavior.
-        pub mod amaru {
-            #(#outer_modules)*
+        /// Module tree containing all schema definitions.
+        #(#modules)*
+    }
+}
 
-            /// Internal module for schema validation constants.
-            /// For macro internal use only.
-            pub mod __trace_schema_registry {
-                #(#validation_registry_entries)*
-                #(#schema_field_entries)*
+/// Recursively build module structures from the category tree.
+fn build_modules(
+    tree: &BTreeMap<String, TreeNode>,
+    _config: &GenerationConfig,
+) -> Vec<proc_macro2::TokenStream> {
+    let mut modules = Vec::new();
+
+    for (name, node) in tree {
+        match node {
+            TreeNode::Category { name: _, children } => {
+                let mod_ident = make_ident(name);
+                let child_modules = build_modules(children, _config);
+
+                modules.push(quote! {
+                    pub mod #mod_ident {
+                        #(#child_modules)*
+                    }
+                });
+            }
+            TreeNode::Schema(schema) => {
+                let schema_ident = make_ident(&schema.name);
+                let full_path = schema.full_path();
+                let validation_string = schema.validation_string();
+                let validation_const_name =
+                    make_schema_field_const_name(&schema.categories, &schema.name);
+                let validation_const_ident = make_ident(&validation_const_name);
+
+                modules.push(quote! {
+                    pub const #schema_ident: &str = #full_path;
+
+                    /// Compile-time validation constant for the #[trace] macro.
+                    /// Format: R|required_field:type,...|O|optional_field:type,...
+                    pub const #validation_const_ident: &str = #validation_string;
+                });
             }
         }
+    }
 
-        // Re-export amaru module contents for convenience
-        pub use amaru::*;
+    modules
+}
+
+/// Collect category validators recursively.
+fn collect_category_validators(
+    tree: &BTreeMap<String, TreeNode>,
+    path: &mut Vec<String>,
+    validators: &mut Vec<proc_macro2::TokenStream>,
+    config: &GenerationConfig,
+) {
+    let mut schema_names_at_this_level = Vec::new();
+
+    // Collect schemas at this level
+    for node in tree.values() {
+        if let TreeNode::Schema(schema) = node {
+            schema_names_at_this_level.push(schema.name.clone());
+        }
+    }
+
+    // Generate validator for this level if there are schemas
+    if !schema_names_at_this_level.is_empty() && !path.is_empty() {
+        validators.push(generate_module_validator_macro(
+            path,
+            &schema_names_at_this_level,
+            config,
+        ));
+    }
+
+    // Recurse into categories
+    for (name, node) in tree {
+        if let TreeNode::Category { children, .. } = node {
+            path.push(name.clone());
+            collect_category_validators(children, path, validators, config);
+            path.pop();
+        }
     }
 }
 
@@ -1324,9 +1300,7 @@ mod tests {
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
         assert_eq!(schemas.len(), 1);
         assert_eq!(schemas[0].name, "VALIDATE");
-        assert_eq!(schemas[0].namespace, "amaru");
-        assert_eq!(schemas[0].category, "consensus");
-        assert_eq!(schemas[0].subcategory, "sync");
+        assert_eq!(schemas[0].categories, vec!["amaru", "consensus", "sync"]);
         assert_eq!(schemas[0].required_fields.len(), 1);
         assert_eq!(schemas[0].required_fields[0].name, "slot");
         assert_eq!(schemas[0].required_fields[0].ty, "u64");
@@ -1405,7 +1379,7 @@ mod tests {
 
     #[test]
     fn test_schema_validation_string() {
-        let mut schema = Schema::new("TEST", "", "cat", "sub");
+        let mut schema = Schema::new("TEST", vec!["cat".to_string(), "sub".to_string()]);
         schema.required_fields.push(SchemaField {
             name: "id".to_string(),
             ty: "u64".to_string(),

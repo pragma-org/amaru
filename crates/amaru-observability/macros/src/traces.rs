@@ -47,15 +47,12 @@ struct SchemaMeta {
 const SEPARATOR: &str = "::";
 
 impl SchemaMeta {
-    /// Extract category from module_path (e.g., "consensus" from "consensus::chain_sync")
-    fn category(&self) -> &str {
-        self.module_path.split(SEPARATOR).next().unwrap_or("")
-    }
-
-    /// Extract subcategory from module_path (e.g., "chain_sync" from "consensus::chain_sync")
-    fn subcategory(&self) -> &str {
-        let parts: Vec<&str> = self.module_path.split(SEPARATOR).collect();
-        if parts.len() >= 2 { parts[1] } else { "" }
+    /// Get all categories as a Vec<String> from module_path
+    fn categories(&self) -> Vec<String> {
+        self.module_path
+            .split(SEPARATOR)
+            .map(|s| s.to_string())
+            .collect()
     }
 
     /// Check if this is a local schema (not from amaru_observability).
@@ -259,8 +256,8 @@ fn extract_function_fields(func: &ItemFn) -> Option<Vec<FunctionField>> {
 ///
 /// Uses the unified _RECORD macro with `validate` mode to check field name/type pairs.
 fn generate_field_validator(meta: &SchemaMeta, field: &FunctionField) -> proc_macro2::TokenStream {
-    let record_macro =
-        make_record_macro_name(meta.category(), meta.subcategory(), &meta.schema_name);
+    let categories = meta.categories();
+    let record_macro = make_record_macro_name(&categories, &meta.schema_name);
     let record_ident = make_ident(&record_macro);
     let field_name = &field.name;
     let field_type = &field.ty;
@@ -273,8 +270,8 @@ fn generate_required_fields_check(
     meta: &SchemaMeta,
     field_names: &[String],
 ) -> proc_macro2::TokenStream {
-    let require_macro =
-        make_require_macro_name(meta.category(), meta.subcategory(), &meta.schema_name);
+    let categories = meta.categories();
+    let require_macro = make_require_macro_name(&categories, &meta.schema_name);
     let require_ident = make_ident(&require_macro);
     let field_idents: Vec<_> = field_names.iter().map(|n| make_ident(n)).collect();
 
@@ -322,11 +319,8 @@ fn generate_record_calls(
     fields: &[FunctionField],
     meta: &SchemaMeta,
 ) -> Vec<proc_macro2::TokenStream> {
-    let record_macro_ident = make_ident(&make_record_macro_name(
-        meta.category(),
-        meta.subcategory(),
-        &meta.schema_name,
-    ));
+    let categories = meta.categories();
+    let record_macro_ident = make_ident(&make_record_macro_name(&categories, &meta.schema_name));
 
     // Collect field names that have function parameters
     let param_field_names: BTreeSet<_> = fields.iter().map(|f| f.name.clone()).collect();
@@ -374,11 +368,9 @@ fn generate_instrumented_function(
     field_validations: Vec<proc_macro2::TokenStream>,
     record_calls: Vec<proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
-    let instrument_macro_ident = make_ident(&make_instrument_macro_name(
-        meta.category(),
-        meta.subcategory(),
-        &meta.schema_name,
-    ));
+    let categories = meta.categories();
+    let instrument_macro_ident =
+        make_ident(&make_instrument_macro_name(&categories, &meta.schema_name));
     let attrs = &func.attrs;
     let vis = &func.vis;
     let sig = &func.sig;
@@ -435,7 +427,8 @@ fn wrap_in_module_validator(
         return body;
     }
 
-    let validator_name = make_module_validator_name(parts[0], parts[1]);
+    let categories: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
+    let validator_name = make_module_validator_name(&categories);
     let validator_ident = make_ident(&validator_name);
     let schema_ident = make_ident(&meta.schema_name);
 
