@@ -1150,14 +1150,14 @@ fn build_modules(
             }
             TreeNode::Schema(schema) => {
                 let schema_ident = make_ident(&schema.name);
-                let full_path = schema.full_path();
+                let schema_name_lowercase = schema.name.to_lowercase();
                 let validation_string = schema.validation_string();
                 let validation_const_name =
                     make_schema_field_const_name(&schema.categories, &schema.name);
                 let validation_const_ident = make_ident(&validation_const_name);
 
                 modules.push(quote! {
-                    pub const #schema_ident: &str = #full_path;
+                    pub const #schema_ident: &str = #schema_name_lowercase;
 
                     /// Compile-time validation constant for the #[trace] macro.
                     /// Format: R|required_field:type,...|O|optional_field:type,...

@@ -91,10 +91,10 @@ fn run_simulator_with_traces() {
         execute,
         vec![json!(
           {
-            "name": "amaru::simulator::node::HANDLE_MSG",
+            "name": "handle_msg",
             "children": [
               {
-                "name": "amaru::consensus::chain_sync::RECEIVE_HEADER",
+                "name": "receive_header",
                 "children": [
                   {
                     "name": "decode_header"
@@ -102,19 +102,19 @@ fn run_simulator_with_traces() {
                 ]
               },
               {
-                "name": "amaru::consensus::chain_sync::VALIDATE_HEADER"
+                "name": "validate_header"
               },
               {
-                "name": "amaru::consensus::diffusion::FETCH_BLOCK"
+                "name": "fetch_block"
               },
               {
-                "name": "amaru::consensus::chain_sync::VALIDATE_BLOCK"
+                "name": "validate_block"
               },
               {
-                "name": "amaru::consensus::chain_sync::SELECT_CHAIN"
+                "name": "select_chain"
               },
               {
-                "name": "amaru::consensus::diffusion::FORWARD_CHAIN"
+                "name": "forward_chain"
               }
             ]
           }
