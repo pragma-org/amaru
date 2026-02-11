@@ -86,6 +86,8 @@ pub struct SchemaField {
 /// A complete schema definition.
 #[derive(Debug, Clone)]
 pub struct Schema {
+    /// Top-level namespace (e.g., "amaru")
+    namespace: String,
     /// Top-level category (e.g., "consensus")
     category: String,
     /// Sub-category (e.g., "chain_sync")
@@ -101,19 +103,10 @@ pub struct Schema {
 }
 
 impl Schema {
-    /// Create a new schema at the top level (no category/subcategory).
-    fn new_top_level(name: &str) -> Self {
-        Self::new(name, "", "")
-    }
-
-    /// Create a new schema within a category/subcategory.
-    fn new_with_path(name: &str, category: &str, subcategory: &str) -> Self {
-        Self::new(name, category, subcategory)
-    }
-
     /// Create a new schema with the given path components.
-    fn new(name: &str, category: &str, subcategory: &str) -> Self {
+    fn new(name: &str, namespace: &str, category: &str, subcategory: &str) -> Self {
         Schema {
+            namespace: namespace.to_string(),
             category: category.to_string(),
             subcategory: subcategory.to_string(),
             name: name.to_string(),
@@ -249,6 +242,8 @@ fn tokenize(input: &str) -> Result<Vec<String>, String> {
 struct ParserState {
     /// Current brace nesting depth
     depth: i32,
+    /// Top-level namespace name (e.g., "amaru" at depth 0)
+    namespace: String,
     /// Current category name
     category: String,
     /// Current subcategory name
@@ -265,6 +260,7 @@ impl ParserState {
     fn new() -> Self {
         ParserState {
             depth: 0,
+            namespace: String::new(),
             category: String::new(),
             subcategory: String::new(),
             current_schema: None,
@@ -295,25 +291,30 @@ impl ParserState {
     fn try_start_scope(&mut self, name: &str) {
         match self.depth {
             0 => {
-                // Top level: this is a category
-                self.category = name.to_string();
-            }
-            1 if !is_uppercase_identifier(name) => {
-                // Depth 1 with lowercase: this is a subcategory
-                self.subcategory = name.to_string();
+                // Top level: this is the outer wrapper (like "amaru"), capture it
+                self.namespace = name.to_string();
             }
             1 => {
-                // Depth 1 with uppercase: schema directly in category (no subcategory)
-                let mut schema = Schema::new_top_level(name);
+                // Depth 1: this is a category (e.g., "consensus", "ledger", "network")
+                self.category = name.to_string();
+            }
+            2 if !is_uppercase_identifier(name) => {
+                // Depth 2 with lowercase: this is a subcategory (e.g., "chain_sync", "state")
+                self.subcategory = name.to_string();
+            }
+            2 => {
+                // Depth 2 with uppercase: schema directly in category (no subcategory)
+                let mut schema = Schema::new(name, &self.namespace, &self.category, "");
                 if let Some(description) = self.pending_description.take() {
                     schema.set_description(description);
                 }
                 self.current_schema = Some(schema);
                 self.schema_depth = self.depth;
             }
-            2 if is_uppercase_identifier(name) => {
-                // Depth 2 with uppercase: schema in category::subcategory
-                let mut schema = Schema::new_with_path(name, &self.category, &self.subcategory);
+            3 if is_uppercase_identifier(name) => {
+                // Depth 3 with uppercase: schema in category::subcategory
+                let mut schema =
+                    Schema::new(name, &self.namespace, &self.category, &self.subcategory);
                 if let Some(description) = self.pending_description.take() {
                     schema.set_description(description);
                 }
@@ -685,8 +686,8 @@ fn generate_instrument_macro(
     let macro_ident = make_ident(&macro_name);
     let macro_export = config.macro_export_attr();
 
-    // Target is module path, name is lowercase schema name (same as registry)
-    let target = format!("{category}::{subcategory}");
+    // Target is module path: namespace::category::subcategory
+    let target = format!("{}::{category}::{subcategory}", schema.namespace);
     let name = schema.name.to_lowercase();
 
     // Required fields: declare as Empty, set via Span::current().record()
@@ -1308,11 +1309,13 @@ mod tests {
     #[test]
     fn test_extract_simple_schema() {
         let input = r#"
-            consensus {
-                sync {
-                    /// Validate the schema
-                    VALIDATE {
-                        required slot: u64
+            amaru {
+                consensus {
+                    sync {
+                        /// Validate the schema
+                        VALIDATE {
+                            required slot: u64
+                        }
                     }
                 }
             }
@@ -1321,6 +1324,7 @@ mod tests {
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
         assert_eq!(schemas.len(), 1);
         assert_eq!(schemas[0].name, "VALIDATE");
+        assert_eq!(schemas[0].namespace, "amaru");
         assert_eq!(schemas[0].category, "consensus");
         assert_eq!(schemas[0].subcategory, "sync");
         assert_eq!(schemas[0].required_fields.len(), 1);
@@ -1335,12 +1339,14 @@ mod tests {
     #[test]
     fn test_extract_schema_with_optional() {
         let input = r#"
-            test {
-                sub {
-                    /// Test schema
-                    SCHEMA {
-                        required id: String
-                        optional name: String
+            amaru {
+                test {
+                    sub {
+                        /// Test schema
+                        SCHEMA {
+                            required id: String
+                            optional name: String
+                        }
                     }
                 }
             }
@@ -1356,15 +1362,17 @@ mod tests {
     #[test]
     fn test_extract_multiple_schemas() {
         let input = r#"
-            cat {
-                sub {
-                    /// Schema A description
-                    SCHEMA_A {
-                        required a: u32
-                    }
-                    /// Schema B description
-                    SCHEMA_B {
-                        required b: u64
+            amaru {
+                cat {
+                    sub {
+                        /// Schema A description
+                        SCHEMA_A {
+                            required a: u32
+                        }
+                        /// Schema B description
+                        SCHEMA_B {
+                            required b: u64
+                        }
                     }
                 }
             }
@@ -1379,12 +1387,14 @@ mod tests {
     #[test]
     fn test_duplicate_field_error() {
         let input = r#"
-            cat {
-                sub {
-                    /// Schema with duplicate
-                    SCHEMA {
-                        required x: u32
-                        required x: u64
+            amaru {
+                cat {
+                    sub {
+                        /// Schema with duplicate
+                        SCHEMA {
+                            required x: u32
+                            required x: u64
+                        }
                     }
                 }
             }
@@ -1395,7 +1405,7 @@ mod tests {
 
     #[test]
     fn test_schema_validation_string() {
-        let mut schema = Schema::new_with_path("TEST", "cat", "sub");
+        let mut schema = Schema::new("TEST", "", "cat", "sub");
         schema.required_fields.push(SchemaField {
             name: "id".to_string(),
             ty: "u64".to_string(),
@@ -1410,10 +1420,12 @@ mod tests {
     #[test]
     fn test_missing_description_error() {
         let input = r#"
-            cat {
-                sub {
-                    SCHEMA {
-                        required x: u32
+            amaru {
+                cat {
+                    sub {
+                        SCHEMA {
+                            required x: u32
+                        }
                     }
                 }
             }
@@ -1431,11 +1443,13 @@ mod tests {
     #[test]
     fn test_with_description() {
         let input = r#"
-            cat {
-                sub {
-                    /// This is a test schema
-                    SCHEMA {
-                        required x: u32
+            amaru {
+                cat {
+                    sub {
+                        /// This is a test schema
+                        SCHEMA {
+                            required x: u32
+                        }
                     }
                 }
             }
@@ -1452,13 +1466,15 @@ mod tests {
     #[test]
     fn test_multiline_description() {
         let input = r#"
-            cat {
-                sub {
-                    /// This is a test schema
-                    /// with multiple lines
-                    /// of documentation
-                    SCHEMA {
-                        required x: u32
+            amaru {
+                cat {
+                    sub {
+                        /// This is a test schema
+                        /// with multiple lines
+                        /// of documentation
+                        SCHEMA {
+                            required x: u32
+                        }
                     }
                 }
             }

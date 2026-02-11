@@ -24,15 +24,18 @@ use amaru_observability_macros::define_schemas;
 pub const OPENING_CHAIN_DB: &str = "opening chain db";
 pub const MIGRATING_DATABASE: &str = "migrating database";
 
+// Certificate validation target
+pub const CERTIFICATE_TARGET: &str = "amaru::ledger::context::default::validation";
+
 define_schemas! {
+    amaru {
+        consensus {
+            diffusion {
+                /// Fetch a block from the network
+                FETCH_BLOCK {}
 
-    consensus {
-        diffusion {
-            /// Fetch a block from the network
-            FETCH_BLOCK {}
-
-            /// Forward chain operations
-            FORWARD_CHAIN {}
+                /// Forward chain operations
+                FORWARD_CHAIN {}
         }
 
         validate_header {
@@ -236,6 +239,82 @@ define_schemas! {
             REQUIRE_BOOTSTRAP_WITNESS {
                 required bootstrap_witness_hash: String
             }
+
+            default {
+                validation {
+                    /// Register a stake credential
+                    CERTIFICATE_STAKE_REGISTRATION {
+                        required credential_type: String
+                        required credential_hash: String
+                    }
+
+                    /// Delegate stake to a pool
+                    CERTIFICATE_STAKE_DELEGATION {
+                        required credential_type: String
+                        required credential_hash: String
+                        required pool_id: String
+                    }
+
+                    /// Unregister a stake credential
+                    CERTIFICATE_STAKE_DEREGISTRATION {
+                        required credential_type: String
+                        required credential_hash: String
+                    }
+
+                    /// Register a DRep
+                    CERTIFICATE_DREP_REGISTRATION {
+                        required drep_type: String
+                        required drep_hash: String
+                        required deposit: u64
+                    }
+
+                    /// Update DRep anchor
+                    CERTIFICATE_DREP_UPDATE {
+                        required drep_type: String
+                        required drep_hash: String
+                    }
+
+                    /// Unregister a DRep
+                    CERTIFICATE_DREP_RETIREMENT {
+                        required drep_type: String
+                        required drep_hash: String
+                        required refund: u64
+                    }
+
+                    /// Delegate vote to DRep
+                    CERTIFICATE_VOTE_DELEGATION {
+                        required credential_type: String
+                        required credential_hash: String
+                        required drep_type: String
+                        required drep_hash: String
+                    }
+
+                    /// Register a pool
+                    CERTIFICATE_POOL_REGISTRATION {
+                        required pool_id: String
+                    }
+
+                    /// Retire a pool
+                    CERTIFICATE_POOL_RETIREMENT {
+                        required pool_id: String
+                        required epoch: u64
+                    }
+
+                    /// Delegate cold key to committee
+                    CERTIFICATE_COMMITTEE_DELEGATE {
+                        required cc_member_type: String
+                        required cc_member_hash: String
+                        required delegate_type: String
+                        required delegate_hash: String
+                    }
+
+                    /// Resign from committee
+                    CERTIFICATE_COMMITTEE_RESIGN {
+                        required cc_member_type: String
+                        required cc_member_hash: String
+                    }
+                }
+            }
         }
 
         governance {
@@ -390,5 +469,6 @@ define_schemas! {
             /// Test span for logging
             TEST_SPAN {}
         }
+    }
     }
 }
