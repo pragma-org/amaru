@@ -23,17 +23,17 @@ help:
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
 
 bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-state + nonces)
-	cargo run --profile $(BUILD_PROFILE) -- bootstrap
+	cargo run --profile $(BUILD_PROFILE) -- bootstrap $(ARGS)
 
 sync-from-mithril:
-	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger mithril
-	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger sync
+	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger mithril $(ARGS)
+	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger sync $(ARGS)
 
 import-headers: ## &start Import initial headers
-	cargo run --profile $(BUILD_PROFILE) -- import-headers
+	cargo run --profile $(BUILD_PROFILE) -- import-headers $(ARGS)
 
 import-nonces: ## &start Import initial nonces
-	cargo run --profile $(BUILD_PROFILE) -- import-nonces
+	cargo run --profile $(BUILD_PROFILE) -- import-nonces $(ARGS)
 
 download-haskell-config: ## &start Download Haskell node configuration files for $AMARU_NETWORK
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)
@@ -46,7 +46,7 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_SOURCE)/$(AMARU_NETWORK)/conway-genesis.json"
 
 build: ## &build Compile for $BUILD_PROFILE
-	cargo build --profile $(BUILD_PROFILE)
+	cargo build --profile $(BUILD_PROFILE) $(ARGS)
 
 build-examples: ## &build Build all examples
 	@for dir in $(wildcard examples/*/.); do \
@@ -58,7 +58,7 @@ build-examples: ## &build Build all examples
 
 dev: start # 'backward-compatibility'; might remove after a while.
 start: ## &build Compile and run for $BUILD_PROFILE with default options
-	cargo run --profile $(BUILD_PROFILE) -- run
+	cargo run --profile $(BUILD_PROFILE) -- run $(ARGS)
 
 demo: ## &build Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
 		./scripts/demo $(BUILD_PROFILE) $(DEMO_TARGET_EPOCH)
