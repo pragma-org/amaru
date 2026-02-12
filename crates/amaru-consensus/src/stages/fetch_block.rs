@@ -94,6 +94,7 @@ pub fn stage(
     .instrument(span)
 }
 
+/// Check if we already downloaded a given block or fetch it from the peer.
 async fn load_or_fetch_block(
     manager: &StageRef<ManagerMessage>,
     eff: &impl ConsensusOps,
@@ -108,6 +109,8 @@ async fn load_or_fetch_block(
     }
 }
 
+/// Fetch a block from a given peer by calling the Manager and use the connection for that specific
+/// peer.
 async fn fetch_block(
     manager: &StageRef<ManagerMessage>,
     eff: &impl ConsensusOps,

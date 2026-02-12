@@ -39,12 +39,11 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, make_header,
+    BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, Slot, make_header,
     size::HEADER,
     utils::string::{ListToString, ListsToString},
 };
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
-use amaru_slot_arithmetic::Slot;
 use hex::FromHexError;
 use proptest::prelude::Strategy;
 use rand::{Rng, SeedableRng, prelude::SmallRng};
@@ -91,17 +90,12 @@ impl Action {
         format!("r#\"{}\"#", &serde_json::to_string(self).unwrap())
     }
 
-    pub fn set_peer(&self, peer: &Peer) -> Self {
-        match self {
-            Action::RollForward { header, .. } => Action::RollForward {
-                peer: peer.clone(),
-                header: header.clone(),
-            },
-            Action::Rollback { rollback_point, .. } => Action::Rollback {
-                peer: peer.clone(),
-                rollback_point: *rollback_point,
-            },
+    pub fn set_peer(mut self, peer: &Peer) -> Self {
+        match &mut self {
+            Action::RollForward { peer: p, .. } => *p = peer.clone(),
+            Action::Rollback { peer: p, .. } => *p = peer.clone(),
         }
+        self
     }
 }
 
@@ -174,7 +168,7 @@ impl serde::Serialize for Action {
             Action::Rollback {
                 peer,
                 rollback_point,
-            } => ActionHelper::RollBack {
+            } => ActionHelper::Rollback {
                 peer: peer.to_string(),
                 rollback_point: *rollback_point,
             }
@@ -189,7 +183,7 @@ enum ActionHelper {
         peer: String,
         header: SimplifiedHeader,
     },
-    RollBack {
+    Rollback {
         peer: String,
         #[serde(
             serialize_with = "serialize_point",
@@ -210,7 +204,7 @@ impl<'de> serde::Deserialize<'de> for Action {
                 peer: Peer::new(&peer),
                 header: header.0,
             }),
-            ActionHelper::RollBack {
+            ActionHelper::Rollback {
                 peer,
                 rollback_point,
             } => Ok(Action::Rollback {
@@ -379,6 +373,17 @@ pub struct GeneratedActions {
 }
 
 impl GeneratedActions {
+    pub fn set_actions(&mut self, actions: Vec<Action>) {
+        let actions_per_peer =
+            actions
+                .into_iter()
+                .fold(BTreeMap::<Peer, Vec<Action>>::new(), |mut acc, action| {
+                    acc.entry(action.peer().clone()).or_default().push(action);
+                    acc
+                });
+        self.actions_per_peer = actions_per_peer;
+    }
+
     pub fn generated_tree(&self) -> &GeneratedTree {
         &self.tree
     }
@@ -525,14 +530,14 @@ impl Shrinkable for GeneratedActions {
     {
         let mut complement: Vec<Action> = Vec::new();
         let actions = self.actions();
+
         complement.extend_from_slice(&actions[..to]);
         if from < self.len() {
             complement.extend_from_slice(&actions[from..]);
         };
-        GeneratedActions {
-            tree: self.tree.clone(),
-            actions_per_peer: self.actions_per_peer.clone(),
-        }
+        let mut generated_actions = self.clone();
+        generated_actions.set_actions(complement);
+        generated_actions
     }
 
     fn len(&self) -> usize {

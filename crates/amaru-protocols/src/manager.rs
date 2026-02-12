@@ -82,11 +82,7 @@ enum ConnectionState {
 }
 
 impl Manager {
-    pub fn new(
-        magic: NetworkMagic,
-        config: ManagerConfig,
-        era_history: Arc<EraHistory>,
-    ) -> Self {
+    pub fn new(magic: NetworkMagic, config: ManagerConfig, era_history: Arc<EraHistory>) -> Self {
         Self {
             peers: BTreeMap::new(),
             magic,

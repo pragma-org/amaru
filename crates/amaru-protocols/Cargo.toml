@@ -27,7 +27,6 @@ tracing.workspace = true
 amaru-kernel = { "workspace" = true, features = ["test-utils"] }
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits = { "workspace" = true, features = ["test-utils"] }
-amaru-slot-arithmetic.workspace = true
 
 [dev-dependencies]
 amaru-mempool.workspace = true

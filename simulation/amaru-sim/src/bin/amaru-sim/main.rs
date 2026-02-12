@@ -14,6 +14,7 @@
 
 use amaru_sim::simulator::{Args, run_tests};
 use clap::Parser;
+use std::process::exit;
 use tracing_subscriber::EnvFilter;
 
 fn main() {
@@ -31,5 +32,6 @@ fn main() {
     // because of the deep recursion used when generating data for large chains.
     if let Err(e) = run_tests(args) {
         eprintln!("Error running tests: {e}");
+        exit(1);
     }
 }

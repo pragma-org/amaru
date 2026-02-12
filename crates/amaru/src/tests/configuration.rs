@@ -17,7 +17,6 @@ use crate::tests::configuration::NodeType::{NodeUnderTest, UpstreamNode};
 use crate::tests::in_memory_connection_provider::InMemoryConnectionProvider;
 use crate::tests::test_data::{create_transactions, create_transactions_in_mempool};
 use amaru_consensus::headers_tree::data_generation::Action;
-use amaru_kernel::Peer;
 use amaru_kernel::cardano::network_block::{make_encoded_block, make_network_block};
 use amaru_kernel::utils::tests::run_strategy;
 use amaru_kernel::{
@@ -25,10 +24,10 @@ use amaru_kernel::{
     PREPROD_INITIAL_PROTOCOL_PARAMETERS, Point, Transaction, any_headers_chain_with_root,
     make_header,
 };
+use amaru_kernel::{EraHistory, Peer};
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, ConnectionsResource, TxId};
-use amaru_slot_arithmetic::EraHistory;
+use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
+use amaru_ouroboros::{ChainStore, ConnectionsResource, TxId};
 use amaru_stores::in_memory::MemoryStore;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;

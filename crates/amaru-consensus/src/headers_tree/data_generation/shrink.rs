@@ -40,11 +40,11 @@ pub fn shrink<A: Shrinkable + Debug + Clone, B: Debug>(
     }
     let mut n = 2;
     while input.len() >= 2 {
-        let mut start = 0;
+        let mut current = 0;
         let subset_length = input.len() / n;
         let mut some_complement_is_failing = false;
-        while start < input.len() {
-            let complement = input.complement(start + subset_length, start);
+        while current < input.len() {
+            let complement = input.complement(current + subset_length, current);
             // NOTE: that if we get a different error than the expected one, we treat it as a
             // passing test.
             let result = test(&complement);
@@ -57,7 +57,7 @@ pub fn shrink<A: Shrinkable + Debug + Clone, B: Debug>(
                 break;
             }
 
-            start += subset_length;
+            current += subset_length;
         }
 
         if !some_complement_is_failing {
@@ -70,8 +70,9 @@ pub fn shrink<A: Shrinkable + Debug + Clone, B: Debug>(
     (last_error, input, number_of_shrinks)
 }
 
+/// Trait for data types which can be shrunk to a smaller number of elements via the `shrink` function.
 pub trait Shrinkable {
-    fn complement(&self, to: usize, from: usize) -> Self
+    fn complement(&self, from: usize, to: usize) -> Self
     where
         Self: Sized;
 

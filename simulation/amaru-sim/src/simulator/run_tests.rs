@@ -31,17 +31,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-/// Run the full simulation:
-///
-/// * Create a simulation environment.
-/// * Run the simulation.
-pub fn run_test(run_config: &RunConfig) {
-    let actions = generate_actions(run_config);
-    let mut rng = run_config.rng();
-    let mut nodes = create_nodes(&mut rng, node_configs(run_config, &actions)).unwrap();
-    run_nodes(&mut rng, &mut nodes, 10000);
-}
-
 pub fn run_tests(args: Args) -> anyhow::Result<()> {
     let run_config = RunConfig::from(args.clone());
     tracing::info!(?run_config, "simulate.start");
@@ -85,16 +74,7 @@ fn run_test_nb(
     let actions = generate_actions(run_config);
     display_actions_statistics(&actions);
 
-    let test = |actions: &GeneratedActions| {
-        let mut rng = run_config.rng();
-        let mut nodes = create_nodes(&mut rng, node_configs(run_config, actions))
-            .expect("failed to create nodes");
-        run_nodes(&mut rng, &mut nodes, 10000);
-        check_chain_property(nodes, actions)
-    };
-
-    let mut test_result = test(&actions);
-    shrink_test(run_config, &test, test_number, &mut test_result);
+    let test_result = run_test(run_config, test_number, &actions);
 
     let persist = run_config.persist_on_success || test_result.is_err();
     persist_generated_data(&test_run_dir_n, &actions, persist)?;
@@ -113,22 +93,29 @@ fn run_test_nb(
     Ok(())
 }
 
-pub fn shrink_test(
+pub fn run_test(
     run_config: &RunConfig,
-    run_test: &dyn Fn(&GeneratedActions) -> TestResult,
     test_number: u32,
-    test_result: &mut TestResult,
-) {
-    if run_config.enable_shrinking {
-        let (mut test_result, _shrunk_actions, number_of_shrinks) = shrink(
-            &run_test,
-            &test_result.generated_actions(),
-            |test_result: &TestResult| test_result.is_err(),
-        );
-        test_result.set_test_failure(run_config, test_number, number_of_shrinks)
+    actions: &GeneratedActions,
+) -> TestResult {
+    let test = |actions: &GeneratedActions| {
+        let mut rng = run_config.rng();
+        let mut nodes = create_nodes(&mut rng, node_configs(run_config, actions))
+            .expect("failed to create nodes");
+        run_nodes(&mut rng, &mut nodes, 10000);
+        check_chain_property(nodes, actions)
+    };
+
+    let (test_result, number_of_shrinks) = if run_config.enable_shrinking {
+        let (test_result, _shrunk_actions, number_of_shrinks) =
+            shrink(&test, actions, |test_result: &TestResult| {
+                test_result.is_err()
+            });
+        (test_result, number_of_shrinks)
     } else {
-        test_result.set_test_failure(run_config, test_number, 0)
-    }
+        (test(actions), 0)
+    };
+    test_result.set_test_failure(run_config, test_number, number_of_shrinks)
 }
 
 pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<NodeTestConfig> {

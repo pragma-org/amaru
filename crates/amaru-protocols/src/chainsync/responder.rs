@@ -42,8 +42,6 @@ pub fn responder() -> Miniprotocol<ResponderState, ChainSyncResponder, Responder
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderMessage {
     NewTip(Tip),
-    RollForward(BlockHeader, Tip),
-    Rollback(Point, Tip),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -98,22 +96,6 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 )
                 .context("failed to get next header")?;
                 Ok((action, self))
-            }
-            ResponderMessage::RollForward(block_header, tip) => {
-                tracing::trace!(point = %block_header.point(), %tip, "Rolled forward");
-                self.upstream = tip;
-                self.pointer = block_header.point();
-                Ok((
-                    Some(ResponderAction::RollForward(
-                        HeaderContent::v6(&block_header),
-                        tip,
-                    )),
-                    self,
-                ))
-            }
-            ResponderMessage::Rollback(point, tip) => {
-                tracing::trace!(%point, %tip, "Rolled back");
-                Ok((Some(ResponderAction::RollBackward(point, tip)), self))
             }
         }
     }

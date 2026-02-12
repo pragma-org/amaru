@@ -87,6 +87,7 @@ impl From<SocketAddrV6> for ToSocketAddrs {
 }
 
 impl ToSocketAddrs {
+    /// Translate a `ToStockAddrs` back to a vector of `SocketAddr`
     pub fn to_socket_addrs(self) -> anyhow::Result<Vec<SocketAddr>> {
         let addresses = match self {
             ToSocketAddrs::SocketAddrs(addrs) => addrs,

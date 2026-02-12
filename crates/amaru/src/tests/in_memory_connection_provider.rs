@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_ouroboros_traits::{ConnectionId, ConnectionProvider, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use parking_lot::Mutex;
 use pure_stage::BoxFuture;
 use std::collections::{BTreeMap, VecDeque};

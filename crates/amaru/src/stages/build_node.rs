@@ -22,18 +22,15 @@ use amaru_consensus::stages::pull::SyncTracker;
 use amaru_consensus::stages::select_chain::SelectChain;
 use amaru_consensus::stages::validate_header::ValidateHeader;
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, GlobalParameters, HeaderHash, ORIGIN_HASH, Peer, Tip,
-    Transaction,
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, ORIGIN_HASH, Peer,
+    Tip, Transaction,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros_traits::{
-    ChainStore, ConnectionsResource, HasStakeDistribution, ResourceMempool,
-};
+use amaru_ouroboros::{ChainStore, ConnectionsResource, HasStakeDistribution, ResourceMempool};
 use amaru_protocols::manager::{Manager, ManagerConfig, ManagerMessage};
 use amaru_protocols::store_effects::{ResourceHeaderStore, ResourceParameters};
-use amaru_slot_arithmetic::EraHistory;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use anyhow::{Context, anyhow};
 use opentelemetry::metrics::MeterProvider;
@@ -182,7 +179,6 @@ fn register_resources(
 
 /// This function migrates the database if necessary and
 /// sets the tip and anchor of the chain store to the ledger tip.
-#[expect(clippy::panic)]
 fn initialize_chain_store(
     config: &Config,
     tip: &HeaderHash,
@@ -196,9 +192,10 @@ fn initialize_chain_store(
     };
 
     if *tip != ORIGIN_HASH && chain_store.load_header(tip).is_none() {
-        panic!(
+        anyhow::bail!(
             "Tip {} not found in chain database '{}'",
-            tip, config.chain_store
+            tip,
+            config.chain_store
         )
     };
 

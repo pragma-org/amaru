@@ -94,6 +94,16 @@ pub struct TestResult {
     result: anyhow::Result<()>,
 }
 
+impl TestResult {
+    pub fn ok(generated_actions: GeneratedActions) -> Self {
+        TestResult {
+            generated_actions,
+            nodes: vec![],
+            result: Ok(()),
+        }
+    }
+}
+
 impl Debug for TestResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -122,11 +132,11 @@ impl TestResult {
     }
 
     pub fn set_test_failure(
-        &mut self,
+        mut self,
         run_config: &RunConfig,
         test_number: u32,
         number_of_shrinks: u32,
-    ) {
+    ) -> Self {
         if let Err(reason) = &self.result {
             let mut formatted = String::new();
             self.actions()
@@ -151,5 +161,6 @@ impl TestResult {
             );
             self.result = Err(anyhow!("Test failed: {}", error));
         }
+        self
     }
 }

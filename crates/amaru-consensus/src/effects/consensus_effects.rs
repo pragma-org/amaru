@@ -98,7 +98,7 @@ impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
 pub mod tests {
     use super::*;
     use crate::errors::ValidationFailed;
-    use amaru_kernel::{Block, Peer, Point, PoolId};
+    use amaru_kernel::{Block, Peer, Point, PoolId, Slot};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics};
     use amaru_ouroboros::has_stake_distribution::GetPoolError;

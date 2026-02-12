@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use crate::stages::config::{Config, StoreType};
-use amaru_kernel::{GlobalParameters, Point};
+use amaru_kernel::{EraHistory, GlobalParameters, Point};
 use amaru_ledger::block_validator::BlockValidator;
-use amaru_ouroboros_traits::{CanValidateBlocks, HasStakeDistribution};
+use amaru_ouroboros::{CanValidateBlocks, HasStakeDistribution};
 use amaru_plutus::arena_pool::ArenaPool;
-use amaru_slot_arithmetic::EraHistory;
 use amaru_stores::in_memory::MemoryStore;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores};
 use anyhow::anyhow;

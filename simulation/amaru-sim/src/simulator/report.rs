@@ -19,7 +19,6 @@ use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
 use std::fs::File;
 use std::io::Write;
-use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -128,10 +127,12 @@ pub fn create_symlink_dir(target: &Path, link: &Path) {
     let abs_target = std::fs::canonicalize(target).unwrap();
     #[cfg(unix)]
     {
+        use std::os::unix::fs::symlink;
         symlink(&abs_target, link).unwrap();
     }
     #[cfg(windows)]
     {
+        use std::os::windows::fs::symlink_dir;
         symlink_dir(&abs_target, link).unwrap();
     }
 }

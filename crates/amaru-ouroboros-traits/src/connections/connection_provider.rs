@@ -16,6 +16,9 @@ use crate::ToSocketAddrs;
 use amaru_kernel::{NonEmptyBytes, Peer};
 use std::{fmt, net::SocketAddr, num::NonZeroUsize, pin::Pin, sync::Arc, time::Duration};
 
+/// A trait for providing network connections.
+/// This is used to abstract over different network implementations, such as TCP,
+/// or in-memory connections for testing.
 pub trait ConnectionProvider: Send + Sync + 'static {
     fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>>;
 

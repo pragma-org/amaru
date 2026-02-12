@@ -23,13 +23,17 @@ use pure_stage::trace_buffer::TraceEntry;
 use std::fs;
 use std::path::Path;
 
-/// Test the simulation with default parameters and replay the resulting trace
+/// Test the simulation with default parameters and replay the resulting trace.
+/// We use 0 upstream/downstream peers to avoid creating dynamic peer-specific stages
+/// that are created at runtime and wouldn't exist in the replay environment.
 #[test]
 fn test_run_replay() {
     let mut args = make_args();
     args.persist_on_success = true;
     args.number_of_tests = 1;
     args.seed = Some(42);
+    args.number_of_upstream_peers = 0;
+    args.number_of_downstream_peers = 0;
     args.persist_directory = format!("{TEST_DATA_DIR}/run_replay");
     run_tests(args.clone()).unwrap();
     let traces = get_traces(
