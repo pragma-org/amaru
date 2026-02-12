@@ -44,13 +44,8 @@ pub fn stage(
         match msg {
             ValidateHeaderEvent::Validated { peer, header, span } => {
                 match load_or_fetch_block(&manager, &eff, header.point(), &peer).await {
-                    Ok(Some(block)) => {
-                        let validated = ValidateBlockEvent::Validated {
-                            peer,
-                            header,
-                            block,
-                            span,
-                        };
+                    Ok(Some(_)) => {
+                        let validated = ValidateBlockEvent::Validated { peer, header, span };
                         eff.base().send(&downstream, validated).await;
                     }
                     Ok(None) => {
@@ -94,6 +89,7 @@ pub fn stage(
     .instrument(span)
 }
 
+/// Check if we already downloaded a given block or fetch it from the peer.
 async fn load_or_fetch_block(
     manager: &StageRef<ManagerMessage>,
     eff: &impl ConsensusOps,
@@ -108,6 +104,8 @@ async fn load_or_fetch_block(
     }
 }
 
+/// Fetch a block from a given peer by calling the Manager and use the connection for that specific
+/// peer.
 async fn fetch_block(
     manager: &StageRef<ManagerMessage>,
     eff: &impl ConsensusOps,
@@ -167,7 +165,6 @@ mod tests {
         let forwarded = ValidateBlockEvent::Validated {
             peer: peer.clone(),
             header,
-            block,
             span: Span::current(),
         };
         assert_eq!(

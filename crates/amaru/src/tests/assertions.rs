@@ -15,11 +15,16 @@
 use crate::tests::configuration::get_tx_ids;
 use amaru_kernel::Transaction;
 use amaru_kernel::utils::string::ListToString;
-use amaru_ouroboros_traits::{ResourceMempool, get_blocks};
+use amaru_ouroboros::{ResourceMempool, get_blocks};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use pure_stage::Resources;
 
-/// Verify that both nodes have the same state: same best chain, same blocks, same transactions.
+/// Verify that two nodes, an initiator and a responder, have the same state:
+///
+///  - Same best chain.
+///  - Same blocks.
+///  - Same transactions.
+///
 pub fn check_state(
     initiator_resources: &Resources,
     responder_resources: &Resources,

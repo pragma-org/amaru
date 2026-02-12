@@ -141,9 +141,10 @@ pub async fn run(
 
         let exit = amaru::exit::hook_exit_token();
 
-        let _ = build_and_run_node(config, meter_provider)?;
+        let running = build_and_run_node(config, meter_provider)?;
 
         exit.cancelled().await;
+        running.abort();
 
         if let Some(handle) = metrics {
             handle.abort();

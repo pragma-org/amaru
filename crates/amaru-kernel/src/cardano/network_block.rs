@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Block, BlockHeader, EraName, RawBlock, cbor};
+use crate::{Block, BlockHeader, EraHistory, EraHistoryError, EraName, RawBlock, Slot, cbor};
 use amaru_minicbor_extra::to_cbor;
 use std::fmt::{Debug, Formatter};
 use std::sync::LazyLock;
@@ -33,9 +33,13 @@ pub struct NetworkBlock {
 }
 
 impl NetworkBlock {
-    /// This fake block is only to deserialize network block references from trace buffer messages.
-    pub fn fake() -> Self {
-        NETWORK_BLOCK.clone()
+    pub fn new(era_history: &EraHistory, block: &Block) -> Result<Self, EraHistoryError> {
+        let era_tag = era_history.slot_to_era_tag(Slot::from(block.header.header_body.slot))?;
+
+        Ok(NetworkBlock {
+            era_tag,
+            encoded_block: to_cbor(block),
+        })
     }
 
     pub fn era_tag(&self) -> EraName {

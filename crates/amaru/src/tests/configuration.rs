@@ -17,30 +17,29 @@ use crate::tests::configuration::NodeType::{NodeUnderTest, UpstreamNode};
 use crate::tests::in_memory_connection_provider::InMemoryConnectionProvider;
 use crate::tests::test_data::{create_transactions, create_transactions_in_mempool};
 use amaru_consensus::headers_tree::data_generation::Action;
-use amaru_kernel::Peer;
-use amaru_kernel::cardano::network_block::{make_encoded_block, make_network_block};
-use amaru_kernel::utils::tests::run_strategy;
+use amaru_kernel::cardano::network_block::make_encoded_block;
 use amaru_kernel::{
-    BlockHeader, HeaderHash, IsHeader, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY,
-    PREPROD_INITIAL_PROTOCOL_PARAMETERS, Point, Transaction, any_headers_chain_with_root,
-    make_header,
+    BlockHeader, IsHeader, MAINNET_ERA_HISTORY, NetworkName, PREPROD_ERA_HISTORY,
+    PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_ERA_HISTORY, PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
+    Point, ProtocolParameters, TESTNET_ERA_HISTORY, Transaction,
 };
+use amaru_kernel::{EraHistory, Peer};
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, ConnectionsResource, TxId};
-use amaru_slot_arithmetic::EraHistory;
+use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
+use amaru_ouroboros::{ChainStore, ConnectionsResource, TxId};
 use amaru_stores::in_memory::MemoryStore;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
 use std::fmt::{Debug, Formatter};
-use std::str::FromStr;
 use std::sync::Arc;
 
 /// Configuration for running a test node:
+///
 ///  - With a specific chain store and mempool.
 ///  - With a specific connections resource which could be implemented in memory or via TCP.
 ///  - The chain length is the length of the maximum chain that has been created when generated data
 ///  - If this configuration is used for the initiator, it also contains the address of the upstream peer to connect to (the responder).
+///
 #[derive(Clone)]
 pub struct NodeTestConfig {
     pub chain_store: Arc<dyn ChainStore<BlockHeader>>,
@@ -53,10 +52,8 @@ pub struct NodeTestConfig {
     pub trace_buffer: Arc<Mutex<TraceBuffer>>,
     pub seed: u64,
     pub actions: Vec<Action>,
-    /// Era history used for creating test blocks with correct era tags.
-    /// This should match the era history used by the node for validation.
-    pub era_history: Arc<EraHistory>,
     pub node_type: NodeType,
+    pub network_name: NetworkName,
 }
 
 impl Debug for NodeTestConfig {
@@ -93,7 +90,7 @@ impl Default for NodeTestConfig {
             trace_buffer: Arc::new(Mutex::new(TraceBuffer::default())),
             seed: 42,
             actions: Vec::new(),
-            era_history: Arc::new(PREPROD_ERA_HISTORY.clone()),
+            network_name: NetworkName::Preprod,
             node_type: NodeUnderTest,
         }
     }
@@ -121,6 +118,24 @@ impl NodeTestConfig {
             .with_no_upstream_peers()
             .with_listen_address("127.0.0.1:3001")
             .with_node_type(UpstreamNode)
+    }
+
+    pub fn era_history(&self) -> EraHistory {
+        match self.network_name {
+            NetworkName::Preprod => PREPROD_ERA_HISTORY.clone(),
+            NetworkName::Preview => PREVIEW_ERA_HISTORY.clone(),
+            NetworkName::Testnet(_) => TESTNET_ERA_HISTORY.clone(),
+            NetworkName::Mainnet => MAINNET_ERA_HISTORY.clone(),
+        }
+    }
+
+    pub fn protocol_parameters(&self) -> ProtocolParameters {
+        match self.network_name {
+            NetworkName::Preprod => PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+            NetworkName::Preview => PREVIEW_INITIAL_PROTOCOL_PARAMETERS.clone(),
+            NetworkName::Testnet(_) => PREVIEW_INITIAL_PROTOCOL_PARAMETERS.clone(),
+            NetworkName::Mainnet => PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+        }
     }
 
     pub fn with_no_upstream_peers(mut self) -> Self {
@@ -168,8 +183,8 @@ impl NodeTestConfig {
         self
     }
 
-    pub fn with_era_history(mut self, era_history: Arc<EraHistory>) -> Self {
-        self.era_history = era_history;
+    pub fn with_network_name(mut self, network_name: NetworkName) -> Self {
+        self.network_name = network_name;
         self
     }
 
@@ -202,6 +217,13 @@ impl NodeTestConfig {
         self
     }
 
+    /// Given a list of block headers:
+    ///
+    /// - Store them in the chain store.
+    /// - Create and store blocks for them.
+    /// - Declare that list of header as the best chain.
+    /// - Set the chain anchor and best tip to the first header of the chain.
+    ///
     #[expect(clippy::unwrap_used)]
     pub fn with_validated_blocks(self, headers: Vec<BlockHeader>) -> Self {
         let _span = self.enter_span();
@@ -215,7 +237,7 @@ impl NodeTestConfig {
             self.chain_store
                 .store_block(
                     &header.hash(),
-                    &make_encoded_block(header, &self.era_history),
+                    &make_encoded_block(header, &self.era_history()),
                 )
                 .unwrap();
             self.chain_store
@@ -234,46 +256,14 @@ impl NodeTestConfig {
         self
     }
 
-    /// Initialize the chain store with a chain of headers.
-    /// The responder chain is longer than the initiator chain to force the initiator to catch up.
-    pub fn initialize_chain_store(&self) -> anyhow::Result<()> {
-        // Use the same root header for both initiator and responder
-        let origin_hash: HeaderHash = amaru_kernel::Hash::from_str(
-            "4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301",
-        )?;
-        let root_header =
-            BlockHeader::from(make_header(100_000_000, 100_000_000, Some(origin_hash)));
-        self.chain_store.set_anchor_hash(&root_header.hash())?;
-        let mut headers = run_strategy(any_headers_chain_with_root(
-            self.chain_length - 1, // -1 since we already have the root header
-            root_header.point(),
-        ));
-        headers.insert(0, root_header);
-
-        for header in headers.iter() {
-            self.chain_store.store_header(header)?;
-            self.chain_store.roll_forward_chain(&header.point())?;
-            self.chain_store.set_best_chain_hash(&header.hash())?;
-
-            tracing::info!("storing block for header {}", header.point());
-            let network_block = make_network_block(header, &self.era_history);
-            self.chain_store
-                .store_block(&header.hash(), &network_block.raw_block())?;
-        }
-        Ok(())
-    }
-
     /// Create a node configuration from the simulation configuration.
     /// This sets the ledger and chain store + the upstream peer that is
     /// eventually used to initialize the HeadersTree for chain selection.
-    ///
-    /// Uses a testnet network so that the era history matches what was used
-    /// to create blocks in `with_validated_blocks`.
     pub fn make_node_configuration(&self) -> Config {
         let mut config = Config {
             upstream_peers: self.upstream_peers.iter().map(|p| p.name.clone()).collect(),
-            network: NetworkName::Testnet(1),
-            network_magic: NetworkMagic::TESTNET,
+            network: self.network_name,
+            network_magic: self.network_name.to_network_magic(),
             ..Default::default()
         };
 
@@ -283,10 +273,7 @@ impl NodeTestConfig {
         // This ensures that build_node's initialize_chain_store won't reset the
         // chain store's best_chain_hash (only the anchor will be set, which is already
         // the same as the ledger tip).
-        let ledger_store = MemoryStore::new(
-            self.era_history.as_ref().clone(),
-            PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
-        );
+        let ledger_store = MemoryStore::new(self.era_history(), self.protocol_parameters());
         let chain_anchor = self
             .chain_store
             .load_header(&self.chain_store.get_anchor_hash())

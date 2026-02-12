@@ -22,7 +22,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_ouroboros::praos::header;
-use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
+use amaru_ouroboros::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
 use amaru_stores::rocksdb::{
     RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore,
 };

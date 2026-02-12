@@ -13,20 +13,14 @@
 // limitations under the License.
 
 use super::*;
-use crate::{EraHistory, BlockHeader, IsHeader, any_header};
+use crate::{BlockHeader, EraHistory, any_header};
 use proptest::prelude::*;
 
 /// Create a network block with the correct era tag based on the header's slot and era history.
 #[expect(clippy::expect_used)]
 pub fn make_network_block(header: &BlockHeader, era_history: &EraHistory) -> NetworkBlock {
     let block = make_block_with_header(header);
-    let era_tag = era_history
-        .slot_to_era_tag(header.slot())
-        .expect("slot should be in the era history");
-    NetworkBlock {
-        era_tag: EraName::Conway,
-        encoded_block: to_cbor(&block),
-    }
+    NetworkBlock::new(era_history, &block).expect("make network block")
 }
 
 /// Create an encoded block with the correct era tag based on the header's slot and era history.
@@ -35,18 +29,19 @@ pub fn make_encoded_block(header: &BlockHeader, era_history: &EraHistory) -> Raw
     RawBlock::from(to_cbor(&network_block).as_slice())
 }
 
+#[expect(clippy::expect_used)]
 pub fn make_block_with_header(header: &BlockHeader) -> Block {
     let mut block = make_block();
     block.header = header.header().clone();
-    block
+    // Re-encode and decode to rebuild the cached metadata fields.
+    let bytes = to_cbor(&block);
+    cbor::decode(bytes.as_slice()).expect("block encoding should round-trip")
 }
 
-/// Generate an arbitrary network block for property-based testing.
-/// Uses a testnet era history that has a single era, so all slots map to era_tag=1.
+/// Generate an arbitrary network block at Conway era for property-based testing.
 pub fn any_network_block() -> impl Strategy<Value = NetworkBlock> {
     any_header().prop_map(|header| {
         let block = make_block_with_header(&header);
-        // Use era_tag=1 for testing since the testnet era history has a single era
         NetworkBlock {
             era_tag: EraName::Conway,
             encoded_block: to_cbor(&block),

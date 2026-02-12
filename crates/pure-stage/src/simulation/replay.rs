@@ -13,15 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::{Context as _, ensure};
-use cbor4ii::serde::from_slice;
-use std::{collections::HashMap, mem::replace, sync::Arc};
-
 use crate::{
-    Effect, Instant, Name, SendData,
-    effect::ScheduleIds,
+    Effect, Instant, Name, SendData, StageResponse,
+    effect::{CanSupervise, ScheduleIds, StageEffect},
     effect_box::EffectBox,
-    serde::to_cbor,
+    serde::{SendDataValue, to_cbor},
     simulation::{
         running::poll_stage,
         state::{StageData, StageState},
@@ -29,16 +25,26 @@ use crate::{
     time::EPOCH,
     trace_buffer::{TraceBuffer, TraceEntry},
 };
+use anyhow::{Context as _, ensure};
+use cbor4ii::serde::from_slice;
 use parking_lot::Mutex;
+use std::{
+    collections::{HashMap, VecDeque},
+    mem::replace,
+    sync::Arc,
+};
 
 /// A replay of a simulation.
 ///
-/// This is used to replay a simulation from a trace.
+/// This allows a user to provide a list of trace entries, run them one by one and
+/// reproduce the state of the system (the stages) to make it similar to what it was during the
+/// original execution.
+///
 pub struct Replay {
     stages: HashMap<Name, StageData>,
     effect: EffectBox,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
-    schedule_ids_counter: ScheduleIds,
+    schedule_ids: ScheduleIds,
     pending_suspend: HashMap<Name, Effect>,
     latest_state: HashMap<Name, Box<dyn SendData>>,
     clock: Instant,
@@ -49,18 +55,20 @@ impl Replay {
         stages: HashMap<Name, StageData>,
         effect: EffectBox,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
+        schedule_ids: ScheduleIds,
     ) -> Self {
         Self {
             stages,
             effect,
             trace_buffer,
-            schedule_ids_counter: ScheduleIds::default(),
+            schedule_ids,
             pending_suspend: HashMap::new(),
             latest_state: HashMap::new(),
             clock: *EPOCH,
         }
     }
 
+    /// Run all the entries of a given trace and update the stages states.
     pub fn run_trace(&mut self, trace: Vec<TraceEntry>) -> anyhow::Result<()> {
         let mut trace = trace.into_iter();
         let mut idx = 0;
@@ -71,16 +79,33 @@ impl Replay {
 
             match entry {
                 TraceEntry::Suspend(effect) => {
-                    let name = effect.at_stage();
+                    let actual = deserialize_effect(effect)?;
+                    let name = actual.at_stage();
                     let expected = self.pending_suspend.remove(name);
                     ensure!(
-                        expected.as_ref() == Some(&effect),
+                        expected.as_ref() == Some(&actual),
                         "idx {}: stage {} suspended with effect {:?},\nbut expected {:?}",
                         idx,
                         name,
-                        effect,
-                        expected
+                        actual,
+                        expected,
                     );
+                    // handle dynamic stages
+                    match actual {
+                        Effect::AddStage { at_stage, name } => {
+                            self.handle_add_stage(at_stage, name, idx)?;
+                        }
+                        Effect::WireStage {
+                            at_stage,
+                            name,
+                            initial_state,
+                            tombstone,
+                            ..
+                        } => {
+                            self.handle_wire_stage(at_stage, name, initial_state, tombstone, idx)?;
+                        }
+                        _ => {}
+                    }
                 }
                 TraceEntry::Resume {
                     stage, response, ..
@@ -90,12 +115,13 @@ impl Replay {
                         .get_mut(&stage)
                         .context(format!("idx {}: stage {} not found", idx, stage))?;
 
+                    let response = materialize_stage_response(response)?;
                     let remaining = trace.as_slice().len();
                     self.trace_buffer.lock().set_fetch_replay(trace);
 
                     let effect = poll_stage(
                         &self.trace_buffer,
-                        &self.schedule_ids_counter,
+                        &self.schedule_ids,
                         data,
                         stage,
                         response,
@@ -127,6 +153,7 @@ impl Replay {
                         .stages
                         .get_mut(&stage)
                         .context(format!("idx {}: stage {} not found", idx, stage))?;
+                    let input = deserialize_send_data_value(input)?;
                     match &mut data.state {
                         StageState::Idle(state) => {
                             let state = replace(state, Box::new(()));
@@ -176,6 +203,73 @@ impl Replay {
         Ok(())
     }
 
+    /// Check that we were waiting for an AddStage effect (and the correct one)
+    fn handle_add_stage(&mut self, at_stage: Name, name: Name, idx: usize) -> anyhow::Result<()> {
+        match self.get_waiting_effect(&at_stage, "add stage", idx)? {
+            StageEffect::AddStage(expected_name) => {
+                check_stage_name(name.clone(), expected_name, "add stage", idx)
+            }
+            other => anyhow::bail!(
+                "idx {}: stage {} was waiting for {:?} when handling add stage",
+                idx,
+                at_stage,
+                other
+            ),
+        }
+    }
+
+    /// Check that we were waiting for a WireStage effect and register the newly created stage.
+    fn handle_wire_stage(
+        &mut self,
+        at_stage: Name,
+        name: Name,
+        initial_state: Box<dyn SendData>,
+        tombstone: Box<dyn SendData>,
+        idx: usize,
+    ) -> anyhow::Result<()> {
+        match self.get_waiting_effect(&at_stage, "wire stage", idx)? {
+            StageEffect::WireStage(expected_name, transition, _, _) => {
+                check_stage_name(name.clone(), expected_name, "wire stage", idx)?;
+                let initial_state = deserialize_send_data_value(initial_state)?;
+                let tombstone = deserialize_send_data_value(tombstone)?;
+
+                let transition = (transition.into_inner())(self.effect.clone());
+                let tombstone = tombstone.try_cast::<CanSupervise>().err();
+
+                ensure!(
+                    self.stages
+                        .insert(
+                            name.clone(),
+                            StageData {
+                                name: name.clone(),
+                                mailbox: VecDeque::new(),
+                                tombstones: VecDeque::new(),
+                                state: StageState::Idle(initial_state),
+                                transition,
+                                waiting: Some(StageEffect::Receive),
+                                senders: VecDeque::new(),
+                                supervised_by: at_stage,
+                                tombstone,
+                            },
+                        )
+                        .is_none(),
+                    "idx {}: stage {} already exists while wiring stage",
+                    idx,
+                    name
+                );
+                Ok(())
+            }
+            other => {
+                anyhow::bail!(
+                    "idx {}: stage {} was waiting for {:?} when handling wire stage",
+                    idx,
+                    at_stage,
+                    other
+                );
+            }
+        }
+    }
+
     pub fn pending_suspend(&self) -> &HashMap<Name, Effect> {
         &self.pending_suspend
     }
@@ -204,5 +298,106 @@ impl Replay {
 
     pub fn clock(&self) -> Instant {
         self.clock
+    }
+
+    /// Get the effect we were waiting for on a stage, and remove it from the stage data.
+    fn get_waiting_effect(
+        &mut self,
+        at_stage: &Name,
+        effect_name: &str,
+        idx: usize,
+    ) -> anyhow::Result<StageEffect<()>> {
+        let data = self.stages.get_mut(at_stage).with_context(|| {
+            format!(
+                "idx {}: stage {} not found while handling {} effect",
+                idx, at_stage, effect_name
+            )
+        })?;
+        data.waiting.take().with_context(|| {
+            format!(
+                "idx {}: stage {} was not waiting for any effect while handling add stage",
+                idx, at_stage
+            )
+        })
+    }
+}
+
+/// Checks if the actual stage name matches the expected stage name.
+fn check_stage_name(
+    actual_name: Name,
+    expected_name: Name,
+    effect_name: &str,
+    idx: usize,
+) -> anyhow::Result<()> {
+    ensure!(
+        expected_name == actual_name,
+        "idx {}: {effect_name} name mismatch: expected {:?}, got {:?}",
+        idx,
+        expected_name,
+        actual_name
+    );
+    Ok(())
+}
+
+/// If this dyn SendData has been serialized as a SendDataValue,
+/// Retrieve its cbor representation and deserialize it as the original dyn SendData
+/// in order to be able to do equality checks on it.
+fn deserialize_send_data_value(data: Box<dyn SendData>) -> anyhow::Result<Box<dyn SendData>> {
+    if data.is::<SendDataValue>() {
+        Ok(From::<SendDataValue>::from(*data.cast::<SendDataValue>()?))
+    } else {
+        Ok(data)
+    }
+}
+
+/// Recover the actual dyn SendData values in a StageResponse.
+fn materialize_stage_response(response: StageResponse) -> anyhow::Result<StageResponse> {
+    match response {
+        StageResponse::CallResponse(data) => Ok(StageResponse::CallResponse(
+            deserialize_send_data_value(data)?,
+        )),
+        StageResponse::ExternalResponse(data) => Ok(StageResponse::ExternalResponse(
+            deserialize_send_data_value(data)?,
+        )),
+        other => Ok(other),
+    }
+}
+
+/// Recover the actual dyn SendData values in an effect.
+fn deserialize_effect(effect: Effect) -> anyhow::Result<Effect> {
+    match effect {
+        Effect::Send { from, to, msg } => Ok(Effect::Send {
+            from,
+            to,
+            msg: deserialize_send_data_value(msg)?,
+        }),
+        Effect::Call {
+            from,
+            to,
+            duration,
+            msg,
+        } => Ok(Effect::Call {
+            from,
+            to,
+            duration,
+            msg: deserialize_send_data_value(msg)?,
+        }),
+        Effect::Schedule { at_stage, msg, id } => Ok(Effect::Schedule {
+            at_stage,
+            msg: deserialize_send_data_value(msg)?,
+            id,
+        }),
+        Effect::WireStage {
+            at_stage,
+            name,
+            initial_state,
+            tombstone,
+        } => Ok(Effect::WireStage {
+            at_stage,
+            name,
+            initial_state: deserialize_send_data_value(initial_state)?,
+            tombstone: deserialize_send_data_value(tombstone)?,
+        }),
+        other => Ok(other),
     }
 }

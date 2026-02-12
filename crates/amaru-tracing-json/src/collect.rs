@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::json_layer::JsonLayer;
-use crate::json_trace_collector::JsonTraceCollector;
+use crate::json_layer::{JsonLayer, JsonTraceCollector};
 use crate::trace_collect_config::TraceCollectConfig;
 use crate::tree::Tree;
 use serde_json::Value;
@@ -43,7 +42,7 @@ where
 /// Convert a list of collected tracing data into a list of trees
 /// Each tree represents a root span and its children.
 ///
-/// The parent-child relationships are determined using the `id` and `parent_id` fields.
+/// The parent-child relationship is determined using the `id` and `parent_id` fields.
 pub fn as_trees(collected: Vec<Value>) -> Vec<Value> {
     let mut parent_child: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut values: BTreeMap<String, Value> = BTreeMap::new();
@@ -96,17 +95,6 @@ pub fn as_trees(collected: Vec<Value>) -> Vec<Value> {
     trees
 }
 
-/// Return true if collected trace is a span
-pub fn is_span(item: &Value) -> bool {
-    if let Some(t) = item.get("type")
-        && t == "span"
-    {
-        true
-    } else {
-        false
-    }
-}
-
 /// Remove ids and target from collected data
 pub fn strip_ids_and_target(mut value: Value) -> Value {
     if let Value::Object(ref mut map) = value {
@@ -117,8 +105,19 @@ pub fn strip_ids_and_target(mut value: Value) -> Value {
     value
 }
 
+/// Return true if collected value is a span
+fn is_span(item: &Value) -> bool {
+    if let Some(t) = item.get("type")
+        && t == "span"
+    {
+        true
+    } else {
+        false
+    }
+}
+
 /// Keep span fields from collected data, removing only internal fields like id, parent_id, type, level
-pub fn strip_span(mut value: Value) -> Value {
+fn strip_span(mut value: Value) -> Value {
     if let Value::Object(ref mut map) = value {
         map.retain(|key, _value| !["id", "parent_id", "type", "level"].contains(&(key.as_str())));
     }

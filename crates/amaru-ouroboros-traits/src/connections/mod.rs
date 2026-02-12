@@ -17,6 +17,3 @@ pub use to_socket_addrs::*;
 
 mod connection_provider;
 pub use connection_provider::*;
-
-mod mock;
-pub use mock::*;

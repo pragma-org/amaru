@@ -12,14 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use tracing::Level;
 use tracing_subscriber::EnvFilter;
 
+/// Configuration for the collection of traces.
+///
+/// - The `EnvFilter` is the general configuration that specifies the required levels.
+/// - `include_targets` and `exclude_targets` are used to further filter the collected records by their targets.
+///     - If `include_targets` is set, only records with targets in that list will be collected.
+///     - If `exclude_targets` is set, records with targets in that list will be excluded from collection.
+///     - If both are set, `include_targets` is applied first, and then `exclude_targets` is applied to the result.
+///
 #[derive(Clone, Debug, Default)]
 pub struct TraceCollectConfig {
+    pub env_filter: EnvFilter,
     pub include_targets: Option<Vec<String>>,
     pub exclude_targets: Option<Vec<String>>,
-    pub env_filter: EnvFilter,
 }
 
 impl TraceCollectConfig {
@@ -36,19 +43,5 @@ impl TraceCollectConfig {
     pub fn with_env_filter(mut self, env_filter: EnvFilter) -> Self {
         self.env_filter = env_filter;
         self
-    }
-
-    #[expect(clippy::unwrap_used)]
-    pub fn show_default_logs(self) -> Self {
-        let filter = EnvFilter::from_default_env()
-            .add_directive(Level::DEBUG.into())
-            .add_directive("amaru::stages=trace".parse().unwrap())
-            .add_directive("amaru::ledger=error".parse().unwrap())
-            .add_directive("amaru_consensus=trace".parse().unwrap())
-            .add_directive("amaru_protocols=trace".parse().unwrap())
-            .add_directive("amaru_protocols::mux=info".parse().unwrap())
-            .add_directive("pure_stage=info".parse().unwrap());
-
-        self.with_env_filter(filter)
     }
 }

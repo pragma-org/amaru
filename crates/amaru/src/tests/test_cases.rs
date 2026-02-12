@@ -14,7 +14,7 @@
 
 use crate::tests::assertions::check_state;
 use crate::tests::configuration::NodeTestConfig;
-use crate::tests::setup::{create_nodes, run_nodes, setup_logging};
+use crate::tests::setup::{create_nodes, setup_logging};
 use amaru_kernel::utils::tests::run_strategy;
 use amaru_kernel::{Hash, Point, Slot, any_headers_chain_with_root};
 use pure_stage::simulation::RandStdRng;
@@ -42,11 +42,10 @@ fn test_connect_nodes_in_memory() -> anyhow::Result<()> {
                 .with_validated_blocks(headers),
         ],
     )?;
-    run_nodes(&mut rng, &mut nodes, 10000);
+    nodes.run(&mut rng, 10000);
 
-    let (initiator, responder) = nodes.split_at_mut(1);
-    let (initiator, responder) = (&mut initiator[0], &mut responder[0]);
-
-    check_state(initiator.running.resources(), responder.running.resources())?;
+    // check that the initiator and responder resources contain eventually the same data.
+    let resources = nodes.resources();
+    check_state(&resources[0], &resources[1])?;
     Ok(())
 }

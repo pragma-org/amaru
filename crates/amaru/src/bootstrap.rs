@@ -22,7 +22,7 @@ use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
-use amaru_ouroboros_traits::{ChainStore, Nonces};
+use amaru_ouroboros::{ChainStore, Nonces};
 use amaru_progress_bar::new_terminal_progress_bar;
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use async_compression::tokio::bufread::GzipDecoder;

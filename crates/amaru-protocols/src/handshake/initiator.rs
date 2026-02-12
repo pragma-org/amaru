@@ -27,7 +27,10 @@ use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![pure_stage::register_data_deserializer::<HandshakeInitiator>().boxed()]
+    vec![
+        pure_stage::register_data_deserializer::<HandshakeInitiator>().boxed(),
+        pure_stage::register_data_deserializer::<(State, HandshakeInitiator)>().boxed(),
+    ]
 }
 
 pub fn initiator() -> Miniprotocol<State, HandshakeInitiator, Initiator> {

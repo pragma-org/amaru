@@ -23,17 +23,21 @@ use pure_stage::trace_buffer::TraceEntry;
 use std::fs;
 use std::path::Path;
 
-/// Test the simulation with default parameters and replay the resulting trace
+/// Test the simulation with default parameters and replay the resulting trace.
+/// We use just 1 upstream peer.
 #[test]
 fn test_run_replay() {
     let mut args = make_args();
     args.persist_on_success = true;
     args.number_of_tests = 1;
     args.seed = Some(42);
-    args.persist_directory = format!("{TEST_DATA_DIR}/run_replay");
+    args.number_of_upstream_peers = 1;
+    args.number_of_downstream_peers = 0;
+    args.test_data_dir = format!("{TEST_DATA_DIR}/run_replay");
     run_tests(args.clone()).unwrap();
+
     let traces = get_traces(
-        Path::new(&args.persist_directory),
+        Path::new(&args.test_data_dir),
         SimulationRun::Latest,
         TestRun::Latest,
     )
@@ -48,7 +52,7 @@ fn test_run_replay() {
 pub fn run_replay() {
     initialize_logs();
     let run_config = RunConfig::default();
-    let test_directory = run_config.persist_directory.as_path();
+    let test_directory = run_config.test_data_dir.as_path();
     let args = get_args(test_directory, SimulationRun::Latest).expect("latest arguments");
     let traces =
         get_traces(test_directory, SimulationRun::Latest, TestRun::Latest).expect("latest traces");

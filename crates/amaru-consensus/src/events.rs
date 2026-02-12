@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::cardano::network_block::NetworkBlock;
 use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
 use std::{
     fmt,
@@ -180,8 +179,6 @@ pub enum ValidateBlockEvent {
     Validated {
         peer: Peer,
         header: BlockHeader,
-        #[serde(skip, default = "NetworkBlock::fake")]
-        block: NetworkBlock,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -196,16 +193,10 @@ pub enum ValidateBlockEvent {
 impl Debug for ValidateBlockEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValidateBlockEvent::Validated {
-                peer,
-                header,
-                block,
-                ..
-            } => f
+            ValidateBlockEvent::Validated { peer, header, .. } => f
                 .debug_struct("Validated")
                 .field("peer", peer)
                 .field("header", header)
-                .field("block", block)
                 .finish(),
             ValidateBlockEvent::Rollback {
                 peer,

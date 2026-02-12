@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,4 +20,6 @@ mod test_cases;
 pub mod assertions;
 pub mod configuration;
 pub mod in_memory_connection_provider;
+pub mod node;
+pub mod nodes;
 pub mod setup;

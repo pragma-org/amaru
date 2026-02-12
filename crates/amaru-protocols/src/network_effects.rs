@@ -136,10 +136,7 @@ impl ExternalEffect for AcceptEffect {
                 .get::<ConnectionsResource>()
                 .expect("AcceptEffect requires a ConnectionResource")
                 .clone();
-            resource
-                .accept()
-                .await
-                .map_err(|e| format!("failed to accept a connection: {:#}", e))
+            resource.accept().await.map_err(|e| format!("{:?}", e))
         })
     }
 }

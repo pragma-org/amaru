@@ -22,14 +22,14 @@ use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
-use pure_stage::{Effects, StageRef, TryInStage, Void};
+use pure_stage::{EPOCH, Effects, StageRef, TryInStage, Void};
 #[expect(clippy::disallowed_types)]
 use std::collections::HashMap;
 use std::{
     cell::RefCell,
     collections::{VecDeque, hash_map::Entry},
     num::{NonZeroU16, NonZeroUsize},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 use tracing::{Level, instrument};
 
@@ -51,7 +51,7 @@ const MAX_SEGMENT_SIZE: usize = 65535;
 pub struct Timestamp(u32);
 
 impl Timestamp {
-    fn now() -> Self {
+    pub fn now() -> Self {
         #[expect(clippy::expect_used)]
         Self(
             SystemTime::now()
@@ -63,6 +63,10 @@ impl Timestamp {
 
     fn encode(self, buffer: &mut BytesMut) {
         buffer.put_u32(self.0);
+    }
+
+    pub fn from_duration(duration: Duration) -> Self {
+        Self(duration.as_micros() as u32)
     }
 
     fn decode(buffer: &mut Bytes) -> Result<Self, TryGetError> {
@@ -263,7 +267,8 @@ async fn handle_msg(
             muxer.outgoing(proto_id, bytes.into(), sent);
             if !*sending && let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
                 *sending = true;
-                eff.send(writer, Header::encode(proto_id, &bytes)).await;
+                let header = muxer.encode_header(eff, proto_id, &bytes).await;
+                eff.send(writer, header).await;
             }
             Ok(())
         }
@@ -284,7 +289,8 @@ async fn handle_msg(
             *sending = false;
             if let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
                 *sending = true;
-                eff.send(writer, Header::encode(proto_id, &bytes)).await;
+                let header = muxer.encode_header(eff, proto_id, &bytes).await;
+                eff.send(writer, header).await;
             }
             Ok(())
         }
@@ -353,14 +359,18 @@ struct Header {
 const HEADER_LEN: NonZeroUsize = NonZeroUsize::new(8).expect("8 is a valid non-zero size");
 
 impl Header {
-    pub fn encode<R: RoleT>(proto_id: ProtocolId<R>, bytes: impl AsRef<[u8]>) -> NonEmptyBytes {
+    pub fn encode<R: RoleT>(
+        proto_id: ProtocolId<R>,
+        bytes: impl AsRef<[u8]>,
+        timestamp: Timestamp,
+    ) -> NonEmptyBytes {
         thread_local! {
             static BUFFER: RefCell<BytesMut> = RefCell::new(BytesMut::with_capacity(HEADER_LEN.get() + MAX_SEGMENT_SIZE));
         }
         let bytes = bytes.as_ref();
         BUFFER.with_borrow_mut(move |buffer| {
             buffer.clear();
-            Timestamp::now().encode(buffer);
+            timestamp.encode(buffer);
             proto_id.encode(buffer);
             buffer.put_u16(bytes.len() as u16);
             buffer.extend_from_slice(bytes);
@@ -407,6 +417,17 @@ impl Muxer {
 
     pub fn role(&self) -> Role {
         self.role
+    }
+
+    async fn encode_header<M>(
+        &mut self,
+        eff: &Effects<M>,
+        proto_id: ProtocolId<Erased>,
+        bytes: &Bytes,
+    ) -> NonEmptyBytes {
+        let instant = eff.clock().await;
+        let timestamp = Timestamp::from_duration(instant.saturating_since(*EPOCH));
+        Header::encode(proto_id, bytes, timestamp)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, handler, eff))]
@@ -989,7 +1010,7 @@ mod tests {
                         proto_id: ProtocolId<Responder>,
                         bytes: &[u8],
                         recv: &[&[u8]]| {
-            let mut msg = Header::encode(proto_id, bytes).into_inner();
+            let mut msg = Header::encode(proto_id, bytes, Timestamp::now()).into_inner();
             running
                 .resume_external::<RecvEffect>(
                     &reader,

@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Raising the recursion limit is necessary for writing a large json! element in the
+// run_simulator_with_traces test
 #![recursion_limit = "256"]
 
 use amaru_sim::simulator::{initialize_logs, make_args, run_tests};

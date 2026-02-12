@@ -44,6 +44,7 @@ where
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
     fn has_header(&self, hash: &HeaderHash) -> bool;
 
+    /// Retrieve the tip of a block header given its hash.
     fn load_tip(&self, hash: &HeaderHash) -> Option<Tip> {
         self.load_header(hash).map(|h| h.tip())
     }
@@ -201,7 +202,7 @@ impl Display for StoreError {
     }
 }
 
-/// Retrieve all blocks from the chain store starting from the best chain tip down to the root.
+/// Retrieve all blocks from the chain store starting from the anchor to the best chain tip.
 #[cfg(feature = "test-utils")]
 #[expect(clippy::expect_used)]
 pub fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, Block)> {
@@ -211,8 +212,8 @@ pub fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, B
         .map(|h| {
             let b = store
                 .load_block(h)
-                .expect("load_blocks should not raise an error")
-                .expect("missing block for best-chain header");
+                .expect("load_block should not raise an error")
+                .expect("missing block for a header on the best chain");
             (
                 *h,
                 NetworkBlock::try_from(b)
@@ -224,7 +225,7 @@ pub fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, B
         .collect()
 }
 
-/// Retrieve all blocks headers from the chain store starting from oldest to most recent.
+/// Retrieve all blocks headers from the chain store starting from anchor to the best chain tip.
 #[cfg(feature = "test-utils")]
 #[expect(clippy::expect_used)]
 pub fn get_best_chain_block_headers(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {

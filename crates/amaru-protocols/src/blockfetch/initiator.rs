@@ -32,6 +32,7 @@ use tracing::instrument;
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<BlockFetchInitiator>().boxed(),
+        pure_stage::register_data_deserializer::<(State, BlockFetchInitiator)>().boxed(),
         pure_stage::register_data_deserializer::<BlockFetchMessage>().boxed(),
         pure_stage::register_data_deserializer::<Blocks>().boxed(),
     ]

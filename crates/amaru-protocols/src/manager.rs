@@ -21,7 +21,7 @@ use crate::{
 };
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
-use pure_stage::{Effects, StageRef};
+use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::{collections::BTreeMap, time::Duration};
@@ -82,11 +82,7 @@ enum ConnectionState {
 }
 
 impl Manager {
-    pub fn new(
-        magic: NetworkMagic,
-        config: ManagerConfig,
-        era_history: Arc<EraHistory>,
-    ) -> Self {
+    pub fn new(magic: NetworkMagic, config: ManagerConfig, era_history: Arc<EraHistory>) -> Self {
         Self {
             peers: BTreeMap::new(),
             magic,
@@ -313,12 +309,14 @@ pub async fn stage(state: State, msg: ManagerMessage, eff: Effects<ManagerMessag
         }
         ManagerMessage::Listen(listen_addr) => {
             let network = Network::new(&eff);
+            // If we cannot listen to this address we terminate the node because this means that
+            // the configuration needs to be reviewed.
             match network.listen(listen_addr).await {
                 Ok(listen_addr) => {
-                    tracing::info!(%listen_addr, "listening on address");
+                    tracing::info!(%listen_addr, "listening");
                 }
                 Err(error) => {
-                    tracing::error!(%listen_addr, %error, "cannot listen on address");
+                    tracing::error!(%listen_addr, %error, "cannot listen");
                     return eff.terminate().await;
                 }
             }
@@ -376,4 +374,11 @@ async fn start_connection_stage(
     manager
         .peers
         .insert(peer, ConnectionState::Connected(conn_id, connection));
+}
+
+pub fn register_deserializers() -> DeserializerGuards {
+    vec![
+        register_data_deserializer::<State>().boxed(),
+        register_data_deserializer::<ManagerMessage>().boxed(),
+    ]
 }

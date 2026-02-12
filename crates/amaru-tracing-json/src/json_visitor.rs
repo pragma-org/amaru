@@ -14,35 +14,8 @@
 
 use serde_json as json;
 use serde_json::Value;
-use std::sync::{Arc, RwLock};
 
-#[repr(transparent)]
-#[derive(Clone, Default)]
-pub struct JsonTraceCollector(Arc<RwLock<Vec<Value>>>);
-
-impl JsonTraceCollector {
-    pub(crate) fn insert(&self, value: Value) {
-        if let Ok(mut lines) = self.0.write() {
-            lines.push(value);
-        }
-    }
-
-    pub fn flush(&self) -> Vec<Value> {
-        match self.0.write() {
-            Ok(mut traces) => {
-                let lines = traces.clone();
-                traces.clear();
-                lines
-            }
-            // The RwLock can only get poisoned should the thread panic while pushing a new line
-            // onto the stack. In case this happen, we'll likely be missing traces which should be
-            // caught by assertions down the line anyway. So it is fine here to simply return the
-            // 'possibly corrupted' data.
-            Err(err) => err.into_inner().clone(),
-        }
-    }
-}
-
+/// The JsonVisitor is used by the JsonLayer to collect record fields.
 #[derive(Default)]
 pub(crate) struct JsonVisitor {
     pub(crate) fields: json::Map<String, Value>,

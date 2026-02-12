@@ -35,7 +35,7 @@ use crate::{
 };
 use amaru_kernel::{EraHistory, NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
-use pure_stage::{Effects, StageRef, Void};
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -177,7 +177,7 @@ pub async fn stage(
             State::Responder(s)
         }
         (State::Initiator(s), ConnectionMessage::NewTip(_)) => {
-            // don't propagate new tip / roll forward / rollback messages when using the initiator side of a connection.
+            // don't propagate new tip messages when using the initiator side of a connection.
             State::Initiator(s)
         }
         (
@@ -340,6 +340,14 @@ async fn do_handshake(
             tx_submission,
         })
     }
+}
+
+pub fn register_deserializers() -> DeserializerGuards {
+    vec![
+        register_data_deserializer::<(ConnectionId, StageRef<mux::MuxMessage>, Role)>().boxed(),
+        register_data_deserializer::<Connection>().boxed(),
+        register_data_deserializer::<ConnectionMessage>().boxed(),
+    ]
 }
 
 #[cfg(test)]

@@ -17,6 +17,7 @@
 pub mod blockfetch;
 pub mod chainsync;
 pub mod connection;
+pub mod deserializers;
 pub mod handshake;
 pub mod keepalive;
 pub mod manager;

@@ -13,13 +13,15 @@
 // limitations under the License.
 
 use crate::collect::{as_trees, collect, strip_ids_and_target};
+use crate::format::format_span_trees;
 use crate::trace_collect_config::TraceCollectConfig;
 use assert_json_diff::assert_json_eq;
-use serde_json::{Value, to_string_pretty};
+use pretty_assertions::Comparison;
+use serde_json::Value;
 
-/// Run a function `run` while collecting tracing data emitted during its execution
-/// and assert that the collected data matches `expected`.
-/// The collected data is stripped of ids before comparison and the result of `run` is returned.
+/// Run a function that emits tracing data.
+/// Collect the traces and assert that the collected data matches `expected`.
+/// The collected data is stripped of ids before comparison and the result of the run function is returned.
 pub fn assert_trace<F, R>(run: F, expected: Vec<Value>) -> R
 where
     F: FnOnce() -> R,
@@ -44,13 +46,12 @@ where
     result
 }
 
-/// Run a function `run` while collecting tracing data emitted during its execution.
-/// Assert that the collected spans form a list of trees.
-/// `expected` is a list of expected root spans with their children.
-/// The result of `run` is returned.
+/// Run a function that emits tracing data.
+/// Collect the traces and assert that the collected data a list of span trees represented as JSON values.
+/// The result of the run function is returned.
 ///
-/// A list of `targets` can be provided to filter the collected traces by their target.
-/// If `targets` is None, all traces are collected.
+/// The `TraceCollectConfig` configuration provides a way to control emitted spans and filter targets (included/excluded).
+#[expect(clippy::panic)]
 pub fn assert_spans_trees<F, R>(
     run: F,
     expected: Vec<Value>,
@@ -63,38 +64,20 @@ where
     let actual = as_trees(collected);
 
     if actual.len() != expected.len() {
-        eprintln!(
-            "actual spans tree count: {}, expected: {}",
-            actual.len(),
-            expected.len()
-        );
-
-        eprintln!("actual\n");
-        for actual in actual.iter() {
-            eprintln!("{}\n", to_string_pretty(actual).unwrap_or_default());
-        }
-
-        eprintln!("expected\n");
-        for expected in expected.iter() {
-            eprintln!("{}\n", to_string_pretty(expected).unwrap_or_default());
-        }
-
-        assert_eq!(
-            actual.len(),
-            expected.len(),
-            "incorrect number of root spans"
+        panic!(
+            "incorrect number of root spans\n{}\n\nactual spans trees:\n{}",
+            Comparison::new(&actual, &expected),
+            format_span_trees(&actual)
         );
     }
 
-    // make comparisons tree by tree
-    for (actual, expected) in actual.iter().zip(expected.iter()) {
-        if actual != expected {
-            eprintln!(
-                "actual:\n {}\n\nexpected:\n {}\n",
-                to_string_pretty(actual).unwrap_or_default(),
-                to_string_pretty(expected).unwrap_or_default()
+    for (index, (actual_tree, expected_tree)) in actual.iter().zip(expected.iter()).enumerate() {
+        if actual_tree != expected_tree {
+            panic!(
+                "span tree at index {index} differs\n{}\n\nactual spans trees:\n{}",
+                Comparison::new(actual_tree, expected_tree),
+                format_span_trees(&actual)
             );
-            assert_json_eq!(actual, expected);
         }
     }
     result

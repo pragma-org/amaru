@@ -14,8 +14,9 @@
 
 mod assertions;
 mod collect;
+mod format;
 mod json_layer;
-mod json_trace_collector;
+mod json_visitor;
 mod trace_collect_config;
 mod tree;
 

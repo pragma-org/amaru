@@ -183,7 +183,7 @@ impl SimulationBuilder {
                 ))
             })
             .collect();
-        Replay::new(stages, self.effect, self.trace_buffer)
+        Replay::new(stages, self.effect, self.trace_buffer, self.schedule_ids)
     }
 
     pub fn run(self) -> SimulationRunning {

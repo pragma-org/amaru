@@ -12,11 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::json_trace_collector::{JsonTraceCollector, JsonVisitor};
+use crate::json_visitor::JsonVisitor;
 use crate::trace_collect_config::TraceCollectConfig;
 use serde_json as json;
 use serde_json::Value;
+use std::sync::{Arc, RwLock};
 
+/// This `tracing` layer collects spans as JSON values.
+///
+/// It can be configured to only collect some targets by specifying 2 lists:
+///
+///  - `include_targets`: targets that must be collected.
+///  - `exclude_targets`: targets that must *not* be collected.
+///
+/// The target matches an element of those lists if it starts with that element.
+/// For example the target `amaru_consensus::select_chain` will be collected with the lists
+///
+///  - `include_targets: Some(vec!["amaru", "amaru_ledger"]))`
+///  - `exclude_targets: Some(vec!["amaru_stores::rocksdb"]))`
+///
 pub struct JsonLayer {
     collector: JsonTraceCollector,
     include_targets: Option<Vec<String>>,
@@ -24,6 +38,7 @@ pub struct JsonLayer {
 }
 
 impl JsonLayer {
+    /// Create a new `JsonLayer` with the given collector and configuration.
     pub fn new(collector: JsonTraceCollector, trace_collect_config: TraceCollectConfig) -> Self {
         Self {
             collector,
@@ -32,6 +47,7 @@ impl JsonLayer {
         }
     }
 
+    /// Return true if the given target should be collected based on the include/exclude lists.
     pub fn has_target(&self, target: &str) -> bool {
         // First check if target is excluded
         if let Some(exclude_targets) = &self.exclude_targets
@@ -136,5 +152,35 @@ where
         }
 
         self.collector.insert(event_json);
+    }
+}
+
+/// The JsonTraceCollector is used to collect traces as JSON values.
+/// It is referenced by the JsonLayer and used later on to flush the collected values to any function
+/// that needs them.
+#[repr(transparent)]
+#[derive(Clone, Default)]
+pub struct JsonTraceCollector(Arc<RwLock<Vec<Value>>>);
+
+impl JsonTraceCollector {
+    fn insert(&self, value: Value) {
+        if let Ok(mut lines) = self.0.write() {
+            lines.push(value);
+        }
+    }
+
+    pub fn flush(&self) -> Vec<Value> {
+        match self.0.write() {
+            Ok(mut traces) => {
+                let lines = traces.clone();
+                traces.clear();
+                lines
+            }
+            // The RwLock can only get poisoned should the thread panic while pushing a new line
+            // onto the stack. In case this happen, we'll likely be missing traces which should be
+            // caught by assertions down the line anyway. So it is fine here to simply return the
+            // 'possibly corrupted' data.
+            Err(err) => err.into_inner().clone(),
+        }
     }
 }

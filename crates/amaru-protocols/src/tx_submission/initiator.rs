@@ -72,6 +72,7 @@ pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<Void>().boxed(),
         pure_stage::register_data_deserializer::<TxSubmissionInitiator>().boxed(),
+        pure_stage::register_data_deserializer::<(State, TxSubmissionInitiator)>().boxed(),
     ]
 }
 

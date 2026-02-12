@@ -12,41 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::checks::{TestResult, check_chain_property};
+use crate::simulator::checks::check_chain_property;
 use crate::simulator::report::{
-    create_symlink_dir, display_actions_statistics, persist_args,
-    persist_generated_actions_as_json, persist_generated_data, persist_traces,
+    create_symlink_dir, display_actions_statistics, persist_args, persist_generated_data,
+    persist_traces,
 };
-use crate::simulator::{Args, RunConfig, generate_entries};
+use crate::simulator::{Args, RunConfig, TestResult, generate_actions};
 use amaru::tests::configuration::NodeTestConfig;
 use amaru::tests::configuration::NodeType::{DownstreamNode, NodeUnderTest, UpstreamNode};
-use amaru::tests::setup::{create_nodes, run_nodes};
+use amaru::tests::setup::create_nodes;
 use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions, shrink};
 use amaru_kernel::{BlockHeader, Peer};
-use pure_stage::Instant;
 use pure_stage::trace_buffer::TraceBuffer;
 use std::fs::create_dir_all;
 use std::iter::once;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
-/// Run the full simulation:
-///
-/// * Create a simulation environment.
-/// * Run the simulation.
-pub fn run_test(run_config: &RunConfig) {
-    let actions = generate_actions(run_config);
-    let mut rng = run_config.rng();
-    let mut nodes = create_nodes(&mut rng, node_configs(run_config, &actions)).unwrap();
-    run_nodes(&mut rng, &mut nodes, 10000);
-}
-
+/// Run the tests simulating the execution of several nodes based on the given arguments.
 pub fn run_tests(args: Args) -> anyhow::Result<()> {
     let run_config = RunConfig::from(args.clone());
     tracing::info!(?run_config, "simulate.start");
 
-    let tests_dir = run_config.persist_directory.as_path();
+    let tests_dir = run_config.test_data_dir.as_path();
     if !tests_dir.exists() {
         create_dir_all(tests_dir)?;
     }
@@ -65,6 +54,7 @@ pub fn run_tests(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Run one test and output the results in the `test_run_dir` directory.
 fn run_test_nb(
     run_config: &RunConfig,
     test_run_dir: &Path,
@@ -85,52 +75,46 @@ fn run_test_nb(
     let actions = generate_actions(run_config);
     display_actions_statistics(&actions);
 
+    let test_result = run_test(run_config, &actions);
+    if test_result.is_ok() {
+        tracing::info!("the test {test_number} is successful");
+    }
+
+    let persist = run_config.persist_on_success || test_result.is_err();
+    persist_generated_data(&test_run_dir_n, &actions, persist)?;
+    if let Ok(trace_buffer) = test_result.get_node_under_test_trace_buffer() {
+        persist_traces(test_run_dir_n.as_path(), trace_buffer, persist)?;
+    };
+    test_result.finalize_result(run_config, test_number)
+}
+
+/// Create a series of nodes and run one test on that system with generated data.
+pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions) -> TestResult {
     let test = |actions: &GeneratedActions| {
         let mut rng = run_config.rng();
         let mut nodes = create_nodes(&mut rng, node_configs(run_config, actions))
             .expect("failed to create nodes");
-        run_nodes(&mut rng, &mut nodes, 10000);
+        nodes.run(&mut rng, 10000);
         check_chain_property(nodes, actions)
     };
 
-    let mut test_result = test(&actions);
-    shrink_test(run_config, &test, test_number, &mut test_result);
-
-    let persist = run_config.persist_on_success || test_result.is_err();
-    persist_generated_data(&test_run_dir_n, &actions, persist)?;
-    persist_generated_actions_as_json(&test_run_dir_n, &actions.actions())?;
-    if let Some(node_under_test) = test_result
-        .nodes()
-        .iter()
-        .find(|node| node.node_type() == NodeUnderTest)
-    {
-        persist_traces(
-            test_run_dir_n.as_path(),
-            node_under_test.config.trace_buffer.clone(),
-            persist,
-        )?;
-    };
-    Ok(())
-}
-
-pub fn shrink_test(
-    run_config: &RunConfig,
-    run_test: &dyn Fn(&GeneratedActions) -> TestResult,
-    test_number: u32,
-    test_result: &mut TestResult,
-) {
     if run_config.enable_shrinking {
-        let (mut test_result, _shrunk_actions, number_of_shrinks) = shrink(
-            &run_test,
-            &test_result.generated_actions(),
-            |test_result: &TestResult| test_result.is_err(),
-        );
-        test_result.set_test_failure(run_config, test_number, number_of_shrinks)
+        let (test_result, _shrunk_actions, number_of_shrinks) =
+            shrink(&test, actions, |test_result: &TestResult| {
+                test_result.is_err()
+            });
+        test_result.set_number_of_shrinks(number_of_shrinks)
     } else {
-        test_result.set_test_failure(run_config, test_number, 0)
+        test(actions)
     }
 }
 
+/// Create the configurations for the nodes forming the whole system:
+///
+///  - There are upstream nodes. They are loaded with generated data for sending chainsync messages.
+///  - There is one node under test.
+///  - There are downstream nodes
+///
 pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<NodeTestConfig> {
     let upstream_peers = run_config.upstream_peers();
 
@@ -154,7 +138,7 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
         .with_chain_length(run_config.generated_chain_depth)
         .with_upstream_peers(upstream_peers)
         .with_trace_buffer(trace_buffer)
-        .with_validated_blocks(vec![get_anchor(actions)])
+        .with_validated_blocks(vec![actions.get_anchor()])
         .with_node_type(NodeUnderTest);
 
     let downstream_nodes = run_config
@@ -165,7 +149,7 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
                 .with_listen_address(&peer.name)
                 .with_chain_length(run_config.generated_chain_depth)
                 .with_upstream_peer(Peer::new(listen_address))
-                .with_validated_blocks(vec![get_anchor(actions)])
+                .with_validated_blocks(vec![actions.get_anchor()])
                 .with_node_type(DownstreamNode)
         })
         .collect::<Vec<_>>();
@@ -177,6 +161,7 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
         .collect()
 }
 
+/// Extract all the actions to be executed by a given peer
 fn get_peer_actions(actions: &GeneratedActions, peer: &Peer) -> Vec<Action> {
     actions
         .actions_per_peer()
@@ -187,6 +172,7 @@ fn get_peer_actions(actions: &GeneratedActions, peer: &Peer) -> Vec<Action> {
         .collect::<Vec<_>>()
 }
 
+/// Extract all the block headers forwarded by a given peer
 fn get_headers(actions: &GeneratedActions, peer: &Peer) -> Vec<BlockHeader> {
     get_peer_actions(actions, peer)
         .into_iter()
@@ -195,20 +181,4 @@ fn get_headers(actions: &GeneratedActions, peer: &Peer) -> Vec<BlockHeader> {
             Action::Rollback { .. } => None,
         })
         .collect::<Vec<_>>()
-}
-
-fn get_anchor(actions: &GeneratedActions) -> BlockHeader {
-    actions.generated_tree().tree().value.clone()
-}
-
-fn generate_actions(run_config: &RunConfig) -> GeneratedActions {
-    let rng = run_config.rng();
-    generate_entries(
-        run_config.generated_chain_depth,
-        &run_config.upstream_peers(),
-        Instant::at_offset(Duration::from_secs(0)),
-        200.0,
-    )(rng)
-    .generation_context()
-    .clone()
 }

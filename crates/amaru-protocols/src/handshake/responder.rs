@@ -30,7 +30,10 @@ use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![pure_stage::register_data_deserializer::<HandshakeResponder>().boxed()]
+    vec![
+        pure_stage::register_data_deserializer::<HandshakeResponder>().boxed(),
+        pure_stage::register_data_deserializer::<(State, HandshakeResponder)>().boxed(),
+    ]
 }
 
 pub fn responder() -> Miniprotocol<State, HandshakeResponder, Responder> {

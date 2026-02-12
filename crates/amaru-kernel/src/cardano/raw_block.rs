@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::Block;
+use crate::cardano::network_block::NetworkBlock;
+use minicbor::decode;
 use std::{fmt, ops::Deref, sync::Arc};
 
 /// Cheaply cloneable block bytes
@@ -56,5 +59,45 @@ impl From<&[u8]> for RawBlock {
 impl From<Box<[u8]>> for RawBlock {
     fn from(bytes: Box<[u8]>) -> Self {
         Self(Arc::from(bytes))
+    }
+}
+
+impl RawBlock {
+    /// Decode the inner Block by first decoding the raw bytes as a NetworkBlock (which contains the
+    /// era tag), then by decoding the Block.
+    pub fn decode(&self) -> Result<Block, decode::Error> {
+        let network_block: NetworkBlock = minicbor::decode(&self.0)?;
+        network_block.decode_block()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cardano::network_block::{NetworkBlock, make_block_with_header};
+    use crate::{BlockHeader, TESTNET_ERA_HISTORY, make_header};
+    use amaru_minicbor_extra::{from_cbor, to_cbor};
+
+    #[test]
+    fn decode_returns_inner_block() {
+        let header = BlockHeader::from(make_header(1, 42, None));
+        let era_history = &*TESTNET_ERA_HISTORY;
+
+        // make a network block from a block
+        let block = make_block_with_header(&header);
+
+        // first check the round-trip encoding / decoding for a block
+        assert_eq!(block, from_cbor(to_cbor(&block).as_slice()).unwrap());
+
+        // then check that the block can be retrieved from the network block
+        let network_block = NetworkBlock::new(era_history, &block).expect("make network block");
+        let decoded_block = network_block
+            .decode_block()
+            .expect("network block should decode");
+        assert_eq!(decoded_block, block);
+
+        // finally check that the block can be retrieved from the raw block
+        let raw_block = network_block.raw_block();
+        let decoded_block = raw_block.decode().expect("raw block should decode");
+        assert_eq!(decoded_block, block);
     }
 }

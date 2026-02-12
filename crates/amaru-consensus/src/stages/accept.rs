@@ -16,9 +16,7 @@ use amaru_protocols::manager::{ManagerConfig, ManagerMessage};
 use amaru_protocols::network_effects::{Network, NetworkOps};
 use pure_stage::{Effects, StageRef};
 
-/// Create a stage that accepts incoming connections and notifies the manager
-/// about them. This can not be implemented using contramap because we need to
-/// create a sender for that stage and this is not possible with an adapted stage.
+/// Create a stage that repeatedly accepts incoming connections and notifies the manager about them.
 pub async fn stage(state: AcceptState, _msg: PullAccept, eff: Effects<PullAccept>) -> AcceptState {
     match Network::new(&eff).accept().await {
         Ok((peer, connection_id)) => {

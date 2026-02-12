@@ -30,6 +30,7 @@ use tracing::instrument;
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<InitiatorMessage>().boxed(),
+        pure_stage::register_data_deserializer::<(State, KeepAliveInitiator)>().boxed(),
         pure_stage::register_data_deserializer::<KeepAliveInitiator>().boxed(),
     ]
 }

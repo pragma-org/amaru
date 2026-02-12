@@ -16,6 +16,9 @@ use crate::ToSocketAddrs;
 use amaru_kernel::{NonEmptyBytes, Peer};
 use std::{fmt, net::SocketAddr, num::NonZeroUsize, pin::Pin, sync::Arc, time::Duration};
 
+/// A trait for providing network connections.
+/// This is used to abstract over different network implementations, such as TCP,
+/// or in-memory connections for testing.
 pub trait ConnectionProvider: Send + Sync + 'static {
     fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>>;
 
@@ -48,8 +51,11 @@ pub trait ConnectionProvider: Send + Sync + 'static {
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>>;
 }
 
+/// This type alias makes the signatures above easier to write.
 pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// Unique identifier for a connection to a peer.
+/// Note that the same connection can be used both as an initiator and a responder.
 #[derive(
     Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]

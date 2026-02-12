@@ -29,7 +29,7 @@ pub struct RunConfig {
     pub generated_chain_depth: usize,
     pub enable_shrinking: bool,
     pub persist_on_success: bool,
-    pub persist_directory: PathBuf,
+    pub test_data_dir: PathBuf,
 }
 
 impl Default for RunConfig {
@@ -42,7 +42,7 @@ impl Default for RunConfig {
             generated_chain_depth: 4,
             enable_shrinking: false,
             persist_on_success: true,
-            persist_directory: Path::new("test-data").to_path_buf(),
+            test_data_dir: Path::new("test-data").to_path_buf(),
         }
     }
 }
@@ -58,7 +58,7 @@ impl RunConfig {
             generated_chain_depth: args.generated_chain_depth,
             enable_shrinking: args.enable_shrinking,
             persist_on_success: args.persist_on_success,
-            persist_directory: Path::new(&args.persist_directory).to_path_buf(),
+            test_data_dir: Path::new(&args.test_data_dir).to_path_buf(),
         }
     }
     pub fn with_number_of_tests(mut self, n: u32) -> Self {
@@ -77,7 +77,7 @@ impl RunConfig {
     }
 
     pub fn disable_shrinking(mut self) -> Self {
-        self.enable_shrinking = true;
+        self.enable_shrinking = false;
         self
     }
 
@@ -87,7 +87,7 @@ impl RunConfig {
     }
 
     pub fn persist_directory(mut self, directory: PathBuf) -> Self {
-        self.persist_directory = directory;
+        self.test_data_dir = directory;
         self
     }
 

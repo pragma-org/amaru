@@ -13,16 +13,15 @@
 // limitations under the License.
 
 use crate::simulator::Args;
-use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions};
-use amaru_kernel::utils::string::ListToString;
+use amaru_consensus::headers_tree::data_generation::GeneratedActions;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
 use std::fs::File;
 use std::io::Write;
-use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::sync::Arc;
 
+/// Persist the generated data for a given test run
 pub fn persist_generated_data(
     test_run_dir_n: &Path,
     generated_actions: &GeneratedActions,
@@ -31,11 +30,12 @@ pub fn persist_generated_data(
     if !persist {
         return Ok(());
     }
-    persist_generated_entries_as_json(test_run_dir_n, generated_actions)?;
-    persist_generated_actions_as_json(test_run_dir_n, &generated_actions.actions())?;
+    let path = test_run_dir_n.join("actions.json");
+    generated_actions.export_to_file(path.to_str().unwrap());
     Ok(())
 }
 
+/// Persist the trace buffer both as cbor (for replay) and json (for animations).
 pub fn persist_traces(
     dir: &Path,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
@@ -50,6 +50,7 @@ pub fn persist_traces(
     Ok(())
 }
 
+/// Persist the traces to a CBOR file
 pub fn persist_traces_as_cbor(
     dir: &Path,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
@@ -62,18 +63,6 @@ pub fn persist_traces_as_cbor(
     let path = dir.join("traces.cbor");
     let mut file = File::create(&path)?;
     cbor4ii::serde::to_writer(&mut file, &messages)?;
-    Ok(())
-}
-
-/// Persist the seed to .seed file where the filename is the seed value
-pub fn persist_args(dir: &Path, args: &Args, persist: bool) -> Result<(), anyhow::Error> {
-    if !persist {
-        return Ok(());
-    }
-    let path = dir.join("args.json");
-    let mut file = File::create(&path)?;
-    let serialized = serde_json::to_string_pretty(&args)?;
-    file.write_all(serialized.as_bytes())?;
     Ok(())
 }
 
@@ -94,25 +83,15 @@ pub fn persist_traces_as_json(
     Ok(())
 }
 
-/// Persist the generated entries to a JSON file
-pub fn persist_generated_entries_as_json(
-    dir: &Path,
-    generated_actions: &GeneratedActions,
-) -> Result<(), anyhow::Error> {
-    let path = dir.join("entries.json");
-    generated_actions.export_to_file(path.to_str().unwrap());
-    Ok(())
-}
-
-/// Persist the generated actions to a JSON file
-pub fn persist_generated_actions_as_json(
-    dir: &Path,
-    actions: &[Action],
-) -> Result<(), anyhow::Error> {
-    let path = dir.join("actions.json");
-    let all_lines: Vec<String> = actions.iter().map(|action| action.pretty_print()).collect();
+/// Persist the seed to .seed file where the filename is the seed value
+pub fn persist_args(dir: &Path, args: &Args, persist: bool) -> Result<(), anyhow::Error> {
+    if !persist {
+        return Ok(());
+    }
+    let path = dir.join("args.json");
     let mut file = File::create(&path)?;
-    write!(file, "{}", all_lines.list_to_string(",\n"))?;
+    let serialized = serde_json::to_string_pretty(&args)?;
+    file.write_all(serialized.as_bytes())?;
     Ok(())
 }
 
@@ -128,10 +107,12 @@ pub fn create_symlink_dir(target: &Path, link: &Path) {
     let abs_target = std::fs::canonicalize(target).unwrap();
     #[cfg(unix)]
     {
+        use std::os::unix::fs::symlink;
         symlink(&abs_target, link).unwrap();
     }
     #[cfg(windows)]
     {
+        use std::os::windows::fs::symlink_dir;
         symlink_dir(&abs_target, link).unwrap();
     }
 }

@@ -33,7 +33,10 @@ use std::{
 use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![pure_stage::register_data_deserializer::<TxSubmissionResponder>().boxed()]
+    vec![
+        pure_stage::register_data_deserializer::<TxSubmissionResponder>().boxed(),
+        pure_stage::register_data_deserializer::<(State, TxSubmissionResponder)>().boxed(),
+    ]
 }
 
 pub fn responder() -> Miniprotocol<State, TxSubmissionResponder, Responder> {

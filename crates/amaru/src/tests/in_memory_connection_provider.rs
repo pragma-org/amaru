@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_ouroboros_traits::{ConnectionId, ConnectionProvider, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use parking_lot::Mutex;
 use pure_stage::BoxFuture;
 use std::collections::{BTreeMap, VecDeque};
@@ -26,47 +26,14 @@ use std::time::Duration;
 use tokio_util::bytes::{Buf, Bytes, BytesMut};
 
 /// A connection provider that uses in-memory channels instead of TCP sockets.
-/// This implementation uses synchronous data structures with wakers to avoid
-/// deadlocks when used with the SimulationBuilder.
+/// This implementation uses synchronous data structures with wakers to notify callers expecting
+/// to connect or receive a message for example.
+///
+/// This provider can be shared between several StageGraph implementations representing different
+/// Amaru nodes communicating together.
 #[derive(Clone, Default)]
 pub struct InMemoryConnectionProvider {
     inner: Arc<Inner>,
-}
-
-impl InMemoryConnectionProvider {
-    /// Wake all accept wakers (called when a new connection is queued)
-    fn wake_accept_wakers(&self) {
-        let wakers: Vec<Waker> = self.inner.accept_wakers.lock().drain(..).collect();
-        for waker in wakers {
-            waker.wake();
-        }
-    }
-
-    /// Wake connect wakers for a specific address (called when a listener is added)
-    fn wake_connect_wakers(&self, addr: &SocketAddr) {
-        let wakers: Vec<Waker> = self
-            .inner
-            .connect_wakers
-            .lock()
-            .remove(addr)
-            .unwrap_or_default();
-        for waker in wakers {
-            waker.wake();
-        }
-    }
-
-    /// Wake recv wakers for a specific connection (called when data is sent)
-    fn wake_recv_wakers(&self, conn: ConnectionId) {
-        let waker = {
-            let connections = self.inner.connections.lock();
-            connections
-                .get(&conn)
-                .and_then(|e| e.recv_waker.lock().take())
-        };
-        if let Some(waker) = waker {
-            waker.wake();
-        }
-    }
 }
 
 impl ConnectionProvider for InMemoryConnectionProvider {
@@ -135,6 +102,9 @@ impl ConnectionProvider for InMemoryConnectionProvider {
 
     /// Connect to one of the given addresses. If a listener for the target address is already registered,
     /// the connection is established immediately.
+    ///
+    /// This creates 2 connection endpoints with shared read / write queues.
+    ///
     fn connect(
         &self,
         addr: Vec<SocketAddr>,
@@ -154,14 +124,14 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             let responder_to_initiator = Arc::new(Mutex::new(VecDeque::new()));
 
             // Create initiator endpoint
-            let initiator_endpoint = InMemoryEndpoint {
+            let initiator_endpoint = ConnectionEndpoint {
                 read_queue: responder_to_initiator.clone(),
                 write_queue: initiator_to_responder.clone(),
                 ..Default::default()
             };
 
             // Create responder endpoint
-            let responder_endpoint = InMemoryEndpoint {
+            let responder_endpoint = ConnectionEndpoint {
                 read_queue: initiator_to_responder,
                 write_queue: responder_to_initiator,
                 ..Default::default()
@@ -185,6 +155,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
         }))
     }
 
+    /// Connect to a given peer, at a list of SocketAddr.
     fn connect_addrs(
         &self,
         addr: ToSocketAddrs,
@@ -198,6 +169,11 @@ impl ConnectionProvider for InMemoryConnectionProvider {
         })
     }
 
+    /// Send a message to the connection peer:
+    ///
+    /// - Add bytes to the connection write_queue (this is the read_queue of the peer on its connection)
+    /// - Wake the peer so that it can read the data.
+    ///
     fn send(
         &self,
         conn: ConnectionId,
@@ -207,7 +183,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
         let provider = self.clone();
         Box::pin(async move {
             let (write_queue, peer_conn_id) = {
-                let connections = inner.connections.lock();
+                let connections = inner.connection_endpoints.lock();
                 let endpoint = connections.get(&conn).ok_or_else(|| {
                     std::io::Error::other(format!("connection {conn} not found for send"))
                 })?;
@@ -224,7 +200,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
                 // all recv wakers. This is less efficient but correct.
                 // In practice, the peer will set their ID when they start receiving.
                 let all_conn_ids: Vec<ConnectionId> =
-                    inner.connections.lock().keys().copied().collect();
+                    inner.connection_endpoints.lock().keys().copied().collect();
                 for id in all_conn_ids {
                     if id != conn {
                         provider.wake_recv_wakers(id);
@@ -236,6 +212,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
         })
     }
 
+    /// Receive a new message by reading from the message queue when a new message has arrived
     fn recv(
         &self,
         conn: ConnectionId,
@@ -243,7 +220,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
     ) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>> {
         let inner = self.inner.clone();
         Box::pin(std::future::poll_fn(move |cx| {
-            let connections = inner.connections.lock();
+            let connections = inner.connection_endpoints.lock();
             let endpoint = match connections.get(&conn) {
                 Some(e) => e,
                 None => {
@@ -278,23 +255,66 @@ impl ConnectionProvider for InMemoryConnectionProvider {
         }))
     }
 
+    /// Close a connection, given its connection id.
+    /// This just removes the corresponding endpoint from the endpoints map.
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>> {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let mut connections = inner.connections.lock();
+            let mut connections = inner.connection_endpoints.lock();
             connections.remove(&conn).ok_or_else(|| {
                 std::io::Error::other(format!("connection {conn} not found for close"))
             })?;
-            // Dropping the endpoint closes its channels
             tracing::debug!("closed in-memory connection {conn}");
             Ok(())
         })
     }
 }
 
-/// An endpoint for one side of an in-memory connection.
-/// Uses synchronous data structures with wakers to support simulation.
-struct InMemoryEndpoint {
+impl InMemoryConnectionProvider {
+    /// Wake all accept wakers (called when a new connection is queued)
+    fn wake_accept_wakers(&self) {
+        let wakers: Vec<Waker> = self.inner.accept_wakers.lock().drain(..).collect();
+        for waker in wakers {
+            waker.wake();
+        }
+    }
+
+    /// Wake connect wakers for a specific address (called when a listener is added)
+    fn wake_connect_wakers(&self, addr: &SocketAddr) {
+        let wakers: Vec<Waker> = self
+            .inner
+            .connect_wakers
+            .lock()
+            .remove(addr)
+            .unwrap_or_default();
+        for waker in wakers {
+            waker.wake();
+        }
+    }
+
+    /// Wake recv wakers for a specific connection (called when data is sent)
+    fn wake_recv_wakers(&self, conn: ConnectionId) {
+        let waker = {
+            let connections = self.inner.connection_endpoints.lock();
+            connections
+                .get(&conn)
+                .and_then(|e| e.recv_waker.lock().take())
+        };
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+    }
+}
+
+/// An endpoint for one side of an in-memory connection:
+///
+///  - The read_queue stores bytes read from the other side of the connection.
+///  - The read_buffer aggregates bytes received on the read_queue so that a message can be read when enough bytes have been received.
+///  - The write_queue collects data to be read by the other side of the connection.
+///  - A recv waker can be set to be notified when a message has been received.
+///  - The peer connection id is set when the peer has accepted this connection.
+///
+struct ConnectionEndpoint {
     /// Buffer for partial reads - data received but not yet consumed
     read_buffer: Mutex<BytesMut>,
     /// Queue for data sent by the peer (shared with peer's write_queue)
@@ -307,7 +327,7 @@ struct InMemoryEndpoint {
     peer_conn_id: Mutex<Option<ConnectionId>>,
 }
 
-impl Default for InMemoryEndpoint {
+impl Default for ConnectionEndpoint {
     fn default() -> Self {
         Self {
             read_buffer: Mutex::new(BytesMut::with_capacity(65536)),
@@ -320,7 +340,7 @@ impl Default for InMemoryEndpoint {
 }
 
 // Manual Debug implementation since Waker doesn't implement Debug
-impl std::fmt::Debug for InMemoryEndpoint {
+impl std::fmt::Debug for ConnectionEndpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InMemoryEndpoint")
             .field("read_buffer", &self.read_buffer)
@@ -341,20 +361,28 @@ struct Listener {
 /// A pending connection waiting to be accepted.
 struct PendingConnect {
     /// The endpoint for the accepting (responder) side.
-    responder_endpoint: InMemoryEndpoint,
+    responder_endpoint: ConnectionEndpoint,
     /// The address of the connecting (initiator) side.
     /// This identifies the downstream peer.
     initiator_addr: SocketAddr,
 }
 
 /// Shared state for the in-memory connection provider.
+///
+/// This tracks:
+///
+///  - A list of listeners.
+///  - A map of connection endpoints, keyed by ConnectionId.
+///  - A counter for ports created by the listener when accepting a connection.
+///  - Wakers for waiting on accepted connections and waiting on upstream connections.
+///
 struct Inner {
     /// Active listeners by address
     listeners: Mutex<BTreeMap<SocketAddr, Listener>>,
     /// All active connection endpoints by ConnectionId
-    connections: Mutex<BTreeMap<ConnectionId, InMemoryEndpoint>>,
-    /// Counter for generating ephemeral ports for initiators
-    ephemeral_port: AtomicU16,
+    connection_endpoints: Mutex<BTreeMap<ConnectionId, ConnectionEndpoint>>,
+    /// Counter for generating ports for initiators
+    last_connection_port: AtomicU16,
     /// Wakers for accept operations waiting for connections
     accept_wakers: Mutex<Vec<Waker>>,
     /// Wakers for connect operations waiting for listeners, keyed by target address
@@ -365,8 +393,8 @@ impl Default for Inner {
     fn default() -> Self {
         Self {
             listeners: Mutex::new(BTreeMap::new()),
-            connections: Mutex::new(BTreeMap::new()),
-            ephemeral_port: AtomicU16::new(5000),
+            connection_endpoints: Mutex::new(BTreeMap::new()),
+            last_connection_port: AtomicU16::new(5000),
             accept_wakers: Mutex::new(Vec::new()),
             connect_wakers: Mutex::new(BTreeMap::new()),
         }
@@ -374,8 +402,8 @@ impl Default for Inner {
 }
 
 impl Inner {
-    fn register_endpoint(&self, endpoint: InMemoryEndpoint) -> ConnectionId {
-        let mut connections = self.connections.lock();
+    fn register_endpoint(&self, endpoint: ConnectionEndpoint) -> ConnectionId {
+        let mut connections = self.connection_endpoints.lock();
         let connection_id = if let Some((&last_id, _)) = connections.iter().next_back() {
             last_id.next()
         } else {
@@ -386,7 +414,7 @@ impl Inner {
     }
 
     fn new_port(&self) -> u16 {
-        self.ephemeral_port
+        self.last_connection_port
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 
@@ -395,7 +423,7 @@ impl Inner {
     fn connect(
         &self,
         target_addr: &SocketAddr,
-        responder_endpoint: InMemoryEndpoint,
+        responder_endpoint: ConnectionEndpoint,
         waker: &Waker,
     ) -> bool {
         let pending = PendingConnect {

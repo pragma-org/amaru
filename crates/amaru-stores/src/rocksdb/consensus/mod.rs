@@ -722,7 +722,7 @@ pub mod test {
     }
 
     #[test]
-    fn load_root_from_best_chain() {
+    fn load_from_best_chain_root_header() {
         with_db(|store| {
             let chain = populate_db(store.clone());
             let root = run_strategy(any_header_with_parent(chain[0].hash()));
