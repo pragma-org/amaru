@@ -194,7 +194,7 @@ impl From<Entry<ChainSyncMessage>> for GeneratedEntry {
 /// RNG passed as a parameter.
 pub fn generate_entries(
     chain_length: usize,
-    upstream_peers: usize,
+    peers: &[Peer],
     start_time: Instant,
     mean_millis: f64,
 ) -> impl Fn(RandStdRng) -> GeneratedEntries<ChainSyncMessage, GeneratedActions> {
@@ -205,7 +205,7 @@ pub fn generate_entries(
         // Generate actions corresponding to peers doing roll forwards and roll backs on the tree.
         let generated_actions = run_strategy_with_rng(
             &mut rng.0,
-            any_select_chains_from_tree(&generated_tree, upstream_peers),
+            any_select_chains_from_tree(&generated_tree, peers),
         );
 
         // Generate arrivale times and make entries for each peer.
@@ -258,7 +258,7 @@ fn make_entries_for_peer(
                     bytes: to_cbor(&header),
                 },
             },
-            Action::RollBack { rollback_point, .. } => ChainSyncMessage::Bck {
+            Action::Rollback { rollback_point, .. } => ChainSyncMessage::Bck {
                 msg_id: msg_id as u64,
                 slot: rollback_point.slot_or_default(),
                 hash: Bytes::from(rollback_point.hash().to_vec()),
@@ -285,7 +285,7 @@ fn make_entry<T>(peer: &Peer, arrival_time: &Instant, body: T) -> Entry<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru::tests::configuration::NodeConfig;
+    use crate::simulator::RunConfig;
     use pure_stage::EPOCH;
     use rand::{SeedableRng, prelude::StdRng};
 
@@ -295,18 +295,19 @@ mod tests {
     /// Additionally this test can be used to generate data for the animation in tests/animations/entries.html.
     #[test]
     fn test_generate_entries() {
-        let node_config = NodeConfig {
-            chain_length: 15,
-            upstream_peers: (1..10).map(|i| format!("p{i}")).collect(),
+        let run_config = RunConfig {
+            generated_chain_depth: 15,
+            number_of_upstream_peers: 10,
             ..Default::default()
         };
         let start_time = Instant::at_offset(Duration::from_secs(1));
         let deviation_millis = 200.0;
 
         let rng = StdRng::seed_from_u64(42);
+        let upstream_peers = run_config.upstream_peers();
         let generate = generate_entries(
-            node_config.chain_length,
-            node_config.upstream_peers.len(),
+            run_config.generated_chain_depth,
+            &upstream_peers,
             start_time,
             deviation_millis,
         );

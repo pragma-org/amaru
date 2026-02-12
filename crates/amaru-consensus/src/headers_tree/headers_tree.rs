@@ -1447,7 +1447,7 @@ mod tests {
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(TEST_CASES_NB).end())]
         #[test]
-        fn run_chain_selection(generated_actions in any_select_chains(DEPTH, PEERS_NB)) {
+        fn run_chain_selection(generated_actions in any_select_chains(DEPTH, &(1..=PEERS_NB).map(|i| Peer::new(&i.to_string())).collect::<Vec<_>>())) {
             let results = execute_actions(MAX_LENGTH, &generated_actions.actions(), false).unwrap();
             let actual = make_best_chain_from_results(&results).unwrap();
             // check the actual best chain is one of the expected best chains

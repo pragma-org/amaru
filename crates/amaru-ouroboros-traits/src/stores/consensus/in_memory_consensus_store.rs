@@ -195,7 +195,7 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     #[expect(clippy::unwrap_used)]
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
         let mut inner = self.inner.lock().unwrap();
-        if let Some(pos) = inner.chain.iter().rposition(|p| p == point) {
+        if let Some(pos) = inner.chain.iter().position(|p| p == point) {
             let removed = inner.chain.len().saturating_sub(pos + 1);
             inner.chain.truncate(pos + 1); // keep the rollback point
             Ok(removed)

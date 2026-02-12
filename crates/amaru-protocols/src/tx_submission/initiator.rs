@@ -92,6 +92,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         Ok((None, self))
     }
 
+    #[instrument(name = "txsubmission.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &State,
@@ -131,7 +132,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().send(Message::Init).want_next(), State::Idle))
     }
 
-    #[instrument(name = "tx_submission.initiator", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(name = "tx_submission.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,
@@ -226,6 +227,15 @@ pub enum InitiatorResult {
         blocking: Blocking,
     },
     RequestTxs(Vec<TxId>),
+}
+
+impl InitiatorResult {
+    pub fn message_type(&self) -> &str {
+        match self {
+            Self::RequestTxIds { .. } => "RequestTxIds",
+            Self::RequestTxs(_) => "RequestTxs",
+        }
+    }
 }
 
 impl Display for InitiatorResult {

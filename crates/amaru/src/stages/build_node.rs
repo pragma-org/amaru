@@ -38,8 +38,8 @@ use amaru_stores::rocksdb::consensus::RocksDBStore;
 use anyhow::{Context, anyhow};
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pure_stage::StageGraph;
 use pure_stage::tokio::{TokioBuilder, TokioRunning};
+use pure_stage::{StageGraph, StageRef};
 use std::sync::Arc;
 use tokio::runtime::Handle;
 use tracing::info;
@@ -65,7 +65,7 @@ pub fn build_node(
     global_parameters: &GlobalParameters,
     meter_provider: Option<SdkMeterProvider>,
     stage_builder: &mut impl StageGraph,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<StageRef<ManagerMessage>> {
     let era_history: &EraHistory = config.network.into();
 
     // Make the ledger and get its tip
@@ -76,7 +76,7 @@ pub fn build_node(
     info!(
         tip.hash = %tip.hash(),
         tip.slot = u64::from(tip.slot_or_default()),
-        "starting"
+        "build_node"
     );
 
     // Make the chain store, either from the network resources if already set
@@ -141,7 +141,7 @@ pub fn build_node(
             [ManagerMessage::Listen(config.listen_address()?)],
         )
         .map_err(|e| anyhow!(format!("{e:?}")))?;
-    Ok(())
+    Ok(manager_stage)
 }
 
 /// Register the resources required by the external effects invoked by the stages in the stage graph.

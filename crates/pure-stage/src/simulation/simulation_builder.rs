@@ -53,7 +53,10 @@ use crate::{
     trace_buffer::TraceBuffer,
 };
 
+use crate::simulation::RandStdRng;
 use parking_lot::Mutex;
+use rand::SeedableRng;
+use rand::prelude::StdRng;
 use std::{
     any::Any,
     collections::{BTreeMap, VecDeque},
@@ -146,6 +149,10 @@ impl SimulationBuilder {
     pub fn with_eval_strategy(mut self, eval_strategy: impl EvalStrategy + 'static) -> Self {
         self.eval_strategy = Box::new(eval_strategy);
         self
+    }
+
+    pub fn with_seed(self, seed: u64) -> Self {
+        self.with_eval_strategy(RandStdRng(StdRng::seed_from_u64(seed)))
     }
 
     pub fn replay(self) -> Replay {

@@ -11,12 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![recursion_limit = "256"]
 
-use amaru::tests::configuration::NodeConfig;
-use amaru_sim::simulator::{
-    Args, RunConfig, TEST_DATA_DIR,
-    run::{replay, run},
-};
+use amaru::tests::configuration::NodeTestConfig;
+use amaru_sim::simulator::run::run_tests;
+use amaru_sim::simulator::{Args, RunConfig, TEST_DATA_DIR, run::replay};
 use anyhow::anyhow;
 use pure_stage::{Instant, serde::from_cbor, trace_buffer::TraceEntry};
 use std::{
@@ -28,13 +27,11 @@ use std::{
 };
 use tracing_subscriber::EnvFilter;
 
-mod traces;
-
 /// Run the simulator with arguments from environment variables.
 #[test]
 pub fn run_simulator() {
     initialize_logs();
-    run(make_args());
+    run_tests(make_args()).unwrap();
 }
 
 /// Replay the latest simulation from the test output directory:
@@ -57,8 +54,9 @@ fn test_run_replay() {
     let mut args = make_args();
     args.persist_on_success = true;
     args.number_of_tests = 1;
+    args.seed = Some(42);
     args.persist_directory = format!("{TEST_DATA_DIR}/run_replay");
-    run(args.clone());
+    run_tests(args.clone()).unwrap();
     let traces = get_traces(
         Path::new(&args.persist_directory),
         SimulationRun::Latest,
@@ -84,16 +82,16 @@ fn initialize_logs() {
                 .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
         );
     if amaru_logs_as_json {
-        formatter.json().init();
+        let _ = formatter.json().try_init();
     } else {
-        formatter.init();
+        let _ = formatter.try_init();
     }
 }
 
 /// Create Args from environment variables, with defaults from SimulateConfig and NodeConfig.
 fn make_args() -> Args {
     let run_config = RunConfig::default();
-    let node_config = NodeConfig::default();
+    let node_config = NodeTestConfig::default();
 
     Args {
         number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", run_config.number_of_tests),
@@ -105,10 +103,7 @@ fn make_args() -> Args {
             "AMARU_NUMBER_OF_DOWNSTREAM_PEERS",
             run_config.number_of_downstream_peers,
         ),
-        generated_chain_depth: get_env_var(
-            "AMARU_GENERATED_CHAIN_DEPTH",
-            node_config.chain_length as u64,
-        ),
+        generated_chain_depth: get_env_var("AMARU_GENERATED_CHAIN_DEPTH", node_config.chain_length),
         disable_shrinking: is_true_or("AMARU_DISABLE_SHRINKING", run_config.disable_shrinking),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true_or("AMARU_PERSIST_ON_SUCCESS", run_config.persist_on_success),

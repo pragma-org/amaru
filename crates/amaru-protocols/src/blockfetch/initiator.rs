@@ -230,6 +230,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
         }
     }
 
+    #[instrument(name = "blockfetch.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     #[expect(clippy::expect_used)]
     async fn network(
         mut self,
@@ -301,7 +302,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
-    #[instrument(name = "blockfetch.initiator", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(name = "blockfetch.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,
@@ -348,6 +349,17 @@ pub enum InitiatorResult {
     NoBlocks,
     Block(Vec<u8>),
     Done,
+}
+
+impl InitiatorResult {
+    fn message_type(&self) -> &'static str {
+        match self {
+            Self::Initialize => "Initialize",
+            Self::NoBlocks => "NoBlocks",
+            Self::Block(_) => "Block",
+            Self::Done => "Done",
+        }
+    }
 }
 
 /// Outcome action of the local stage, to be used by the initiator protocol stage.

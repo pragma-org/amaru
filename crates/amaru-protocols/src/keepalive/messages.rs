@@ -33,6 +33,10 @@ impl Cookie {
     pub fn next(self) -> Self {
         Self(self.0.wrapping_add(1))
     }
+
+    pub fn as_u16(self) -> u16 {
+        self.0
+    }
 }
 
 impl From<u16> for Cookie {

@@ -18,7 +18,8 @@ use crate::{
     events::{ValidateBlockEvent, ValidateHeaderEvent},
     span::HasSpan,
 };
-use amaru_kernel::IsHeader;
+use amaru_kernel::cardano::network_block::NetworkBlock;
+use amaru_kernel::{IsHeader, Peer, Point};
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
 use std::time::Duration;
@@ -42,46 +43,33 @@ pub fn stage(
     async move {
         match msg {
             ValidateHeaderEvent::Validated { peer, header, span } => {
-                let point = header.point();
-                let peer2 = peer.clone();
-                let blocks = eff
-                    .base()
-                    // TODO(network): which timeout to use?
-                    .call(&manager, Duration::from_secs(5), move |cr| {
-                        ManagerMessage::FetchBlocks {
-                            peer: peer2,
-                            from: point,
-                            through: point,
-                            cr,
-                        }
-                    })
-                    .await
-                    .unwrap_or_default();
-                let Some(block) = blocks.blocks.into_iter().next() else {
-                    eff.base()
-                        .send(
-                            &failures,
-                            ValidationFailed::new(&peer, ConsensusError::FetchBlockFailed(point)),
-                        )
-                        .await;
-                    return (downstream, failures, errors, manager);
-                };
-
-                let result = eff.store().store_block(&header.hash(), &block.raw_block());
-                if let Err(e) = result {
-                    eff.base()
-                        .send(&errors, ProcessingFailed::new(&peer, e.into()))
-                        .await;
-                    return (downstream, failures, errors, manager);
+                match load_or_fetch_block(&manager, &eff, header.point(), &peer).await {
+                    Ok(Some(block)) => {
+                        let validated = ValidateBlockEvent::Validated {
+                            peer,
+                            header,
+                            block,
+                            span,
+                        };
+                        eff.base().send(&downstream, validated).await;
+                    }
+                    Ok(None) => {
+                        eff.base()
+                            .send(
+                                &failures,
+                                ValidationFailed::new(
+                                    &peer,
+                                    ConsensusError::FetchBlockFailed(header.point()),
+                                ),
+                            )
+                            .await;
+                    }
+                    Err(e) => {
+                        eff.base()
+                            .send(&errors, ProcessingFailed::new(&peer, e))
+                            .await;
+                    }
                 }
-
-                let validated = ValidateBlockEvent::Validated {
-                    peer,
-                    header,
-                    block,
-                    span,
-                };
-                eff.base().send(&downstream, validated).await
             }
             ValidateHeaderEvent::Rollback {
                 peer,
@@ -106,12 +94,54 @@ pub fn stage(
     .instrument(span)
 }
 
+async fn load_or_fetch_block(
+    manager: &StageRef<ManagerMessage>,
+    eff: &impl ConsensusOps,
+    point: Point,
+    peer: &Peer,
+) -> anyhow::Result<Option<NetworkBlock>> {
+    if let Some(block) = eff.store().load_block(&point.hash())? {
+        tracing::trace!(%point, "block already in store, skipping fetch");
+        Ok(Some(NetworkBlock::try_from(block)?))
+    } else {
+        fetch_block(manager, eff, point, peer).await
+    }
+}
+
+async fn fetch_block(
+    manager: &StageRef<ManagerMessage>,
+    eff: &impl ConsensusOps,
+    point: Point,
+    peer: &Peer,
+) -> anyhow::Result<Option<NetworkBlock>> {
+    let peer_clone = peer.clone();
+    let blocks = eff
+        .base()
+        // TODO(network): which timeout to use?
+        .call(manager, Duration::from_secs(5), move |cr| {
+            ManagerMessage::FetchBlocks {
+                peer: peer_clone,
+                from: point,
+                through: point,
+                cr,
+            }
+        })
+        .await
+        .unwrap_or_default();
+    let Some(block) = blocks.blocks.into_iter().next() else {
+        return Ok(None);
+    };
+
+    eff.store().store_block(&point.hash(), &block.raw_block())?;
+    Ok(Some(block))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{effects::mock_consensus_ops, errors::ValidationFailed};
     use amaru_kernel::cardano::network_block::make_network_block;
-    use amaru_kernel::{Peer, any_header, utils::tests::run_strategy};
+    use amaru_kernel::{Peer, TESTNET_ERA_HISTORY, any_header, utils::tests::run_strategy};
     use amaru_protocols::blockfetch::Blocks;
     use pure_stage::StageRef;
     use std::collections::BTreeMap;
@@ -126,7 +156,7 @@ mod tests {
             header: header.clone(),
             span: Span::current(),
         };
-        let block = make_network_block(&header);
+        let block = make_network_block(&header, &TESTNET_ERA_HISTORY);
         let consensus_ops = mock_consensus_ops();
         consensus_ops.mock_base.return_blocks(Blocks {
             blocks: vec![block.clone()],
