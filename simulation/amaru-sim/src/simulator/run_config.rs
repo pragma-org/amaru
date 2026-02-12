@@ -27,7 +27,7 @@ pub struct RunConfig {
     pub number_of_upstream_peers: u8,
     pub number_of_downstream_peers: u8,
     pub generated_chain_depth: usize,
-    pub disable_shrinking: bool,
+    pub enable_shrinking: bool,
     pub persist_on_success: bool,
     pub persist_directory: PathBuf,
 }
@@ -40,7 +40,7 @@ impl Default for RunConfig {
             number_of_upstream_peers: 1,
             number_of_downstream_peers: 1,
             generated_chain_depth: 4,
-            disable_shrinking: true,
+            enable_shrinking: false,
             persist_on_success: true,
             persist_directory: Path::new("test-data").to_path_buf(),
         }
@@ -56,7 +56,7 @@ impl RunConfig {
             number_of_upstream_peers: args.number_of_upstream_peers,
             number_of_downstream_peers: args.number_of_downstream_peers,
             generated_chain_depth: args.generated_chain_depth,
-            disable_shrinking: args.disable_shrinking,
+            enable_shrinking: args.enable_shrinking,
             persist_on_success: args.persist_on_success,
             persist_directory: Path::new(&args.persist_directory).to_path_buf(),
         }
@@ -77,7 +77,7 @@ impl RunConfig {
     }
 
     pub fn disable_shrinking(mut self) -> Self {
-        self.disable_shrinking = true;
+        self.enable_shrinking = true;
         self
     }
 
