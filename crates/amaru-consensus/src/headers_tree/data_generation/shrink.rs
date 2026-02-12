@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::fmt::Debug;
 
 // Andreas Zeller's delta debugging (`ddmin`) algorithm from the paper
@@ -20,13 +19,16 @@ use std::fmt::Debug;
 // Basically tries to bisect the input (git's bisect algorithm uses the same technique). Will first
 // try throwing away half of the input, but if that fails it will throw away smaller and smaller
 // parts until it finds the smallest counter example.
-pub fn shrink<A: Debug + Clone, B: Debug>(
-    test: &mut dyn FnMut(&[A]) -> B,
-    mut input: Vec<A>,
+#[expect(clippy::panic)]
+pub fn shrink<A: Shrinkable + Debug + Clone, B: Debug>(
+    test: &dyn Fn(&A) -> B,
+    input: &A,
     error_predicate: impl Fn(&B) -> bool,
-) -> (Vec<A>, B, u32) {
+) -> (B, A, u32) {
     let mut number_of_shrinks = 0;
     let mut last_error: B;
+    let mut input = input.clone();
+
     let result = test(&input);
     if error_predicate(&result) {
         last_error = result;
@@ -42,11 +44,7 @@ pub fn shrink<A: Debug + Clone, B: Debug>(
         let subset_length = input.len() / n;
         let mut some_complement_is_failing = false;
         while start < input.len() {
-            let mut complement: Vec<A> = Vec::new();
-            complement.extend_from_slice(&input[..start]);
-            if start + subset_length < input.len() {
-                complement.extend_from_slice(&input[start + subset_length..]);
-            }
+            let complement = input.complement(start + subset_length, start);
             // NOTE: that if we get a different error than the expected one, we treat it as a
             // passing test.
             let result = test(&complement);
@@ -69,7 +67,37 @@ pub fn shrink<A: Debug + Clone, B: Debug>(
             n = (n * 2).min(input.len())
         }
     }
-    (input, last_error, number_of_shrinks)
+    (last_error, input, number_of_shrinks)
+}
+
+pub trait Shrinkable {
+    fn complement(&self, to: usize, from: usize) -> Self
+    where
+        Self: Sized;
+
+    fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl<A: Debug + Clone> Shrinkable for Vec<A> {
+    fn complement(&self, from: usize, to: usize) -> Self
+    where
+        Self: Sized,
+    {
+        let mut complement: Vec<A> = Vec::new();
+        complement.extend_from_slice(&self[..to]);
+        if from < self.len() {
+            complement.extend_from_slice(&self[from..]);
+        };
+        complement
+    }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
 }
 
 #[cfg(test)]
@@ -80,7 +108,7 @@ mod test {
     fn test_shrink_failing() {
         let failing_input = vec![1, 2, 3, 42, 5, 6];
 
-        let mut test = |input: &[u8]| {
+        let test = |input: &Vec<u8>| {
             // println!("input: {:?}", input);
             // input: [1, 2, 3, 42, 5, 6]
             // input: [42, 5, 6]
@@ -97,9 +125,10 @@ mod test {
         };
 
         assert_eq!(
-            shrink(&mut test, failing_input, |err| *err
-                == Err("Found 42".to_string())),
-            (vec![42], Err("Found 42".to_string()), 3)
+            shrink(&test, &failing_input, |err| {
+                *err == Err("Found 42".to_string())
+            }),
+            (Err("Found 42".to_string()), vec![42], 3)
         );
     }
 
@@ -107,7 +136,7 @@ mod test {
     fn test_shrink_unresolved() {
         let failing_input = vec![1, 2, 3, 42, 5, 6];
 
-        let mut test = |input: &[u8]| {
+        let test = |input: &Vec<u8>| {
             // println!("input: {:?}", input);
             // input: [1, 2, 3, 42, 5, 6]
             // input: [42, 5, 6]  <-- NOTE: This will return a different error message than the one
@@ -120,7 +149,7 @@ mod test {
             // input: [42]
 
             if input.len() == 3 && input.contains(&5) {
-                assert_eq!(input, vec![42, 5, 6]);
+                assert_eq!(input, &vec![42, 5, 6]);
                 return Err("Found 5".to_string());
             };
             if input.contains(&42) {
@@ -131,9 +160,10 @@ mod test {
         };
 
         assert_eq!(
-            shrink(&mut test, failing_input, |err| *err
-                == Err("Found 42".to_string())),
-            (vec![42], Err("Found 42".to_string()), 4)
+            shrink(&test, &failing_input, |err| {
+                *err == Err("Found 42".to_string())
+            }),
+            (Err("Found 42".to_string()), vec![42], 4)
         )
     }
 
@@ -144,7 +174,7 @@ mod test {
     fn test_shrink_passing() {
         let failing_input = vec![1, 2, 3];
 
-        let mut test = |input: &[u8]| {
+        let test = |input: &Vec<u8>| {
             if input.contains(&4) {
                 Err("Found 4".to_string())
             } else {
@@ -152,9 +182,10 @@ mod test {
             }
         };
         assert_eq!(
-            shrink(&mut test, failing_input, |err| *err
-                == Err("Found 4".to_string())),
-            (vec![4], Err("Found 4".to_string()), 0)
+            shrink(&test, &failing_input, |err| {
+                *err == Err("Found 4".to_string())
+            }),
+            (Err("Found 4".to_string()), vec![4], 0)
         )
     }
 }

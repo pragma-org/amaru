@@ -11,23 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![recursion_limit = "256"]
 
-mod args;
-mod bytes;
-mod checks;
-mod data_generation;
-mod envelope;
-mod replay;
-mod report;
-mod run_config;
-mod run_tests;
-mod world;
+use amaru_sim::simulator::{initialize_logs, make_args, run_tests};
 
-pub use args::*;
-pub use bytes::*;
-pub use data_generation::*;
-pub use envelope::*;
-pub use replay::*;
-pub use run_config::*;
-pub use run_tests::*;
-pub use world::*;
+/// Run the simulator with arguments from environment variables.
+#[test]
+pub fn run_simulator() {
+    initialize_logs();
+    run_tests(make_args()).unwrap();
+}

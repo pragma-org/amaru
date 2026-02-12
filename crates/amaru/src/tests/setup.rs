@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::stages::build_node::build_node;
-use crate::tests::configuration::NodeTestConfig;
+use crate::tests::configuration::{NodeTestConfig, NodeType};
 use crate::tests::in_memory_connection_provider::InMemoryConnectionProvider;
 use amaru_consensus::effects::{ResourceBlockValidation, ResourceHeaderValidation};
 use amaru_consensus::headers_tree::data_generation::Action;
@@ -28,6 +28,7 @@ use futures_util::FutureExt;
 use pure_stage::simulation::{Blocked, RandStdRng, SimulationBuilder, SimulationRunning};
 use pure_stage::{Effects, StageGraph, StageGraphRunning, StageRef};
 use std::collections::VecDeque;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
@@ -42,10 +43,27 @@ pub struct Node {
     pub pending_actions: VecDeque<Action>,
 }
 
+impl Debug for Node {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Node")
+            .field("node_id", &self.node_id)
+            .field("config", &self.config)
+            .finish()
+    }
+}
+
 impl Node {
     /// Enter a tracing span with this node's identifier for logging purposes.
     pub fn enter_span(&self) -> tracing::span::EnteredSpan {
         tracing::info_span!("node", id = %self.node_id).entered()
+    }
+
+    pub fn node_type(&self) -> NodeType {
+        self.config.node_type
+    }
+
+    pub fn is_node_under_test(&self) -> bool {
+        self.config.node_type == NodeType::NodeUnderTest
     }
 }
 

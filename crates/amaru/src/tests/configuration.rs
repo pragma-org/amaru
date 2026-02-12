@@ -32,6 +32,7 @@ use amaru_slot_arithmetic::EraHistory;
 use amaru_stores::in_memory::MemoryStore;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
+use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -58,7 +59,21 @@ pub struct NodeTestConfig {
     pub node_type: NodeType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl Debug for NodeTestConfig {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NodeTestConfig")
+            .field("chain_length", &self.chain_length)
+            .field("upstream_peers", &self.upstream_peers)
+            .field("listen_address", &self.listen_address)
+            .field("mailbox_size", &self.mailbox_size)
+            .field("seed", &self.seed)
+            .field("actions", &self.actions)
+            .field("node_type", &self.node_type)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeType {
     UpstreamNode,
     NodeUnderTest,
