@@ -312,7 +312,7 @@ impl SimulationRunning {
     pub fn try_effect(&mut self) -> Result<Effect, Blocked> {
         if self.runnable.is_empty() {
             let reason = block_reason(self);
-            tracing::debug!("blocking for reason: {:?}", reason);
+            tracing::trace!("blocking for reason: {:?}", reason);
             return Err(reason);
         }
         let (name, response) = self.eval_strategy.pick_runnable(&mut self.runnable);
@@ -513,7 +513,11 @@ impl SimulationRunning {
         }
     }
 
-    fn receive_inputs(&mut self) {
+    /// Process external inputs and wake up stages that are waiting for receive effects.
+    ///
+    /// This is useful when messages have been enqueued via [`Self::enqueue_msg`] and stages
+    /// need to be made runnable to process them.
+    pub fn receive_inputs(&mut self) {
         self.try_inputs();
         let receiving = self
             .stages

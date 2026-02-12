@@ -16,7 +16,8 @@ use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
 use amaru_kernel::cardano::network_block::make_network_block;
 use amaru_kernel::utils::tests::run_strategy;
 use amaru_kernel::{
-    BlockHeader, HeaderHash, IsHeader, Transaction, any_headers_chain_with_root, make_header,
+    BlockHeader, HeaderHash, IsHeader, PREPROD_ERA_HISTORY, Transaction,
+    any_headers_chain_with_root, make_header,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
@@ -147,7 +148,7 @@ fn initialize_chain_store(
         chain_store.set_best_chain_hash(&header.hash())?;
 
         tracing::info!("storing block for header {}", header.point());
-        let network_block = make_network_block(header);
+        let network_block = make_network_block(header, &PREPROD_ERA_HISTORY);
         chain_store.store_block(&header.hash(), &network_block.raw_block())?;
     }
     Ok(())

@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::{collections::BTreeMap, time::Duration};
 use tracing::instrument;
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ManagerMessage {
     AddPeer(Peer),
     /// Internal message sent from the connection stage only!

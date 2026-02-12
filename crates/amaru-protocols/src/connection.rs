@@ -173,7 +173,7 @@ pub async fn stage(
             State::Responder(s)
         }
         (State::Initiator(s), ConnectionMessage::NewTip(_)) => {
-            // don't propagate new tip messages when using the initiator side of a connection.
+            // don't propagate new tip / roll forward / rollback messages when using the initiator side of a connection.
             State::Initiator(s)
         }
         x => unimplemented!("{x:?}"),

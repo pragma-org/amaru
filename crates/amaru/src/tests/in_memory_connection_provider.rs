@@ -75,9 +75,8 @@ impl ConnectionProvider for InMemoryConnectionProvider {
     fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
         let inner = self.inner.clone();
         let provider = self.clone();
-        tracing::debug!("InMemoryConnectionProvider::listen called for {addr}");
         Box::pin(async move {
-            tracing::debug!("InMemoryConnectionProvider::listen future executing for {addr}");
+            tracing::debug!("InMemoryConnectionProvider::listen for {addr}");
             {
                 let mut listeners = inner.listeners.lock();
 
@@ -98,7 +97,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             // Wake any connect wakers waiting for this address
             provider.wake_connect_wakers(&addr);
 
-            tracing::debug!("in-memory listener bound to {addr}");
+            tracing::debug!("listener bound to {addr}");
             Ok(addr)
         })
     }
@@ -367,7 +366,7 @@ impl Default for Inner {
         Self {
             listeners: Mutex::new(BTreeMap::new()),
             connections: Mutex::new(BTreeMap::new()),
-            ephemeral_port: AtomicU16::default(),
+            ephemeral_port: AtomicU16::new(5000),
             accept_wakers: Mutex::new(Vec::new()),
             connect_wakers: Mutex::new(BTreeMap::new()),
         }

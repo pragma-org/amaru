@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::{Args, run::run};
+use amaru_sim::simulator::{Args, run::run_old};
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -29,5 +29,5 @@ fn main() {
 
     // It might be necessary to run the simulation with a larger stack with RUST_MIN_STACK=16777216 (16MB)
     // because of the deep recursion used when generating data for large chains.
-    run(args);
+    run_old(args);
 }

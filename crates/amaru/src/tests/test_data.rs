@@ -18,14 +18,14 @@ use amaru_kernel::{
 use amaru_ouroboros_traits::Mempool;
 use std::sync::Arc;
 
-pub fn create_transactions(number: u64) -> Vec<Transaction> {
+pub fn create_transactions(number: usize) -> Vec<Transaction> {
     (0..number).map(create_transaction).collect()
 }
 
 #[expect(clippy::unwrap_used)]
 pub fn create_transactions_in_mempool(
     mempool: Arc<dyn Mempool<Transaction>>,
-    number: u64,
+    number: usize,
 ) -> Vec<Transaction> {
     let mut txs = vec![];
     for i in 0..number {
@@ -37,10 +37,10 @@ pub fn create_transactions_in_mempool(
 }
 
 /// Create a transaction with a unique input based on the given id.
-pub fn create_transaction(id: u64) -> Transaction {
+pub fn create_transaction(id: usize) -> Transaction {
     let tx_input = TransactionInput {
         transaction_id: Hash::new([1; TRANSACTION_BODY]),
-        index: id,
+        index: id as u64,
     };
 
     let body = TransactionBody::new([tx_input], [], 0);

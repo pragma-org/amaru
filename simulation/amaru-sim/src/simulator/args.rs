@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::simulator::RunConfig;
-use amaru::tests::configuration::NodeConfig;
+use amaru::tests::configuration::NodeTestConfig;
 use clap::Parser;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ pub struct Args {
 
     /// Maximum depth of the generated chain for a given peer
     #[arg(long, default_value = "10", env = "AMARU_GENERATED_CHAIN_DEPTH")]
-    pub generated_chain_depth: u64,
+    pub generated_chain_depth: usize,
 
     #[arg(long, default_value = "false", env = "AMARU_DISABLE_SHRINKING")]
     pub disable_shrinking: bool,
@@ -58,12 +58,12 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn from_configs(run_config: &RunConfig, node_config: &NodeConfig) -> Self {
+    pub fn from_configs(run_config: &RunConfig, node_config: &NodeTestConfig) -> Self {
         Self {
             number_of_tests: run_config.number_of_tests,
             number_of_upstream_peers: run_config.number_of_upstream_peers,
             number_of_downstream_peers: run_config.number_of_downstream_peers,
-            generated_chain_depth: node_config.chain_length as u64,
+            generated_chain_depth: node_config.chain_length,
             disable_shrinking: run_config.disable_shrinking,
             seed: Some(run_config.seed),
             persist_on_success: run_config.persist_on_success,

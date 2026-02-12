@@ -42,6 +42,8 @@ pub fn responder() -> Miniprotocol<ResponderState, ChainSyncResponder, Responder
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderMessage {
     NewTip(Tip),
+    RollForward(BlockHeader, Tip),
+    Rollback(Point, Tip),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -86,6 +88,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
             ResponderMessage::NewTip(tip) => {
+                tracing::trace!(%tip, "New tip");
                 self.upstream = tip;
                 let action = next_header(
                     *proto,
@@ -96,9 +99,26 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 .context("failed to get next header")?;
                 Ok((action, self))
             }
+            ResponderMessage::RollForward(block_header, tip) => {
+                tracing::trace!(point = %block_header.point(), %tip, "Rolled forward");
+                self.upstream = tip;
+                self.pointer = block_header.point();
+                Ok((
+                    Some(ResponderAction::RollForward(
+                        HeaderContent::v6(&block_header),
+                        tip,
+                    )),
+                    self,
+                ))
+            }
+            ResponderMessage::Rollback(point, tip) => {
+                tracing::trace!(%point, %tip, "Rolled back");
+                Ok((Some(ResponderAction::RollBackward(point, tip)), self))
+            }
         }
     }
 
+    #[instrument(name = "chainsync.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         proto: &ResponderState,
@@ -142,6 +162,7 @@ fn next_header(
     store: &dyn ReadOnlyChainStore<BlockHeader>,
     tip: Tip,
 ) -> anyhow::Result<Option<ResponderAction>> {
+    tracing::debug!(?pointer, ?tip, "getting next header");
     match state {
         ResponderState::CanAwait {
             send_rollback: true,
@@ -155,6 +176,7 @@ fn next_header(
         return Ok((matches!(state, ResponderState::CanAwait { .. }))
             .then_some(ResponderAction::AwaitReply));
     }
+
     if store.load_from_best_chain(pointer).is_none() {
         // client is on a different fork, we need to roll backward
         let header = store
@@ -190,10 +212,12 @@ fn intersect(
     if points.is_empty() {
         return Ok(ResponderAction::IntersectNotFound(tip));
     }
+
     points.sort_by_key(|p| Reverse(*p));
     let header = store
         .load_header(&tip.hash())
         .ok_or_else(|| anyhow::anyhow!("tip not found"))?;
+
     for header in store.ancestors(header) {
         let point = header.point();
         if points.contains(&point) {
@@ -221,6 +245,17 @@ pub enum ResponderResult {
     RequestNext,
     Done,
 }
+
+impl ResponderResult {
+    fn message_type(&self) -> &'static str {
+        match self {
+            ResponderResult::FindIntersect(_) => "FindIntersect",
+            ResponderResult::RequestNext => "RequestNext",
+            ResponderResult::Done => "Done",
+        }
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
 )]
@@ -242,7 +277,7 @@ impl ProtocolState<Responder> for ResponderState {
         Ok((outcome().want_next(), *self))
     }
 
-    #[instrument(name = "chainsync.responder", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(name = "chainsync.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,

@@ -34,7 +34,7 @@ use crate::{
     },
     sync::ChainSyncMessage,
 };
-use amaru::tests::configuration::NodeConfig;
+use amaru::tests::configuration::NodeTestConfig;
 use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions};
 use amaru_kernel::utils::string::ListToString;
 use anyhow::anyhow;
@@ -65,13 +65,13 @@ use tracing::{error, info};
 #[allow(clippy::too_many_arguments)]
 pub fn simulate<F>(
     run_config: &RunConfig,
-    node_config: &NodeConfig,
+    node_config: &NodeTestConfig,
     spawn: F,
     generator: impl Fn(RandStdRng) -> GeneratedEntries<ChainSyncMessage, GeneratedActions>,
     property: impl Fn(&History<ChainSyncMessage>, &GeneratedActions) -> Result<(), String>,
     display_test_stats: impl Fn(&GeneratedActions),
     trace_buffer: Arc<Mutex<TraceBuffer>>,
-    persist_on_success: bool,
+    _persist_on_success: bool,
 ) -> anyhow::Result<()>
 where
     F: Fn(String, RandStdRng) -> NodeHandle<ChainSyncMessage>,
@@ -88,12 +88,12 @@ where
     let test_run_dir = tests_dir.join(test_run_name);
     create_dir_all(&test_run_dir)?;
     create_symlink_dir(test_run_dir.as_path(), tests_dir.join("latest").as_path());
-    persist_args(
-        test_run_dir.as_path(),
-        run_config,
-        node_config,
-        persist_on_success,
-    )?;
+    // persist_args(
+    //     test_run_dir.as_path(),
+    //     run_config,
+    //     node_config,
+    //     persist_on_success,
+    // )?;
 
     for test_number in 1..=run_config.number_of_tests {
         trace_buffer.lock().clear();
@@ -139,9 +139,9 @@ where
                 Ok(())
             }
         };
-        let persist = persist_on_success || result.is_err();
+        let persist = result.is_err();
         persist_generated_data(&test_run_dir_n, &generated_entries, persist)?;
-        persist_traces(test_run_dir_n.as_path(), trace_buffer.clone(), persist)?;
+        // persist_traces(test_run_dir_n.as_path(), trace_buffer.clone(), persist)?;
         result?;
     }
 
@@ -241,7 +241,7 @@ where
     }
 }
 
-fn display_test_configuration(run_config: &RunConfig, node_config: &NodeConfig) {
+fn display_test_configuration(run_config: &RunConfig, node_config: &NodeTestConfig) {
     info!(number_of_tests=%run_config.number_of_tests,
           chain_length=%node_config.chain_length,
           number_of_upstream_peers=%run_config.number_of_upstream_peers,
@@ -280,7 +280,7 @@ fn create_failure_message<Msg: Debug>(
     )
 }
 
-fn persist_generated_data(
+pub fn persist_generated_data(
     test_run_dir_n: &Path,
     generated_entries: &GeneratedEntries<ChainSyncMessage, GeneratedActions>,
     persist: bool,
@@ -296,7 +296,7 @@ fn persist_generated_data(
     Ok(())
 }
 
-fn persist_traces(
+pub fn persist_traces(
     dir: &Path,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     persist: bool,
@@ -304,12 +304,13 @@ fn persist_traces(
     if !persist {
         return Ok(());
     }
+
     persist_traces_as_cbor(dir, trace_buffer.clone())?;
-    persist_traces_as_json(dir, trace_buffer.clone())?;
+    persist_traces_as_json(dir, trace_buffer)?;
     Ok(())
 }
 
-fn persist_traces_as_cbor(
+pub fn persist_traces_as_cbor(
     dir: &Path,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
 ) -> Result<(), anyhow::Error> {
@@ -325,16 +326,10 @@ fn persist_traces_as_cbor(
 }
 
 /// Persist the seed to .seed file where the filename is the seed value
-fn persist_args(
-    dir: &Path,
-    run_config: &RunConfig,
-    node_config: &NodeConfig,
-    persist: bool,
-) -> Result<(), anyhow::Error> {
+pub fn persist_args(dir: &Path, args: &Args, persist: bool) -> Result<(), anyhow::Error> {
     if !persist {
         return Ok(());
     }
-    let args = Args::from_configs(run_config, node_config);
     let path = dir.join("args.json");
     let mut file = File::create(&path)?;
     let serialized = serde_json::to_string_pretty(&args)?;
@@ -343,7 +338,7 @@ fn persist_args(
 }
 
 /// Persist the traces to a JSON file
-fn persist_traces_as_json(
+pub fn persist_traces_as_json(
     dir: &Path,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
 ) -> Result<(), anyhow::Error> {
@@ -360,7 +355,7 @@ fn persist_traces_as_json(
 }
 
 /// Persist the generated entries to a JSON file
-fn persist_generated_entries_as_json(
+pub fn persist_generated_entries_as_json(
     dir: &Path,
     generated_entries: &GeneratedEntries<ChainSyncMessage, GeneratedActions>,
 ) -> Result<(), anyhow::Error> {
@@ -370,7 +365,10 @@ fn persist_generated_entries_as_json(
 }
 
 /// Persist the generated actions to a JSON file
-fn persist_generated_actions_as_json(dir: &Path, actions: &[Action]) -> Result<(), anyhow::Error> {
+pub fn persist_generated_actions_as_json(
+    dir: &Path,
+    actions: &[Action],
+) -> Result<(), anyhow::Error> {
     let path = dir.join("actions.json");
     let all_lines: Vec<String> = actions.iter().map(|action| action.pretty_print()).collect();
     let mut file = File::create(&path)?;
@@ -379,7 +377,7 @@ fn persist_generated_actions_as_json(dir: &Path, actions: &[Action]) -> Result<(
 }
 
 /// Create a symlink to a directory
-fn create_symlink_dir(target: &Path, link: &Path) {
+pub fn create_symlink_dir(target: &Path, link: &Path) {
     // Clean up existing link or directory first
     if link.exists() {
         std::fs::remove_file(link)

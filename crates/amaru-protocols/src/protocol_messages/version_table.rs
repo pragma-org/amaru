@@ -17,6 +17,7 @@ use crate::protocol_messages::{
     version_number::VersionNumber,
 };
 use amaru_kernel::{NetworkMagic, cbor};
+use std::fmt::{Debug, Display};
 use std::{collections::BTreeMap, fmt};
 
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -105,6 +106,19 @@ impl VersionTable<VersionData> {
         .collect::<BTreeMap<VersionNumber, VersionData>>();
 
         VersionTable { values }
+    }
+}
+
+impl<T: Clone + Debug + Display> Display for VersionTable<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut entries = self
+            .values
+            .iter()
+            .map(|(version, data)| format!("{}: {}", version.as_u64(), data))
+            .collect::<Vec<String>>();
+
+        entries.sort();
+        write!(f, "{{{}}}", entries.join(", "))
     }
 }
 

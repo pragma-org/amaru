@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::simulator::simulate::{
+    create_symlink_dir, persist_args, persist_generated_actions_as_json, persist_traces,
+};
 use crate::{
     simulator::{
         Args, History, NodeHandle, RunConfig, generate::generate_entries, simulate::simulate,
@@ -19,8 +22,11 @@ use crate::{
     sync::ChainSyncMessage,
 };
 use amaru::stages::build_node::build_node;
-use amaru::tests::configuration::NodeConfig;
+use amaru::tests::configuration::NodeType::{DownstreamNode, NodeUnderTest, UpstreamNode};
+use amaru::tests::configuration::{NodeTestConfig, NodeType};
 use amaru::tests::in_memory_connection_provider::InMemoryConnectionProvider;
+use amaru::tests::setup::{Node, create_node, create_nodes, run_nodes};
+use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_consensus::{
     effects::{ResourceBlockValidation, ResourceHeaderValidation},
     headers_tree::data_generation::{Chain, GeneratedActions},
@@ -28,40 +34,240 @@ use amaru_consensus::{
 };
 use amaru_kernel::cardano::network_block::NETWORK_BLOCK;
 use amaru_kernel::{
-    BlockHeader, GlobalParameters, HeaderHash, IsHeader, Point, RawBlock, Transaction,
+    BlockHeader, GlobalParameters, HeaderHash, IsHeader, Peer, Point, RawBlock, Transaction,
     utils::string::{ListDebug, ListToString, ListsToString},
 };
 use amaru_ouroboros::{
     ChainStore, ConnectionsResource, Nonces, ReadOnlyChainStore, ResourceMempool, StoreError,
     can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},
+    get_best_chain_block_headers,
     in_memory_consensus_store::InMemConsensusStore,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
+use anyhow::anyhow;
 use delegate::delegate;
 use pure_stage::{
     Instant, StageGraph,
     simulation::{RandStdRng, SimulationBuilder},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
-use rand::SeedableRng;
-use rand::prelude::StdRng;
+use std::fs::create_dir_all;
+use std::iter::once;
+use std::time::SystemTime;
 use std::{sync::Arc, time::Duration};
 use tokio::runtime::Runtime;
-use tracing::info;
 
 /// Run the full simulation:
 ///
 /// * Create a simulation environment.
 /// * Run the simulation.
-pub fn run(args: Args) {
+pub fn run_test(run_config: &RunConfig) {
+    let actions = generate_actions(&run_config);
+    let mut rng = run_config.rng();
+    let mut nodes = create_nodes(&mut rng, node_configs(&run_config, &actions)).unwrap();
+    run_nodes(&mut rng, &mut nodes, 10000);
+}
+
+pub fn run_tests(args: Args) -> anyhow::Result<()> {
+    let run_config = RunConfig::from(args.clone());
+    tracing::info!(?run_config, "simulate.start");
+    let tests_dir = run_config.persist_directory.as_path();
+    if !tests_dir.exists() {
+        create_dir_all(tests_dir)?;
+    }
+
+    let now = SystemTime::now();
+    let test_run_name = format!("{}", now.duration_since(SystemTime::UNIX_EPOCH)?.as_secs());
+    let test_run_dir = tests_dir.join(test_run_name);
+    create_dir_all(&test_run_dir)?;
+    create_symlink_dir(test_run_dir.as_path(), tests_dir.join("latest").as_path());
+    persist_args(test_run_dir.as_path(), &args, args.persist_on_success)?;
+
+    for test_number in 1..=run_config.number_of_tests {
+        let test_run_dir_n = test_run_dir.join(format!("test-{}", test_number));
+        create_dir_all(&test_run_dir_n)?;
+        create_symlink_dir(
+            test_run_dir_n.as_path(),
+            test_run_dir_n.parent().unwrap().join("latest").as_path(),
+        );
+
+        tracing::info!(
+            test_number, total=%run_config.number_of_tests,
+            "simulate.generate_test_data"
+        );
+
+        let actions = generate_actions(&run_config);
+        let mut rng = run_config.rng();
+        let mut nodes = create_nodes(&mut rng, node_configs(&run_config, &actions)).unwrap();
+        run_nodes(&mut rng, &mut nodes, 10000);
+
+        let result = check_chain_property(&nodes, &actions);
+        let persist = run_config.persist_on_success || result.is_err();
+        persist_generated_actions_as_json(&test_run_dir_n, &actions.actions())?;
+        if let Some(node_under_test) = nodes
+            .iter()
+            .find(|node| node.config.node_type == NodeUnderTest)
+        {
+            persist_traces(
+                test_run_dir_n.as_path(),
+                node_under_test.config.trace_buffer.clone(),
+                persist,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<NodeTestConfig> {
+    let upstream_peers = run_config.upstream_peers();
+
+    let upstream_nodes = upstream_peers
+        .iter()
+        .map(|peer| {
+            NodeTestConfig::default()
+                .with_no_upstream_peers()
+                .with_listen_address(&peer.name)
+                .with_chain_length(run_config.generated_chain_depth)
+                .with_actions(get_peer_actions(actions, peer))
+                .with_validated_blocks(get_headers(actions, peer))
+                .with_node_type(UpstreamNode)
+        })
+        .collect::<Vec<_>>();
+
+    let listen_address = "127.0.0.1:3000";
+    let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
+    let node_under_test = NodeTestConfig::default()
+        .with_listen_address(listen_address)
+        .with_chain_length(run_config.generated_chain_depth)
+        .with_upstream_peers(upstream_peers)
+        .with_trace_buffer(trace_buffer)
+        .with_validated_blocks(vec![get_anchor(actions)])
+        .with_node_type(NodeUnderTest);
+
+    let downstream_nodes = run_config
+        .downstream_peers()
+        .iter()
+        .map(|peer| {
+            NodeTestConfig::default()
+                .with_listen_address(&peer.name)
+                .with_chain_length(run_config.generated_chain_depth)
+                .with_upstream_peer(Peer::new(listen_address))
+                .with_validated_blocks(vec![get_anchor(actions)])
+                .with_node_type(DownstreamNode)
+        })
+        .collect::<Vec<_>>();
+
+    upstream_nodes
+        .into_iter()
+        .chain(once(node_under_test))
+        .chain(downstream_nodes)
+        .collect()
+}
+
+fn get_peer_actions(actions: &GeneratedActions, peer: &Peer) -> Vec<Action> {
+    actions
+        .actions_per_peer()
+        .get(peer)
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect::<Vec<_>>()
+}
+
+fn get_headers(actions: &GeneratedActions, peer: &Peer) -> Vec<BlockHeader> {
+    get_peer_actions(actions, peer)
+        .into_iter()
+        .filter_map(|action| match action {
+            Action::RollForward { header, .. } => Some(header),
+            Action::Rollback { .. } => None,
+        })
+        .collect::<Vec<_>>()
+}
+
+fn get_anchor(actions: &GeneratedActions) -> BlockHeader {
+    actions.generated_tree().tree().value.clone()
+}
+
+fn generate_actions(run_config: &RunConfig) -> GeneratedActions {
+    let rng = run_config.rng();
+    generate_entries(
+        run_config.generated_chain_depth,
+        &run_config.upstream_peers(),
+        Instant::at_offset(Duration::from_secs(0)),
+        200.0,
+    )(rng)
+    .generation_context()
+    .clone()
+}
+
+/// Property: at the end of the simulation, the chain built from the history of messages received
+/// downstream must match one of the best chains built directly from messages coming from upstream peers.
+///
+/// TODO: at some point we should implement a deterministic tie breaker when multiple best chains exist
+/// based on the VRF key of the received headers.
+fn check_chain_property(
+    nodes: &[Node],
+    generated_actions: &GeneratedActions,
+) -> anyhow::Result<()> {
+    for node in nodes {
+        if node.config.node_type == NodeType::DownstreamNode {
+            tracing::info!(node_id = %node.config.listen_address, "checking chain property for downstream node");
+            let store = node.running.resources().get::<ResourceHeaderStore>()?;
+            let actual = get_best_chain_block_headers(store.clone());
+            tracing::info!(node_id = %node.config.listen_address, blocks_nb = %actual.len(), "retrieved the best dowstream block headers");
+
+            let generated_tree = generated_actions.generated_tree();
+            let best_chains = generated_tree.best_chains();
+
+            if !best_chains.contains(&actual) {
+                let actions_as_string: String = generated_actions
+                    .actions()
+                    .iter()
+                    .map(|action| action.pretty_print())
+                    .collect::<Vec<_>>()
+                    .list_to_string(",\n");
+
+                return Err(anyhow!(
+                    r#"
+                        The actual chain
+
+                        {}
+
+                        is not in the best chains
+
+                        {}
+
+                        The headers tree is
+                        {}
+
+                        The actions are
+
+                        {}
+                        "#,
+                    actual.list_to_string(",\n  "),
+                    best_chains.lists_to_string(",\n  ", ",\n  "),
+                    generated_actions.generated_tree().tree(),
+                    actions_as_string
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Run the full simulation:
+///
+/// * Create a simulation environment.
+/// * Run the simulation.
+pub fn run_old(args: Args) {
     let rt = Runtime::new().unwrap();
-    let rng = RandStdRng(StdRng::seed_from_u64(args.seed()));
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
     let connections = Arc::new(InMemoryConnectionProvider::default());
-    let node_config = NodeConfig::default()
-        .with_upstream_peer("peer-1")
-        .with_chain_length(args.generated_chain_depth as usize)
-        .with_eval_strategy(rng)
+    let node_config = NodeTestConfig::default()
+        .with_upstream_peer(Peer::new("peer-1"))
+        .with_chain_length(args.generated_chain_depth)
+        .with_seed(args.seed())
         .with_trace_buffer(trace_buffer.clone())
         .with_connections(connections);
 
@@ -82,7 +288,7 @@ pub fn run(args: Args) {
         spawn,
         generate_entries(
             node_config.chain_length,
-            node_config.upstream_peers.len(),
+            &node_config.upstream_peers(),
             Instant::at_offset(Duration::from_secs(0)),
             200.0,
         ),
@@ -97,10 +303,10 @@ pub fn run(args: Args) {
 /// Create and start a node
 pub fn spawn_node(
     node_id: String,
-    node_config: NodeConfig,
+    node_config: NodeTestConfig,
     stage_graph: &mut impl StageGraph,
 ) -> anyhow::Result<()> {
-    info!(node_id, "node.spawn");
+    tracing::info!(node_id, "node.spawn");
 
     let config = node_config.make_node_configuration();
     let global_parameters: &GlobalParameters = config.network.into();
@@ -185,7 +391,7 @@ The actions are
 /// Generate statistics from actions and log them.
 fn display_entries_statistics(generated_actions: &GeneratedActions) {
     let statistics = generated_actions.statistics();
-    info!(tree_depth=%statistics.tree_depth,
+    tracing::info!(tree_depth=%statistics.tree_depth,
           tree_nodes=%statistics.number_of_nodes,
           tree_forks=%statistics.number_of_fork_nodes,
           "simulate.generate_test_data.statistics");
@@ -231,14 +437,15 @@ fn make_best_chain_from_downstream_messages(
 
 /// Replay a previous simulation run:
 pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
-    let node_config = NodeConfig::default()
-        .with_chain_length(args.generated_chain_depth as usize)
+    let node_config = NodeTestConfig::default()
+        .with_chain_length(args.generated_chain_depth)
         .with_seed(
             args.seed
                 .expect("there must be a seed to replay a simulation"),
         );
+
     let mut stage_graph = SimulationBuilder::default();
-    let _ = spawn_node("n1".to_string(), node_config, &mut stage_graph);
+    let _ = create_node(&node_config, &mut stage_graph)?;
     stage_graph
         .resources()
         .put::<ResourceHeaderStore>(Arc::new(ReplayStore::default()));

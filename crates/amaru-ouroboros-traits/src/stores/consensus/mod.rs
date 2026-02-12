@@ -223,3 +223,18 @@ pub fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, B
         })
         .collect()
 }
+
+/// Retrieve all blocks headers from the chain store starting from oldest to most recent.
+#[cfg(feature = "test-utils")]
+#[expect(clippy::expect_used)]
+pub fn get_best_chain_block_headers(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
+    store
+        .retrieve_best_chain()
+        .iter()
+        .map(|h| {
+            store
+                .load_header(h)
+                .expect("missing header for the best chain")
+        })
+        .collect()
+}
