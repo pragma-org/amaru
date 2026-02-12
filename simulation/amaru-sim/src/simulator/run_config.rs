@@ -77,7 +77,7 @@ impl RunConfig {
     }
 
     pub fn disable_shrinking(mut self) -> Self {
-        self.enable_shrinking = true;
+        self.enable_shrinking = false;
         self
     }
 

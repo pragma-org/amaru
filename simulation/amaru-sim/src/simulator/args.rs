@@ -98,7 +98,7 @@ pub fn make_args() -> Args {
             run_config.number_of_downstream_peers,
         ),
         generated_chain_depth: get_env_var("AMARU_GENERATED_CHAIN_DEPTH", node_config.chain_length),
-        enable_shrinking: is_true_or("AMARU_DISABLE_SHRINKING", run_config.enable_shrinking),
+        enable_shrinking: is_true_or("AMARU_ENABLE_SHRINKING", run_config.enable_shrinking),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true_or("AMARU_PERSIST_ON_SUCCESS", run_config.persist_on_success),
         persist_directory: get_env_var(

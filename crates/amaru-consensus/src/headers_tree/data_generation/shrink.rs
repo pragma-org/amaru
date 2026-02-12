@@ -71,7 +71,7 @@ pub fn shrink<A: Shrinkable + Debug + Clone, B: Debug>(
 }
 
 pub trait Shrinkable {
-    fn complement(&self, to: usize, from: usize) -> Self
+    fn complement(&self, from: usize, to: usize) -> Self
     where
         Self: Sized;
 

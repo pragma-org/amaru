@@ -22,18 +22,15 @@ use amaru_consensus::stages::pull::SyncTracker;
 use amaru_consensus::stages::select_chain::SelectChain;
 use amaru_consensus::stages::validate_header::ValidateHeader;
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, GlobalParameters, HeaderHash, ORIGIN_HASH, Peer, Tip,
-    Transaction,
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, ORIGIN_HASH, Peer,
+    Tip, Transaction,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros_traits::{
-    ChainStore, ConnectionsResource, HasStakeDistribution, ResourceMempool,
-};
+use amaru_ouroboros::{ChainStore, ConnectionsResource, HasStakeDistribution, ResourceMempool};
 use amaru_protocols::manager::{Manager, ManagerConfig, ManagerMessage};
 use amaru_protocols::store_effects::{ResourceHeaderStore, ResourceParameters};
-use amaru_slot_arithmetic::EraHistory;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use anyhow::{Context, anyhow};
 use opentelemetry::metrics::MeterProvider;

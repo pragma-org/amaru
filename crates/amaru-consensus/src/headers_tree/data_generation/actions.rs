@@ -39,12 +39,11 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, make_header,
+    BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, Slot, make_header,
     size::HEADER,
     utils::string::{ListToString, ListsToString},
 };
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
-use amaru_slot_arithmetic::Slot;
 use hex::FromHexError;
 use proptest::prelude::Strategy;
 use rand::{Rng, SeedableRng, prelude::SmallRng};
@@ -379,6 +378,18 @@ pub struct GeneratedActions {
 }
 
 impl GeneratedActions {
+    pub fn set_actions(&mut self, actions: Vec<Action>) {
+        let actions_per_peer = actions
+            .into_iter()
+            .fold(BTreeMap::new(), |mut acc, action| {
+                acc.entry(action.peer().clone())
+                    .or_insert_with(Vec::new)
+                    .push(action);
+                acc
+            });
+        self.actions_per_peer = actions_per_peer;
+    }
+
     pub fn generated_tree(&self) -> &GeneratedTree {
         &self.tree
     }
@@ -525,14 +536,14 @@ impl Shrinkable for GeneratedActions {
     {
         let mut complement: Vec<Action> = Vec::new();
         let actions = self.actions();
+
         complement.extend_from_slice(&actions[..to]);
         if from < self.len() {
             complement.extend_from_slice(&actions[from..]);
         };
-        GeneratedActions {
-            tree: self.tree.clone(),
-            actions_per_peer: self.actions_per_peer.clone(),
-        }
+        let mut generated_actions = self.clone();
+        generated_actions.set_actions(complement);
+        generated_actions
     }
 
     fn len(&self) -> usize {

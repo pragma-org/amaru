@@ -18,10 +18,8 @@ use crate::tests::in_memory_connection_provider::InMemoryConnectionProvider;
 use amaru_consensus::effects::{ResourceBlockValidation, ResourceHeaderValidation};
 use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, Tip, Transaction};
-use amaru_ouroboros_traits::can_validate_blocks::mock::{
-    MockCanValidateBlocks, MockCanValidateHeaders,
-};
-use amaru_ouroboros_traits::{ChainStore, ConnectionsResource, ResourceMempool};
+use amaru_ouroboros::can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders};
+use amaru_ouroboros::{ChainStore, ConnectionsResource, ResourceMempool};
 use amaru_protocols::manager::ManagerMessage;
 use amaru_protocols::store_effects::Store;
 use futures_util::FutureExt;

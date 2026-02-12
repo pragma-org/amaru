@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::*;
-use crate::{EraHistory, BlockHeader, IsHeader, any_header};
+use crate::{BlockHeader, EraHistory, IsHeader, any_header};
 use proptest::prelude::*;
 
 /// Create a network block with the correct era tag based on the header's slot and era history.
@@ -24,7 +24,7 @@ pub fn make_network_block(header: &BlockHeader, era_history: &EraHistory) -> Net
         .slot_to_era_tag(header.slot())
         .expect("slot should be in the era history");
     NetworkBlock {
-        era_tag: EraName::Conway,
+        era_tag,
         encoded_block: to_cbor(&block),
     }
 }

@@ -31,17 +31,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-/// Run the full simulation:
-///
-/// * Create a simulation environment.
-/// * Run the simulation.
-pub fn run_test(run_config: &RunConfig) {
-    let actions = generate_actions(run_config);
-    let mut rng = run_config.rng();
-    let mut nodes = create_nodes(&mut rng, node_configs(run_config, &actions)).unwrap();
-    run_nodes(&mut rng, &mut nodes, 10000);
-}
-
 pub fn run_tests(args: Args) -> anyhow::Result<()> {
     let run_config = RunConfig::from(args.clone());
     tracing::info!(?run_config, "simulate.start");
@@ -120,7 +109,7 @@ pub fn shrink_test(
     test_result: &mut TestResult,
 ) {
     if run_config.enable_shrinking {
-        let (mut test_result, _shrunk_actions, number_of_shrinks) = shrink(
+        let (_, _shrunk_actions, number_of_shrinks) = shrink(
             &run_test,
             &test_result.generated_actions(),
             |test_result: &TestResult| test_result.is_err(),

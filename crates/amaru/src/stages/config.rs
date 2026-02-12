@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{BlockHeader, NetworkMagic, NetworkName};
-use amaru_ouroboros_traits::ChainStore;
+use amaru_ouroboros::ChainStore;
 use amaru_stores::in_memory::MemoryStore;
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::Context;

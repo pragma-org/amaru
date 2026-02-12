@@ -12,28 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Args;
+use crate::simulator::{Args, RunConfig, generate_entries};
 use amaru::tests::configuration::NodeTestConfig;
 use amaru::tests::setup::create_node;
+use amaru_consensus::headers_tree::data_generation::GeneratedActions;
 use amaru_kernel::cardano::network_block::NETWORK_BLOCK;
 use amaru_kernel::{BlockHeader, HeaderHash, Point, RawBlock};
 use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use delegate::delegate;
+use pure_stage::Instant;
 use pure_stage::StageGraph;
 use pure_stage::simulation::SimulationBuilder;
 use pure_stage::trace_buffer::TraceEntry;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Replay a previous simulation run:
 pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
+    let run_config = RunConfig::from(args.clone());
+    let actions = generate_actions(&run_config);
+    let anchor = get_anchor(&actions);
+
     let node_config = NodeTestConfig::default()
         .with_chain_length(args.generated_chain_depth)
         .with_seed(
             args.seed
                 .expect("there must be a seed to replay a simulation"),
-        );
+        )
+        .with_upstream_peers(run_config.upstream_peers())
+        .with_validated_blocks(vec![anchor]);
 
     let mut stage_graph = SimulationBuilder::default();
     let _ = create_node(&node_config, &mut stage_graph)?;
@@ -42,6 +51,22 @@ pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
         .put::<ResourceHeaderStore>(Arc::new(ReplayStore::default()));
     let mut replay = stage_graph.replay();
     replay.run_trace(traces)
+}
+
+fn generate_actions(run_config: &RunConfig) -> GeneratedActions {
+    let rng = run_config.rng();
+    generate_entries(
+        run_config.generated_chain_depth,
+        &run_config.upstream_peers(),
+        Instant::at_offset(Duration::from_secs(0)),
+        200.0,
+    )(rng)
+    .generation_context()
+    .clone()
+}
+
+fn get_anchor(actions: &GeneratedActions) -> BlockHeader {
+    actions.generated_tree().tree().value.clone()
 }
 
 #[derive(Clone, Default)]
