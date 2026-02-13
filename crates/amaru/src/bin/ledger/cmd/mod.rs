@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::stages::Config;
+use amaru::stages::config::Config;
 use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_plutus::arena_pool::ArenaPool;

@@ -24,6 +24,19 @@ pub enum Message {
     BatchDone,
 }
 
+impl Message {
+    pub fn message_type(&self) -> &str {
+        match self {
+            Message::RequestRange { .. } => "RequestRange",
+            Message::ClientDone => "ClientDone",
+            Message::StartBatch => "StartBatch",
+            Message::NoBlocks => "NoBlocks",
+            Message::Block { .. } => "Block",
+            Message::BatchDone => "BatchDone",
+        }
+    }
+}
+
 impl cbor::Encode<()> for Message {
     fn encode<W: cbor::encode::Write>(
         &self,

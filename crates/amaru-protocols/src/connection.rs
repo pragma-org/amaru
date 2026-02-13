@@ -36,6 +36,7 @@ use amaru_kernel::{EraHistory, NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
 use pure_stage::{Effects, StageRef, Void};
 use std::sync::Arc;
+use tracing::instrument;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Connection {
@@ -119,9 +120,23 @@ pub enum ConnectionMessage {
         through: Point,
         cr: StageRef<Blocks>,
     },
+    NewTip(Tip),
     // LATER: make full duplex, etc.
 }
 
+impl ConnectionMessage {
+    fn message_type(&self) -> &'static str {
+        match self {
+            ConnectionMessage::Initialize => "Initialize",
+            ConnectionMessage::Disconnect => "Disconnect",
+            ConnectionMessage::Handshake(_) => "Handshake",
+            ConnectionMessage::FetchBlocks { .. } => "FetchBlocks",
+            ConnectionMessage::NewTip(_) => "NewTip",
+        }
+    }
+}
+
+#[instrument(name = "connection", skip_all, fields(message_type = msg.message_type(), conn_id = %params.conn_id, peer = %params.peer, role = ?params.role))]
 pub async fn stage(
     Connection { params, state }: Connection,
     msg: ConnectionMessage,
@@ -147,6 +162,18 @@ pub async fn stage(
                 BlockFetchMessage::RequestRange { from, through, cr },
             )
             .await;
+            State::Initiator(s)
+        }
+        (State::Responder(s), ConnectionMessage::NewTip(tip)) => {
+            eff.send(
+                &s.chainsync_responder,
+                chainsync::ResponderMessage::NewTip(tip),
+            )
+            .await;
+            State::Responder(s)
+        }
+        (State::Initiator(s), ConnectionMessage::NewTip(_)) => {
+            // don't propagate new tip / roll forward / rollback messages when using the initiator side of a connection.
             State::Initiator(s)
         }
         x => unimplemented!("{x:?}"),

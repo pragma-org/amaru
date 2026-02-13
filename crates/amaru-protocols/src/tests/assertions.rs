@@ -14,10 +14,9 @@
 
 use crate::store_effects::ResourceHeaderStore;
 use crate::tests::configuration::get_tx_ids;
-use amaru_kernel::cardano::network_block::NetworkBlock;
+use amaru_kernel::Transaction;
 use amaru_kernel::utils::string::ListToString;
-use amaru_kernel::{Block, BlockHeader, HeaderHash, Transaction};
-use amaru_ouroboros_traits::{ChainStore, ResourceMempool};
+use amaru_ouroboros_traits::{ResourceMempool, get_blocks};
 use pure_stage::tokio::TokioRunning;
 use std::sync::Arc;
 use std::time::Duration;
@@ -91,25 +90,4 @@ pub(super) fn check_state(initiator: TokioRunning, responder: TokioRunning) -> a
         initiator_mempool.get_txs_for_ids(tx_ids.as_slice())
     );
     Ok(())
-}
-
-/// Retrieve all blocks from the chain store starting from the best chain tip down to the root.
-pub(super) fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, Block)> {
-    store
-        .retrieve_best_chain()
-        .iter()
-        .map(|h| {
-            let b = store
-                .load_block(h)
-                .unwrap()
-                .expect("missing block for best-chain header");
-            (
-                *h,
-                NetworkBlock::try_from(b)
-                    .expect("failed to decode raw block")
-                    .decode_block()
-                    .expect("failed to decode block"),
-            )
-        })
-        .collect()
 }

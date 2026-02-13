@@ -3,21 +3,6 @@
 version = 4
 
 [[package]]
-name = "acto"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "148541f13c28e3e840354ee4d6c99046c10be2c81068bbd23b9e3a38f95a917e"
-dependencies = [
- "parking_lot",
- "pin-project-lite",
- "rustc_version",
- "smol_str",
- "sync_wrapper",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -73,7 +58,6 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 name = "amaru"
 version = "0.1.0"
 dependencies = [
- "acto",
  "amaru-consensus",
  "amaru-iter-borrow",
  "amaru-kernel",
@@ -107,9 +91,8 @@ dependencies = [
  "opentelemetry_sdk",
  "pallas-hardano",
  "pallas-network",
- "proptest",
+ "parking_lot",
  "pure-stage",
- "rand 0.9.2",
  "rayon",
  "reqwest",
  "rlimit",
@@ -140,7 +123,6 @@ dependencies = [
  "amaru-protocols",
  "amaru-stores",
  "anyhow",
- "async-trait",
  "hex",
  "itertools 0.14.0",
  "opentelemetry",
@@ -305,6 +287,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "hex",
+ "parking_lot",
  "rand 0.9.2",
  "serde",
  "thiserror 2.0.17",
@@ -374,6 +357,7 @@ dependencies = [
  "async-trait",
  "cbor4ii",
  "clap",
+ "delegate",
  "futures-util",
  "hex",
  "pallas-crypto",
@@ -413,6 +397,7 @@ version = "0.1.0"
 dependencies = [
  "assert-json-diff",
  "hex",
+ "pretty_assertions",
  "serde_json",
  "tracing",
  "tracing-subscriber",
@@ -1298,6 +1283,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
 dependencies = [
  "uuid",
+]
+
+[[package]]
+name = "delegate"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "780eb241654bf097afb00fc5f054a09b687dad862e485fdcf8399bb056565370"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -4065,12 +4061,6 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
-
-[[package]]
-name = "smol_str"
-version = "0.1.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fad6c857cbab2627dcf01ec85a623ca4e7dcb5691cbaa3d7fb7653671f0d09c9"
 
 [[package]]
 name = "socket2"

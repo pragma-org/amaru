@@ -11,5 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![recursion_limit = "256"]
 
-pub mod forward_chain;
+use amaru_sim::simulator::{initialize_logs, make_args, run_tests};
+
+/// Run the simulator with arguments from environment variables.
+#[test]
+pub fn run_simulator() {
+    initialize_logs();
+    run_tests(make_args()).unwrap();
+}

@@ -25,6 +25,7 @@ use crate::{
 };
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use std::time::Duration;
+use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -86,6 +87,7 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         }
     }
 
+    #[instrument(name = "keepalive.initiator.stage", skip_all, fields(cookie = input.cookie.as_u16()))]
     async fn network(
         mut self,
         _proto: &State,
@@ -127,6 +129,7 @@ impl ProtocolState<Initiator> for State {
         ))
     }
 
+    #[instrument(name = "keepalive.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,

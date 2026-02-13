@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::cbor;
+use std::fmt::{Display, Formatter};
 use std::{env, num::ParseIntError};
 
 #[derive(
@@ -52,6 +53,18 @@ impl NetworkMagic {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(Self::MAINNET)
+    }
+}
+
+impl Display for NetworkMagic {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::TESTNET => write!(f, "testnet"),
+            Self::MAINNET => write!(f, "mainnet"),
+            Self::PREVIEW => write!(f, "preview"),
+            Self::PREPROD => write!(f, "preprod"),
+            _ => self.0.fmt(f),
+        }
     }
 }
 

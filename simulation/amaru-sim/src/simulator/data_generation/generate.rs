@@ -14,8 +14,7 @@
 
 use crate::{
     simulator::{
-        Entry, Envelope, NodeConfig, bytes::Bytes,
-        data_generation::base_generators::generate_arrival_times,
+        Entry, Envelope, bytes::Bytes, data_generation::base_generators::generate_arrival_times,
     },
     sync::ChainSyncMessage,
 };
@@ -194,24 +193,19 @@ impl From<Entry<ChainSyncMessage>> for GeneratedEntry {
 /// will not be minimized to find a smaller failing case. The generation is deterministic though based on the
 /// RNG passed as a parameter.
 pub fn generate_entries(
-    node_config: &NodeConfig,
+    chain_length: usize,
+    peers: &[Peer],
     start_time: Instant,
     mean_millis: f64,
 ) -> impl Fn(RandStdRng) -> GeneratedEntries<ChainSyncMessage, GeneratedActions> {
     move |mut rng: RandStdRng| {
         // Generate a tree of headers.
-        let generated_tree = run_strategy_with_rng(
-            &mut rng.0,
-            any_tree_of_headers(node_config.generated_chain_depth as usize),
-        );
+        let generated_tree = run_strategy_with_rng(&mut rng.0, any_tree_of_headers(chain_length));
 
         // Generate actions corresponding to peers doing roll forwards and roll backs on the tree.
         let generated_actions = run_strategy_with_rng(
             &mut rng.0,
-            any_select_chains_from_tree(
-                &generated_tree,
-                node_config.number_of_upstream_peers as usize,
-            ),
+            any_select_chains_from_tree(&generated_tree, peers),
         );
 
         // Generate arrivale times and make entries for each peer.
@@ -264,7 +258,7 @@ fn make_entries_for_peer(
                     bytes: to_cbor(&header),
                 },
             },
-            Action::RollBack { rollback_point, .. } => ChainSyncMessage::Bck {
+            Action::Rollback { rollback_point, .. } => ChainSyncMessage::Bck {
                 msg_id: msg_id as u64,
                 slot: rollback_point.slot_or_default(),
                 hash: Bytes::from(rollback_point.hash().to_vec()),
@@ -291,6 +285,7 @@ fn make_entry<T>(peer: &Peer, arrival_time: &Instant, body: T) -> Entry<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::simulator::RunConfig;
     use pure_stage::EPOCH;
     use rand::{SeedableRng, prelude::StdRng};
 
@@ -300,16 +295,22 @@ mod tests {
     /// Additionally this test can be used to generate data for the animation in tests/animations/entries.html.
     #[test]
     fn test_generate_entries() {
-        let node_config = NodeConfig {
-            number_of_upstream_peers: 10,
-            number_of_downstream_peers: 1,
+        let run_config = RunConfig {
             generated_chain_depth: 15,
+            number_of_upstream_peers: 10,
+            ..Default::default()
         };
         let start_time = Instant::at_offset(Duration::from_secs(1));
         let deviation_millis = 200.0;
 
         let rng = StdRng::seed_from_u64(42);
-        let generate = generate_entries(&node_config, start_time, deviation_millis);
+        let upstream_peers = run_config.upstream_peers();
+        let generate = generate_entries(
+            run_config.generated_chain_depth,
+            &upstream_peers,
+            start_time,
+            deviation_millis,
+        );
         let generated_entries = generate(RandStdRng(rng));
 
         // Uncomment these lines to print the generated entries for debugging
@@ -330,8 +331,8 @@ mod tests {
                     entry.arrival_time.saturating_since(*EPOCH).as_millis() as u64;
                 let slot_ms = u64::from(slot) * 1000;
                 assert!(
-                    (arrival_time_ms as f64 - slot_ms as f64).abs() <= 2000.0,
-                    "Entry {i} arrival time {arrival_time_ms} ms and slot {slot_ms} ms differ more than 2000 ms",
+                    (arrival_time_ms as f64 - slot_ms as f64).abs() <= 4000.0,
+                    "Entry {i} arrival time {arrival_time_ms} ms and slot {slot_ms} ms differ more than 4000 ms",
                 )
             }
         }

@@ -13,19 +13,24 @@
 // limitations under the License.
 
 use crate::{
-    effects::{BaseOps, ConsensusOps, NetworkOps},
+    effects::{BaseOps, ConsensusOps},
     errors::{ProcessingFailed, ValidationFailed},
     events::BlockValidationResult,
     span::HasSpan,
 };
 use amaru_kernel::{IsHeader, Tip};
-use anyhow::anyhow;
+use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
 use tracing::{Instrument, error, trace};
 
 pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 
-type State = (Tip, StageRef<ValidationFailed>, StageRef<ProcessingFailed>);
+type State = (
+    Tip,
+    StageRef<ManagerMessage>,
+    StageRef<ValidationFailed>,
+    StageRef<ProcessingFailed>,
+);
 
 /// The forward chain stage forwards the headers of validated blocks to downstream peers, via the
 /// `ForwardEventEffect`. The current node tip is maintained in order to double check that the header
@@ -37,9 +42,9 @@ pub fn stage(
 ) -> impl Future<Output = State> {
     let span = tracing::trace_span!(parent: msg.span(), "diffusion.forward_chain");
     async move {
-        let (mut our_tip, validation_errors, processing_errors) = state;
+        let (mut our_tip, manager, validation_errors, processing_errors) = state;
         match msg {
-            BlockValidationResult::BlockValidated { peer, header, .. } => {
+            BlockValidationResult::BlockValidated { header, .. } => {
                 // assert that the new tip is a direct successor of the old tip
                 assert_eq!(header.block_height(), our_tip.block_height() + 1);
                 match header.parent() {
@@ -53,25 +58,12 @@ pub fn stage(
                     "diffusion.forward_chain.new_tip"
                 );
 
-                if let Err(e) = eff
-                    .network()
-                    .send_forward_event(peer.clone(), header.clone())
-                    .await
-                {
-                    error!(
-                        target: EVENT_TARGET,
-                        %e,
-                        "diffusion.forward_chain.propagation.failed"
-                    );
-                    eff.base()
-                        .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
-                        .await
-                }
+                eff.base()
+                    .send(&manager, ManagerMessage::NewTip(our_tip))
+                    .await;
             }
             BlockValidationResult::RolledBackTo {
-                peer,
-                rollback_header,
-                ..
+                rollback_header, ..
             } => {
                 trace!(
                     target: EVENT_TARGET,
@@ -80,20 +72,9 @@ pub fn stage(
                 );
 
                 our_tip = rollback_header.tip();
-                if let Err(e) = eff
-                    .network()
-                    .send_backward_event(peer.clone(), rollback_header.tip())
-                    .await
-                {
-                    error!(
-                        target: EVENT_TARGET,
-                        %e,
-                        "diffusion.forward_chain.rollback_failed"
-                    );
-                    eff.base()
-                        .send(&processing_errors, ProcessingFailed::new(&peer, anyhow!(e)))
-                        .await
-                }
+                eff.base()
+                    .send(&manager, ManagerMessage::NewTip(our_tip))
+                    .await;
             }
             BlockValidationResult::BlockValidationFailed { point, .. } => {
                 error!(
@@ -103,7 +84,7 @@ pub fn stage(
                 );
             }
         }
-        (our_tip, validation_errors, processing_errors)
+        (our_tip, manager, validation_errors, processing_errors)
     }
     .instrument(span)
 }

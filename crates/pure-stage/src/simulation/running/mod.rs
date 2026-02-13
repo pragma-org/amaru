@@ -312,7 +312,7 @@ impl SimulationRunning {
     pub fn try_effect(&mut self) -> Result<Effect, Blocked> {
         if self.runnable.is_empty() {
             let reason = block_reason(self);
-            tracing::debug!("blocking for reason: {:?}", reason);
+            tracing::trace!("blocking for reason: {:?}", reason);
             return Err(reason);
         }
         let (name, response) = self.eval_strategy.pick_runnable(&mut self.runnable);
@@ -485,6 +485,18 @@ impl SimulationRunning {
         }
     }
 
+    /// Run until sleeping or blocked, and if sleeping, skip to the next wakeup.
+    /// Return true if the simulation is terminated, false otherwise.
+    pub fn run_or_terminated(&mut self) -> bool {
+        if self.is_terminated() {
+            return true;
+        }
+        if let Blocked::Sleeping { .. } = self.run_until_sleeping_or_blocked() {
+            self.skip_to_next_wakeup(None);
+        }
+        false
+    }
+
     // TODO: shouldn’t this have a clock ceiling?
     pub fn run_one_step(&mut self, rt: &Handle) -> Option<Blocked> {
         self.receive_inputs();
@@ -501,7 +513,11 @@ impl SimulationRunning {
         }
     }
 
-    fn receive_inputs(&mut self) {
+    /// Process external inputs and wake up stages that are waiting for receive effects.
+    ///
+    /// This is useful when messages have been enqueued via [`Self::enqueue_msg`] and stages
+    /// need to be made runnable to process them.
+    pub fn receive_inputs(&mut self) {
         self.try_inputs();
         let receiving = self
             .stages

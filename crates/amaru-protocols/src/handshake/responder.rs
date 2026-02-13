@@ -27,6 +27,7 @@ use crate::{
     },
 };
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<HandshakeResponder>().boxed()]
@@ -72,6 +73,7 @@ impl StageState<State, Responder> for HandshakeResponder {
         match input {}
     }
 
+    #[instrument(name = "handshake.responder.stage", skip_all, fields(version_table = %input.0))]
     async fn network(
         self,
         _proto: &State,
@@ -102,6 +104,7 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), Self::Propose))
     }
 
+    #[instrument(name = "handshake.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,

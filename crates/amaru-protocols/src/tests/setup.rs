@@ -20,7 +20,7 @@ use amaru_ouroboros_traits::can_validate_blocks::mock::{
     MockCanValidateBlocks, MockCanValidateHeaders,
 };
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, ChainStore, ConnectionResource, Mempool, ResourceMempool,
+    CanValidateBlocks, ChainStore, ConnectionsResource, Mempool, ResourceMempool,
 };
 use pure_stage::StageGraph;
 use pure_stage::tokio::TokioBuilder;
@@ -71,7 +71,7 @@ pub(super) fn set_resources(
         .put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
     network
         .resources()
-        .put::<ConnectionResource>(Arc::new(connections));
+        .put::<ConnectionsResource>(Arc::new(connections));
     network
         .resources()
         .put::<ResourceMempool<Transaction>>(mempool);

@@ -722,6 +722,20 @@ pub mod test {
     }
 
     #[test]
+    fn load_root_from_best_chain() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            let root = run_strategy(any_header_with_parent(chain[0].hash()));
+
+            store
+                .roll_forward_chain(&root.point())
+                .expect("should roll forward successfully");
+
+            assert_eq!(store.load_from_best_chain(&root.point()), Some(root.hash()));
+        });
+    }
+
+    #[test]
     fn update_best_chain_to_block_slot_given_new_block_is_valid() {
         with_db(|store| {
             let chain = populate_db(store.clone());

@@ -14,6 +14,7 @@
 
 use crate::protocol_messages::version_number::VersionNumber;
 use amaru_kernel::{NetworkMagic, cbor};
+use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct VersionData {
@@ -40,6 +41,16 @@ impl VersionData {
             peer_sharing,
             query,
         }
+    }
+}
+
+impl Display for VersionData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{ network_magic: {}, initiator_only_diffusion_mode: {}, peer_sharing: {}, query: {} }}",
+            self.network_magic, self.initiator_only_diffusion_mode, self.peer_sharing, self.query
+        )
     }
 }
 

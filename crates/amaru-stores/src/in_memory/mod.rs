@@ -80,6 +80,12 @@ impl MemoryStore {
             era_history,
         }
     }
+
+    /// Set the tip of the store. This is useful for tests where we need to
+    /// align the ledger store tip with a pre-populated chain store.
+    pub fn set_tip(&self, tip: Point) {
+        *self.tip.borrow_mut() = Some(tip);
+    }
 }
 
 // TODO: Implement Snapshot on MemoryStore (Currently returns hard-coded epoch 10)

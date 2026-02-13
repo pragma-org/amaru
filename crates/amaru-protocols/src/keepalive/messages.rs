@@ -33,6 +33,10 @@ impl Cookie {
     pub fn next(self) -> Self {
         Self(self.0.wrapping_add(1))
     }
+
+    pub fn as_u16(self) -> u16 {
+        self.0
+    }
 }
 
 impl From<u16> for Cookie {
@@ -71,6 +75,16 @@ pub enum Message {
     KeepAlive(Cookie),
     ResponseKeepAlive(Cookie),
     Done,
+}
+
+impl Message {
+    pub fn message_type(&self) -> &str {
+        match self {
+            Message::KeepAlive(_) => "KeepAlive",
+            Message::ResponseKeepAlive(_) => "ResponseKeepAlive",
+            Message::Done => "Done",
+        }
+    }
 }
 
 impl<T> cbor::Encode<T> for Message {

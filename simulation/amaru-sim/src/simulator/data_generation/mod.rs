@@ -14,8 +14,6 @@
 
 pub mod base_generators;
 pub mod generate;
-pub mod shrink;
 
 pub use base_generators::*;
 pub use generate::*;
-pub use shrink::*;

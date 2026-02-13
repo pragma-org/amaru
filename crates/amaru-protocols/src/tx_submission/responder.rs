@@ -30,6 +30,7 @@ use std::{
     collections::{BTreeSet, VecDeque},
     fmt::Display,
 };
+use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<TxSubmissionResponder>().boxed()]
@@ -51,6 +52,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         match input {}
     }
 
+    #[instrument(name = "tx_submission.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &State,
@@ -89,6 +91,7 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
+    #[instrument(name = "tx_submission.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(
         &self,
         input: Self::WireMsg,
@@ -148,6 +151,17 @@ pub enum ResponderResult {
     ReplyTxIds(Vec<(TxId, u32)>),
     ReplyTxs(Vec<Transaction>),
     Done,
+}
+
+impl ResponderResult {
+    pub fn message_type(&self) -> &str {
+        match self {
+            ResponderResult::Init => "Init",
+            ResponderResult::ReplyTxIds(_) => "ReplyTxIds",
+            ResponderResult::ReplyTxs(_) => "ReplyTxs",
+            ResponderResult::Done => "Done",
+        }
+    }
 }
 
 impl Display for ResponderResult {

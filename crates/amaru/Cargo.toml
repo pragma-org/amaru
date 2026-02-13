@@ -25,7 +25,6 @@ path = "src/bin/ledger/main.rs"
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
-acto.workspace = true
 anyhow.workspace = true
 async-compression.workspace = true
 async-trait.workspace = true
@@ -44,6 +43,7 @@ opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
 pallas-hardano.workspace = true
 pallas-network.workspace = true
+parking_lot.workspace = true
 rayon.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -64,14 +64,13 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru-consensus = { workspace = true, features = [] }
+amaru-consensus = { workspace = true, features = ["test-utils"] }
 amaru-kernel = { workspace = true, features = ["tracing"] }
 amaru-ledger.workspace = true
 amaru-mempool.workspace = true
 amaru-network.workspace = true
 amaru-stores.workspace = true
 amaru-ouroboros.workspace = true
-amaru-ouroboros-traits.workspace = true
 amaru-plutus.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-protocols.workspace = true
@@ -88,8 +87,7 @@ mithril = ["dep:mithril-client"]
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 insta = { workspace = true, features = ["json"] }
-proptest.workspace = true
-rand.workspace = true
+amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 tempfile.workspace = true
 test-case.workspace = true
 rocksdb.workspace = true

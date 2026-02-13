@@ -15,7 +15,9 @@
 pub mod actions;
 pub mod data_generation;
 pub mod property_configuration;
+mod shrink;
 
 pub use actions::*;
 pub use data_generation::*;
 pub use property_configuration::*;
+pub use shrink::*;
