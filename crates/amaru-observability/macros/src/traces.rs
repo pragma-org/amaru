@@ -474,63 +474,42 @@ fn generate_instrumented_function(
         fn_name.to_string().to_uppercase()
     ));
 
-    // For trace level (default), use the pre-generated instrument macro
-    // For other levels, use tracing::instrument directly with the appropriate level
-    let instrumented_body = if meta.level == "trace" {
-        // Use the pre-generated instrument macro for trace level
-        let categories = meta.categories();
-        let instrument_macro_name = make_instrument_macro_name(&categories, &meta.schema_name);
-        let instrument_macro_ident = make_ident(&instrument_macro_name);
+    // Use the pre-generated instrument macro for all levels.
+    // This ensures span fields are always declared (required for Span::record to work).
+    let categories = meta.categories();
+    let instrument_macro_name = make_instrument_macro_name(&categories, &meta.schema_name);
+    let instrument_macro_ident = make_ident(&instrument_macro_name);
 
-        // Call the pre-generated macro that wraps the function
-        meta.macro_call_block(
-            &instrument_macro_ident,
-            quote! {
-                #(#attrs)*
-                #vis #sig {
-                    // Compile-time validation of schema usage
-                    #[allow(non_upper_case_globals)]
-                    const #validation_const_name: () = {
-                        #(#field_validations)*
-                        const _: &str = #list_schemas_call;
-                    };
-                    #(#record_calls)*
-                    #(#original_stmts)*
-                }
-            },
-        )
+    let func_body = quote! {
+        #(#attrs)*
+        #vis #sig {
+            // Compile-time validation of schema usage
+            #[allow(non_upper_case_globals)]
+            const #validation_const_name: () = {
+                #(#field_validations)*
+                const _: &str = #list_schemas_call;
+            };
+            #(#record_calls)*
+            #(#original_stmts)*
+        }
+    };
+
+    let instrumented_body = if meta.level == "trace" {
+        // Default level (TRACE) - use the simple form
+        meta.macro_call_block(&instrument_macro_ident, func_body)
     } else {
-        // For non-trace levels, use tracing::instrument directly
+        // Explicit level - pass it to the instrument macro
         let level_const = match meta.level.as_str() {
-            "trace" => quote! { tracing::Level::TRACE },
             "debug" => quote! { tracing::Level::DEBUG },
             "info" => quote! { tracing::Level::INFO },
             "warn" => quote! { tracing::Level::WARN },
             "error" => quote! { tracing::Level::ERROR },
-            _ => quote! { tracing::Level::TRACE }, // fallback
+            _ => quote! { tracing::Level::TRACE },
         };
-        let target = &meta.module_path;
-        let fn_name_str = fn_name.to_string();
-
-        quote! {
-            #(#attrs)*
-            #[tracing::instrument(
-                level = #level_const,
-                skip_all,
-                name = #fn_name_str,
-                target = #target
-            )]
-            #vis #sig {
-                // Compile-time validation of schema usage
-                #[allow(non_upper_case_globals)]
-                const #validation_const_name: () = {
-                    #(#field_validations)*
-                    const _: &str = #list_schemas_call;
-                };
-                #(#record_calls)*
-                #(#original_stmts)*
-            }
-        }
+        meta.macro_call_block(
+            &instrument_macro_ident,
+            quote! { level = #level_const, { #func_body } },
+        )
     };
 
     // Wrap the entire function in the module validator if needed

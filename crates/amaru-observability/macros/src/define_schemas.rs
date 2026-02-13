@@ -666,6 +666,7 @@ fn generate_instrument_macro(
     let macro_name = make_instrument_macro_name(&schema.categories, &schema.name);
     let macro_ident = make_ident(&macro_name);
     let macro_export = config.macro_export_attr();
+    let crate_prefix = config.crate_prefix();
 
     // Target is the category path joined with ::
     let target = schema.target_path();
@@ -710,15 +711,24 @@ fn generate_instrument_macro(
         #macro_export
         #[doc(hidden)]
         macro_rules! #macro_ident {
-            ($($func:tt)*) => {
+            // Internal implementation rule (must be first to avoid catch-all match)
+            (@impl $level:expr, $($func:tt)*) => {
                 #[tracing::instrument(
-                    level = tracing::Level::TRACE,
+                    level = $level,
                     skip_all,
                     name = #name,
                     target = #target,
                     #fields_expr
                 )]
                 $($func)*
+            };
+            // With explicit level
+            (level = $level:expr, { $($func:tt)* }) => {
+                #crate_prefix #macro_ident!(@impl $level, $($func)*);
+            };
+            // Default level (TRACE)
+            ($($func:tt)*) => {
+                #crate_prefix #macro_ident!(@impl tracing::Level::TRACE, $($func)*);
             };
         }
     }

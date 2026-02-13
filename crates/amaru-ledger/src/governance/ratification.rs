@@ -88,7 +88,7 @@ pub type StoreUpdate<'distr, S> =
     Box<dyn FnOnce(&S, &RatificationContext<'distr>) -> Result<(), StoreError>>;
 
 impl<'distr> RatificationContext<'distr> {
-    #[trace(amaru::ledger::governance::RATIFY_PROPOSALS,
+    #[trace(INFO, amaru::ledger::governance::RATIFY_PROPOSALS,
         roots_protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
         roots_hard_fork = opt_root(roots.hard_fork.as_deref()),
         roots_constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
@@ -328,7 +328,7 @@ impl<'distr> RatificationContext<'distr> {
     }
 
     fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
-        tracing::trace_span!(
+        tracing::info_span!(
             "enacting",
             "proposal.id" = id.to_compact_string(),
             "proposal.kind" = proposal.display_kind(),

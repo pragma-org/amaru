@@ -81,7 +81,7 @@ pub fn evolve_nonce(_hash: String) -> Result<(), String> {
 
 /// Example 2: Tracing with multiple required fields
 #[trace(ledger::state::EPOCH_TRANSITION)]
-pub fn epoch_transition(_from: u64, _into: u64) -> Result<(), String> {
+pub fn epoch_transition(from: u64, into: u64) -> Result<(), String> {
     Ok(())
 }
 

@@ -343,7 +343,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         Ok(())
     }
 
-    #[observability_trace(amaru::ledger::state::EPOCH_TRANSITION, from = u64::from(next_epoch - 1), into = u64::from(next_epoch))]
+    #[observability_trace(INFO, amaru::ledger::state::EPOCH_TRANSITION, from = u64::from(next_epoch - 1), into = u64::from(next_epoch))]
     fn epoch_transition(
         &self,
         db: &mut impl Store,
@@ -712,7 +712,7 @@ pub fn initial_stake_distributions(
     Ok(stake_distributions)
 }
 
-#[observability_trace(amaru::ledger::state::COMPUTE_STAKE_DISTRIBUTION, epoch = u64::from(snapshot.epoch()))]
+#[observability_trace(INFO, amaru::ledger::state::COMPUTE_STAKE_DISTRIBUTION, epoch = u64::from(snapshot.epoch()))]
 pub fn compute_stake_distribution(
     snapshot: &impl Snapshot,
     era_history: &EraHistory,

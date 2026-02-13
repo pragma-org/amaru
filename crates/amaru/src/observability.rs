@@ -29,7 +29,7 @@ use tracing_subscriber::{
     EnvFilter, Registry,
     filter::Filtered,
     fmt::{
-        FmtContext, FormatEvent, FormatFields, Layer,
+        FmtContext, FormatEvent, FormatFields, FormattedFields, Layer,
         format::{FmtSpan, Format, Json, JsonFields, Writer},
     },
     layer::{Layered, SubscriberExt},
@@ -90,12 +90,28 @@ where
         self.0.format_event(ctx, Writer::new(&mut buf), event)?;
 
         // Inject span-related fields before the closing '}'.
-        //  - Span lifecycle events (enter/exit): get both `id` and `parent_id` (if any).
+        //  - Span lifecycle events (enter/exit): get `id`, `parent_id`, and recorded fields.
         //  - Log events emitted inside a span: get `parent_id` only.
         if let Some(current) = ctx.lookup_current()
             && let Some(pos) = buf.rfind('}')
         {
             let mut extra = String::new();
+
+            // Inject recorded span fields (stored by the fmt layer as FormattedFields).
+            let extensions = current.extensions();
+            if let Some(fields) = extensions.get::<FormattedFields<JsonFields>>() {
+                let s = fields.as_str().trim();
+                // Strip outer braces from JSON object: {"k":v,...} -> "k":v,...
+                let inner = s
+                    .strip_prefix('{')
+                    .and_then(|s| s.strip_suffix('}'))
+                    .unwrap_or(s);
+                if !inner.is_empty() {
+                    extra.push(',');
+                    extra.push_str(inner);
+                }
+            }
+
             if event.metadata().is_span() {
                 let id = current.id().into_u64();
                 extra.push_str(&format!(",\"id\":{id}"));
