@@ -8,9 +8,9 @@ Procedural macros for compile-time validated tracing instrumentation.
 |-------|---------|
 | `define_schemas!` | Define span schemas with required/optional fields |
 | `define_local_schemas!` | Same as above, but without `#[macro_export]` (for tests) |
-| `#[trace(path)]` | Instrument a function, validating required fields |
-| `trace_span!(schema, %field1, ?field2, ...)` | Create a span with schema validation and format specifiers |
-| `trace_record!(schema, field1 = value1, ...)` | Record fields to current span with schema anchor |
+| `#[trace(path)]` or `#[trace(LEVEL, path)]` | Instrument a function, validating required fields |
+| `trace_span!(schema, %field1, ?field2, ...)` or `trace_span!(LEVEL, schema, ...)` | Create a span with schema validation and format specifiers |
+| `trace_record!(schema, field1 = value1, ...)` or `trace_record!(LEVEL, schema, ...)` | Record fields to current span; optionally emit log event at LEVEL |
 
 ## Quick Example
 
@@ -37,9 +37,21 @@ fn validate_header(slot: u64, hash: String) {
     // Function body - span created with slot and hash recorded
 }
 
+// Or with custom level
+#[trace(DEBUG, VALIDATE_HEADER)]
+fn validate_header_debug(slot: u64, hash: String) {
+    // Function body - DEBUG-level span created
+}
+
 fn add_peer_info() {
+    // Record to current span only
     trace_record!(VALIDATE_HEADER, peer_id = "some_peer");
-    // Adds peer_id to the current span
+    
+    // Record to span AND emit info-level log event
+    trace_record!(INFO, VALIDATE_HEADER, peer_id = "some_peer");
+    
+    // Create a span with custom level
+    let span = trace_span!(WARN, VALIDATE_HEADER, slot = 42);
 }
 ```
 
@@ -107,16 +119,29 @@ fn validate_header(slot: u64, hash: String) {
 
 ### What `trace_record!` Generates
 
-The `trace_record!` macro records fields to the current span with a schema anchor:
+The `trace_record!` macro records fields to the current span with a schema anchor. 
+When a log level is specified, it also emits a log event at that level:
 
 ```rust
-trace_record!(VALIDATE_HEADER, peer_id = "peer", attempts = 3);  // ✅ Records to current span
+// Record to span only
+trace_record!(VALIDATE_HEADER, peer_id = "peer", attempts = 3);
 
 // Expands to:
 {
     let _schema = &VALIDATE_HEADER;  // Schema anchor for documentation
     tracing::Span::current().record("peer_id", tracing::field::display(&"peer"));
     tracing::Span::current().record("attempts", tracing::field::display(&3));
+}
+
+// Record to span AND emit debug log event
+trace_record!(DEBUG, VALIDATE_HEADER, peer_id = "peer", attempts = 3);
+
+// Expands to:
+{
+    let _schema = &VALIDATE_HEADER;
+    tracing::Span::current().record("peer_id", tracing::field::display(&"peer"));
+    tracing::Span::current().record("attempts", tracing::field::display(&3));
+    tracing::debug!(peer_id = %"peer", attempts = %3);  // Log event
 }
 ```
 
@@ -144,6 +169,29 @@ fn bad(slot: String, hash: String) { }  // ❌ Type mismatch: slot expected u64,
 ```
 
 Types can be expressions that are computed at the call site (e.g., `header.slot()`).
+
+## Disabling Tracing at Compile Time
+
+Set the `AMARU_TRACE_NOOP` environment variable during compilation to disable all tracing code generation:
+
+```bash
+# Clean build required to ensure macro re-expansion
+cargo clean
+AMARU_TRACE_NOOP=1 cargo build --release
+```
+
+When enabled:
+- `define_schemas!` and `define_local_schemas!` generate no code
+- `#[trace]` returns the original function unchanged (no instrumentation)
+- `trace_record!` expands to an empty block `{ }`
+- `trace_span!` expands to `tracing::Span::none()`
+
+This completely removes tracing overhead at compile time, useful for:
+- Maximum performance in production builds
+- Reducing binary size
+- Benchmarking without tracing interference
+
+**Important:** `cargo clean` is required because cargo caches macro expansions. Simply setting the environment variable on an existing build won't trigger re-expansion of the macros.
 
 ## Architecture: Staged Macro Expansion
 

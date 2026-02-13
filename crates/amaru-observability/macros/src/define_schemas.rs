@@ -1129,6 +1129,36 @@ fn build_module_tree_with_metadata(
     }
 }
 
+/// Recursively build minimal module structures (noop mode - no validation).
+fn build_modules_noop(tree: &BTreeMap<String, TreeNode>) -> Vec<proc_macro2::TokenStream> {
+    let mut modules = Vec::new();
+
+    for (name, node) in tree {
+        match node {
+            TreeNode::Category { name: _, children } => {
+                let mod_ident = make_ident(name);
+                let child_modules = build_modules_noop(children);
+
+                modules.push(quote! {
+                    pub mod #mod_ident {
+                        #(#child_modules)*
+                    }
+                });
+            }
+            TreeNode::Schema(schema) => {
+                let schema_ident = make_ident(&schema.name);
+                let schema_name_lowercase = schema.name.to_lowercase();
+
+                modules.push(quote! {
+                    pub const #schema_ident: &str = #schema_name_lowercase;
+                });
+            }
+        }
+    }
+
+    modules
+}
+
 /// Recursively build module structures from the category tree.
 fn build_modules(
     tree: &BTreeMap<String, TreeNode>,
@@ -1207,6 +1237,26 @@ fn collect_category_validators(
 
 /// Internal expansion with configurable export behavior.
 fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
+    if crate::is_trace_noop() {
+        let input2: proc_macro2::TokenStream = input.into();
+        let input_str = input2.to_string();
+        let (schemas, errors) = extract_schemas(&input_str);
+
+        // Report any parsing errors even in noop mode
+        if !errors.is_empty() {
+            let error_msgs: Vec<_> = errors
+                .iter()
+                .map(|e| quote! { compile_error!(#e); })
+                .collect();
+            return quote! { #(#error_msgs)* }.into();
+        }
+
+        // Generate only the module structure with constants (no validation macros)
+        let tree = build_category_tree(&schemas);
+        let modules = build_modules_noop(&tree);
+        return quote! { #(#modules)* }.into();
+    }
+
     let config = GenerationConfig { export_macros };
 
     // Convert TokenStream to proc_macro2::TokenStream for manipulation
