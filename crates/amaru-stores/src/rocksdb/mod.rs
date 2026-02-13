@@ -281,7 +281,7 @@ impl Snapshot for RocksDBSnapshot {
 impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
-    #[trace(amaru::stores::ledger::SNAPSHOT, epoch = u64::from(epoch))]
+    #[trace(INFO, amaru::stores::ledger::SNAPSHOT, epoch = u64::from(epoch))]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
 

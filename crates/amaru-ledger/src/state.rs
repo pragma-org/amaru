@@ -729,7 +729,7 @@ pub fn compute_stake_distribution(
 // Epoch Transitions
 // ----------------------------------------------------------------------------
 
-#[observability_trace(amaru::ledger::state::END_EPOCH)]
+#[observability_trace(INFO, amaru::ledger::state::END_EPOCH)]
 fn end_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     mut rewards_summary: RewardsSummary,
@@ -759,7 +759,7 @@ fn end_epoch<'store>(
     Ok(())
 }
 
-#[observability_trace(amaru::ledger::state::BEGIN_EPOCH)]
+#[observability_trace(INFO, amaru::ledger::state::BEGIN_EPOCH)]
 fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
@@ -840,7 +840,7 @@ pub fn refund_many<'store>(
     Ok(())
 }
 
-#[observability_trace(amaru::ledger::state::TICK_POOL)]
+#[observability_trace(INFO, amaru::ledger::state::TICK_POOL)]
 pub fn tick_pools<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
@@ -864,7 +864,7 @@ pub fn tick_pools<'store>(
     )
 }
 
-#[observability_trace(amaru::ledger::state::TICK_PROPOSALS, proposals_count = proposals.len() as u64)]
+#[observability_trace(INFO, amaru::ledger::state::TICK_PROPOSALS, proposals_count = proposals.len() as u64)]
 pub fn tick_proposals<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
@@ -942,7 +942,7 @@ pub fn tick_proposals<'store>(
     Ok(ctx.protocol_parameters)
 }
 
-#[observability_trace(amaru::ledger::state::RATIFICATION_CONTEXT_NEW)]
+#[observability_trace(INFO, amaru::ledger::state::RATIFICATION_CONTEXT_NEW)]
 fn new_ratification_context<'distr>(
     snapshot: impl Snapshot,
     stake_distribution: StakeDistributionView<'distr>,
