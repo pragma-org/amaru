@@ -315,7 +315,6 @@ name = "amaru-plutus"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
- "bumpalo",
  "hex",
  "itertools 0.14.0",
  "num",
@@ -325,6 +324,7 @@ dependencies = [
  "serde",
  "test-case",
  "thiserror 2.0.17",
+ "uplc-turbo",
 ]
 
 [[package]]
@@ -482,6 +482,12 @@ name = "anyhow"
 version = "1.0.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
+
+[[package]]
+name = "append-only-vec"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2114736faba96bcd79595c700d03183f61357b9fbce14852515e59f3bee4ed4a"
 
 [[package]]
 name = "ar_archive_writer"
@@ -4816,8 +4822,9 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 [[package]]
 name = "uplc-turbo"
 version = "0.1.0"
-source = "git+https://github.com/pragma-org/uplc#8eba50589afce4b1d50fc5cb5483eec3b9a647b8"
+source = "git+https://github.com/pragma-org/uplc#babce36b3dd2a3b3d95463ab73191f53b84e19c6"
 dependencies = [
+ "append-only-vec",
  "blst",
  "bumpalo",
  "chumsky",

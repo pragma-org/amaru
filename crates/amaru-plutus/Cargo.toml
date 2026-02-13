@@ -12,7 +12,7 @@ rust-version.workspace = true
 
 [dependencies]
 # External dependencies
-bumpalo.workspace = true
+uplc-turbo.workspace = true
 hex.workspace = true
 itertools.workspace = true
 num.workspace = true
