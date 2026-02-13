@@ -326,7 +326,7 @@ jobs:
       - name: Build Amaru
         shell: bash
         run: |
-          cargo test --no-run -p amaru
+          cargo test --profile $BUILD_PROFILE --no-run -p amaru
 
       - name: Cache Amaru's ledger.${{ matrix.network.name }}.db
         id: cache-ledger-db
