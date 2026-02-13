@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::manager::ManagerConfig;
 use crate::{
     connection::{self, ConnectionMessage},
     network_effects::create_connection,
@@ -65,6 +66,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
             Peer::new("upstream"),
             conn_id,
             Role::Initiator,
+            ManagerConfig::default(),
             NetworkMagic::for_testing(),
             StageRef::blackhole(),
             Arc::new(era_history.clone()),

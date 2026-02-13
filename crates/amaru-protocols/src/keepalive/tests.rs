@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::manager::ManagerConfig;
 use crate::{
     connection::{self, ConnectionMessage},
     network_effects::create_connection,
@@ -54,6 +55,7 @@ fn test_keepalive_with_node() {
             Peer::new("upstream"),
             conn_id,
             Role::Initiator,
+            ManagerConfig::default(),
             NetworkMagic::for_testing(),
             StageRef::blackhole(),
             Arc::new(era_history.clone()),

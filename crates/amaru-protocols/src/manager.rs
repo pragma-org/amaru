@@ -300,6 +300,7 @@ async fn start_connection_stage(
                 peer.clone(),
                 conn_id,
                 role,
+                manager.config,
                 manager.magic,
                 manager.chain_sync.clone(),
                 manager.era_history.clone(),
