@@ -84,7 +84,7 @@ pub fn build_stage_graph(
                 | StoreBlockFailed(_, _)
                 | RollbackBlockFailed(_, _) // this can failed if the block was not downloaded in the first place
                 | UnknownPeer(_) => {
-                    tracing::error!(%peer, %error, "validation error, this needs to be investigated");
+                    tracing::error!(%peer, %error, "validation error");
                 }
             }
             manager
