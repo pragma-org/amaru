@@ -1,0 +1,15 @@
+error: Unknown field 'typo_field' for schema STRICT_TEST. Available fields: actual_field, optional_field
+  --> tests/ui/compile_fail/custom_expr_unknown_field.rs:23:1
+   |
+23 | / define_local_schemas! {
+24 | |     test {
+25 | |         example {
+26 | |             /// Test schema for custom expression validation
+...  |
+33 | | }
+   | |_^
+...
+41 |   #[trace(test::example::STRICT_TEST, typo_field = get_value())]
+   |   -------------------------------------------------------------- in this attribute macro expansion
+   |
+   = note: this error originates in the macro `__TEST__EXAMPLE__STRICT_TEST_RECORD` which comes from the expansion of the attribute macro `trace` (in Nightly builds, run with -Z macro-backtrace for more info)

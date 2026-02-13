@@ -1,0 +1,7 @@
+error: Multiple parameters map to the same field in schema `SCHEMA`. Parameters like `field` and `_field` cannot coexist because they both map to the same tracing field. Please rename one of the conflicting parameters.
+  --> tests/ui/compile_fail/underscore_collision.rs:34:1
+   |
+34 | #[trace(test::sub::SCHEMA)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `trace` (in Nightly builds, run with -Z macro-backtrace for more info)

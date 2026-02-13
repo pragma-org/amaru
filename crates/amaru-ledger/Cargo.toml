@@ -29,6 +29,7 @@ tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-iter-borrow.workspace = true
+amaru-observability.workspace = true
 amaru-kernel.workspace = true
 amaru-metrics.workspace = true
 amaru-ouroboros-traits.workspace = true

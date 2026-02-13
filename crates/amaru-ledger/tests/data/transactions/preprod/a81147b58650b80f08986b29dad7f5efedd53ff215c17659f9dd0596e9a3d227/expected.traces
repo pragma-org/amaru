@@ -1,5 +1,5 @@
 [ {"name":"require_script_witness","hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae", "level": "TRACE", "type": "span"}
-, {"name":"withdraw_from","credential":{"hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae", "type":"script"}, "level": "TRACE", "type": "span"}
+, {"name":"withdraw_from","credential_type":"script","credential_hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae", "level": "TRACE", "type": "span"}
 , {"name":"require_script_witness","hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774", "level": "TRACE", "type": "span"}
-, {"name":"withdraw_from","credential":{"hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774", "type":"script"}, "level": "TRACE", "type": "span"}
+, {"name":"withdraw_from","credential_type":"script","credential_hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774", "level": "TRACE", "type": "span"}
 ]

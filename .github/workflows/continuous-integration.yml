@@ -33,6 +33,10 @@ env:
     target/
   INPUT_TIMEOUT: ${{ github.event.inputs.timeout }}
   AMARU_TRACE: ${{ github.event.inputs.demo_trace_level }}
+  RUSTUP_LOG: error
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -60,7 +64,7 @@ jobs:
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             title: x86_64/windows
-            command: test-amaru --profile dev-debug
+            command: test --workspace --all-targets --profile dev-debug
 
           - runner: ubuntu-22.04
             target: wasm32-unknown-unknown
@@ -117,7 +121,7 @@ jobs:
           set -e
           EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
           SCOPE="${{ matrix.environments.packages || '' }}"
-          COMMAND="${{ matrix.environments.command  || 'test-amaru' }}"
+          COMMAND="${{ matrix.environments.command  || 'test --workspace --all-targets' }}"
           if [[ -n "${{ matrix.environments.setup }}" ]]; then
             echo "Running setup command: ${{ matrix.environments.setup }}"
             ${{ matrix.environments.setup }}
@@ -322,7 +326,7 @@ jobs:
       - name: Build Amaru
         shell: bash
         run: |
-          cargo test --no-run -p amaru
+          cargo test --profile $BUILD_PROFILE --no-run -p amaru
 
       - name: Cache Amaru's ledger.${{ matrix.network.name }}.db
         id: cache-ledger-db
@@ -467,3 +471,85 @@ jobs:
       - name: Run bash_unit
         shell: bash
         run: FORCE_COLOR=true ./bash_unit cli-tests/test_*
+
+  validate-schemas:
+    name: Validate Trace Schemas and Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-x86_64-unknown-linux-gnu
+          restore-keys: |
+            cargo-x86_64-unknown-linux-gnu
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Generate current schemas
+        run: |
+          cargo run --bin amaru --quiet -- dump-traces-schema 2> /tmp/schemas-current.json
+      - name: Compare schemas
+        run: |
+          set -euo pipefail
+
+          # Canonicalize JSON to avoid formatting noise
+          jq -S . docs/traces-schema.json > /tmp/expected.json
+          jq -S . /tmp/schemas-current.json > /tmp/current.json
+
+          if diff -u /tmp/expected.json /tmp/current.json > /tmp/schemas.diff; then
+            echo "✓ Schemas are up-to-date"
+          else
+            echo "::group::❌ Schema diff (expected → generated)"
+            diff --color=always -u /tmp/expected.json /tmp/current.json || true
+            echo "::endgroup::"
+
+            echo "::error title=Schema out of date::Generated schema does not match docs/traces-schema.json"
+
+            {
+              echo "## ❌ Schema mismatch"
+              echo ""
+              echo "The generated schema differs from \`docs/traces-schema.json\`."
+              echo ""
+              echo "**How to fix:**"
+              echo '```bash'
+              echo './scripts/generate-traces-doc'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            exit 1
+          fi
+      - name: Upload schema diff
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-diff
+          path: /tmp/schemas.diff
+      - name: Generate current TRACES.md
+        run: |
+          ./scripts/generate-traces-doc
+          cp docs/TRACES.md /tmp/TRACES-current.md
+          git checkout docs/TRACES.md
+      - name: Compare TRACES.md
+        run: |
+          if diff -u docs/TRACES.md /tmp/TRACES-current.md > /tmp/traces.diff; then
+            echo "✓ TRACES.md is up-to-date"
+          else
+            echo "✗ TRACES.md has changed!"
+            echo ""
+            echo "--- Expected (docs/TRACES.md)"
+            echo "+++ Current (generated)"
+            cat /tmp/traces.diff
+            exit 1
+          fi
+      - name: Show update instructions on failure
+        if: failure()
+        run: |
+          echo "Documentation changes detected. Please run:"
+          echo ""
+          echo "  ./scripts/generate-traces-doc"
+          echo ""
+          echo "If schemas changed, also run:"
+          echo ""
+          echo "  cargo run --bin amaru -- dump-traces-schema 2> docs/traces-schema.json"
+          echo ""
+          echo "Then commit the updated files."

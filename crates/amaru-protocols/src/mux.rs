@@ -18,6 +18,7 @@ use crate::{
     protocol::{Erased, ProtocolId, RoleT},
 };
 use amaru_kernel::NonEmptyBytes;
+use amaru_observability::trace;
 use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
@@ -31,7 +32,6 @@ use std::{
     num::{NonZeroU16, NonZeroUsize},
     time::SystemTime,
 };
-use tracing::{Level, instrument};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
     vec![
@@ -409,7 +409,7 @@ impl Muxer {
         self.role
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, handler, eff))]
+    #[trace(amaru::protocols::mux::REGISTER)]
     pub async fn register<M>(
         &mut self,
         proto_id: ProtocolId<Erased>,
@@ -424,7 +424,7 @@ impl Muxer {
         Ok(())
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[trace(amaru::protocols::mux::BUFFER)]
     pub fn buffer(&mut self, proto_id: ProtocolId<Erased>, limit: usize) -> anyhow::Result<()> {
         let pp = self.do_register(proto_id, Frame::Buffer, limit, StageRef::blackhole());
         if limit == 0 {
@@ -468,7 +468,7 @@ impl Muxer {
         }
     }
 
-    #[instrument(level = "trace", skip_all, fields(proto_id, bytes = bytes.len()))]
+    #[trace(amaru::protocols::mux::OUTGOING, proto_id = proto_id, bytes = bytes.len() as u64)]
     pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: StageRef<Sent>) {
         tracing::trace!(%proto_id, bytes = bytes.len(), "enqueueing send");
         #[allow(clippy::expect_used)]
@@ -479,7 +479,7 @@ impl Muxer {
             .enqueue_send(bytes, sent);
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[trace(amaru::protocols::mux::NEXT_SEGMENT)]
     pub async fn next_segment<M>(
         &mut self,
         eff: &Effects<M>,
@@ -501,7 +501,7 @@ impl Muxer {
         None
     }
 
-    #[instrument(level = "trace", skip(self, bytes, eff, proto_id), fields(%proto_id, bytes = bytes.len()))]
+    #[trace(amaru::protocols::mux::RECEIVED, bytes = bytes.len() as u64)]
     pub async fn received<M>(
         &mut self,
         timestamp: Timestamp,
@@ -516,7 +516,7 @@ impl Muxer {
         }
     }
 
-    #[instrument(level = "trace", skip(self, eff))]
+    #[trace(amaru::protocols::mux::WANT_NEXT)]
     pub async fn want_next<M>(
         &mut self,
         proto_id: ProtocolId<Erased>,

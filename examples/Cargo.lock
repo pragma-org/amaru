@@ -47,13 +47,13 @@ name = "amaru-kernel"
 version = "0.1.0"
 dependencies = [
  "amaru-minicbor-extra",
- "amaru-slot-arithmetic",
  "bech32 0.11.1",
  "bytes",
  "getrandom 0.3.4",
  "hex",
  "itertools 0.14.0",
  "minicbor",
+ "num",
  "pallas-addresses",
  "pallas-codec",
  "pallas-crypto",
@@ -73,6 +73,7 @@ dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-metrics",
+ "amaru-observability",
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "amaru-progress-bar",
@@ -100,6 +101,25 @@ name = "amaru-minicbor-extra"
 version = "0.1.0"
 dependencies = [
  "minicbor",
+]
+
+[[package]]
+name = "amaru-observability"
+version = "0.1.0"
+dependencies = [
+ "amaru-observability-macros",
+ "inventory",
+ "tracing",
+]
+
+[[package]]
+name = "amaru-observability-macros"
+version = "0.1.0"
+dependencies = [
+ "inventory",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -133,24 +153,13 @@ name = "amaru-progress-bar"
 version = "0.1.0"
 
 [[package]]
-name = "amaru-slot-arithmetic"
-version = "0.1.0"
-dependencies = [
- "amaru-minicbor-extra",
- "hex",
- "minicbor",
- "num",
- "serde",
- "thiserror 2.0.17",
-]
-
-[[package]]
 name = "amaru-stores"
 version = "0.1.0"
 dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",
+ "amaru-observability",
  "amaru-ouroboros-traits",
  "hex",
  "tracing",
@@ -510,6 +519,15 @@ checksum = "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017"
 dependencies = [
  "equivalent",
  "hashbrown 0.16.1",
+]
+
+[[package]]
+name = "inventory"
+version = "0.3.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc61209c082fbeb19919bee74b176221b27223e27b65d781eb91af24eb1fb46e"
+dependencies = [
+ "rustversion",
 ]
 
 [[package]]

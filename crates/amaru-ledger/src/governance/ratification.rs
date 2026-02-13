@@ -21,12 +21,13 @@ use amaru_kernel::{
     Ballot, ComparableProposalId, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
     PoolId, ProtocolParameters, RationalNumber, StakeCredential, Vote, Voter,
 };
+use amaru_observability::trace;
 use num::Zero;
 use std::{
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
 };
-use tracing::{Level, Span, debug_span, field, info, info_span, instrument, trace_span};
+use tracing::{Span, field, info};
 
 mod constitutional_committee;
 pub use constitutional_committee::ConstitutionalCommittee;
@@ -87,15 +88,11 @@ pub type StoreUpdate<'distr, S> =
     Box<dyn FnOnce(&S, &RatificationContext<'distr>) -> Result<(), StoreError>>;
 
 impl<'distr> RatificationContext<'distr> {
-    #[instrument(
-        level = Level::INFO,
-        skip_all,
-        fields(
-            roots.protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
-            roots.hard_fork = opt_root(roots.hard_fork.as_deref()),
-            roots.constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
-            roots.constitution = opt_root(roots.constitution.as_deref()),
-        ),
+    #[trace(INFO, amaru::ledger::governance::RATIFY_PROPOSALS,
+        roots_protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
+        roots_hard_fork = opt_root(roots.hard_fork.as_deref()),
+        roots_constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
+        roots_constitution = opt_root(roots.constitution.as_deref())
     )]
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
@@ -331,58 +328,19 @@ impl<'distr> RatificationContext<'distr> {
     }
 
     fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
-        info_span!(
+        tracing::info_span!(
             "enacting",
             "proposal.id" = id.to_compact_string(),
             "proposal.kind" = proposal.display_kind(),
-            "proposals.pruned" = field::Empty,
         )
     }
 
     fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
-        if matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)) {
-            trace_span!(
-                "ratifying",
-                "proposal.id" = id.to_compact_string(),
-                "proposal.kind" = proposal.display_kind(),
-                "required_threshold.committee" = field::Empty,
-                "votes.committee.yes" = field::Empty,
-                "votes.committee.no" = field::Empty,
-                "votes.committee.abstain" = field::Empty,
-                "approved.committee" = field::Empty,
-                "required_threshold.pools" = field::Empty,
-                "votes.pools.yes" = field::Empty,
-                "votes.pools.no" = field::Empty,
-                "votes.pools.abstain" = field::Empty,
-                "approved.pools" = field::Empty,
-                "required_threshold.dreps" = field::Empty,
-                "votes.dreps.yes" = field::Empty,
-                "votes.dreps.no" = field::Empty,
-                "votes.dreps.abstain" = field::Empty,
-                "approved.dreps" = field::Empty,
-            )
-        } else {
-            debug_span!(
-                "ratifying",
-                "proposal.id" = id.to_compact_string(),
-                "proposal.kind" = proposal.display_kind(),
-                "required_threshold.committee" = field::Empty,
-                "votes.committee.yes" = field::Empty,
-                "votes.committee.no" = field::Empty,
-                "votes.committee.abstain" = field::Empty,
-                "approved.committee" = field::Empty,
-                "required_threshold.pools" = field::Empty,
-                "votes.pools.yes" = field::Empty,
-                "votes.pools.no" = field::Empty,
-                "votes.pools.abstain" = field::Empty,
-                "approved.pools" = field::Empty,
-                "required_threshold.dreps" = field::Empty,
-                "votes.dreps.yes" = field::Empty,
-                "votes.dreps.no" = field::Empty,
-                "votes.dreps.abstain" = field::Empty,
-                "approved.dreps" = field::Empty,
-            )
-        }
+        tracing::trace_span!(
+            "ratifying",
+            "proposal.id" = id.to_compact_string(),
+            "proposal.kind" = proposal.display_kind(),
+        )
     }
 
     fn is_accepted_by_everyone(

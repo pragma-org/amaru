@@ -19,8 +19,12 @@ use crate::{
     span::HasSpan,
 };
 use amaru_kernel::{BlockHeader, IsHeader, from_cbor_no_leftovers};
+use amaru_observability::amaru::consensus::chain_sync::{
+    RECEIVE_HEADER, RECEIVE_HEADER_DECODE_FAILED,
+};
+use amaru_observability::trace;
 use pure_stage::StageRef;
-use tracing::{Instrument, Level, instrument};
+use tracing::Instrument;
 
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct State {
@@ -50,7 +54,7 @@ pub fn stage(
     msg: ChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.receive_header");
+    let span = tracing::trace_span!(parent: msg.span(), RECEIVE_HEADER);
     async move {
         match msg {
             ChainSyncEvent::RollForward {
@@ -65,7 +69,7 @@ pub fn stage(
                     Ok(header) => header,
                     Err(error) => {
                         tracing::error!(%error, %peer,
-                            "chain_sync.receive_header.decode_failed");
+                            RECEIVE_HEADER_DECODE_FAILED);
                         eff.base()
                             .send(&state.failures, ValidationFailed::new(&peer, error))
                             .await;
@@ -117,11 +121,7 @@ pub fn stage(
     .instrument(span)
 }
 
-#[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "chain_sync.decode_header",
-)]
+#[trace(amaru::consensus::chain_sync::DECODE_HEADER)]
 pub fn decode_header(raw_header: &[u8]) -> Result<BlockHeader, ConsensusError> {
     from_cbor_no_leftovers(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
         header: raw_header.into(),

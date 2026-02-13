@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_observability::{amaru::simulator, trace_span};
 use amaru_sim::simulator::{
     Args, GeneratedEntries, NodeConfig, SimulateConfig, TEST_DATA_DIR, generate_entries,
     run::spawn_node,
@@ -25,7 +26,6 @@ use rand::{SeedableRng, prelude::StdRng};
 use serde_json::json;
 use std::time::Duration;
 use tokio::runtime::Runtime;
-use tracing::info_span;
 
 // FIXME: this test is flaky although it should not as everything is
 // supposed to be deterministic in the simulation. Perhaps this
@@ -79,7 +79,7 @@ fn run_simulator_with_traces() {
         let mut network = SimulationBuilder::default();
         let (input, _, _) = spawn_node("n1".to_string(), node_config.clone(), &mut network);
         let mut running = network.run();
-        info_span!("handle_msg").in_scope(|| {
+        trace_span!(simulator::node::HANDLE_MSG).in_scope(|| {
             running.enqueue_msg(&input, [msg]);
             running
                 .run_until_blocked_incl_effects(rt.handle())
@@ -94,27 +94,27 @@ fn run_simulator_with_traces() {
             "name": "handle_msg",
             "children": [
               {
-                "name": "chain_sync.receive_header",
+                "name": "receive_header",
                 "children": [
                   {
-                    "name": "chain_sync.decode_header"
+                    "name": "decode_header"
                   }
                 ]
               },
               {
-                "name": "chain_sync.validate_header"
+                "name": "validate_header"
               },
               {
-                "name": "diffusion.fetch_block"
+                "name": "fetch_block"
               },
               {
-                "name": "chain_sync.validate_block"
+                "name": "validate_block"
               },
               {
-                "name": "chain_sync.select_chain"
+                "name": "select_chain"
               },
               {
-                "name": "diffusion.forward_chain"
+                "name": "forward_chain"
               }
             ]
           }

@@ -28,6 +28,8 @@ use amaru_ledger::{
     },
     summary::Pots,
 };
+use amaru_observability::amaru::stores::rocksdb::{SAVE_POINT, VALIDATE_SNAPSHOTS};
+use amaru_observability::{trace, trace_record};
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode,
     ReadOptions, Transaction,
@@ -39,7 +41,7 @@ use std::{
     path::{Path, PathBuf},
     sync::LazyLock,
 };
-use tracing::{Level, info, instrument, trace, warn};
+use tracing::warn;
 
 pub mod ledger;
 use ledger::columns::*;
@@ -279,8 +281,7 @@ impl Snapshot for RocksDBSnapshot {
 impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
-    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch)
-    )]
+    #[trace(amaru::stores::ledger::SNAPSHOT, epoch = u64::from(epoch))]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
 
@@ -343,7 +344,7 @@ impl RocksDBHistoricalStores {
 }
 
 impl HistoricalStores for RocksDBHistoricalStores {
-    #[instrument(level = Level::INFO, skip_all, fields(minimum_epoch))]
+    #[trace(amaru::stores::ledger::PRUNE, functional_minimum = u64::from(functional_minimum))]
     fn prune(&self, functional_minimum: Epoch) -> Result<(), StoreError> {
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
         with_snapshots(&self.config.dir, |path, epoch| {
@@ -588,10 +589,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         res
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-    )]
+    #[trace(amaru::stores::ledger::TRY_EPOCH_TRANSITION, has_from = from.is_some(), has_to = to.is_some())]
     fn try_epoch_transition(
         &self,
         from: Option<EpochTransitionProgress>,
@@ -742,10 +740,11 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
                 if *new <= current && !self.host.incremental_save =>
             {
-                trace!(%point, "save.point_already_known");
+                // Skip saving - point is not newer than current tip
             }
             _ => {
                 let tip = point.slot_or_default();
+                trace_record!(SAVE_POINT, slot = tip);
                 self.db
                     .put(KEY_TIP, as_value(point))
                     .map_err(|err| StoreError::Internal(err.into()))?;
@@ -911,25 +910,15 @@ fn split_continuous(input: Vec<u64>) -> Vec<Vec<u64>> {
         })
 }
 
-fn pretty_print_snapshot_ranges(ranges: &[Vec<u64>]) -> String {
-    ranges
-        .iter()
-        .map(|g| match g.len() {
-            0 => "[]".to_string(),
-            1 => format!("[{}]", g[0]),
-            #[expect(clippy::unwrap_used)] // Infallible error.
-            _ => format!("[{}..{}]", g.first().unwrap(), g.last().unwrap()),
-        })
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
 fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     let snapshots = RocksDB::snapshots(dir)?;
     let snapshots_ranges = split_continuous(snapshots.iter().map(|e| u64::from(*e)).collect());
-    info!(
-        snapshots = pretty_print_snapshot_ranges(&snapshots_ranges),
-        "new.known_snapshots"
+    let snapshot_count = snapshots.len() as u64;
+    let continuous_ranges = snapshots_ranges.len() as u64;
+    trace_record!(
+        VALIDATE_SNAPSHOTS,
+        snapshot_count = snapshot_count,
+        continuous_ranges = continuous_ranges
     );
     if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
         return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
@@ -1052,9 +1041,7 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::{
-        rocksdb::{
-            ReadOnlyRocksDB, RocksDB, RocksDbConfig, pretty_print_snapshot_ranges, split_continuous,
-        },
+        rocksdb::{ReadOnlyRocksDB, RocksDB, RocksDbConfig, split_continuous},
         tests::{
             Fixture, add_test_data_to_store, test_epoch_transition, test_read_account,
             test_read_drep, test_read_pool, test_read_utxo, test_refund_account,
@@ -1205,19 +1192,5 @@ mod tests {
         let input = vec![1, 2, 3, 5, 6, 10];
         let expected = vec![vec![1, 2, 3], vec![5, 6], vec![10]];
         assert_eq!(split_continuous(input), expected);
-    }
-
-    #[test]
-    fn pp_all_continuous() {
-        let input = vec![vec![1, 2, 3]];
-        let expected = "[1..3]".to_string();
-        assert_eq!(pretty_print_snapshot_ranges(&input), expected);
-    }
-
-    #[test]
-    fn pp_mixed_groups() {
-        let input = vec![vec![1, 2, 3], vec![5], vec![7, 8]];
-        let expected = "[1..3],[5],[7..8]".to_string();
-        assert_eq!(pretty_print_snapshot_ranges(&input), expected);
     }
 }

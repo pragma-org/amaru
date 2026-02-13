@@ -171,8 +171,32 @@ where
         }
     }
 
-    fn on_enter(&self, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_record(
+        &self,
+        id: &tracing::span::Id,
+        values: &tracing::span::Record<'_>,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut visitor = JsonVisitor::default();
+        values.record(&mut visitor);
+
         if let Some(span) = ctx.span(id) {
+            let mut extensions = span.extensions_mut();
+            if let Some(fields) = extensions.get_mut::<json::Map<String, Value>>() {
+                // Merge the new fields into existing ones
+                for (key, value) in visitor.fields {
+                    fields.insert(key, value);
+                }
+            }
+        }
+    }
+
+    fn on_enter(&self, _id: &tracing::span::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        // We collect span data on close instead of enter to capture all recorded fields
+    }
+
+    fn on_close(&self, id: tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
+        if let Some(span) = ctx.span(&id) {
             let mut span_json = json::json!({
                 "id": Value::String(format!("{id:?}")),
                 "name": span.name().to_string(),
@@ -404,6 +428,8 @@ mod tests {
 
     #[test]
     fn check_simple_tracing() {
+        // Note: spans are collected on close (after all events inside have been emitted)
+        // to capture any fields recorded during the span's lifetime
         assert_eq!(
             assert_trace(
                 || {
@@ -414,9 +440,9 @@ mod tests {
                     })
                 },
                 vec![
-                    json!({ "name": "foo", "type": "span", "level": "INFO" }),
                     json!({ "name": "basic", "a": 1, "type": "event", "level": "INFO" }),
                     json!({ "name": "nested_fields", "a": { "foo": 1, "bar": 2 }, "level": "INFO", "type": "event" }),
+                    json!({ "name": "foo", "type": "span", "level": "INFO" }),
                 ],
             ),
             "result"

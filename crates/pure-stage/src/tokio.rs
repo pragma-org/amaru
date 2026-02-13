@@ -33,6 +33,7 @@ use crate::{
     time::Clock,
     trace_buffer::TraceBuffer,
 };
+use amaru_observability::{amaru::stage, trace_span};
 use either::Either::{Left, Right};
 use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
@@ -453,7 +454,7 @@ fn interpreter(
         tb().push_resume(name, &StageResponse::Unit);
         loop {
             let poll = {
-                let _span = tracing::trace_span!("stage.poll", stage = %name).entered();
+                let _span = trace_span!(stage::tokio::POLL, stage = %name).entered();
                 stage.as_mut().poll(&mut Context::from_waker(Waker::noop()))
             };
             if let Poll::Ready(state) = poll {

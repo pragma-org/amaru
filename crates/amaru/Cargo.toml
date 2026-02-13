@@ -68,14 +68,15 @@ amaru-consensus = { workspace = true, features = [] }
 amaru-kernel = { workspace = true, features = ["tracing"] }
 amaru-ledger.workspace = true
 amaru-mempool.workspace = true
+amaru-metrics.workspace = true
 amaru-network.workspace = true
-amaru-stores.workspace = true
+amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-plutus.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-protocols.workspace = true
-amaru-metrics.workspace = true
+amaru-stores.workspace = true
 pure-stage.workspace = true
 
 [target.'cfg(unix)'.dependencies]

@@ -14,8 +14,9 @@
 
 use crate::context::PreparationContext;
 use amaru_kernel::Block;
+use amaru_observability::trace;
 use std::{fmt, fmt::Display};
-use tracing::{Level, instrument};
+use tracing::warn;
 
 pub use block::execute as validate_block;
 
@@ -39,7 +40,7 @@ impl<T: Display> Display for WithPosition<T> {
     }
 }
 
-#[instrument(level = Level::TRACE, skip_all, name="ledger.prepare_block")]
+#[trace(amaru::ledger::state::PREPARE_BLOCK)]
 pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a Block) {
     block.transaction_bodies.iter().for_each(|transaction| {
         let inputs = transaction.inputs.iter();

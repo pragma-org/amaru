@@ -1,0 +1,26 @@
+[package]
+name = "amaru-observability-macros"
+version.workspace = true
+edition.workspace = true
+description = "Procedural macros for observability instrumentation"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
+inventory.workspace = true
+
+[dev-dependencies]
+amaru-observability.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+trybuild.workspace = true

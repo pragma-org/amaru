@@ -81,6 +81,7 @@ dependencies = [
  "amaru-mempool",
  "amaru-metrics",
  "amaru-network",
+ "amaru-observability",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-plutus",
@@ -135,6 +136,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-mempool",
  "amaru-metrics",
+ "amaru-observability",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-protocols",
@@ -201,6 +203,7 @@ dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-metrics",
+ "amaru-observability",
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "amaru-progress-bar",
@@ -253,6 +256,7 @@ version = "0.1.0"
 dependencies = [
  "amaru-kernel",
  "amaru-mempool",
+ "amaru-observability",
  "amaru-ouroboros",
  "anyhow",
  "bytes",
@@ -267,6 +271,29 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "amaru-observability"
+version = "0.1.0"
+dependencies = [
+ "amaru-observability-macros",
+ "inventory",
+ "tracing",
+]
+
+[[package]]
+name = "amaru-observability-macros"
+version = "0.1.0"
+dependencies = [
+ "amaru-observability",
+ "inventory",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "tracing",
+ "tracing-subscriber",
+ "trybuild",
 ]
 
 [[package]]
@@ -341,6 +368,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-mempool",
  "amaru-network",
+ "amaru-observability",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "anyhow",
@@ -367,6 +395,7 @@ dependencies = [
  "amaru",
  "amaru-consensus",
  "amaru-kernel",
+ "amaru-observability",
  "amaru-ouroboros",
  "amaru-protocols",
  "amaru-tracing-json",
@@ -398,6 +427,7 @@ dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",
+ "amaru-observability",
  "amaru-ouroboros-traits",
  "hex",
  "proptest",
@@ -3272,6 +3302,7 @@ dependencies = [
 name = "pure-stage"
 version = "0.1.0"
 dependencies = [
+ "amaru-observability",
  "anyhow",
  "cbor4ii",
  "either",
@@ -4291,6 +4322,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "target-triple"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "591ef38edfb78ca4771ee32cf494cb8771944bee237a9b91fc9c1424ac4b777b"
+
+[[package]]
 name = "tempfile"
 version = "3.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4301,6 +4338,15 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "termcolor"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
+dependencies = [
+ "winapi-util",
 ]
 
 [[package]]
@@ -4681,16 +4727,13 @@ dependencies = [
 
 [[package]]
 name = "tracing-opentelemetry"
-version = "0.32.0"
+version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e6e5658463dd88089aba75c7791e1d3120633b1bfde22478b28f625a9bb1b8e"
+checksum = "1ac28f2d093c6c477eaa76b23525478f38de514fa9aeb1285738d4b97a9552fc"
 dependencies = [
  "js-sys",
  "opentelemetry",
- "opentelemetry_sdk",
- "rustversion",
  "smallvec",
- "thiserror 2.0.17",
  "tracing",
  "tracing-core",
  "tracing-log",
@@ -4734,6 +4777,21 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "trybuild"
+version = "1.0.115"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f614c21bd3a61bad9501d75cbb7686f00386c806d7f456778432c25cf86948a"
+dependencies = [
+ "glob",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "target-triple",
+ "termcolor",
+ "toml",
+]
 
 [[package]]
 name = "typeid"

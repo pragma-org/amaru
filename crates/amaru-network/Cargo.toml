@@ -24,6 +24,7 @@ tokio = { workspace = true, features = ["net"] }
 tracing.workspace = true
 
 amaru-kernel.workspace = true
+amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
 
 [dev-dependencies]

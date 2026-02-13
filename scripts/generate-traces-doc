@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Generate TRACES.md documentation from the JSON schemas
+# Usage: ./scripts/generate-traces-doc
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DOCS_DIR="${REPO_ROOT}/docs"
+OUTPUT_FILE="${DOCS_DIR}/TRACES.md"
+
+# Generate current schemas
+SCHEMAS_JSON=$(mktemp)
+SCHEMAS_FILE="${DOCS_DIR}/traces-schema.json"
+trap "rm -f ${SCHEMAS_JSON}" EXIT
+
+cargo run --bin amaru --quiet -- dump-traces-schema 2> "${SCHEMAS_JSON}"
+cp "${SCHEMAS_JSON}" "${SCHEMAS_FILE}"
+echo "✓ Generated ${SCHEMAS_FILE}"
+
+# Generate markdown from JSON schemas
+cat > "${OUTPUT_FILE}" << 'EOF'
+# Available Spans
+
+This document lists all available spans in Amaru, auto-generated from the code.
+
+For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
+
+EOF
+
+# Extract and group spans by target
+TARGETS=$(jq -r '.definitions | to_entries | map(.value.target) | unique | sort | .[]' "${SCHEMAS_JSON}")
+
+for target in $TARGETS; do
+  # Add target section
+  cat >> "${OUTPUT_FILE}" << ENTRY
+
+## target: \`${target}\`
+
+| name | level | description | required fields | optional fields |
+| --- | --- | --- | --- | --- |
+ENTRY
+
+  # Get all spans for this target and output table rows (sorted by name)
+  jq -r ".definitions | to_entries | sort_by(.value.name) | .[] | select(.value.target == \"${target}\") | [.value.name, .value.level, (.value.description // \"\"), (.value.required | join(\", \") // \"\"), (.value.optional | join(\", \") // \"\")] | @tsv" "${SCHEMAS_JSON}" | while IFS=$'\t' read -r name level description required optional; do
+    # Escape backticks in description if any
+    description="${description//\`/\\\`}"
+    echo "| \`${name}\` | \`${level}\` | ${description} | ${required} | ${optional} |" >> "${OUTPUT_FILE}"
+  done
+
+  # Add details for each span (in sorted order by name)
+  jq -r ".definitions | to_entries | sort_by(.value.name) | .[] | select(.value.target == \"${target}\") | .value.name" "${SCHEMAS_JSON}" | while read -r name; do
+    SPAN_DATA=$(jq -r ".definitions | to_entries[] | select(.value.target == \"${target}\" and .value.name == \"${name}\") | .value" "${SCHEMAS_JSON}")
+    
+    HAS_FIELDS=$(echo "$SPAN_DATA" | jq -r '.properties | keys | length')
+    
+    if [ "$HAS_FIELDS" -gt 0 ]; then
+      cat >> "${OUTPUT_FILE}" << ENTRY
+
+<details><summary>span: \`${name}\`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+ENTRY
+      
+      # Get all properties and show with required flag
+      echo "$SPAN_DATA" | jq -r '.properties | to_entries[] | .key' | while read -r field; do
+        FIELD_TYPE=$(echo "$SPAN_DATA" | jq -r ".properties[\"${field}\"].type")
+        IS_REQUIRED=$(echo "$SPAN_DATA" | jq -r "(.required // []) | contains([\"${field}\"])")
+        REQUIRED_BADGE=$([ "$IS_REQUIRED" = "true" ] && echo "✓" || echo "")
+        echo "| \`${field}\` | \`${FIELD_TYPE}\` | ${REQUIRED_BADGE} |" >> "${OUTPUT_FILE}"
+      done
+      
+      echo "" >> "${OUTPUT_FILE}"
+      echo "</details>" >> "${OUTPUT_FILE}"
+    fi
+  done
+done
+
+# Add footer
+cat >> "${OUTPUT_FILE}" << 'EOF'
+
+## Updating This Documentation
+
+This file is auto-generated from the trace schema definitions in the code. To update it, run:
+
+```bash
+./scripts/generate-traces-doc
+```
+
+The schemas are defined using the `define_schemas!` macro in the codebase. Any changes to trace definitions will automatically be reflected in this documentation when the script is run.
+EOF
+
+echo "✓ Generated ${OUTPUT_FILE}"
