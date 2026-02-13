@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::blockfetch::StreamBlocks;
+use crate::manager::ManagerConfig;
 use crate::{
     blockfetch::{
         self, BlockFetchMessage, Blocks, register_blockfetch_initiator,
@@ -48,6 +49,7 @@ impl Connection {
         peer: Peer,
         conn_id: ConnectionId,
         role: Role,
+        config: ManagerConfig,
         magic: NetworkMagic,
         pipeline: StageRef<ChainSyncInitiatorMsg>,
         era_history: Arc<EraHistory>,
@@ -57,6 +59,7 @@ impl Connection {
                 peer,
                 conn_id,
                 role,
+                config,
                 magic,
                 pipeline,
                 era_history,
@@ -72,6 +75,7 @@ struct Params {
     conn_id: ConnectionId,
     role: Role,
     magic: NetworkMagic,
+    config: ManagerConfig,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
     era_history: Arc<EraHistory>,
 }
@@ -148,6 +152,17 @@ pub async fn stage(
             )
             .await;
             State::Initiator(s)
+        }
+        (
+            state @ (State::Initial | State::Handshake { .. }),
+            msg @ ConnectionMessage::FetchBlocks { .. },
+        ) => {
+            // The peer might be still connecting. In that case we reschedule the message
+            // If the peer eventually can't be fully initialized, the caller timeout will trigger.
+            // We schedule after the reconnect delay (2s by default) which is shorter than the call
+            // timeout (5s) (whereas a full connection timeout is 10s).
+            eff.schedule_after(msg, params.config.reconnect_delay).await;
+            state
         }
         x => unimplemented!("{x:?}"),
     };
@@ -297,5 +312,92 @@ async fn do_handshake(
             keepalive,
             tx_submission,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use amaru_kernel::NetworkName;
+    use pure_stage::{Effect, StageGraph, simulation::SimulationBuilder};
+
+    #[test]
+    fn test_fetch_blocks_in_initial_state_reschedules() {
+        fetch_blocks_in_disconnected_state_reschedules(State::Initial);
+    }
+
+    #[test]
+    fn test_fetch_blocks_in_handshake_state_reschedules() {
+        let handshake_state = State::Handshake {
+            muxer: StageRef::blackhole(),
+            handshake: StageRef::blackhole(),
+        };
+        fetch_blocks_in_disconnected_state_reschedules(handshake_state);
+    }
+
+    // HELPERS
+
+    fn test_connection(state: State) -> Connection {
+        let era_history: &EraHistory = NetworkName::Preprod.into();
+        Connection {
+            params: Params {
+                peer: Peer::new("test-peer"),
+                conn_id: ConnectionId::initial(),
+                role: Role::Initiator,
+                config: ManagerConfig::default(),
+                magic: NetworkMagic::PREPROD,
+                pipeline: StageRef::blackhole(),
+                era_history: Arc::new(era_history.clone()),
+            },
+            state,
+        }
+    }
+
+    fn fetch_blocks_in_disconnected_state_reschedules(connection_state: State) {
+        let mut network = SimulationBuilder::default();
+
+        let connection_stage = network.stage("connection", stage);
+        let connection_stage =
+            network.wire_up(connection_stage, test_connection(connection_state.clone()));
+
+        let (blocks_output, _rx) = network.output::<Blocks>("blocks_output", 10);
+
+        let fetch_msg = ConnectionMessage::FetchBlocks {
+            from: Point::Origin,
+            through: Point::Origin,
+            cr: blocks_output,
+        };
+
+        network.preload(&connection_stage, [fetch_msg]).unwrap();
+
+        let mut running = network.run();
+        let start_time = running.now();
+
+        let stage_name = connection_stage.name().clone();
+        running.breakpoint(
+            "schedule",
+            move |eff| matches!(eff, Effect::Schedule { at_stage, .. } if *at_stage == stage_name),
+        );
+
+        let effect = running.run_until_blocked().assert_breakpoint("schedule");
+
+        let reconnect_delay = ManagerConfig::default().reconnect_delay;
+        if let Effect::Schedule { id, .. } = &effect {
+            let delay = id.time().checked_since(start_time).unwrap();
+            assert!(delay >= reconnect_delay);
+        } else {
+            panic!("Expected Schedule effect");
+        }
+
+        // Clear the breakpoint before continuing
+        running.clear_breakpoint("schedule");
+        running.handle_effect(effect);
+
+        // Let the simulation continue until blocked (will hit the scheduled wake up)
+        running.run_until_sleeping_or_blocked().assert_sleeping();
+
+        // Verify state remains the same
+        let state = running.get_state(&connection_stage).unwrap();
+        assert_eq!(state.state, connection_state);
     }
 }
