@@ -31,6 +31,7 @@ pub mod tokio;
 pub mod trace_buffer;
 pub mod trace_match;
 mod types;
+pub mod typestate;
 
 pub mod simulation;
 
