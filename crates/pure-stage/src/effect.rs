@@ -300,7 +300,6 @@ impl<M> Effects<M> {
         airlock_effect(&self.effect, StageEffect::Terminate, |_eff| never())
     }
 
-    #[expect(clippy::future_not_send)]
     pub async fn stage<Msg, St, F, Fut>(
         &self,
         name: impl AsRef<str>,
@@ -353,7 +352,6 @@ impl<M> Effects<M> {
         crate::StageBuildRef { name, network: (network.0, tombstone), _ph: PhantomData }
     }
 
-    #[expect(clippy::future_not_send)]
     pub async fn contramap<Original: SendData, Mapped: SendData>(
         &self,
         stage: impl AsRef<StageRef<Original>>,
@@ -382,7 +380,6 @@ impl<M> Effects<M> {
         StageRef::new(name)
     }
 
-    #[expect(clippy::future_not_send)]
     pub async fn wire_up<Msg, St, T: SendData>(
         &self,
         stage: crate::StageBuildRef<Msg, St, (TransitionFactory, T)>,

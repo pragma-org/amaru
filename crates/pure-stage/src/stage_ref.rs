@@ -26,19 +26,33 @@ pub struct StageBuildRef<Msg, St, RefAux> {
 impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
     /// Derive the handle that can later be used for sending messages to this stage.
     pub fn sender(&self) -> StageRef<Msg> {
-        StageRef { name: self.name.clone(), extra: None, _ph: PhantomData }
+        StageRef {
+            name: self.name.clone(),
+            extra: None,
+            _ph: StageRefPhantom::default(),
+        }
     }
 }
 
 /// A handle for sending messages to a stage via the [`Effects`](crate::Effects) argument to the stage transition function.
 #[derive(serde::Serialize, serde::Deserialize)]
+#[serde(bound = "")]
 pub struct StageRef<Msg> {
     name: Name,
     #[serde(skip)]
     extra: Option<Arc<dyn Any + Send + Sync>>,
     #[serde(skip)]
-    _ph: PhantomData<Msg>,
+    _ph: StageRefPhantom<Msg>,
 }
+
+struct StageRefPhantom<Msg>(PhantomData<Msg>);
+impl<Msg> Default for StageRefPhantom<Msg> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+unsafe impl<Msg> Send for StageRefPhantom<Msg> {}
+unsafe impl<Msg> Sync for StageRefPhantom<Msg> {}
 
 impl<Msg> PartialEq for StageRef<Msg> {
     fn eq(&self, other: &Self) -> bool {
@@ -50,7 +64,11 @@ impl<Msg> Eq for StageRef<Msg> {}
 
 impl<Msg> Clone for StageRef<Msg> {
     fn clone(&self) -> Self {
-        Self { name: self.name.clone(), extra: self.extra.clone(), _ph: PhantomData }
+        Self {
+            name: self.name.clone(),
+            extra: self.extra.clone(),
+            _ph: StageRefPhantom::default(),
+        }
     }
 }
 
@@ -80,7 +98,16 @@ impl<Msg> AsRef<str> for StageRef<Msg> {
 
 impl<Msg> StageRef<Msg> {
     pub(crate) fn new(name: Name) -> Self {
-        Self { name, extra: None, _ph: PhantomData }
+        const {
+            // this needs to be in some non-dead code, no matter where
+            crate::types::is_send::<Self>();
+            crate::types::is_sync::<Self>();
+        }
+        Self {
+            name,
+            extra: None,
+            _ph: StageRefPhantom::default(),
+        }
     }
 
     pub(crate) fn with_extra(self, extra: Arc<dyn Any + Send + Sync>) -> Self {
@@ -154,15 +181,4 @@ impl<Msg, St> AsRef<StageRef<Msg>> for StageStateRef<Msg, St> {
     fn as_ref(&self) -> &StageRef<Msg> {
         &self.stage_ref
     }
-}
-
-#[test]
-fn stage_ref() {
-    let stage = StageRef { name: "test".into(), extra: None, _ph: PhantomData::<(u32, u64)> };
-
-    fn send<T: Send>(_t: &T) {}
-    fn sync<T: Sync>(_t: &T) {}
-
-    send(&stage);
-    sync(&stage);
 }

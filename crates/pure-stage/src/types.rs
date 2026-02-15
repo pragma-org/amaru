@@ -189,7 +189,14 @@ impl Display for Void {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct Name(Arc<str>);
 
-pub static BLACKHOLE_NAME: LazyLock<Name> = LazyLock::new(|| Name(Arc::from("")));
+pub static BLACKHOLE_NAME: LazyLock<Name> = LazyLock::new(|| {
+    const {
+        // this needs to be in some non-dead code, no matter where
+        is_send::<Name>();
+        is_sync::<Name>();
+    }
+    Name(Arc::from(""))
+});
 
 impl Name {
     pub fn as_str(&self) -> &str {
@@ -443,6 +450,9 @@ pub fn err<'a, E: std::fmt::Display + Send + 'a>(msg: &'a str) -> impl FnOnce(E)
 pub fn warn<'a, E: std::fmt::Display + Send + 'a>(msg: &'a str) -> impl FnOnce(E) -> BoxFuture<'a, ()> {
     move |err| Box::pin(async move { tracing::warn!(%err, "{}", msg) })
 }
+
+pub(crate) const fn is_sync<T: Sync>() {}
+pub(crate) const fn is_send<T: Send>() {}
 
 #[cfg(test)]
 mod test {

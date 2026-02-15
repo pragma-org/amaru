@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #[macro_use]
-pub mod typestate {
+pub mod internals {
     use crate::{ExternalEffect, SendData, StageRef};
     use std::{
         any::{Any, type_name},
@@ -68,7 +68,7 @@ pub mod typestate {
     pub struct Cons<Head, Tail>(Head, Tail);
     pub struct Nil;
 
-    pub trait Sequence {
+    pub trait Sequence: std::marker::Send {
         type Head;
         type Tail;
         fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result;
@@ -76,7 +76,7 @@ pub mod typestate {
 
     impl<Head, Tail> Sequence for Cons<Head, Tail>
     where
-        Head: Effect,
+        Head: Effect + std::marker::Send,
         Tail: Sequence,
     {
         type Head = Head;
@@ -95,7 +95,7 @@ pub mod typestate {
         }
     }
 
-    pub trait State: Any {
+    pub trait State: Any + std::marker::Send {
         const NAME: &'static str;
         const MAKE: fn(Marker) -> Self;
         type Initial;
@@ -217,7 +217,8 @@ pub mod typestate {
         where
             Eff: Sequence<Head = Send<T>, Tail = E>,
         {
-            self.effects.send(target, msg).await;
+            let send = self.effects.send(target, msg);
+            send.await;
             Effects {
                 effects: self.effects,
                 next: self.next,
@@ -234,11 +235,11 @@ pub mod typestate {
     }
 }
 
-use typestate::{Cons, InitialState, Marker, Nil, NotInitialState, State, Transition};
+use internals::{Cons, InitialState, Marker, Nil, NotInitialState, State, Transition};
 
 #[allow(unused)]
 mod chainsync {
-    use super::typestate::{Receive, Send};
+    use super::internals::{Receive, Send};
 
     // First declare the states, with initial state(s) before the semicolon.
     make_states!(Idle; Intersect, Done, CanAwait, MustSend);
@@ -272,7 +273,7 @@ mod chainsync {
 
 mod application_code {
     use super::chainsync::*;
-    use crate::{StageRef, typestate::typestate::Transition};
+    use crate::{StageRef, typestate::internals::Transition};
 
     /// This illustrates writing a function that performs some protocol step (it could easily
     /// do multiple steps by starting a new transition).
@@ -303,7 +304,7 @@ mod application_code {
 
     #[test]
     fn test_intersect() {
-        use super::typestate::{Transition, initial_state};
+        use super::internals::{Transition, initial_state};
 
         // illustrate how to construct the initial state
         let _s = initial_state::<Idle>();
