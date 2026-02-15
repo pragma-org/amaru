@@ -209,7 +209,14 @@ impl Display for Void {
 )]
 pub struct Name(Arc<str>);
 
-pub static BLACKHOLE_NAME: LazyLock<Name> = LazyLock::new(|| Name(Arc::from("")));
+pub static BLACKHOLE_NAME: LazyLock<Name> = LazyLock::new(|| {
+    const {
+        // this needs to be in some non-dead code, no matter where
+        is_send::<Name>();
+        is_sync::<Name>();
+    }
+    Name(Arc::from(""))
+});
 
 impl Name {
     pub fn as_str(&self) -> &str {
@@ -432,6 +439,9 @@ pub fn warn<'a, E: std::fmt::Display + Send + 'a>(
 ) -> impl FnOnce(E) -> BoxFuture<'a, ()> {
     move |err| Box::pin(async move { tracing::warn!(%err, "{}", msg) })
 }
+
+pub(crate) const fn is_sync<T: Sync>() {}
+pub(crate) const fn is_send<T: Send>() {}
 
 #[cfg(test)]
 mod test {
