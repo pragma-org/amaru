@@ -32,7 +32,12 @@ use crate::utils::{
 /// - `amaru::consensus::chain_sync::VALIDATE_HEADER, hash = compute_hash()`
 /// - `debug: amaru::consensus::chain_sync::VALIDATE_HEADER`
 /// - `debug: amaru::consensus::chain_sync::VALIDATE_HEADER, hash = compute_hash()`
+/// - `private, amaru::consensus::chain_sync::VALIDATE_HEADER`
 struct SchemaMeta {
+    /// Whether this schema is marked as private
+    /// Used in generated documentation and JSON schema
+    #[allow(dead_code)]
+    private: bool,
     /// The schema name (e.g., `VALIDATE_HEADER`)
     schema_name: String,
     /// The module path for tracing target (e.g., `consensus::chain_sync`)
@@ -139,10 +144,11 @@ impl SchemaMeta {
         // Try to parse with the new syntax that supports levels and field expressions
         // This will fail gracefully if the input doesn't match the expected format
         let try_new_syntax = has_field_exprs || {
-            // Quick check: does it start with an uppercase identifier followed by comma?
-            // This avoids trying the new parser for simple schema paths
+            // Quick check: does it start with an uppercase identifier followed by comma,
+            // or with the "private," keyword? This avoids trying the new parser for simple schema paths
             let trimmed = args_str.trim();
-            trimmed.starts_with("TRACE")
+            trimmed.starts_with("private,")
+                || trimmed.starts_with("TRACE")
                 || trimmed.starts_with("DEBUG")
                 || trimmed.starts_with("INFO")
                 || trimmed.starts_with("WARN")
@@ -154,6 +160,7 @@ impl SchemaMeta {
             use syn::{Token, parse::Parse, parse::ParseStream};
 
             struct MacroArgs {
+                private: bool,
                 level: Option<syn::Ident>,
                 schema_path: syn::Path,
                 field_exprs: Vec<(syn::Ident, syn::Expr)>,
@@ -161,6 +168,9 @@ impl SchemaMeta {
 
             impl Parse for MacroArgs {
                 fn parse(input: ParseStream) -> syn::Result<Self> {
+                    // Check for optional private keyword
+                    let private = parse_private_keyword(input)?;
+
                     // Check if first token is a level identifier followed by a comma
                     let level = if input.peek(syn::Ident) {
                         let checkpoint = input.fork();
@@ -206,6 +216,7 @@ impl SchemaMeta {
                     }
 
                     Ok(MacroArgs {
+                        private,
                         level,
                         schema_path,
                         field_exprs,
@@ -247,6 +258,7 @@ impl SchemaMeta {
                     }
 
                     Ok(SchemaMeta {
+                        private: parsed.private,
                         schema_name: schema_name.to_owned(),
                         module_path,
                         macro_module: macro_module.to_owned(),
@@ -266,6 +278,7 @@ impl SchemaMeta {
                         parse_full_schema_path(&path_str);
 
                     Ok(SchemaMeta {
+                        private: false,
                         schema_name: schema_name.to_owned(),
                         module_path,
                         macro_module: macro_module.to_owned(),
@@ -285,6 +298,7 @@ impl SchemaMeta {
             let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
 
             Ok(SchemaMeta {
+                private: false,
                 schema_name: schema_name.to_owned(),
                 module_path,
                 macro_module: macro_module.to_owned(),
@@ -581,6 +595,30 @@ fn generate_validations(func: &ItemFn, meta: &SchemaMeta) -> Vec<proc_macro2::To
     validations
 }
 
+/// Parse an optional `private` keyword from the input stream.
+///
+/// The private keyword, when present, must be followed by a comma.
+/// If the keyword is found and valid, it is consumed from the input stream.
+/// Returns `true` if the private keyword was parsed, `false` otherwise.
+fn parse_private_keyword(input: syn::parse::ParseStream) -> syn::Result<bool> {
+    use syn::Token;
+
+    // Use a fork to look ahead without consuming from the real input
+    if input.peek(syn::Ident) {
+        let checkpoint = input.fork();
+        if let Ok(ident) = checkpoint.parse::<syn::Ident>()
+            && ident == "private"
+            && checkpoint.peek(Token![,])
+        {
+            // Now actually consume from the real input
+            input.parse::<syn::Ident>()?;
+            input.parse::<Token![,]>()?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Instruments a function with tracing.
 ///
 /// The trace argument must be a const path defined via `define_schemas!`.
@@ -684,6 +722,8 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     use syn::{Token, parse::Parse, parse::ParseStream};
 
     struct TraceRecordArgs {
+        #[allow(dead_code)]
+        private: bool,
         level: Option<syn::Ident>,
         schema_path: syn::Path,
         field_assignments: Vec<(syn::Ident, syn::Expr)>,
@@ -691,6 +731,9 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
 
     impl Parse for TraceRecordArgs {
         fn parse(input: ParseStream) -> syn::Result<Self> {
+            // Check for optional private keyword
+            let private = parse_private_keyword(input)?;
+
             // Check if first token is a level identifier followed by a comma
             let level = if input.peek(syn::Ident) {
                 let checkpoint = input.fork();
@@ -736,6 +779,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
             }
 
             Ok(TraceRecordArgs {
+                private,
                 level,
                 schema_path,
                 field_assignments,
@@ -842,6 +886,8 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     use syn::{Token, parse::Parse, parse::ParseStream};
 
     struct TraceSpanArgs {
+        #[allow(dead_code)]
+        private: bool,
         level: Option<syn::Ident>,
         schema_path: syn::Path,
         field_tokens: Vec<proc_macro2::TokenStream>,
@@ -849,6 +895,9 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
 
     impl Parse for TraceSpanArgs {
         fn parse(input: ParseStream) -> syn::Result<Self> {
+            // Check for optional private keyword
+            let private = parse_private_keyword(input)?;
+
             // Check if first token is a level identifier followed by a comma
             let level = if input.peek(syn::Ident) {
                 let checkpoint = input.fork();
@@ -920,6 +969,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             }
 
             Ok(TraceSpanArgs {
+                private,
                 level,
                 schema_path,
                 field_tokens,

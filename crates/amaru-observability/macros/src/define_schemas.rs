@@ -85,6 +85,10 @@ pub struct SchemaField {
 /// A complete schema definition.
 #[derive(Debug, Clone)]
 pub struct Schema {
+    /// Whether this schema is marked as private
+    /// Used in generated documentation and JSON schema
+    #[allow(dead_code)]
+    private: bool,
     /// Category path components (e.g., ["ledger", "state"] for ledger::state)
     /// Can be arbitrary depth: ["a"], ["a", "b"], ["a", "b", "c"], etc.
     categories: Vec<String>,
@@ -102,6 +106,7 @@ impl Schema {
     /// Create a new schema with the given path components.
     fn new(name: &str, categories: Vec<String>) -> Self {
         Schema {
+            private: false,
             categories,
             name: name.to_string(),
             description: None,
@@ -293,7 +298,7 @@ impl ParserState {
     }
 
     /// Try to start a new scope (category or schema).
-    fn try_start_scope(&mut self, name: &str, errors: &mut Vec<String>) {
+    fn try_start_scope(&mut self, name: &str, private: bool, errors: &mut Vec<String>) {
         if is_uppercase_identifier(name) {
             // Uppercase identifier = schema definition
             // Validate that schema name is a valid Rust identifier
@@ -308,6 +313,7 @@ impl ParserState {
             }
 
             let mut schema = Schema::new(name, self.category_stack.clone());
+            schema.private = private;
             if let Some(description) = self.pending_description.take() {
                 schema.set_description(description);
             }
@@ -446,9 +452,25 @@ fn parse_token(
             index + 1
         }
         _ if is_identifier_start(token) => {
+            // Check for optional private keyword before schema/category
+            let (private, actual_name_idx) =
+                if token == "private" && tokens.get(index + 1).map(|s| s.as_str()).is_some() {
+                    (true, index + 1)
+                } else {
+                    (false, index)
+                };
+
             // Check if this starts a new scope (followed by `{`)
-            if tokens.get(index + 1).map(|s| s.as_str()) == Some("{") {
-                state.try_start_scope(token, errors);
+            let name_token = tokens
+                .get(actual_name_idx)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            if tokens.get(actual_name_idx + 1).map(|s| s.as_str()) == Some("{") {
+                state.try_start_scope(name_token, private, errors);
+                // Return adjusted index if we consumed the private keyword
+                if private {
+                    return actual_name_idx + 1;
+                }
             }
             index + 1
         }
@@ -504,9 +526,18 @@ fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
             if idx >= skip_until {
                 // Check if we're about to start a schema and attach any preceding doc comment
                 // This needs to happen BEFORE parse_token creates the schema
+
+                // Check for schema pattern: [private] UPPERCASE_IDENTIFIER {
+                let is_private_keyword = token == "private";
+                let schema_idx = if is_private_keyword { idx + 1 } else { idx };
+
+                let schema_token = tokens.get(schema_idx).map(|s| s.as_str());
+                let next_brace = tokens.get(schema_idx + 1).map(|s| s.as_str());
+
                 if is_identifier_start(token)
-                    && tokens.get(idx + 1).map(|s| s.as_str()) == Some("{")
-                    && is_uppercase_identifier(token)
+                    && schema_token.is_some()
+                    && next_brace == Some("{")
+                    && is_uppercase_identifier(schema_token.unwrap_or(""))
                 {
                     // This will be a schema, collect all consecutive doc comments before it
                     let mut doc_lines = Vec::new();
@@ -984,6 +1015,8 @@ fn generate_inventory_submission(schema: &Schema) -> proc_macro2::TokenStream {
         .as_deref()
         .unwrap_or("Missing description");
 
+    let private = schema.private;
+
     quote! {
         #[allow(non_upper_case_globals)]
         const _: () = {
@@ -994,6 +1027,7 @@ fn generate_inventory_submission(schema: &Schema) -> proc_macro2::TokenStream {
                 target: #target_path,
                 level: "TRACE",
                 description: #description,
+                private: #private,
                 required_fields: &[#(#required_fields_array),*],
                 optional_fields: &[#(#optional_fields_array),*],
             });

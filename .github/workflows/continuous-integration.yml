@@ -524,6 +524,8 @@ jobs:
         with:
           name: schema-diff
           path: /tmp/schemas.diff
+      - name: Build amaru release binary
+        run: cargo build --bin amaru --release --quiet
       - name: Generate current TRACES.md
         run: |
           ./scripts/generate-traces-doc
