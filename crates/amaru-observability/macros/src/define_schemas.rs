@@ -26,8 +26,8 @@ use proc_macro::TokenStream;
 use quote::quote;
 
 use crate::utils::{
-    format_field_spec, is_identifier_start, is_uppercase_identifier, make_ident,
-    make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
+    format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier,
+    make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
     make_require_macro_name, make_schema_field_const_name,
 };
 
@@ -293,9 +293,20 @@ impl ParserState {
     }
 
     /// Try to start a new scope (category or schema).
-    fn try_start_scope(&mut self, name: &str) {
+    fn try_start_scope(&mut self, name: &str, errors: &mut Vec<String>) {
         if is_uppercase_identifier(name) {
             // Uppercase identifier = schema definition
+            // Validate that schema name is a valid Rust identifier
+            if !is_valid_identifier(name) {
+                errors.push(format!(
+                    "Invalid schema name '{}'. Schema names must be valid Rust identifiers: \
+                     start with a letter or underscore, and contain only letters, digits, and underscores. \
+                     Schema names cannot contain special characters like '::' or '-'.",
+                    name
+                ));
+                return;
+            }
+
             let mut schema = Schema::new(name, self.category_stack.clone());
             if let Some(description) = self.pending_description.take() {
                 schema.set_description(description);
@@ -304,6 +315,16 @@ impl ParserState {
             self.schema_depth = self.depth;
         } else {
             // Lowercase identifier = category level
+            // Validate that category name is a valid Rust identifier
+            if !is_valid_identifier(name) {
+                errors.push(format!(
+                    "Invalid category name '{}'. Category names must be valid Rust identifiers: \
+                     start with a letter or underscore, and contain only letters, digits, and underscores. \
+                     Category names cannot contain special characters like '::' or '-'.",
+                    name
+                ));
+                return;
+            }
             // Push onto the stack (will be popped on closing brace)
             self.category_stack.push(name.to_string());
         }
@@ -427,7 +448,7 @@ fn parse_token(
         _ if is_identifier_start(token) => {
             // Check if this starts a new scope (followed by `{`)
             if tokens.get(index + 1).map(|s| s.as_str()) == Some("{") {
-                state.try_start_scope(token);
+                state.try_start_scope(token, errors);
             }
             index + 1
         }

@@ -13,7 +13,6 @@ rust-version.workspace = true
 [dependencies]
 amaru-observability-macros.workspace = true
 inventory.workspace = true
-tracing.workspace = true
 
 [lints]
 workspace = true

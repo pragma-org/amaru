@@ -48,6 +48,26 @@ pub fn is_uppercase_identifier(token: &str) -> bool {
     token.chars().next().is_some_and(char::is_uppercase)
 }
 
+/// Check if a string is a valid Rust identifier.
+///
+/// A valid identifier:
+/// - Starts with a letter (a-z, A-Z) or underscore (_)
+/// - Contains only letters, digits (0-9), and underscores
+/// - Does not contain special characters like ::, -, etc.
+///
+/// Used to validate schema and category names to prevent invalid Rust identifiers.
+pub fn is_valid_identifier(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+
+    token.chars().all(|c| c.is_alphanumeric() || c == '_')
+        && token
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphabetic() || c == '_')
+}
+
 /// Parse a schema path and extract (schema_name, module_path) using functional approach.
 ///
 /// # Example
@@ -270,5 +290,25 @@ mod tests {
         assert!(!is_uppercase_identifier("schema"));
         assert!(!is_uppercase_identifier("_schema"));
         assert!(!is_uppercase_identifier(""));
+    }
+
+    #[test]
+    fn test_is_valid_identifier() {
+        // Valid identifiers
+        assert!(is_valid_identifier("SCHEMA"));
+        assert!(is_valid_identifier("schema"));
+        assert!(is_valid_identifier("_schema"));
+        assert!(is_valid_identifier("Schema123"));
+        assert!(is_valid_identifier("_123"));
+        assert!(is_valid_identifier("MY_CONSTANT"));
+
+        // Invalid identifiers
+        assert!(!is_valid_identifier(""));
+        assert!(!is_valid_identifier("123")); // starts with digit
+        assert!(!is_valid_identifier("MY::SCHEMA")); // contains ::
+        assert!(!is_valid_identifier("MY-SCHEMA")); // contains -
+        assert!(!is_valid_identifier("MY SCHEMA")); // contains space
+        assert!(!is_valid_identifier("MY.SCHEMA")); // contains .
+        assert!(!is_valid_identifier("MY@SCHEMA")); // contains @
     }
 }

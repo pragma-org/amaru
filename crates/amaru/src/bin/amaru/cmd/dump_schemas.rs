@@ -25,7 +25,7 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let output = generate_json_schema(&SchemaEntry::all());
+    let output = generate_traces_json_schema(&SchemaEntry::all());
     let json_string = if args.compact {
         serde_json::to_string(&output)?
     } else {
@@ -36,7 +36,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn generate_json_schema(entries: &[SchemaEntry]) -> Value {
+fn generate_traces_json_schema(entries: &[SchemaEntry]) -> Value {
     // Sort entries by path to ensure deterministic output across builds and platforms
     let mut sorted_entries = entries.to_vec();
     sorted_entries.sort_by(|a, b| a.path.cmp(b.path));
