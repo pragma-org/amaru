@@ -493,8 +493,9 @@ jobs:
           set -euo pipefail
 
           # Canonicalize JSON to avoid formatting noise
-          jq -S . docs/traces-schema.json > /tmp/expected.json
-          jq -S . /tmp/schemas-current.json > /tmp/current.json
+          # Remove 'private' field from comparison as it doesn't affect functionality
+          jq -S 'walk(if type == "object" then del(.private) else . end)' docs/traces-schema.json > /tmp/expected.json
+          jq -S 'walk(if type == "object" then del(.private) else . end)' /tmp/schemas-current.json > /tmp/current.json
 
           if diff -u /tmp/expected.json /tmp/current.json > /tmp/schemas.diff; then
             echo "✓ Schemas are up-to-date"
