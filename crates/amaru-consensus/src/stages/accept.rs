@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_protocols::manager::{ManagerConfig, ManagerMessage};
-use amaru_protocols::network_effects::{Network, NetworkOps};
+use amaru_protocols::network_effects::{AcceptError, Network, NetworkOps};
 use pure_stage::{Effects, StageRef};
 
 /// Create a stage that repeatedly accepts incoming connections and notifies the manager about them.
@@ -26,7 +26,10 @@ pub async fn stage(state: AcceptState, _msg: PullAccept, eff: Effects<PullAccept
             )
             .await;
         }
-        Err(err) => {
+        Err(AcceptError::ConnectionAborted) => {
+            tracing::debug!("failed to accept a connection: connection aborted");
+        }
+        Err(AcceptError::Other(err)) => {
             tracing::error!(?err, "failed to accept a connection");
             return eff.terminate().await;
         }

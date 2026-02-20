@@ -15,7 +15,7 @@
 use anyhow::anyhow;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ToSocketAddrs {
     SocketAddrs(Vec<SocketAddr>),
     SocketAddrV4(SocketAddrV4),
