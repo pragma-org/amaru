@@ -18,8 +18,8 @@ use crate::stages::{
 };
 use amaru_consensus::{
     effects::{
-        ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderStore,
-        ResourceHeaderValidation, ResourceMeter, ResourceParameters,
+        ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderValidation,
+        ResourceMeter,
     },
     errors::ConsensusError,
     headers_tree::HeadersTreeState,
@@ -42,8 +42,10 @@ use amaru_ouroboros_traits::{
     in_memory_consensus_store::InMemConsensusStore,
 };
 use amaru_plutus::arena_pool::ArenaPool;
-use amaru_protocols::manager::ManagerConfig;
-use amaru_protocols::{manager, manager::Manager};
+use amaru_protocols::{
+    manager::{self, Manager, ManagerConfig},
+    store_effects::{ResourceHeaderStore, ResourceParameters},
+};
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore},
