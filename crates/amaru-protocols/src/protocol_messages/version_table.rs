@@ -21,10 +21,7 @@ use std::fmt::{Debug, Display};
 use std::{collections::BTreeMap, fmt};
 
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-pub struct VersionTable<T>
-where
-    T: fmt::Debug + Clone,
-{
+pub struct VersionTable<T> {
     pub values: BTreeMap<VersionNumber, T>,
 }
 
@@ -109,16 +106,17 @@ impl VersionTable<VersionData> {
     }
 }
 
-impl<T: Clone + Debug + Display> Display for VersionTable<T> {
+impl<T: Display + Ord> Display for VersionTable<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut entries = self
-            .values
-            .iter()
-            .map(|(version, data)| format!("{}: {}", version.as_u64(), data))
-            .collect::<Vec<String>>();
-
+        let mut entries = self.values.iter().collect::<Vec<_>>();
         entries.sort();
-        write!(f, "{{{}}}", entries.join(", "))
+        for (idx, (version, data)) in entries.into_iter().enumerate() {
+            if idx > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}: {}", version.as_u64(), data)?;
+        }
+        Ok(())
     }
 }
 
