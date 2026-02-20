@@ -30,10 +30,7 @@ use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 /// Log to the console (enable logs with the RUST_LOG env var, for example RUST_LOG=info)
-pub(super) fn setup_logging(enable: bool) {
-    if !enable {
-        return;
-    };
+pub(super) fn setup_logging() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_test_writer()
