@@ -33,7 +33,10 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
 pub trait NetworkOps {
     fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, Result<SocketAddr, ListenError>>;
 
-    fn accept(&self) -> BoxFuture<'static, Result<(Peer, ConnectionId), AcceptError>>;
+    fn accept(
+        &self,
+        listener_addr: SocketAddr,
+    ) -> BoxFuture<'static, Result<(Peer, ConnectionId), AcceptError>>;
 
     fn connect(
         &self,
@@ -69,8 +72,11 @@ impl<T> NetworkOps for Network<'_, T> {
         self.0.external(ListenEffect { addr })
     }
 
-    fn accept(&self) -> BoxFuture<'static, Result<(Peer, ConnectionId), AcceptError>> {
-        self.0.external(AcceptEffect)
+    fn accept(
+        &self,
+        listener_addr: SocketAddr,
+    ) -> BoxFuture<'static, Result<(Peer, ConnectionId), AcceptError>> {
+        self.0.external(AcceptEffect { listener_addr })
     }
 
     fn connect(
@@ -138,7 +144,9 @@ impl Display for ListenError {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AcceptEffect;
+pub struct AcceptEffect {
+    pub listener_addr: SocketAddr,
+}
 
 impl ExternalEffect for AcceptEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -149,10 +157,13 @@ impl ExternalEffect for AcceptEffect {
                 .expect("AcceptEffect requires a ConnectionResource")
                 .clone();
             #[expect(clippy::wildcard_enum_match_arm)]
-            resource.accept().await.map_err(|e| match e.kind() {
-                ErrorKind::ConnectionAborted => AcceptError::ConnectionAborted,
-                other => AcceptError::Other(format!("{other}")),
-            })
+            resource
+                .accept(self.listener_addr)
+                .await
+                .map_err(|e| match e.kind() {
+                    ErrorKind::ConnectionAborted => AcceptError::ConnectionAborted,
+                    other => AcceptError::Other(format!("{other}")),
+                })
         })
     }
 }

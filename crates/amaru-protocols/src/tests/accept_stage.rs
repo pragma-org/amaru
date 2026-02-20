@@ -19,6 +19,7 @@ use crate::tests::configuration::get_tx_ids;
 use amaru_ouroboros_traits::TxSubmissionMempool;
 use pure_stage::{Effects, StageRef};
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
@@ -29,22 +30,28 @@ pub struct PullAccept;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AcceptState {
     manager_stage: StageRef<ManagerMessage>,
+    listener_addr: SocketAddr,
     #[serde(skip)]
     notify: Arc<Notify>,
 }
 
 impl PartialEq for AcceptState {
     fn eq(&self, other: &Self) -> bool {
-        self.manager_stage == other.manager_stage
+        self.manager_stage == other.manager_stage && self.listener_addr == other.listener_addr
     }
 }
 
 impl Eq for AcceptState {}
 
 impl AcceptState {
-    pub(super) fn new(manager_stage: StageRef<ManagerMessage>, notify: Arc<Notify>) -> Self {
+    pub(super) fn new(
+        manager_stage: StageRef<ManagerMessage>,
+        notify: Arc<Notify>,
+        listener_addr: SocketAddr,
+    ) -> Self {
         Self {
             manager_stage,
+            listener_addr,
             notify,
         }
     }
@@ -72,7 +79,7 @@ pub async fn accept_stage(
         );
     }
 
-    match Network::new(&eff).accept().await {
+    match Network::new(&eff).accept(state.listener_addr).await {
         Ok((peer, connection_id)) => {
             eff.send(
                 &state.manager_stage,

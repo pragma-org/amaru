@@ -138,26 +138,28 @@ async fn start_responder_with_configuration(
     let responder_stage =
         responder_network.wire_up(responder_stage, (responder_manager, StageRef::blackhole()));
 
+    // Create a connection that notifies the accept stage about new connections
+    // Note: we need to call listen() first to get the listener address for the accept stage
+    let responder_connections = TokioConnections::new(65535);
+    let peer_addr = responder_connections.listen(configuration.addr).await?;
+    tracing::info!("Responder listening on {}", peer_addr);
+
     let accept_stage = responder_network.stage("accept", accept_stage);
     let notify = Arc::new(Notify::new());
     let accept_stage = responder_network.wire_up(
         accept_stage,
-        AcceptState::new(responder_stage.without_state(), notify.clone()),
+        AcceptState::new(responder_stage.without_state(), notify.clone(), peer_addr),
     );
     responder_network
         .preload(accept_stage, [PullAccept])
         .unwrap();
 
-    // Create a connection that notifies the accept stage about new connections
-    let responder_connections = TokioConnections::new(65535);
-    let peer_addr = responder_connections.listen(configuration.addr).await?;
     set_resources(
         configuration.chain_store,
         configuration.mempool,
         &mut responder_network,
         responder_connections,
     )?;
-    tracing::info!("Responder listening on {}", peer_addr);
 
     tracing::info!("Start the responder");
     let running_responder = responder_network.run(Handle::current());

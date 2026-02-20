@@ -22,7 +22,10 @@ use std::{fmt, net::SocketAddr, num::NonZeroUsize, pin::Pin, sync::Arc, time::Du
 pub trait ConnectionProvider: Send + Sync + 'static {
     fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>>;
 
-    fn accept(&self) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>>;
+    fn accept(
+        &self,
+        listener_addr: SocketAddr,
+    ) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>>;
 
     fn connect(
         &self,
