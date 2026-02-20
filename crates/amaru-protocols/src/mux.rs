@@ -22,14 +22,14 @@ use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
-use pure_stage::{EPOCH, Effects, StageRef, TryInStage, Void};
+use pure_stage::{EPOCH, Effects, Instant, StageRef, TryInStage, Void};
 #[expect(clippy::disallowed_types)]
 use std::collections::HashMap;
 use std::{
     cell::RefCell,
     collections::{VecDeque, hash_map::Entry},
     num::{NonZeroU16, NonZeroUsize},
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 use tracing::{Level, instrument};
 
@@ -65,8 +65,8 @@ impl Timestamp {
         buffer.put_u32(self.0);
     }
 
-    pub fn from_duration(duration: Duration) -> Self {
-        Self(duration.as_micros() as u32)
+    pub fn from_instant(instant: Instant) -> Self {
+        Self(instant.saturating_since(*EPOCH).as_micros() as u32)
     }
 
     fn decode(buffer: &mut Bytes) -> Result<Self, TryGetError> {
@@ -426,7 +426,7 @@ impl Muxer {
         bytes: &Bytes,
     ) -> NonEmptyBytes {
         let instant = eff.clock().await;
-        let timestamp = Timestamp::from_duration(instant.saturating_since(*EPOCH));
+        let timestamp = Timestamp::from_instant(instant);
         Header::encode(proto_id, bytes, timestamp)
     }
 
