@@ -17,22 +17,17 @@ use crate::{
     tx_submission,
 };
 use pure_stage::DeserializerGuards;
-use std::sync::Once;
 
-static DESERIALIZERS: Once = Once::new();
-
-pub fn register_deserializers() {
-    DESERIALIZERS.call_once(|| {
-        let mut guards: DeserializerGuards = Vec::new();
-        guards.extend(network_effects::register_deserializers());
-        guards.extend(mux::register_deserializers());
-        guards.extend(handshake::register_deserializers());
-        guards.extend(chainsync::register_deserializers());
-        guards.extend(blockfetch::register_deserializers());
-        guards.extend(keepalive::register_deserializers());
-        guards.extend(tx_submission::register_deserializers());
-        guards.extend(connection::register_deserializers());
-        guards.extend(manager::register_deserializers());
-        Box::leak(Box::new(guards));
-    });
+pub fn register_deserializers() -> DeserializerGuards {
+    let mut guards: DeserializerGuards = Vec::new();
+    guards.extend(network_effects::register_deserializers());
+    guards.extend(mux::register_deserializers());
+    guards.extend(handshake::register_deserializers());
+    guards.extend(chainsync::register_deserializers());
+    guards.extend(blockfetch::register_deserializers());
+    guards.extend(keepalive::register_deserializers());
+    guards.extend(tx_submission::register_deserializers());
+    guards.extend(connection::register_deserializers());
+    guards.extend(manager::register_deserializers());
+    guards
 }
