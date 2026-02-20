@@ -14,6 +14,7 @@
 
 use amaru_consensus::errors::ConsensusError::*;
 use amaru_consensus::stages::accept::PullAccept;
+use amaru_consensus::stages::forward_chain::ForwardChainState;
 use amaru_consensus::stages::pull::SyncTracker;
 use amaru_consensus::stages::{accept, pull};
 use amaru_consensus::{
@@ -129,7 +130,7 @@ pub fn build_stage_graph(
     let forward_chain_stage = stage_graph
         .wire_up(
             forward_chain_stage,
-            (
+            ForwardChainState::new(
                 our_tip,
                 manager_stage.sender(),
                 validation_errors_stage.clone(),
