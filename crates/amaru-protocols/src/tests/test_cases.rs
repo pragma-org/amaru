@@ -36,7 +36,7 @@ use tokio::sync::Notify;
 /// and that both nodes have the same blocks and transactions.
 #[tokio::test]
 async fn test_connect_initiator_responder() -> anyhow::Result<()> {
-    setup_logging(false);
+    setup_logging();
     let (responder, addr, responder_done) = start_responder().await?;
     let (initiator, initiator_done) = start_initiator_at(addr).await?;
 
@@ -47,7 +47,7 @@ async fn test_connect_initiator_responder() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
-    setup_logging(false);
+    setup_logging();
     let addr = ephemeral_localhost_addr()?;
     tracing::info!("starting test at address {}", addr);
     let (initiator, initiator_done) = start_initiator_with_configuration(
@@ -66,7 +66,7 @@ async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::Result<()> {
-    setup_logging(false);
+    setup_logging();
 
     // start an initiator with a responder that will be slow right after connection, so that
     // the initiator doesn't start synchronizing right away
